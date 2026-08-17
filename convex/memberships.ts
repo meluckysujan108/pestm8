@@ -1,5 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
+import { authComponent } from './auth'
 import { getAuthUserId, requireMembership, requireOwner } from './lib/access'
 import { nextColour } from './lib/colours'
 import { role } from './schema'
@@ -14,17 +15,166 @@ export const listForBusiness = query({
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .collect()
 
-    return members
-      .filter((m) => m.status !== 'removed')
-      .map((m) => ({
-        _id: m._id,
-        userId: m.userId,
-        role: m.role,
-        canViewAllJobs: m.canViewAllJobs,
-        licenceNumber: m.licenceNumber,
-        colour: m.colour,
-        status: m.status,
-      }))
+    const visible = members.filter((m) => m.status !== 'removed')
+
+    return Promise.all(
+      visible.map(async (m) => {
+        // A team list showing user ids would be unusable; the auth component
+        // owns identity, so the name and email are resolved from there.
+        const user = await authComponent.getAnyUserById(ctx, m.userId)
+        return {
+          _id: m._id,
+          userId: m.userId,
+          name: (user?.name as string | undefined) ?? '',
+          email: (user?.email as string | undefined) ?? '',
+          role: m.role,
+          canViewAllJobs: m.canViewAllJobs,
+          licenceNumber: m.licenceNumber,
+          colour: m.colour,
+          status: m.status,
+        }
+      }),
+    )
+  },
+})
+
+/**
+ * Invite by email. The owner knows an email address, not a Convex user id, and
+ * the person may not have signed up yet — so this records an invitation the
+ * recipient claims later rather than reaching into the auth tables.
+ */
+export const inviteByEmail = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    email: v.string(),
+    role,
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireOwner(ctx, args.businessId)
+    const email = args.email.trim().toLowerCase()
+    if (!email.includes('@')) throw new ConvexError('INVALID_EMAIL')
+
+    const existing = await ctx.db
+      .query('invitations')
+      .withIndex('by_email', (q) => q.eq('email', email))
+      .collect()
+
+    const outstanding = existing.find(
+      (i) => i.businessId === args.businessId && i.claimedAt === undefined,
+    )
+    if (outstanding) return outstanding._id
+
+    const invitationId = await ctx.db.insert('invitations', {
+      businessId: args.businessId,
+      email,
+      role: args.role,
+      invitedByMembershipId: actor._id,
+      createdAt: Date.now(),
+    })
+
+    await ctx.db.insert('auditLog', {
+      businessId: args.businessId,
+      actorMembershipId: actor._id,
+      action: 'invitation.create',
+      entityType: 'invitations',
+      entityId: invitationId,
+      meta: { email, role: args.role },
+      at: Date.now(),
+    })
+
+    return invitationId
+  },
+})
+
+export const listInvitations = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    await requireOwner(ctx, businessId)
+
+    const all = await ctx.db
+      .query('invitations')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .collect()
+
+    return all
+      .filter((i) => i.claimedAt === undefined)
+      .map((i) => ({ _id: i._id, email: i.email, role: i.role }))
+  },
+})
+
+export const revokeInvitation = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    invitationId: v.id('invitations'),
+  },
+  handler: async (ctx, { businessId, invitationId }) => {
+    await requireOwner(ctx, businessId)
+
+    const invitation = await ctx.db.get(invitationId)
+    if (!invitation || invitation.businessId !== businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    await ctx.db.delete(invitationId)
+  },
+})
+
+/**
+ * Claims every outstanding invitation matching the signed-in user's email.
+ * Joining is deliberately the subcontractor's own action rather than something
+ * an owner does to them — the same principle as memberships.accept (§1.4).
+ */
+export const claimInvitations = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await authComponent.getAuthUser(ctx)
+    if (!user) throw new ConvexError('UNAUTHENTICATED')
+
+    const email = String(user.email ?? '').toLowerCase()
+    if (!email) return []
+
+    const invitations = await ctx.db
+      .query('invitations')
+      .withIndex('by_email', (q) => q.eq('email', email))
+      .collect()
+
+    const claimed: Array<string> = []
+
+    for (const invitation of invitations) {
+      if (invitation.claimedAt !== undefined) continue
+
+      const already = await ctx.db
+        .query('memberships')
+        .withIndex('by_user_business', (q) =>
+          q.eq('userId', user._id).eq('businessId', invitation.businessId),
+        )
+        .unique()
+
+      if (!already) {
+        const members = await ctx.db
+          .query('memberships')
+          .withIndex('by_business', (q) =>
+            q.eq('businessId', invitation.businessId),
+          )
+          .collect()
+
+        await ctx.db.insert('memberships', {
+          userId: user._id,
+          businessId: invitation.businessId,
+          role: invitation.role,
+          canViewAllJobs: false,
+          colour: nextColour(members.map((m) => m.colour)),
+          status: 'active',
+          createdAt: Date.now(),
+        })
+      } else if (already.status !== 'active') {
+        await ctx.db.patch(already._id, { status: 'active' })
+      }
+
+      await ctx.db.patch(invitation._id, { claimedAt: Date.now() })
+      claimed.push(invitation.businessId)
+    }
+
+    return claimed
   },
 })
 

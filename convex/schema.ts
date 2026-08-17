@@ -63,6 +63,22 @@ export default defineSchema({
 
   // First-class, deliberately NOT derived from job history: reports must stay
   // findable by address years later, whether or not the original job survives.
+  /**
+   * Invitations are keyed by email, not userId: an owner inviting a
+   * subcontractor knows their email address and nothing else, and the person
+   * may not have an account yet. The membership is created when they claim it.
+   */
+  invitations: defineTable({
+    businessId: v.id('businesses'),
+    email: v.string(),
+    role,
+    invitedByMembershipId: v.id('memberships'),
+    claimedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index('by_email', ['email'])
+    .index('by_business', ['businessId']),
+
   properties: defineTable({
     businessId: v.id('businesses'),
     clientName: v.string(),
