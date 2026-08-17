@@ -1,0 +1,214 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/*
+ * PestM8 design tokens — source of truth is PestM8_dc.html (ARCHITECTURE.md §2.1).
+ * The app is deliberately light-only: it mirrors iOS Calendar, and the design
+ * partner's field use is outdoors in daylight.
+ */
+:root {
+  --ink: #1c1c1e;
+  --ink-2: #3a3a3c;
+  --muted: #8e8e93;
+  --muted-2: #9b9ba1;
+  --hairline: rgba(60, 60, 67, 0.1);
+  --hairline-2: rgba(60, 60, 67, 0.07);
+  --surface: #ffffff;
+  --surface-2: #f2f2f7;
+  --surface-3: #f4f4f8;
+  --canvas: #ededf1;
+  --fill-track: rgba(118, 118, 128, 0.08);
+
+  --red: #ff3b30;
+  --blue: #0a84ff;
+  --green: #34c759;
+  --amber: #ff9f0a;
+  --amber-ink: #b26b00;
+  --amber-bg: #fff8ec;
+  --amber-line: #ffe2b8;
+
+  --radius: 12px;
+  --radius-card: 18px;
+  --radius-card-lg: 22px;
+  --radius-segmented: 9px;
+  --radius-sheet: 22px;
+
+  --elevation: 0 1px 2px rgba(16, 17, 26, 0.04), 0 10px 24px -16px rgba(16, 17, 26, 0.26);
+  --elevation-red: 0 1px 2px rgba(255, 59, 48, 0.22), 0 8px 18px -10px rgba(255, 59, 48, 0.55);
+
+  /* shadcn/ui contract — remapped onto the tokens above so copied-in
+     components inherit the iOS look instead of the default zinc palette. */
+  --background: var(--canvas);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--red);
+  --primary-foreground: #ffffff;
+  --secondary: var(--surface-2);
+  --secondary-foreground: var(--ink);
+  --muted-bg: var(--surface-2);
+  --muted-foreground: var(--muted);
+  --accent: var(--surface-2);
+  --accent-foreground: var(--ink);
+  --destructive: var(--red);
+  --destructive-foreground: #ffffff;
+  --border: var(--hairline);
+  --input: var(--surface-3);
+  --ring: var(--blue);
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--red);
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: var(--surface-2);
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--hairline);
+  --sidebar-ring: var(--blue);
+}
+
+@theme inline {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-muted: var(--muted);
+  --color-muted-2: var(--muted-2);
+  --color-hairline: var(--hairline);
+  --color-hairline-2: var(--hairline-2);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-canvas: var(--canvas);
+  --color-fill-track: var(--fill-track);
+  --color-red: var(--red);
+  --color-blue: var(--blue);
+  --color-green: var(--green);
+  --color-amber: var(--amber);
+  --color-amber-ink: var(--amber-ink);
+  --color-amber-bg: var(--amber-bg);
+  --color-amber-line: var(--amber-line);
+
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --radius-sm: 8px;
+  --radius-md: 9px;
+  --radius-lg: var(--radius);
+  --radius-xl: var(--radius-card);
+  --radius-2xl: var(--radius-card-lg);
+
+  --shadow-elevation: var(--elevation);
+  --shadow-red: var(--elevation-red);
+
+  --text-metric-lg: 36px;
+  --text-metric-lg--line-height: 1.05;
+  --text-metric-lg--letter-spacing: -0.032em;
+  --text-metric-lg--font-weight: 700;
+  --text-metric: 32px;
+  --text-metric--line-height: 1.06;
+  --text-metric--letter-spacing: -0.032em;
+  --text-metric--font-weight: 700;
+  --text-metric-sm: 26px;
+  --text-metric-sm--line-height: 1.1;
+  --text-metric-sm--letter-spacing: -0.024em;
+  --text-metric-sm--font-weight: 700;
+  --text-page-title: 28px;
+  --text-page-title--line-height: 1.14;
+  --text-page-title--letter-spacing: -0.024em;
+  --text-page-title--font-weight: 700;
+  --text-sheet-title: 21px;
+  --text-sheet-title--line-height: 1.2;
+  --text-sheet-title--letter-spacing: -0.024em;
+  --text-sheet-title--font-weight: 700;
+  --text-row-title: 17px;
+  --text-row-title--line-height: 1.3;
+  --text-row-title--letter-spacing: -0.015em;
+  --text-row-title--font-weight: 600;
+  --text-body: 15px;
+  --text-body--line-height: 1.45;
+  --text-secondary: 13px;
+  --text-secondary--line-height: 1.4;
+  --text-section-label: 11px;
+  --text-section-label--line-height: 1.2;
+  --text-section-label--letter-spacing: 0.07em;
+  --text-section-label--font-weight: 700;
+  --text-tab-label: 10px;
+  --text-tab-label--line-height: 1.2;
+  --text-tab-label--font-weight: 600;
+
+  --ease-sheet: cubic-bezier(0.32, 0.72, 0, 1);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  html,
+  body,
+  #app {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 15px;
+    /* Legal documents and money columns must align; the design file sets this globally. */
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+}
+
+@utility chrome-blur {
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(24px) saturate(180%);
+  -webkit-backdrop-filter: blur(24px) saturate(180%);
+}
+
+@utility section-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--muted-2);
+}
+
+/* Guards the hold-to-call gesture (§2.3): the browser must not hijack the
+   pointer stream with scrolling or text selection mid-hold. */
+@utility hold-target {
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
