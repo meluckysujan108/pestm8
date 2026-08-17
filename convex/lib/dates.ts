@@ -61,6 +61,10 @@ function offsetMs(ts: number, timezone: string): number {
   return asUtc - ts
 }
 
+export function todayKeyInZone(timezone: string): string {
+  return dayKeyOf(Date.now(), timezone)
+}
+
 export function addDaysToKey(dayKey: string, days: number): string {
   const [year, month, day] = dayKey.split('-').map(Number)
   const d = new Date(Date.UTC(year, month - 1, day))

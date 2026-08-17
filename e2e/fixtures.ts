@@ -1,5 +1,7 @@
+import { expect } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
+import type { Page } from '@playwright/test'
 
 /**
  * Fixture contract for the access-control matrix (ARCHITECTURE.md §6.5).
@@ -141,6 +143,28 @@ export async function setupBusinessWithSub(label: string) {
   }
 }
 
+
+/**
+ * Signs in through the real form. The submit button is disabled until the page
+ * hydrates, so waiting for it to enable is the readiness signal — clicking
+ * earlier lands on markup React is still replacing and is silently swallowed.
+ */
+export async function signInViaUi(
+  page: Page,
+  email: string,
+  password = FIXTURE_PASSWORD,
+) {
+  await page.goto('/login')
+  const submit = page.getByRole('button', { name: 'Sign in' })
+  await expect(submit).toBeEnabled()
+  await page.getByLabel('Email').fill(email)
+  await page.getByLabel('Password').fill(password)
+  await submit.click()
+
+  // Returning before the redirect lands would let a caller's goto() race the
+  // sign-in and bounce straight back to /login.
+  await expect(page).not.toHaveURL(/\/login/)
+}
 
 export function uniqueEmail(label: string) {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@pestm8.test`
