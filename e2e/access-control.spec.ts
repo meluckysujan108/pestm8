@@ -1,8 +1,10 @@
 import { expect, test } from '@playwright/test'
 import {
+  FIXTURE_PASSWORD,
   anonClient,
   api,
   expectRejected,
+  setupBusinessWithSub,
   signUpActor,
   uniqueEmail,
 } from './fixtures'
@@ -237,10 +239,153 @@ test.describe('multi-tenant membership', () => {
   })
 })
 
-// Phase 2 — jobs do not exist yet. Unskip alongside convex/jobs.ts.
 test.describe('job visibility', () => {
-  test.fixme('sub with canViewAllJobs=false cannot see another job', () => {})
-  test.fixme('sub with canViewAllJobs=true reads but cannot edit', () => {})
+  test('sub with canViewAllJobs=false cannot see another job', async () => {
+    const s = await setupBusinessWithSub('visibility-off')
+
+    const day = todayKey()
+
+    // Not merely hidden in the UI — never loaded at all.
+    const subDay = await s.sub.client.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: day,
+    })
+    expect(subDay.map((j) => j._id)).not.toContain(s.ownerJobId)
+
+    // And indistinguishable from a job that does not exist.
+    await expect(
+      s.sub.client.query(api.jobs.get, {
+        businessId: s.businessId,
+        jobId: s.ownerJobId,
+      }),
+    ).resolves.toBeNull()
+
+    // The owner does see it, so the absence above is scoping, not an empty db.
+    const ownerDay = await s.owner.client.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: day,
+    })
+    expect(ownerDay.map((j) => j._id)).toContain(s.ownerJobId)
+  })
+
+  test('sub with canViewAllJobs=true reads but cannot edit', async () => {
+    const s = await setupBusinessWithSub('visibility-on')
+
+    await s.owner.client.mutation(api.memberships.setCanViewAllJobs, {
+      businessId: s.businessId,
+      membershipId: s.subMembershipId,
+      canViewAllJobs: true,
+    })
+
+    const job = await s.sub.client.query(api.jobs.get, {
+      businessId: s.businessId,
+      jobId: s.ownerJobId,
+    })
+    expect(job).not.toBeNull()
+    // Granted visibility never implies write access.
+    expect(job!.canEdit).toBe(false)
+
+    await expectRejected(
+      () =>
+        s.sub.client.mutation(api.jobs.update, {
+          businessId: s.businessId,
+          jobId: s.ownerJobId,
+          price: 1,
+        }),
+      'NO_ACCESS',
+    )
+  })
+
+  test('sub cannot complete or cancel a job assigned to someone else', async () => {
+    const s = await setupBusinessWithSub('write-guard')
+
+    await s.owner.client.mutation(api.memberships.setCanViewAllJobs, {
+      businessId: s.businessId,
+      membershipId: s.subMembershipId,
+      canViewAllJobs: true,
+    })
+
+    await expectRejected(
+      () =>
+        s.sub.client.mutation(api.jobs.complete, {
+          businessId: s.businessId,
+          jobId: s.ownerJobId,
+        }),
+      'NO_ACCESS',
+    )
+
+    await expectRejected(
+      () =>
+        s.sub.client.mutation(api.jobs.cancel, {
+          businessId: s.businessId,
+          jobId: s.ownerJobId,
+        }),
+      'NO_ACCESS',
+    )
+  })
+
+  test('sub cannot book work onto another person calendar', async () => {
+    const s = await setupBusinessWithSub('assign-guard')
+
+    await expectRejected(
+      () =>
+        s.sub.client.mutation(api.jobs.create, {
+          businessId: s.businessId,
+          propertyId: s.propertyId,
+          assignedMembershipId: s.ownerMembershipId,
+          jobType: 'General Pest Control',
+          price: 20000,
+          scheduledAt: Date.now(),
+          durationMinutes: 60,
+        }),
+      'NO_ACCESS',
+    )
+  })
+
+  test('a job is invisible from another tenant entirely', async () => {
+    const s = await setupBusinessWithSub('cross-tenant')
+    const outsider = await signUpActor(
+      uniqueEmail('outsider'),
+      FIXTURE_PASSWORD,
+      'Outsider',
+    )
+
+    await expectRejected(
+      () =>
+        outsider.client.query(api.jobs.get, {
+          businessId: s.businessId,
+          jobId: s.ownerJobId,
+        }),
+      'NO_ACCESS',
+    )
+  })
+
+  test('property job history respects the same scoping', async () => {
+    const s = await setupBusinessWithSub('history-scope')
+
+    const subHistory = await s.sub.client.query(api.properties.jobHistory, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    expect(subHistory).toHaveLength(0)
+
+    const ownerHistory = await s.owner.client.query(api.properties.jobHistory, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    expect(ownerHistory.map((j) => j._id)).toContain(s.ownerJobId)
+  })
+
+  // Phase 3 — invoices and Xero connections do not exist yet.
   test.fixme('sub cannot invoice a job assigned to someone else', () => {})
   test.fixme('Xero push lands only in the assignee organisation', () => {})
 })
+
+function todayKey() {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Perth',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date())
+}

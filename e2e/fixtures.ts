@@ -14,6 +14,8 @@ import { api } from '../convex/_generated/api'
  * convex plugin at /api/auth/convex/token, not the Better Auth session token.
  */
 
+export const FIXTURE_PASSWORD = 'fixture-password-8823'
+
 const CONVEX_URL = process.env.VITE_CONVEX_URL!
 const SITE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3000'
 const AUTH_BASE = `${SITE_URL}/api/auth`
@@ -72,6 +74,73 @@ export async function signUpActor(
 export function anonClient() {
   return new ConvexHttpClient(CONVEX_URL)
 }
+
+/**
+ * A business with an owner and an active subcontractor, one property, and one
+ * job assigned to the owner — the shape every job-visibility row in §6.5 needs.
+ */
+export async function setupBusinessWithSub(label: string) {
+  const owner = await signUpActor(
+    uniqueEmail(`owner-${label}`),
+    FIXTURE_PASSWORD,
+    'Terence',
+  )
+  const sub = await signUpActor(
+    uniqueEmail(`sub-${label}`),
+    FIXTURE_PASSWORD,
+    'Kevin',
+  )
+
+  const { businessId } = await owner.client.mutation(api.businesses.create, {
+    name: `${label} ${Date.now()}`,
+    state: 'WA',
+    timezone: 'Australia/Perth',
+  })
+
+  const subUser = await sub.client.query(api.auth.getCurrentUser, {})
+  const subMembershipId = await owner.client.mutation(api.memberships.invite, {
+    businessId,
+    userId: subUser!._id,
+    role: 'subcontractor',
+  })
+  // invite() leaves the member "invited"; they activate themselves.
+  await sub.client.mutation(api.memberships.accept, { businessId })
+
+  const propertyId = await owner.client.mutation(api.properties.create, {
+    businessId,
+    clientName: 'J. Nguyen',
+    addressLine: '12 Wattle Street',
+    suburb: 'Bayswater',
+    state: 'WA',
+    postcode: '6053',
+  })
+
+  const members = await owner.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
+  const ownerMembershipId = members.find((m) => m.role === 'owner')!._id
+
+  const ownerJobId = await owner.client.mutation(api.jobs.create, {
+    businessId,
+    propertyId,
+    assignedMembershipId: ownerMembershipId,
+    jobType: 'Termite Inspection',
+    price: 38000,
+    scheduledAt: Date.now(),
+    durationMinutes: 90,
+  })
+
+  return {
+    owner,
+    sub,
+    businessId,
+    propertyId,
+    ownerMembershipId,
+    subMembershipId,
+    ownerJobId,
+  }
+}
+
 
 export function uniqueEmail(label: string) {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@pestm8.test`

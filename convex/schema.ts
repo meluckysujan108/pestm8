@@ -8,9 +8,23 @@ export const membershipStatus = v.union(
   v.literal('removed'),
 )
 
+export const jobStatus = v.union(
+  v.literal('booked'),
+  v.literal('completed'),
+  v.literal('invoiced'),
+  v.literal('cancelled'),
+)
+
+export const frequency = v.union(
+  v.literal('monthly'),
+  v.literal('quarterly'),
+  v.literal('sixMonthly'),
+  v.literal('yearly'),
+)
+
 /**
- * Phase 1 scope (ARCHITECTURE.md §6.1): tenancy only. Jobs, properties,
- * reports and the rest of §4.2 land in later phases.
+ * Phases 1–2 (ARCHITECTURE.md §6.1–6.2): tenancy plus the core scheduling
+ * loop. Reports, invoices, notes and tasks land in Phase 3.
  */
 export default defineSchema({
   businesses: defineTable({
@@ -38,6 +52,57 @@ export default defineSchema({
     .index('by_user', ['userId'])
     .index('by_business', ['businessId'])
     .index('by_user_business', ['userId', 'businessId']),
+
+  // First-class, deliberately NOT derived from job history: reports must stay
+  // findable by address years later, whether or not the original job survives.
+  properties: defineTable({
+    businessId: v.id('businesses'),
+    clientName: v.string(),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    addressLine: v.string(),
+    suburb: v.string(),
+    state: v.string(),
+    postcode: v.string(),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index('by_business', ['businessId'])
+    .searchIndex('search', {
+      searchField: 'addressLine',
+      filterFields: ['businessId', 'suburb', 'clientName'],
+    }),
+
+  jobs: defineTable({
+    businessId: v.id('businesses'),
+    propertyId: v.id('properties'),
+    assignedMembershipId: v.id('memberships'),
+    jobType: v.string(),
+    price: v.number(), // cents
+    scheduledAt: v.number(),
+    durationMinutes: v.number(),
+    status: jobStatus,
+    recurrenceId: v.optional(v.id('recurrences')),
+    completedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  })
+    .index('by_business_date', ['businessId', 'scheduledAt'])
+    .index('by_assignee_date', ['assignedMembershipId', 'scheduledAt'])
+    .index('by_property', ['propertyId'])
+    .index('by_business_status', ['businessId', 'status']),
+
+  recurrences: defineTable({
+    businessId: v.id('businesses'),
+    propertyId: v.id('properties'),
+    assignedMembershipId: v.id('memberships'),
+    frequency,
+    jobType: v.string(),
+    price: v.number(),
+    anchorDate: v.number(),
+    active: v.boolean(),
+  }).index('by_business', ['businessId']),
 
   auditLog: defineTable({
     businessId: v.id('businesses'),

@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { requireMembership, requireOwner } from './lib/access'
+import { getAuthUserId, requireMembership, requireOwner } from './lib/access'
 import { nextColour } from './lib/colours'
 import { role } from './schema'
 
@@ -82,6 +82,71 @@ export const invite = mutation({
     })
 
     return membershipId
+  },
+})
+
+/**
+ * An invited person activates their own membership. Deliberately not an owner
+ * action: joining a business is the subcontractor's decision, which is also the
+ * posture that keeps the arrangement looking like genuine contracting (§1.4).
+ *
+ * Cannot use requireMembership — that demands an already-active membership.
+ */
+export const accept = mutation({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const userId = await getAuthUserId(ctx)
+
+    const membership = await ctx.db
+      .query('memberships')
+      .withIndex('by_user_business', (q) =>
+        q.eq('userId', userId).eq('businessId', businessId),
+      )
+      .unique()
+
+    if (!membership || membership.status !== 'invited') {
+      throw new ConvexError('NOT_FOUND')
+    }
+
+    await ctx.db.patch(membership._id, { status: 'active' })
+
+    await ctx.db.insert('auditLog', {
+      businessId,
+      actorMembershipId: membership._id,
+      action: 'membership.accept',
+      entityType: 'memberships',
+      entityId: membership._id,
+      at: Date.now(),
+    })
+
+    return membership._id
+  },
+})
+
+/** Invitations a signed-in user has not yet accepted. */
+export const myInvitations = query({
+  args: {},
+  handler: async (ctx) => {
+    const userId = await getAuthUserId(ctx)
+
+    const memberships = await ctx.db
+      .query('memberships')
+      .withIndex('by_user', (q) => q.eq('userId', userId))
+      .collect()
+
+    return Promise.all(
+      memberships
+        .filter((m) => m.status === 'invited')
+        .map(async (m) => {
+          const business = await ctx.db.get(m.businessId)
+          return {
+            businessId: m.businessId,
+            role: m.role,
+            name: business?.name ?? '',
+            slug: business?.slug ?? '',
+          }
+        }),
+    )
   },
 })
 
