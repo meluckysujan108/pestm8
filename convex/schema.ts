@@ -15,6 +15,14 @@ export const jobStatus = v.union(
   v.literal('cancelled'),
 )
 
+export const reportTemplate = v.union(
+  v.literal('treatmentRecord'),
+  v.literal('timberPestInspection'),
+  v.literal('termiteManagementCert'),
+)
+
+export const reportStatus = v.union(v.literal('draft'), v.literal('finalised'))
+
 export const frequency = v.union(
   v.literal('monthly'),
   v.literal('quarterly'),
@@ -103,6 +111,53 @@ export default defineSchema({
     anchorDate: v.number(),
     active: v.boolean(),
   }).index('by_business', ['businessId']),
+
+  reports: defineTable({
+    businessId: v.id('businesses'),
+    jobId: v.optional(v.id('jobs')),
+    propertyId: v.id('properties'),
+    authorMembershipId: v.id('memberships'),
+    template: reportTemplate,
+    legalBasis: v.string(),
+    status: reportStatus,
+    // Template-shaped; validated by Zod at the edge before it reaches here.
+    data: v.any(),
+    photoIds: v.array(v.id('_storage')),
+    finalisedAt: v.optional(v.number()),
+    pdfStorageId: v.optional(v.id('_storage')),
+    createdAt: v.number(),
+  })
+    .index('by_business', ['businessId'])
+    // "find the 2024 report for this address" — the reason properties are a
+    // table rather than something derived from jobs.
+    .index('by_property', ['propertyId'])
+    .index('by_job', ['jobId']),
+
+  // Manual follow-ups. The AS 3660.2 durable notice is physical: the app can
+  // generate the label text but a human must fix it to the building (§1.4).
+  tasks: defineTable({
+    businessId: v.id('businesses'),
+    jobId: v.optional(v.id('jobs')),
+    reportId: v.optional(v.id('reports')),
+    kind: v.union(v.literal('durableNotice'), v.literal('other')),
+    label: v.string(),
+    detail: v.optional(v.string()),
+    done: v.boolean(),
+    doneAt: v.optional(v.number()),
+    assignedMembershipId: v.optional(v.id('memberships')),
+    createdAt: v.number(),
+  }).index('by_business_done', ['businessId', 'done']),
+
+  notes: defineTable({
+    businessId: v.id('businesses'),
+    authorMembershipId: v.id('memberships'),
+    jobId: v.optional(v.id('jobs')),
+    propertyId: v.optional(v.id('properties')),
+    text: v.string(),
+    createdAt: v.number(),
+  })
+    .index('by_business', ['businessId'])
+    .index('by_job', ['jobId']),
 
   auditLog: defineTable({
     businessId: v.id('businesses'),

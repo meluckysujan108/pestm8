@@ -19,6 +19,8 @@ import { Route as BusinessSlugNotesRouteImport } from './routes/$businessSlug/no
 import { Route as BusinessSlugScheduleRouteImport } from './routes/$businessSlug/schedule'
 import { Route as BusinessSlugClientsIndexRouteImport } from './routes/$businessSlug/clients/index'
 import { Route as BusinessSlugReportsIndexRouteImport } from './routes/$businessSlug/reports/index'
+import { Route as BusinessSlugReportsReportIdRouteImport } from './routes/$businessSlug/reports/$reportId'
+import { Route as BusinessSlugReportsNewRouteImport } from './routes/$businessSlug/reports/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -73,6 +75,17 @@ const BusinessSlugReportsIndexRoute =
     path: '/reports/',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
+const BusinessSlugReportsReportIdRoute =
+  BusinessSlugReportsReportIdRouteImport.update({
+    id: '/reports/$reportId',
+    path: '/reports/$reportId',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
+const BusinessSlugReportsNewRoute = BusinessSlugReportsNewRouteImport.update({
+  id: '/reports/new',
+  path: '/reports/new',
+  getParentRoute: () => BusinessSlugRouteRoute,
+} as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -88,6 +101,8 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/invoices': typeof BusinessSlugInvoicesRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
+  '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
+  '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
@@ -101,6 +116,8 @@ export interface FileRoutesByTo {
   '/$businessSlug/invoices': typeof BusinessSlugInvoicesRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
+  '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
+  '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/reports': typeof BusinessSlugReportsIndexRoute
@@ -115,6 +132,8 @@ export interface FileRoutesById {
   '/$businessSlug/invoices': typeof BusinessSlugInvoicesRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
+  '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
+  '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
@@ -130,6 +149,8 @@ export interface FileRouteTypes {
     | '/$businessSlug/invoices'
     | '/$businessSlug/notes'
     | '/$businessSlug/schedule'
+    | '/$businessSlug/reports/$reportId'
+    | '/$businessSlug/reports/new'
     | '/api/auth/$'
     | '/$businessSlug/clients/'
     | '/$businessSlug/reports/'
@@ -143,6 +164,8 @@ export interface FileRouteTypes {
     | '/$businessSlug/invoices'
     | '/$businessSlug/notes'
     | '/$businessSlug/schedule'
+    | '/$businessSlug/reports/$reportId'
+    | '/$businessSlug/reports/new'
     | '/api/auth/$'
     | '/$businessSlug/clients'
     | '/$businessSlug/reports'
@@ -156,6 +179,8 @@ export interface FileRouteTypes {
     | '/$businessSlug/invoices'
     | '/$businessSlug/notes'
     | '/$businessSlug/schedule'
+    | '/$businessSlug/reports/$reportId'
+    | '/$businessSlug/reports/new'
     | '/api/auth/$'
     | '/$businessSlug/clients/'
     | '/$businessSlug/reports/'
@@ -241,6 +266,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessSlugReportsIndexRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
+    '/$businessSlug/reports/$reportId': {
+      id: '/$businessSlug/reports/$reportId'
+      path: '/reports/$reportId'
+      fullPath: '/$businessSlug/reports/$reportId'
+      preLoaderRoute: typeof BusinessSlugReportsReportIdRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/reports/new': {
+      id: '/$businessSlug/reports/new'
+      path: '/reports/new'
+      fullPath: '/$businessSlug/reports/new'
+      preLoaderRoute: typeof BusinessSlugReportsNewRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -256,6 +295,8 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugInvoicesRoute: typeof BusinessSlugInvoicesRoute
   BusinessSlugNotesRoute: typeof BusinessSlugNotesRoute
   BusinessSlugScheduleRoute: typeof BusinessSlugScheduleRoute
+  BusinessSlugReportsReportIdRoute: typeof BusinessSlugReportsReportIdRoute
+  BusinessSlugReportsNewRoute: typeof BusinessSlugReportsNewRoute
   BusinessSlugClientsIndexRoute: typeof BusinessSlugClientsIndexRoute
   BusinessSlugReportsIndexRoute: typeof BusinessSlugReportsIndexRoute
 }
@@ -265,6 +306,8 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugInvoicesRoute: BusinessSlugInvoicesRoute,
   BusinessSlugNotesRoute: BusinessSlugNotesRoute,
   BusinessSlugScheduleRoute: BusinessSlugScheduleRoute,
+  BusinessSlugReportsReportIdRoute: BusinessSlugReportsReportIdRoute,
+  BusinessSlugReportsNewRoute: BusinessSlugReportsNewRoute,
   BusinessSlugClientsIndexRoute: BusinessSlugClientsIndexRoute,
   BusinessSlugReportsIndexRoute: BusinessSlugReportsIndexRoute,
 }

@@ -18,6 +18,8 @@ import type * as lib_colours from "../lib/colours.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as memberships from "../memberships.js";
 import type * as properties from "../properties.js";
+import type * as reports from "../reports.js";
+import type * as tasks from "../tasks.js";
 
 import type {
   ApiFromModules,
@@ -36,6 +38,8 @@ declare const fullApi: ApiFromModules<{
   "lib/dates": typeof lib_dates;
   memberships: typeof memberships;
   properties: typeof properties;
+  reports: typeof reports;
+  tasks: typeof tasks;
 }>;
 
 /**

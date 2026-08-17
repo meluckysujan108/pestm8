@@ -171,9 +171,17 @@ export function uniqueEmail(label: string) {
 }
 
 /** Asserts a Convex call is rejected server-side, not merely hidden in the UI. */
+export type RejectionCode =
+  | 'NO_ACCESS'
+  | 'UNAUTHENTICATED'
+  | 'NOT_FOUND'
+  | 'REPORT_FINALISED'
+  | 'LAST_OWNER'
+  | 'ALREADY_MEMBER'
+
 export async function expectRejected(
   call: () => Promise<unknown>,
-  expected: 'NO_ACCESS' | 'UNAUTHENTICATED' | 'NOT_FOUND',
+  expected: RejectionCode,
 ) {
   let threw = false
   try {
