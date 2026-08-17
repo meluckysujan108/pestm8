@@ -58,7 +58,9 @@ export function AppShell({
         ))}
       </nav>
 
-      <div className="mx-auto w-full max-w-[460px] lg:mx-0 lg:max-w-[1280px] lg:flex-1">
+      {/* 460px phone shell, a wider tablet column, then fluid to 1280 beside
+          the sidebar — the same components re-flowed, not a second app (§2.4). */}
+      <div className="mx-auto w-full max-w-[460px] md:max-w-[760px] lg:mx-0 lg:max-w-[1280px] lg:flex-1">
         <main className="pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0">
           {children}
         </main>

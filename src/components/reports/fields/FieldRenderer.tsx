@@ -61,13 +61,13 @@ export function FieldRenderer({
       )}
 
       {'hint' in field && field.hint && (
-        <p className="mt-1 text-secondary text-muted">{field.hint}</p>
+        <p className="mt-1 text-caption text-muted">{field.hint}</p>
       )}
       {field.kind === 'areas' && field.note && (
-        <p className="mt-1 text-secondary text-muted">{field.note}</p>
+        <p className="mt-1 text-caption text-muted">{field.note}</p>
       )}
       {error && (
-        <p role="alert" className="mt-1 text-secondary text-red">
+        <p role="alert" className="mt-1 text-caption text-red">
           {error}
         </p>
       )}

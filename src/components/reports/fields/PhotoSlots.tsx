@@ -133,11 +133,11 @@ function PhotoSlot({
         )}
       </button>
 
-      <span className="text-secondary text-muted">
+      <span className="text-caption text-muted">
         {busy ? 'Uploading…' : slot}
       </span>
       {failed && (
-        <span role="alert" className="text-secondary text-amber-ink">
+        <span role="alert" className="text-caption text-amber-ink">
           Upload failed
         </span>
       )}

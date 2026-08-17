@@ -122,7 +122,7 @@ function NotesPage() {
                   <p className="whitespace-pre-wrap text-body text-ink">
                     {note.text}
                   </p>
-                  <p className="mt-1.5 text-secondary text-muted">
+                  <p className="mt-1.5 text-caption text-muted">
                     {note.clientName && (
                       <span className="text-blue">
                         {note.clientName}

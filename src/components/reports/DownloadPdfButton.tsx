@@ -56,7 +56,7 @@ export function DownloadPdfButton({
       {failed && (
         <p
           role="alert"
-          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-secondary text-amber-ink"
+          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           Could not generate the PDF. Try again once you have signal.
         </p>

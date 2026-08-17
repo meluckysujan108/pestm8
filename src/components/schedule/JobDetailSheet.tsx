@@ -153,7 +153,7 @@ function JobDetailBody({
                   </button>
                 )
               ) : (
-                <p className="mt-6 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-secondary text-amber-ink">
+                <p className="mt-6 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-caption text-amber-ink">
                   This job is assigned to someone else, so it is read-only.
                 </p>
               )}

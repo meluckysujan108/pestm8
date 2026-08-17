@@ -56,12 +56,12 @@ function ReportsPage() {
                     <span className="text-row-title text-ink">
                       {template.name}
                     </span>
-                    <span className="shrink-0 text-secondary text-muted">
+                    <span className="shrink-0 text-caption text-muted">
                       {r.legalBasis}
                     </span>
                   </div>
                   <p className="mt-0.5 text-body text-ink-2">{r.clientName}</p>
-                  <p className="mt-0.5 text-secondary text-muted">{r.suburb}</p>
+                  <p className="mt-0.5 text-caption text-muted">{r.suburb}</p>
                   <span
                     className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold ${
                       r.status === 'finalised'

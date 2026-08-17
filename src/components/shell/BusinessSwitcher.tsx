@@ -28,7 +28,7 @@ export function BusinessSwitcher({
         <span className="block truncate text-row-title text-ink">
           {current.name}
         </span>
-        <span className="block text-secondary capitalize text-muted">
+        <span className="block text-caption capitalize text-muted">
           {membership.role}
         </span>
       </span>
@@ -60,7 +60,7 @@ export function BusinessSwitcher({
                 <span className="block truncate text-row-title text-ink">
                   {b.name}
                 </span>
-                <span className="block text-secondary capitalize text-muted">
+                <span className="block text-caption capitalize text-muted">
                   {b.role}
                 </span>
               </span>

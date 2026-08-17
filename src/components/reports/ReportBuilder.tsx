@@ -144,7 +144,7 @@ export function ReportBuilder({
       {finalise.isError && (
         <p
           role="alert"
-          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-secondary text-amber-ink"
+          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           Could not finalise this report. It may already be locked.
         </p>
@@ -152,7 +152,7 @@ export function ReportBuilder({
       {Object.keys(errors).length > 0 && (
         <p
           role="alert"
-          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-secondary text-amber-ink"
+          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           Some required details are missing. Check the fields marked above.
         </p>

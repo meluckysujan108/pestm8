@@ -17,7 +17,7 @@ export function PrefsSection({
         <Row label="Timezone" value={business.timezone} />
       </dl>
 
-      <p className="mt-2 text-secondary text-muted">
+      <p className="mt-2 text-caption text-muted">
         State determines your timezone and how licence fields are labelled.
       </p>
     </>

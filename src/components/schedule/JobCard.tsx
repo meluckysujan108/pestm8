@@ -39,7 +39,7 @@ export function JobCard({
           <span className="truncate text-row-title text-ink">
             {job.jobType}
           </span>
-          <span className="shrink-0 text-secondary text-muted">
+          <span className="shrink-0 text-caption text-muted">
             {formatTime(job.scheduledAt, timezone)}
           </span>
         </span>
@@ -47,7 +47,7 @@ export function JobCard({
           {job.clientName}
         </span>
         {/* Suburb here, full street address in the detail sheet (§2.3). */}
-        <span className="mt-0.5 flex items-center gap-2 text-secondary text-muted">
+        <span className="mt-0.5 flex items-center gap-2 text-caption text-muted">
           <span className="truncate">{job.suburb}</span>
           <span aria-hidden>·</span>
           <span className="shrink-0">

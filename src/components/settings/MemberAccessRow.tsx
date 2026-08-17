@@ -45,7 +45,7 @@ export function MemberAccessRow({
           <p className="truncate text-row-title text-ink">
             {member.name || member.email || 'Team member'}
           </p>
-          <p className="truncate text-secondary capitalize text-muted">
+          <p className="truncate text-caption capitalize text-muted">
             {member.role}
             {member.licenceNumber ? ` · Licence ${member.licenceNumber}` : ''}
           </p>
@@ -58,7 +58,7 @@ export function MemberAccessRow({
         <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
           <span className="min-w-0">
             <span className="block text-body text-ink">Can view all jobs</span>
-            <span className="block text-secondary text-muted">
+            <span className="block text-caption text-muted">
               Read-only visibility of the whole schedule and property history.
               Never the right to edit someone else's booking.
             </span>

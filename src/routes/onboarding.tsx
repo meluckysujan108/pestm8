@@ -86,7 +86,7 @@ function OnboardingPage() {
               </option>
             ))}
           </select>
-          <span className="text-secondary text-muted">
+          <span className="text-caption text-muted">
             Sets your timezone and how licence fields are labelled.
           </span>
         </label>
@@ -104,7 +104,7 @@ function OnboardingPage() {
         {createBusiness.isError && (
           <p
             role="alert"
-            className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-secondary text-amber-ink"
+            className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
           >
             Could not create the business. Check the name and try again.
           </p>

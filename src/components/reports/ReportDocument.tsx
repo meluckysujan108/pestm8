@@ -130,7 +130,7 @@ export function ReportDocument({
       )}
 
       {finalised && report.finalisedAt && (
-        <p className="mt-4 text-secondary text-muted">
+        <p className="mt-4 text-caption text-muted">
           Finalised{' '}
           {new Intl.DateTimeFormat('en-AU', {
             dateStyle: 'long',
@@ -174,7 +174,7 @@ function ReportPhotos({
             className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation"
           >
             <img src={url} alt={slot} className="h-32 w-full object-cover" />
-            <figcaption className="px-2.5 py-1.5 text-secondary text-muted">
+            <figcaption className="px-2.5 py-1.5 text-caption text-muted">
               {slot}
             </figcaption>
           </figure>

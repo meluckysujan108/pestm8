@@ -67,13 +67,13 @@ function DashboardPage() {
         {/* Being explicit beats a subcontractor wondering why the owner's
             numbers differ from theirs. */}
         {summary.scope === 'assignee' && (
-          <p className="text-secondary text-muted md:col-span-3">
+          <p className="text-caption text-muted md:col-span-3">
             These figures cover your own jobs.
           </p>
         )}
 
         {membership.role === 'owner' && (
-          <p className="text-secondary text-muted md:col-span-3">
+          <p className="text-caption text-muted md:col-span-3">
             PestM8 does not track contractor hours or rosters — by design.
           </p>
         )}

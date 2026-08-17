@@ -45,7 +45,7 @@ export function FollowUpTasks({
             <div className="min-w-0 flex-1">
               <p className="text-row-title text-amber-ink">{task.label}</p>
               {task.detail && (
-                <p className="mt-0.5 text-secondary text-amber-ink/85">
+                <p className="mt-0.5 text-caption text-amber-ink/85">
                   {task.detail}
                 </p>
               )}

@@ -129,7 +129,7 @@ function ClientBody({
                 </span>
               </div>
               <div className="mt-1.5 flex items-center justify-between gap-2">
-                <span className="text-secondary text-muted">
+                <span className="text-caption text-muted">
                   {new Intl.DateTimeFormat('en-AU', {
                     timeZone: timezone,
                     day: 'numeric',

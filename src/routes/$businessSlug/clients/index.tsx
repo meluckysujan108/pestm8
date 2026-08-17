@@ -85,7 +85,7 @@ function ClientsPage() {
                   {p.addressLine}
                 </p>
                 {/* Suburb on the row; the full address lives in the detail. */}
-                <p className="mt-0.5 text-secondary text-muted">{p.suburb}</p>
+                <p className="mt-0.5 text-caption text-muted">{p.suburb}</p>
               </button>
             ))}
           </div>

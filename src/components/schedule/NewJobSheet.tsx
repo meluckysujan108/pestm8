@@ -211,7 +211,7 @@ function NewJobForm({
       {create.isError && (
         <p
           role="alert"
-          className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-secondary text-amber-ink"
+          className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           Could not book this job. You may not have access to that calendar.
         </p>

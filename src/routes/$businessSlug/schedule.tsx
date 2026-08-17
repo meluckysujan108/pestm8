@@ -118,7 +118,10 @@ function SchedulePage() {
             body="This day is clear. Tap + to book a job."
           />
         ) : (
-          <div className="flex flex-col gap-2.5">
+          // Two columns from md: the same cards, re-flowed. A desktop screen
+          // showing one 460px column of jobs wastes the extra width that makes
+          // a week readable at a glance.
+          <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-start lg:grid-cols-3">
             {jobs.map((job) => (
               <JobCard
                 key={job._id}

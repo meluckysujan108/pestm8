@@ -153,8 +153,13 @@
   --text-row-title--font-weight: 600;
   --text-body: 15px;
   --text-body--line-height: 1.45;
-  --text-secondary: 13px;
-  --text-secondary--line-height: 1.4;
+  /* Named "caption", not "secondary": shadcn's contract defines
+     --color-secondary, and Tailwind resolves text-* against both the color and
+     font-size namespaces. `text-secondary` silently won as a colour — painting
+     every caption in the app #F2F2F7 on a near-white canvas — instead of
+     setting 13px. Font-size tokens here must not share a name with a colour. */
+  --text-caption: 13px;
+  --text-caption--line-height: 1.4;
   --text-section-label: 11px;
   --text-section-label--line-height: 1.2;
   --text-section-label--letter-spacing: 0.07em;

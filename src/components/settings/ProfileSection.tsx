@@ -61,7 +61,7 @@ export function ProfileSection({
             className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
           />
         </label>
-        <p className="mt-2 text-secondary text-muted">
+        <p className="mt-2 text-caption text-muted">
           Printed on every report and certificate you finalise.
         </p>
         <button

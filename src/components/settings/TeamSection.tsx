@@ -77,7 +77,7 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
         </button>
       </form>
 
-      <p className="mt-2 text-secondary text-muted">
+      <p className="mt-2 text-caption text-muted">
         They join by signing in with this address. New members start with access
         to their own jobs only.
       </p>
@@ -114,7 +114,7 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
       {/* Stated in the product, not just the marketing: their absence is a
           designed property, and the reason is worth the owner knowing (§1.4). */}
       <div className="mt-6 rounded-2xl bg-surface-2 p-3.5">
-        <p className="text-secondary leading-relaxed text-ink-2">
+        <p className="text-caption leading-relaxed text-ink-2">
           PestM8 deliberately has no timesheets, rosters or hour tracking.
           Treating an independent contractor like a rostered employee is what
           sham-contracting law penalises, so those features are absent by

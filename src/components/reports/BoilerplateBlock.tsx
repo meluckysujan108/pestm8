@@ -16,7 +16,7 @@ export function BoilerplateBlock({ text }: { text: string }) {
         {text.split('\n\n').map((paragraph, i) => (
           <p
             key={i}
-            className="text-secondary leading-relaxed text-ink-2 [&:not(:first-child)]:mt-2.5"
+            className="text-caption leading-relaxed text-ink-2 [&:not(:first-child)]:mt-2.5"
           >
             {paragraph}
           </p>

@@ -14,7 +14,7 @@ export function DurableNoticePreview({ text }: { text: string }) {
         {text}
       </pre>
 
-      <p className="mt-2 flex gap-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-secondary text-amber-ink">
+      <p className="mt-2 flex gap-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-caption text-amber-ink">
         <AlertTriangle size={15} strokeWidth={2} className="mt-0.5 shrink-0" />
         <span>
           This notice must be physically fixed to the building, usually inside
