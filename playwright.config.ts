@@ -1,5 +1,13 @@
 import { defineConfig, devices } from '@playwright/test'
 
+// Vite loads .env.local for the app, but the test process is a separate Node
+// runtime — the fixtures need VITE_CONVEX_URL to reach the deployment.
+try {
+  process.loadEnvFile('.env.local')
+} catch {
+  // Falls through to whatever is already in the environment (e.g. CI secrets).
+}
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,

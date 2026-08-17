@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useMutation } from '@tanstack/react-query'
@@ -18,8 +18,22 @@ function OnboardingPage() {
   const [state, setState] = useState<string>('WA')
   const [abn, setAbn] = useState('')
 
+  // See login.tsx: guard against a native GET submit before hydration.
+  const [hydrated, setHydrated] = useState(false)
+  useEffect(() => setHydrated(true), [])
+
+  // useConvexMutation returns a callable interface carrying extra properties
+  // (.withOptimisticUpdate), which defeats TanStack's return-type inference —
+  // the plain arrow restores it.
+  const convexCreateBusiness = useConvexMutation(api.businesses.create)
+
   const createBusiness = useMutation({
-    mutationFn: useConvexMutation(api.businesses.create),
+    mutationFn: (args: {
+      name: string
+      state: string
+      timezone: string
+      abn?: string
+    }) => convexCreateBusiness(args),
     onSuccess: async ({ slug }) => {
       await router.invalidate()
       await router.navigate({
@@ -98,7 +112,7 @@ function OnboardingPage() {
 
         <button
           type="submit"
-          disabled={createBusiness.isPending}
+          disabled={createBusiness.isPending || !hydrated}
           className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
         >
           {createBusiness.isPending ? 'Creating…' : 'Create business'}

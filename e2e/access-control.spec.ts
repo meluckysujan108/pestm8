@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { api, expectRejected, signUpActor, uniqueEmail } from './fixtures'
+import {
+  anonClient,
+  api,
+  expectRejected,
+  signUpActor,
+  uniqueEmail,
+} from './fixtures'
 
 /**
  * ARCHITECTURE.md §6.5 — the access-control matrix.
@@ -58,8 +64,7 @@ test.describe('tenant isolation', () => {
       timezone: 'Australia/Perth',
     })
 
-    const { ConvexHttpClient } = await import('convex/browser')
-    const anon = new ConvexHttpClient(process.env.VITE_CONVEX_URL!)
+    const anon = anonClient()
 
     await expectRejected(
       () => anon.query(api.memberships.listForBusiness, { businessId }),
@@ -79,12 +84,26 @@ test.describe('tenant isolation', () => {
     await signUpActor(outsiderEmail, PASSWORD, 'Outsider')
 
     await page.goto('/login')
+
+    // The submit button stays disabled until the page hydrates, so waiting for
+    // it to enable is the readiness signal — interacting before that lands the
+    // click on markup React is still replacing, and it is silently swallowed.
+    const submit = page.getByRole('button', { name: 'Sign in' })
+    await expect(submit).toBeEnabled()
+
     await page.getByLabel('Email').fill(outsiderEmail)
     await page.getByLabel('Password').fill(PASSWORD)
-    await page.getByRole('button', { name: 'Sign in' }).click()
+    await submit.click()
+
+    // The outsider owns no business, so a successful sign-in lands on
+    // onboarding. Asserting the URL rather than waitForURL: this is a
+    // client-side navigation, which fires no load event for that to wait on.
+    await expect(page).toHaveURL(/\/onboarding$/)
 
     await page.goto(`/${slug}/dashboard`)
-    await expect(page.getByText(/not found/i)).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: /not found/i }),
+    ).toBeVisible()
   })
 })
 

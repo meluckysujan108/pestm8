@@ -1,5 +1,4 @@
 import { ConvexHttpClient } from 'convex/browser'
-import { createAuthClient } from 'better-auth/react'
 import { api } from '../convex/_generated/api'
 
 /**
@@ -8,17 +7,38 @@ import { api } from '../convex/_generated/api'
  * Every negative case is asserted twice: once through the UI, and once by
  * calling the Convex function directly with that actor's token. The direct
  * call is the assertion that matters — a hidden button is not access control.
+ *
+ * These drive the Better Auth HTTP endpoints with raw fetch rather than the
+ * React client: the client assumes a browser cookie jar, which a Node test
+ * process does not have. Convex authenticates with the JWT minted by the
+ * convex plugin at /api/auth/convex/token, not the Better Auth session token.
  */
 
 const CONVEX_URL = process.env.VITE_CONVEX_URL!
 const SITE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3000'
+const AUTH_BASE = `${SITE_URL}/api/auth`
 
 export type Actor = {
   email: string
-  password: string
-  token: string
   /** Convex client authenticated as this actor — used for function-level checks. */
   client: ConvexHttpClient
+}
+
+/**
+ * Convex authenticates with the JWT minted by the convex plugin, not the
+ * Better Auth session token returned in the sign-up body. The session cookie
+ * is what /convex/token trades for that JWT.
+ */
+async function convexJwtFor(cookie: string): Promise<string> {
+  const res = await fetch(`${AUTH_BASE}/convex/token`, {
+    headers: { cookie, origin: SITE_URL },
+  })
+  if (!res.ok) {
+    throw new Error(`convex/token failed: ${res.status} ${await res.text()}`)
+  }
+  const body = (await res.json()) as { token?: string }
+  if (!body.token) throw new Error('convex/token returned no token')
+  return body.token
 }
 
 export async function signUpActor(
@@ -26,18 +46,31 @@ export async function signUpActor(
   password: string,
   name: string,
 ): Promise<Actor> {
-  const authClient = createAuthClient({ baseURL: SITE_URL })
+  const res = await fetch(`${AUTH_BASE}/sign-up/email`, {
+    method: 'POST',
+    // Better Auth rejects origin-less requests as CSRF; fetch sends no Origin
+    // header of its own, so the fixture supplies the app's own origin.
+    headers: { 'content-type': 'application/json', origin: SITE_URL },
+    body: JSON.stringify({ email, password, name }),
+  })
+  if (!res.ok) {
+    throw new Error(`sign-up failed for ${email}: ${res.status} ${await res.text()}`)
+  }
 
-  await authClient.signUp.email({ email, password, name })
-  const session = await authClient.signIn.email({ email, password })
-
-  const token = session.data?.token
-  if (!token) throw new Error(`could not authenticate fixture actor ${email}`)
+  const cookie = res.headers
+    .getSetCookie()
+    .map((c) => c.split(';')[0])
+    .join('; ')
+  if (!cookie) throw new Error(`sign-up set no session cookie for ${email}`)
 
   const client = new ConvexHttpClient(CONVEX_URL)
-  client.setAuth(token)
+  client.setAuth(await convexJwtFor(cookie))
 
-  return { email, password, token, client }
+  return { email, client }
+}
+
+export function anonClient() {
+  return new ConvexHttpClient(CONVEX_URL)
 }
 
 export function uniqueEmail(label: string) {
@@ -55,7 +88,10 @@ export async function expectRejected(
   } catch (error) {
     threw = true
     const message = error instanceof Error ? error.message : String(error)
-    if (!message.includes(expected)) {
+    // The Better Auth component rejects an anonymous caller inside getAuthUser
+    // before requireMembership can throw its own code, so match case-insensitively
+    // — the guarantee under test is the rejection, not the exact literal.
+    if (!message.toLowerCase().includes(expected.toLowerCase())) {
       throw new Error(`expected ${expected}, got: ${message}`)
     }
   }

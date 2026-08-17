@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { authClient } from '#/lib/auth-client'
 
@@ -14,6 +14,12 @@ function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+
+  // This page is server-rendered, so the form exists before React attaches its
+  // submit handler. Submitting in that window does a native GET, reloading the
+  // page and clearing what was typed — so stay disabled until hydrated.
+  const [hydrated, setHydrated] = useState(false)
+  useEffect(() => setHydrated(true), [])
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -85,7 +91,7 @@ function LoginPage() {
 
         <button
           type="submit"
-          disabled={pending}
+          disabled={pending || !hydrated}
           className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
         >
           {pending

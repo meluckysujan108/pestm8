@@ -11,6 +11,9 @@
     "jsx": "react-jsx",
     "skipLibCheck": true,
     "allowSyntheticDefaultImports": true,
+    /* Deployment env vars (SITE_URL, BETTER_AUTH_SECRET) are read via
+     * process.env inside Convex functions, which needs the Node globals. */
+    "types": ["node"],
 
     /* These compiler options are required by Convex */
     "target": "ESNext",
