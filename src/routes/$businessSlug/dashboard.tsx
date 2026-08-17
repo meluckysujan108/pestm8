@@ -3,6 +3,7 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
+import { FollowUpTasks } from '#/components/dashboard/FollowUpTasks'
 import { formatMoney } from '#/lib/format'
 
 export const Route = createFileRoute('/$businessSlug/dashboard')({
@@ -22,6 +23,10 @@ function DashboardPage() {
       <PageHeader kicker={business.name} title="Dashboard" />
 
       <div className="flex flex-col gap-3 px-4 pt-4 pb-6 md:grid md:grid-cols-3 md:items-start">
+        {/* Above the metrics on purpose: an outstanding durable notice is a
+            compliance gap, which outranks a revenue figure. */}
+        <FollowUpTasks businessId={business._id} />
+
         <Card className="md:col-span-3">
           <p className="section-label mb-1">Awaiting invoice</p>
           <p className="text-metric-lg text-ink">

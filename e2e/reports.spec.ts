@@ -164,6 +164,58 @@ test.describe('durable notice', () => {
     expect(after[0].done).toBe(false)
     expect(after[0].reportId).toBe(reportId)
   })
+
+  test('the outstanding notice is visible on the dashboard and dismissable', async ({
+    page,
+  }) => {
+    const email = uniqueEmail('notice-owner')
+    const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
+
+    const { businessId, slug } = await owner.client.mutation(
+      api.businesses.create,
+      { name: `Notice ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    )
+    const propertyId = await owner.client.mutation(api.properties.create, {
+      businessId,
+      clientName: 'J. Nguyen',
+      addressLine: '12 Wattle Street',
+      suburb: 'Bayswater',
+      state: 'WA',
+      postcode: '6053',
+    })
+    const reportId = await owner.client.mutation(api.reports.create, {
+      businessId,
+      propertyId,
+      template: 'termiteManagementCert',
+      legalBasis: 'AS 3660.2-2017',
+      data: {},
+    })
+    await owner.client.mutation(api.reports.finalise, {
+      businessId,
+      reportId,
+      data: { systemType: 'chemical', product: 'Termidor' },
+      tasks: [
+        {
+          kind: 'durableNotice',
+          label: 'Fix durable notice in meter box',
+          detail: 'AS 3660.2 / NCC require a physical notice.',
+        },
+      ],
+    })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/dashboard`)
+
+    // A tracked task nobody sees is not tracked.
+    const notice = page.getByText('Fix durable notice in meter box')
+    await expect(notice).toBeVisible()
+
+    await page
+      .getByRole('button', { name: 'Mark done: Fix durable notice in meter box' })
+      .click()
+
+    await expect(notice).toHaveCount(0)
+  })
 })
 
 test.describe('report document', () => {
