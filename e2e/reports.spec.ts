@@ -1,3 +1,4 @@
+import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import {
   api,
@@ -216,6 +217,52 @@ test.describe('report document', () => {
     await expect(page.getByText('12 months').first()).toBeVisible()
     // Full street address, as every legal document requires.
     await expect(page.getByText('12 Wattle Street').first()).toBeVisible()
+
+    // §6.5 counts a report as delivered only if it leaves the app, so the
+    // export is asserted as a real file rather than an enabled button.
+    const downloadPromise = page.waitForEvent('download')
+    await page.getByRole('button', { name: 'Download PDF' }).click()
+    const download = await downloadPromise
+
+    expect(download.suggestedFilename()).toMatch(/\.pdf$/)
+
+    const path = await download.path()
+    const bytes = await readFile(path)
+    // %PDF- magic number: proves a real document, not an empty or HTML blob.
+    expect(bytes.subarray(0, 5).toString()).toBe('%PDF-')
+    expect(bytes.byteLength).toBeGreaterThan(1000)
+  })
+
+  test('a draft offers no PDF export', async ({ page }) => {
+    const email = uniqueEmail('draft-owner')
+    const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
+
+    const { businessId, slug } = await owner.client.mutation(
+      api.businesses.create,
+      { name: `Draft ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    )
+    const propertyId = await owner.client.mutation(api.properties.create, {
+      businessId,
+      clientName: 'J. Nguyen',
+      addressLine: '9 Banksia Road',
+      suburb: 'Morley',
+      state: 'WA',
+      postcode: '6062',
+    })
+    const reportId = await owner.client.mutation(api.reports.create, {
+      businessId,
+      propertyId,
+      template: 'treatmentRecord',
+      legalBasis: 'APVMA',
+      data: {},
+    })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+
+    // A PDF of a draft would circulate as though it were the finished record.
+    await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Download PDF' })).toHaveCount(0)
   })
 })
 

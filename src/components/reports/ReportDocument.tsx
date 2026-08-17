@@ -1,4 +1,5 @@
 import { Lock } from 'lucide-react'
+import { DownloadPdfButton } from './DownloadPdfButton'
 import { BoilerplateBlock } from './BoilerplateBlock'
 import { DurableNoticePreview } from './DurableNoticePreview'
 import { durableNoticeText, getTemplate } from '#/lib/reportTemplates'
@@ -99,6 +100,23 @@ export function ReportDocument({ report }: { report: ReportDoc }) {
 
       <BoilerplateBlock text={template.boilerplate} />
 
+      {/* Export only from a locked document: a PDF of a draft would circulate
+          as though it were the finished record. */}
+      {finalised && (
+        <DownloadPdfButton
+          fileName={pdfFileName(template.shortName, report.property?.addressLine)}
+          report={{
+            template: report.template,
+            legalBasis: report.legalBasis,
+            finalisedAt: report.finalisedAt,
+            data,
+            businessName: report.businessName,
+            property: report.property,
+            licenceNumber: report.author?.licenceNumber,
+          }}
+        />
+      )}
+
       {finalised && report.finalisedAt && (
         <p className="mt-4 text-secondary text-muted">
           Finalised{' '}
@@ -111,6 +129,15 @@ export function ReportDocument({ report }: { report: ReportDoc }) {
       )}
     </article>
   )
+}
+
+/** Named so a client can tell two reports apart in their downloads folder. */
+function pdfFileName(shortName: string, addressLine?: string): string {
+  const place = (addressLine ?? 'report')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+  return `${shortName.toLowerCase()}-${place}.pdf`
 }
 
 function FieldValue({ field, value }: { field: FieldDef; value: unknown }) {
@@ -137,20 +164,27 @@ function FieldValue({ field, value }: { field: FieldDef; value: unknown }) {
     const areas = value as Record<string, AreaResult>
     return (
       <span className="flex flex-col gap-1">
-        {Object.entries(areas).map(([row, result]) => (
-          <span key={row} className="flex justify-between gap-3">
-            <span>{row}</span>
-            <span
-              className={
-                result.status === 'inspected' ? 'text-ink-2' : 'text-amber-ink'
-              }
-            >
-              {result.status === 'inspected'
-                ? 'Inspected'
-                : `No access — ${result.reason}`}
+        {/* Template order, not storage order — Convex returns object keys
+            sorted, which would list the areas alphabetically. */}
+        {field.rows.map((row) => {
+          const result = areas[row] ?? { status: 'inspected' as const }
+          return (
+            <span key={row} className="flex justify-between gap-3">
+              <span>{row}</span>
+              <span
+                className={
+                  result.status === 'inspected'
+                    ? 'text-ink-2'
+                    : 'text-amber-ink'
+                }
+              >
+                {result.status === 'inspected'
+                  ? 'Inspected'
+                  : `No access — ${result.reason}`}
+              </span>
             </span>
-          </span>
-        ))}
+          )
+        })}
       </span>
     )
   }
