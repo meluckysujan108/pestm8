@@ -1,0 +1,25 @@
+{
+  "name": "PestM8",
+  "short_name": "PestM8",
+  "description": "Job scheduling and compliance reporting for Australian pest control.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#EDEDF1",
+  "theme_color": "#FF3B30",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

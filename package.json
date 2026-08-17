@@ -8,7 +8,7 @@
   "scripts": {
     "dev": "vite dev --port 3000",
     "generate-routes": "tsr generate",
-    "build": "vite build",
+    "build": "vite build && node scripts/build-sw.mjs",
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "lint": "eslint",
@@ -47,6 +47,7 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
+    "@serwist/vite": "^9.5.12",
     "@tailwindcss/typography": "^0.5.16",
     "@tanstack/devtools-vite": "latest",
     "@tanstack/eslint-config": "latest",
@@ -58,6 +59,7 @@
     "eslint": "^9.20.0",
     "pdfjs-dist": "^5.6.205",
     "prettier": "^3.8.1",
+    "serwist": "^9.5.12",
     "typescript": "^6.0.2",
     "vite": "^8.0.0"
   },

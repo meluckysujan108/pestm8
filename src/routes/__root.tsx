@@ -10,6 +10,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react'
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
+import { ServiceWorker } from '#/components/shell/ServiceWorker'
 import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
 import appCss from '../styles.css?url'
@@ -34,9 +35,14 @@ export const Route = createRootRouteWithContext<RouterContext>()({
         content: 'width=device-width, initial-scale=1, viewport-fit=cover',
       },
       { name: 'theme-color', content: '#FF3B30' },
+      { name: 'apple-mobile-web-app-capable', content: 'yes' },
       { title: 'PestM8' },
     ],
-    links: [{ rel: 'stylesheet', href: appCss }],
+    links: [
+      { rel: 'stylesheet', href: appCss },
+      { rel: 'manifest', href: '/manifest.webmanifest' },
+      { rel: 'apple-touch-icon', href: '/icon-192.png' },
+    ],
   }),
   beforeLoad: async ({ context }) => {
     const token = await getAuth()
@@ -100,6 +106,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       </head>
       <body>
         {children}
+        <ServiceWorker />
         <TanStackDevtools
           config={{ position: 'bottom-right' }}
           plugins={[
