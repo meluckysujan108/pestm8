@@ -133,6 +133,7 @@ export function ReportBuilder({
           onChange={(value) =>
             setData((prev) => ({ ...prev, [field.key]: value }))
           }
+          photoContext={{ businessId, reportId }}
         />
       ))}
 

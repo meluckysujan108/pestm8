@@ -29,7 +29,7 @@ function ReportPage() {
   // The status is the single source of that truth, so a locked report has no
   // editable rendering to fall back to.
   if (report.status === 'finalised' || !report.canEdit) {
-    return <ReportDocument report={report} />
+    return <ReportDocument report={report} businessId={business._id} />
   }
 
   return (

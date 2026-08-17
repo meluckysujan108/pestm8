@@ -103,6 +103,67 @@ export const get = query({
   },
 })
 
+/**
+ * Short-lived upload URL. Photos go straight from the device to storage rather
+ * than through a mutation — a subfloor photo from a phone is megabytes, and
+ * the tech taking it is usually on mobile data under a house.
+ */
+export const generateUploadUrl = mutation({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    await requireMembership(ctx, businessId)
+    return ctx.storage.generateUploadUrl()
+  },
+})
+
+export const attachPhoto = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    storageId: v.id('_storage'),
+    slot: v.string(),
+  },
+  handler: async (ctx, { businessId, reportId, storageId, slot }) => {
+    const membership = await requireMembership(ctx, businessId)
+
+    const report = await ctx.db.get(reportId)
+    if (!report || report.businessId !== businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    // Photos are evidence; a locked report must not gain new ones.
+    if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
+    if (report.authorMembershipId !== membership._id) {
+      throw new ConvexError('NO_ACCESS')
+    }
+
+    await ctx.db.patch(reportId, {
+      photoIds: [...report.photoIds, storageId],
+      photoSlots: { ...(report.photoSlots ?? {}), [slot]: storageId },
+    })
+  },
+})
+
+/** Signed URLs for display; storage ids are useless to the client on their own. */
+export const photoUrls = query({
+  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
+  handler: async (ctx, { businessId, reportId }) => {
+    const membership = await requireMembership(ctx, businessId)
+
+    const report = await ctx.db.get(reportId)
+    if (!report || report.businessId !== businessId) return {}
+    if (!canSeeReport(membership, report)) return {}
+
+    const entries = await Promise.all(
+      Object.entries(report.photoSlots ?? {}).map(async ([slot, storageId]) => {
+        const url = await ctx.storage.getUrl(storageId)
+        return [slot, url] as const
+      }),
+    )
+
+    return Object.fromEntries(entries.filter(([, url]) => url !== null))
+  },
+})
+
 export const create = mutation({
   args: {
     businessId: v.id('businesses'),

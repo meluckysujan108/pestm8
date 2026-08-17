@@ -1,9 +1,13 @@
+import { useQuery } from '@tanstack/react-query'
+import { convexQuery } from '@convex-dev/react-query'
 import { Lock } from 'lucide-react'
+import { api } from '../../../convex/_generated/api'
 import { DownloadPdfButton } from './DownloadPdfButton'
 import { BoilerplateBlock } from './BoilerplateBlock'
 import { DurableNoticePreview } from './DurableNoticePreview'
 import { durableNoticeText, getTemplate } from '#/lib/reportTemplates'
 import type { AreaResult, FieldDef, TemplateId } from '#/lib/reportTemplates'
+import type { Id } from '../../../convex/_generated/dataModel'
 
 type ReportDoc = {
   _id: string
@@ -24,7 +28,13 @@ type ReportDoc = {
 }
 
 /** The rendered document a client actually receives. */
-export function ReportDocument({ report }: { report: ReportDoc }) {
+export function ReportDocument({
+  report,
+  businessId,
+}: {
+  report: ReportDoc
+  businessId: Id<'businesses'>
+}) {
   const template = getTemplate(report.template as TemplateId)
   const data = (report.data ?? {}) as Record<string, unknown>
   const finalised = report.status === 'finalised'
@@ -96,6 +106,8 @@ export function ReportDocument({ report }: { report: ReportDoc }) {
         </dl>
       </section>
 
+      <ReportPhotos businessId={businessId} reportId={report._id} />
+
       {noticeText && <DurableNoticePreview text={noticeText} />}
 
       <BoilerplateBlock text={template.boilerplate} />
@@ -128,6 +140,47 @@ export function ReportDocument({ report }: { report: ReportDoc }) {
         </p>
       )}
     </article>
+  )
+}
+
+/**
+ * Photos are part of the evidence, so a finished report has to show them
+ * rather than only referencing that some exist.
+ */
+function ReportPhotos({
+  businessId,
+  reportId,
+}: {
+  businessId: Id<'businesses'>
+  reportId: string
+}) {
+  const { data: urls } = useQuery(
+    convexQuery(api.reports.photoUrls, {
+      businessId,
+      reportId: reportId as Id<'reports'>,
+    }),
+  )
+
+  const entries = Object.entries((urls as Record<string, string>) ?? {})
+  if (entries.length === 0) return null
+
+  return (
+    <section className="mt-6">
+      <h2 className="section-label mb-2">Photos</h2>
+      <div className="grid grid-cols-2 gap-2">
+        {entries.map(([slot, url]) => (
+          <figure
+            key={slot}
+            className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation"
+          >
+            <img src={url} alt={slot} className="h-32 w-full object-cover" />
+            <figcaption className="px-2.5 py-1.5 text-secondary text-muted">
+              {slot}
+            </figcaption>
+          </figure>
+        ))}
+      </div>
+    </section>
   )
 }
 

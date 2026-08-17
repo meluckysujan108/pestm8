@@ -121,8 +121,13 @@ export default defineSchema({
     legalBasis: v.string(),
     status: reportStatus,
     // Template-shaped; validated by Zod at the edge before it reaches here.
+    // The client owns this and replaces it wholesale on every save, so nothing
+    // server-managed may live inside it.
     data: v.any(),
     photoIds: v.array(v.id('_storage')),
+    // Kept out of `data` deliberately: it lived there once and every finalise
+    // silently discarded the photos by overwriting the blob.
+    photoSlots: v.optional(v.record(v.string(), v.id('_storage'))),
     finalisedAt: v.optional(v.number()),
     pdfStorageId: v.optional(v.id('_storage')),
     createdAt: v.number(),

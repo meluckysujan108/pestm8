@@ -1,4 +1,6 @@
+import { PhotoSlots } from './PhotoSlots'
 import type { AreaResult, FieldDef } from '#/lib/reportTemplates'
+import type { Id } from '../../../../convex/_generated/dataModel'
 
 /**
  * The generic renderer §5.3 depends on: the builder knows field *kinds*, never
@@ -9,11 +11,13 @@ export function FieldRenderer({
   value,
   error,
   onChange,
+  photoContext,
 }: {
   field: FieldDef
   value: unknown
   error?: string
   onChange: (value: unknown) => void
+  photoContext: { businessId: Id<'businesses'>; reportId: Id<'reports'> }
 }) {
   // A <label> names exactly one control. Wrapping a multi-control group in one
   // makes every button inside inherit the whole group's text as its accessible
@@ -37,12 +41,22 @@ export function FieldRenderer({
       {isGroup ? (
         <fieldset className="flex flex-col gap-1.5">
           <legend className="section-label mb-1.5">{caption}</legend>
-          <Control field={field} value={value} onChange={onChange} />
+          <Control
+            field={field}
+            value={value}
+            onChange={onChange}
+            photoContext={photoContext}
+          />
         </fieldset>
       ) : (
         <label className="flex flex-col gap-1.5">
           <span className="section-label">{caption}</span>
-          <Control field={field} value={value} onChange={onChange} />
+          <Control
+            field={field}
+            value={value}
+            onChange={onChange}
+            photoContext={photoContext}
+          />
         </label>
       )}
 
@@ -68,10 +82,12 @@ function Control({
   field,
   value,
   onChange,
+  photoContext,
 }: {
   field: FieldDef
   value: unknown
   onChange: (value: unknown) => void
+  photoContext: { businessId: Id<'businesses'>; reportId: Id<'reports'> }
 }) {
   switch (field.kind) {
     case 'text':
@@ -208,19 +224,14 @@ function Control({
     }
 
     case 'photos':
-      // Photo upload lands with Convex file storage; the slots are declared by
-      // the template so the builder already knows what to ask for.
+      // Uploads attach directly to the report rather than flowing through the
+      // draft's `data`, so a photo survives even if the draft is never saved.
       return (
-        <span className="flex flex-wrap gap-2">
-          {field.slots.map((slot) => (
-            <span
-              key={slot}
-              className="flex h-20 w-24 flex-col items-center justify-center rounded-xl border border-dashed border-hairline bg-surface-3 text-center text-secondary text-muted"
-            >
-              {slot}
-            </span>
-          ))}
-        </span>
+        <PhotoSlots
+          businessId={photoContext.businessId}
+          reportId={photoContext.reportId}
+          slots={field.slots}
+        />
       )
   }
 }
