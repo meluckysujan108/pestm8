@@ -41,7 +41,11 @@ export function BusinessSwitcher({
     <Popover.Root>
       <Popover.Trigger className="flex w-full items-center rounded-xl transition hover:bg-surface-2">
         {trigger}
-        <ChevronsUpDown size={16} strokeWidth={1.7} className="mr-2 text-muted" />
+        <ChevronsUpDown
+          size={16}
+          strokeWidth={1.7}
+          className="mr-2 text-muted"
+        />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content

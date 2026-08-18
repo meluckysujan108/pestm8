@@ -9,6 +9,7 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import { WeekStrip } from '#/components/schedule/WeekStrip'
 import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
+import { WeatherBanner } from '#/components/schedule/WeatherBanner'
 import { NewJobSheet } from '#/components/schedule/NewJobSheet'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import {
@@ -18,11 +19,15 @@ import {
   startOfWeekKey,
   todayKey as todayKeyIn,
 } from '#/lib/format'
+import { useHydrated } from '#/lib/useHydrated'
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
   // refresh and is shareable (§5.1).
-  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional(),
 })
 
 export const Route = createFileRoute('/$businessSlug/schedule')({
@@ -36,6 +41,9 @@ function SchedulePage() {
   const navigate = useNavigate({ from: Route.fullPath })
   const [openJobId, setOpenJobId] = useState<string | null>(null)
   const [newJobOpen, setNewJobOpen] = useState(false)
+  // A button that opens a sheet does nothing before hydration, and does it
+  // silently. Disabling until ready is honest and gives tests a real signal.
+  const hydrated = useHydrated()
 
   const today = todayKeyIn(business.timezone)
   const selectedKey = date ?? today
@@ -66,8 +74,9 @@ function SchedulePage() {
           <button
             type="button"
             aria-label="New job"
+            disabled={!hydrated}
             onClick={() => setNewJobOpen(true)}
-            className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95]"
+            className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
           >
             <Plus size={20} strokeWidth={2} />
           </button>
@@ -108,6 +117,21 @@ function SchedulePage() {
           onSelect={setDay}
         />
       </div>
+
+      {/* Keyed to the first job's suburb and labelled with it: a day spanning
+          several suburbs has no single forecast, so claiming one would be a
+          quiet lie. */}
+      {jobs.length > 0 && jobs[0].suburb && (
+        <div className="pt-4">
+          <WeatherBanner
+            businessId={business._id}
+            suburb={jobs[0].suburb}
+            postcode={jobs[0].postcode ?? ''}
+            state={business.state}
+            dayKey={selectedKey}
+          />
+        </div>
+      )}
 
       <section className="px-4 pt-4 pb-6">
         <h2 className="section-label mb-3">{formatDayLabel(selectedKey)}</h2>

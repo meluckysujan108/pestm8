@@ -1,9 +1,7 @@
 import type { z } from 'zod'
 
 export type TemplateId =
-  | 'treatmentRecord'
-  | 'timberPestInspection'
-  | 'termiteManagementCert'
+  'treatmentRecord' | 'timberPestInspection' | 'termiteManagementCert'
 
 /**
  * Field kinds the builder knows how to render. Adding a state-specific variant

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
@@ -6,6 +6,7 @@ import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { AU_STATES } from '#/lib/au'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { useHydrated } from '#/lib/useHydrated'
 
 export function NewPropertySheet({
   businessId,
@@ -24,8 +25,7 @@ export function NewPropertySheet({
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
 
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
+  const hydrated = useHydrated()
 
   const convexCreate = useConvexMutation(api.properties.create)
   const create = useMutation({

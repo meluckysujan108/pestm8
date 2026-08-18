@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Mail, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { MemberAccessRow } from './MemberAccessRow'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { useHydrated } from '#/lib/useHydrated'
 
 export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
   const { data: members } = useSuspenseQuery(
@@ -15,8 +16,8 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
   )
 
   const [email, setEmail] = useState('')
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
+
+  const hydrated = useHydrated()
 
   const convexInvite = useConvexMutation(api.memberships.inviteByEmail)
   const invite = useMutation({
@@ -117,8 +118,8 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
         <p className="text-caption leading-relaxed text-ink-2">
           PestM8 deliberately has no timesheets, rosters or hour tracking.
           Treating an independent contractor like a rostered employee is what
-          sham-contracting law penalises, so those features are absent by
-          design — not missing.
+          sham-contracting law penalises, so those features are absent by design
+          — not missing.
         </p>
       </div>
     </>

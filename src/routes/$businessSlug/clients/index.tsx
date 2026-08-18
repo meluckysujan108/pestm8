@@ -9,6 +9,7 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
+import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/$businessSlug/clients/')({
   validateSearch: z.object({ q: z.string().optional() }),
@@ -21,9 +22,13 @@ function ClientsPage() {
   const navigate = useNavigate({ from: Route.fullPath })
   const [newOpen, setNewOpen] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
+  const hydrated = useHydrated()
 
   const { data: properties } = useSuspenseQuery(
-    convexQuery(api.properties.search, { businessId: business._id, q: q ?? '' }),
+    convexQuery(api.properties.search, {
+      businessId: business._id,
+      q: q ?? '',
+    }),
   )
 
   return (
@@ -35,8 +40,9 @@ function ClientsPage() {
           <button
             type="button"
             aria-label="New property"
+            disabled={!hydrated}
             onClick={() => setNewOpen(true)}
-            className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95]"
+            className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
           >
             <Plus size={20} strokeWidth={2} />
           </button>

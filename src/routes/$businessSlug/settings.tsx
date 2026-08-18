@@ -40,7 +40,9 @@ function SettingsPage() {
               ? SEGMENTS
               : SEGMENTS.filter((s) => s.value !== 'team')
           }
-          onChange={(value) => navigate({ search: { seg: value }, replace: true })}
+          onChange={(value) =>
+            navigate({ search: { seg: value }, replace: true })
+          }
         />
       </div>
 

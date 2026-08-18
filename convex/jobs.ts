@@ -56,6 +56,7 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
           // Suburb only on list rows — full address belongs to the detail view
           // and to legal documents (§2.3).
           suburb: property?.suburb ?? '',
+          postcode: property?.postcode ?? '',
           clientName: property?.clientName ?? '',
           assigneeColour: assignee?.colour ?? '#8E8E93',
         }

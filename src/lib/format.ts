@@ -72,11 +72,7 @@ export function formatMonthLabel(dayKey: string): string {
 export const WEEKDAY_INITIALS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
 export type RepeatValue =
-  | 'once'
-  | 'monthly'
-  | 'quarterly'
-  | 'sixMonthly'
-  | 'yearly'
+  'once' | 'monthly' | 'quarterly' | 'sixMonthly' | 'yearly'
 
 /** Intervals a pest control business actually sells. */
 export const REPEAT_OPTIONS: Array<{ value: RepeatValue; label: string }> = [

@@ -20,10 +20,8 @@ export function FollowUpTasks({
 
   const convexComplete = useConvexMutation(api.tasks.complete)
   const complete = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      taskId: Id<'tasks'>
-    }) => convexComplete(args),
+    mutationFn: (args: { businessId: Id<'businesses'>; taskId: Id<'tasks'> }) =>
+      convexComplete(args),
   })
 
   if (tasks.length === 0) return null
@@ -54,9 +52,7 @@ export function FollowUpTasks({
               type="button"
               aria-label={`Mark done: ${task.label}`}
               disabled={complete.isPending}
-              onClick={() =>
-                complete.mutate({ businessId, taskId: task._id })
-              }
+              onClick={() => complete.mutate({ businessId, taskId: task._id })}
               className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface text-amber-ink transition active:scale-[.95] disabled:opacity-50"
             >
               <Check size={16} strokeWidth={2.4} />

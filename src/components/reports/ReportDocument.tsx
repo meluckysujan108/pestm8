@@ -116,7 +116,10 @@ export function ReportDocument({
           as though it were the finished record. */}
       {finalised && (
         <DownloadPdfButton
-          fileName={pdfFileName(template.shortName, report.property?.addressLine)}
+          fileName={pdfFileName(
+            template.shortName,
+            report.property?.addressLine,
+          )}
           report={{
             template: report.template,
             legalBasis: report.legalBasis,

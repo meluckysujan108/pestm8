@@ -7,6 +7,7 @@ import { api } from '../../../convex/_generated/api'
 import { JOB_TYPES, REPEAT_OPTIONS } from '#/lib/format'
 import type { RepeatValue } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { useHydrated } from '#/lib/useHydrated'
 
 export function NewJobSheet({
   businessId,
@@ -70,9 +71,6 @@ function NewJobForm({
   const [duration, setDuration] = useState('60')
   const [repeat, setRepeat] = useState<RepeatValue>('once')
 
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
-
   useEffect(() => {
     if (!propertyId && properties.length > 0) setPropertyId(properties[0]._id)
   }, [properties, propertyId])
@@ -80,6 +78,8 @@ function NewJobForm({
     const active = members.filter((m) => m.status === 'active')
     if (!assignee && active.length > 0) setAssignee(active[0]._id)
   }, [members, assignee])
+
+  const hydrated = useHydrated()
 
   const convexCreate = useConvexMutation(api.jobs.create)
   const convexCreateRecurrence = useConvexMutation(api.recurrences.create)

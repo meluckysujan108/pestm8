@@ -1,8 +1,4 @@
-import {
-  WEEKDAY_INITIALS,
-  addDaysToKey,
-  dayKeyToDate,
-} from '#/lib/format'
+import { WEEKDAY_INITIALS, addDaysToKey, dayKeyToDate } from '#/lib/format'
 
 export type DayLoad = { offset: number; count: number; colours: Array<string> }
 

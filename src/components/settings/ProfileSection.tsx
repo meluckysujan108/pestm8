@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { authClient } from '#/lib/auth-client'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { useHydrated } from '#/lib/useHydrated'
 
 /** Licence field labelling is state-based, so the label follows the tenant. */
 const LICENCE_LABEL: Record<string, string> = {
@@ -29,8 +30,8 @@ export function ProfileSection({
   state: string
 }) {
   const [licence, setLicence] = useState(licenceNumber ?? '')
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
+
+  const hydrated = useHydrated()
 
   const convexSet = useConvexMutation(api.memberships.setLicence)
   const save = useMutation({

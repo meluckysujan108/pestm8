@@ -183,6 +183,21 @@ export default defineSchema({
     .index('by_business', ['businessId'])
     .index('by_job', ['jobId']),
 
+  /**
+   * Cached per suburb and day (§4.3). A five-person business opening the app
+   * all morning should not hit the forecast API once per person per refresh.
+   */
+  weatherCache: defineTable({
+    suburbKey: v.string(), // "bayswater-6053"
+    dayKey: v.string(),
+    maxTempC: v.optional(v.number()),
+    minTempC: v.optional(v.number()),
+    rainMm: v.optional(v.number()),
+    windKmh: v.optional(v.number()),
+    code: v.optional(v.number()),
+    fetchedAt: v.number(),
+  }).index('by_suburb_day', ['suburbKey', 'dayKey']),
+
   auditLog: defineTable({
     businessId: v.id('businesses'),
     actorMembershipId: v.id('memberships'),

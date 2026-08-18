@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
@@ -7,6 +7,7 @@ import { api } from '../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/$businessSlug/notes')({
   component: NotesPage,
@@ -17,15 +18,14 @@ function NotesPage() {
   const [text, setText] = useState('')
   const [propertyId, setPropertyId] = useState('')
 
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
-
   const { data: notes } = useSuspenseQuery(
     convexQuery(api.notes.list, { businessId: business._id }),
   )
   const { data: properties } = useSuspenseQuery(
     convexQuery(api.properties.list, { businessId: business._id }),
   )
+
+  const hydrated = useHydrated()
 
   const convexCreate = useConvexMutation(api.notes.create)
   const create = useMutation({
@@ -39,10 +39,8 @@ function NotesPage() {
 
   const convexRemove = useConvexMutation(api.notes.remove)
   const remove = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      noteId: Id<'notes'>
-    }) => convexRemove(args),
+    mutationFn: (args: { businessId: Id<'businesses'>; noteId: Id<'notes'> }) =>
+      convexRemove(args),
   })
 
   return (

@@ -20,7 +20,10 @@ export function ClientSheet({
   onClose: () => void
 }) {
   return (
-    <Drawer.Root open={propertyId !== null} onOpenChange={(o) => !o && onClose()}>
+    <Drawer.Root
+      open={propertyId !== null}
+      onOpenChange={(o) => !o && onClose()}
+    >
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/30" />
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">

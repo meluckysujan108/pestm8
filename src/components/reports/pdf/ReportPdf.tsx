@@ -1,10 +1,4 @@
-import {
-  Document,
-  Page,
-  StyleSheet,
-  Text,
-  View,
-} from '@react-pdf/renderer'
+import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
 import { durableNoticeText, getTemplate } from '#/lib/reportTemplates'
 import type { AreaResult, FieldDef, TemplateId } from '#/lib/reportTemplates'
 

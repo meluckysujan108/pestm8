@@ -85,7 +85,9 @@ export const treatmentRecord: ReportTemplate = {
     batchNumber: requiredText('Batch number'),
     dilutionRate: requiredText('Dilution rate'),
     targetPest: requiredText('Target pest'),
-    treatedAreas: z.array(z.string()).min(1, 'Select at least one treated area'),
+    treatedAreas: z
+      .array(z.string())
+      .min(1, 'Select at least one treated area'),
     weather: z.string().optional(),
     notes: z.string().optional(),
   }),

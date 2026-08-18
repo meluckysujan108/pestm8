@@ -8,6 +8,7 @@ import { EmptyState } from '#/components/primitives/EmptyState'
 import { TEMPLATE_LIST } from '#/lib/reportTemplates'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
+import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/$businessSlug/reports/new')({
   component: NewReportPage,
@@ -15,10 +16,10 @@ export const Route = createFileRoute('/$businessSlug/reports/new')({
 
 function NewReportPage() {
   const { business } = Route.useRouteContext()
+  const hydrated = useHydrated()
+
   const navigate = useNavigate()
   const [propertyId, setPropertyId] = useState('')
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
 
   const { data: properties } = useSuspenseQuery(
     convexQuery(api.properties.list, { businessId: business._id }),

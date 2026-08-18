@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { Lock, Save } from 'lucide-react'
@@ -6,9 +6,14 @@ import { api } from '../../../convex/_generated/api'
 import { FieldRenderer } from './fields/FieldRenderer'
 import { BoilerplateBlock } from './BoilerplateBlock'
 import { DurableNoticePreview } from './DurableNoticePreview'
-import { durableNoticeText, emptyAreas, getTemplate } from '#/lib/reportTemplates'
+import {
+  durableNoticeText,
+  emptyAreas,
+  getTemplate,
+} from '#/lib/reportTemplates'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { useHydrated } from '#/lib/useHydrated'
 
 export function ReportBuilder({
   businessId,
@@ -55,8 +60,8 @@ export function ReportBuilder({
   })
 
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
+
+  const hydrated = useHydrated()
 
   const convexSave = useConvexMutation(api.reports.saveDraft)
   const save = useMutation({
@@ -73,7 +78,11 @@ export function ReportBuilder({
       businessId: Id<'businesses'>
       reportId: Id<'reports'>
       data: unknown
-      tasks?: Array<{ kind: 'durableNotice' | 'other'; label: string; detail?: string }>
+      tasks?: Array<{
+        kind: 'durableNotice' | 'other'
+        label: string
+        detail?: string
+      }>
     }) => convexFinalise(args),
     onSuccess: onFinalised,
   })

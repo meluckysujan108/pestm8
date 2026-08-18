@@ -23,6 +23,7 @@ import type * as properties from "../properties.js";
 import type * as recurrences from "../recurrences.js";
 import type * as reports from "../reports.js";
 import type * as tasks from "../tasks.js";
+import type * as weather from "../weather.js";
 
 import type {
   ApiFromModules,
@@ -46,6 +47,7 @@ declare const fullApi: ApiFromModules<{
   recurrences: typeof recurrences;
   reports: typeof reports;
   tasks: typeof tasks;
+  weather: typeof weather;
 }>;
 
 /**
