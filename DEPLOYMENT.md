@@ -111,12 +111,46 @@ The failure modes are all quiet, so check them directly:
   with them set; a redeploy of the same artifact won't fix it.
 - **Sign in.** Bouncing back to `/login` after apparently-successful
   credentials means `SITE_URL` on the deployment doesn't match the origin.
-- **Check the service worker.** `curl https://<origin>/sw.js` should return a
-  script, not the SPA shell. The build gate in `scripts/build-sw.mjs` catches
-  an absent worker, but only in the build that produced the artifact.
+- **Check the service worker.** `curl https://<origin>/sw.js` should return
+  JavaScript. A redirect or HTML means the worker is not being served — see
+  "Known issue" below. The build gate in `scripts/build-sw.mjs` asserts the
+  file exists on disk, which is not the same as it being reachable.
 - **Confirm the auth proxy is live.** `/api/auth/*` must be served by the Nitro
   server. If the host is serving `.output/public` statically and ignoring
   `.output/server`, this 404s and no session ever persists.
+
+---
+
+## Known issue: the service worker is not served on `node-server`
+
+`scripts/build-sw.mjs` writes `sw.js` into `.output/public` _after_ Nitro has
+assembled the build. Nitro freezes its static-asset manifest during the build,
+so it never learns the file exists and the request falls through to the SSR
+router, which redirects unauthenticated traffic to `/login`.
+
+Reproduced against `node .output/server/index.mjs`:
+
+| Request                                           | Result         |
+| ------------------------------------------------- | -------------- |
+| `sw.js` (written after the Nitro build)           | `307 → /login` |
+| `manifest.webmanifest` (present during the build) | `200`          |
+| `icon-192.png` (present during the build)         | `200`          |
+
+A scratch file dropped into `.output/public` post-build behaves like `sw.js`,
+and `sw.js` appears zero times in `.output/server/index.mjs` while
+`manifest.webmanifest` appears in the embedded manifest — so this is asset
+registration, not anything specific to the worker.
+
+The effect is that registration fails and the PWA silently does nothing:
+`navigator.serviceWorker.register('/sw.js')` receives an HTML redirect with the
+wrong content type. Offline schedule reading — the field case ARCHITECTURE.md
+§5.5 is built around — does not work in a deployed build. It works in `vite
+dev`, which serves from disk on demand, which is why it survived to here.
+
+**This is confirmed only for the `node-server` preset.** Hosts that upload
+`.output/public` to a CDN fronting the server function — Vercel, Netlify — may
+serve the file before the request ever reaches the router. Verify with the
+`curl` check above on whichever host you pick rather than assuming either way.
 
 ---
 
