@@ -112,45 +112,47 @@ The failure modes are all quiet, so check them directly:
 - **Sign in.** Bouncing back to `/login` after apparently-successful
   credentials means `SITE_URL` on the deployment doesn't match the origin.
 - **Check the service worker.** `curl https://<origin>/sw.js` should return
-  JavaScript. A redirect or HTML means the worker is not being served — see
-  "Known issue" below. The build gate in `scripts/build-sw.mjs` asserts the
-  file exists on disk, which is not the same as it being reachable.
+  JavaScript, not a redirect or HTML. Existing on disk and being reachable are
+  different things here — see "How the service worker gets served" below.
 - **Confirm the auth proxy is live.** `/api/auth/*` must be served by the Nitro
   server. If the host is serving `.output/public` statically and ignoring
   `.output/server`, this 404s and no session ever persists.
 
 ---
 
-## Known issue: the service worker is not served on `node-server`
+## How the service worker gets served
 
-`scripts/build-sw.mjs` writes `sw.js` into `.output/public` _after_ Nitro has
-assembled the build. Nitro freezes its static-asset manifest during the build,
-so it never learns the file exists and the request falls through to the SSR
-router, which redirects unauthenticated traffic to `/login`.
+Worth knowing, because it is load-bearing and not obvious from reading the
+build script alone.
 
-Reproduced against `node .output/server/index.mjs`:
+Nitro bakes a manifest of `.output/public` into the server bundle at build time
+— `#nitro/virtual/public-assets-data` inside `.output/server/index.mjs` — and
+serves only the files that manifest lists. `scripts/build-sw.mjs` has to run
+_after_ Nitro has assembled the build (its header comment explains why: any
+earlier and the precache manifest is computed from the previous build's
+assets). So the worker is written to disk after Nitro has stopped looking, and
+nothing registers it.
 
-| Request                                           | Result         |
-| ------------------------------------------------- | -------------- |
-| `sw.js` (written after the Nitro build)           | `307 → /login` |
-| `manifest.webmanifest` (present during the build) | `200`          |
-| `icon-192.png` (present during the build)         | `200`          |
+Left alone, `/sw.js` falls through to the SSR router and answers `307 → /login`
+while sitting on disk the whole time. Registration then fails, because the
+browser gets an HTML redirect where it expected JavaScript, and the PWA
+silently does nothing — including the offline schedule reading ARCHITECTURE.md
+§5.5 is built around. It works under `vite dev`, which serves from disk on
+demand, so this only ever appears in a built app.
 
-A scratch file dropped into `.output/public` post-build behaves like `sw.js`,
-and `sw.js` appears zero times in `.output/server/index.mjs` while
-`manifest.webmanifest` appears in the embedded manifest — so this is asset
-registration, not anything specific to the worker.
+`build-sw.mjs` therefore appends the manifest entry itself after writing the
+worker, using Nitro's own entry shape and etag algorithm. Serving reads `size`
+for `Content-Length`, so the entry is computed from the bytes just written — a
+stale one truncates the response rather than failing cleanly.
 
-The effect is that registration fails and the PWA silently does nothing:
-`navigator.serviceWorker.register('/sw.js')` receives an HTML redirect with the
-wrong content type. Offline schedule reading — the field case ARCHITECTURE.md
-§5.5 is built around — does not work in a deployed build. It works in `vite
-dev`, which serves from disk on demand, which is why it survived to here.
+Verified against `node .output/server/index.mjs`: `/sw.js` returns `200` with
+`content-type: text/javascript; charset=utf-8`, a body byte-identical to the
+file on disk, and `304` for a conditional request carrying the etag.
 
-**This is confirmed only for the `node-server` preset.** Hosts that upload
-`.output/public` to a CDN fronting the server function — Vercel, Netlify — may
-serve the file before the request ever reaches the router. Verify with the
-`curl` check above on whichever host you pick rather than assuming either way.
+If a Nitro upgrade renames or restructures that virtual module, the build fails
+with a message pointing here rather than shipping an unreachable worker again.
+That is the failure to expect if `npm run build` starts complaining about the
+public asset manifest.
 
 ---
 
