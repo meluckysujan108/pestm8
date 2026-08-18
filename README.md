@@ -52,12 +52,18 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
+## Deploying
+
+The backend goes to Convex; the frontend needs an SSR host (Vercel, Netlify,
+Cloudflare, or a Node box) because the app builds a Nitro server and serves
+`/api/auth/*` itself. See [DEPLOYMENT.md](./DEPLOYMENT.md).
+
 ## Commands
 
-| Command | Does |
-|---|---|
-| `npm run dev` | Vite dev server on :3000 (needs `npx convex dev` alongside) |
-| `npm run build` | Production build |
-| `npm run generate-routes` | Regenerate `routeTree.gen.ts` after adding routes |
-| `npm run test:e2e` | Playwright access-control suite |
-| `npm run lint` / `npm run format` | ESLint + Prettier |
+| Command                           | Does                                                        |
+| --------------------------------- | ----------------------------------------------------------- |
+| `npm run dev`                     | Vite dev server on :3000 (needs `npx convex dev` alongside) |
+| `npm run build`                   | Production build                                            |
+| `npm run generate-routes`         | Regenerate `routeTree.gen.ts` after adding routes           |
+| `npm run test:e2e`                | Playwright access-control suite                             |
+| `npm run lint` / `npm run format` | ESLint + Prettier                                           |
