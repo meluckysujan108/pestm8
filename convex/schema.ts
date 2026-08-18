@@ -115,7 +115,10 @@ export default defineSchema({
     .index('by_business_date', ['businessId', 'scheduledAt'])
     .index('by_assignee_date', ['assignedMembershipId', 'scheduledAt'])
     .index('by_property', ['propertyId'])
-    .index('by_business_status', ['businessId', 'status']),
+    .index('by_business_status', ['businessId', 'status'])
+    // Materialising recurrences must be idempotent, which means asking "does
+    // this occurrence already exist" on every cron run.
+    .index('by_recurrence', ['recurrenceId']),
 
   recurrences: defineTable({
     businessId: v.id('businesses'),

@@ -1,11 +1,16 @@
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
-import { Check, Mail, Phone, X } from 'lucide-react'
+import { Check, Mail, Phone, Repeat, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { HoldButton } from '#/components/primitives/HoldButton'
 import { StatusPill } from '#/components/primitives/StatusPill'
-import { formatDuration, formatMoney, formatTime } from '#/lib/format'
+import {
+  REPEAT_LABELS,
+  formatDuration,
+  formatMoney,
+  formatTime,
+} from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 export function JobDetailSheet({
@@ -132,6 +137,23 @@ function JobDetailBody({
                   {formatMoney(job.price)}
                 </p>
               </Section>
+
+              {job.recurrence && (
+                <Section label="Recurrence">
+                  <div className="flex items-center gap-2">
+                    <Repeat size={16} strokeWidth={1.7} className="text-blue" />
+                    <p className="text-body text-ink">
+                      {REPEAT_LABELS[job.recurrence.frequency] ?? 'Repeats'}
+                    </p>
+                  </div>
+                  {/* Cancelling one visit is not the same as ending a contract,
+                      so the distinction is spelled out rather than implied. */}
+                  <p className="mt-1 text-caption text-muted">
+                    Future visits are booked automatically. Cancelling this one
+                    leaves the rest in place.
+                  </p>
+                </Section>
+              )}
 
               {/* Read access can be granted without edit rights, so the
                   actions are driven by the server's canEdit, not by role. */}

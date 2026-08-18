@@ -142,10 +142,18 @@ export const get = query({
 
     const property = await ctx.db.get(job.propertyId)
     const assignee = await ctx.db.get(job.assignedMembershipId)
+    const recurrence = job.recurrenceId
+      ? await ctx.db.get(job.recurrenceId)
+      : null
 
     return {
       ...job,
       property,
+      recurrence: recurrence && {
+        _id: recurrence._id,
+        frequency: recurrence.frequency,
+        active: recurrence.active,
+      },
       assignee: assignee && {
         _id: assignee._id,
         colour: assignee.colour,

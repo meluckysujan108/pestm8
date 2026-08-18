@@ -4,7 +4,8 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { JOB_TYPES } from '#/lib/format'
+import { JOB_TYPES, REPEAT_OPTIONS } from '#/lib/format'
+import type { RepeatValue } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 export function NewJobSheet({
@@ -67,6 +68,7 @@ function NewJobForm({
   const [time, setTime] = useState('09:00')
   const [price, setPrice] = useState('')
   const [duration, setDuration] = useState('60')
+  const [repeat, setRepeat] = useState<RepeatValue>('once')
 
   const [hydrated, setHydrated] = useState(false)
   useEffect(() => setHydrated(true), [])
@@ -80,6 +82,11 @@ function NewJobForm({
   }, [members, assignee])
 
   const convexCreate = useConvexMutation(api.jobs.create)
+  const convexCreateRecurrence = useConvexMutation(api.recurrences.create)
+
+  // A repeating booking is a recurrence, not a job: creating it materialises
+  // the first occurrence and every one after it, so the two paths are distinct
+  // rather than "a job plus some extra rows".
   const create = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
@@ -89,7 +96,24 @@ function NewJobForm({
       price: number
       scheduledAt: number
       durationMinutes: number
-    }) => convexCreate(args),
+      repeat: RepeatValue
+      // Returns a job id or a recurrence id depending on the branch, and the
+      // caller needs neither — void keeps them from being conflated.
+    }): Promise<void> => {
+      const { repeat: freq, ...job } = args
+      return freq === 'once'
+        ? convexCreate(job).then(() => undefined)
+        : convexCreateRecurrence({
+            businessId: job.businessId,
+            propertyId: job.propertyId,
+            assignedMembershipId: job.assignedMembershipId,
+            frequency: freq,
+            jobType: job.jobType,
+            price: job.price,
+            anchorDate: job.scheduledAt,
+            durationMinutes: job.durationMinutes,
+          }).then(() => undefined)
+    },
     onSuccess: onClose,
   })
 
@@ -125,6 +149,7 @@ function NewJobForm({
           price: Math.round(Number(price || '0') * 100),
           scheduledAt,
           durationMinutes: Number(duration),
+          repeat,
         })
       }}
     >
@@ -194,6 +219,20 @@ function NewJobForm({
           />
         </Field>
       </div>
+
+      <Field label="Repeat">
+        <select
+          value={repeat}
+          onChange={(e) => setRepeat(e.target.value as RepeatValue)}
+          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        >
+          {REPEAT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </Field>
 
       <Field label="Price (AUD)">
         <input

@@ -10,6 +10,7 @@
 
 import type * as auth from "../auth.js";
 import type * as businesses from "../businesses.js";
+import type * as crons from "../crons.js";
 import type * as dashboard from "../dashboard.js";
 import type * as http from "../http.js";
 import type * as jobs from "../jobs.js";
@@ -19,6 +20,7 @@ import type * as lib_dates from "../lib/dates.js";
 import type * as memberships from "../memberships.js";
 import type * as notes from "../notes.js";
 import type * as properties from "../properties.js";
+import type * as recurrences from "../recurrences.js";
 import type * as reports from "../reports.js";
 import type * as tasks from "../tasks.js";
 
@@ -31,6 +33,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   auth: typeof auth;
   businesses: typeof businesses;
+  crons: typeof crons;
   dashboard: typeof dashboard;
   http: typeof http;
   jobs: typeof jobs;
@@ -40,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   memberships: typeof memberships;
   notes: typeof notes;
   properties: typeof properties;
+  recurrences: typeof recurrences;
   reports: typeof reports;
   tasks: typeof tasks;
 }>;
