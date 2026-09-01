@@ -20,6 +20,8 @@ import {
   todayKey as todayKeyIn,
 } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
+import { MonthPickerSheet } from '#/components/schedule/MonthPickerSheet'
+import { useDayWeather } from '#/lib/useDayWeather'
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
@@ -41,6 +43,8 @@ function SchedulePage() {
   const navigate = useNavigate({ from: Route.fullPath })
   const [openJobId, setOpenJobId] = useState<string | null>(null)
   const [newJobOpen, setNewJobOpen] = useState(false)
+  const [monthOpen, setMonthOpen] = useState(false)
+  const [monthKey, setMonthKey] = useState<string | null>(null)
   // A button that opens a sheet does nothing before hydration, and does it
   // silently. Disabling until ready is honest and gives tests a real signal.
   const hydrated = useHydrated()
@@ -62,6 +66,18 @@ function SchedulePage() {
     }),
   )
 
+  const weekWeather = useDayWeather(
+    business._id,
+    business.state,
+    week
+      .filter((d) => d.suburb)
+      .map((d) => ({
+        dayKey: d.dayKey,
+        suburb: d.suburb,
+        postcode: d.postcode,
+      })),
+  )
+
   const setDay = (dayKey: string) =>
     navigate({ search: { date: dayKey }, replace: true })
 
@@ -69,6 +85,7 @@ function SchedulePage() {
     <>
       <PageHeader
         kicker={formatMonthLabel(selectedKey)}
+        onKickerClick={hydrated ? () => setMonthOpen(true) : undefined}
         title="Schedule"
         action={
           <button
@@ -114,6 +131,7 @@ function SchedulePage() {
           selectedKey={selectedKey}
           todayKey={today}
           load={week}
+          weather={weekWeather}
           onSelect={setDay}
         />
       </div>
@@ -163,6 +181,21 @@ function SchedulePage() {
         timezone={business.timezone}
         jobId={openJobId}
         onClose={() => setOpenJobId(null)}
+      />
+
+      <MonthPickerSheet
+        businessId={business._id}
+        state={business.state}
+        open={monthOpen}
+        monthKey={monthKey ?? selectedKey.slice(0, 7)}
+        selectedKey={selectedKey}
+        todayKey={today}
+        onSelect={(dayKey) => {
+          setDay(dayKey)
+          setMonthOpen(false)
+        }}
+        onMonthChange={setMonthKey}
+        onClose={() => setMonthOpen(false)}
       />
 
       <NewJobSheet

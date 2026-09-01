@@ -1,5 +1,8 @@
 import { WEEKDAY_INITIALS, addDaysToKey, dayKeyToDate } from '#/lib/format'
 
+import { WeatherGlyph } from './WeatherGlyph'
+import type { DayWeather } from '#/lib/useDayWeather'
+
 export type DayLoad = { offset: number; count: number; colours: Array<string> }
 
 /**
@@ -11,12 +14,14 @@ export function WeekStrip({
   selectedKey,
   todayKey,
   load,
+  weather,
   onSelect,
 }: {
   startKey: string
   selectedKey: string
   todayKey: string
   load: Array<DayLoad>
+  weather: Record<string, DayWeather>
   onSelect: (dayKey: string) => void
 }) {
   return (
@@ -60,6 +65,11 @@ export function WeekStrip({
                   style={{ backgroundColor: colour }}
                 />
               ))}
+            </span>
+            {/* Below the assignee dots so the two never compete: whose day it
+                is, then what the weather will do to it. */}
+            <span className="flex h-3.5 items-center">
+              <WeatherGlyph weather={weather[dayKey]} />
             </span>
           </button>
         )

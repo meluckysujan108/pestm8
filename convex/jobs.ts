@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { canEditJob, jobVisibility, requireMembership } from './lib/access'
-import { endOfDayInZone, startOfDayInZone } from './lib/dates'
+import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
 import { jobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
@@ -105,21 +105,86 @@ export const listWeek = query({
     }
 
     const dayMs = 24 * 60 * 60 * 1000
-    return Array.from({ length: 7 }, (_, i) => {
-      const dayFrom = from + i * dayMs
-      const inDay = jobs.filter(
-        (j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs,
-      )
-      return {
-        offset: i,
-        count: inDay.length,
-        colours: [
-          ...new Set(
-            inDay.map((j) => assignees.get(j.assignedMembershipId) ?? '#8E8E93'),
-          ),
-        ],
+    return Promise.all(
+      Array.from({ length: 7 }, async (_, i) => {
+        const dayFrom = from + i * dayMs
+        const inDay = jobs
+          .filter((j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs)
+          .sort((a, b) => a.scheduledAt - b.scheduledAt)
+
+        // The first job's suburb stands for the day's weather. A day spanning
+        // several suburbs has no single forecast, so the UI labels which one.
+        const property = inDay[0] ? await ctx.db.get(inDay[0].propertyId) : null
+
+        return {
+          offset: i,
+          dayKey: dayKeyOf(dayFrom, business.timezone),
+          count: inDay.length,
+          suburb: property?.suburb ?? '',
+          postcode: property?.postcode ?? '',
+          colours: [
+            ...new Set(
+              inDay.map(
+                (j) => assignees.get(j.assignedMembershipId) ?? '#8E8E93',
+              ),
+            ),
+          ],
+        }
+      }),
+    )
+  },
+})
+
+/**
+ * Per-day job counts for the month grid (§2.2), plus the suburb each day's
+ * first job sits in so the calendar can show weather where it is known.
+ */
+export const listMonth = query({
+  args: {
+    businessId: v.id('businesses'),
+    monthKey: v.string(), // "YYYY-MM"
+  },
+  handler: async (ctx, { businessId, monthKey }) => {
+    const membership = await requireMembership(ctx, businessId)
+    const business = await ctx.db.get(businessId)
+    if (!business) return []
+
+    const from = startOfDayInZone(`${monthKey}-01`, business.timezone)
+    const [year, month] = monthKey.split('-').map(Number)
+    const nextMonth =
+      month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+    const to = startOfDayInZone(nextMonth, business.timezone)
+
+    const jobs = await jobsInRange(ctx, membership, from, to)
+
+    const byDay = new Map<
+      string,
+      { count: number; colours: Set<string>; suburb: string; postcode: string }
+    >()
+
+    for (const job of jobs.sort((a, b) => a.scheduledAt - b.scheduledAt)) {
+      const dayKey = dayKeyOf(job.scheduledAt, business.timezone)
+      const assignee = await ctx.db.get(job.assignedMembershipId)
+      const property = await ctx.db.get(job.propertyId)
+
+      const entry = byDay.get(dayKey) ?? {
+        count: 0,
+        colours: new Set<string>(),
+        suburb: property?.suburb ?? '',
+        postcode: property?.postcode ?? '',
       }
-    })
+      entry.count += 1
+      entry.colours.add(assignee?.colour ?? '#8E8E93')
+      byDay.set(dayKey, entry)
+    }
+
+    return [...byDay.entries()].map(([dayKey, e]) => ({
+      dayKey,
+      count: e.count,
+      colours: [...e.colours],
+      suburb: e.suburb,
+      postcode: e.postcode,
+    }))
   },
 })
 

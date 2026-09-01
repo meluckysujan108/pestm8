@@ -11,6 +11,8 @@ import {
   formatMoney,
   formatTime,
 } from '#/lib/format'
+import { WeatherGlyph } from './WeatherGlyph'
+import { isWet, isWindy, useDayWeather } from '#/lib/useDayWeather'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 export function JobDetailSheet({
@@ -136,6 +138,16 @@ function JobDetailBody({
             <p className="text-metric-sm text-ink">{formatMoney(job.price)}</p>
           </Section>
 
+          {/* Weather for this property on this day, not the day in general —
+              two jobs on the same day can be in different suburbs. */}
+          <JobWeather
+            businessId={businessId}
+            state={job.property?.state ?? ''}
+            suburb={job.property?.suburb ?? ''}
+            postcode={job.property?.postcode ?? ''}
+            dayKey={dayKeyInZone(job.scheduledAt, timezone)}
+          />
+
           {job.recurrence && (
             <Section label="Recurrence">
               <div className="flex items-center gap-2">
@@ -194,6 +206,71 @@ function JobDetailBody({
         </div>
       )}
     </>
+  )
+}
+
+function dayKeyInZone(ts: number, timezone: string) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(ts))
+}
+
+function JobWeather({
+  businessId,
+  state,
+  suburb,
+  postcode,
+  dayKey,
+}: {
+  businessId: Id<'businesses'>
+  state: string
+  suburb: string
+  postcode: string
+  dayKey: string
+}) {
+  const weather = useDayWeather(
+    businessId,
+    state,
+    suburb ? [{ dayKey, suburb, postcode }] : [],
+  )
+  const day = weather[dayKey]
+
+  // Absent outside the forecast window, which is most of a year — showing an
+  // empty weather card for a job in March would read as "fine".
+  if (!day) return null
+
+  const wet = isWet(day)
+  const windy = isWindy(day)
+
+  return (
+    <Section label="Weather">
+      <div className="flex items-center gap-2.5">
+        <WeatherGlyph weather={day} size={18} />
+        <p className="text-body text-ink">
+          {day.suburb}
+          {day.maxTempC !== undefined && ` · ${Math.round(day.maxTempC)}°`}
+          {day.minTempC !== undefined && ` / ${Math.round(day.minTempC)}°`}
+          {day.rainMm !== undefined && ` · ${day.rainMm.toFixed(1)} mm`}
+          {day.windKmh !== undefined && ` · ${Math.round(day.windKmh)} km/h`}
+        </p>
+      </div>
+
+      {/* What it means for this job, not just what the numbers are. */}
+      {wet && (
+        <p className="mt-1.5 text-caption text-amber-ink">
+          Rain forecast — an external treatment applied on this visit may wash
+          off.
+        </p>
+      )}
+      {!wet && windy && (
+        <p className="mt-1.5 text-caption text-amber-ink">
+          Windy — expect spray drift on exposed applications.
+        </p>
+      )}
+    </Section>
   )
 }
 
