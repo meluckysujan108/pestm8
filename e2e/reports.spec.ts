@@ -271,7 +271,9 @@ test.describe('report document', () => {
     await expect(page.getByText('12 Wattle Street').first()).toBeVisible()
 
     // §6.5 counts a report as delivered only if it leaves the app, so the
-    // export is asserted as a real file rather than an enabled button.
+    // export is asserted as a real file rather than an enabled button. The
+    // download lives behind the action bar's "PDF" tab (Phase 6).
+    await page.getByRole('tab', { name: 'PDF' }).click()
     const downloadPromise = page.waitForEvent('download')
     await page.getByRole('button', { name: 'Download PDF' }).click()
     const download = await downloadPromise

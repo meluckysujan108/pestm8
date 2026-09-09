@@ -3,7 +3,9 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../../convex/_generated/api'
 import { ReportBuilder } from '#/components/reports/ReportBuilder'
-import { ReportDocument } from '#/components/reports/ReportDocument'
+import { ReportDocument, pdfFileName } from '#/components/reports/ReportDocument'
+import { ReportActionBar } from '#/components/reports/ReportActionBar'
+import { getTemplate } from '#/lib/reportTemplates'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
@@ -28,7 +30,21 @@ function ReportPage() {
   // One route, two faces: a draft is a form, a finalised report is a document.
   // The status is the single source of that truth, so a locked report has no
   // editable rendering to fall back to.
-  if (report.status === 'finalised' || !report.canEdit) {
+  if (report.status === 'finalised') {
+    const template = getTemplate(report.template)
+    return (
+      <ReportActionBar
+        businessId={business._id}
+        reportId={report._id}
+        pdfUrl={report.pdfUrl ?? null}
+        fileName={pdfFileName(template.shortName, report.property?.addressLine)}
+      >
+        <ReportDocument report={report} businessId={business._id} />
+      </ReportActionBar>
+    )
+  }
+
+  if (!report.canEdit) {
     return <ReportDocument report={report} businessId={business._id} />
   }
 

@@ -5,6 +5,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { TeamSection } from '#/components/settings/TeamSection'
 import { ProfileSection } from '#/components/settings/ProfileSection'
 import { PrefsSection } from '#/components/settings/PrefsSection'
+import { BrandingSection } from '#/components/settings/BrandingSection'
 
 const SEGMENTS = [
   { value: 'profile' as const, label: 'Profile' },
@@ -58,7 +59,16 @@ function SettingsPage() {
         {active === 'team' && membership.role === 'owner' && (
           <TeamSection businessId={business._id} />
         )}
-        {active === 'prefs' && <PrefsSection business={business} />}
+        {active === 'prefs' && (
+          <>
+            <PrefsSection business={business} />
+            {membership.role === 'owner' && (
+              <div className="mt-6">
+                <BrandingSection businessId={business._id} business={business} />
+              </div>
+            )}
+          </>
+        )}
       </div>
     </>
   )

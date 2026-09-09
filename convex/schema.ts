@@ -46,6 +46,15 @@ export default defineSchema({
     subscriptionStatus: v.optional(v.string()),
     plan: v.optional(v.string()),
     createdAt: v.number(),
+    // Printed on the report PDF header/cover — distinct from a member's own
+    // `memberships.licenceNumber`, which is the technician's personal licence.
+    logoStorageId: v.optional(v.id('_storage')),
+    addressLine: v.optional(v.string()),
+    suburb: v.optional(v.string()),
+    postcode: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    licenceNumber: v.optional(v.string()),
   }).index('by_slug', ['slug']),
 
   memberships: defineTable({
@@ -231,5 +240,7 @@ export default defineSchema({
     entityId: v.string(),
     meta: v.optional(v.any()),
     at: v.number(),
-  }).index('by_business', ['businessId']),
+  })
+    .index('by_business', ['businessId'])
+    .index('by_entity', ['entityType', 'entityId']),
 })

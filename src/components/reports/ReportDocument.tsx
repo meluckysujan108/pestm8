@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Lock } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { DownloadPdfButton } from './DownloadPdfButton'
 import { BoilerplateBlock } from './BoilerplateBlock'
 import { DurableNoticePreview } from './DurableNoticePreview'
 import {
@@ -18,7 +17,7 @@ import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 type ReportDoc = {
-  _id: string
+  _id: Id<'reports'>
   template: string
   legalBasis: string
   status: string
@@ -33,6 +32,7 @@ type ReportDoc = {
     postcode: string
   } | null
   author?: { licenceNumber?: string } | null
+  pdfUrl?: string | null
 }
 
 /** The rendered document a client actually receives. */
@@ -139,26 +139,6 @@ export function ReportDocument({
       {noticeText && <DurableNoticePreview text={noticeText} />}
 
       <BoilerplateBlock text={template.boilerplate} />
-
-      {/* Export only from a locked document: a PDF of a draft would circulate
-          as though it were the finished record. */}
-      {finalised && (
-        <DownloadPdfButton
-          fileName={pdfFileName(
-            template.shortName,
-            report.property?.addressLine,
-          )}
-          report={{
-            template: report.template,
-            legalBasis: report.legalBasis,
-            finalisedAt: report.finalisedAt,
-            data,
-            businessName: report.businessName,
-            property: report.property,
-            licenceNumber: report.author?.licenceNumber,
-          }}
-        />
-      )}
 
       {finalised && report.finalisedAt && (
         <p className="mt-4 text-caption text-muted">
@@ -292,7 +272,7 @@ function ReportGallery({
 }
 
 /** Named so a client can tell two reports apart in their downloads folder. */
-function pdfFileName(shortName: string, addressLine?: string): string {
+export function pdfFileName(shortName: string, addressLine?: string): string {
   const place = (addressLine ?? 'report')
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')

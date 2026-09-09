@@ -1,5 +1,5 @@
 import { ConvexError, v } from 'convex/values'
-import { mutation, query } from './_generated/server'
+import { internalMutation, mutation, query } from './_generated/server'
 import { jobVisibility, requireMembership } from './lib/access'
 import { reportTemplate } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
@@ -115,20 +115,43 @@ export const get = query({
     const property = await ctx.db.get(report.propertyId)
     const author = await ctx.db.get(report.authorMembershipId)
     const business = await ctx.db.get(businessId)
+    const logoUrl = business?.logoStorageId
+      ? await ctx.storage.getUrl(business.logoStorageId)
+      : null
+    const pdfUrl = report.pdfStorageId
+      ? await ctx.storage.getUrl(report.pdfStorageId)
+      : null
 
     return {
       ...report,
       property,
+      // A finalised report's data never changes, so once generated this is
+      // permanently valid — `reportPdf.generate` is the cache-fill path.
+      pdfUrl,
       author: author && {
         _id: author._id,
         licenceNumber: author.licenceNumber,
         colour: author.colour,
       },
       businessName: business?.name ?? '',
+      business: business && {
+        name: business.name,
+        logoUrl,
+        addressLine: business.addressLine,
+        suburb: business.suburb,
+        postcode: business.postcode,
+        phone: business.phone,
+        email: business.email,
+        licenceNumber: business.licenceNumber,
+      },
       // A finalised report is immutable; only its author may edit a draft.
       canEdit:
         report.status === 'draft' &&
         report.authorMembershipId === membership._id,
+      // The caller's own membership — `reportPdf`/`email` actions need this
+      // to attribute an audit-log entry, and can't call `requireMembership`
+      // themselves (actions have no `ctx.db`).
+      callerMembershipId: membership._id,
     }
   },
 })
@@ -518,5 +541,17 @@ export const finalise = mutation({
     })
 
     return reportId
+  },
+})
+
+/**
+ * Not exposed to clients — only `reportPdf.generate` calls this, after it has
+ * already gone through `reports.get`'s own membership/visibility check to
+ * fetch the data it rendered from.
+ */
+export const setPdfStorageId = internalMutation({
+  args: { reportId: v.id('reports'), storageId: v.id('_storage') },
+  handler: async (ctx, { reportId, storageId }) => {
+    await ctx.db.patch(reportId, { pdfStorageId: storageId })
   },
 })

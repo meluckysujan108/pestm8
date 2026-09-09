@@ -1,40 +1,59 @@
 import { useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
+import { useConvexAction } from '@convex-dev/react-query'
 import { Download } from 'lucide-react'
-import type { PdfReport } from './pdf/ReportPdf'
+import { api } from '../../../convex/_generated/api'
+import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
- * @react-pdf/renderer is a large dependency and only matters at the moment
- * someone actually exports, so it is imported on click rather than shipped in
- * the bundle every field tech loads on mobile data.
+ * PDF generation moved server-side (Phase 5) — `@react-pdf/renderer` runs
+ * inside a Convex Node action now, which is what makes a fixed header/footer
+ * and real `Page X of Y` numbers possible at all (see `layout.tsx`; both
+ * silently render as nothing in the browser build this button used to import
+ * on click). A finalised report's data never changes, so the action's output
+ * is cached on `reports.pdfStorageId` — `pdfUrl` is null only the first time
+ * anyone downloads a given report.
  */
 export function DownloadPdfButton({
-  report,
+  businessId,
+  reportId,
+  pdfUrl,
   fileName,
 }: {
-  report: PdfReport
+  businessId: Id<'businesses'>
+  reportId: Id<'reports'>
+  pdfUrl: string | null
   fileName: string
 }) {
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
 
+  const convexGenerate = useConvexAction(api.reportPdf.generate)
+  const generate = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      reportId: Id<'reports'>
+    }) => convexGenerate(args),
+  })
+
   async function onDownload() {
     setBusy(true)
     setFailed(false)
     try {
-      const [{ pdf }, { ReportPdf }] = await Promise.all([
-        import('@react-pdf/renderer'),
-        import('./pdf/ReportPdf'),
-      ])
+      const url = pdfUrl ?? (await generate.mutateAsync({ businessId, reportId })).url
+      if (!url) throw new Error('no pdf url')
 
-      const blob = await pdf(<ReportPdf report={report} />).toBlob()
-      const url = URL.createObjectURL(blob)
+      const res = await fetch(url)
+      if (!res.ok) throw new Error('fetch failed')
+      const blob = await res.blob()
+      const objectUrl = URL.createObjectURL(blob)
 
       const link = document.createElement('a')
-      link.href = url
+      link.href = objectUrl
       link.download = fileName
       link.click()
 
-      URL.revokeObjectURL(url)
+      URL.revokeObjectURL(objectUrl)
     } catch {
       setFailed(true)
     } finally {

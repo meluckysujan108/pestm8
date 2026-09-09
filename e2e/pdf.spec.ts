@@ -84,6 +84,10 @@ test('an exported inspection PDF carries its findings and scope limits', async (
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
 
+  // The download lives behind the action bar's "PDF" tab (Phase 6), not on
+  // the document itself.
+  await page.getByRole('tab', { name: 'PDF' }).click()
+
   const downloadPromise = page.waitForEvent('download')
   await page.getByRole('button', { name: 'Download PDF' }).click()
   const download = await downloadPromise
@@ -109,10 +113,12 @@ test('an exported inspection PDF carries its findings and scope limits', async (
   expect(text).toContain('NOT a structural inspection')
 
   // Provenance footer — this went missing silently once already, because the
-  // absolute/`fixed` footer pattern renders under Node but not in the browser
-  // build the export actually runs in.
+  // absolute/`fixed` footer pattern only renders under Node. Generation moved
+  // server-side in Phase 5 specifically to make this possible at all.
   expect(text).toContain('Bayside Pest Control · Timber Pest Inspection')
   expect(text).toMatch(/Finalised \d{1,2}\/\d{1,2}\/\d{4}/)
+  // Real page numbers, likewise impossible before the server-side move.
+  expect(text).toMatch(/Page \d+ of \d+/)
 
   // Areas print in the template's declared order, not storage order: Convex
   // returns object keys sorted, which listed them alphabetically.
