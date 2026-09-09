@@ -203,6 +203,26 @@ export default defineSchema({
     fetchedAt: v.number(),
   }).index('by_suburb_day', ['suburbKey', 'dayKey']),
 
+  /**
+   * The `gallery` field kind's photos — as many per field as the technician
+   * takes, unlike the fixed-slot `photos` kind's one-per-named-slot. A row per
+   * table rather than an array on `reports`, per the guideline against
+   * unbounded arrays inside a document: `reports.photoIds` is already one, and
+   * a phone taking a dozen inspection photos would make this one worse.
+   */
+  reportPhotos: defineTable({
+    reportId: v.id('reports'),
+    // A report can have more than one `gallery` field (a cover photo and a
+    // general photo set, say), so rows are scoped to their field, not just
+    // their report.
+    fieldKey: v.string(),
+    storageId: v.id('_storage'),
+    caption: v.optional(v.string()),
+    order: v.number(),
+    isCover: v.boolean(),
+    createdAt: v.number(),
+  }).index('by_report_field', ['reportId', 'fieldKey']),
+
   auditLog: defineTable({
     businessId: v.id('businesses'),
     actorMembershipId: v.id('memberships'),

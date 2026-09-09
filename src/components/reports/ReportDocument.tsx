@@ -7,6 +7,7 @@ import { BoilerplateBlock } from './BoilerplateBlock'
 import { DurableNoticePreview } from './DurableNoticePreview'
 import {
   durableNoticeText,
+  fieldsOf,
   getTemplate,
   sectionsOf,
 } from '#/lib/reportTemplates'
@@ -129,6 +130,11 @@ export function ReportDocument({
       ))}
 
       <ReportPhotos businessId={businessId} reportId={report._id} />
+      <ReportGallery
+        businessId={businessId}
+        reportId={report._id}
+        template={template}
+      />
 
       {noticeText && <DurableNoticePreview text={noticeText} />}
 
@@ -206,6 +212,82 @@ function ReportPhotos({
         ))}
       </div>
     </section>
+  )
+}
+
+/**
+ * `gallery` fields, grouped and labelled by which field they belong to — a
+ * report can have more than one (a cover photo and a general set), and a
+ * client reading the finished document needs to know which is which.
+ */
+function ReportGallery({
+  businessId,
+  reportId,
+  template,
+}: {
+  businessId: Id<'businesses'>
+  reportId: string
+  template: ReturnType<typeof getTemplate>
+}) {
+  const { data } = useQuery(
+    convexQuery(api.reports.galleryPhotos, {
+      businessId,
+      reportId: reportId as Id<'reports'>,
+    }),
+  )
+
+  const photos = data ?? []
+  if (photos.length === 0) return null
+
+  const labelFor = new Map(
+    fieldsOf(template)
+      .filter((field) => field.kind === 'gallery')
+      .map((field) => [field.key, field.label] as const),
+  )
+
+  const byField = new Map<string, typeof photos>()
+  for (const photo of photos) {
+    const group = byField.get(photo.fieldKey) ?? []
+    group.push(photo)
+    byField.set(photo.fieldKey, group)
+  }
+
+  return (
+    <>
+      {[...byField.entries()].map(([fieldKey, group]) => (
+        <section key={fieldKey} className="mt-6">
+          <h2 className="section-label mb-2">
+            {labelFor.get(fieldKey) ?? 'Photos'}
+          </h2>
+          <div className="grid grid-cols-2 gap-2">
+            {group.map((photo) => (
+              <figure
+                key={photo._id}
+                className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation"
+              >
+                {photo.url && (
+                  <img
+                    src={photo.url}
+                    alt={photo.caption || labelFor.get(fieldKey) || 'Photo'}
+                    className="h-32 w-full object-cover"
+                  />
+                )}
+                {(photo.caption || photo.isCover) && (
+                  <figcaption className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-caption text-muted">
+                    <span className="truncate">{photo.caption}</span>
+                    {photo.isCover && (
+                      <span className="shrink-0 font-semibold text-amber-ink">
+                        Cover
+                      </span>
+                    )}
+                  </figcaption>
+                )}
+              </figure>
+            ))}
+          </div>
+        </section>
+      ))}
+    </>
   )
 }
 

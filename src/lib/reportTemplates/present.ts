@@ -67,8 +67,12 @@ function formatTime(value: string): string {
 export function present(field: FieldDef, value: unknown): Presented {
   // Photos are evidence with their own gallery section, never a row in the
   // field table. This replaces a `.filter(f => f.kind !== 'photos')` that both
-  // surfaces had to remember to apply.
-  if (field.kind === 'photos') return { kind: 'omit' }
+  // surfaces had to remember to apply. `gallery` never stores a value in
+  // `data` at all, so it must be caught here too, before the blank check below
+  // would otherwise treat it as an unanswered field.
+  if (field.kind === 'photos' || field.kind === 'gallery') {
+    return { kind: 'omit' }
+  }
 
   if (isBlank(value)) return { kind: 'blank' }
 

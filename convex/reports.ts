@@ -210,6 +210,186 @@ export const signatureUrls = query({
   },
 })
 
+/**
+ * Adds one photo to a `gallery` field. Unlike `attachPhoto`'s named slots, a
+ * gallery has no fixed shape — `order` is simply "however many are already
+ * there", so a newly taken photo lands at the end of the set.
+ */
+export const addGalleryPhoto = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    fieldKey: v.string(),
+    storageId: v.id('_storage'),
+    caption: v.optional(v.string()),
+  },
+  handler: async (ctx, { businessId, reportId, fieldKey, storageId, caption }) => {
+    await requireEditableReport(ctx, businessId, reportId)
+
+    const existing = await ctx.db
+      .query('reportPhotos')
+      .withIndex('by_report_field', (q) =>
+        q.eq('reportId', reportId).eq('fieldKey', fieldKey),
+      )
+      .collect()
+
+    await ctx.db.insert('reportPhotos', {
+      reportId,
+      fieldKey,
+      storageId,
+      caption,
+      order: existing.length,
+      // Never automatic: "the cover photo" is a claim about which image
+      // represents the report, and that is the technician's call to make, the
+      // same reasoning that keeps GPS capture behind an explicit tap.
+      isCover: false,
+      createdAt: Date.now(),
+    })
+  },
+})
+
+/** Fetches and checks one gallery photo, or throws — every mutation below needs this. */
+async function requireGalleryPhoto(
+  ctx: MutationCtx,
+  reportId: Id<'reports'>,
+  photoId: Id<'reportPhotos'>,
+) {
+  const photo = await ctx.db.get(photoId)
+  if (!photo || photo.reportId !== reportId) throw new ConvexError('NOT_FOUND')
+  return photo
+}
+
+/**
+ * A gallery's cover is exclusive — one photo represents the report, not a set
+ * — so setting it here also clears any previous cover in the same field.
+ */
+export const setGalleryCover = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    photoId: v.id('reportPhotos'),
+  },
+  handler: async (ctx, { businessId, reportId, photoId }) => {
+    await requireEditableReport(ctx, businessId, reportId)
+    const photo = await requireGalleryPhoto(ctx, reportId, photoId)
+
+    const siblings = await ctx.db
+      .query('reportPhotos')
+      .withIndex('by_report_field', (q) =>
+        q.eq('reportId', reportId).eq('fieldKey', photo.fieldKey),
+      )
+      .collect()
+
+    await Promise.all(
+      siblings
+        .filter((sibling) => sibling.isCover && sibling._id !== photoId)
+        .map((sibling) => ctx.db.patch(sibling._id, { isCover: false })),
+    )
+    await ctx.db.patch(photoId, { isCover: true })
+  },
+})
+
+export const updateGalleryCaption = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    photoId: v.id('reportPhotos'),
+    caption: v.string(),
+  },
+  handler: async (ctx, { businessId, reportId, photoId, caption }) => {
+    await requireEditableReport(ctx, businessId, reportId)
+    await requireGalleryPhoto(ctx, reportId, photoId)
+    await ctx.db.patch(photoId, { caption })
+  },
+})
+
+/**
+ * Swaps this photo's position with its neighbour. A full reordered array from
+ * the client would let a stale draft silently undo someone else's delete;
+ * a single swap is small enough to reason about as its own edit.
+ */
+export const moveGalleryPhoto = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    photoId: v.id('reportPhotos'),
+    direction: v.union(v.literal('up'), v.literal('down')),
+  },
+  handler: async (ctx, { businessId, reportId, photoId, direction }) => {
+    await requireEditableReport(ctx, businessId, reportId)
+    const photo = await requireGalleryPhoto(ctx, reportId, photoId)
+
+    const siblings = await ctx.db
+      .query('reportPhotos')
+      .withIndex('by_report_field', (q) =>
+        q.eq('reportId', reportId).eq('fieldKey', photo.fieldKey),
+      )
+      .collect()
+    siblings.sort((a, b) => a.order - b.order)
+
+    const index = siblings.findIndex((s) => s._id === photoId)
+    const neighbourIndex = direction === 'up' ? index - 1 : index + 1
+    // Already at the end of its row — nothing to swap with. Checked by bounds,
+    // not by the result of indexing: without `noUncheckedIndexedAccess`, an
+    // out-of-range `siblings[neighbourIndex]` still types as defined, so a
+    // falsy-check here would be silently wrong rather than merely undesired.
+    if (neighbourIndex < 0 || neighbourIndex >= siblings.length) return
+    const neighbour = siblings[neighbourIndex]
+
+    await ctx.db.patch(photo._id, { order: neighbour.order })
+    await ctx.db.patch(neighbour._id, { order: photo.order })
+  },
+})
+
+export const removeGalleryPhoto = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    photoId: v.id('reportPhotos'),
+  },
+  handler: async (ctx, { businessId, reportId, photoId }) => {
+    await requireEditableReport(ctx, businessId, reportId)
+    await requireGalleryPhoto(ctx, reportId, photoId)
+    await ctx.db.delete(photoId)
+  },
+})
+
+/**
+ * Every gallery photo on the report, across every `gallery` field it has.
+ * One query rather than one per field, matching `photoUrls`/`signatureUrls` —
+ * the component for a given field filters to its own `fieldKey`.
+ */
+export const galleryPhotos = query({
+  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
+  handler: async (ctx, { businessId, reportId }) => {
+    const membership = await requireMembership(ctx, businessId)
+
+    const report = await ctx.db.get(reportId)
+    if (!report || report.businessId !== businessId) return []
+    if (!canSeeReport(membership, report)) return []
+
+    const photos = await ctx.db
+      .query('reportPhotos')
+      .withIndex('by_report_field', (q) => q.eq('reportId', reportId))
+      .collect()
+
+    const withUrls = await Promise.all(
+      photos.map(async (photo) => ({
+        _id: photo._id,
+        fieldKey: photo.fieldKey,
+        caption: photo.caption,
+        order: photo.order,
+        isCover: photo.isCover,
+        url: await ctx.storage.getUrl(photo.storageId),
+      })),
+    )
+
+    return withUrls
+      .filter((photo) => photo.url !== null)
+      .sort((a, b) => a.order - b.order)
+  },
+})
+
 /** Signed URLs for display; storage ids are useless to the client on their own. */
 export const photoUrls = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },

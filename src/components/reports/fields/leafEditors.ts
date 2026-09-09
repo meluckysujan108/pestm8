@@ -14,6 +14,7 @@ import {
   TimeControl,
   ToggleControl,
 } from './controls'
+import { GalleryControl } from './PhotoGallery'
 import { emptyAreas } from '#/lib/reportTemplates'
 import type { FieldDef, FieldKind } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -119,4 +120,6 @@ export const LEAF_EDITORS: {
   // The drawn image lives in storage; `data` holds only `{ signedAt }`, and an
   // unsigned field holds nothing at all.
   signature: { group: true, seed: () => undefined, Control: SignatureControl },
+  // Like photos: attaches straight to `reportPhotos`, never `data`.
+  gallery: { group: true, seed: () => undefined, Control: GalleryControl },
 }

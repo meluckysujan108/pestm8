@@ -94,6 +94,14 @@ export type FieldDef =
       min?: number
       max?: number
     })
+  /**
+   * As many photos as the technician takes, not a fixed set of named slots —
+   * the difference from `photos`. Each carries its own caption, a manual
+   * order, and at most one may be flagged as the cover. Backed by its own
+   * table (`reportPhotos`), never `data`, for the same reason as `photos` and
+   * `signature`: autosave replaces `data` wholesale every ~1.2s.
+   */
+  | (BaseField & { kind: 'gallery'; maxPhotos?: number; addLabel?: string })
 
 /**
  * What may sit in a repeater cell: leaves only. No photos, signatures or GPS,

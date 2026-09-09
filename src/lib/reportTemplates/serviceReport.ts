@@ -130,10 +130,14 @@ export const serviceReport: ReportTemplate = {
         },
         { kind: 'gps', key: 'location', label: 'Site location' },
         {
-          kind: 'photos',
+          kind: 'gallery',
           key: 'coverPhoto',
           label: 'Front page photo',
-          slots: ['Front page'],
+          // The Formitize original is explicit: "1 Photo only, take in
+          // Landscape." One photo has no need for a cover toggle among
+          // multiple — `GalleryControl` already hides that control at
+          // maxPhotos: 1.
+          maxPhotos: 1,
         },
       ],
     },
@@ -257,10 +261,10 @@ export const serviceReport: ReportTemplate = {
           options: asOptions(NEXT_VISIT),
         },
         {
-          kind: 'photos',
+          kind: 'gallery',
           key: 'photos',
           label: 'Report photos',
-          slots: ['Treatment 1', 'Treatment 2', 'Other'],
+          addLabel: 'Add report photos',
         },
         {
           kind: 'signature',
