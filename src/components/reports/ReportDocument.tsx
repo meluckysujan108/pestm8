@@ -5,8 +5,15 @@ import { api } from '../../../convex/_generated/api'
 import { DownloadPdfButton } from './DownloadPdfButton'
 import { BoilerplateBlock } from './BoilerplateBlock'
 import { DurableNoticePreview } from './DurableNoticePreview'
-import { durableNoticeText, getTemplate } from '#/lib/reportTemplates'
-import type { AreaResult, FieldDef, TemplateId } from '#/lib/reportTemplates'
+import {
+  durableNoticeText,
+  getTemplate,
+  sectionsOf,
+} from '#/lib/reportTemplates'
+import { present } from '#/lib/reportTemplates/present'
+import { visibleSections } from '#/lib/reportTemplates/visibility'
+import type { Presented } from '#/lib/reportTemplates/present'
+import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 type ReportDoc = {
@@ -90,21 +97,36 @@ export function ReportDocument({
         </section>
       )}
 
-      <section className="mt-6">
-        <h2 className="section-label mb-2">Details</h2>
-        <dl className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
-          {template.fields
-            .filter((f) => f.kind !== 'photos')
-            .map((field) => (
-              <div key={field.key} className="px-3.5 py-3">
-                <dt className="section-label">{field.label}</dt>
-                <dd className="mt-1 text-body text-ink">
-                  <FieldValue field={field} value={data[field.key]} />
-                </dd>
-              </div>
-            ))}
-        </dl>
-      </section>
+      {visibleSections(sectionsOf(template), data).map((section) => (
+        <section key={section.title} className="mt-6">
+          <h2 className="section-label mb-2">
+            {section.number ? `${section.number}. ` : ''}
+            {section.title}
+          </h2>
+          {section.preamble && (
+            <p className="mb-2 text-caption text-muted">{section.preamble}</p>
+          )}
+          <dl className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
+            {section.fields
+              .map((field) => ({
+                field,
+                shown: present(field, data[field.key]),
+              }))
+              // `omit` covers the kinds that belong to another section — photos
+              // have their own gallery below, and a bare labelled row here would
+              // read as a field the technician forgot to fill in.
+              .filter(({ shown }) => shown.kind !== 'omit')
+              .map(({ field, shown }) => (
+                <div key={field.key} className="px-3.5 py-3">
+                  <dt className="section-label">{field.label}</dt>
+                  <dd className="mt-1 text-body text-ink">
+                    <FieldValue shown={shown} />
+                  </dd>
+                </div>
+              ))}
+          </dl>
+        </section>
+      ))}
 
       <ReportPhotos businessId={businessId} reportId={report._id} />
 
@@ -196,54 +218,78 @@ function pdfFileName(shortName: string, addressLine?: string): string {
   return `${shortName.toLowerCase()}-${place}.pdf`
 }
 
-function FieldValue({ field, value }: { field: FieldDef; value: unknown }) {
-  if (value === undefined || value === '' || value === null) {
-    return <span className="text-muted">—</span>
-  }
+/**
+ * Paints what `present()` decided. It knows the four shapes a value can take,
+ * never the field kinds behind them — so a new kind reaches the document
+ * without this component changing.
+ */
+function FieldValue({ shown }: { shown: Presented }) {
+  switch (shown.kind) {
+    case 'omit':
+      return null
 
-  // Stored values are codes; the document must read as prose. "chemical" and
-  // "12" mean nothing to a client or an inspector — "Chemical soil barrier"
-  // and "12 months" are the actual content of the certificate.
-  if (field.kind === 'select') {
-    const option = field.options.find((o) => o.value === String(value))
-    return <span>{option?.label ?? String(value)}</span>
-  }
+    case 'blank':
+      return <span className="text-muted">—</span>
 
-  if (field.kind === 'chips' && Array.isArray(value)) {
-    const labels = value.map(
-      (v) => field.options.find((o) => o.value === v)?.label ?? String(v),
-    )
-    return <span>{labels.join(', ')}</span>
-  }
-
-  if (field.kind === 'areas' && typeof value === 'object') {
-    const areas = value as Record<string, AreaResult>
-    return (
-      <span className="flex flex-col gap-1">
-        {/* Template order, not storage order — Convex returns object keys
-            sorted, which would list the areas alphabetically. */}
-        {field.rows.map((row) => {
-          const result = areas[row] ?? { status: 'inspected' as const }
-          return (
-            <span key={row} className="flex justify-between gap-3">
-              <span>{row}</span>
+    case 'pairs':
+      return (
+        <span className="flex flex-col gap-1">
+          {shown.pairs.map((pair) => (
+            <span key={pair.label} className="flex justify-between gap-3">
+              <span>{pair.label}</span>
               <span
                 className={
-                  result.status === 'inspected'
-                    ? 'text-ink-2'
-                    : 'text-amber-ink'
+                  pair.tone === 'warn' ? 'text-amber-ink' : 'text-ink-2'
                 }
               >
-                {result.status === 'inspected'
-                  ? 'Inspected'
-                  : `No access — ${result.reason}`}
+                {pair.value}
               </span>
             </span>
-          )
-        })}
-      </span>
-    )
-  }
+          ))}
+        </span>
+      )
 
-  return <span className="whitespace-pre-wrap">{String(value)}</span>
+    case 'grid':
+      return (
+        <span className="-mx-1 block overflow-x-auto">
+          <table className="w-full text-left text-caption">
+            <thead>
+              <tr className="border-b border-hairline">
+                {shown.columns.map((column) => (
+                  <th key={column} className="px-1 pb-1 font-semibold text-muted">
+                    {column}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {shown.rows.map((row, i) => (
+                <tr key={i} className="border-b border-hairline-2 last:border-0">
+                  {row.map((cell, j) => (
+                    <td key={j} className="px-1 py-1.5 align-top text-ink-2">
+                      {cell}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </span>
+      )
+
+    case 'text':
+      return (
+        <span className={shown.preserveWhitespace ? 'whitespace-pre-wrap' : ''}>
+          {shown.text}
+        </span>
+      )
+
+    default: {
+      // Without this, a new `Presented` variant renders as nothing at all —
+      // silently dropping a field off a signed document. Fail at build instead.
+      const _exhaustive: never = shown
+      void _exhaustive
+      return null
+    }
+  }
 }

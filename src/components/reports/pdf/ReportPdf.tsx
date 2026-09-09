@@ -1,6 +1,13 @@
 import { Document, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
-import { durableNoticeText, getTemplate } from '#/lib/reportTemplates'
-import type { AreaResult, FieldDef, TemplateId } from '#/lib/reportTemplates'
+import {
+  durableNoticeText,
+  getTemplate,
+  sectionsOf,
+} from '#/lib/reportTemplates'
+import { present } from '#/lib/reportTemplates/present'
+import { visibleSections } from '#/lib/reportTemplates/visibility'
+import type { Presented } from '#/lib/reportTemplates/present'
+import type { FieldDef, TemplateId } from '#/lib/reportTemplates'
 
 export type PdfReport = {
   template: string
@@ -60,6 +67,19 @@ const styles = StyleSheet.create({
   key: { width: '38%', color: '#8E8E93' },
   value: { width: '62%' },
   areaRow: { flexDirection: 'row', paddingVertical: 2 },
+  gridHead: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+    borderBottomColor: '#E5E5EA',
+    paddingBottom: 3,
+  },
+  gridRow: {
+    flexDirection: 'row',
+    paddingVertical: 3,
+    borderBottomWidth: 1,
+    borderBottomColor: '#F2F2F7',
+  },
+  gridCell: { flex: 1, paddingRight: 6, fontSize: 8.5 },
   noAccess: { color: '#B26B00' },
   mono: {
     fontFamily: 'Courier',
@@ -128,12 +148,26 @@ export function ReportPdf({ report }: { report: PdfReport }) {
           </>
         )}
 
-        <Text style={styles.sectionLabel}>DETAILS</Text>
-        {template.fields
-          .filter((f) => f.kind !== 'photos')
-          .map((field) => (
-            <FieldRow key={field.key} field={field} value={data[field.key]} />
-          ))}
+        {visibleSections(sectionsOf(template), data).map((section) => (
+          <View key={section.title}>
+            <Text style={styles.sectionLabel}>
+              {section.number ? `${section.number}. ` : ''}
+              {section.title.toUpperCase()}
+            </Text>
+            {section.preamble && (
+              <Text style={styles.boilerplate}>{section.preamble}</Text>
+            )}
+            {section.fields
+              .map((field) => ({
+                field,
+                shown: present(field, data[field.key]),
+              }))
+              .filter(({ shown }) => shown.kind !== 'omit')
+              .map(({ field, shown }) => (
+                <FieldRow key={field.key} field={field} shown={shown} />
+              ))}
+          </View>
+        ))}
 
         {noticeText && (
           <>
@@ -173,33 +207,55 @@ export function ReportPdf({ report }: { report: PdfReport }) {
   )
 }
 
-function FieldRow({ field, value }: { field: FieldDef; value: unknown }) {
-  if (field.kind === 'areas' && value && typeof value === 'object') {
-    const areas = value as Record<string, AreaResult>
+/**
+ * Paints what `present()` decided, in @react-pdf primitives. The label-vs-code
+ * rules live in that shared module so this file and the on-screen document
+ * cannot disagree about what a finished report says.
+ */
+function FieldRow({ field, shown }: { field: FieldDef; shown: Presented }) {
+  if (shown.kind === 'omit') return null
+
+  if (shown.kind === 'pairs') {
     return (
       <View wrap={false}>
         <Text style={{ marginTop: 8, marginBottom: 2 }}>{field.label}</Text>
-        {/* Order comes from the template, not from storage. Convex returns
-            object keys sorted, which would print the areas alphabetically
-            instead of in the sequence a technician actually works through. */}
-        {field.rows.map((row) => {
-          const result = areas[row] ?? { status: 'inspected' }
-          return (
-            <View key={row} style={styles.areaRow}>
-              <Text style={styles.key}>{row}</Text>
-              <Text
-                style={[
-                  styles.value,
-                  ...(result.status === 'noAccess' ? [styles.noAccess] : []),
-                ]}
-              >
-                {result.status === 'inspected'
-                  ? 'Inspected'
-                  : `No access — ${result.reason ?? ''}`}
+        {shown.pairs.map((pair) => (
+          <View key={pair.label} style={styles.areaRow}>
+            <Text style={styles.key}>{pair.label}</Text>
+            <Text
+              style={[
+                styles.value,
+                ...(pair.tone === 'warn' ? [styles.noAccess] : []),
+              ]}
+            >
+              {pair.value}
+            </Text>
+          </View>
+        ))}
+      </View>
+    )
+  }
+
+  if (shown.kind === 'grid') {
+    return (
+      <View wrap={false}>
+        <Text style={{ marginTop: 8, marginBottom: 2 }}>{field.label}</Text>
+        <View style={styles.gridHead}>
+          {shown.columns.map((column) => (
+            <Text key={column} style={styles.gridCell}>
+              {column}
+            </Text>
+          ))}
+        </View>
+        {shown.rows.map((row, i) => (
+          <View key={i} style={styles.gridRow}>
+            {row.map((cell, j) => (
+              <Text key={j} style={styles.gridCell}>
+                {cell}
               </Text>
-            </View>
-          )
-        })}
+            ))}
+          </View>
+        ))}
       </View>
     )
   }
@@ -207,25 +263,9 @@ function FieldRow({ field, value }: { field: FieldDef; value: unknown }) {
   return (
     <View style={styles.row} wrap={false}>
       <Text style={styles.key}>{field.label}</Text>
-      <Text style={styles.value}>{displayValue(field, value)}</Text>
+      <Text style={styles.value}>
+        {shown.kind === 'blank' ? '—' : shown.text}
+      </Text>
     </View>
   )
-}
-
-/** Same rule as the on-screen document: print labels, never storage codes. */
-function displayValue(field: FieldDef, value: unknown): string {
-  if (value === undefined || value === null || value === '') return '—'
-
-  if (field.kind === 'select') {
-    return (
-      field.options.find((o) => o.value === String(value))?.label ??
-      String(value)
-    )
-  }
-  if (field.kind === 'chips' && Array.isArray(value)) {
-    return value
-      .map((v) => field.options.find((o) => o.value === v)?.label ?? String(v))
-      .join(', ')
-  }
-  return String(value)
 }

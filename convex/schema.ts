@@ -19,6 +19,7 @@ export const reportTemplate = v.union(
   v.literal('treatmentRecord'),
   v.literal('timberPestInspection'),
   v.literal('termiteManagementCert'),
+  v.literal('serviceReport'),
 )
 
 export const reportStatus = v.union(v.literal('draft'), v.literal('finalised'))
@@ -147,6 +148,10 @@ export default defineSchema({
     // Kept out of `data` deliberately: it lived there once and every finalise
     // silently discarded the photos by overwriting the blob.
     photoSlots: v.optional(v.record(v.string(), v.id('_storage'))),
+    // Out of `data` for exactly the reason above, and more urgently: autosave
+    // rewrites that blob every couple of seconds, so a signature stored inside
+    // it would be destroyed by the next keystroke elsewhere on the form.
+    signatureSlots: v.optional(v.record(v.string(), v.id('_storage'))),
     finalisedAt: v.optional(v.number()),
     pdfStorageId: v.optional(v.id('_storage')),
     createdAt: v.number(),

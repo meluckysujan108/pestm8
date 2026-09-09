@@ -2,7 +2,8 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { jobVisibility, requireMembership } from './lib/access'
 import { reportTemplate } from './schema'
-import type { Doc } from './_generated/dataModel'
+import type { Doc, Id } from './_generated/dataModel'
+import type { MutationCtx } from './_generated/server'
 import type { Membership } from './lib/access'
 
 /**
@@ -15,6 +16,35 @@ function canSeeReport(m: Membership, report: Doc<'reports'>): boolean {
     visibility.scope === 'business' ||
     report.authorMembershipId === visibility.membershipId
   )
+}
+
+/**
+ * The guard every report-mutating mutation repeats: resolve membership, load
+ * the report, confirm it belongs to this business, and refuse a write once the
+ * report is finalised or the caller did not author it.
+ *
+ * Centralised because this file was about to carry it a tenth time — photos,
+ * signatures, drafts and finalise already had five independent copies, and the
+ * gallery mutations below would have made it ten. A single source means the
+ * next photo-like field kind gets this for free instead of getting it wrong.
+ */
+async function requireEditableReport(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  reportId: Id<'reports'>,
+): Promise<{ membership: Membership; report: Doc<'reports'> }> {
+  const membership = await requireMembership(ctx, businessId)
+
+  const report = await ctx.db.get(reportId)
+  if (!report || report.businessId !== businessId) {
+    throw new ConvexError('NOT_FOUND')
+  }
+  if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
+  if (report.authorMembershipId !== membership._id) {
+    throw new ConvexError('NO_ACCESS')
+  }
+
+  return { membership, report }
 }
 
 export const listByProperty = query({
@@ -124,22 +154,59 @@ export const attachPhoto = mutation({
     slot: v.string(),
   },
   handler: async (ctx, { businessId, reportId, storageId, slot }) => {
-    const membership = await requireMembership(ctx, businessId)
-
-    const report = await ctx.db.get(reportId)
-    if (!report || report.businessId !== businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
     // Photos are evidence; a locked report must not gain new ones.
-    if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
-    if (report.authorMembershipId !== membership._id) {
-      throw new ConvexError('NO_ACCESS')
-    }
+    const { report } = await requireEditableReport(ctx, businessId, reportId)
 
     await ctx.db.patch(reportId, {
       photoIds: [...report.photoIds, storageId],
       photoSlots: { ...(report.photoSlots ?? {}), [slot]: storageId },
     })
+  },
+})
+
+/**
+ * Mirrors `attachPhoto`, and deliberately so: a signature is an image the
+ * client cannot afford to lose, and `data` is replaced wholesale on every save.
+ * Only the `{ signedAt, signedBy }` metadata travels in the draft blob.
+ */
+export const attachSignature = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    storageId: v.id('_storage'),
+    slot: v.string(),
+  },
+  handler: async (ctx, { businessId, reportId, storageId, slot }) => {
+    // A signature attests to a document's contents at a moment in time. Once
+    // locked, it must not be possible to attach a different one.
+    const { report } = await requireEditableReport(ctx, businessId, reportId)
+
+    await ctx.db.patch(reportId, {
+      signatureSlots: { ...(report.signatureSlots ?? {}), [slot]: storageId },
+    })
+  },
+})
+
+/** Signed URLs for display; storage ids are useless to the client on their own. */
+export const signatureUrls = query({
+  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
+  handler: async (ctx, { businessId, reportId }) => {
+    const membership = await requireMembership(ctx, businessId)
+
+    const report = await ctx.db.get(reportId)
+    if (!report || report.businessId !== businessId) return {}
+    if (!canSeeReport(membership, report)) return {}
+
+    const entries = await Promise.all(
+      Object.entries(report.signatureSlots ?? {}).map(
+        async ([slot, storageId]) => {
+          const url = await ctx.storage.getUrl(storageId)
+          return [slot, url] as const
+        },
+      ),
+    )
+
+    return Object.fromEntries(entries.filter(([, url]) => url !== null))
   },
 })
 
@@ -203,19 +270,9 @@ export const saveDraft = mutation({
     data: v.any(),
   },
   handler: async (ctx, { businessId, reportId, data }) => {
-    const membership = await requireMembership(ctx, businessId)
-
-    const report = await ctx.db.get(reportId)
-    if (!report || report.businessId !== businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
-
     // The whole point of finalising is that the document stops changing. A
     // signed compliance record that can be edited afterwards is worthless.
-    if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
-    if (report.authorMembershipId !== membership._id) {
-      throw new ConvexError('NO_ACCESS')
-    }
+    await requireEditableReport(ctx, businessId, reportId)
 
     await ctx.db.patch(reportId, { data })
   },
@@ -243,16 +300,11 @@ export const finalise = mutation({
     ),
   },
   handler: async (ctx, { businessId, reportId, data, tasks }) => {
-    const membership = await requireMembership(ctx, businessId)
-
-    const report = await ctx.db.get(reportId)
-    if (!report || report.businessId !== businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
-    if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
-    if (report.authorMembershipId !== membership._id) {
-      throw new ConvexError('NO_ACCESS')
-    }
+    const { membership, report } = await requireEditableReport(
+      ctx,
+      businessId,
+      reportId,
+    )
 
     const now = Date.now()
     await ctx.db.patch(reportId, {
