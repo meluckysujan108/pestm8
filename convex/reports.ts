@@ -99,6 +99,7 @@ function summarise(r: Doc<'reports'>) {
     propertyId: r.propertyId,
     jobId: r.jobId,
     finalisedAt: r.finalisedAt,
+    emailedAt: r.emailedAt,
     createdAt: r.createdAt,
   }
 }
@@ -572,5 +573,14 @@ export const setPdfStorageId = internalMutation({
   args: { reportId: v.id('reports'), storageId: v.id('_storage') },
   handler: async (ctx, { reportId, storageId }) => {
     await ctx.db.patch(reportId, { pdfStorageId: storageId })
+  },
+})
+
+/** Not exposed to clients — only `email.sendReportPdf` calls this, after a
+ * real send actually succeeds. */
+export const markEmailed = internalMutation({
+  args: { reportId: v.id('reports') },
+  handler: async (ctx, { reportId }) => {
+    await ctx.db.patch(reportId, { emailedAt: Date.now() })
   },
 })

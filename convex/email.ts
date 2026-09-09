@@ -80,6 +80,9 @@ export const sendReportPdf = action({
       entityId: reportId,
       meta: { to, subject, detail },
     })
+    if (ok) {
+      await ctx.runMutation(internal.reports.markEmailed, { reportId })
+    }
 
     if (!ok) throw new ConvexError('EMAIL_SEND_FAILED')
     return { ok: true }

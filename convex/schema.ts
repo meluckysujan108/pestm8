@@ -163,6 +163,10 @@ export default defineSchema({
     signatureSlots: v.optional(v.record(v.string(), v.id('_storage'))),
     finalisedAt: v.optional(v.number()),
     pdfStorageId: v.optional(v.id('_storage')),
+    // Set the moment an email actually sends (convex/email.ts). Independent
+    // of `status` — a finalised report can be emailed zero, one, or many
+    // times, so "sent" is its own axis, not a third status value.
+    emailedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index('by_business', ['businessId'])
