@@ -10,6 +10,7 @@ export type JobRow = {
   durationMinutes: number
   status: JobStatus
   suburb: string
+  postcode?: string
   clientName: string
   assigneeColour: string
 }

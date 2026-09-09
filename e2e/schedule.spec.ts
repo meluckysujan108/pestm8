@@ -70,7 +70,10 @@ test('an owner can add a property, book a job, and complete it', async ({
   const card = page.getByRole('button', { name: /Termite Inspection/ })
   await expect(card).toBeVisible()
   await expect(page.getByText('$380')).toBeVisible()
-  await expect(page.getByText('Booked')).toBeVisible()
+  // Scoped to the card: the desktop day panel also has a "Booked" status
+  // filter, so an unscoped match is ambiguous about which one is being
+  // asserted — and it is the card's status pill that matters here.
+  await expect(card.getByText('Booked')).toBeVisible()
 
   // --- open and complete it ----------------------------------------------
   await card.click()

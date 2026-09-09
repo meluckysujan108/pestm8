@@ -20,7 +20,10 @@ import {
   todayKey as todayKeyIn,
 } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
+import { useMediaQuery } from '#/lib/useMediaQuery'
 import { MonthPickerSheet } from '#/components/schedule/MonthPickerSheet'
+import { MonthCalendarCard } from '#/components/schedule/MonthCalendarCard'
+import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
 import { useDayWeather } from '#/lib/useDayWeather'
 
 const searchSchema = z.object({
@@ -48,6 +51,9 @@ function SchedulePage() {
   // A button that opens a sheet does nothing before hydration, and does it
   // silently. Disabling until ready is honest and gives tests a real signal.
   const hydrated = useHydrated()
+  // §2.4: desktop gets a persistent month grid + agenda pane instead of the
+  // week strip and its sheet — a re-layout, not a second calendar.
+  const isDesktop = useMediaQuery('(min-width: 1024px)')
 
   const today = todayKeyIn(business.timezone)
   const selectedKey = date ?? today
@@ -100,81 +106,111 @@ function SchedulePage() {
         }
       />
 
-      <div className="chrome-blur sticky top-[76px] z-20 border-b border-hairline">
-        <div className="flex items-center justify-between px-3 pt-2">
-          <button
-            type="button"
-            aria-label="Previous week"
-            onClick={() => setDay(addDaysToKey(selectedKey, -7))}
-            className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
-          >
-            <ChevronLeft size={20} strokeWidth={1.7} />
-          </button>
-          <button
-            type="button"
-            onClick={() => setDay(today)}
-            className="text-body font-semibold text-blue"
-          >
-            Today
-          </button>
-          <button
-            type="button"
-            aria-label="Next week"
-            onClick={() => setDay(addDaysToKey(selectedKey, 7))}
-            className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
-          >
-            <ChevronRight size={20} strokeWidth={1.7} />
-          </button>
-        </div>
-        <WeekStrip
-          startKey={weekStart}
-          selectedKey={selectedKey}
-          todayKey={today}
-          load={week}
-          weather={weekWeather}
-          onSelect={setDay}
-        />
-      </div>
-
-      {/* Keyed to the first job's suburb and labelled with it: a day spanning
-          several suburbs has no single forecast, so claiming one would be a
-          quiet lie. */}
-      {jobs.length > 0 && jobs[0].suburb && (
-        <div className="pt-4">
-          <WeatherBanner
+      {isDesktop ? (
+        // Desktop (§2.4): a persistent month grid + team legend beside a
+        // filterable day agenda, in place of the week strip and its sheet.
+        // Same JobCard rows, same colours-are-per-subcontractor model —
+        // re-flowed, not a second calendar.
+        <section className="grid grid-cols-[340px_minmax(0,1fr)] items-start gap-5 px-4 pt-4 pb-6">
+          <MonthCalendarCard
             businessId={business._id}
-            suburb={jobs[0].suburb}
-            postcode={jobs[0].postcode ?? ''}
             state={business.state}
-            dayKey={selectedKey}
+            monthKey={monthKey ?? selectedKey.slice(0, 7)}
+            selectedKey={selectedKey}
+            todayKey={today}
+            onSelect={setDay}
+            onMonthChange={setMonthKey}
           />
-        </div>
-      )}
-
-      <section className="px-4 pt-4 pb-6">
-        <h2 className="section-label mb-3">{formatDayLabel(selectedKey)}</h2>
-
-        {jobs.length === 0 ? (
-          <EmptyState
-            title="Nothing booked"
-            body="This day is clear. Tap + to book a job."
+          <DayAgendaPanel
+            businessId={business._id}
+            state={business.state}
+            timezone={business.timezone}
+            selectedKey={selectedKey}
+            jobs={jobs}
+            onOpenJob={setOpenJobId}
           />
-        ) : (
-          // Two columns from md: the same cards, re-flowed. A desktop screen
-          // showing one 460px column of jobs wastes the extra width that makes
-          // a week readable at a glance.
-          <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-start lg:grid-cols-3">
-            {jobs.map((job) => (
-              <JobCard
-                key={job._id}
-                job={job}
-                timezone={business.timezone}
-                onOpen={setOpenJobId}
-              />
-            ))}
+        </section>
+      ) : (
+        <>
+          <div className="chrome-blur sticky top-[76px] z-20 border-b border-hairline">
+            <div className="flex items-center justify-between px-3 pt-2">
+              <button
+                type="button"
+                aria-label="Previous week"
+                onClick={() => setDay(addDaysToKey(selectedKey, -7))}
+                className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+              >
+                <ChevronLeft size={20} strokeWidth={1.7} />
+              </button>
+              <button
+                type="button"
+                onClick={() => setDay(today)}
+                className="text-body font-semibold text-blue"
+              >
+                Today
+              </button>
+              <button
+                type="button"
+                aria-label="Next week"
+                onClick={() => setDay(addDaysToKey(selectedKey, 7))}
+                className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+              >
+                <ChevronRight size={20} strokeWidth={1.7} />
+              </button>
+            </div>
+            <WeekStrip
+              startKey={weekStart}
+              selectedKey={selectedKey}
+              todayKey={today}
+              load={week}
+              weather={weekWeather}
+              onSelect={setDay}
+            />
           </div>
-        )}
-      </section>
+
+          {/* Keyed to the first job's suburb and labelled with it: a day
+              spanning several suburbs has no single forecast, so claiming
+              one would be a quiet lie. */}
+          {jobs.length > 0 && jobs[0].suburb && (
+            <div className="pt-4">
+              <WeatherBanner
+                businessId={business._id}
+                suburb={jobs[0].suburb}
+                postcode={jobs[0].postcode ?? ''}
+                state={business.state}
+                dayKey={selectedKey}
+              />
+            </div>
+          )}
+
+          <section className="px-4 pt-4 pb-6">
+            <h2 className="section-label mb-3">
+              {formatDayLabel(selectedKey)}
+            </h2>
+
+            {jobs.length === 0 ? (
+              <EmptyState
+                title="Nothing booked"
+                body="This day is clear. Tap + to book a job."
+              />
+            ) : (
+              // Two columns from md: the same cards, re-flowed. A tablet
+              // screen showing one 460px column of jobs wastes the extra
+              // width that makes a week readable at a glance.
+              <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-start">
+                {jobs.map((job) => (
+                  <JobCard
+                    key={job._id}
+                    job={job}
+                    timezone={business.timezone}
+                    onOpen={setOpenJobId}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </>
+      )}
 
       <JobDetailSheet
         businessId={business._id}

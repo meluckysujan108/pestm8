@@ -1,5 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
+import { authComponent } from './auth'
 import { canEditJob, jobVisibility, requireMembership } from './lib/access'
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
 import { jobStatus } from './schema'
@@ -185,6 +186,56 @@ export const listMonth = query({
       suburb: e.suburb,
       postcode: e.postcode,
     }))
+  },
+})
+
+/**
+ * Per-subcontractor job counts for the month, for the desktop calendar's
+ * team legend — the dots are colour-coded by assignee (§2.3), so the legend
+ * reads the same colours back as names rather than inventing job-type colours.
+ */
+export const monthTeamLoad = query({
+  args: {
+    businessId: v.id('businesses'),
+    monthKey: v.string(), // "YYYY-MM"
+  },
+  handler: async (ctx, { businessId, monthKey }) => {
+    const membership = await requireMembership(ctx, businessId)
+    const business = await ctx.db.get(businessId)
+    if (!business) return []
+
+    const from = startOfDayInZone(`${monthKey}-01`, business.timezone)
+    const [year, month] = monthKey.split('-').map(Number)
+    const nextMonth =
+      month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+    const to = startOfDayInZone(nextMonth, business.timezone)
+
+    const jobs = await jobsInRange(ctx, membership, from, to)
+
+    const counts = new Map<Id<'memberships'>, number>()
+    for (const job of jobs) {
+      counts.set(
+        job.assignedMembershipId,
+        (counts.get(job.assignedMembershipId) ?? 0) + 1,
+      )
+    }
+
+    const rows = await Promise.all(
+      [...counts.entries()].map(async ([membershipId, count]) => {
+        const assignee = await ctx.db.get(membershipId)
+        const user = assignee
+          ? await authComponent.getAnyUserById(ctx, assignee.userId)
+          : null
+        return {
+          membershipId,
+          name: user?.name ?? 'Unassigned',
+          colour: assignee?.colour ?? '#8E8E93',
+          count,
+        }
+      }),
+    )
+
+    return rows.sort((a, b) => b.count - a.count)
   },
 })
 
