@@ -327,6 +327,25 @@ export const updateGalleryCaption = mutation({
 })
 
 /**
+ * Replaces a photo's image with an annotated version — the technician marked
+ * up the same evidence, so the row (order, caption, cover) stays put; only
+ * the pixels change.
+ */
+export const annotateGalleryPhoto = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    photoId: v.id('reportPhotos'),
+    storageId: v.id('_storage'),
+  },
+  handler: async (ctx, { businessId, reportId, photoId, storageId }) => {
+    await requireEditableReport(ctx, businessId, reportId)
+    await requireGalleryPhoto(ctx, reportId, photoId)
+    await ctx.db.patch(photoId, { storageId })
+  },
+})
+
+/**
  * Swaps this photo's position with its neighbour. A full reordered array from
  * the client would let a stale draft silently undo someone else's delete;
  * a single swap is small enough to reason about as its own edit.

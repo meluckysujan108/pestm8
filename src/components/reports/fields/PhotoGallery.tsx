@@ -1,8 +1,9 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Camera, ChevronDown, ChevronUp, Star, Trash2 } from 'lucide-react'
+import { Camera, ChevronDown, ChevronUp, PenLine, Star, Trash2 } from 'lucide-react'
 import { api } from '../../../../convex/_generated/api'
+import { AnnotationEditor } from './AnnotationEditor'
 import type { EditorProps } from './registry'
 import type { FieldDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -176,11 +177,41 @@ function GalleryTile({
   showCover: boolean
 }) {
   const [caption, setCaption] = useState(photo.caption ?? '')
+  const [annotating, setAnnotating] = useState(false)
 
   const setCover = useConvexMutation(api.reports.setGalleryCover)
   const updateCaption = useConvexMutation(api.reports.updateGalleryCaption)
   const move = useConvexMutation(api.reports.moveGalleryPhoto)
   const remove = useConvexMutation(api.reports.removeGalleryPhoto)
+
+  const getUploadUrl = useConvexMutation(api.reports.generateUploadUrl)
+  const convexAnnotate = useConvexMutation(api.reports.annotateGalleryPhoto)
+  const annotate = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      reportId: Id<'reports'>
+      photoId: Id<'reportPhotos'>
+      storageId: Id<'_storage'>
+    }) => convexAnnotate(args),
+  })
+
+  async function onAnnotationSaved(blob: Blob) {
+    const uploadUrl = await getUploadUrl({ businessId })
+    const res = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': blob.type },
+      body: blob,
+    })
+    if (!res.ok) throw new Error('upload failed')
+    const { storageId } = (await res.json()) as { storageId: string }
+    await annotate.mutateAsync({
+      businessId,
+      reportId,
+      photoId: photo._id,
+      storageId: storageId as Id<'_storage'>,
+    })
+    setAnnotating(false)
+  }
 
   const ordinal = index + 1
 
@@ -253,15 +284,34 @@ function GalleryTile({
             <ChevronDown size={15} strokeWidth={2} />
           </button>
         </span>
-        <button
-          type="button"
-          aria-label={`Remove ${label} photo ${ordinal}`}
-          onClick={() => void remove({ businessId, reportId, photoId: photo._id })}
-          className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
-        >
-          <Trash2 size={14} strokeWidth={1.8} />
-        </button>
+        <span className="flex">
+          <button
+            type="button"
+            disabled={!photo.url}
+            aria-label={`Annotate ${label} photo ${ordinal}`}
+            onClick={() => setAnnotating(true)}
+            className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+          >
+            <PenLine size={14} strokeWidth={1.8} />
+          </button>
+          <button
+            type="button"
+            aria-label={`Remove ${label} photo ${ordinal}`}
+            onClick={() => void remove({ businessId, reportId, photoId: photo._id })}
+            className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+          >
+            <Trash2 size={14} strokeWidth={1.8} />
+          </button>
+        </span>
       </span>
+
+      {annotating && photo.url && (
+        <AnnotationEditor
+          imageUrl={photo.url}
+          onCancel={() => setAnnotating(false)}
+          onSave={onAnnotationSaved}
+        />
+      )}
     </span>
   )
 }
