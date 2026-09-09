@@ -45,7 +45,10 @@ const { count, size, warnings } = await injectManifest({
   swSrc: SW_DEST,
   swDest: SW_DEST,
   globDirectory: PUBLIC_DIR,
-  globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest,woff2}'],
+  // `mjs` covers the pdf.js worker `PdfViewer.tsx` self-hosts — without it,
+  // that asset silently falls outside the offline precache and the PDF
+  // viewer needs a live connection on every device's first use.
+  globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg,webmanifest,woff2}'],
   // Skip the worker itself and anything already content-hashed by the router.
   globIgnores: ['sw.js', '**/*.map'],
   injectionPoint: 'self.__SW_MANIFEST',

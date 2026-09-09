@@ -18,7 +18,7 @@
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",
     "@convex-dev/react-query": "0.1.0",
-    "@react-pdf/renderer": "^4.6.1",
+    "@react-pdf/renderer": "4.6.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-form": "latest",
@@ -28,7 +28,7 @@
     "@tanstack/react-router-devtools": "latest",
     "@tanstack/react-router-ssr-query": "latest",
     "@tanstack/react-start": "latest",
-    "better-auth": "^1.5.3",
+    "better-auth": "1.6.30",
     "browser-image-compression": "^2.0.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
@@ -36,9 +36,11 @@
     "date-fns": "^4.4.0",
     "lucide-react": "^0.577.0",
     "nitro": "3.0.260610-beta",
+    "pdfjs-dist": "5.4.296",
     "radix-ui": "^1.6.7",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
+    "react-pdf": "^10.5.0",
     "tailwind-merge": "^3.0.2",
     "tailwindcss": "^4.1.18",
     "tw-animate-css": "^1.3.6",
@@ -57,7 +59,6 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.20.0",
-    "pdfjs-dist": "^5.6.205",
     "prettier": "^3.8.1",
     "serwist": "^9.5.12",
     "typescript": "^6.0.2",
@@ -67,6 +68,9 @@
     "onlyBuiltDependencies": [
       "esbuild",
       "lightningcss"
-    ]
+    ],
+    "overrides": {
+      "@react-pdf/font": "4.0.10"
+    }
   }
 }

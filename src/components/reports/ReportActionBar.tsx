@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexAction } from '@convex-dev/react-query'
@@ -7,6 +7,10 @@ import { DownloadPdfButton } from './DownloadPdfButton'
 import { api } from '../../../convex/_generated/api'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../convex/_generated/dataModel'
+
+const LazyPdfViewer = lazy(() =>
+  import('./pdf/PdfViewer').then((m) => ({ default: m.PdfViewer })),
+)
 
 const TABS = [
   { value: 'form' as const, label: 'Form' },
@@ -45,14 +49,12 @@ export function ReportActionBar({
       {tab === 'form' && children}
 
       {tab === 'pdf' && (
-        <div className="px-4 pt-5 pb-8">
-          <DownloadPdfButton
-            businessId={businessId}
-            reportId={reportId}
-            pdfUrl={pdfUrl}
-            fileName={fileName}
-          />
-        </div>
+        <PdfTab
+          businessId={businessId}
+          reportId={reportId}
+          pdfUrl={pdfUrl}
+          fileName={fileName}
+        />
       )}
 
       {tab === 'email' && (
@@ -63,6 +65,92 @@ export function ReportActionBar({
         <LogsPanel businessId={businessId} reportId={reportId} />
       )}
     </>
+  )
+}
+
+/**
+ * `pdfUrl` is null until something has called `reportPdf.generate` at least
+ * once — previously that "something" was only ever a click on
+ * `DownloadPdfButton`. Opening the PDF tab is now itself that trigger, so the
+ * viewer doesn't need a download click first; the resolved URL is then
+ * handed to both the viewer and the download button rather than each
+ * independently deciding whether to generate.
+ */
+function PdfTab({
+  businessId,
+  reportId,
+  pdfUrl,
+  fileName,
+}: {
+  businessId: Id<'businesses'>
+  reportId: Id<'reports'>
+  pdfUrl: string | null
+  fileName: string
+}) {
+  const hydrated = useHydrated()
+  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
+  const [failed, setFailed] = useState(false)
+  const requested = useRef(false)
+
+  const convexGenerate = useConvexAction(api.reportPdf.generate)
+  const generate = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      reportId: Id<'reports'>
+    }) => convexGenerate(args),
+  })
+
+  const url = pdfUrl ?? generatedUrl
+
+  useEffect(() => {
+    if (url || requested.current) return
+    requested.current = true
+    generate
+      .mutateAsync({ businessId, reportId })
+      .then((result) => {
+        if (result.url) setGeneratedUrl(result.url)
+        else setFailed(true)
+      })
+      .catch(() => setFailed(true))
+    // `generate` is a fresh object every render (useMutation) — the `requested`
+    // ref is the real guard against re-firing, not the dependency array.
+  }, [url, businessId, reportId])
+
+  return (
+    <div className="px-4 pt-5 pb-8">
+      {url ? (
+        hydrated ? (
+          <Suspense fallback={<PdfViewerSkeleton />}>
+            <LazyPdfViewer businessId={businessId} reportId={reportId} url={url} />
+          </Suspense>
+        ) : (
+          <PdfViewerSkeleton />
+        )
+      ) : failed ? (
+        <p role="alert" className="text-center text-caption text-amber-ink">
+          Could not prepare the PDF. Check your connection and try again.
+        </p>
+      ) : (
+        <PdfViewerSkeleton />
+      )}
+
+      <div className="mt-4">
+        <DownloadPdfButton
+          businessId={businessId}
+          reportId={reportId}
+          pdfUrl={url}
+          fileName={fileName}
+        />
+      </div>
+    </div>
+  )
+}
+
+function PdfViewerSkeleton() {
+  return (
+    <div className="flex h-64 items-center justify-center rounded-xl border border-hairline bg-surface-3">
+      <p className="text-caption text-muted">Preparing viewer…</p>
+    </div>
   )
 }
 

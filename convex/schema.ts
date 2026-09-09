@@ -243,4 +243,26 @@ export default defineSchema({
   })
     .index('by_business', ['businessId'])
     .index('by_entity', ['entityType', 'entityId']),
+
+  /**
+   * A non-destructive markup layer over the generated report PDF — a
+   * technician circling something for a colleague to see, not a change to
+   * the document itself. One row per stroke, not one document per page
+   * holding a strokes array: this codebase has already been burned twice by
+   * wholesale-replace semantics on a blob field (`reports.data` losing
+   * photos once, this same file's own history), and a single per-page
+   * document replaced on every save would reintroduce exactly that failure
+   * the moment two people annotate the same page. Inserts are additive and
+   * can't clobber a concurrent writer.
+   */
+  reportPdfAnnotations: defineTable({
+    reportId: v.id('reports'),
+    page: v.number(),
+    authorMembershipId: v.id('memberships'),
+    // Normalized 0–1 against the rendered page's width/height, not raw
+    // pixels — a zoom change is then a pure redraw-at-new-scale, and a
+    // stroke reads the same on whoever's screen views it later.
+    points: v.array(v.object({ x: v.number(), y: v.number() })),
+    createdAt: v.number(),
+  }).index('by_report_page', ['reportId', 'page']),
 })

@@ -23,6 +23,7 @@ import type * as memberships from "../memberships.js";
 import type * as notes from "../notes.js";
 import type * as properties from "../properties.js";
 import type * as recurrences from "../recurrences.js";
+import type * as reportAnnotations from "../reportAnnotations.js";
 import type * as reportPdf from "../reportPdf.js";
 import type * as reports from "../reports.js";
 import type * as tasks from "../tasks.js";
@@ -50,6 +51,7 @@ declare const fullApi: ApiFromModules<{
   notes: typeof notes;
   properties: typeof properties;
   recurrences: typeof recurrences;
+  reportAnnotations: typeof reportAnnotations;
   reportPdf: typeof reportPdf;
   reports: typeof reports;
   tasks: typeof tasks;

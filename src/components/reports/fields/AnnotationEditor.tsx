@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, RotateCcw, Trash2, X } from 'lucide-react'
-
-type Point = { x: number; y: number }
+import { drawStroke, positionOf } from '#/lib/canvasStrokes'
+import type { Point } from '#/lib/canvasStrokes'
 
 /**
  * A hand-rolled canvas annotator — freehand red pen over a loaded photo, no
@@ -71,22 +71,6 @@ export function AnnotationEditor({
     ctx.lineJoin = 'round'
     for (const stroke of strokes.current) {
       drawStroke(ctx, stroke)
-    }
-  }
-
-  function drawStroke(ctx: CanvasRenderingContext2D, stroke: Array<Point>) {
-    if (stroke.length < 2) return
-    ctx.beginPath()
-    ctx.moveTo(stroke[0].x, stroke[0].y)
-    for (const point of stroke.slice(1)) ctx.lineTo(point.x, point.y)
-    ctx.stroke()
-  }
-
-  function positionOf(e: React.PointerEvent<HTMLCanvasElement>): Point {
-    const rect = e.currentTarget.getBoundingClientRect()
-    return {
-      x: ((e.clientX - rect.left) / rect.width) * e.currentTarget.width,
-      y: ((e.clientY - rect.top) / rect.height) * e.currentTarget.height,
     }
   }
 

@@ -10,7 +10,7 @@ import type { Membership } from './lib/access'
  * Reports inherit job scoping: a subcontractor without canViewAllJobs sees the
  * reports they authored, not the whole business's compliance history.
  */
-function canSeeReport(m: Membership, report: Doc<'reports'>): boolean {
+export function canSeeReport(m: Membership, report: Doc<'reports'>): boolean {
   const visibility = jobVisibility(m)
   return (
     visibility.scope === 'business' ||
