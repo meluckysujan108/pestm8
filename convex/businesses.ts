@@ -62,6 +62,7 @@ export const getBySlug = query({
         slug: business.slug,
         state: business.state,
         timezone: business.timezone,
+        abn: business.abn,
         addressLine: business.addressLine,
         suburb: business.suburb,
         postcode: business.postcode,

@@ -69,6 +69,7 @@ export const generate = action({
       <ReportPdf
         report={{
           template: report.template,
+          customTemplate: report.customTemplate,
           legalBasis: report.legalBasis,
           finalisedAt: report.finalisedAt,
           data: (report.data ?? {}) as Record<string, unknown>,

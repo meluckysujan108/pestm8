@@ -36,7 +36,7 @@ function OnboardingPage() {
     onSuccess: async ({ slug }) => {
       await router.invalidate()
       await router.navigate({
-        to: '/$businessSlug/dashboard',
+        to: '/$businessSlug/schedule',
         params: { businessSlug: slug },
       })
     },

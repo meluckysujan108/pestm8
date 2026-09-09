@@ -5,8 +5,7 @@ import { api } from '../../../../convex/_generated/api'
 import { ReportBuilder } from '#/components/reports/ReportBuilder'
 import { ReportDocument, pdfFileName } from '#/components/reports/ReportDocument'
 import { ReportActionBar } from '#/components/reports/ReportActionBar'
-import { getTemplate } from '#/lib/reportTemplates'
-import type { TemplateId } from '#/lib/reportTemplates'
+import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
@@ -31,7 +30,10 @@ function ReportPage() {
   // The status is the single source of that truth, so a locked report has no
   // editable rendering to fall back to.
   if (report.status === 'finalised') {
-    const template = getTemplate(report.template)
+    const template = resolveReportTemplate({
+      template: report.template,
+      customTemplate: report.customTemplate,
+    })
     return (
       <ReportActionBar
         businessId={business._id}
@@ -52,7 +54,8 @@ function ReportPage() {
     <ReportBuilder
       businessId={business._id}
       reportId={report._id}
-      template={report.template as TemplateId}
+      template={report.template}
+      customTemplate={report.customTemplate}
       initialData={(report.data ?? {}) as Record<string, unknown>}
       property={report.property}
       businessName={report.businessName}

@@ -61,7 +61,11 @@ function SettingsPage() {
         )}
         {active === 'prefs' && (
           <>
-            <PrefsSection business={business} />
+            <PrefsSection
+              businessId={business._id}
+              business={business}
+              canEdit={membership.role === 'owner'}
+            />
             {membership.role === 'owner' && (
               <div className="mt-6">
                 <BrandingSection businessId={business._id} business={business} />

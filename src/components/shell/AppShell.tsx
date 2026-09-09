@@ -1,9 +1,8 @@
 import { Link } from '@tanstack/react-router'
 import {
+  BarChart3,
   CalendarDays,
   FileText,
-  LayoutDashboard,
-  Receipt,
   StickyNote,
   Users,
 } from 'lucide-react'
@@ -12,12 +11,11 @@ import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
 const TABS: Array<{ to: string; label: string; icon: LucideIcon }> = [
-  { to: '/$businessSlug/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/$businessSlug/schedule', label: 'Schedule', icon: CalendarDays },
   { to: '/$businessSlug/clients', label: 'Clients', icon: Users },
-  { to: '/$businessSlug/invoices', label: 'Invoices', icon: Receipt },
   { to: '/$businessSlug/reports', label: 'Reports', icon: FileText },
   { to: '/$businessSlug/notes', label: 'Notes', icon: StickyNote },
+  { to: '/$businessSlug/analytics', label: 'Analytics', icon: BarChart3 },
 ]
 
 export type ShellBusiness = {

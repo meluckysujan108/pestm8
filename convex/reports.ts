@@ -1,9 +1,11 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
 import { jobVisibility, requireMembership } from './lib/access'
+import { clientNameOf, withClient } from './properties'
 import { reportTemplate } from './schema'
+import { getTemplate } from '../src/lib/reportTemplates'
 import type { Doc, Id } from './_generated/dataModel'
-import type { MutationCtx } from './_generated/server'
+import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
 
 /**
@@ -80,17 +82,19 @@ export const listForBusiness = query({
     return Promise.all(
       visible.map(async (r) => {
         const property = await ctx.db.get(r.propertyId)
+        const { templateName } = await templateDisplay(ctx, r)
         return {
           ...summarise(r),
-          clientName: property?.clientName ?? '',
+          clientName: await clientNameOf(ctx, property),
           suburb: property?.suburb ?? '',
+          templateName,
         }
       }),
     )
   },
 })
 
-function summarise(r: Doc<'reports'>) {
+export function summarise(r: Doc<'reports'>) {
   return {
     _id: r._id,
     template: r.template,
@@ -104,6 +108,29 @@ function summarise(r: Doc<'reports'>) {
   }
 }
 
+/**
+ * Display name only — a list row needs a string to show and search against,
+ * not a full renderable `ReportTemplate` (that needs `resolveReportTemplate`
+ * on the client, since only there does the executable Zod schema get
+ * attached). Built-ins resolve statically; a custom template reads its
+ * frozen name once finalised, or the live doc while still a draft — the same
+ * split `reports.get`'s own `customTemplate` field draws.
+ */
+async function templateDisplay(
+  ctx: QueryCtx,
+  r: Doc<'reports'>,
+): Promise<{ templateName: string }> {
+  if (r.template !== 'custom') return { templateName: getTemplate(r.template).name }
+
+  if (r.status === 'finalised') {
+    const snapshot = r.customTemplateSnapshot as { name?: string } | undefined
+    return { templateName: snapshot?.name ?? 'Custom template' }
+  }
+
+  const live = r.customTemplateId ? await ctx.db.get(r.customTemplateId) : null
+  return { templateName: live?.name ?? 'Custom template' }
+}
+
 export const get = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
@@ -113,7 +140,8 @@ export const get = query({
     if (!report || report.businessId !== businessId) return null
     if (!canSeeReport(membership, report)) return null
 
-    const property = await ctx.db.get(report.propertyId)
+    const rawProperty = await ctx.db.get(report.propertyId)
+    const property = rawProperty && (await withClient(ctx, rawProperty))
     const author = await ctx.db.get(report.authorMembershipId)
     const business = await ctx.db.get(businessId)
     const logoUrl = business?.logoStorageId
@@ -123,9 +151,24 @@ export const get = query({
       ? await ctx.storage.getUrl(report.pdfStorageId)
       : null
 
+    // `null` for a built-in template; a **frozen** snapshot once finalised
+    // (nothing may change what a signed document says); the **live** doc
+    // while still a draft, since nothing is legally binding yet and picking
+    // up a concurrent edit to the template is fine — see
+    // `customReportTemplates`'s own schema comment for the full rationale.
+    const customTemplate =
+      report.template !== 'custom'
+        ? null
+        : report.status === 'finalised'
+          ? (report.customTemplateSnapshot ?? null)
+          : report.customTemplateId
+            ? await ctx.db.get(report.customTemplateId)
+            : null
+
     return {
       ...report,
       property,
+      customTemplate,
       // A finalised report's data never changes, so once generated this is
       // permanently valid — `reportPdf.generate` is the cache-fill path.
       pdfUrl,
@@ -460,6 +503,7 @@ export const create = mutation({
     propertyId: v.id('properties'),
     jobId: v.optional(v.id('jobs')),
     template: reportTemplate,
+    customTemplateId: v.optional(v.id('customReportTemplates')),
     legalBasis: v.string(),
     data: v.any(),
   },
@@ -471,12 +515,22 @@ export const create = mutation({
       throw new ConvexError('NOT_FOUND')
     }
 
+    if (args.template === 'custom') {
+      if (!args.customTemplateId) throw new ConvexError('NOT_FOUND')
+      const custom = await ctx.db.get(args.customTemplateId)
+      if (!custom || custom.businessId !== args.businessId) {
+        throw new ConvexError('NOT_FOUND')
+      }
+      if (custom.archivedAt) throw new ConvexError('TEMPLATE_ARCHIVED')
+    }
+
     return ctx.db.insert('reports', {
       businessId: args.businessId,
       propertyId: args.propertyId,
       jobId: args.jobId,
       authorMembershipId: membership._id,
       template: args.template,
+      customTemplateId: args.template === 'custom' ? args.customTemplateId : undefined,
       legalBasis: args.legalBasis,
       status: 'draft',
       data: args.data ?? {},
@@ -502,53 +556,55 @@ export const saveDraft = mutation({
 })
 
 /**
- * Locks the report and raises whatever manual follow-up the template requires.
- * The durable notice is the motivating case: the app can print the label but
- * cannot fix it to the building, so it becomes a tracked task rather than an
- * assumption (§1.4).
+ * Locks the report as a finalised, signed document.
  */
 export const finalise = mutation({
   args: {
     businessId: v.id('businesses'),
     reportId: v.id('reports'),
     data: v.any(),
-    tasks: v.optional(
-      v.array(
-        v.object({
-          kind: v.union(v.literal('durableNotice'), v.literal('other')),
-          label: v.string(),
-          detail: v.optional(v.string()),
-        }),
-      ),
-    ),
   },
-  handler: async (ctx, { businessId, reportId, data, tasks }) => {
+  handler: async (ctx, { businessId, reportId, data }) => {
     const { membership, report } = await requireEditableReport(
       ctx,
       businessId,
       reportId,
     )
 
+    // Frozen the instant this becomes a signed document — editing the live
+    // custom template afterward must never change what was already finalised.
+    // Undefined for a built-in template, whose 4 `.ts` files never change.
+    let customTemplateSnapshot:
+      | {
+          name: string
+          shortName: string
+          legalBasis: string
+          blurb: string
+          sections: unknown
+          boilerplate: string
+        }
+      | undefined
+    if (report.template === 'custom' && report.customTemplateId) {
+      const live = await ctx.db.get(report.customTemplateId)
+      if (live) {
+        customTemplateSnapshot = {
+          name: live.name,
+          shortName: live.shortName,
+          legalBasis: live.legalBasis,
+          blurb: live.blurb,
+          sections: live.sections,
+          boilerplate: live.boilerplate,
+        }
+      }
+    }
+
     const now = Date.now()
     await ctx.db.patch(reportId, {
       data,
       status: 'finalised',
       finalisedAt: now,
+      ...(customTemplateSnapshot ? { customTemplateSnapshot } : {}),
     })
-
-    for (const task of tasks ?? []) {
-      await ctx.db.insert('tasks', {
-        businessId,
-        reportId,
-        jobId: report.jobId,
-        kind: task.kind,
-        label: task.label,
-        detail: task.detail,
-        done: false,
-        assignedMembershipId: membership._id,
-        createdAt: now,
-      })
-    }
 
     await ctx.db.insert('auditLog', {
       businessId,

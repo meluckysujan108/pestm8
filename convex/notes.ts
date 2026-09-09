@@ -1,6 +1,8 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
+import { authComponent } from './auth'
 import { jobVisibility, requireMembership } from './lib/access'
+import { clientNameOf } from './properties'
 
 export const list = query({
   args: { businessId: v.id('businesses') },
@@ -27,8 +29,50 @@ export const list = query({
         const author = await ctx.db.get(note.authorMembershipId)
         return {
           ...note,
-          clientName: property?.clientName,
+          clientName: await clientNameOf(ctx, property),
           suburb: property?.suburb,
+          authorColour: author?.colour ?? '#8E8E93',
+          mine: note.authorMembershipId === membership._id,
+        }
+      }),
+    )
+  },
+})
+
+/**
+ * Notes attached to one job, newest first — with the author's actual name
+ * resolved, not just their colour. Two different technicians (or an owner)
+ * leaving notes on the same job need to be told apart by who they are, the
+ * same name-resolution `memberships.listForBusiness` already does.
+ */
+export const listForJob = query({
+  args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
+  handler: async (ctx, { businessId, jobId }) => {
+    const membership = await requireMembership(ctx, businessId)
+
+    const notes = await ctx.db
+      .query('notes')
+      .withIndex('by_job', (q) => q.eq('jobId', jobId))
+      .order('desc')
+      .collect()
+
+    const visible = notes.filter((n) => n.businessId === businessId)
+    const visibility = jobVisibility(membership)
+    const scoped =
+      visibility.scope === 'business'
+        ? visible
+        : visible.filter((n) => n.authorMembershipId === visibility.membershipId)
+
+    return Promise.all(
+      scoped.map(async (note) => {
+        const author = await ctx.db.get(note.authorMembershipId)
+        const user = author
+          ? await authComponent.getAnyUserById(ctx, author.userId)
+          : null
+        return {
+          ...note,
+          authorName: user?.name ?? 'Unknown',
+          authorRole: author?.role,
           authorColour: author?.colour ?? '#8E8E93',
           mine: note.authorMembershipId === membership._id,
         }

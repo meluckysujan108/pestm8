@@ -180,6 +180,9 @@ export type RejectionCode =
   | 'EMAIL_NOT_CONFIGURED'
   | 'LAST_OWNER'
   | 'ALREADY_MEMBER'
+  | 'TEMPLATE_IN_USE'
+  | 'TEMPLATE_ARCHIVED'
+  | 'INVALID_TEMPLATE'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

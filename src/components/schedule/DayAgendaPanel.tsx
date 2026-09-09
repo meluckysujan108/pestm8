@@ -7,12 +7,13 @@ import { formatDayLabel } from '#/lib/format'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
 
-type StatusFilter = 'all' | 'booked' | 'completed' | 'invoiced'
+type StatusFilter = 'all' | 'booked' | 'inProgress' | 'completed' | 'invoiced'
 
 const FILTER_OPTIONS: Array<{ value: StatusFilter; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'booked', label: 'Booked' },
-  { value: 'completed', label: 'Awaiting invoice' },
+  { value: 'inProgress', label: 'In Progress' },
+  { value: 'completed', label: 'Completed' },
   { value: 'invoiced', label: 'Invoiced' },
 ]
 

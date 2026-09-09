@@ -1,15 +1,12 @@
 import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
-import {
-  durableNoticeText,
-  fieldsOf,
-  getTemplate,
-  sectionsOf,
-} from '../../../lib/reportTemplates'
+import { durableNoticeText, fieldsOf, sectionsOf } from '../../../lib/reportTemplates'
 import { present } from '../../../lib/reportTemplates/present'
 import { visibleSections } from '../../../lib/reportTemplates/visibility'
+import { resolveReportTemplate } from '../../../lib/reportTemplates/resolve'
 import { PdfFooter, PdfHeader } from './layout'
 import type { Presented } from '../../../lib/reportTemplates/present'
-import type { FieldDef, TemplateId } from '../../../lib/reportTemplates'
+import type { FieldDef, ReportTemplate, TemplateId } from '../../../lib/reportTemplates'
+import type { CustomTemplateShape } from '../../../lib/reportTemplates/resolve'
 
 export type PdfGalleryPhoto = {
   fieldKey: string
@@ -19,7 +16,8 @@ export type PdfGalleryPhoto = {
 }
 
 export type PdfReport = {
-  template: string
+  template: TemplateId | 'custom'
+  customTemplate?: CustomTemplateShape | null
   legalBasis: string
   finalisedAt?: number
   data: Record<string, unknown>
@@ -29,7 +27,7 @@ export type PdfReport = {
     licenceNumber?: string
   } | null
   property: {
-    clientName: string
+    client: { name: string } | null
     addressLine: string
     suburb: string
     state: string
@@ -127,7 +125,10 @@ const styles = StyleSheet.create({
 })
 
 export function ReportPdf({ report }: { report: PdfReport }) {
-  const template = getTemplate(report.template as TemplateId)
+  const template = resolveReportTemplate({
+    template: report.template,
+    customTemplate: report.customTemplate,
+  })
   const { data, property } = report
 
   const noticeText =
@@ -173,7 +174,7 @@ export function ReportPdf({ report }: { report: PdfReport }) {
           {property && (
             <>
               <Text style={styles.sectionLabel}>PROPERTY</Text>
-              <Text>{property.clientName}</Text>
+              <Text>{property.client?.name}</Text>
               {/* Legal documents carry the full street address, always (§2.3). */}
               <Text>{property.addressLine}</Text>
               <Text>
@@ -255,7 +256,7 @@ function PhotosSection({
   template,
   report,
 }: {
-  template: ReturnType<typeof getTemplate>
+  template: ReportTemplate
   report: PdfReport
 }) {
   const slots = Object.entries(report.photos ?? {})

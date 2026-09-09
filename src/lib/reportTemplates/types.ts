@@ -151,14 +151,10 @@ export type SectionDef = {
   implicit?: boolean
 }
 
-export type TaskSpec = {
-  kind: 'durableNotice' | 'other'
-  label: string
-  detail?: string
-}
-
 export type ReportTemplate = {
-  id: TemplateId
+  /** `'custom'` for a business-authored template — see `resolveReportTemplate`.
+   * Never used as a lookup key in that case, only as a marker. */
+  id: TemplateId | 'custom'
   name: string
   shortName: string
   /** Shown as a tag in the picker, and stored on the report record. */
@@ -175,8 +171,6 @@ export type ReportTemplate = {
   schema: z.ZodType
   /** Rendered read-only in a grey inset card — visibly non-editable (§2.3). */
   boilerplate: string
-  /** Work the app cannot do on the user's behalf, raised as a tracked task. */
-  onFinalise?: () => Array<TaskSpec>
 }
 
 /** One inspected area, per AS 4349.3: no-access must carry a reason. */

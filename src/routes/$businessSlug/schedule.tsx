@@ -41,7 +41,7 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
 })
 
 function SchedulePage() {
-  const { business } = Route.useRouteContext()
+  const { business, membership } = Route.useRouteContext()
   const { date } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [openJobId, setOpenJobId] = useState<string | null>(null)
@@ -214,8 +214,10 @@ function SchedulePage() {
 
       <JobDetailSheet
         businessId={business._id}
+        businessSlug={business.slug}
         timezone={business.timezone}
         jobId={openJobId}
+        canReassign={membership.role === 'owner'}
         onClose={() => setOpenJobId(null)}
       />
 
@@ -237,6 +239,7 @@ function SchedulePage() {
       <NewJobSheet
         businessId={business._id}
         dayKey={selectedKey}
+        timezone={business.timezone}
         open={newJobOpen}
         onClose={() => setNewJobOpen(false)}
       />

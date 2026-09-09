@@ -4,24 +4,43 @@
  * zone rather than the server's or the viewer's.
  */
 
-/** Milliseconds since epoch for the start of the given local day in `timezone`. */
-export function startOfDayInZone(dayKey: string, timezone: string): number {
+/**
+ * Milliseconds since epoch for a given wall-clock date + time of day, as seen
+ * in `timezone` — the general form `startOfDayInZone` (below) is built on.
+ * Used both for day boundaries (hh=mm=0) and for converting a job's edited
+ * date/time inputs back into an instant in the tenant's own zone, not the
+ * viewer's browser zone.
+ */
+export function zonedDateTimeToUtc(
+  dayKey: string,
+  hh: number,
+  mm: number,
+  timezone: string,
+): number {
   const [year, month, day] = dayKey.split('-').map(Number)
 
   // Guess at UTC, then correct by the zone's offset at that instant. Two passes
   // settle DST boundaries, which matter for every state except WA and QLD.
-  let ts = Date.UTC(year, month - 1, day, 0, 0, 0, 0)
+  let ts = Date.UTC(year, month - 1, day, hh, mm, 0, 0)
   for (let i = 0; i < 2; i++) {
-    ts -= offsetMs(ts, timezone) - 0
-    const check = dayKeyOf(ts, timezone)
-    if (check === dayKey) break
-    ts = Date.UTC(year, month - 1, day, 0, 0, 0, 0) - offsetMs(ts, timezone)
+    ts = Date.UTC(year, month - 1, day, hh, mm, 0, 0) - offsetMs(ts, timezone)
+    const [checkDay, checkTime] = [dayKeyOf(ts, timezone), timeKeyOf(ts, timezone)]
+    if (checkDay === dayKey && checkTime === `${pad(hh)}:${pad(mm)}`) break
   }
   return ts
 }
 
+/** Milliseconds since epoch for the start of the given local day in `timezone`. */
+export function startOfDayInZone(dayKey: string, timezone: string): number {
+  return zonedDateTimeToUtc(dayKey, 0, 0, timezone)
+}
+
 export function endOfDayInZone(dayKey: string, timezone: string): number {
   return startOfDayInZone(dayKey, timezone) + 24 * 60 * 60 * 1000
+}
+
+function pad(n: number): string {
+  return String(n).padStart(2, '0')
 }
 
 /** "YYYY-MM-DD" for an instant, as seen in `timezone`. */
@@ -35,6 +54,19 @@ export function dayKeyOf(ts: number, timezone: string): string {
 
   const get = (type: string) => parts.find((p) => p.type === type)!.value
   return `${get('year')}-${get('month')}-${get('day')}`
+}
+
+/** "HH:MM" (24-hour) for an instant, as seen in `timezone`. */
+export function timeKeyOf(ts: number, timezone: string): string {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: timezone,
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+  }).formatToParts(new Date(ts))
+
+  const get = (type: string) => parts.find((p) => p.type === type)!.value
+  return `${get('hour')}:${get('minute')}`
 }
 
 function offsetMs(ts: number, timezone: string): number {

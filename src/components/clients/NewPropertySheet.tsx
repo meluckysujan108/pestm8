@@ -5,9 +5,18 @@ import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { AU_STATES } from '#/lib/au'
+import { Segmented } from '#/components/primitives/Segmented'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 
+type ClientKind = 'person' | 'business'
+
+/**
+ * Creates a client and its first property together in one step — a client
+ * without at least one address is meaningless in this domain, so splitting
+ * "new client" from "add first property" into two screens would cost a step
+ * for zero benefit.
+ */
 export function NewPropertySheet({
   businessId,
   open,
@@ -17,6 +26,7 @@ export function NewPropertySheet({
   open: boolean
   onClose: () => void
 }) {
+  const [kind, setKind] = useState<ClientKind>('person')
   const [clientName, setClientName] = useState('')
   const [addressLine, setAddressLine] = useState('')
   const [suburb, setSuburb] = useState('')
@@ -32,6 +42,7 @@ export function NewPropertySheet({
     mutationFn: (args: {
       businessId: Id<'businesses'>
       clientName: string
+      kind: ClientKind
       addressLine: string
       suburb: string
       state: string
@@ -40,6 +51,7 @@ export function NewPropertySheet({
       email?: string
     }) => convexCreate(args),
     onSuccess: () => {
+      setKind('person')
       setClientName('')
       setAddressLine('')
       setSuburb('')
@@ -64,6 +76,7 @@ export function NewPropertySheet({
               create.mutate({
                 businessId,
                 clientName,
+                kind,
                 addressLine,
                 suburb,
                 state,
@@ -74,10 +87,22 @@ export function NewPropertySheet({
             }}
           >
             <Drawer.Title className="text-sheet-title text-ink">
-              New property
+              New client
             </Drawer.Title>
 
-            <Field label="Client name">
+            <Field label="Client type">
+              <Segmented
+                label="Client type"
+                value={kind}
+                onChange={setKind}
+                options={[
+                  { value: 'person', label: 'Person' },
+                  { value: 'business', label: 'Business' },
+                ]}
+              />
+            </Field>
+
+            <Field label={kind === 'business' ? 'Business name' : 'Client name'}>
               <Input value={clientName} onChange={setClientName} required />
             </Field>
             <Field label="Street address">
@@ -123,7 +148,7 @@ export function NewPropertySheet({
                 role="alert"
                 className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
               >
-                Could not save this property.
+                Could not save this client.
               </p>
             )}
 
@@ -132,7 +157,7 @@ export function NewPropertySheet({
               disabled={create.isPending || !hydrated}
               className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
             >
-              {create.isPending ? 'Saving…' : 'Save property'}
+              {create.isPending ? 'Saving…' : 'Save client'}
             </button>
           </form>
 

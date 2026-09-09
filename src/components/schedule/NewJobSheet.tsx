@@ -8,15 +8,18 @@ import { JOB_TYPES, REPEAT_OPTIONS } from '#/lib/format'
 import type { RepeatValue } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
+import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 
 export function NewJobSheet({
   businessId,
   dayKey,
+  timezone,
   open,
   onClose,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
+  timezone: string
   open: boolean
   onClose: () => void
 }) {
@@ -30,6 +33,7 @@ export function NewJobSheet({
             <NewJobForm
               businessId={businessId}
               dayKey={dayKey}
+              timezone={timezone}
               onClose={onClose}
             />
           )}
@@ -50,10 +54,12 @@ export function NewJobSheet({
 function NewJobForm({
   businessId,
   dayKey,
+  timezone,
   onClose,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
+  timezone: string
   onClose: () => void
 }) {
   const { data: properties } = useSuspenseQuery(
@@ -136,10 +142,11 @@ function NewJobForm({
       onSubmit={(e) => {
         e.preventDefault()
         const [hh, mm] = time.split(':').map(Number)
-        // The picker gives a wall-clock time on the selected day; build the
-        // instant from the day key so it lands on the right date.
-        const [y, m, d] = dayKey.split('-').map(Number)
-        const scheduledAt = new Date(y, m - 1, d, hh, mm, 0, 0).getTime()
+        // The picker gives a wall-clock time on the selected day, in the
+        // tenant's own timezone — not the viewer's browser zone, which may
+        // differ (a technician travelling, or simply a differently-configured
+        // device) and would otherwise silently book the wrong instant.
+        const scheduledAt = zonedDateTimeToUtc(dayKey, hh, mm, timezone)
 
         create.mutate({
           businessId,
@@ -163,7 +170,7 @@ function NewJobForm({
         >
           {properties.map((p) => (
             <option key={p._id} value={p._id}>
-              {p.clientName} — {p.addressLine}, {p.suburb}
+              {p.client?.name} — {p.addressLine}, {p.suburb}
             </option>
           ))}
         </select>

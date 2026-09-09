@@ -1,6 +1,8 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
+import { allocateJobNumber } from './jobs'
+import { clientNameOf } from './properties'
 import { frequency } from './schema'
 import type { MutationCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
@@ -58,7 +60,7 @@ export const listForBusiness = query({
         const property = await ctx.db.get(r.propertyId)
         return {
           ...r,
-          clientName: property?.clientName ?? '',
+          clientName: await clientNameOf(ctx, property),
           suburb: property?.suburb ?? '',
         }
       }),
@@ -191,6 +193,7 @@ async function materialiseOne(
       status: 'booked',
       recurrenceId,
       createdAt: Date.now(),
+      jobNumber: await allocateJobNumber(ctx, recurrence.businessId),
     })
     created++
   }

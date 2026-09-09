@@ -8,14 +8,11 @@ import { seedData } from './fields/registry'
 import { applyUpdate } from './fields/leafEditors'
 import { BoilerplateBlock } from './BoilerplateBlock'
 import { DurableNoticePreview } from './DurableNoticePreview'
-import {
-  durableNoticeText,
-  fieldsOf,
-  getTemplate,
-  sectionsOf,
-} from '#/lib/reportTemplates'
+import { durableNoticeText, fieldsOf, sectionsOf } from '#/lib/reportTemplates'
 import { pruneHidden, visibleSections } from '#/lib/reportTemplates/visibility'
+import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import type { TemplateId } from '#/lib/reportTemplates'
+import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { SaveStatus } from '#/lib/useAutosave'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -40,6 +37,7 @@ export function ReportBuilder({
   businessId,
   reportId,
   template: templateId,
+  customTemplate,
   initialData,
   property,
   businessName,
@@ -48,14 +46,15 @@ export function ReportBuilder({
 }: {
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
-  template: TemplateId
+  template: TemplateId | 'custom'
+  customTemplate?: CustomTemplateShape | null
   initialData: Record<string, unknown>
-  property: { addressLine: string; suburb: string; clientName: string } | null
+  property: { addressLine: string; suburb: string } | null
   businessName: string
   authorLicence?: string
   onFinalised: () => void
 }) {
-  const template = getTemplate(templateId)
+  const template = resolveReportTemplate({ template: templateId, customTemplate })
 
   const [data, setData] = useState<Record<string, unknown>>(() =>
     seedData(fieldsOf(template), initialData),
@@ -80,11 +79,6 @@ export function ReportBuilder({
       businessId: Id<'businesses'>
       reportId: Id<'reports'>
       data: unknown
-      tasks?: Array<{
-        kind: 'durableNotice' | 'other'
-        label: string
-        detail?: string
-      }>
     }) => convexFinalise(args),
     onSuccess: onFinalised,
   })
@@ -144,7 +138,6 @@ export function ReportBuilder({
       businessId,
       reportId,
       data: payload,
-      tasks: template.onFinalise?.(),
     })
   }
 

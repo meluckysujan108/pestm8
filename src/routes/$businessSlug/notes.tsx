@@ -82,7 +82,7 @@ function NotesPage() {
               <option value="">No property</option>
               {properties.map((p) => (
                 <option key={p._id} value={p._id}>
-                  {p.clientName} — {p.suburb}
+                  {p.client?.name} — {p.suburb}
                 </option>
               ))}
             </select>

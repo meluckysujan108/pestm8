@@ -3,17 +3,37 @@ import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import { canEditJob, jobVisibility, requireMembership } from './lib/access'
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
+import { clientNameOf, withClient } from './properties'
 import { jobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
-import type { QueryCtx } from './_generated/server'
+import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
+
+/**
+ * Hands out the next human-sayable job number for a business and advances
+ * the counter in the same mutation — safe under Convex's transactional
+ * guarantees even when called more than once in one execution (recurrence
+ * materialisation books several jobs per run).
+ */
+export async function allocateJobNumber(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+): Promise<number> {
+  const business = await ctx.db.get(businessId)
+  const current = business?.nextJobNumber ?? 1
+  await ctx.db.patch(businessId, { nextJobNumber: current + 1 })
+  return current
+}
 
 /**
  * Reads in a window, filtered to what this member may see. A subcontractor
  * without canViewAllJobs never has another person's job loaded at all, rather
  * than having it loaded and hidden in the UI (§6.5).
+ *
+ * Exported for `analytics.ts`, which needs the exact same scoped range scan
+ * rather than a second implementation of the same scope-branching logic.
  */
-async function jobsInRange(
+export async function jobsInRange(
   ctx: QueryCtx,
   membership: Membership,
   from: number,
@@ -58,7 +78,7 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
           // and to legal documents (§2.3).
           suburb: property?.suburb ?? '',
           postcode: property?.postcode ?? '',
-          clientName: property?.clientName ?? '',
+          clientName: await clientNameOf(ctx, property),
           assigneeColour: assignee?.colour ?? '#8E8E93',
         }
       }),
@@ -257,7 +277,8 @@ export const get = query({
       return null
     }
 
-    const property = await ctx.db.get(job.propertyId)
+    const rawProperty = await ctx.db.get(job.propertyId)
+    const property = rawProperty && (await withClient(ctx, rawProperty))
     const assignee = await ctx.db.get(job.assignedMembershipId)
     const recurrence = job.recurrenceId
       ? await ctx.db.get(job.recurrenceId)
@@ -318,14 +339,38 @@ export const create = mutation({
       ...args,
       status: 'booked',
       createdAt: Date.now(),
+      jobNumber: await allocateJobNumber(ctx, args.businessId),
     })
   },
 })
+
+/**
+ * The guard every job-editing mutation repeats: resolve membership, load the
+ * job, confirm it belongs to this business, and refuse a write from anyone
+ * but the owner or the assigned technician. Centralised here rather than
+ * copied a fifth and sixth time for the new photo mutations below — the
+ * same call this file's own `reports.ts` sibling makes for
+ * `requireEditableReport`.
+ */
+async function requireEditableJob(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  jobId: Id<'jobs'>,
+): Promise<{ membership: Membership; job: Doc<'jobs'> }> {
+  const membership = await requireMembership(ctx, businessId)
+
+  const job = await ctx.db.get(jobId)
+  if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
+  if (!canEditJob(membership, job)) throw new ConvexError('NO_ACCESS')
+
+  return { membership, job }
+}
 
 export const update = mutation({
   args: {
     businessId: v.id('businesses'),
     jobId: v.id('jobs'),
+    propertyId: v.optional(v.id('properties')),
     jobType: v.optional(v.string()),
     price: v.optional(v.number()),
     scheduledAt: v.optional(v.number()),
@@ -334,11 +379,7 @@ export const update = mutation({
     status: v.optional(jobStatus),
   },
   handler: async (ctx, { businessId, jobId, ...patch }) => {
-    const membership = await requireMembership(ctx, businessId)
-
-    const job = await ctx.db.get(jobId)
-    if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
-    if (!canEditJob(membership, job)) throw new ConvexError('NO_ACCESS')
+    const { membership, job } = await requireEditableJob(ctx, businessId, jobId)
 
     // Reassignment is an owner action even on your own job.
     if (
@@ -347,6 +388,15 @@ export const update = mutation({
       membership.role !== 'owner'
     ) {
       throw new ConvexError('NO_ACCESS')
+    }
+
+    // Same tenant check `create` already performs — a job can be corrected
+    // to a different address, never moved to another business's property.
+    if (patch.propertyId !== undefined) {
+      const property = await ctx.db.get(patch.propertyId)
+      if (!property || property.businessId !== businessId) {
+        throw new ConvexError('NOT_FOUND')
+      }
     }
 
     const fields = Object.fromEntries(
@@ -359,12 +409,7 @@ export const update = mutation({
 export const complete = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    const membership = await requireMembership(ctx, businessId)
-
-    const job = await ctx.db.get(jobId)
-    if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
-    if (!canEditJob(membership, job)) throw new ConvexError('NO_ACCESS')
-
+    await requireEditableJob(ctx, businessId, jobId)
     await ctx.db.patch(jobId, { status: 'completed', completedAt: Date.now() })
   },
 })
@@ -372,12 +417,96 @@ export const complete = mutation({
 export const cancel = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
+    await requireEditableJob(ctx, businessId, jobId)
+    await ctx.db.patch(jobId, { status: 'cancelled' })
+  },
+})
+
+/**
+ * Short-lived upload URL for a job photo — mirrors `reports.generateUploadUrl`
+ * exactly: generic and not job-specific, since the real gate is `addPhoto`
+ * attaching the resulting storage id to a job the caller may actually edit.
+ */
+export const generateUploadUrl = mutation({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    await requireMembership(ctx, businessId)
+    return ctx.storage.generateUploadUrl()
+  },
+})
+
+export const addPhoto = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    jobId: v.id('jobs'),
+    storageId: v.id('_storage'),
+    caption: v.optional(v.string()),
+  },
+  handler: async (ctx, { businessId, jobId, storageId, caption }) => {
+    await requireEditableJob(ctx, businessId, jobId)
+
+    const existing = await ctx.db
+      .query('jobPhotos')
+      .withIndex('by_job', (q) => q.eq('jobId', jobId))
+      .collect()
+
+    await ctx.db.insert('jobPhotos', {
+      jobId,
+      storageId,
+      caption,
+      order: existing.length,
+      createdAt: Date.now(),
+    })
+  },
+})
+
+export const removePhoto = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    jobId: v.id('jobs'),
+    photoId: v.id('jobPhotos'),
+  },
+  handler: async (ctx, { businessId, jobId, photoId }) => {
+    await requireEditableJob(ctx, businessId, jobId)
+
+    const photo = await ctx.db.get(photoId)
+    if (!photo || photo.jobId !== jobId) throw new ConvexError('NOT_FOUND')
+    await ctx.db.delete(photoId)
+  },
+})
+
+/** Every photo attached to a job, newest first — read access follows the
+ * same visibility as the job itself, not the stricter edit gate. */
+export const photos = query({
+  args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
+  handler: async (ctx, { businessId, jobId }) => {
     const membership = await requireMembership(ctx, businessId)
 
     const job = await ctx.db.get(jobId)
-    if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
-    if (!canEditJob(membership, job)) throw new ConvexError('NO_ACCESS')
+    if (!job || job.businessId !== businessId) return []
+    const visibility = jobVisibility(membership)
+    if (
+      visibility.scope === 'assignee' &&
+      job.assignedMembershipId !== visibility.membershipId
+    ) {
+      return []
+    }
 
-    await ctx.db.patch(jobId, { status: 'cancelled' })
+    const rows = await ctx.db
+      .query('jobPhotos')
+      .withIndex('by_job', (q) => q.eq('jobId', jobId))
+      .collect()
+
+    const withUrls = await Promise.all(
+      rows.map(async (row) => ({
+        _id: row._id,
+        caption: row.caption,
+        order: row.order,
+        url: await ctx.storage.getUrl(row.storageId),
+      })),
+    )
+    return withUrls
+      .filter((row) => row.url !== null)
+      .sort((a, b) => a.order - b.order)
   },
 })

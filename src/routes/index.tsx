@@ -24,7 +24,7 @@ export const Route = createFileRoute('/')({
     if (businesses.length === 0) throw redirect({ to: '/onboarding' })
 
     throw redirect({
-      to: '/$businessSlug/dashboard',
+      to: '/$businessSlug/schedule',
       params: { businessSlug: businesses[0].slug },
     })
   },

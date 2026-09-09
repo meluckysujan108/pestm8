@@ -39,8 +39,11 @@ export const sendReportPdf = action({
       ).url
     if (!pdfUrl) throw new ConvexError('PDF_UNAVAILABLE')
 
-    const { getTemplate } = await import('../src/lib/reportTemplates')
-    const template = getTemplate(report.template)
+    const { resolveReportTemplate } = await import('../src/lib/reportTemplates/resolve')
+    const template = resolveReportTemplate({
+      template: report.template,
+      customTemplate: report.customTemplate,
+    })
 
     const pdfRes = await fetch(pdfUrl)
     const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer())

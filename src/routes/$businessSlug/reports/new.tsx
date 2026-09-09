@@ -24,6 +24,12 @@ function NewReportPage() {
   const { data: properties } = useSuspenseQuery(
     convexQuery(api.properties.list, { businessId: business._id }),
   )
+  const { data: customTemplates } = useSuspenseQuery(
+    convexQuery(api.customTemplates.list, { businessId: business._id }),
+  )
+  // Archiving only removes a template from this picker — a report already
+  // using it keeps working, per `customReportTemplates`'s own schema comment.
+  const activeCustomTemplates = customTemplates.filter((t) => !t.archivedAt)
 
   useEffect(() => {
     if (!propertyId && properties.length > 0) setPropertyId(properties[0]._id)
@@ -34,7 +40,8 @@ function NewReportPage() {
     mutationFn: (args: {
       businessId: Id<'businesses'>
       propertyId: Id<'properties'>
-      template: TemplateId
+      template: TemplateId | 'custom'
+      customTemplateId?: Id<'customReportTemplates'>
       legalBasis: string
       data: unknown
     }) => convexCreate(args),
@@ -66,7 +73,7 @@ function NewReportPage() {
               >
                 {properties.map((p) => (
                   <option key={p._id} value={p._id}>
-                    {p.clientName} — {p.addressLine}, {p.suburb}
+                    {p.client?.name} — {p.addressLine}, {p.suburb}
                   </option>
                 ))}
               </select>
@@ -103,6 +110,42 @@ function NewReportPage() {
                 </button>
               ))}
             </div>
+
+            {activeCustomTemplates.length > 0 && (
+              <>
+                <p className="section-label mt-6 mb-2">Custom</p>
+                <div className="flex flex-col gap-2.5">
+                  {activeCustomTemplates.map((template) => (
+                    <button
+                      key={template._id}
+                      type="button"
+                      disabled={create.isPending || !hydrated}
+                      onClick={() =>
+                        create.mutate({
+                          businessId: business._id,
+                          propertyId: propertyId as Id<'properties'>,
+                          template: 'custom',
+                          customTemplateId: template._id,
+                          legalBasis: template.legalBasis,
+                          data: {},
+                        })
+                      }
+                      className="rounded-2xl border border-hairline bg-surface p-4 text-left shadow-elevation transition active:scale-[.99] disabled:opacity-50"
+                    >
+                      <div className="flex items-baseline justify-between gap-2">
+                        <span className="text-row-title text-ink">
+                          {template.name}
+                        </span>
+                        <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] font-semibold text-muted">
+                          {template.legalBasis}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-body text-muted">{template.blurb}</p>
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
           </>
         )}
       </div>

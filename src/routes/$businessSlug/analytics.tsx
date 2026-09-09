@@ -1,17 +1,28 @@
+import { Suspense, lazy } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
-import { FollowUpTasks } from '#/components/dashboard/FollowUpTasks'
 import { formatMoney } from '#/lib/format'
+import { useHydrated } from '#/lib/useHydrated'
 
-export const Route = createFileRoute('/$businessSlug/dashboard')({
-  component: DashboardPage,
+// A separate lazy chunk so `recharts` (~150KB gzipped) never loads on
+// Schedule or any other route — only whoever actually opens Analytics pays
+// for it. Mirrors `ReportActionBar.tsx`'s exact `LazyPdfViewer` pattern.
+const LazyAnalyticsCharts = lazy(() =>
+  import('#/components/analytics/AnalyticsCharts').then((m) => ({
+    default: m.AnalyticsCharts,
+  })),
+)
+
+export const Route = createFileRoute('/$businessSlug/analytics')({
+  component: AnalyticsPage,
 })
 
-function DashboardPage() {
-  const { business, membership } = Route.useRouteContext()
+function AnalyticsPage() {
+  const { business } = Route.useRouteContext()
+  const hydrated = useHydrated()
   const { data: summary } = useSuspenseQuery(
     convexQuery(api.dashboard.summary, { businessId: business._id }),
   )
@@ -20,13 +31,9 @@ function DashboardPage() {
 
   return (
     <>
-      <PageHeader kicker={business.name} title="Dashboard" />
+      <PageHeader kicker={business.name} title="Analytics" />
 
       <div className="flex flex-col gap-3 px-4 pt-4 pb-6 md:grid md:grid-cols-3 md:items-start">
-        {/* Above the metrics on purpose: an outstanding durable notice is a
-            compliance gap, which outranks a revenue figure. */}
-        <FollowUpTasks businessId={business._id} />
-
         <Card className="md:col-span-3">
           <p className="section-label mb-1">Awaiting invoice</p>
           <p className="text-metric-lg text-ink">
@@ -71,14 +78,31 @@ function DashboardPage() {
             These figures cover your own jobs.
           </p>
         )}
-
-        {membership.role === 'owner' && (
-          <p className="text-caption text-muted md:col-span-3">
-            PestM8 does not track contractor hours or rosters — by design.
-          </p>
-        )}
       </div>
+
+      {hydrated ? (
+        <Suspense fallback={<ChartsSkeleton />}>
+          <LazyAnalyticsCharts businessId={business._id} />
+        </Suspense>
+      ) : (
+        <ChartsSkeleton />
+      )}
     </>
+  )
+}
+
+function ChartsSkeleton() {
+  return (
+    <div className="flex flex-col gap-4 px-4 pb-8 md:grid md:grid-cols-2">
+      {[0, 1, 2, 3].map((i) => (
+        <div
+          key={i}
+          className="flex h-64 items-center justify-center rounded-2xl border border-hairline bg-surface-3 md:h-72"
+        >
+          <p className="text-caption text-muted">Preparing charts…</p>
+        </div>
+      ))}
+    </div>
   )
 }
 

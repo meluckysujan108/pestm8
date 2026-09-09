@@ -2,13 +2,12 @@ import { useMemo } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
-import { Lock, Plus, Search } from 'lucide-react'
+import { LayoutTemplate, Lock, Plus, Search } from 'lucide-react'
 import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { Segmented } from '#/components/primitives/Segmented'
-import { getTemplate } from '#/lib/reportTemplates'
 
 const SEGMENTS = [
   { value: 'all' as const, label: 'All' },
@@ -27,7 +26,7 @@ export const Route = createFileRoute('/$businessSlug/reports/')({
 })
 
 function ReportsPage() {
-  const { business } = Route.useRouteContext()
+  const { business, membership } = Route.useRouteContext()
   const { q, seg } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const active = seg ?? 'all'
@@ -54,11 +53,10 @@ function ReportsPage() {
     return reports.filter((r) => {
       if (active !== 'all' && bucketOf(r) !== active) return false
       if (!query) return true
-      const template = getTemplate(r.template)
       return (
         r.clientName.toLowerCase().includes(query) ||
         r.suburb.toLowerCase().includes(query) ||
-        template.name.toLowerCase().includes(query)
+        r.templateName.toLowerCase().includes(query)
       )
     })
   }, [reports, active, q])
@@ -69,14 +67,26 @@ function ReportsPage() {
         kicker={`${reports.length} ${reports.length === 1 ? 'report' : 'reports'}`}
         title="Reports"
         action={
-          <Link
-            to="/$businessSlug/reports/new"
-            params={{ businessSlug: business.slug }}
-            aria-label="New report"
-            className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95]"
-          >
-            <Plus size={20} strokeWidth={2} />
-          </Link>
+          <>
+            {membership.role === 'owner' && (
+              <Link
+                to="/$businessSlug/reports/templates"
+                params={{ businessSlug: business.slug }}
+                aria-label="Manage templates"
+                className="flex size-9 items-center justify-center rounded-full bg-surface-2 text-ink-2 transition active:scale-[.95]"
+              >
+                <LayoutTemplate size={18} strokeWidth={1.7} />
+              </Link>
+            )}
+            <Link
+              to="/$businessSlug/reports/new"
+              params={{ businessSlug: business.slug }}
+              aria-label="New report"
+              className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95]"
+            >
+              <Plus size={20} strokeWidth={2} />
+            </Link>
+          </>
         }
       />
 
@@ -134,7 +144,6 @@ function ReportsPage() {
         ) : (
           <div className="flex flex-col gap-2.5">
             {filtered.map((r) => {
-              const template = getTemplate(r.template)
               const bucket = bucketOf(r)
               return (
                 <Link
@@ -145,7 +154,7 @@ function ReportsPage() {
                 >
                   <div className="flex items-baseline justify-between gap-2">
                     <span className="text-row-title text-ink">
-                      {template.name}
+                      {r.templateName}
                     </span>
                     <span className="shrink-0 text-caption text-muted">
                       {r.legalBasis}

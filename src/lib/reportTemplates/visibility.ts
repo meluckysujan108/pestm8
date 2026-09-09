@@ -28,7 +28,8 @@ export type Condition =
   | { any: Array<Condition> }
   | { not: Condition }
 
-function isFilled(value: unknown): boolean {
+/** Exported for `deriveSchema.ts`'s generic required-field validation. */
+export function isFilled(value: unknown): boolean {
   if (value === undefined || value === null || value === '') return false
   if (Array.isArray(value)) return value.length > 0
   return true

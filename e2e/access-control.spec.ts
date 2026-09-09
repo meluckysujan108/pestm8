@@ -102,7 +102,10 @@ test.describe('tenant isolation', () => {
     // client-side navigation, which fires no load event for that to wait on.
     await expect(page).toHaveURL(/\/onboarding$/)
 
-    await page.goto(`/${slug}/dashboard`)
+    // `/schedule` specifically, not just any URL that no longer resolves —
+    // the point of this test is that `$businessSlug/route.tsx`'s membership
+    // check produces the 404, not that the route itself is missing.
+    await page.goto(`/${slug}/schedule`)
     await expect(
       page.getByRole('heading', { name: /not found/i }),
     ).toBeVisible()

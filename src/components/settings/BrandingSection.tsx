@@ -126,7 +126,6 @@ export function BrandingSection({
             accept="image/*"
             className="hidden"
             onChange={(e) => {
-              console.log('DEBUG onChange fired', e.target.files?.length)
               const file = e.target.files?.[0]
               e.target.value = ''
               if (file) void onPickLogo(file)

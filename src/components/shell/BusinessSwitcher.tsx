@@ -56,7 +56,7 @@ export function BusinessSwitcher({
           {businesses.map((b) => (
             <Link
               key={b.businessId}
-              to="/$businessSlug/dashboard"
+              to="/$businessSlug/schedule"
               params={{ businessSlug: b.slug }}
               className="flex items-center gap-2 rounded-xl px-2.5 py-2 transition hover:bg-surface-2"
             >

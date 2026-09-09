@@ -4,6 +4,7 @@ import type { JobStatus } from '#/components/primitives/StatusPill'
 
 export type JobRow = {
   _id: string
+  jobNumber?: number
   jobType: string
   price: number
   scheduledAt: number
@@ -44,8 +45,15 @@ export function JobCard({
             {formatTime(job.scheduledAt, timezone)}
           </span>
         </span>
-        <span className="mt-0.5 block truncate text-body text-ink-2">
-          {job.clientName}
+        <span className="mt-0.5 flex items-baseline justify-between gap-2">
+          <span className="truncate text-body text-ink-2">
+            {job.clientName}
+          </span>
+          {job.jobNumber !== undefined && (
+            <span className="shrink-0 text-caption text-muted">
+              #{job.jobNumber}
+            </span>
+          )}
         </span>
         {/* Suburb here, full street address in the detail sheet (§2.3). */}
         <span className="mt-0.5 flex items-center gap-2 text-caption text-muted">

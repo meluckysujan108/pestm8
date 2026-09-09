@@ -48,6 +48,7 @@ export type {
   FieldKind,
   CellDef,
   GpsValue,
+  Option,
   RepeaterRow,
   SignatureValue,
   SectionDef,

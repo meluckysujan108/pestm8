@@ -4,28 +4,26 @@ import { Lock } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { BoilerplateBlock } from './BoilerplateBlock'
 import { DurableNoticePreview } from './DurableNoticePreview'
-import {
-  durableNoticeText,
-  fieldsOf,
-  getTemplate,
-  sectionsOf,
-} from '#/lib/reportTemplates'
+import { durableNoticeText, fieldsOf, sectionsOf } from '#/lib/reportTemplates'
 import { present } from '#/lib/reportTemplates/present'
 import { visibleSections } from '#/lib/reportTemplates/visibility'
+import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import type { Presented } from '#/lib/reportTemplates/present'
-import type { TemplateId } from '#/lib/reportTemplates'
+import type { ReportTemplate, TemplateId } from '#/lib/reportTemplates'
+import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 type ReportDoc = {
   _id: Id<'reports'>
-  template: string
+  template: TemplateId | 'custom'
+  customTemplate?: CustomTemplateShape | null
   legalBasis: string
   status: string
   finalisedAt?: number
   data: unknown
   businessName: string
   property: {
-    clientName: string
+    client: { name: string } | null
     addressLine: string
     suburb: string
     state: string
@@ -43,7 +41,10 @@ export function ReportDocument({
   report: ReportDoc
   businessId: Id<'businesses'>
 }) {
-  const template = getTemplate(report.template as TemplateId)
+  const template = resolveReportTemplate({
+    template: report.template,
+    customTemplate: report.customTemplate,
+  })
   const data = (report.data ?? {}) as Record<string, unknown>
   const finalised = report.status === 'finalised'
 
@@ -84,7 +85,7 @@ export function ReportDocument({
           <h2 className="section-label mb-2">Property</h2>
           <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
             <p className="text-row-title text-ink">
-              {report.property.clientName}
+              {report.property.client?.name}
             </p>
             {/* Legal documents carry the full street address, always. */}
             <p className="text-body text-ink-2">
@@ -207,7 +208,7 @@ function ReportGallery({
 }: {
   businessId: Id<'businesses'>
   reportId: string
-  template: ReturnType<typeof getTemplate>
+  template: ReportTemplate
 }) {
   const { data } = useQuery(
     convexQuery(api.reports.galleryPhotos, {

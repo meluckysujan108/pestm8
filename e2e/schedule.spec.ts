@@ -26,25 +26,25 @@ test('an owner can add a property, book a job, and complete it', async ({
   })
 
   await signInViaUi(page, email)
-  await expect(page).toHaveURL(new RegExp(`/${slug}/dashboard$`))
+  await expect(page).toHaveURL(new RegExp(`/${slug}/schedule$`))
 
-  // --- add a property -----------------------------------------------------
+  // --- add a client --------------------------------------------------------
   await page.goto(`/${slug}/clients`)
-  await expect(page.getByText('No properties yet')).toBeVisible()
+  await expect(page.getByText('No clients yet')).toBeVisible()
 
-  const newProperty = page.getByRole('button', { name: 'New property' })
+  const newProperty = page.getByRole('button', { name: 'New client' })
   await expect(newProperty).toBeEnabled()
   await newProperty.click()
 
   const propertySheet = page.getByRole('dialog')
-  await expect(propertySheet.getByText('New property')).toBeVisible()
+  await expect(propertySheet.getByText('New client')).toBeVisible()
 
   await propertySheet.getByLabel('Client name').fill('J. Nguyen')
   await propertySheet.getByLabel('Street address').fill('12 Wattle Street')
   await propertySheet.getByLabel('Suburb').fill('Bayswater')
   await propertySheet.getByLabel('Postcode').fill('6053')
   await propertySheet.getByLabel('Phone (optional)').fill('0412345678')
-  await propertySheet.getByRole('button', { name: 'Save property' }).click()
+  await propertySheet.getByRole('button', { name: 'Save client' }).click()
 
   await expect(page.getByText('12 Wattle Street')).toBeVisible()
   // Rows show the suburb; the street address belongs to the detail view (§2.3).
@@ -81,14 +81,18 @@ test('an owner can add a property, book a job, and complete it', async ({
   const detail = page.getByRole('dialog')
   // Full street address here, unlike the list row.
   await expect(detail.getByText('12 Wattle Street')).toBeVisible()
-  await expect(detail.getByText('Hold to call')).toBeVisible()
+  // Short labels (not "Hold to call") since Call/Text/Email now share one
+  // row — the hold-to-confirm behaviour itself is unchanged (§2.3).
+  await expect(detail.getByRole('button', { name: /^Call /i })).toBeVisible()
 
-  await detail.getByRole('button', { name: 'Mark completed' }).click()
+  // Status is changed from a menu on the pill itself, not a dedicated button.
+  await detail.getByRole('button', { name: 'Change job status' }).click()
+  await page.getByRole('menuitem', { name: 'Completed' }).click()
 
-  await expect(page.getByText('Awaiting invoice')).toBeVisible()
+  await expect(detail.getByText('Completed')).toBeVisible()
 
-  // --- and the dashboard reflects it -------------------------------------
-  await page.goto(`/${slug}/dashboard`)
+  // --- and analytics reflects it ------------------------------------------
+  await page.goto(`/${slug}/analytics`)
   await expect(page.getByText('$380')).toBeVisible()
   await expect(
     page.getByText('1 job completed and not yet billed'),
