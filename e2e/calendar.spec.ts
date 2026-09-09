@@ -100,7 +100,11 @@ test('a job shows the forecast for its own property and day', async ({
   })
 
   await signInViaUi(page, s.email)
-  await page.goto(`/${s.slug}/schedule`)
+  // Explicitly the job's own day, not "today". The schedule correctly opens on
+  // today *in the tenant's timezone*, which is not the machine's day whenever
+  // the runner sits behind Australia/Perth — so bare `/schedule` made this test
+  // fail every evening rather than on any real defect.
+  await page.goto(`/${s.slug}/schedule?date=${perthDayKey(base.getTime())}`)
   await page.getByRole('button', { name: /Termite Inspection/ }).click()
 
   const sheet = page.getByRole('dialog')
