@@ -480,7 +480,7 @@ Done. Sign in at ${SITE}/login with:
   Subcontractor (own jobs only)    ${priyaEmail}
   Password                         ${PASSWORD}
 
-Business: Bayside Pest Control → /${slug}/dashboard
+Business: Bayside Pest Control → /${slug}/schedule
 
 Seeded: ${properties.length} properties, ~${jobs.length} jobs across 3 weeks
 (past completed, today, upcoming, one cancelled), 2 recurring services,
