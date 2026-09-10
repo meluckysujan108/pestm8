@@ -10,6 +10,14 @@
  * Used both for day boundaries (hh=mm=0) and for converting a job's edited
  * date/time inputs back into an instant in the tenant's own zone, not the
  * viewer's browser zone.
+ *
+ * If `hh:mm` falls inside a "spring forward" DST gap (a wall-clock reading
+ * that never actually happens — e.g. 2:00–2:59am on the day a DST-observing
+ * state's clocks jump to 3am), the 2-pass loop below can never converge,
+ * since no instant renders back to that exact reading. Rather than silently
+ * returning whatever the loop happened to land on, that case is resolved
+ * explicitly: shift forward by the size of the gap (2:30am becomes 3:30am),
+ * the same convention `date-fns-tz`/`luxon` use.
  */
 export function zonedDateTimeToUtc(
   dayKey: string,
@@ -18,16 +26,35 @@ export function zonedDateTimeToUtc(
   timezone: string,
 ): number {
   const [year, month, day] = dayKey.split('-').map(Number)
+  const naiveUtc = Date.UTC(year, month - 1, day, hh, mm, 0, 0)
 
   // Guess at UTC, then correct by the zone's offset at that instant. Two passes
   // settle DST boundaries, which matter for every state except WA and QLD.
-  let ts = Date.UTC(year, month - 1, day, hh, mm, 0, 0)
+  let ts = naiveUtc
+  let matched = false
   for (let i = 0; i < 2; i++) {
-    ts = Date.UTC(year, month - 1, day, hh, mm, 0, 0) - offsetMs(ts, timezone)
-    const [checkDay, checkTime] = [dayKeyOf(ts, timezone), timeKeyOf(ts, timezone)]
-    if (checkDay === dayKey && checkTime === `${pad(hh)}:${pad(mm)}`) break
+    ts = naiveUtc - offsetMs(ts, timezone)
+    if (dayKeyOf(ts, timezone) === dayKey && timeKeyOf(ts, timezone) === `${pad(hh)}:${pad(mm)}`) {
+      matched = true
+      break
+    }
   }
-  return ts
+  if (matched) return ts
+
+  // The requested wall-clock time doesn't exist (DST spring-forward gap).
+  // `ts` (the loop's last candidate) is already a real UTC instant close to
+  // the actual transition — unlike `naiveUtc`, which is offset from it by
+  // the zone's own UTC offset and so isn't safe to probe around directly
+  // (probing naiveUtc ± N hours lands nowhere near the transition for a
+  // zone whose offset is larger than N, e.g. any positive-offset zone).
+  // Sampling 2 hours before `ts` — comfortably wider than any real DST gap,
+  // and guaranteed to land before the transition since `ts` itself is
+  // already within it — gives the pre-transition offset; applying THAT
+  // offset (not the post-transition one) to `naiveUtc` lands on the instant
+  // whose local reading is the requested time shifted forward by the gap
+  // size, e.g. 2:30am becomes 3:30am on a "clocks jump to 3am" day.
+  const offsetBeforeGap = offsetMs(ts - 2 * 60 * 60 * 1000, timezone)
+  return naiveUtc - offsetBeforeGap
 }
 
 /** Milliseconds since epoch for the start of the given local day in `timezone`. */

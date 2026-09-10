@@ -2,8 +2,8 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { jobVisibility, requireMembership } from './lib/access'
 import { clientKind } from './schema'
-import type { Doc } from './_generated/dataModel'
-import type { QueryCtx } from './_generated/server'
+import type { Doc, Id } from './_generated/dataModel'
+import type { MutationCtx, QueryCtx } from './_generated/server'
 
 /** Embeds the owning client alongside a property — the detail-view shape
  * (mirrors how `jobs.get` embeds `assignee`/`property` wholesale). */
@@ -119,14 +119,103 @@ export const createForClient = mutation({
   },
 })
 
+/** The shape every "create a brand-new client" entry point needs — the
+ * client-facing counterpart of `properties.create`'s own args, minus
+ * `businessId` (the caller already has it) and `notes` (not asked for at
+ * booking time; editable afterward via the client detail sheet). Reused by
+ * `jobs.create`/`recurrences.create` so booking a job for a client that
+ * doesn't exist yet needs one submit, not a trip to the Clients page first. */
+export const newClientFields = v.object({
+  clientName: v.string(),
+  // Defaults to 'person' so every existing caller (which never passes this)
+  // behaves exactly as before.
+  kind: v.optional(clientKind),
+  phone: v.optional(v.string()),
+  email: v.optional(v.string()),
+  addressLine: v.string(),
+  suburb: v.string(),
+  state: v.string(),
+  postcode: v.string(),
+})
+
+async function insertClientAndProperty(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  input: {
+    clientName: string
+    kind?: 'person' | 'business'
+    phone?: string
+    email?: string
+    addressLine: string
+    suburb: string
+    state: string
+    postcode: string
+    notes?: string
+  },
+): Promise<Id<'properties'>> {
+  const now = Date.now()
+  const clientId = await ctx.db.insert('clients', {
+    businessId,
+    kind: input.kind ?? 'person',
+    name: input.clientName,
+    phone: input.phone,
+    email: input.email,
+    createdAt: now,
+    updatedAt: now,
+  })
+  return ctx.db.insert('properties', {
+    businessId,
+    clientId,
+    addressLine: input.addressLine,
+    suburb: input.suburb,
+    state: input.state,
+    postcode: input.postcode,
+    notes: input.notes,
+    createdAt: now,
+  })
+}
+
+/**
+ * Resolves a job/recurrence's property from either an existing id or inline
+ * new-client fields, inserting the client+property in the same mutation when
+ * it's the latter — Convex mutations are transactional, so this can never
+ * leave an orphaned client behind if the rest of the caller's insert fails.
+ */
+export async function resolvePropertyId(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  input: {
+    propertyId?: Id<'properties'>
+    newClient?: {
+      clientName: string
+      kind?: 'person' | 'business'
+      phone?: string
+      email?: string
+      addressLine: string
+      suburb: string
+      state: string
+      postcode: string
+    }
+  },
+): Promise<Id<'properties'>> {
+  if (input.propertyId !== undefined) {
+    const property = await ctx.db.get(input.propertyId)
+    if (!property || property.businessId !== businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    return input.propertyId
+  }
+
+  if (!input.newClient) throw new ConvexError('MISSING_PROPERTY')
+  return insertClientAndProperty(ctx, businessId, input.newClient)
+}
+
 export const create = mutation({
   args: {
     businessId: v.id('businesses'),
     clientName: v.string(),
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
-    // Defaults to 'person' so every existing caller (which never passes this)
-    // behaves exactly as before.
     kind: v.optional(clientKind),
     addressLine: v.string(),
     suburb: v.string(),
@@ -136,26 +225,7 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     await requireMembership(ctx, args.businessId)
-    const now = Date.now()
-    const clientId = await ctx.db.insert('clients', {
-      businessId: args.businessId,
-      kind: args.kind ?? 'person',
-      name: args.clientName,
-      phone: args.phone,
-      email: args.email,
-      createdAt: now,
-      updatedAt: now,
-    })
-    return ctx.db.insert('properties', {
-      businessId: args.businessId,
-      clientId,
-      addressLine: args.addressLine,
-      suburb: args.suburb,
-      state: args.state,
-      postcode: args.postcode,
-      notes: args.notes,
-      createdAt: now,
-    })
+    return insertClientAndProperty(ctx, args.businessId, args)
   },
 })
 

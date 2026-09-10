@@ -3,7 +3,7 @@ import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import { canEditJob, jobVisibility, requireMembership } from './lib/access'
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
-import { clientNameOf, withClient } from './properties'
+import { clientNameOf, newClientFields, resolvePropertyId, withClient } from './properties'
 import { jobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -307,14 +307,19 @@ export const get = query({
 export const create = mutation({
   args: {
     businessId: v.id('businesses'),
-    propertyId: v.id('properties'),
+    // Either an existing property, or the fields to create a brand-new
+    // client + property in the same transaction — lets booking a job for a
+    // client that doesn't exist yet happen in one submit instead of a trip
+    // to the Clients page first.
+    propertyId: v.optional(v.id('properties')),
+    newClient: v.optional(newClientFields),
     assignedMembershipId: v.id('memberships'),
     jobType: v.string(),
     price: v.number(),
     scheduledAt: v.number(),
     durationMinutes: v.number(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { propertyId: existingPropertyId, newClient, ...args }) => {
     const membership = await requireMembership(ctx, args.businessId)
 
     // Only an owner may put work on someone else's calendar.
@@ -325,10 +330,10 @@ export const create = mutation({
       throw new ConvexError('NO_ACCESS')
     }
 
-    const property = await ctx.db.get(args.propertyId)
-    if (!property || property.businessId !== args.businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
+    const propertyId = await resolvePropertyId(ctx, args.businessId, {
+      propertyId: existingPropertyId,
+      newClient,
+    })
 
     const assignee = await ctx.db.get(args.assignedMembershipId)
     if (!assignee || assignee.businessId !== args.businessId) {
@@ -337,6 +342,7 @@ export const create = mutation({
 
     return ctx.db.insert('jobs', {
       ...args,
+      propertyId,
       status: 'booked',
       createdAt: Date.now(),
       jobNumber: await allocateJobNumber(ctx, args.businessId),

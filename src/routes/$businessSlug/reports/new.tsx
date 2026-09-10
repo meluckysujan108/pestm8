@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
@@ -11,11 +12,19 @@ import type { Id } from '../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/$businessSlug/reports/new')({
+  // Arriving from a job's detail sheet ($businessSlug/schedule via
+  // JobDetailSheet.tsx) carries both — the property is already decided by
+  // the job, and jobId links the new report back to it.
+  validateSearch: z.object({
+    propertyId: z.string().optional(),
+    jobId: z.string().optional(),
+  }),
   component: NewReportPage,
 })
 
 function NewReportPage() {
   const { business } = Route.useRouteContext()
+  const search = Route.useSearch()
   const hydrated = useHydrated()
 
   const navigate = useNavigate()
@@ -31,15 +40,24 @@ function NewReportPage() {
   // using it keeps working, per `customReportTemplates`'s own schema comment.
   const activeCustomTemplates = customTemplates.filter((t) => !t.archivedAt)
 
+  // A property id arriving from a job is only trusted once it actually
+  // matches one of this business's properties — a stale or tampered link
+  // just falls back to the ordinary picker instead of silently misfiring.
+  const lockedProperty = properties.find((p) => p._id === search.propertyId)
+  const jobId = lockedProperty ? search.jobId : undefined
+
   useEffect(() => {
-    if (!propertyId && properties.length > 0) setPropertyId(properties[0]._id)
-  }, [properties, propertyId])
+    if (propertyId) return
+    if (lockedProperty) setPropertyId(lockedProperty._id)
+    else if (properties.length > 0) setPropertyId(properties[0]._id)
+  }, [properties, propertyId, lockedProperty])
 
   const convexCreate = useConvexMutation(api.reports.create)
   const create = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
       propertyId: Id<'properties'>
+      jobId?: Id<'jobs'>
       template: TemplateId | 'custom'
       customTemplateId?: Id<'customReportTemplates'>
       legalBasis: string
@@ -64,20 +82,32 @@ function NewReportPage() {
           />
         ) : (
           <>
-            <label className="flex flex-col gap-1.5">
-              <span className="section-label">Property</span>
-              <select
-                value={propertyId}
-                onChange={(e) => setPropertyId(e.target.value)}
-                className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-              >
-                {properties.map((p) => (
-                  <option key={p._id} value={p._id}>
-                    {p.client?.name} — {p.addressLine}, {p.suburb}
-                  </option>
-                ))}
-              </select>
-            </label>
+            {lockedProperty ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="section-label">Property</span>
+                <div className="rounded-xl bg-surface-3 px-3.5 py-3">
+                  <p className="text-[16px] text-ink">{lockedProperty.client?.name}</p>
+                  <p className="text-body text-muted">
+                    {lockedProperty.addressLine}, {lockedProperty.suburb}
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <label className="flex flex-col gap-1.5">
+                <span className="section-label">Property</span>
+                <select
+                  value={propertyId}
+                  onChange={(e) => setPropertyId(e.target.value)}
+                  className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                >
+                  {properties.map((p) => (
+                    <option key={p._id} value={p._id}>
+                      {p.client?.name} — {p.addressLine}, {p.suburb}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             <div className="mt-5 flex flex-col gap-2.5">
               {TEMPLATE_LIST.map((template) => (
@@ -89,6 +119,7 @@ function NewReportPage() {
                     create.mutate({
                       businessId: business._id,
                       propertyId: propertyId as Id<'properties'>,
+                      jobId: jobId as Id<'jobs'> | undefined,
                       template: template.id,
                       legalBasis: template.legalBasis,
                       data: {},
@@ -124,6 +155,7 @@ function NewReportPage() {
                         create.mutate({
                           businessId: business._id,
                           propertyId: propertyId as Id<'properties'>,
+                          jobId: jobId as Id<'jobs'> | undefined,
                           template: 'custom',
                           customTemplateId: template._id,
                           legalBasis: template.legalBasis,

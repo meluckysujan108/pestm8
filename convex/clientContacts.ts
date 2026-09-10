@@ -67,6 +67,31 @@ export const update = mutation({
   },
 })
 
+/** Exclusive per client, mirroring `reports.setGalleryCover` exactly. */
+export const setPrimary = mutation({
+  args: { businessId: v.id('businesses'), contactId: v.id('clientContacts') },
+  handler: async (ctx, { businessId, contactId }) => {
+    await requireMembership(ctx, businessId)
+
+    const contact = await ctx.db.get(contactId)
+    if (!contact || contact.businessId !== businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+
+    const siblings = await ctx.db
+      .query('clientContacts')
+      .withIndex('by_client', (q) => q.eq('clientId', contact.clientId))
+      .collect()
+
+    await Promise.all(
+      siblings
+        .filter((sibling) => sibling.isPrimary && sibling._id !== contactId)
+        .map((sibling) => ctx.db.patch(sibling._id, { isPrimary: false })),
+    )
+    await ctx.db.patch(contactId, { isPrimary: true })
+  },
+})
+
 export const remove = mutation({
   args: { businessId: v.id('businesses'), contactId: v.id('clientContacts') },
   handler: async (ctx, { businessId, contactId }) => {

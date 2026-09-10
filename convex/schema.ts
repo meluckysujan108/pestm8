@@ -126,6 +126,14 @@ export default defineSchema({
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
     notes: v.optional(v.string()),
+    // A business-kind client's own head-office/mailing address — independent
+    // of any `properties` (service-site) address. Optional and edit-later
+    // only: never asked for at client-creation time, since the creation flow
+    // already collects one address (the service property's).
+    addressLine: v.optional(v.string()),
+    suburb: v.optional(v.string()),
+    state: v.optional(v.string()),
+    postcode: v.optional(v.string()),
     // Soft-delete, mirroring `customReportTemplates.archivedAt`: removes a
     // client from "new job"/"new property" pickers only, with zero effect on
     // any property/job/report that already references it.
@@ -144,6 +152,10 @@ export default defineSchema({
     role: v.optional(v.string()),
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
+    // Exclusive per clientId, mirroring `reportPhotos.isCover` — cleared on
+    // every other contact for the same client whenever one is set primary
+    // via `clientContacts.setPrimary`. Undefined/false for every other row.
+    isPrimary: v.optional(v.boolean()),
     createdAt: v.number(),
   }).index('by_client', ['clientId']),
 

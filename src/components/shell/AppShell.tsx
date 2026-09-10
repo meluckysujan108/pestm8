@@ -3,6 +3,7 @@ import {
   BarChart3,
   CalendarDays,
   FileText,
+  Settings,
   StickyNote,
   Users,
 } from 'lucide-react'
@@ -54,6 +55,16 @@ export function AppShell({
             {tab.label}
           </Link>
         ))}
+        <div className="mt-auto">
+          <Link
+            to="/$businessSlug/settings"
+            params={{ businessSlug: business.slug }}
+            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-row-title text-ink-2 transition hover:bg-surface-2 aria-[current=page]:bg-surface-2 aria-[current=page]:text-red"
+          >
+            <Settings size={20} strokeWidth={1.7} />
+            Settings
+          </Link>
+        </div>
       </nav>
 
       {/* 460px phone shell, a wider tablet column, then fluid to 1280 beside
@@ -76,6 +87,14 @@ export function AppShell({
             {tab.label}
           </Link>
         ))}
+        <Link
+          to="/$businessSlug/settings"
+          params={{ businessSlug: business.slug }}
+          className="flex flex-1 flex-col items-center gap-1 py-2 text-tab-label text-muted transition aria-[current=page]:text-red"
+        >
+          <Settings size={22} strokeWidth={1.7} />
+          Settings
+        </Link>
       </nav>
     </div>
   )

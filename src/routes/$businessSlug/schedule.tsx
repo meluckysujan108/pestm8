@@ -33,6 +33,9 @@ const searchSchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
+  // Lets a job be deep-linked straight to its detail sheet — e.g. from a
+  // client's job history — without depending on which day is on screen.
+  jobId: z.string().optional(),
 })
 
 export const Route = createFileRoute('/$businessSlug/schedule')({
@@ -42,9 +45,11 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
 
 function SchedulePage() {
   const { business, membership } = Route.useRouteContext()
-  const { date } = Route.useSearch()
+  const { date, jobId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const [openJobId, setOpenJobId] = useState<string | null>(null)
+  const openJobId = jobId ?? null
+  const setOpenJobId = (id: string | null) =>
+    navigate({ search: (prev) => ({ ...prev, jobId: id ?? undefined }), replace: true })
   const [newJobOpen, setNewJobOpen] = useState(false)
   const [monthOpen, setMonthOpen] = useState(false)
   const [monthKey, setMonthKey] = useState<string | null>(null)

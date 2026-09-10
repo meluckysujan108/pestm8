@@ -51,6 +51,10 @@ export const update = mutation({
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
     notes: v.optional(v.string()),
+    addressLine: v.optional(v.string()),
+    suburb: v.optional(v.string()),
+    state: v.optional(v.string()),
+    postcode: v.optional(v.string()),
   },
   handler: async (ctx, { businessId, clientId, ...patch }) => {
     await requireMembership(ctx, businessId)

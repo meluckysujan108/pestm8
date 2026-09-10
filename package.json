@@ -11,6 +11,7 @@
     "build": "vite build && node scripts/build-sw.mjs",
     "preview": "vite preview",
     "test:e2e": "playwright test",
+    "check:dates": "node scripts/check-dst-boundaries.mjs",
     "lint": "eslint",
     "format": "prettier --write . && eslint --fix",
     "check": "prettier --check ."

@@ -4,14 +4,15 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import { AlertDialog } from 'radix-ui'
-import { Mail, Pencil, Phone, Plus, Trash2, X } from 'lucide-react'
+import { Pencil, Plus, Star, Trash2, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { HoldButton } from '#/components/primitives/HoldButton'
+import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { Segmented } from '#/components/primitives/Segmented'
 import { AU_STATES } from '#/lib/au'
 import { formatMoney } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
+import { dayKeyOf } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 type ClientKind = 'person' | 'business'
@@ -146,39 +147,24 @@ function ClientBody({
             {client.kind === 'business' ? 'Business' : 'Person'}
           </p>
 
-          {(client.phone || client.email) && (
-            <div className="mt-3 flex gap-2">
-              {client.phone && (
-                <HoldButton
-                  ariaLabel={`Call ${client.name}`}
-                  onComplete={() => {
-                    window.location.href = `tel:${client.phone}`
-                  }}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 py-3 text-body font-semibold text-blue"
-                >
-                  <Phone size={17} strokeWidth={1.7} />
-                  Hold to call
-                </HoldButton>
-              )}
-              {client.email && (
-                <HoldButton
-                  ariaLabel={`Email ${client.name}`}
-                  onComplete={() => {
-                    window.location.href = `mailto:${client.email}`
-                  }}
-                  className="flex flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 py-3 text-body font-semibold text-blue"
-                >
-                  <Mail size={17} strokeWidth={1.7} />
-                  Hold to email
-                </HoldButton>
-              )}
-            </div>
-          )}
+          <div className="mt-3">
+            <ContactButtons name={client.name} phone={client.phone} email={client.email} />
+          </div>
 
           {client.notes && (
             <p className="mt-3 whitespace-pre-wrap text-body text-ink-2">
               {client.notes}
             </p>
+          )}
+
+          {client.kind === 'business' && (client.addressLine || client.suburb) && (
+            <div className="mt-3">
+              <p className="section-label mb-1">Business address</p>
+              <p className="text-body text-ink-2">{client.addressLine}</p>
+              <p className="text-caption text-muted">
+                {client.suburb} {client.state} {client.postcode}
+              </p>
+            </div>
           )}
         </>
       )}
@@ -193,6 +179,7 @@ function ClientBody({
 
       <ClientJobHistory
         businessId={businessId}
+        businessSlug={businessSlug}
         clientId={clientId}
         timezone={timezone}
       />
@@ -266,6 +253,10 @@ function ClientEditForm({
     phone?: string
     email?: string
     notes?: string
+    addressLine?: string
+    suburb?: string
+    state?: string
+    postcode?: string
   }
   onDone: () => void
 }) {
@@ -274,6 +265,10 @@ function ClientEditForm({
   const [phone, setPhone] = useState(client.phone ?? '')
   const [email, setEmail] = useState(client.email ?? '')
   const [notes, setNotes] = useState(client.notes ?? '')
+  const [addressLine, setAddressLine] = useState(client.addressLine ?? '')
+  const [suburb, setSuburb] = useState(client.suburb ?? '')
+  const [state, setState] = useState(client.state ?? AU_STATES[0].code)
+  const [postcode, setPostcode] = useState(client.postcode ?? '')
 
   const hydrated = useHydrated()
 
@@ -287,6 +282,10 @@ function ClientEditForm({
       phone?: string
       email?: string
       notes?: string
+      addressLine?: string
+      suburb?: string
+      state?: string
+      postcode?: string
     }) => convexUpdate(args),
     onSuccess: onDone,
   })
@@ -304,6 +303,16 @@ function ClientEditForm({
           phone: phone.trim() || undefined,
           email: email.trim() || undefined,
           notes: notes.trim() || undefined,
+          // Omitted (not cleared) when kind isn't business: `clients.update`
+          // skips undefined args, so toggling to person just stops showing
+          // the address rather than wiping it — same "hidden, not deleted"
+          // treatment as clientContacts when kind flips away from business.
+          ...(kind === 'business' && {
+            addressLine: addressLine.trim() || undefined,
+            suburb: suburb.trim() || undefined,
+            state: state || undefined,
+            postcode: postcode.trim() || undefined,
+          }),
         })
       }}
     >
@@ -321,12 +330,41 @@ function ClientEditForm({
       <FormField label={kind === 'business' ? 'Business name' : 'Client name'}>
         <TextInput value={name} onChange={setName} required />
       </FormField>
-      <FormField label="Phone (optional)">
+      <FormField label={kind === 'business' ? 'Main phone (optional)' : 'Phone (optional)'}>
         <TextInput value={phone} onChange={setPhone} type="tel" />
       </FormField>
-      <FormField label="Email (optional)">
+      <FormField label={kind === 'business' ? 'Main email (optional)' : 'Email (optional)'}>
         <TextInput value={email} onChange={setEmail} type="email" />
       </FormField>
+      {kind === 'business' && (
+        <>
+          <FormField label="Business address (optional)">
+            <TextInput value={addressLine} onChange={setAddressLine} placeholder="Street address" />
+          </FormField>
+          <FormField label="Suburb">
+            <TextInput value={suburb} onChange={setSuburb} placeholder="Suburb" />
+          </FormField>
+          <div className="grid grid-cols-2 gap-2.5">
+            <select
+              value={state}
+              onChange={(e) => setState(e.target.value)}
+              className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            >
+              {AU_STATES.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.code}
+                </option>
+              ))}
+            </select>
+            <TextInput
+              value={postcode}
+              onChange={setPostcode}
+              inputMode="numeric"
+              placeholder="Postcode"
+            />
+          </div>
+        </>
+      )}
       <FormField label="Notes (optional)">
         <textarea
           value={notes}
@@ -379,38 +417,86 @@ function ClientContacts({
     convexQuery(api.clientContacts.list, { businessId, clientId }),
   )
   const [adding, setAdding] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
 
   const convexRemove = useConvexMutation(api.clientContacts.remove)
   const remove = useMutation({
     mutationFn: (args: { businessId: Id<'businesses'>; contactId: Id<'clientContacts'> }) =>
       convexRemove(args),
   })
+  const convexSetPrimary = useConvexMutation(api.clientContacts.setPrimary)
+  const setPrimary = useMutation({
+    mutationFn: (args: { businessId: Id<'businesses'>; contactId: Id<'clientContacts'> }) =>
+      convexSetPrimary(args),
+  })
+
+  // Primary contact first; otherwise the order the list already comes in.
+  const ordered = contacts
+    ? [...contacts].sort((a, b) => Number(b.isPrimary ?? false) - Number(a.isPrimary ?? false))
+    : contacts
 
   return (
     <Section label="Contacts">
-      {contacts && contacts.length > 0 && (
+      {ordered && ordered.length > 0 && (
         <div className="mb-3 flex flex-col divide-y divide-hairline">
-          {contacts.map((contact) => (
-            <div key={contact._id} className="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-body text-ink">{contact.name}</p>
-                <p className="truncate text-caption text-muted">
-                  {[contact.role, contact.phone, contact.email]
-                    .filter(Boolean)
-                    .join(' · ')}
-                </p>
+          {ordered.map((contact) =>
+            editingId === contact._id ? (
+              <div key={contact._id} className="py-2.5 first:pt-0 last:pb-0">
+                <ContactEditForm
+                  businessId={businessId}
+                  contact={contact}
+                  onDone={() => setEditingId(null)}
+                />
               </div>
-              <button
-                type="button"
-                aria-label={`Remove ${contact.name}`}
-                disabled={remove.isPending}
-                onClick={() => remove.mutate({ businessId, contactId: contact._id })}
-                className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
-              >
-                <Trash2 size={14} strokeWidth={1.7} />
-              </button>
-            </div>
-          ))}
+            ) : (
+              <div key={contact._id} className="flex flex-col gap-2 py-2.5 first:pt-0 last:pb-0">
+                <div className="flex items-center gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-body text-ink">
+                      {contact.name}
+                      {contact.isPrimary && (
+                        <span className="ml-1.5 text-caption text-blue">★ Primary</span>
+                      )}
+                    </p>
+                    <p className="truncate text-caption text-muted">
+                      {[contact.role, contact.phone, contact.email]
+                        .filter(Boolean)
+                        .join(' · ')}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={`Edit ${contact.name}`}
+                    onClick={() => setEditingId(contact._id)}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                  >
+                    <Pencil size={13} strokeWidth={2} />
+                  </button>
+                  {!contact.isPrimary && (
+                    <button
+                      type="button"
+                      aria-label={`Make ${contact.name} primary`}
+                      disabled={setPrimary.isPending}
+                      onClick={() => setPrimary.mutate({ businessId, contactId: contact._id })}
+                      className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
+                    >
+                      <Star size={14} strokeWidth={1.7} />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    aria-label={`Remove ${contact.name}`}
+                    disabled={remove.isPending}
+                    onClick={() => remove.mutate({ businessId, contactId: contact._id })}
+                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
+                  >
+                    <Trash2 size={14} strokeWidth={1.7} />
+                  </button>
+                </div>
+                <ContactButtons name={contact.name} phone={contact.phone} email={contact.email} />
+              </div>
+            ),
+          )}
         </div>
       )}
 
@@ -478,7 +564,7 @@ function NewContactForm({
       }}
     >
       <TextInput value={name} onChange={setName} placeholder="Name" required />
-      <TextInput value={role} onChange={setRole} placeholder="Role (optional)" />
+      <TextInput value={role} onChange={setRole} placeholder="Position (optional)" />
       <TextInput value={phone} onChange={setPhone} type="tel" placeholder="Phone (optional)" />
       <TextInput value={email} onChange={setEmail} type="email" placeholder="Email (optional)" />
       <div className="flex gap-2">
@@ -495,6 +581,79 @@ function NewContactForm({
           className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
         >
           {create.isPending ? 'Adding…' : 'Add'}
+        </button>
+      </div>
+    </form>
+  )
+}
+
+function ContactEditForm({
+  businessId,
+  contact,
+  onDone,
+}: {
+  businessId: Id<'businesses'>
+  contact: {
+    _id: Id<'clientContacts'>
+    name: string
+    role?: string
+    phone?: string
+    email?: string
+  }
+  onDone: () => void
+}) {
+  const [name, setName] = useState(contact.name)
+  const [role, setRole] = useState(contact.role ?? '')
+  const [phone, setPhone] = useState(contact.phone ?? '')
+  const [email, setEmail] = useState(contact.email ?? '')
+  const hydrated = useHydrated()
+
+  const convexUpdate = useConvexMutation(api.clientContacts.update)
+  const save = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      contactId: Id<'clientContacts'>
+      name: string
+      role?: string
+      phone?: string
+      email?: string
+    }) => convexUpdate(args),
+    onSuccess: onDone,
+  })
+
+  return (
+    <form
+      className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
+      onSubmit={(e) => {
+        e.preventDefault()
+        save.mutate({
+          businessId,
+          contactId: contact._id,
+          name,
+          role: role.trim() || undefined,
+          phone: phone.trim() || undefined,
+          email: email.trim() || undefined,
+        })
+      }}
+    >
+      <TextInput value={name} onChange={setName} placeholder="Name" required />
+      <TextInput value={role} onChange={setRole} placeholder="Position (optional)" />
+      <TextInput value={phone} onChange={setPhone} type="tel" placeholder="Phone (optional)" />
+      <TextInput value={email} onChange={setEmail} type="email" placeholder="Email (optional)" />
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onDone}
+          className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={save.isPending || !hydrated}
+          className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+        >
+          {save.isPending ? 'Saving…' : 'Save'}
         </button>
       </div>
     </form>
@@ -736,10 +895,12 @@ function NewPropertyForClientForm({
  * one, unlike the old per-property view. */
 function ClientJobHistory({
   businessId,
+  businessSlug,
   clientId,
   timezone,
 }: {
   businessId: Id<'businesses'>
+  businessSlug: string
   clientId: Id<'clients'>
   timezone: string
 }) {
@@ -756,8 +917,11 @@ function ClientJobHistory({
       ) : (
         <div className="flex flex-col divide-y divide-hairline">
           {jobs.map((job) => (
-            <div
+            <Link
               key={job._id}
+              to="/$businessSlug/schedule"
+              params={{ businessSlug }}
+              search={{ date: dayKeyOf(job.scheduledAt, timezone), jobId: job._id }}
               className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
             >
               <span className="min-w-0">
@@ -777,7 +941,7 @@ function ClientJobHistory({
                 <span className="text-body text-ink">{formatMoney(job.price)}</span>
                 <StatusPill status={job.status} />
               </span>
-            </div>
+            </Link>
           ))}
         </div>
       )}

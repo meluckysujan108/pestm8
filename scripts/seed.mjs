@@ -306,8 +306,7 @@ await priya.mutation(api.reports.create, {
 })
 
 console.log('Writing reports — finalised…')
-// A termite management certificate — exercises PDF export and the durable
-// notice follow-up that shows up on the dashboard.
+// A termite management certificate — exercises PDF export.
 const certId = await owner.mutation(api.reports.create, {
   businessId,
   propertyId: nguyen,
@@ -328,13 +327,6 @@ await owner.mutation(api.reports.finalise, {
     reinspectionInterval: '12',
     treatedZones: 'Full external perimeter, all penetrations and cold joints.',
   },
-  tasks: [
-    {
-      kind: 'durableNotice',
-      label: 'Fix durable notice in meter box',
-      detail: 'AS 3660.2 / NCC require a physical notice fixed to the building.',
-    },
-  ],
 })
 
 // A finalised service report with a technician signature and gallery

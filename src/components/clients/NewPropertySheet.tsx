@@ -4,12 +4,10 @@ import { useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { AU_STATES } from '#/lib/au'
-import { Segmented } from '#/components/primitives/Segmented'
+import { EMPTY_NEW_CLIENT, NewClientFields } from './NewClientFields'
+import type { NewClientFieldsValue } from './NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
-
-type ClientKind = 'person' | 'business'
 
 /**
  * Creates a client and its first property together in one step — a client
@@ -26,14 +24,7 @@ export function NewPropertySheet({
   open: boolean
   onClose: () => void
 }) {
-  const [kind, setKind] = useState<ClientKind>('person')
-  const [clientName, setClientName] = useState('')
-  const [addressLine, setAddressLine] = useState('')
-  const [suburb, setSuburb] = useState('')
-  const [state, setState] = useState('WA')
-  const [postcode, setPostcode] = useState('')
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
+  const [value, setValue] = useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
 
   const hydrated = useHydrated()
 
@@ -42,7 +33,7 @@ export function NewPropertySheet({
     mutationFn: (args: {
       businessId: Id<'businesses'>
       clientName: string
-      kind: ClientKind
+      kind: NewClientFieldsValue['kind']
       addressLine: string
       suburb: string
       state: string
@@ -51,13 +42,7 @@ export function NewPropertySheet({
       email?: string
     }) => convexCreate(args),
     onSuccess: () => {
-      setKind('person')
-      setClientName('')
-      setAddressLine('')
-      setSuburb('')
-      setPostcode('')
-      setPhone('')
-      setEmail('')
+      setValue(EMPTY_NEW_CLIENT)
       onClose()
     },
   })
@@ -75,14 +60,14 @@ export function NewPropertySheet({
               e.preventDefault()
               create.mutate({
                 businessId,
-                clientName,
-                kind,
-                addressLine,
-                suburb,
-                state,
-                postcode,
-                phone: phone.trim() || undefined,
-                email: email.trim() || undefined,
+                clientName: value.clientName,
+                kind: value.kind,
+                addressLine: value.addressLine,
+                suburb: value.suburb,
+                state: value.state,
+                postcode: value.postcode,
+                phone: value.phone.trim() || undefined,
+                email: value.email.trim() || undefined,
               })
             }}
           >
@@ -90,58 +75,10 @@ export function NewPropertySheet({
               New client
             </Drawer.Title>
 
-            <Field label="Client type">
-              <Segmented
-                label="Client type"
-                value={kind}
-                onChange={setKind}
-                options={[
-                  { value: 'person', label: 'Person' },
-                  { value: 'business', label: 'Business' },
-                ]}
-              />
-            </Field>
-
-            <Field label={kind === 'business' ? 'Business name' : 'Client name'}>
-              <Input value={clientName} onChange={setClientName} required />
-            </Field>
-            <Field label="Street address">
-              <Input value={addressLine} onChange={setAddressLine} required />
-            </Field>
-            <Field label="Suburb">
-              <Input value={suburb} onChange={setSuburb} required />
-            </Field>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="State">
-                <select
-                  value={state}
-                  onChange={(e) => setState(e.target.value)}
-                  className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-                >
-                  {AU_STATES.map((s) => (
-                    <option key={s.code} value={s.code}>
-                      {s.code}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Postcode">
-                <Input
-                  value={postcode}
-                  onChange={setPostcode}
-                  required
-                  inputMode="numeric"
-                />
-              </Field>
-            </div>
-
-            <Field label="Phone (optional)">
-              <Input value={phone} onChange={setPhone} type="tel" />
-            </Field>
-            <Field label="Email (optional)">
-              <Input value={email} onChange={setEmail} type="email" />
-            </Field>
+            <NewClientFields
+              value={value}
+              onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
+            />
 
             {create.isError && (
               <p
@@ -172,45 +109,5 @@ export function NewPropertySheet({
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
-  )
-}
-
-function Input({
-  value,
-  onChange,
-  type = 'text',
-  required,
-  inputMode,
-}: {
-  value: string
-  onChange: (v: string) => void
-  type?: string
-  required?: boolean
-  inputMode?: 'numeric' | 'decimal' | 'tel'
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      required={required}
-      inputMode={inputMode}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-    />
-  )
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className="mt-4 flex flex-col gap-1.5">
-      <span className="section-label">{label}</span>
-      {children}
-    </label>
   )
 }

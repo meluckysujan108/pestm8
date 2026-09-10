@@ -8,21 +8,21 @@ import {
   Camera,
   Check,
   ChevronDown,
-  Mail,
-  MessageSquareText,
   Pencil,
-  Phone,
+  Plus,
   Repeat,
   Send,
   Trash2,
   X,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { HoldButton } from '#/components/primitives/HoldButton'
+import { Combobox } from '#/components/primitives/Combobox'
+import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import {
   JOB_TYPES,
   REPEAT_LABELS,
+  REPEAT_OPTIONS,
   formatDuration,
   formatMoney,
   formatTime,
@@ -32,6 +32,7 @@ import { isWet, isWindy, useDayWeather } from '#/lib/useDayWeather'
 import { useHydrated } from '#/lib/useHydrated'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { RepeatValue } from '#/lib/format'
 
 type SettableStatus = 'booked' | 'inProgress' | 'completed' | 'cancelled'
 
@@ -112,6 +113,7 @@ function JobDetailBody({
     convexQuery(api.jobs.get, { businessId, jobId }),
   )
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
+  const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] = useState(false)
   const [editing, setEditing] = useState(false)
 
   // None of these close the sheet on success — a status change from the
@@ -127,6 +129,13 @@ function JobDetailBody({
   const cancel = useMutation({
     mutationFn: (args: { businessId: Id<'businesses'>; jobId: Id<'jobs'> }) =>
       convexCancel(args),
+  })
+
+  const convexStopRepeating = useConvexMutation(api.recurrences.stopFromJob)
+  const stopRepeating = useMutation({
+    mutationFn: (args: { businessId: Id<'businesses'>; jobId: Id<'jobs'> }) =>
+      convexStopRepeating(args),
+    onSuccess: () => setConfirmStopRepeatingOpen(false),
   })
 
   // Sets any non-terminal, non-confirmed status — booked or in-progress —
@@ -172,7 +181,7 @@ function JobDetailBody({
                 type="button"
                 aria-label="Edit job details"
                 onClick={() => setEditing(true)}
-                className="flex items-center gap-1 text-caption font-semibold text-blue"
+                className="mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
               >
                 <Pencil size={13} strokeWidth={2} />
                 Edit
@@ -253,44 +262,15 @@ function JobDetailBody({
 
                 {/* Quick-contact — hold to confirm on touch, since a phone in a
                     pocket must never silently dial or text a client (§2.3). */}
-                <div className="mt-3 flex gap-2">
-                  {job.property?.client?.phone && (
-                    <HoldButton
-                      ariaLabel={`Call ${job.property.client.name}`}
-                      onComplete={() => {
-                        window.location.href = `tel:${job.property!.client!.phone}`
-                      }}
-                      className="flex flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-surface-2 py-2.5 text-caption font-semibold text-blue"
-                    >
-                      <Phone size={17} strokeWidth={1.7} />
-                      Call
-                    </HoldButton>
-                  )}
-                  {job.property?.client?.phone && (
-                    <HoldButton
-                      ariaLabel={`Text ${job.property.client.name}`}
-                      onComplete={() => {
-                        window.location.href = `sms:${job.property!.client!.phone}`
-                      }}
-                      className="flex flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-surface-2 py-2.5 text-caption font-semibold text-blue"
-                    >
-                      <MessageSquareText size={17} strokeWidth={1.7} />
-                      Text
-                    </HoldButton>
-                  )}
-                  {job.property?.client?.email && (
-                    <HoldButton
-                      ariaLabel={`Email ${job.property.client.name}`}
-                      onComplete={() => {
-                        window.location.href = `mailto:${job.property!.client!.email}`
-                      }}
-                      className="flex flex-1 flex-col items-center justify-center gap-1 rounded-xl bg-surface-2 py-2.5 text-caption font-semibold text-blue"
-                    >
-                      <Mail size={17} strokeWidth={1.7} />
-                      Email
-                    </HoldButton>
-                  )}
-                </div>
+                {job.property?.client && (
+                  <div className="mt-3">
+                    <ContactButtons
+                      name={job.property.client.name}
+                      phone={job.property.client.phone}
+                      email={job.property.client.email}
+                    />
+                  </div>
+                )}
               </Section>
 
               <Section label="Price">
@@ -309,34 +289,49 @@ function JobDetailBody({
             dayKey={dayKeyInZone(job.scheduledAt, timezone)}
           />
 
-          {job.recurrence && (
-            <Section label="Recurrence">
-              <div className="flex items-center gap-2">
-                <Repeat size={16} strokeWidth={1.7} className="text-blue" />
-                <p className="text-body text-ink">
-                  {REPEAT_LABELS[job.recurrence.frequency] ?? 'Repeats'}
+          <Section label="Recurrence">
+            {job.recurrence?.active ? (
+              <>
+                <div className="flex items-center gap-2">
+                  <Repeat size={16} strokeWidth={1.7} className="text-blue" />
+                  <p className="text-body text-ink">
+                    {REPEAT_LABELS[job.recurrence.frequency] ?? 'Repeats'}
+                  </p>
+                </div>
+                {/* Cancelling one visit is not the same as ending a contract,
+                    so the distinction is spelled out rather than implied. */}
+                <p className="mt-1 text-caption text-muted">
+                  Future visits are booked automatically. Cancelling this one
+                  leaves the rest in place.
                 </p>
-              </div>
-              {/* Cancelling one visit is not the same as ending a contract,
-                      so the distinction is spelled out rather than implied. */}
-              <p className="mt-1 text-caption text-muted">
-                Future visits are booked automatically. Cancelling this one
-                leaves the rest in place.
-              </p>
-            </Section>
-          )}
+                {job.canEdit && job.status !== 'invoiced' && (
+                  <button
+                    type="button"
+                    onClick={() => setConfirmStopRepeatingOpen(true)}
+                    className="mt-3 text-caption font-semibold text-red"
+                  >
+                    Stop repeating
+                  </button>
+                )}
+              </>
+            ) : (
+              <p className="text-body text-ink">One-off</p>
+            )}
+          </Section>
 
           <PropertyHistory
             businessId={businessId}
+            businessSlug={businessSlug}
             propertyId={job.propertyId}
             timezone={timezone}
             excludeJobId={job._id}
           />
 
-          <PropertyReports
+          <JobReports
             businessId={businessId}
             businessSlug={businessSlug}
             propertyId={job.propertyId}
+            jobId={job._id}
             timezone={timezone}
           />
 
@@ -393,6 +388,46 @@ function JobDetailBody({
               </AlertDialog.Content>
             </AlertDialog.Portal>
           </AlertDialog.Root>
+
+          <AlertDialog.Root
+            open={confirmStopRepeatingOpen}
+            onOpenChange={setConfirmStopRepeatingOpen}
+          >
+            <AlertDialog.Portal>
+              <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/30" />
+              <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
+                <AlertDialog.Title className="text-row-title text-ink">
+                  Stop repeating this service?
+                </AlertDialog.Title>
+                <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
+                  This visit stays booked as shown. Any other future visits
+                  already generated for this series will be removed from the
+                  schedule — this cannot be undone. Past and completed visits
+                  are not affected.
+                </AlertDialog.Description>
+                <div className="mt-4 flex gap-2">
+                  <AlertDialog.Cancel asChild>
+                    <button
+                      type="button"
+                      className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                    >
+                      Keep repeating
+                    </button>
+                  </AlertDialog.Cancel>
+                  <AlertDialog.Action asChild>
+                    <button
+                      type="button"
+                      disabled={stopRepeating.isPending}
+                      onClick={() => stopRepeating.mutate({ businessId, jobId: job._id })}
+                      className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                    >
+                      {stopRepeating.isPending ? 'Stopping…' : 'Stop repeating'}
+                    </button>
+                  </AlertDialog.Action>
+                </div>
+              </AlertDialog.Content>
+            </AlertDialog.Portal>
+          </AlertDialog.Root>
         </div>
       ) : job === null ? (
         <div className="px-4 py-10">
@@ -436,6 +471,7 @@ function JobEditForm({
     scheduledAt: number
     durationMinutes: number
     assignedMembershipId: Id<'memberships'>
+    recurrence: { _id: Id<'recurrences'>; frequency: string; active: boolean } | null
   }
   canReassign: boolean
   onDone: () => void
@@ -457,12 +493,15 @@ function JobEditForm({
   const [duration, setDuration] = useState(String(job.durationMinutes))
   const [price, setPrice] = useState(String(job.price / 100))
   const [assignee, setAssignee] = useState<string>(job.assignedMembershipId)
+  const [repeat, setRepeat] = useState<RepeatValue>('once')
+  const hasActiveRecurrence = job.recurrence?.active ?? false
 
   const hydrated = useHydrated()
 
   const convexUpdate = useConvexMutation(api.jobs.update)
+  const convexConvert = useConvexMutation(api.recurrences.convertJobToRecurring)
   const save = useMutation({
-    mutationFn: (args: {
+    mutationFn: async (args: {
       businessId: Id<'businesses'>
       jobId: Id<'jobs'>
       propertyId: Id<'properties'>
@@ -471,7 +510,21 @@ function JobEditForm({
       scheduledAt: number
       durationMinutes: number
       assignedMembershipId: Id<'memberships'>
-    }) => convexUpdate(args),
+      repeat: RepeatValue
+    }) => {
+      const { repeat: nextRepeat, ...patch } = args
+      await convexUpdate(patch)
+      // convertJobToRecurring re-reads the job's own fields from the database
+      // rather than trusting these client-passed values, so it always anchors
+      // on whatever was just saved above, not stale pre-edit values.
+      if (!hasActiveRecurrence && nextRepeat !== 'once') {
+        await convexConvert({
+          businessId: patch.businessId,
+          jobId: patch.jobId,
+          frequency: nextRepeat,
+        })
+      }
+    },
     onSuccess: onDone,
   })
 
@@ -492,40 +545,34 @@ function JobEditForm({
           scheduledAt,
           durationMinutes: Number(duration),
           assignedMembershipId: assignee as Id<'memberships'>,
+          repeat,
         })
       }}
     >
       <EditField label="Property">
-        <select
+        <Combobox
           value={propertyId}
-          onChange={(e) => setPropertyId(e.target.value)}
-          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        >
-          {properties?.map((p) => (
-            <option key={p._id} value={p._id}>
-              {p.client?.name} — {p.addressLine}, {p.suburb}
-            </option>
-          ))}
-        </select>
+          onChange={setPropertyId}
+          options={(properties ?? []).map((p) => ({
+            value: p._id,
+            label: `${p.client?.name} — ${p.addressLine}, ${p.suburb}`,
+          }))}
+          placeholder="Search by name or address"
+          noMatchLabel="No properties match"
+          ariaLabel="Property"
+        />
       </EditField>
 
       <EditField label="Job type">
-        <select
+        <Combobox
           value={jobType}
-          onChange={(e) => setJobType(e.target.value)}
-          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        >
-          {/* The job's current type may predate the fixed list — keep it
-              selectable rather than silently swapping it out. */}
-          {!JOB_TYPES.includes(jobType as (typeof JOB_TYPES)[number]) && (
-            <option value={jobType}>{jobType}</option>
-          )}
-          {JOB_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+          onChange={setJobType}
+          options={JOB_TYPES.map((t) => ({ value: t, label: t }))}
+          allowCustom
+          customLabel={(q) => `Add "${q}" as a new job type`}
+          placeholder="Search or add a job type"
+          ariaLabel="Job type"
+        />
       </EditField>
 
       {/* Reassignment is an owner-only action even on your own job (jobs.update
@@ -596,6 +643,33 @@ function JobEditForm({
           />
         </EditField>
       </div>
+
+      <EditField label="Repeat">
+        {hasActiveRecurrence ? (
+          <>
+            <p className="flex h-12 w-full items-center rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink">
+              {REPEAT_OPTIONS.find((o) => o.value === job.recurrence?.frequency)
+                ?.label ?? 'Repeating'}
+            </p>
+            <p className="mt-1.5 text-caption text-muted">
+              To change how often this repeats, use "Stop repeating" above and
+              set up a new series.
+            </p>
+          </>
+        ) : (
+          <select
+            value={repeat}
+            onChange={(e) => setRepeat(e.target.value as RepeatValue)}
+            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          >
+            {REPEAT_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        )}
+      </EditField>
 
       {save.isError && (
         <p
@@ -715,11 +789,13 @@ function JobWeather({
  */
 function PropertyHistory({
   businessId,
+  businessSlug,
   propertyId,
   timezone,
   excludeJobId,
 }: {
   businessId: Id<'businesses'>
+  businessSlug: string
   propertyId: Id<'properties'>
   timezone: string
   excludeJobId: Id<'jobs'>
@@ -734,7 +810,13 @@ function PropertyHistory({
     <Section label="Other visits at this property">
       <div className="flex flex-col divide-y divide-hairline">
         {visits.map((visit) => (
-          <div key={visit._id} className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0">
+          <Link
+            key={visit._id}
+            to="/$businessSlug/schedule"
+            params={{ businessSlug }}
+            search={{ date: dayKeyOf(visit.scheduledAt, timezone), jobId: visit._id }}
+            className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
+          >
             <span className="min-w-0">
               <span className="block truncate text-body text-ink">
                 {visit.jobType}
@@ -749,7 +831,7 @@ function PropertyHistory({
               </span>
             </span>
             <StatusPill status={visit.status} />
-          </div>
+          </Link>
         ))}
       </div>
     </Section>
@@ -759,58 +841,112 @@ function PropertyHistory({
 /** Reports finalised or drafted for this property — `reports.listByProperty`
  * existed unused before this; a job's history is incomplete without the
  * compliance documents it produced. */
-function PropertyReports({
+/**
+ * Reports for this job's property, split into what this job's own report(s)
+ * are versus other history at the same address — and a way to start one
+ * without leaving the sheet, since the property and (via `jobId`) the job
+ * itself are both already known here. `reports.create` and
+ * `reports.listByProperty` already carry `jobId` end to end; this is the
+ * first UI that actually uses it.
+ */
+function JobReports({
   businessId,
   businessSlug,
   propertyId,
+  jobId,
   timezone,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
   propertyId: Id<'properties'>
+  jobId: Id<'jobs'>
   timezone: string
 }) {
   const { data } = useQuery(
     convexQuery(api.reports.listByProperty, { businessId, propertyId }),
   )
-  if (!data || data.length === 0) return null
+  const reports = data ?? []
+  const forThisJob = reports.filter((r) => r.jobId === jobId)
+  const otherReports = reports.filter((r) => r.jobId !== jobId)
 
   return (
-    <Section label="Reports for this property">
-      <div className="flex flex-col divide-y divide-hairline">
-        {data.map((report) => (
-          <Link
-            key={report._id}
-            to="/$businessSlug/reports/$reportId"
-            params={{ businessSlug, reportId: report._id }}
-            className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
-          >
-            <span className="min-w-0">
-              <span className="block truncate text-body text-ink">
-                {report.legalBasis}
-              </span>
-              <span className="text-caption text-muted">
-                {new Intl.DateTimeFormat('en-AU', {
-                  timeZone: timezone,
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                }).format(new Date(report.finalisedAt ?? report.createdAt))}
-              </span>
-            </span>
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                report.status === 'finalised'
-                  ? 'bg-green/12 text-green'
-                  : 'border border-amber-line bg-amber-bg text-amber-ink'
-              }`}
-            >
-              {report.status === 'finalised' ? 'Finalised' : 'Draft'}
-            </span>
-          </Link>
-        ))}
-      </div>
+    <Section label="Reports">
+      {forThisJob.length > 0 && (
+        <div className="mb-3 flex flex-col divide-y divide-hairline">
+          {forThisJob.map((report) => (
+            <ReportRow key={report._id} businessSlug={businessSlug} report={report} timezone={timezone} />
+          ))}
+        </div>
+      )}
+
+      <Link
+        to="/$businessSlug/reports/new"
+        params={{ businessSlug }}
+        search={{ propertyId, jobId }}
+        className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+      >
+        <Plus size={16} strokeWidth={1.8} />
+        New report
+      </Link>
+
+      {otherReports.length > 0 && (
+        <>
+          <p className="section-label mb-2 mt-4">Other reports at this property</p>
+          <div className="flex flex-col divide-y divide-hairline">
+            {otherReports.map((report) => (
+              <ReportRow key={report._id} businessSlug={businessSlug} report={report} timezone={timezone} />
+            ))}
+          </div>
+        </>
+      )}
     </Section>
+  )
+}
+
+function ReportRow({
+  businessSlug,
+  report,
+  timezone,
+}: {
+  businessSlug: string
+  report: {
+    _id: Id<'reports'>
+    legalBasis: string
+    status: string
+    finalisedAt?: number
+    createdAt: number
+  }
+  timezone: string
+}) {
+  return (
+    <Link
+      to="/$businessSlug/reports/$reportId"
+      params={{ businessSlug, reportId: report._id }}
+      className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
+    >
+      <span className="min-w-0">
+        <span className="block truncate text-body text-ink">
+          {report.legalBasis}
+        </span>
+        <span className="text-caption text-muted">
+          {new Intl.DateTimeFormat('en-AU', {
+            timeZone: timezone,
+            day: 'numeric',
+            month: 'short',
+            year: 'numeric',
+          }).format(new Date(report.finalisedAt ?? report.createdAt))}
+        </span>
+      </span>
+      <span
+        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+          report.status === 'finalised'
+            ? 'bg-green/12 text-green'
+            : 'border border-amber-line bg-amber-bg text-amber-ink'
+        }`}
+      >
+        {report.status === 'finalised' ? 'Finalised' : 'Draft'}
+      </span>
+    </Link>
   )
 }
 

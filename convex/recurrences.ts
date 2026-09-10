@@ -1,11 +1,12 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
-import { requireMembership } from './lib/access'
+import { canEditJob, requireMembership } from './lib/access'
 import { allocateJobNumber } from './jobs'
-import { clientNameOf } from './properties'
+import { clientNameOf, newClientFields, resolvePropertyId } from './properties'
 import { frequency } from './schema'
 import type { MutationCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
+import type { Membership } from './lib/access'
 
 /** How far ahead occurrences are created. Long enough to plan a quarter. */
 const HORIZON_DAYS = 180
@@ -71,7 +72,10 @@ export const listForBusiness = query({
 export const create = mutation({
   args: {
     businessId: v.id('businesses'),
-    propertyId: v.id('properties'),
+    // Either an existing property, or the fields to create a brand-new
+    // client + property in the same transaction — mirrors jobs.create.
+    propertyId: v.optional(v.id('properties')),
+    newClient: v.optional(newClientFields),
     assignedMembershipId: v.id('memberships'),
     frequency,
     jobType: v.string(),
@@ -79,7 +83,7 @@ export const create = mutation({
     anchorDate: v.number(),
     durationMinutes: v.number(),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { propertyId: existingPropertyId, newClient, ...args }) => {
     const membership = await requireMembership(ctx, args.businessId)
 
     // Same rule as jobs.create: only an owner books someone else's calendar.
@@ -90,14 +94,14 @@ export const create = mutation({
       throw new ConvexError('NO_ACCESS')
     }
 
-    const property = await ctx.db.get(args.propertyId)
-    if (!property || property.businessId !== args.businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
+    const propertyId = await resolvePropertyId(ctx, args.businessId, {
+      propertyId: existingPropertyId,
+      newClient,
+    })
 
     const recurrenceId = await ctx.db.insert('recurrences', {
       businessId: args.businessId,
-      propertyId: args.propertyId,
+      propertyId,
       assignedMembershipId: args.assignedMembershipId,
       frequency: args.frequency,
       jobType: args.jobType,
@@ -227,5 +231,107 @@ export const materialise = mutation({
       throw new ConvexError('NOT_FOUND')
     }
     return materialiseOne(ctx, recurrenceId)
+  },
+})
+
+/**
+ * Same shape as `jobs.ts`'s own private `requireEditableJob` (kept as its own
+ * copy rather than exported, the same way `reports.ts` keeps its own
+ * `requireEditableReport`) — resolve membership, load the job, confirm
+ * tenancy, and require owner-or-assignee before either mutation below may
+ * touch a job's recurring status.
+ */
+async function requireEditableJob(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  jobId: Id<'jobs'>,
+): Promise<{ membership: Membership; job: Doc<'jobs'> }> {
+  const membership = await requireMembership(ctx, businessId)
+
+  const job = await ctx.db.get(jobId)
+  if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
+  if (!canEditJob(membership, job)) throw new ConvexError('NO_ACCESS')
+
+  return { membership, job }
+}
+
+/**
+ * Turns an existing one-off job into the first booking of a new recurring
+ * series, anchored on the job's own current scheduledAt/details — the same
+ * template shape `create` already uses when booking a repeating job fresh.
+ * The job is patched onto the new recurrence in place rather than replaced,
+ * so its notes/photos/reports/job number all stay attached to the same _id.
+ */
+export const convertJobToRecurring = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    jobId: v.id('jobs'),
+    frequency,
+  },
+  handler: async (ctx, { businessId, jobId, frequency: freq }) => {
+    const { job } = await requireEditableJob(ctx, businessId, jobId)
+
+    if (job.recurrenceId) {
+      const existing = await ctx.db.get(job.recurrenceId)
+      if (existing?.active) throw new ConvexError('ALREADY_RECURRING')
+    }
+
+    const recurrenceId = await ctx.db.insert('recurrences', {
+      businessId,
+      propertyId: job.propertyId,
+      assignedMembershipId: job.assignedMembershipId,
+      frequency: freq,
+      jobType: job.jobType,
+      price: job.price,
+      anchorDate: job.scheduledAt,
+      active: true,
+    })
+
+    // Attach the EXISTING job to the new series before materialising —
+    // materialiseOne's own idempotency check then finds this job already
+    // occupying the anchor instant and skips generating a duplicate for it.
+    await ctx.db.patch(jobId, { recurrenceId })
+
+    await materialiseOne(ctx, recurrenceId, job.durationMinutes)
+
+    return recurrenceId
+  },
+})
+
+/**
+ * Stops a recurring series from one specific job's context, guaranteeing
+ * that exact job survives as a standalone one-off even though it may itself
+ * be a future `booked` visit that the cleanup below would otherwise delete.
+ * Detaching this job's recurrenceId BEFORE the cleanup sweep is what makes
+ * that guarantee airtight: the sweep reads jobs `by_recurrence`, and by the
+ * time it runs this job no longer carries that recurrenceId, so it can't be
+ * found by the scan — no separate "exclude this job" branch needed.
+ */
+export const stopFromJob = mutation({
+  args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
+  handler: async (ctx, { businessId, jobId }) => {
+    const { job } = await requireEditableJob(ctx, businessId, jobId)
+    if (!job.recurrenceId) throw new ConvexError('NOT_RECURRING')
+
+    const recurrenceId = job.recurrenceId
+    const recurrence = await ctx.db.get(recurrenceId)
+    if (!recurrence || recurrence.businessId !== businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+
+    await ctx.db.patch(jobId, { recurrenceId: undefined })
+    await ctx.db.patch(recurrenceId, { active: false })
+
+    const siblings = await ctx.db
+      .query('jobs')
+      .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
+      .collect()
+
+    const now = Date.now()
+    for (const sibling of siblings) {
+      if (sibling.status === 'booked' && sibling.scheduledAt > now) {
+        await ctx.db.delete(sibling._id)
+      }
+    }
   },
 })
