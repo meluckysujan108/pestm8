@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { getAuthUserId, requireMembership, requireOwner } from './lib/access'
+import { canViewAs, getAuthUserId, requireMembership, requireOwner } from './lib/access'
 import { nextColour } from './lib/colours'
 import { role } from './schema'
 
@@ -29,7 +29,9 @@ export const listForBusiness = query({
           email: (user?.email as string | undefined) ?? '',
           role: m.role,
           canViewAllJobs: m.canViewAllJobs,
+          canViewOtherAccounts: m.canViewOtherAccounts ?? false,
           licenceNumber: m.licenceNumber,
+          phone: m.phone,
           colour: m.colour,
           status: m.status,
         }
@@ -330,6 +332,44 @@ export const setCanViewAllJobs = mutation({
   },
 })
 
+/**
+ * Distinct from setCanViewAllJobs (a data-scope grant): this governs whether
+ * a subcontractor can also view the app through OTHER members' eyes via the
+ * header account menu's "view as" — never grantable for viewing the owner,
+ * even when on (enforced again, unconditionally, in lib/access.ts's own
+ * canViewAs check — this guard here just fails loud and early).
+ */
+export const setCanViewOtherAccounts = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    membershipId: v.id('memberships'),
+    canViewOtherAccounts: v.boolean(),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireOwner(ctx, args.businessId)
+
+    const target = await ctx.db.get(args.membershipId)
+    if (!target || target.businessId !== args.businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    if (target.role === 'owner') throw new ConvexError('NO_ACCESS')
+
+    await ctx.db.patch(args.membershipId, {
+      canViewOtherAccounts: args.canViewOtherAccounts,
+    })
+
+    await ctx.db.insert('auditLog', {
+      businessId: args.businessId,
+      actorMembershipId: actor._id,
+      action: 'membership.setCanViewOtherAccounts',
+      entityType: 'memberships',
+      entityId: args.membershipId,
+      meta: { canViewOtherAccounts: args.canViewOtherAccounts },
+      at: Date.now(),
+    })
+  },
+})
+
 export const setRole = mutation({
   args: {
     businessId: v.id('businesses'),
@@ -392,5 +432,52 @@ export const setLicence = mutation({
     await ctx.db.patch(args.membershipId, {
       licenceNumber: args.licenceNumber,
     })
+  },
+})
+
+/**
+ * Self-service only — no owner-on-behalf override, unlike setLicence. Name
+ * and email live in the Better Auth user record and are edited directly via
+ * authClient's own update methods; phone has no home there, so it lives on
+ * the membership (a work number may reasonably differ per business).
+ */
+export const setProfile = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    membershipId: v.id('memberships'),
+    phone: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireMembership(ctx, args.businessId)
+    if (actor._id !== args.membershipId) throw new ConvexError('NO_ACCESS')
+
+    await ctx.db.patch(args.membershipId, { phone: args.phone })
+  },
+})
+
+/**
+ * Always self-only to write (the caller's own membership, never an
+ * argument-supplied one) — "view as" can only ever change what YOU see.
+ * Validated here too (not just read-side in resolveViewScope) so a rejected
+ * attempt fails immediately with a clear error rather than silently no-op.
+ */
+export const setViewingAs = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    targetMembershipId: v.optional(v.id('memberships')),
+  },
+  handler: async (ctx, args) => {
+    const actor = await requireMembership(ctx, args.businessId)
+
+    if (args.targetMembershipId === undefined) {
+      await ctx.db.patch(actor._id, { viewingAsMembershipId: undefined })
+      return
+    }
+
+    const target = await ctx.db.get(args.targetMembershipId)
+    if (!target) throw new ConvexError('NOT_FOUND')
+    if (!canViewAs(actor, target)) throw new ConvexError('NO_ACCESS')
+
+    await ctx.db.patch(actor._id, { viewingAsMembershipId: args.targetMembershipId })
   },
 })

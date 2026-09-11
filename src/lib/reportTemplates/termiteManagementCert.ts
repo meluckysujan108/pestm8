@@ -2,14 +2,7 @@ import { z } from 'zod'
 import { REINSPECTION_INTERVALS, apvmaNumber, requiredText } from './shared'
 import type { ReportTemplate } from './types'
 
-/**
- * AS 3660.2-2017 / NCC termite management certificate.
- *
- * The durable notice is the reason this template has an onFinalise hook: the
- * standard requires a physical notice fixed to the building, which no app can
- * do. Generating the label and then quietly considering the job finished would
- * leave a compliance gap the operator believes is closed (§1.4).
- */
+/** AS 3660.2-2017 / NCC termite management certificate. */
 export const termiteManagementCert: ReportTemplate = {
   id: 'termiteManagementCert',
   name: 'Termite Management Certificate',
@@ -91,14 +84,6 @@ export const termiteManagementCert: ReportTemplate = {
     'The system must not be bridged, breached or disturbed. Landscaping, paving, garden beds, concrete or attachments placed against the building after installation may render the system ineffective.',
     'A durable notice must be fixed in a prominent location — typically the meter box — recording the details of this installation.',
   ].join('\n\n'),
-  onFinalise: () => [
-    {
-      kind: 'durableNotice',
-      label: 'Fix durable notice in meter box',
-      detail:
-        'AS 3660.2 / NCC require a physical notice fixed to the building. The label text is on the certificate — print it and fix it on site.',
-    },
-  ],
 }
 
 /** The label text itself, rendered in mono and printed for the meter box. */

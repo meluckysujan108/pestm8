@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useMutation } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { AU_STATES, TIMEZONE_BY_STATE } from '#/lib/au'
+import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/onboarding')({
   beforeLoad: ({ context }) => {
@@ -13,14 +14,12 @@ export const Route = createFileRoute('/onboarding')({
 })
 
 function OnboardingPage() {
+  const hydrated = useHydrated()
+
   const router = useRouter()
   const [name, setName] = useState('')
   const [state, setState] = useState<string>('WA')
   const [abn, setAbn] = useState('')
-
-  // See login.tsx: guard against a native GET submit before hydration.
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
 
   // useConvexMutation returns a callable interface carrying extra properties
   // (.withOptimisticUpdate), which defeats TanStack's return-type inference —
@@ -37,7 +36,7 @@ function OnboardingPage() {
     onSuccess: async ({ slug }) => {
       await router.invalidate()
       await router.navigate({
-        to: '/$businessSlug/dashboard',
+        to: '/$businessSlug/schedule',
         params: { businessSlug: slug },
       })
     },

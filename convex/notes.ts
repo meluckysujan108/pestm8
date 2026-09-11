@@ -1,11 +1,14 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership } from './lib/access'
+import { authComponent } from './auth'
+import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import { clientNameOf } from './properties'
 
 export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const real = await requireMembership(ctx, businessId)
+    const viewScope = await resolveViewScope(ctx, businessId)
 
     const notes = await ctx.db
       .query('notes')
@@ -13,7 +16,7 @@ export const list = query({
       .order('desc')
       .collect()
 
-    const visibility = jobVisibility(membership)
+    const visibility = jobVisibility(viewScope)
     const visible =
       visibility.scope === 'business'
         ? notes
@@ -27,10 +30,55 @@ export const list = query({
         const author = await ctx.db.get(note.authorMembershipId)
         return {
           ...note,
-          clientName: property?.clientName,
+          clientName: await clientNameOf(ctx, property),
           suburb: property?.suburb,
           authorColour: author?.colour ?? '#8E8E93',
-          mine: note.authorMembershipId === membership._id,
+          // Always the REAL caller — read access granted by "view as" never
+          // implies "this is something you wrote" or can delete.
+          mine: note.authorMembershipId === real._id,
+        }
+      }),
+    )
+  },
+})
+
+/**
+ * Notes attached to one job, newest first — with the author's actual name
+ * resolved, not just their colour. Two different technicians (or an owner)
+ * leaving notes on the same job need to be told apart by who they are, the
+ * same name-resolution `memberships.listForBusiness` already does.
+ */
+export const listForJob = query({
+  args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
+  handler: async (ctx, { businessId, jobId }) => {
+    const real = await requireMembership(ctx, businessId)
+    const viewScope = await resolveViewScope(ctx, businessId)
+
+    const notes = await ctx.db
+      .query('notes')
+      .withIndex('by_job', (q) => q.eq('jobId', jobId))
+      .order('desc')
+      .collect()
+
+    const visible = notes.filter((n) => n.businessId === businessId)
+    const visibility = jobVisibility(viewScope)
+    const scoped =
+      visibility.scope === 'business'
+        ? visible
+        : visible.filter((n) => n.authorMembershipId === visibility.membershipId)
+
+    return Promise.all(
+      scoped.map(async (note) => {
+        const author = await ctx.db.get(note.authorMembershipId)
+        const user = author
+          ? await authComponent.getAnyUserById(ctx, author.userId)
+          : null
+        return {
+          ...note,
+          authorName: user?.name ?? 'Unknown',
+          authorRole: author?.role,
+          authorColour: author?.colour ?? '#8E8E93',
+          mine: note.authorMembershipId === real._id,
         }
       }),
     )

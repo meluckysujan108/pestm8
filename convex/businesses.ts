@@ -53,18 +53,30 @@ export const getBySlug = query({
 
     try {
       const membership = await requireMembership(ctx, business._id)
+      const logoUrl = business.logoStorageId
+        ? await ctx.storage.getUrl(business.logoStorageId)
+        : null
       return {
         _id: business._id,
         name: business.name,
         slug: business.slug,
         state: business.state,
         timezone: business.timezone,
+        abn: business.abn,
+        addressLine: business.addressLine,
+        suburb: business.suburb,
+        postcode: business.postcode,
+        phone: business.phone,
+        email: business.email,
+        licenceNumber: business.licenceNumber,
+        logoUrl,
         membership: {
           _id: membership._id,
           role: membership.role,
           canViewAllJobs: membership.canViewAllJobs,
           colour: membership.colour,
           licenceNumber: membership.licenceNumber,
+          phone: membership.phone,
         },
       }
     } catch {
@@ -129,6 +141,13 @@ export const update = mutation({
     state: v.optional(v.string()),
     timezone: v.optional(v.string()),
     abn: v.optional(v.string()),
+    logoStorageId: v.optional(v.id('_storage')),
+    addressLine: v.optional(v.string()),
+    suburb: v.optional(v.string()),
+    postcode: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    email: v.optional(v.string()),
+    licenceNumber: v.optional(v.string()),
   },
   handler: async (ctx, { businessId, ...patch }) => {
     await requireOwner(ctx, businessId)
@@ -139,5 +158,15 @@ export const update = mutation({
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(businessId, fields)
     }
+  },
+})
+
+/** Short-lived upload URL for the business logo — owner-gated, since only the
+ * owner can change branding via `update` above. */
+export const generateUploadUrl = mutation({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    await requireOwner(ctx, businessId)
+    return ctx.storage.generateUploadUrl()
   },
 })

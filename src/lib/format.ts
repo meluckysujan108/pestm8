@@ -71,6 +71,25 @@ export function formatMonthLabel(dayKey: string): string {
 
 export const WEEKDAY_INITIALS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 
+export type RepeatValue =
+  'once' | 'monthly' | 'quarterly' | 'sixMonthly' | 'yearly'
+
+/** Intervals a pest control business actually sells. */
+export const REPEAT_OPTIONS: Array<{ value: RepeatValue; label: string }> = [
+  { value: 'once', label: 'One-off' },
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'sixMonthly', label: 'Every 6 months' },
+  { value: 'yearly', label: 'Yearly' },
+]
+
+export const REPEAT_LABELS: Record<string, string> = {
+  monthly: 'Repeats monthly',
+  quarterly: 'Repeats quarterly',
+  sixMonthly: 'Repeats every 6 months',
+  yearly: 'Repeats yearly',
+}
+
 export const JOB_TYPES = [
   'General Pest Control',
   'Rodents',

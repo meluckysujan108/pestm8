@@ -1,11 +1,18 @@
-export type JobStatus = 'booked' | 'completed' | 'invoiced' | 'cancelled'
+export type JobStatus =
+  | 'booked'
+  | 'inProgress'
+  | 'completed'
+  | 'invoiced'
+  | 'cancelled'
 
 const STYLES: Record<JobStatus, { label: string; className: string }> = {
   booked: { label: 'Booked', className: 'bg-surface-2 text-ink-2' },
-  // Amber is specifically "completed, awaiting invoice" — the state the owner
-  // needs to act on, so it reads as a prompt rather than a success.
+  inProgress: { label: 'In Progress', className: 'bg-blue/12 text-blue' },
+  // Amber flags this as the state the owner still needs to act on (raise the
+  // invoice) — a prompt, not a success — even though the label itself just
+  // says "Completed" now.
   completed: {
-    label: 'Awaiting invoice',
+    label: 'Completed',
     className: 'bg-amber-bg text-amber-ink border border-amber-line',
   },
   invoiced: { label: 'Invoiced', className: 'bg-green/12 text-green' },

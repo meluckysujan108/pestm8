@@ -4,17 +4,28 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { JOB_TYPES } from '#/lib/format'
+import { JOB_TYPES, REPEAT_OPTIONS } from '#/lib/format'
+import { Combobox } from '#/components/primitives/Combobox'
+import { Segmented } from '#/components/primitives/Segmented'
+import { EMPTY_NEW_CLIENT, NewClientFields } from '#/components/clients/NewClientFields'
+import type { NewClientFieldsValue } from '#/components/clients/NewClientFields'
+import type { RepeatValue } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { useHydrated } from '#/lib/useHydrated'
+import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
+
+type ClientMode = 'existing' | 'new'
 
 export function NewJobSheet({
   businessId,
   dayKey,
+  timezone,
   open,
   onClose,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
+  timezone: string
   open: boolean
   onClose: () => void
 }) {
@@ -28,6 +39,7 @@ export function NewJobSheet({
             <NewJobForm
               businessId={businessId}
               dayKey={dayKey}
+              timezone={timezone}
               onClose={onClose}
             />
           )}
@@ -48,10 +60,12 @@ export function NewJobSheet({
 function NewJobForm({
   businessId,
   dayKey,
+  timezone,
   onClose,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
+  timezone: string
   onClose: () => void
 }) {
   const { data: properties } = useSuspenseQuery(
@@ -61,15 +75,19 @@ function NewJobForm({
     convexQuery(api.memberships.listForBusiness, { businessId }),
   )
 
+  // A business with no properties yet has nothing to pick from, so it starts
+  // straight in "new client" mode rather than hitting a dead end.
+  const [mode, setMode] = useState<ClientMode>(
+    properties.length > 0 ? 'existing' : 'new',
+  )
   const [propertyId, setPropertyId] = useState('')
+  const [newClient, setNewClient] = useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
   const [assignee, setAssignee] = useState('')
   const [jobType, setJobType] = useState<string>(JOB_TYPES[0])
   const [time, setTime] = useState('09:00')
   const [price, setPrice] = useState('')
   const [duration, setDuration] = useState('60')
-
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
+  const [repeat, setRepeat] = useState<RepeatValue>('once')
 
   useEffect(() => {
     if (!propertyId && properties.length > 0) setPropertyId(properties[0]._id)
@@ -79,32 +97,61 @@ function NewJobForm({
     if (!assignee && active.length > 0) setAssignee(active[0]._id)
   }, [members, assignee])
 
+  const hydrated = useHydrated()
+
   const convexCreate = useConvexMutation(api.jobs.create)
+  const convexCreateRecurrence = useConvexMutation(api.recurrences.create)
+
+  // A repeating booking is a recurrence, not a job: creating it materialises
+  // the first occurrence and every one after it, so the two paths are distinct
+  // rather than "a job plus some extra rows". Either can be booked against an
+  // existing property or a brand-new client created in the same submit —
+  // both mutations accept one or the other and insert the client+property in
+  // the same transaction, so a failure never leaves an orphaned client behind.
   const create = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
-      propertyId: Id<'properties'>
+      property: { propertyId: Id<'properties'> } | { newClient: NewClientFieldsValue }
       assignedMembershipId: Id<'memberships'>
       jobType: string
       price: number
       scheduledAt: number
       durationMinutes: number
-    }) => convexCreate(args),
+      repeat: RepeatValue
+      // Returns a job id or a recurrence id depending on the branch, and the
+      // caller needs neither — void keeps them from being conflated.
+    }): Promise<void> => {
+      const { repeat: freq, property, ...job } = args
+      const propertyArgs =
+        'propertyId' in property
+          ? { propertyId: property.propertyId }
+          : {
+              newClient: {
+                clientName: property.newClient.clientName,
+                kind: property.newClient.kind,
+                addressLine: property.newClient.addressLine,
+                suburb: property.newClient.suburb,
+                state: property.newClient.state,
+                postcode: property.newClient.postcode,
+                phone: property.newClient.phone.trim() || undefined,
+                email: property.newClient.email.trim() || undefined,
+              },
+            }
+      return freq === 'once'
+        ? convexCreate({ ...job, ...propertyArgs }).then(() => undefined)
+        : convexCreateRecurrence({
+            businessId: job.businessId,
+            ...propertyArgs,
+            assignedMembershipId: job.assignedMembershipId,
+            frequency: freq,
+            jobType: job.jobType,
+            price: job.price,
+            anchorDate: job.scheduledAt,
+            durationMinutes: job.durationMinutes,
+          }).then(() => undefined)
+    },
     onSuccess: onClose,
   })
-
-  if (properties.length === 0) {
-    return (
-      <div className="px-4 pb-8 pt-3">
-        <Drawer.Title className="text-sheet-title text-ink">
-          No properties yet
-        </Drawer.Title>
-        <p className="mt-1 text-body text-muted">
-          Add a client property first, then book work against it.
-        </p>
-      </div>
-    )
-  }
 
   return (
     <form
@@ -112,50 +159,74 @@ function NewJobForm({
       onSubmit={(e) => {
         e.preventDefault()
         const [hh, mm] = time.split(':').map(Number)
-        // The picker gives a wall-clock time on the selected day; build the
-        // instant from the day key so it lands on the right date.
-        const [y, m, d] = dayKey.split('-').map(Number)
-        const scheduledAt = new Date(y, m - 1, d, hh, mm, 0, 0).getTime()
+        // The picker gives a wall-clock time on the selected day, in the
+        // tenant's own timezone — not the viewer's browser zone, which may
+        // differ (a technician travelling, or simply a differently-configured
+        // device) and would otherwise silently book the wrong instant.
+        const scheduledAt = zonedDateTimeToUtc(dayKey, hh, mm, timezone)
 
         create.mutate({
           businessId,
-          propertyId: propertyId as Id<'properties'>,
+          property:
+            mode === 'existing'
+              ? { propertyId: propertyId as Id<'properties'> }
+              : { newClient },
           assignedMembershipId: assignee as Id<'memberships'>,
           jobType,
           price: Math.round(Number(price || '0') * 100),
           scheduledAt,
           durationMinutes: Number(duration),
+          repeat,
         })
       }}
     >
       <Drawer.Title className="text-sheet-title text-ink">New job</Drawer.Title>
 
-      <Field label="Property">
-        <select
-          value={propertyId}
-          onChange={(e) => setPropertyId(e.target.value)}
-          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        >
-          {properties.map((p) => (
-            <option key={p._id} value={p._id}>
-              {p.clientName} — {p.addressLine}, {p.suburb}
-            </option>
-          ))}
-        </select>
-      </Field>
+      {properties.length > 0 && (
+        <Field label="Client">
+          <Segmented
+            label="Client"
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: 'existing', label: 'Existing client' },
+              { value: 'new', label: 'New client' },
+            ]}
+          />
+        </Field>
+      )}
+
+      {mode === 'existing' ? (
+        <Field label="Property">
+          <Combobox
+            value={propertyId}
+            onChange={setPropertyId}
+            options={properties.map((p) => ({
+              value: p._id,
+              label: `${p.client?.name} — ${p.addressLine}, ${p.suburb}`,
+            }))}
+            placeholder="Search by name or address"
+            noMatchLabel="No properties match"
+            ariaLabel="Property"
+          />
+        </Field>
+      ) : (
+        <NewClientFields
+          value={newClient}
+          onChange={(patch) => setNewClient((v) => ({ ...v, ...patch }))}
+        />
+      )}
 
       <Field label="Job type">
-        <select
+        <Combobox
           value={jobType}
-          onChange={(e) => setJobType(e.target.value)}
-          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        >
-          {JOB_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
+          onChange={setJobType}
+          options={JOB_TYPES.map((t) => ({ value: t, label: t }))}
+          allowCustom
+          customLabel={(q) => `Add "${q}" as a new job type`}
+          placeholder="Search or add a job type"
+          ariaLabel="Job type"
+        />
       </Field>
 
       <Field label="Assigned to">
@@ -194,6 +265,20 @@ function NewJobForm({
           />
         </Field>
       </div>
+
+      <Field label="Repeat">
+        <select
+          value={repeat}
+          onChange={(e) => setRepeat(e.target.value as RepeatValue)}
+          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        >
+          {REPEAT_OPTIONS.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </select>
+      </Field>
 
       <Field label="Price (AUD)">
         <input

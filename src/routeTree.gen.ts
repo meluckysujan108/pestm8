@@ -13,8 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as BusinessSlugRouteRouteImport } from './routes/$businessSlug/route'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
-import { Route as BusinessSlugDashboardRouteImport } from './routes/$businessSlug/dashboard'
-import { Route as BusinessSlugInvoicesRouteImport } from './routes/$businessSlug/invoices'
+import { Route as BusinessSlugAnalyticsRouteImport } from './routes/$businessSlug/analytics'
 import { Route as BusinessSlugNotesRouteImport } from './routes/$businessSlug/notes'
 import { Route as BusinessSlugScheduleRouteImport } from './routes/$businessSlug/schedule'
 import { Route as BusinessSlugSettingsRouteImport } from './routes/$businessSlug/settings'
@@ -23,6 +22,8 @@ import { Route as BusinessSlugReportsIndexRouteImport } from './routes/$business
 import { Route as BusinessSlugReportsReportIdRouteImport } from './routes/$businessSlug/reports/$reportId'
 import { Route as BusinessSlugReportsNewRouteImport } from './routes/$businessSlug/reports/new'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as BusinessSlugReportsTemplatesIndexRouteImport } from './routes/$businessSlug/reports/templates/index'
+import { Route as BusinessSlugReportsTemplatesTemplateIdRouteImport } from './routes/$businessSlug/reports/templates/$templateId'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -44,14 +45,9 @@ const OnboardingRoute = OnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
-const BusinessSlugDashboardRoute = BusinessSlugDashboardRouteImport.update({
-  id: '/dashboard',
-  path: '/dashboard',
-  getParentRoute: () => BusinessSlugRouteRoute,
-} as any)
-const BusinessSlugInvoicesRoute = BusinessSlugInvoicesRouteImport.update({
-  id: '/invoices',
-  path: '/invoices',
+const BusinessSlugAnalyticsRoute = BusinessSlugAnalyticsRouteImport.update({
+  id: '/analytics',
+  path: '/analytics',
   getParentRoute: () => BusinessSlugRouteRoute,
 } as any)
 const BusinessSlugNotesRoute = BusinessSlugNotesRouteImport.update({
@@ -97,14 +93,25 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const BusinessSlugReportsTemplatesIndexRoute =
+  BusinessSlugReportsTemplatesIndexRouteImport.update({
+    id: '/reports/templates/',
+    path: '/reports/templates/',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
+const BusinessSlugReportsTemplatesTemplateIdRoute =
+  BusinessSlugReportsTemplatesTemplateIdRouteImport.update({
+    id: '/reports/templates/$templateId',
+    path: '/reports/templates/$templateId',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/$businessSlug': typeof BusinessSlugRouteRouteWithChildren
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
-  '/$businessSlug/dashboard': typeof BusinessSlugDashboardRoute
-  '/$businessSlug/invoices': typeof BusinessSlugInvoicesRoute
+  '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/$businessSlug/settings': typeof BusinessSlugSettingsRoute
@@ -113,14 +120,15 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
+  '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
+  '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/$businessSlug': typeof BusinessSlugRouteRouteWithChildren
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
-  '/$businessSlug/dashboard': typeof BusinessSlugDashboardRoute
-  '/$businessSlug/invoices': typeof BusinessSlugInvoicesRoute
+  '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/$businessSlug/settings': typeof BusinessSlugSettingsRoute
@@ -129,6 +137,8 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/reports': typeof BusinessSlugReportsIndexRoute
+  '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
+  '/$businessSlug/reports/templates': typeof BusinessSlugReportsTemplatesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -136,8 +146,7 @@ export interface FileRoutesById {
   '/$businessSlug': typeof BusinessSlugRouteRouteWithChildren
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
-  '/$businessSlug/dashboard': typeof BusinessSlugDashboardRoute
-  '/$businessSlug/invoices': typeof BusinessSlugInvoicesRoute
+  '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/$businessSlug/settings': typeof BusinessSlugSettingsRoute
@@ -146,6 +155,8 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
+  '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
+  '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -154,8 +165,7 @@ export interface FileRouteTypes {
     | '/$businessSlug'
     | '/login'
     | '/onboarding'
-    | '/$businessSlug/dashboard'
-    | '/$businessSlug/invoices'
+    | '/$businessSlug/analytics'
     | '/$businessSlug/notes'
     | '/$businessSlug/schedule'
     | '/$businessSlug/settings'
@@ -164,14 +174,15 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/$businessSlug/clients/'
     | '/$businessSlug/reports/'
+    | '/$businessSlug/reports/templates/$templateId'
+    | '/$businessSlug/reports/templates/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/$businessSlug'
     | '/login'
     | '/onboarding'
-    | '/$businessSlug/dashboard'
-    | '/$businessSlug/invoices'
+    | '/$businessSlug/analytics'
     | '/$businessSlug/notes'
     | '/$businessSlug/schedule'
     | '/$businessSlug/settings'
@@ -180,14 +191,15 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/$businessSlug/clients'
     | '/$businessSlug/reports'
+    | '/$businessSlug/reports/templates/$templateId'
+    | '/$businessSlug/reports/templates'
   id:
     | '__root__'
     | '/'
     | '/$businessSlug'
     | '/login'
     | '/onboarding'
-    | '/$businessSlug/dashboard'
-    | '/$businessSlug/invoices'
+    | '/$businessSlug/analytics'
     | '/$businessSlug/notes'
     | '/$businessSlug/schedule'
     | '/$businessSlug/settings'
@@ -196,6 +208,8 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/$businessSlug/clients/'
     | '/$businessSlug/reports/'
+    | '/$businessSlug/reports/templates/$templateId'
+    | '/$businessSlug/reports/templates/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -236,18 +250,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/$businessSlug/dashboard': {
-      id: '/$businessSlug/dashboard'
-      path: '/dashboard'
-      fullPath: '/$businessSlug/dashboard'
-      preLoaderRoute: typeof BusinessSlugDashboardRouteImport
-      parentRoute: typeof BusinessSlugRouteRoute
-    }
-    '/$businessSlug/invoices': {
-      id: '/$businessSlug/invoices'
-      path: '/invoices'
-      fullPath: '/$businessSlug/invoices'
-      preLoaderRoute: typeof BusinessSlugInvoicesRouteImport
+    '/$businessSlug/analytics': {
+      id: '/$businessSlug/analytics'
+      path: '/analytics'
+      fullPath: '/$businessSlug/analytics'
+      preLoaderRoute: typeof BusinessSlugAnalyticsRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
     '/$businessSlug/notes': {
@@ -306,12 +313,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$businessSlug/reports/templates/': {
+      id: '/$businessSlug/reports/templates/'
+      path: '/reports/templates'
+      fullPath: '/$businessSlug/reports/templates/'
+      preLoaderRoute: typeof BusinessSlugReportsTemplatesIndexRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/reports/templates/$templateId': {
+      id: '/$businessSlug/reports/templates/$templateId'
+      path: '/reports/templates/$templateId'
+      fullPath: '/$businessSlug/reports/templates/$templateId'
+      preLoaderRoute: typeof BusinessSlugReportsTemplatesTemplateIdRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
   }
 }
 
 interface BusinessSlugRouteRouteChildren {
-  BusinessSlugDashboardRoute: typeof BusinessSlugDashboardRoute
-  BusinessSlugInvoicesRoute: typeof BusinessSlugInvoicesRoute
+  BusinessSlugAnalyticsRoute: typeof BusinessSlugAnalyticsRoute
   BusinessSlugNotesRoute: typeof BusinessSlugNotesRoute
   BusinessSlugScheduleRoute: typeof BusinessSlugScheduleRoute
   BusinessSlugSettingsRoute: typeof BusinessSlugSettingsRoute
@@ -319,11 +339,12 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugReportsNewRoute: typeof BusinessSlugReportsNewRoute
   BusinessSlugClientsIndexRoute: typeof BusinessSlugClientsIndexRoute
   BusinessSlugReportsIndexRoute: typeof BusinessSlugReportsIndexRoute
+  BusinessSlugReportsTemplatesTemplateIdRoute: typeof BusinessSlugReportsTemplatesTemplateIdRoute
+  BusinessSlugReportsTemplatesIndexRoute: typeof BusinessSlugReportsTemplatesIndexRoute
 }
 
 const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
-  BusinessSlugDashboardRoute: BusinessSlugDashboardRoute,
-  BusinessSlugInvoicesRoute: BusinessSlugInvoicesRoute,
+  BusinessSlugAnalyticsRoute: BusinessSlugAnalyticsRoute,
   BusinessSlugNotesRoute: BusinessSlugNotesRoute,
   BusinessSlugScheduleRoute: BusinessSlugScheduleRoute,
   BusinessSlugSettingsRoute: BusinessSlugSettingsRoute,
@@ -331,6 +352,10 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugReportsNewRoute: BusinessSlugReportsNewRoute,
   BusinessSlugClientsIndexRoute: BusinessSlugClientsIndexRoute,
   BusinessSlugReportsIndexRoute: BusinessSlugReportsIndexRoute,
+  BusinessSlugReportsTemplatesTemplateIdRoute:
+    BusinessSlugReportsTemplatesTemplateIdRoute,
+  BusinessSlugReportsTemplatesIndexRoute:
+    BusinessSlugReportsTemplatesIndexRoute,
 }
 
 const BusinessSlugRouteRouteWithChildren =

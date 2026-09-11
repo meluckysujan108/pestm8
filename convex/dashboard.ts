@@ -1,6 +1,6 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
-import { jobVisibility, requireMembership } from './lib/access'
+import { jobVisibility, resolveViewScope } from './lib/access'
 import { startOfDayInZone, todayKeyInZone } from './lib/dates'
 
 /**
@@ -10,7 +10,7 @@ import { startOfDayInZone, todayKeyInZone } from './lib/dates'
 export const summary = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return null
 

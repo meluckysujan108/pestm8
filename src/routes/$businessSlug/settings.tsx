@@ -5,6 +5,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { TeamSection } from '#/components/settings/TeamSection'
 import { ProfileSection } from '#/components/settings/ProfileSection'
 import { PrefsSection } from '#/components/settings/PrefsSection'
+import { BrandingSection } from '#/components/settings/BrandingSection'
 
 const SEGMENTS = [
   { value: 'profile' as const, label: 'Profile' },
@@ -27,7 +28,12 @@ function SettingsPage() {
 
   return (
     <>
-      <PageHeader kicker={business.name} title="Settings" />
+      <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
+        kicker={business.name}
+        title="Settings"
+      />
 
       <div className="px-4 pt-4">
         <Segmented
@@ -40,7 +46,9 @@ function SettingsPage() {
               ? SEGMENTS
               : SEGMENTS.filter((s) => s.value !== 'team')
           }
-          onChange={(value) => navigate({ search: { seg: value }, replace: true })}
+          onChange={(value) =>
+            navigate({ search: { seg: value }, replace: true })
+          }
         />
       </div>
 
@@ -50,13 +58,27 @@ function SettingsPage() {
             businessId={business._id}
             membershipId={membership._id}
             licenceNumber={membership.licenceNumber}
+            phone={membership.phone}
             state={business.state}
           />
         )}
         {active === 'team' && membership.role === 'owner' && (
           <TeamSection businessId={business._id} />
         )}
-        {active === 'prefs' && <PrefsSection business={business} />}
+        {active === 'prefs' && (
+          <>
+            <PrefsSection
+              businessId={business._id}
+              business={business}
+              canEdit={membership.role === 'owner'}
+            />
+            {membership.role === 'owner' && (
+              <div className="mt-6">
+                <BrandingSection businessId={business._id} business={business} />
+              </div>
+            )}
+          </>
+        )}
       </div>
     </>
   )

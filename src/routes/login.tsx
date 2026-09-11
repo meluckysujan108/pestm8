@@ -1,12 +1,15 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { authClient } from '#/lib/auth-client'
+import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/login')({ component: LoginPage })
 
 type Mode = 'signIn' | 'signUp'
 
 function LoginPage() {
+  const hydrated = useHydrated()
+
   const router = useRouter()
   const [mode, setMode] = useState<Mode>('signIn')
   const [name, setName] = useState('')
@@ -14,12 +17,6 @@ function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
-
-  // This page is server-rendered, so the form exists before React attaches its
-  // submit handler. Submitting in that window does a native GET, reloading the
-  // page and clearing what was typed — so stay disabled until hydrated.
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -75,9 +72,7 @@ function LoginPage() {
           type="password"
           value={password}
           onChange={setPassword}
-          autoComplete={
-            mode === 'signUp' ? 'new-password' : 'current-password'
-          }
+          autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
         />
 
         {error && (

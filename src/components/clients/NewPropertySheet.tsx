@@ -1,12 +1,20 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { AU_STATES } from '#/lib/au'
+import { EMPTY_NEW_CLIENT, NewClientFields } from './NewClientFields'
+import type { NewClientFieldsValue } from './NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { useHydrated } from '#/lib/useHydrated'
 
+/**
+ * Creates a client and its first property together in one step — a client
+ * without at least one address is meaningless in this domain, so splitting
+ * "new client" from "add first property" into two screens would cost a step
+ * for zero benefit.
+ */
 export function NewPropertySheet({
   businessId,
   open,
@@ -16,22 +24,16 @@ export function NewPropertySheet({
   open: boolean
   onClose: () => void
 }) {
-  const [clientName, setClientName] = useState('')
-  const [addressLine, setAddressLine] = useState('')
-  const [suburb, setSuburb] = useState('')
-  const [state, setState] = useState('WA')
-  const [postcode, setPostcode] = useState('')
-  const [phone, setPhone] = useState('')
-  const [email, setEmail] = useState('')
+  const [value, setValue] = useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
 
-  const [hydrated, setHydrated] = useState(false)
-  useEffect(() => setHydrated(true), [])
+  const hydrated = useHydrated()
 
   const convexCreate = useConvexMutation(api.properties.create)
   const create = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
       clientName: string
+      kind: NewClientFieldsValue['kind']
       addressLine: string
       suburb: string
       state: string
@@ -40,12 +42,7 @@ export function NewPropertySheet({
       email?: string
     }) => convexCreate(args),
     onSuccess: () => {
-      setClientName('')
-      setAddressLine('')
-      setSuburb('')
-      setPostcode('')
-      setPhone('')
-      setEmail('')
+      setValue(EMPTY_NEW_CLIENT)
       onClose()
     },
   })
@@ -63,67 +60,32 @@ export function NewPropertySheet({
               e.preventDefault()
               create.mutate({
                 businessId,
-                clientName,
-                addressLine,
-                suburb,
-                state,
-                postcode,
-                phone: phone.trim() || undefined,
-                email: email.trim() || undefined,
+                clientName: value.clientName,
+                kind: value.kind,
+                addressLine: value.addressLine,
+                suburb: value.suburb,
+                state: value.state,
+                postcode: value.postcode,
+                phone: value.phone.trim() || undefined,
+                email: value.email.trim() || undefined,
               })
             }}
           >
             <Drawer.Title className="text-sheet-title text-ink">
-              New property
+              New client
             </Drawer.Title>
 
-            <Field label="Client name">
-              <Input value={clientName} onChange={setClientName} required />
-            </Field>
-            <Field label="Street address">
-              <Input value={addressLine} onChange={setAddressLine} required />
-            </Field>
-            <Field label="Suburb">
-              <Input value={suburb} onChange={setSuburb} required />
-            </Field>
-
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="State">
-                <select
-                  value={state}
-                  onChange={(e) => setState(e.target.value)}
-                  className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-                >
-                  {AU_STATES.map((s) => (
-                    <option key={s.code} value={s.code}>
-                      {s.code}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              <Field label="Postcode">
-                <Input
-                  value={postcode}
-                  onChange={setPostcode}
-                  required
-                  inputMode="numeric"
-                />
-              </Field>
-            </div>
-
-            <Field label="Phone (optional)">
-              <Input value={phone} onChange={setPhone} type="tel" />
-            </Field>
-            <Field label="Email (optional)">
-              <Input value={email} onChange={setEmail} type="email" />
-            </Field>
+            <NewClientFields
+              value={value}
+              onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
+            />
 
             {create.isError && (
               <p
                 role="alert"
                 className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
               >
-                Could not save this property.
+                Could not save this client.
               </p>
             )}
 
@@ -132,7 +94,7 @@ export function NewPropertySheet({
               disabled={create.isPending || !hydrated}
               className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
             >
-              {create.isPending ? 'Saving…' : 'Save property'}
+              {create.isPending ? 'Saving…' : 'Save client'}
             </button>
           </form>
 
@@ -147,45 +109,5 @@ export function NewPropertySheet({
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
-  )
-}
-
-function Input({
-  value,
-  onChange,
-  type = 'text',
-  required,
-  inputMode,
-}: {
-  value: string
-  onChange: (v: string) => void
-  type?: string
-  required?: boolean
-  inputMode?: 'numeric' | 'decimal' | 'tel'
-}) {
-  return (
-    <input
-      type={type}
-      value={value}
-      required={required}
-      inputMode={inputMode}
-      onChange={(e) => onChange(e.target.value)}
-      className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-    />
-  )
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <label className="mt-4 flex flex-col gap-1.5">
-      <span className="section-label">{label}</span>
-      {children}
-    </label>
   )
 }

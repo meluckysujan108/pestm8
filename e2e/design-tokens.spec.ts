@@ -28,9 +28,12 @@ test('caption text renders muted and small, not as a background colour', async (
   })
 
   await signInViaUi(page, email)
-  await page.goto(`/${slug}/dashboard`)
+  await page.goto(`/${slug}/settings?seg=prefs`)
 
-  const caption = page.getByText(/does not track contractor hours/)
+  // Rendered straight from route context (no query, no lazy chunk), so it's
+  // present on first paint — unlike a loading skeleton, which can finish and
+  // unmount between the visibility check and the computed-style read below.
+  const caption = page.getByText(/State determines your timezone/)
   await expect(caption).toBeVisible()
 
   const { color, fontSize } = await caption.evaluate((node) => {

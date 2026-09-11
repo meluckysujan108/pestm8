@@ -37,7 +37,8 @@ export const timberPestInspection: ReportTemplate = {
       key: 'activityEvidence',
       label: 'Evidence of timber pest activity',
       rows: 3,
-      placeholder: 'Live activity, workings, mudding, frass. State None if none found.',
+      placeholder:
+        'Live activity, workings, mudding, frass. State None if none found.',
       required: true,
     },
     {

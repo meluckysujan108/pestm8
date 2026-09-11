@@ -1,8 +1,4 @@
-import {
-  WEEKDAY_INITIALS,
-  addDaysToKey,
-  dayKeyToDate,
-} from '#/lib/format'
+import { WEEKDAY_INITIALS, addDaysToKey, dayKeyToDate } from '#/lib/format'
 
 export type DayLoad = { offset: number; count: number; colours: Array<string> }
 
@@ -64,6 +60,11 @@ export function WeekStrip({
                   style={{ backgroundColor: colour }}
                 />
               ))}
+            </span>
+            {/* Below the assignee dots so the two never compete: whose day it
+                is, then how loaded it is. */}
+            <span className="flex h-3.5 items-center text-[11px] font-semibold tabular-nums text-muted">
+              {day && day.count > 0 ? day.count : ''}
             </span>
           </button>
         )
