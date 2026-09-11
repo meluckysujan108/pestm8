@@ -35,7 +35,11 @@ test.describe('tenant isolation', () => {
 
     const { slug, businessId } = await owner.client.mutation(
       api.businesses.create,
-      { name: `Isolation ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+      {
+        name: `Isolation ${Date.now()}`,
+        state: 'WA',
+        timezone: 'Australia/Perth',
+      },
     )
 
     // A non-member gets null, identical to a slug that does not exist —
@@ -232,9 +236,12 @@ test.describe('multi-tenant membership', () => {
       api.memberships.listForBusiness,
       { businessId: a.businessId },
     )
-    const betaMembers = await user.client.query(api.memberships.listForBusiness, {
-      businessId: b.businessId,
-    })
+    const betaMembers = await user.client.query(
+      api.memberships.listForBusiness,
+      {
+        businessId: b.businessId,
+      },
+    )
 
     expect(alphaMembers).toHaveLength(1)
     expect(betaMembers).toHaveLength(1)

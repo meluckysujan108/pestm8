@@ -20,7 +20,9 @@ export const summary = query({
       visibility.scope === 'business'
         ? await ctx.db
             .query('jobs')
-            .withIndex('by_business_date', (q) => q.eq('businessId', businessId))
+            .withIndex('by_business_date', (q) =>
+              q.eq('businessId', businessId),
+            )
             .collect()
         : await ctx.db
             .query('jobs')

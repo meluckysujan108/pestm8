@@ -34,12 +34,12 @@ export const sendReportPdf = action({
 
     const pdfUrl =
       report.pdfUrl ??
-      (
-        await ctx.runAction(api.reportPdf.generate, { businessId, reportId })
-      ).url
+      (await ctx.runAction(api.reportPdf.generate, { businessId, reportId }))
+        .url
     if (!pdfUrl) throw new ConvexError('PDF_UNAVAILABLE')
 
-    const { resolveReportTemplate } = await import('../src/lib/reportTemplates/resolve')
+    const { resolveReportTemplate } =
+      await import('../src/lib/reportTemplates/resolve')
     const template = resolveReportTemplate({
       template: report.template,
       customTemplate: report.customTemplate,
@@ -58,7 +58,9 @@ export const sendReportPdf = action({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: fromEmail ? `${report.businessName} <${fromEmail}>` : report.businessName,
+        from: fromEmail
+          ? `${report.businessName} <${fromEmail}>`
+          : report.businessName,
         to: [to],
         reply_to: report.business?.email || undefined,
         subject,

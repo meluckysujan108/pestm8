@@ -63,7 +63,8 @@ export const generate = action({
     ])
 
     const { pdf } = await import('@react-pdf/renderer')
-    const { ReportPdf } = await import('../src/components/reports/pdf/ReportPdf')
+    const { ReportPdf } =
+      await import('../src/components/reports/pdf/ReportPdf')
 
     const stream = await pdf(
       <ReportPdf

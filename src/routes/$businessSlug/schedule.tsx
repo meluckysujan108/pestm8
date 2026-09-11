@@ -51,7 +51,10 @@ function SchedulePage() {
   const navigate = useNavigate({ from: Route.fullPath })
   const openJobId = jobId ?? null
   const setOpenJobId = (id: string | null) =>
-    navigate({ search: (prev) => ({ ...prev, jobId: id ?? undefined }), replace: true })
+    navigate({
+      search: (prev) => ({ ...prev, jobId: id ?? undefined }),
+      replace: true,
+    })
   const [newJobOpen, setNewJobOpen] = useState(false)
   const [monthOpen, setMonthOpen] = useState(false)
   const [monthKey, setMonthKey] = useState<string | null>(null)
@@ -81,10 +84,8 @@ function SchedulePage() {
   const { data: members } = useSuspenseQuery(
     convexQuery(api.memberships.listForBusiness, { businessId: business._id }),
   )
-  const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(
-    jobs,
-    membership._id,
-  )
+  const { status, setStatus, staffId, setStaffId, filteredJobs } =
+    useScheduleFilters(jobs, membership._id)
   // DayAgendaPanel fetches its own weather when mounted (desktop); an empty
   // request array here short-circuits before any Convex call, so this costs
   // nothing on desktop.
@@ -95,7 +96,11 @@ function SchedulePage() {
       ? []
       : jobs
           .filter((j) => j.suburb)
-          .map((j) => ({ dayKey: selectedKey, suburb: j.suburb, postcode: j.postcode ?? '' })),
+          .map((j) => ({
+            dayKey: selectedKey,
+            suburb: j.suburb,
+            postcode: j.postcode ?? '',
+          })),
   )
 
   const setDay = (dayKey: string) =>
@@ -200,9 +205,7 @@ function SchedulePage() {
 
           <section className="px-4 pt-4 pb-6">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="section-label">
-                {formatDayLabel(selectedKey)}
-              </h2>
+              <h2 className="section-label">{formatDayLabel(selectedKey)}</h2>
               <ScheduleFilterBar
                 jobs={jobs}
                 members={members}
@@ -215,7 +218,9 @@ function SchedulePage() {
 
             {filteredJobs.length === 0 ? (
               <EmptyState
-                title={jobs.length === 0 ? 'Nothing booked' : 'No matching jobs'}
+                title={
+                  jobs.length === 0 ? 'Nothing booked' : 'No matching jobs'
+                }
                 body={
                   jobs.length === 0
                     ? 'This day is clear. Tap + to book a job.'
@@ -231,7 +236,15 @@ function SchedulePage() {
                   <JobCard
                     key={job._id}
                     job={job}
-                    weather={weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)]}
+                    weather={
+                      weather[
+                        weatherKeyOf(
+                          job.suburb,
+                          job.postcode ?? '',
+                          selectedKey,
+                        )
+                      ]
+                    }
                     timezone={business.timezone}
                     onOpen={setOpenJobId}
                   />

@@ -73,7 +73,8 @@ test('an exported inspection PDF carries its findings and scope limits', async (
         'Decking and fencing': { status: 'inspected' },
         Grounds: { status: 'inspected' },
       },
-      activityEvidence: 'Live subterranean termite activity in the veranda post.',
+      activityEvidence:
+        'Live subterranean termite activity in the veranda post.',
       damageEvidence: 'Moderate damage to the veranda post.',
       conduciveConditions: 'Timber-to-ground contact at veranda posts.',
       reinspectionInterval: '6',

@@ -114,11 +114,7 @@ export function BrandingSection({
             onClick={() => input.current?.click()}
             className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-50"
           >
-            {logoBusy
-              ? 'Uploading…'
-              : logoUrl
-                ? 'Change logo'
-                : 'Add logo'}
+            {logoBusy ? 'Uploading…' : logoUrl ? 'Change logo' : 'Add logo'}
           </button>
           <input
             ref={input}

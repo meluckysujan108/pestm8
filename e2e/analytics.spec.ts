@@ -30,7 +30,11 @@ function midMonth(monthsAgo: number): number {
 }
 
 test('revenue counts only completed jobs, excludes booked, and buckets by month', async () => {
-  const owner = await signUpActor(uniqueEmail('analytics-owner'), FIXTURE_PASSWORD, 'Terence')
+  const owner = await signUpActor(
+    uniqueEmail('analytics-owner'),
+    FIXTURE_PASSWORD,
+    'Terence',
+  )
 
   const { businessId } = await owner.client.mutation(api.businesses.create, {
     name: `Analytics Co ${Date.now()}`,
@@ -45,10 +49,16 @@ test('revenue counts only completed jobs, excludes booked, and buckets by month'
     state: 'WA',
     postcode: '6053',
   })
-  const members = await owner.client.query(api.memberships.listForBusiness, { businessId })
+  const members = await owner.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
   const ownerMembershipId = members.find((m) => m.role === 'owner')!._id
 
-  async function bookJob(price: number, scheduledAt: number, complete: boolean) {
+  async function bookJob(
+    price: number,
+    scheduledAt: number,
+    complete: boolean,
+  ) {
     const jobId = await owner.client.mutation(api.jobs.create, {
       businessId,
       propertyId,
@@ -58,7 +68,8 @@ test('revenue counts only completed jobs, excludes booked, and buckets by month'
       scheduledAt,
       durationMinutes: 60,
     })
-    if (complete) await owner.client.mutation(api.jobs.complete, { businessId, jobId })
+    if (complete)
+      await owner.client.mutation(api.jobs.complete, { businessId, jobId })
     return jobId
   }
 
@@ -68,22 +79,32 @@ test('revenue counts only completed jobs, excludes booked, and buckets by month'
   // Last month: one completed, a different month bucket.
   await bookJob(15000, midMonth(1), true)
 
-  const overview = await owner.client.query(api.analytics.overview, { businessId })
+  const overview = await owner.client.query(api.analytics.overview, {
+    businessId,
+  })
   expect(overview?.scope).toBe('business')
 
   const thisMonthKey = overview!.months.at(-1)
   const lastMonthKey = overview!.months.at(-2)
 
-  const thisMonthRevenue = overview!.revenueByMonth.find((r) => r.month === thisMonthKey)
-  const lastMonthRevenue = overview!.revenueByMonth.find((r) => r.month === lastMonthKey)
+  const thisMonthRevenue = overview!.revenueByMonth.find(
+    (r) => r.month === thisMonthKey,
+  )
+  const lastMonthRevenue = overview!.revenueByMonth.find(
+    (r) => r.month === lastMonthKey,
+  )
   expect(thisMonthRevenue?.value).toBe(20000) // not 70000 — the booked job is excluded
   expect(lastMonthRevenue?.value).toBe(15000)
 
-  const thisMonthVolume = overview!.volumeByMonth.find((r) => r.month === thisMonthKey)
+  const thisMonthVolume = overview!.volumeByMonth.find(
+    (r) => r.month === thisMonthKey,
+  )
   expect(thisMonthVolume?.value).toBe(2) // volume counts both, unlike revenue
 
   const booked = overview!.statusBreakdown.find((s) => s.status === 'booked')
-  const completed = overview!.statusBreakdown.find((s) => s.status === 'completed')
+  const completed = overview!.statusBreakdown.find(
+    (s) => s.status === 'completed',
+  )
   expect(booked?.count).toBe(1)
   expect(completed?.count).toBe(2)
 })
@@ -135,18 +156,28 @@ test('a subcontractor without canViewAllJobs sees only their own jobs reflected'
   // A workload comparison of one person is meaningless — the UI hides the
   // chart entirely for an assignee-scoped caller (see AnalyticsCharts.tsx),
   // but the data itself still only ever contains the caller's own row.
-  expect(subView!.technicianLoad.every((t) => t.membershipId === s.subMembershipId)).toBe(true)
+  expect(
+    subView!.technicianLoad.every((t) => t.membershipId === s.subMembershipId),
+  ).toBe(true)
 })
 
 test('a non-member is rejected', async () => {
-  const owner = await signUpActor(uniqueEmail('analytics-private'), FIXTURE_PASSWORD, 'Terence')
+  const owner = await signUpActor(
+    uniqueEmail('analytics-private'),
+    FIXTURE_PASSWORD,
+    'Terence',
+  )
   const { businessId } = await owner.client.mutation(api.businesses.create, {
     name: `Private Co ${Date.now()}`,
     state: 'WA',
     timezone: 'Australia/Perth',
   })
 
-  const outsider = await signUpActor(uniqueEmail('analytics-outsider'), FIXTURE_PASSWORD, 'Outsider')
+  const outsider = await signUpActor(
+    uniqueEmail('analytics-outsider'),
+    FIXTURE_PASSWORD,
+    'Outsider',
+  )
   await expectRejected(
     () => outsider.client.query(api.analytics.overview, { businessId }),
     'NO_ACCESS',

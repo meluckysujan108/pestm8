@@ -45,9 +45,7 @@ test('an owner invites a subcontractor who then joins', async ({ page }) => {
   expect(subBusinesses.find((b) => b.slug === slug)!.role).toBe('subcontractor')
 
   // Joining does not confer visibility of anyone else's work.
-  expect(
-    subBusinesses.find((b) => b.slug === slug)!.canViewAllJobs,
-  ).toBe(false)
+  expect(subBusinesses.find((b) => b.slug === slug)!.canViewAllJobs).toBe(false)
 
   const members = await owner.client.query(api.memberships.listForBusiness, {
     businessId,
@@ -100,7 +98,11 @@ test('a subcontractor cannot invite or see the team roster controls', async ({
   const owner = await signUpActor(ownerEmail, FIXTURE_PASSWORD, 'Terence')
   const { businessId, slug } = await owner.client.mutation(
     api.businesses.create,
-    { name: `NoInvite ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    {
+      name: `NoInvite ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
   )
   await owner.client.mutation(api.memberships.inviteByEmail, {
     businessId,

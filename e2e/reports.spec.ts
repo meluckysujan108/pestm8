@@ -221,8 +221,12 @@ test.describe('report document', () => {
     await page.goto(`/${slug}/reports/${reportId}`)
 
     // A PDF of a draft would circulate as though it were the finished record.
-    await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Download PDF' })).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: 'Finalise & lock' }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Download PDF' }),
+    ).toHaveCount(0)
   })
 })
 
@@ -235,7 +239,11 @@ test.describe('report builder', () => {
 
     const { businessId, slug } = await owner.client.mutation(
       api.businesses.create,
-      { name: `Builder ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+      {
+        name: `Builder ${Date.now()}`,
+        state: 'WA',
+        timezone: 'Australia/Perth',
+      },
     )
     await owner.client.mutation(api.properties.create, {
       businessId,
@@ -249,9 +257,7 @@ test.describe('report builder', () => {
     await signInViaUi(page, email)
     await page.goto(`/${slug}/reports/new`)
 
-    await page
-      .getByRole('button', { name: /Timber Pest Inspection/ })
-      .click()
+    await page.getByRole('button', { name: /Timber Pest Inspection/ }).click()
 
     await expect(page.getByText('AS 4349.3-2010')).toBeVisible()
     // The locked scope limits must be visible, not buried behind a link.

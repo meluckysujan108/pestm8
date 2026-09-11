@@ -1,12 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 export type SaveStatus =
-  | 'draft'
-  | 'dirty'
-  | 'saving'
-  | 'saved'
-  | 'error'
-  | 'submitted'
+  'draft' | 'dirty' | 'saving' | 'saved' | 'error' | 'submitted'
 
 /**
  * Debounced autosave for a report draft.

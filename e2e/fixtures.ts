@@ -58,7 +58,9 @@ export async function signUpActor(
     body: JSON.stringify({ email, password, name }),
   })
   if (!res.ok) {
-    throw new Error(`sign-up failed for ${email}: ${res.status} ${await res.text()}`)
+    throw new Error(
+      `sign-up failed for ${email}: ${res.status} ${await res.text()}`,
+    )
   }
 
   const cookie = res.headers
@@ -142,7 +144,6 @@ export async function setupBusinessWithSub(label: string) {
     ownerJobId,
   }
 }
-
 
 /**
  * Signs in through the real form. The submit button is disabled until the page

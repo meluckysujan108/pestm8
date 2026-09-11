@@ -83,7 +83,10 @@ export const create = mutation({
     anchorDate: v.number(),
     durationMinutes: v.number(),
   },
-  handler: async (ctx, { propertyId: existingPropertyId, newClient, ...args }) => {
+  handler: async (
+    ctx,
+    { propertyId: existingPropertyId, newClient, ...args },
+  ) => {
     const membership = await requireMembership(ctx, args.businessId)
 
     // Same rule as jobs.create: only an owner books someone else's calendar.

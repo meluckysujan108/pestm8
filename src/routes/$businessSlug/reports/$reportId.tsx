@@ -3,7 +3,10 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../../convex/_generated/api'
 import { ReportBuilder } from '#/components/reports/ReportBuilder'
-import { ReportDocument, pdfFileName } from '#/components/reports/ReportDocument'
+import {
+  ReportDocument,
+  pdfFileName,
+} from '#/components/reports/ReportDocument'
 import { ReportActionBar } from '#/components/reports/ReportActionBar'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import type { Id } from '../../../../convex/_generated/dataModel'

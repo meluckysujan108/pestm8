@@ -1,11 +1,26 @@
-import { Document, Image, Page, StyleSheet, Text, View } from '@react-pdf/renderer'
-import { durableNoticeText, fieldsOf, sectionsOf } from '../../../lib/reportTemplates'
+import {
+  Document,
+  Image,
+  Page,
+  StyleSheet,
+  Text,
+  View,
+} from '@react-pdf/renderer'
+import {
+  durableNoticeText,
+  fieldsOf,
+  sectionsOf,
+} from '../../../lib/reportTemplates'
 import { present } from '../../../lib/reportTemplates/present'
 import { visibleSections } from '../../../lib/reportTemplates/visibility'
 import { resolveReportTemplate } from '../../../lib/reportTemplates/resolve'
 import { PdfFooter, PdfHeader } from './layout'
 import type { Presented } from '../../../lib/reportTemplates/present'
-import type { FieldDef, ReportTemplate, TemplateId } from '../../../lib/reportTemplates'
+import type {
+  FieldDef,
+  ReportTemplate,
+  TemplateId,
+} from '../../../lib/reportTemplates'
 import type { CustomTemplateShape } from '../../../lib/reportTemplates/resolve'
 
 export type PdfGalleryPhoto = {

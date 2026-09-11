@@ -28,9 +28,18 @@ import {
   formatTime,
 } from '#/lib/format'
 import { WeatherGlyph } from './WeatherGlyph'
-import { isWet, isWindy, useDayWeather, weatherKeyOf } from '#/lib/useDayWeather'
+import {
+  isWet,
+  isWindy,
+  useDayWeather,
+  weatherKeyOf,
+} from '#/lib/useDayWeather'
 import { useHydrated } from '#/lib/useHydrated'
-import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
+import {
+  dayKeyOf,
+  timeKeyOf,
+  zonedDateTimeToUtc,
+} from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { RepeatValue } from '#/lib/format'
 
@@ -113,7 +122,8 @@ function JobDetailBody({
     convexQuery(api.jobs.get, { businessId, jobId }),
   )
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
-  const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] = useState(false)
+  const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] =
+    useState(false)
   const [editing, setEditing] = useState(false)
 
   // None of these close the sheet on success — a status change from the
@@ -216,7 +226,11 @@ function JobDetailBody({
                         className="flex items-center gap-1 rounded-full transition active:scale-[.97]"
                       >
                         <StatusPill status={job.status} />
-                        <ChevronDown size={14} strokeWidth={2} className="text-muted" />
+                        <ChevronDown
+                          size={14}
+                          strokeWidth={2}
+                          className="text-muted"
+                        />
                       </button>
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Portal>
@@ -225,7 +239,14 @@ function JobDetailBody({
                         sideOffset={6}
                         className="z-50 w-48 rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
                       >
-                        {(['booked', 'inProgress', 'completed', 'cancelled'] as const).map((option) => (
+                        {(
+                          [
+                            'booked',
+                            'inProgress',
+                            'completed',
+                            'cancelled',
+                          ] as const
+                        ).map((option) => (
                           <DropdownMenu.Item
                             key={option}
                             onSelect={() => selectStatus(option)}
@@ -233,7 +254,11 @@ function JobDetailBody({
                           >
                             {STATUS_MENU_LABEL[option]}
                             {job.status === option && (
-                              <Check size={15} strokeWidth={2.2} className="text-blue" />
+                              <Check
+                                size={15}
+                                strokeWidth={2.2}
+                                className="text-blue"
+                              />
                             )}
                           </DropdownMenu.Item>
                         ))}
@@ -254,7 +279,9 @@ function JobDetailBody({
                   {job.property?.client?.name}
                 </p>
                 {/* Full street address here — the list rows show suburb only. */}
-                <p className="text-body text-ink-2">{job.property?.addressLine}</p>
+                <p className="text-body text-ink-2">
+                  {job.property?.addressLine}
+                </p>
                 <p className="text-body text-muted">
                   {job.property?.suburb} {job.property?.state}{' '}
                   {job.property?.postcode}
@@ -274,7 +301,9 @@ function JobDetailBody({
               </Section>
 
               <Section label="Price">
-                <p className="text-metric-sm text-ink">{formatMoney(job.price)}</p>
+                <p className="text-metric-sm text-ink">
+                  {formatMoney(job.price)}
+                </p>
               </Section>
             </>
           )}
@@ -337,7 +366,11 @@ function JobDetailBody({
 
           <JobNotes businessId={businessId} jobId={job._id} />
 
-          <JobPhotos businessId={businessId} jobId={job._id} canEdit={job.canEdit} />
+          <JobPhotos
+            businessId={businessId}
+            jobId={job._id}
+            canEdit={job.canEdit}
+          />
 
           {/* Read access can be granted without edit rights, so the status
                   menu above is driven by the server's canEdit, not by role. */}
@@ -352,7 +385,10 @@ function JobDetailBody({
             </p>
           )}
 
-          <AlertDialog.Root open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
+          <AlertDialog.Root
+            open={confirmCancelOpen}
+            onOpenChange={setConfirmCancelOpen}
+          >
             <AlertDialog.Portal>
               <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/30" />
               <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
@@ -361,9 +397,9 @@ function JobDetailBody({
                 </AlertDialog.Title>
                 <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
                   {job.jobType} for {job.property?.client?.name} at{' '}
-                  {formatTime(job.scheduledAt, timezone)} won't happen as booked.
-                  Nothing is deleted — the visit stays in the schedule marked
-                  cancelled, and you can reopen it as booked any time.
+                  {formatTime(job.scheduledAt, timezone)} won't happen as
+                  booked. Nothing is deleted — the visit stays in the schedule
+                  marked cancelled, and you can reopen it as booked any time.
                 </AlertDialog.Description>
                 <div className="mt-4 flex gap-2">
                   <AlertDialog.Cancel asChild>
@@ -378,7 +414,9 @@ function JobDetailBody({
                     <button
                       type="button"
                       disabled={cancel.isPending}
-                      onClick={() => cancel.mutate({ businessId, jobId: job._id })}
+                      onClick={() =>
+                        cancel.mutate({ businessId, jobId: job._id })
+                      }
                       className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
                     >
                       {cancel.isPending ? 'Cancelling…' : 'Cancel job'}
@@ -418,7 +456,9 @@ function JobDetailBody({
                     <button
                       type="button"
                       disabled={stopRepeating.isPending}
-                      onClick={() => stopRepeating.mutate({ businessId, jobId: job._id })}
+                      onClick={() =>
+                        stopRepeating.mutate({ businessId, jobId: job._id })
+                      }
                       className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
                     >
                       {stopRepeating.isPending ? 'Stopping…' : 'Stop repeating'}
@@ -471,7 +511,11 @@ function JobEditForm({
     scheduledAt: number
     durationMinutes: number
     assignedMembershipId: Id<'memberships'>
-    recurrence: { _id: Id<'recurrences'>; frequency: string; active: boolean } | null
+    recurrence: {
+      _id: Id<'recurrences'>
+      frequency: string
+      active: boolean
+    } | null
   }
   canReassign: boolean
   onDone: () => void
@@ -814,7 +858,10 @@ function PropertyHistory({
             key={visit._id}
             to="/$businessSlug/schedule"
             params={{ businessSlug }}
-            search={{ date: dayKeyOf(visit.scheduledAt, timezone), jobId: visit._id }}
+            search={{
+              date: dayKeyOf(visit.scheduledAt, timezone),
+              jobId: visit._id,
+            }}
             className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
           >
             <span className="min-w-0">
@@ -874,7 +921,12 @@ function JobReports({
       {forThisJob.length > 0 && (
         <div className="mb-3 flex flex-col divide-y divide-hairline">
           {forThisJob.map((report) => (
-            <ReportRow key={report._id} businessSlug={businessSlug} report={report} timezone={timezone} />
+            <ReportRow
+              key={report._id}
+              businessSlug={businessSlug}
+              report={report}
+              timezone={timezone}
+            />
           ))}
         </div>
       )}
@@ -891,10 +943,17 @@ function JobReports({
 
       {otherReports.length > 0 && (
         <>
-          <p className="section-label mb-2 mt-4">Other reports at this property</p>
+          <p className="section-label mb-2 mt-4">
+            Other reports at this property
+          </p>
           <div className="flex flex-col divide-y divide-hairline">
             {otherReports.map((report) => (
-              <ReportRow key={report._id} businessSlug={businessSlug} report={report} timezone={timezone} />
+              <ReportRow
+                key={report._id}
+                businessSlug={businessSlug}
+                report={report}
+                timezone={timezone}
+              />
             ))}
           </div>
         </>
@@ -1016,7 +1075,9 @@ function JobNotes({
                   type="button"
                   aria-label="Delete note"
                   disabled={remove.isPending}
-                  onClick={() => remove.mutate({ businessId, noteId: note._id })}
+                  onClick={() =>
+                    remove.mutate({ businessId, noteId: note._id })
+                  }
                   className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                 >
                   <Trash2 size={14} strokeWidth={1.7} />
@@ -1055,7 +1116,12 @@ function JobNotes({
   )
 }
 
-type JobPhoto = { _id: Id<'jobPhotos'>; caption?: string; order: number; url: string | null }
+type JobPhoto = {
+  _id: Id<'jobPhotos'>
+  caption?: string
+  order: number
+  url: string | null
+}
 
 /** Quick site reference photos — deliberately simpler than a report's
  * gallery (no cover flag, no annotation): this is "here's what I found",
@@ -1113,7 +1179,11 @@ function JobPhotos({
         })
         if (!res.ok) throw new Error('upload failed')
         const { storageId } = (await res.json()) as { storageId: string }
-        await add.mutateAsync({ businessId, jobId, storageId: storageId as Id<'_storage'> })
+        await add.mutateAsync({
+          businessId,
+          jobId,
+          storageId: storageId as Id<'_storage'>,
+        })
       }
     } catch {
       setFailed(true)
@@ -1140,7 +1210,9 @@ function JobPhotos({
                   type="button"
                   aria-label="Remove photo"
                   disabled={remove.isPending}
-                  onClick={() => remove.mutate({ businessId, jobId, photoId: photo._id })}
+                  onClick={() =>
+                    remove.mutate({ businessId, jobId, photoId: photo._id })
+                  }
                   className="absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
                 >
                   <Trash2 size={12} strokeWidth={2} />

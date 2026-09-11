@@ -319,7 +319,10 @@ function FieldValue({ shown }: { shown: Presented }) {
             <thead>
               <tr className="border-b border-hairline">
                 {shown.columns.map((column) => (
-                  <th key={column} className="px-1 pb-1 font-semibold text-muted">
+                  <th
+                    key={column}
+                    className="px-1 pb-1 font-semibold text-muted"
+                  >
                     {column}
                   </th>
                 ))}
@@ -327,7 +330,10 @@ function FieldValue({ shown }: { shown: Presented }) {
             </thead>
             <tbody>
               {shown.rows.map((row, i) => (
-                <tr key={i} className="border-b border-hairline-2 last:border-0">
+                <tr
+                  key={i}
+                  className="border-b border-hairline-2 last:border-0"
+                >
                   {row.map((cell, j) => (
                     <td key={j} className="px-1 py-1.5 align-top text-ink-2">
                       {cell}

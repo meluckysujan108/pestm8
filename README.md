@@ -54,10 +54,10 @@ npm run test:e2e
 
 ## Commands
 
-| Command | Does |
-|---|---|
-| `npm run dev` | Vite dev server on :3000 (needs `npx convex dev` alongside) |
-| `npm run build` | Production build |
-| `npm run generate-routes` | Regenerate `routeTree.gen.ts` after adding routes |
-| `npm run test:e2e` | Playwright access-control suite |
-| `npm run lint` / `npm run format` | ESLint + Prettier |
+| Command                           | Does                                                        |
+| --------------------------------- | ----------------------------------------------------------- |
+| `npm run dev`                     | Vite dev server on :3000 (needs `npx convex dev` alongside) |
+| `npm run build`                   | Production build                                            |
+| `npm run generate-routes`         | Regenerate `routeTree.gen.ts` after adding routes           |
+| `npm run test:e2e`                | Playwright access-control suite                             |
+| `npm run lint` / `npm run format` | ESLint + Prettier                                           |

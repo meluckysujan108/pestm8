@@ -1,13 +1,26 @@
 import { expect, test } from '@playwright/test'
-import { FIXTURE_PASSWORD, api, signInViaUi, signUpActor, uniqueEmail } from './fixtures'
+import {
+  FIXTURE_PASSWORD,
+  api,
+  signInViaUi,
+  signUpActor,
+  uniqueEmail,
+} from './fixtures'
 
 async function setup(label: string) {
-  const owner = await signUpActor(uniqueEmail(label), FIXTURE_PASSWORD, 'Terence')
-  const { businessId, slug } = await owner.client.mutation(api.businesses.create, {
-    name: `${label} ${Date.now()}`,
-    state: 'WA',
-    timezone: 'Australia/Perth',
-  })
+  const owner = await signUpActor(
+    uniqueEmail(label),
+    FIXTURE_PASSWORD,
+    'Terence',
+  )
+  const { businessId, slug } = await owner.client.mutation(
+    api.businesses.create,
+    {
+      name: `${label} ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
+  )
   await owner.client.mutation(api.properties.create, {
     businessId,
     clientName: 'J. Nguyen',
@@ -19,7 +32,9 @@ async function setup(label: string) {
   return { owner, businessId, slug }
 }
 
-test('the job-type combobox accepts a value typed outside the fixed list', async ({ page }) => {
+test('the job-type combobox accepts a value typed outside the fixed list', async ({
+  page,
+}) => {
   const s = await setup('combo-jobtype')
 
   await signInViaUi(page, s.owner.email)
@@ -31,8 +46,12 @@ test('the job-type combobox accepts a value typed outside the fixed list', async
 
   const sheet = page.getByRole('dialog')
   await sheet.getByLabel('Job type').click()
-  await page.getByRole('textbox', { name: 'Search or add a job type' }).fill('Possum Removal')
-  await page.getByRole('button', { name: 'Add "Possum Removal" as a new job type' }).click()
+  await page
+    .getByRole('textbox', { name: 'Search or add a job type' })
+    .fill('Possum Removal')
+  await page
+    .getByRole('button', { name: 'Add "Possum Removal" as a new job type' })
+    .click()
   await sheet.getByLabel('Start').fill('09:00')
   await sheet.getByLabel('Price (AUD)').fill('200')
   await sheet.getByRole('button', { name: 'Book job' }).click()
@@ -41,7 +60,9 @@ test('the job-type combobox accepts a value typed outside the fixed list', async
   await expect(card).toBeVisible()
 })
 
-test('the property combobox filters by client name, not just address', async ({ page }) => {
+test('the property combobox filters by client name, not just address', async ({
+  page,
+}) => {
   const s = await setup('combo-property')
   await s.owner.client.mutation(api.properties.create, {
     businessId: s.businessId,
@@ -61,7 +82,9 @@ test('the property combobox filters by client name, not just address', async ({ 
 
   const sheet = page.getByRole('dialog')
   await sheet.getByLabel('Property').click()
-  await page.getByRole('textbox', { name: 'Search by name or address' }).fill('Roberts')
+  await page
+    .getByRole('textbox', { name: 'Search by name or address' })
+    .fill('Roberts')
 
   await expect(page.getByRole('button', { name: /M\. Roberts/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /J\. Nguyen/ })).toHaveCount(0)

@@ -30,8 +30,10 @@ export function AccountMenu({
 
   const convexSetViewingAs = useConvexMutation(api.memberships.setViewingAs)
   const setViewingAs = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; targetMembershipId?: Id<'memberships'> }) =>
-      convexSetViewingAs(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      targetMembershipId?: Id<'memberships'>
+    }) => convexSetViewingAs(args),
     onSuccess: () => setOpen(false),
   })
 
@@ -77,8 +79,12 @@ export function AccountMenu({
             <>
               {self && (
                 <div className="px-2.5 py-2">
-                  <p className="truncate text-row-title text-ink">{self.name}</p>
-                  <p className="text-caption capitalize text-muted">{self.role}</p>
+                  <p className="truncate text-row-title text-ink">
+                    {self.name}
+                  </p>
+                  <p className="text-caption capitalize text-muted">
+                    {self.role}
+                  </p>
                 </div>
               )}
 
@@ -91,7 +97,10 @@ export function AccountMenu({
                       type="button"
                       disabled={setViewingAs.isPending}
                       onClick={() =>
-                        setViewingAs.mutate({ businessId, targetMembershipId: a.membershipId })
+                        setViewingAs.mutate({
+                          businessId,
+                          targetMembershipId: a.membershipId,
+                        })
                       }
                       className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left transition hover:bg-surface-2 disabled:opacity-50"
                     >
@@ -101,8 +110,12 @@ export function AccountMenu({
                         style={{ backgroundColor: a.colour }}
                       />
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-row-title text-ink">{a.name}</span>
-                        <span className="block text-caption capitalize text-muted">{a.role}</span>
+                        <span className="block truncate text-row-title text-ink">
+                          {a.name}
+                        </span>
+                        <span className="block text-caption capitalize text-muted">
+                          {a.role}
+                        </span>
                       </span>
                     </button>
                   ))}

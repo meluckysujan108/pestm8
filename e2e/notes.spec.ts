@@ -39,7 +39,9 @@ test('an owner can add and delete a note', async ({ page }) => {
   await expect(page.getByText('Gate code 4821. Dog is friendly.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Delete note' }).click()
-  await expect(page.getByText('Gate code 4821. Dog is friendly.')).toHaveCount(0)
+  await expect(page.getByText('Gate code 4821. Dog is friendly.')).toHaveCount(
+    0,
+  )
 })
 
 test('a subcontractor cannot delete a note they did not write', async () => {

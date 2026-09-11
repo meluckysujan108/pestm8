@@ -89,7 +89,9 @@ test('only one contact is ever primary at a time', async () => {
     clientId,
   })
   expect(contacts.find((c) => c._id === contactB)?.isPrimary).toBe(true)
-  expect(contacts.find((c) => c._id === contactC)?.isPrimary ?? false).toBe(false)
+  expect(contacts.find((c) => c._id === contactC)?.isPrimary ?? false).toBe(
+    false,
+  )
 
   await s.owner.client.mutation(api.clientContacts.setPrimary, {
     businessId: s.businessId,
@@ -99,7 +101,9 @@ test('only one contact is ever primary at a time', async () => {
     businessId: s.businessId,
     clientId,
   })
-  expect(contacts.find((c) => c._id === contactB)?.isPrimary ?? false).toBe(false)
+  expect(contacts.find((c) => c._id === contactB)?.isPrimary ?? false).toBe(
+    false,
+  )
   expect(contacts.find((c) => c._id === contactC)?.isPrimary).toBe(true)
 })
 

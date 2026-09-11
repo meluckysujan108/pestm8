@@ -1,7 +1,12 @@
 import { useState } from 'react'
 import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react'
 import { FieldConfigForm } from './FieldConfigForm'
-import { CELL_FIELD_KINDS, FIELD_KIND_LABELS, defaultField, slugifyKey } from './fieldKinds'
+import {
+  CELL_FIELD_KINDS,
+  FIELD_KIND_LABELS,
+  defaultField,
+  slugifyKey,
+} from './fieldKinds'
 import type { CellDef } from '#/lib/reportTemplates'
 
 /**
@@ -51,7 +56,9 @@ export function ColumnsEditor({
         <FieldConfigForm
           field={column}
           onChange={(next) => updateAt(editingIndex, next as CellDef)}
-          existingKeys={new Set([...existingKeys].filter((k) => k !== column.key))}
+          existingKeys={
+            new Set([...existingKeys].filter((k) => k !== column.key))
+          }
           visibleWhenCandidates={[]}
         />
         <button
@@ -130,7 +137,10 @@ export function ColumnsEditor({
               onClick={() => {
                 const label = FIELD_KIND_LABELS[kind]
                 const key = slugifyKey(label, existingKeys)
-                onChange([...columns, defaultField(kind, key, label) as CellDef])
+                onChange([
+                  ...columns,
+                  defaultField(kind, key, label) as CellDef,
+                ])
                 setPicking(false)
                 setEditingIndex(columns.length)
               }}

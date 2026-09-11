@@ -1,6 +1,10 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import {
+  jobVisibility,
+  requireMembership,
+  resolveViewScope,
+} from './lib/access'
 import { clientNameOf, withClient } from './properties'
 import { reportTemplate } from './schema'
 import { getTemplate } from '../src/lib/reportTemplates'
@@ -120,7 +124,8 @@ async function templateDisplay(
   ctx: QueryCtx,
   r: Doc<'reports'>,
 ): Promise<{ templateName: string }> {
-  if (r.template !== 'custom') return { templateName: getTemplate(r.template).name }
+  if (r.template !== 'custom')
+    return { templateName: getTemplate(r.template).name }
 
   if (r.status === 'finalised') {
     const snapshot = r.customTemplateSnapshot as { name?: string } | undefined
@@ -291,7 +296,10 @@ export const addGalleryPhoto = mutation({
     storageId: v.id('_storage'),
     caption: v.optional(v.string()),
   },
-  handler: async (ctx, { businessId, reportId, fieldKey, storageId, caption }) => {
+  handler: async (
+    ctx,
+    { businessId, reportId, fieldKey, storageId, caption },
+  ) => {
     await requireEditableReport(ctx, businessId, reportId)
 
     const existing = await ctx.db
@@ -531,7 +539,8 @@ export const create = mutation({
       jobId: args.jobId,
       authorMembershipId: membership._id,
       template: args.template,
-      customTemplateId: args.template === 'custom' ? args.customTemplateId : undefined,
+      customTemplateId:
+        args.template === 'custom' ? args.customTemplateId : undefined,
       legalBasis: args.legalBasis,
       status: 'draft',
       data: args.data ?? {},

@@ -11,15 +11,27 @@ import {
 const DAY = 24 * 60 * 60 * 1000
 
 /** Adds a second subcontractor to a `setupBusinessWithSub` business. */
-async function addSecondSub(s: Awaited<ReturnType<typeof setupBusinessWithSub>>, label: string) {
-  const sub2 = await signUpActor(uniqueEmail(`sub2-${label}`), FIXTURE_PASSWORD, 'Priya')
+async function addSecondSub(
+  s: Awaited<ReturnType<typeof setupBusinessWithSub>>,
+  label: string,
+) {
+  const sub2 = await signUpActor(
+    uniqueEmail(`sub2-${label}`),
+    FIXTURE_PASSWORD,
+    'Priya',
+  )
   const sub2User = await sub2.client.query(api.auth.getCurrentUser, {})
-  const sub2MembershipId = await s.owner.client.mutation(api.memberships.invite, {
+  const sub2MembershipId = await s.owner.client.mutation(
+    api.memberships.invite,
+    {
+      businessId: s.businessId,
+      userId: sub2User._id,
+      role: 'subcontractor',
+    },
+  )
+  await sub2.client.mutation(api.memberships.accept, {
     businessId: s.businessId,
-    userId: sub2User._id,
-    role: 'subcontractor',
   })
-  await sub2.client.mutation(api.memberships.accept, { businessId: s.businessId })
   return { sub2, sub2MembershipId }
 }
 
@@ -186,7 +198,10 @@ test('canEdit always reflects the real caller, never the viewed-as person', asyn
   expect(seenViaViewAs?.canEdit).toBe(false)
 
   // Confirm sub2 themself (the real assignee) does see canEdit: true.
-  const seenBySub2 = await sub2.client.query(api.jobs.get, { businessId: s.businessId, jobId })
+  const seenBySub2 = await sub2.client.query(api.jobs.get, {
+    businessId: s.businessId,
+    jobId,
+  })
   expect(seenBySub2?.canEdit).toBe(true)
 })
 
@@ -201,7 +216,9 @@ test('a subcontractor can only edit their own profile phone number', async () =>
   const members = await s.owner.client.query(api.memberships.listForBusiness, {
     businessId: s.businessId,
   })
-  expect(members.find((m) => m._id === s.subMembershipId)?.phone).toBe('0400 555 111')
+  expect(members.find((m) => m._id === s.subMembershipId)?.phone).toBe(
+    '0400 555 111',
+  )
 
   await expectRejected(
     () =>

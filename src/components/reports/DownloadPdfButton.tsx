@@ -40,7 +40,8 @@ export function DownloadPdfButton({
     setBusy(true)
     setFailed(false)
     try {
-      const url = pdfUrl ?? (await generate.mutateAsync({ businessId, reportId })).url
+      const url =
+        pdfUrl ?? (await generate.mutateAsync({ businessId, reportId })).url
       if (!url) throw new Error('no pdf url')
 
       const res = await fetch(url)

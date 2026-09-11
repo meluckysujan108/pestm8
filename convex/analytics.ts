@@ -58,7 +58,10 @@ export const overview = query({
       // `dashboard.summary`'s own awaitingInvoiceValue/invoicedThisMonth
       // semantics rather than inventing a third revenue definition.
       if (job.status === 'completed' || job.status === 'invoiced') {
-        revenueByMonth.set(monthKey, (revenueByMonth.get(monthKey) ?? 0) + job.price)
+        revenueByMonth.set(
+          monthKey,
+          (revenueByMonth.get(monthKey) ?? 0) + job.price,
+        )
       }
       statusCounts.set(job.status, (statusCounts.get(job.status) ?? 0) + 1)
       typeCounts.set(job.jobType, (typeCounts.get(job.jobType) ?? 0) + 1)
@@ -73,7 +76,9 @@ export const overview = query({
     // regardless of how many distinct strings a business has typed over time.
     const sortedTypes = [...typeCounts.entries()].sort((a, b) => b[1] - a[1])
     const topTypes = sortedTypes.slice(0, 5)
-    const otherTypeCount = sortedTypes.slice(5).reduce((sum, [, c]) => sum + c, 0)
+    const otherTypeCount = sortedTypes
+      .slice(5)
+      .reduce((sum, [, c]) => sum + c, 0)
 
     const technicianLoad = await Promise.all(
       [...technicianCounts.entries()].map(async ([membershipId, count]) => {
@@ -112,7 +117,9 @@ export const overview = query({
       })),
       typeBreakdown: [
         ...topTypes.map(([jobType, count]) => ({ jobType, count })),
-        ...(otherTypeCount > 0 ? [{ jobType: 'Other', count: otherTypeCount }] : []),
+        ...(otherTypeCount > 0
+          ? [{ jobType: 'Other', count: otherTypeCount }]
+          : []),
       ],
       technicianLoad,
     }

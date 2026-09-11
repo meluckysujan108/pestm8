@@ -32,7 +32,9 @@ export function MemberAccessRow({
     }) => convexSet(args),
   })
 
-  const convexSetViewOthers = useConvexMutation(api.memberships.setCanViewOtherAccounts)
+  const convexSetViewOthers = useConvexMutation(
+    api.memberships.setCanViewOtherAccounts,
+  )
   const setViewOthers = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
@@ -93,7 +95,9 @@ export function MemberAccessRow({
       {!isOwner && (
         <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
           <span className="min-w-0">
-            <span className="block text-body text-ink">Can view other accounts</span>
+            <span className="block text-body text-ink">
+              Can view other accounts
+            </span>
             <span className="block text-caption text-muted">
               Lets them switch their own view to see other subcontractors'
               schedules and clients from the header account menu — never the

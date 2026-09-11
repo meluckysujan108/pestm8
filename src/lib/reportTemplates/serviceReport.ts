@@ -78,15 +78,30 @@ const asOptions = (values: Array<string>) =>
   values.map((value) => ({ value, label: value }))
 
 const TREATMENT_COLUMNS: Array<CellDef> = [
-  { kind: 'checks', key: 'treatment', label: 'Treatment', options: asOptions(TREATMENTS) },
+  {
+    kind: 'checks',
+    key: 'treatment',
+    label: 'Treatment',
+    options: asOptions(TREATMENTS),
+  },
   {
     kind: 'checks',
     key: 'product',
     label: 'Product & active ingredient',
     options: asOptions(PRODUCTS),
   },
-  { kind: 'checks', key: 'quantity', label: 'Quantity used', options: asOptions(QUANTITIES) },
-  { kind: 'checks', key: 'method', label: 'Application method', options: asOptions(METHODS) },
+  {
+    kind: 'checks',
+    key: 'quantity',
+    label: 'Quantity used',
+    options: asOptions(QUANTITIES),
+  },
+  {
+    kind: 'checks',
+    key: 'method',
+    label: 'Application method',
+    options: asOptions(METHODS),
+  },
 ]
 
 const NEXT_VISIT = [
@@ -109,7 +124,8 @@ export const serviceReport: ReportTemplate = {
   name: 'Pest Service Report',
   shortName: 'Service',
   legalBasis: 'APVMA · AEPMA',
-  blurb: 'General pest treatment: products applied, risk assessment and sign-off.',
+  blurb:
+    'General pest treatment: products applied, risk assessment and sign-off.',
 
   // Kept for the legacy readers; `sections` is the real structure.
   fields: [],
@@ -119,7 +135,13 @@ export const serviceReport: ReportTemplate = {
       number: 1,
       title: 'Job & site',
       fields: [
-        { kind: 'date', key: 'serviceDate', label: 'Date', defaultToday: true, required: true },
+        {
+          kind: 'date',
+          key: 'serviceDate',
+          label: 'Date',
+          defaultToday: true,
+          required: true,
+        },
         { kind: 'time', key: 'startTime', label: 'Start time' },
         { kind: 'time', key: 'finishTime', label: 'Finish time' },
         {

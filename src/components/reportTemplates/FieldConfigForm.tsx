@@ -82,25 +82,29 @@ export function FieldConfigForm({
           required flag; `photos`/`gallery` can never be enforced from
           `data` at all (see `deriveSchema.ts`) — showing the toggle for
           either would promise something that never actually happens. */}
-      {field.kind !== 'areas' && field.kind !== 'photos' && field.kind !== 'gallery' && (
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-body text-ink">Required</span>
-          <input
-            type="checkbox"
-            checked={field.required ?? false}
-            onChange={(e) =>
-              onChange({ ...field, required: e.target.checked || undefined })
-            }
-            className="size-5"
-          />
-        </label>
-      )}
+      {field.kind !== 'areas' &&
+        field.kind !== 'photos' &&
+        field.kind !== 'gallery' && (
+          <label className="flex items-center justify-between gap-2">
+            <span className="text-body text-ink">Required</span>
+            <input
+              type="checkbox"
+              checked={field.required ?? false}
+              onChange={(e) =>
+                onChange({ ...field, required: e.target.checked || undefined })
+              }
+              className="size-5"
+            />
+          </label>
+        )}
 
       <KindSpecificFields field={field} onChange={onChange} />
 
       <VisibleWhenEditor
         value={field.visibleWhen}
-        onChange={(next: Condition | undefined) => onChange({ ...field, visibleWhen: next })}
+        onChange={(next: Condition | undefined) =>
+          onChange({ ...field, visibleWhen: next })
+        }
         candidates={visibleWhenCandidates}
       />
     </div>
@@ -130,7 +134,9 @@ function KindSpecificFields({
           <TextInput
             label="Placeholder (optional)"
             value={field.placeholder ?? ''}
-            onChange={(v) => onChange({ ...field, placeholder: v || undefined })}
+            onChange={(v) =>
+              onChange({ ...field, placeholder: v || undefined })
+            }
           />
           <NumberInput
             label="Rows"
@@ -210,7 +216,10 @@ function KindSpecificFields({
               type="checkbox"
               checked={field.extensible ?? false}
               onChange={(e) =>
-                onChange({ ...field, extensible: e.target.checked || undefined })
+                onChange({
+                  ...field,
+                  extensible: e.target.checked || undefined,
+                })
               }
               className="size-5"
             />
@@ -233,7 +242,10 @@ function KindSpecificFields({
             type="checkbox"
             checked={field.defaultToday ?? false}
             onChange={(e) =>
-              onChange({ ...field, defaultToday: e.target.checked || undefined })
+              onChange({
+                ...field,
+                defaultToday: e.target.checked || undefined,
+              })
             }
             className="size-5"
           />

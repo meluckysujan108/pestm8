@@ -74,7 +74,10 @@ function SettingsPage() {
             />
             {membership.role === 'owner' && (
               <div className="mt-6">
-                <BrandingSection businessId={business._id} business={business} />
+                <BrandingSection
+                  businessId={business._id}
+                  business={business}
+                />
               </div>
             )}
           </>

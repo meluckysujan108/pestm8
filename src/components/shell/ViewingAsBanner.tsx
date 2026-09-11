@@ -6,19 +6,28 @@ import type { Id } from '../../../convex/_generated/dataModel'
 /** Persistent banner while the caller's own view is filtered through another
  * member's eyes — read-only, so there is nothing to warn about beyond "this
  * isn't your own view right now" and a way back. */
-export function ViewingAsBanner({ businessId }: { businessId: Id<'businesses'> }) {
-  const { data } = useQuery(convexQuery(api.viewAs.getViewScope, { businessId }))
+export function ViewingAsBanner({
+  businessId,
+}: {
+  businessId: Id<'businesses'>
+}) {
+  const { data } = useQuery(
+    convexQuery(api.viewAs.getViewScope, { businessId }),
+  )
 
   const convexSetViewingAs = useConvexMutation(api.memberships.setViewingAs)
   const exit = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'> }) => convexSetViewingAs(args),
+    mutationFn: (args: { businessId: Id<'businesses'> }) =>
+      convexSetViewingAs(args),
   })
 
   if (!data?.viewingAs) return null
 
   return (
     <div className="flex items-center justify-between gap-2 bg-blue px-4 py-2 text-white">
-      <p className="text-caption font-semibold">Viewing as {data.viewingAs.name}</p>
+      <p className="text-caption font-semibold">
+        Viewing as {data.viewingAs.name}
+      </p>
       <button
         type="button"
         disabled={exit.isPending}

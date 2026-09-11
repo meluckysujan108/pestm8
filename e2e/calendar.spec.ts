@@ -23,7 +23,11 @@ async function seed(label: string) {
   const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
   const { businessId, slug } = await owner.client.mutation(
     api.businesses.create,
-    { name: `${label} ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    {
+      name: `${label} ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
   )
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,

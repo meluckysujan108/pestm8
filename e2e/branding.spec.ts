@@ -32,7 +32,9 @@ test('an owner can set branding details and a logo, and they survive a reload', 
 
   // Scoped to the branding form specifically — the business-details form
   // above it (`PrefsSection`) has its own "Save"/"Saved" button too.
-  const brandingForm = page.locator('form').filter({ has: page.getByLabel('Address') })
+  const brandingForm = page
+    .locator('form')
+    .filter({ has: page.getByLabel('Address') })
 
   // The Save button stays disabled until the page hydrates (see
   // ProfileSection/signInViaUi) — filling before then lands on markup React
@@ -55,7 +57,9 @@ test('an owner can set branding details and a logo, and they survive a reload', 
   await expect(page.getByRole('img', { name: 'Business logo' })).toBeVisible()
 
   await brandingForm.getByRole('button', { name: 'Save' }).click()
-  await expect(brandingForm.getByRole('button', { name: 'Saved' })).toBeVisible()
+  await expect(
+    brandingForm.getByRole('button', { name: 'Saved' }),
+  ).toBeVisible()
 
   await page.reload()
   await expect(page.getByLabel('Address')).toHaveValue('14 Ocean Drive')
@@ -97,13 +101,17 @@ test('an owner can edit business name, state and ABN, and a subcontractor sees t
   await expect(page.getByText('Australia/Brisbane')).toBeVisible()
 
   await businessForm.getByRole('button', { name: 'Save' }).click()
-  await expect(businessForm.getByRole('button', { name: 'Saved' })).toBeVisible()
+  await expect(
+    businessForm.getByRole('button', { name: 'Saved' }),
+  ).toBeVisible()
 
   // Reloading proves the write landed server-side, not just local state —
   // `business` in the route context is a one-time snapshot, per
   // `BrandingSection`'s own logo-preview workaround for the same limitation.
   await page.reload()
-  await expect(page.getByLabel('Name')).toHaveValue('Business Info Co (Renamed)')
+  await expect(page.getByLabel('Name')).toHaveValue(
+    'Business Info Co (Renamed)',
+  )
   await expect(page.getByLabel('State')).toHaveValue('QLD')
   await expect(page.getByLabel('ABN (optional)')).toHaveValue('11 222 333 444')
   await expect(page.getByText('Australia/Brisbane')).toBeVisible()

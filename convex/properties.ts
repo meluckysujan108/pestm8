@@ -1,13 +1,20 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import {
+  jobVisibility,
+  requireMembership,
+  resolveViewScope,
+} from './lib/access'
 import { clientKind } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 
 /** Embeds the owning client alongside a property — the detail-view shape
  * (mirrors how `jobs.get` embeds `assignee`/`property` wholesale). */
-export async function withClient<T extends Doc<'properties'>>(ctx: QueryCtx, property: T) {
+export async function withClient<T extends Doc<'properties'>>(
+  ctx: QueryCtx,
+  property: T,
+) {
   const client = await ctx.db.get(property.clientId)
   return { ...property, client }
 }

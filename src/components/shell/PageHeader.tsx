@@ -29,7 +29,9 @@ export function PageHeader({
               onClick={onKickerClick}
               className="mb-0.5 flex items-center gap-1 text-blue"
             >
-              <span className="section-label truncate !text-blue">{kicker}</span>
+              <span className="section-label truncate !text-blue">
+                {kicker}
+              </span>
               <ChevronDown size={13} strokeWidth={2.4} />
             </button>
           ) : (

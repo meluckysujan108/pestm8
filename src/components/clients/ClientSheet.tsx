@@ -33,10 +33,7 @@ export function ClientSheet({
   onClose: () => void
 }) {
   return (
-    <Drawer.Root
-      open={clientId !== null}
-      onOpenChange={(o) => !o && onClose()}
-    >
+    <Drawer.Root open={clientId !== null} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/30" />
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
@@ -89,8 +86,10 @@ function ClientBody({
 
   const convexArchive = useConvexMutation(api.clients.archive)
   const archive = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; clientId: Id<'clients'> }) =>
-      convexArchive(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      clientId: Id<'clients'>
+    }) => convexArchive(args),
     onSuccess: onClose,
   })
 
@@ -148,7 +147,11 @@ function ClientBody({
           </p>
 
           <div className="mt-3">
-            <ContactButtons name={client.name} phone={client.phone} email={client.email} />
+            <ContactButtons
+              name={client.name}
+              phone={client.phone}
+              email={client.email}
+            />
           </div>
 
           {client.notes && (
@@ -157,15 +160,16 @@ function ClientBody({
             </p>
           )}
 
-          {client.kind === 'business' && (client.addressLine || client.suburb) && (
-            <div className="mt-3">
-              <p className="section-label mb-1">Business address</p>
-              <p className="text-body text-ink-2">{client.addressLine}</p>
-              <p className="text-caption text-muted">
-                {client.suburb} {client.state} {client.postcode}
-              </p>
-            </div>
-          )}
+          {client.kind === 'business' &&
+            (client.addressLine || client.suburb) && (
+              <div className="mt-3">
+                <p className="section-label mb-1">Business address</p>
+                <p className="text-body text-ink-2">{client.addressLine}</p>
+                <p className="text-caption text-muted">
+                  {client.suburb} {client.state} {client.postcode}
+                </p>
+              </div>
+            )}
         </>
       )}
 
@@ -201,7 +205,10 @@ function ClientBody({
         </button>
       )}
 
-      <AlertDialog.Root open={confirmArchiveOpen} onOpenChange={setConfirmArchiveOpen}>
+      <AlertDialog.Root
+        open={confirmArchiveOpen}
+        onOpenChange={setConfirmArchiveOpen}
+      >
         <AlertDialog.Portal>
           <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/30" />
           <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
@@ -330,19 +337,35 @@ function ClientEditForm({
       <FormField label={kind === 'business' ? 'Business name' : 'Client name'}>
         <TextInput value={name} onChange={setName} required />
       </FormField>
-      <FormField label={kind === 'business' ? 'Main phone (optional)' : 'Phone (optional)'}>
+      <FormField
+        label={
+          kind === 'business' ? 'Main phone (optional)' : 'Phone (optional)'
+        }
+      >
         <TextInput value={phone} onChange={setPhone} type="tel" />
       </FormField>
-      <FormField label={kind === 'business' ? 'Main email (optional)' : 'Email (optional)'}>
+      <FormField
+        label={
+          kind === 'business' ? 'Main email (optional)' : 'Email (optional)'
+        }
+      >
         <TextInput value={email} onChange={setEmail} type="email" />
       </FormField>
       {kind === 'business' && (
         <>
           <FormField label="Business address (optional)">
-            <TextInput value={addressLine} onChange={setAddressLine} placeholder="Street address" />
+            <TextInput
+              value={addressLine}
+              onChange={setAddressLine}
+              placeholder="Street address"
+            />
           </FormField>
           <FormField label="Suburb">
-            <TextInput value={suburb} onChange={setSuburb} placeholder="Suburb" />
+            <TextInput
+              value={suburb}
+              onChange={setSuburb}
+              placeholder="Suburb"
+            />
           </FormField>
           <div className="grid grid-cols-2 gap-2.5">
             <select
@@ -421,18 +444,24 @@ function ClientContacts({
 
   const convexRemove = useConvexMutation(api.clientContacts.remove)
   const remove = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; contactId: Id<'clientContacts'> }) =>
-      convexRemove(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      contactId: Id<'clientContacts'>
+    }) => convexRemove(args),
   })
   const convexSetPrimary = useConvexMutation(api.clientContacts.setPrimary)
   const setPrimary = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; contactId: Id<'clientContacts'> }) =>
-      convexSetPrimary(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      contactId: Id<'clientContacts'>
+    }) => convexSetPrimary(args),
   })
 
   // Primary contact first; otherwise the order the list already comes in.
   const ordered = contacts
-    ? [...contacts].sort((a, b) => Number(b.isPrimary ?? false) - Number(a.isPrimary ?? false))
+    ? [...contacts].sort(
+        (a, b) => Number(b.isPrimary ?? false) - Number(a.isPrimary ?? false),
+      )
     : contacts
 
   return (
@@ -449,13 +478,18 @@ function ClientContacts({
                 />
               </div>
             ) : (
-              <div key={contact._id} className="flex flex-col gap-2 py-2.5 first:pt-0 last:pb-0">
+              <div
+                key={contact._id}
+                className="flex flex-col gap-2 py-2.5 first:pt-0 last:pb-0"
+              >
                 <div className="flex items-center gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-body text-ink">
                       {contact.name}
                       {contact.isPrimary && (
-                        <span className="ml-1.5 text-caption text-blue">★ Primary</span>
+                        <span className="ml-1.5 text-caption text-blue">
+                          ★ Primary
+                        </span>
                       )}
                     </p>
                     <p className="truncate text-caption text-muted">
@@ -477,7 +511,12 @@ function ClientContacts({
                       type="button"
                       aria-label={`Make ${contact.name} primary`}
                       disabled={setPrimary.isPending}
-                      onClick={() => setPrimary.mutate({ businessId, contactId: contact._id })}
+                      onClick={() =>
+                        setPrimary.mutate({
+                          businessId,
+                          contactId: contact._id,
+                        })
+                      }
                       className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                     >
                       <Star size={14} strokeWidth={1.7} />
@@ -487,13 +526,19 @@ function ClientContacts({
                     type="button"
                     aria-label={`Remove ${contact.name}`}
                     disabled={remove.isPending}
-                    onClick={() => remove.mutate({ businessId, contactId: contact._id })}
+                    onClick={() =>
+                      remove.mutate({ businessId, contactId: contact._id })
+                    }
                     className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
                     <Trash2 size={14} strokeWidth={1.7} />
                   </button>
                 </div>
-                <ContactButtons name={contact.name} phone={contact.phone} email={contact.email} />
+                <ContactButtons
+                  name={contact.name}
+                  phone={contact.phone}
+                  email={contact.email}
+                />
               </div>
             ),
           )}
@@ -564,9 +609,23 @@ function NewContactForm({
       }}
     >
       <TextInput value={name} onChange={setName} placeholder="Name" required />
-      <TextInput value={role} onChange={setRole} placeholder="Position (optional)" />
-      <TextInput value={phone} onChange={setPhone} type="tel" placeholder="Phone (optional)" />
-      <TextInput value={email} onChange={setEmail} type="email" placeholder="Email (optional)" />
+      <TextInput
+        value={role}
+        onChange={setRole}
+        placeholder="Position (optional)"
+      />
+      <TextInput
+        value={phone}
+        onChange={setPhone}
+        type="tel"
+        placeholder="Phone (optional)"
+      />
+      <TextInput
+        value={email}
+        onChange={setEmail}
+        type="email"
+        placeholder="Email (optional)"
+      />
       <div className="flex gap-2">
         <button
           type="button"
@@ -637,9 +696,23 @@ function ContactEditForm({
       }}
     >
       <TextInput value={name} onChange={setName} placeholder="Name" required />
-      <TextInput value={role} onChange={setRole} placeholder="Position (optional)" />
-      <TextInput value={phone} onChange={setPhone} type="tel" placeholder="Phone (optional)" />
-      <TextInput value={email} onChange={setEmail} type="email" placeholder="Email (optional)" />
+      <TextInput
+        value={role}
+        onChange={setRole}
+        placeholder="Position (optional)"
+      />
+      <TextInput
+        value={phone}
+        onChange={setPhone}
+        type="tel"
+        placeholder="Phone (optional)"
+      />
+      <TextInput
+        value={email}
+        onChange={setEmail}
+        type="email"
+        placeholder="Email (optional)"
+      />
       <div className="flex gap-2">
         <button
           type="button"
@@ -694,7 +767,9 @@ function ClientProperties({
               >
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="text-body text-ink-2">{property.addressLine}</p>
+                    <p className="text-body text-ink-2">
+                      {property.addressLine}
+                    </p>
                     <p className="text-caption text-muted">
                       {property.suburb} {property.state} {property.postcode}
                     </p>
@@ -783,8 +858,18 @@ function PropertyEditForm({
         })
       }}
     >
-      <TextInput value={addressLine} onChange={setAddressLine} placeholder="Street address" required />
-      <TextInput value={suburb} onChange={setSuburb} placeholder="Suburb" required />
+      <TextInput
+        value={addressLine}
+        onChange={setAddressLine}
+        placeholder="Street address"
+        required
+      />
+      <TextInput
+        value={suburb}
+        onChange={setSuburb}
+        placeholder="Suburb"
+        required
+      />
       <div className="grid grid-cols-2 gap-2.5">
         <select
           value={state}
@@ -797,7 +882,13 @@ function PropertyEditForm({
             </option>
           ))}
         </select>
-        <TextInput value={postcode} onChange={setPostcode} inputMode="numeric" placeholder="Postcode" required />
+        <TextInput
+          value={postcode}
+          onChange={setPostcode}
+          inputMode="numeric"
+          placeholder="Postcode"
+          required
+        />
       </div>
       <div className="flex gap-2">
         <button
@@ -852,11 +943,28 @@ function NewPropertyForClientForm({
       className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
       onSubmit={(e) => {
         e.preventDefault()
-        create.mutate({ businessId, clientId, addressLine, suburb, state, postcode })
+        create.mutate({
+          businessId,
+          clientId,
+          addressLine,
+          suburb,
+          state,
+          postcode,
+        })
       }}
     >
-      <TextInput value={addressLine} onChange={setAddressLine} placeholder="Street address" required />
-      <TextInput value={suburb} onChange={setSuburb} placeholder="Suburb" required />
+      <TextInput
+        value={addressLine}
+        onChange={setAddressLine}
+        placeholder="Street address"
+        required
+      />
+      <TextInput
+        value={suburb}
+        onChange={setSuburb}
+        placeholder="Suburb"
+        required
+      />
       <div className="grid grid-cols-2 gap-2.5">
         <select
           value={state}
@@ -869,7 +977,13 @@ function NewPropertyForClientForm({
             </option>
           ))}
         </select>
-        <TextInput value={postcode} onChange={setPostcode} inputMode="numeric" placeholder="Postcode" required />
+        <TextInput
+          value={postcode}
+          onChange={setPostcode}
+          inputMode="numeric"
+          placeholder="Postcode"
+          required
+        />
       </div>
       <div className="flex gap-2">
         <button
@@ -921,7 +1035,10 @@ function ClientJobHistory({
               key={job._id}
               to="/$businessSlug/schedule"
               params={{ businessSlug }}
-              search={{ date: dayKeyOf(job.scheduledAt, timezone), jobId: job._id }}
+              search={{
+                date: dayKeyOf(job.scheduledAt, timezone),
+                jobId: job._id,
+              }}
               className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
             >
               <span className="min-w-0">
@@ -938,7 +1055,9 @@ function ClientJobHistory({
                 </span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                <span className="text-body text-ink">{formatMoney(job.price)}</span>
+                <span className="text-body text-ink">
+                  {formatMoney(job.price)}
+                </span>
                 <StatusPill status={job.status} />
               </span>
             </Link>

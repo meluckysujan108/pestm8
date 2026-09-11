@@ -46,7 +46,11 @@ export function FilterDropdown({
         ].join(' ')}
       >
         <span className="max-w-32 truncate">{current?.label ?? value}</span>
-        <ChevronDown size={14} strokeWidth={2} className={active ? 'text-blue' : 'text-muted'} />
+        <ChevronDown
+          size={14}
+          strokeWidth={2}
+          className={active ? 'text-blue' : 'text-muted'}
+        />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
@@ -78,7 +82,11 @@ export function FilterDropdown({
                 </span>
               )}
               {option.value === value && (
-                <Check size={16} strokeWidth={2} className="shrink-0 text-blue" />
+                <Check
+                  size={16}
+                  strokeWidth={2}
+                  className="shrink-0 text-blue"
+                />
               )}
             </button>
           ))}

@@ -1,9 +1,19 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { canEditJob, jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import {
+  canEditJob,
+  jobVisibility,
+  requireMembership,
+  resolveViewScope,
+} from './lib/access'
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
-import { clientNameOf, newClientFields, resolvePropertyId, withClient } from './properties'
+import {
+  clientNameOf,
+  newClientFields,
+  resolvePropertyId,
+  withClient,
+} from './properties'
 import { jobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -130,7 +140,9 @@ export const listWeek = query({
       Array.from({ length: 7 }, async (_, i) => {
         const dayFrom = from + i * dayMs
         const inDay = jobs
-          .filter((j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs)
+          .filter(
+            (j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs,
+          )
           .sort((a, b) => a.scheduledAt - b.scheduledAt)
 
         // The first job's suburb stands for the day's weather. A day spanning
@@ -173,7 +185,9 @@ export const listMonth = query({
     const from = startOfDayInZone(`${monthKey}-01`, business.timezone)
     const [year, month] = monthKey.split('-').map(Number)
     const nextMonth =
-      month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
     const jobs = await jobsInRange(ctx, membership, from, to)
@@ -227,7 +241,9 @@ export const monthTeamLoad = query({
     const from = startOfDayInZone(`${monthKey}-01`, business.timezone)
     const [year, month] = monthKey.split('-').map(Number)
     const nextMonth =
-      month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
     const jobs = await jobsInRange(ctx, membership, from, to)
@@ -323,7 +339,10 @@ export const create = mutation({
     scheduledAt: v.number(),
     durationMinutes: v.number(),
   },
-  handler: async (ctx, { propertyId: existingPropertyId, newClient, ...args }) => {
+  handler: async (
+    ctx,
+    { propertyId: existingPropertyId, newClient, ...args },
+  ) => {
     const membership = await requireMembership(ctx, args.businessId)
 
     // Only an owner may put work on someone else's calendar.

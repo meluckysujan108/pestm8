@@ -62,7 +62,9 @@ test('an owner can add a property, book a job, and complete it', async ({
   await expect(jobSheet.getByText('New job')).toBeVisible()
 
   await jobSheet.getByLabel('Job type').click()
-  await page.getByRole('button', { name: 'Termite Inspection', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'Termite Inspection', exact: true })
+    .click()
   await jobSheet.getByLabel('Start').fill('09:30')
   await jobSheet.getByLabel('Price (AUD)').fill('380')
   await jobSheet.getByRole('button', { name: 'Book job' }).click()

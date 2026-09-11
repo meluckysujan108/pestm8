@@ -8,7 +8,9 @@ import { TemplateEditor } from '#/components/reportTemplates/TemplateEditor'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import type { SectionDef } from '#/lib/reportTemplates'
 
-export const Route = createFileRoute('/$businessSlug/reports/templates/$templateId')({
+export const Route = createFileRoute(
+  '/$businessSlug/reports/templates/$templateId',
+)({
   component: TemplateDetailPage,
 })
 
@@ -56,8 +58,8 @@ function TemplateDetailPage() {
       {template.archivedAt && (
         <div className="px-4 pt-4">
           <p className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink">
-            This template is archived — it no longer appears when starting a
-            new report, but any report already using it is unaffected.
+            This template is archived — it no longer appears when starting a new
+            report, but any report already using it is unaffected.
           </p>
         </div>
       )}
