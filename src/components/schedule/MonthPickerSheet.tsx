@@ -3,8 +3,6 @@ import { convexQuery } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { WeatherGlyph } from './WeatherGlyph'
-import { useDayWeather } from '#/lib/useDayWeather'
 import { WEEKDAY_INITIALS, dayKeyToDate, formatMonthLabel } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -34,7 +32,6 @@ function gridFor(monthKey: string) {
 
 export function MonthPickerSheet({
   businessId,
-  state,
   open,
   monthKey,
   selectedKey,
@@ -44,7 +41,6 @@ export function MonthPickerSheet({
   onClose,
 }: {
   businessId: Id<'businesses'>
-  state: string
   open: boolean
   monthKey: string
   selectedKey: string
@@ -62,7 +58,6 @@ export function MonthPickerSheet({
           {open && (
             <MonthGrid
               businessId={businessId}
-              state={state}
               monthKey={monthKey}
               selectedKey={selectedKey}
               todayKey={todayKey}
@@ -86,7 +81,6 @@ export function MonthPickerSheet({
 
 function MonthGrid({
   businessId,
-  state,
   monthKey,
   selectedKey,
   todayKey,
@@ -94,7 +88,6 @@ function MonthGrid({
   onMonthChange,
 }: {
   businessId: Id<'businesses'>
-  state: string
   monthKey: string
   selectedKey: string
   todayKey: string
@@ -106,20 +99,6 @@ function MonthGrid({
   )
 
   const byDay = new Map(days.map((d) => [d.dayKey, d]))
-
-  // Only days that actually have work: a forecast for an empty day is noise,
-  // and most of a month sits outside the forecast window anyway.
-  const weather = useDayWeather(
-    businessId,
-    state,
-    days
-      .filter((d) => d.suburb)
-      .map((d) => ({
-        dayKey: d.dayKey,
-        suburb: d.suburb,
-        postcode: d.postcode,
-      })),
-  )
 
   return (
     <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
@@ -196,8 +175,8 @@ function MonthGrid({
                 ))}
               </span>
 
-              <span className="flex h-3.5 items-center">
-                <WeatherGlyph weather={weather[dayKey]} size={11} />
+              <span className="flex h-3.5 items-center text-[11px] font-semibold tabular-nums text-muted">
+                {day && day.count > 0 ? day.count : ''}
               </span>
             </button>
           )

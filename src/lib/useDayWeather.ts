@@ -29,6 +29,19 @@ export function isWindy(w?: DayWeather | null) {
   return (w?.windKmh ?? 0) >= WIND_WARN_KMH
 }
 
+// Mirrors convex/weather.ts's suburbKeyOf + composite keying exactly — keep
+// in sync if that file's normalisation ever changes.
+function suburbKeyOf(suburb: string, postcode: string) {
+  return `${suburb.trim().toLowerCase().replace(/\s+/g, '-')}-${postcode.trim()}`
+}
+
+/** Builds the same composite key `forDays` writes its output under, so a
+ * lookup for one job's suburb+day never collides with a different suburb
+ * on the same day. */
+export function weatherKeyOf(suburb: string, postcode: string, dayKey: string) {
+  return `${suburbKeyOf(suburb, postcode)}|${dayKey}`
+}
+
 /**
  * Weather for a set of days in one call. An action, not a query, because it
  * reaches an external API and so cannot be reactive.

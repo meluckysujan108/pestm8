@@ -28,7 +28,7 @@ import {
   formatTime,
 } from '#/lib/format'
 import { WeatherGlyph } from './WeatherGlyph'
-import { isWet, isWindy, useDayWeather } from '#/lib/useDayWeather'
+import { isWet, isWindy, useDayWeather, weatherKeyOf } from '#/lib/useDayWeather'
 import { useHydrated } from '#/lib/useHydrated'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -742,7 +742,7 @@ function JobWeather({
     state,
     suburb ? [{ dayKey, suburb, postcode }] : [],
   )
-  const day = weather[dayKey]
+  const day = weather[weatherKeyOf(suburb, postcode, dayKey)]
 
   // Absent outside the forecast window, which is most of a year — showing an
   // empty weather card for a job in March would read as "fine".

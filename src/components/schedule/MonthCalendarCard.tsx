@@ -2,8 +2,6 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { WeatherGlyph } from './WeatherGlyph'
-import { useDayWeather } from '#/lib/useDayWeather'
 import { WEEKDAY_INITIALS, dayKeyToDate, formatMonthLabel } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -34,7 +32,6 @@ function gridFor(monthKey: string) {
  */
 export function MonthCalendarCard({
   businessId,
-  state,
   monthKey,
   selectedKey,
   todayKey,
@@ -42,7 +39,6 @@ export function MonthCalendarCard({
   onMonthChange,
 }: {
   businessId: Id<'businesses'>
-  state: string
   monthKey: string
   selectedKey: string
   todayKey: string
@@ -57,18 +53,6 @@ export function MonthCalendarCard({
   )
 
   const byDay = new Map(days.map((d) => [d.dayKey, d]))
-
-  const weather = useDayWeather(
-    businessId,
-    state,
-    days
-      .filter((d) => d.suburb)
-      .map((d) => ({
-        dayKey: d.dayKey,
-        suburb: d.suburb,
-        postcode: d.postcode,
-      })),
-  )
 
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-4 shadow-elevation">
@@ -145,8 +129,8 @@ export function MonthCalendarCard({
                 ))}
               </span>
 
-              <span className="flex h-3.5 items-center">
-                <WeatherGlyph weather={weather[dayKey]} size={11} />
+              <span className="flex h-3.5 items-center text-[11px] font-semibold tabular-nums text-muted">
+                {day && day.count > 0 ? day.count : ''}
               </span>
             </button>
           )
