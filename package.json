@@ -12,6 +12,7 @@
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "check:dates": "node scripts/check-dst-boundaries.mjs",
+    "check:travel": "node --experimental-strip-types scripts/check-travel.mjs",
     "lint": "eslint",
     "format": "prettier --write . && eslint --fix",
     "check": "prettier --check ."

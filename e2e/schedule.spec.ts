@@ -150,3 +150,113 @@ test('a subcontractor sees only their own day', async ({ page }) => {
   await expect(page.getByText('Nothing booked')).toBeVisible()
   await expect(page.getByText('Termite Inspection')).toHaveCount(0)
 })
+
+/** One owner, one property, one job today — the setup both card tests need. */
+async function seedOneJob(prefix: string) {
+  const email = uniqueEmail(prefix)
+  const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
+
+  const { businessId, slug } = await owner.client.mutation(
+    api.businesses.create,
+    { name: `${prefix} ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+  )
+
+  const propertyId = await owner.client.mutation(api.properties.create, {
+    businessId,
+    clientName: 'J. Nguyen',
+    addressLine: '12 Wattle Street',
+    suburb: 'Bayswater',
+    state: 'WA',
+    postcode: '6053',
+  })
+
+  const members = await owner.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
+  const ownerMembershipId = members.find((m) => m.role === 'owner')!._id
+
+  await owner.client.mutation(api.jobs.create, {
+    businessId,
+    propertyId,
+    assignedMembershipId: ownerMembershipId,
+    jobType: 'Termite Inspection',
+    price: 38000,
+    scheduledAt: Date.now(),
+    durationMinutes: 90,
+  })
+
+  return { email, slug }
+}
+
+/**
+ * Pins the amended §2.3 rule: the rich `board` card carries the full street
+ * address, the compact `list` row carries the suburb alone. The distinction is
+ * deliberate and easy to erase by accident, so it is asserted rather than
+ * trusted to the comment in `JobCard.tsx`.
+ */
+test('the board card shows the full address and the list row shows only the suburb', async ({
+  page,
+}) => {
+  const { email, slug } = await seedOneJob('cardvariant')
+
+  await signInViaUi(page, email)
+  await page.goto(`/${slug}/schedule`)
+
+  const view = page.getByRole('tablist', { name: 'View' })
+  const card = page.getByRole('button', { name: /Termite Inspection/ })
+  await expect(card).toBeVisible()
+
+  // Board is the default.
+  await expect(page.getByText('12 Wattle Street')).toBeVisible()
+
+  await view.getByRole('tab', { name: 'List' }).click()
+  await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
+  // The suburb survives the switch — it is the address line that is dropped,
+  // not location information altogether.
+  await expect(card.getByText('Bayswater')).toBeVisible()
+
+  await view.getByRole('tab', { name: 'Board' }).click()
+  await expect(page.getByText('12 Wattle Street')).toBeVisible()
+})
+
+/**
+ * The chosen view lives in a search param rather than component state (§5.1),
+ * so it has to survive a reload — the same promise `?date=` already makes.
+ */
+test('the chosen card view is kept in the URL and survives a reload', async ({
+  page,
+}) => {
+  const { email, slug } = await seedOneJob('cardview')
+
+  await signInViaUi(page, email)
+  await page.goto(`/${slug}/schedule`)
+
+  await page.getByRole('tablist', { name: 'View' }).getByRole('tab', { name: 'List' }).click()
+  await expect(page).toHaveURL(/view=list/)
+
+  await page.reload()
+  await expect(page.getByRole('button', { name: /Termite Inspection/ })).toBeVisible()
+  await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
+
+  // A view the mobile layout cannot render must not leave the page blank; it
+  // falls back to board rather than showing a data grid on a phone.
+  await page.goto(`/${slug}/schedule?view=table`)
+  await expect(page.getByRole('button', { name: /Termite Inspection/ })).toBeVisible()
+})
+
+/**
+ * Deliberately tolerant: the forecast comes from a live third-party API, so
+ * this asserts the strip reaches one of its two defined states rather than a
+ * particular temperature. `e2e/weather.spec.ts` covers the forecast itself.
+ */
+test('a board card renders a weather panel for its own suburb', async ({
+  page,
+}) => {
+  const { email, slug } = await seedOneJob('cardweather')
+
+  await signInViaUi(page, email)
+  await page.goto(`/${slug}/schedule`)
+
+  const card = page.getByRole('button', { name: /Termite Inspection/ })
+  await expect(card).toContainText(/\d+°|No forecast/)
+})

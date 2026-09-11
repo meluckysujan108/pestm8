@@ -59,7 +59,10 @@ export function DayAgendaPanel({
       .filter((j) => j.suburb)
       .map((j) => ({ dayKey: selectedKey, suburb: j.suburb, postcode: j.postcode ?? '' })),
   )
-  const travel = travelHintsFor(filteredJobs, weather, selectedKey)
+  const travel = travelHintsFor(
+    filteredJobs,
+    (job) => weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
+  )
 
   return (
     <div className="flex min-w-0 flex-col gap-3">

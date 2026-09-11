@@ -38,7 +38,13 @@ function timeRange(job: JobRow, timezone: string): string {
 }
 
 /** A label on the left, its value right-aligned against it. */
-function Row({ label, children }: { label: string; children: React.ReactNode }) {
+function Row({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
   return (
     <span className="flex items-center justify-between gap-3 py-[3px]">
       <span className="shrink-0 text-caption text-muted">{label}</span>

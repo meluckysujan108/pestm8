@@ -114,7 +114,10 @@ function SchedulePage() {
           .map((j) => ({ dayKey: selectedKey, suburb: j.suburb, postcode: j.postcode ?? '' })),
   )
 
-  const travel = travelHintsFor(filteredJobs, weather, selectedKey)
+  const travel = travelHintsFor(
+    filteredJobs,
+    (job) => weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
+  )
 
   // `jobId` is deliberately dropped rather than carried: moving to another day
   // should close a sheet showing a job that day no longer contains.

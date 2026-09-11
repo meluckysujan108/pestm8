@@ -29,17 +29,25 @@ const RAIN_SCALE_MM = 10
 const WIND_SCALE_KMH = 40
 
 /** WMO codes, as returned by Open-Meteo's `weather_code`. */
-function describe(code: number | undefined): { Icon: LucideIcon; label: string; tint: string } {
+function describe(code: number | undefined): {
+  Icon: LucideIcon
+  label: string
+  tint: string
+} {
   if (code === undefined) return { Icon: Cloud, label: '', tint: 'text-muted' }
   if (code === 0) return { Icon: Sun, label: 'Clear', tint: 'text-amber' }
-  if (code <= 2) return { Icon: CloudSun, label: 'Partly cloudy', tint: 'text-amber' }
+  if (code <= 2)
+    return { Icon: CloudSun, label: 'Partly cloudy', tint: 'text-amber' }
   if (code === 3) return { Icon: Cloud, label: 'Overcast', tint: 'text-muted' }
   if (code <= 48) return { Icon: CloudFog, label: 'Fog', tint: 'text-muted' }
-  if (code <= 57) return { Icon: CloudDrizzle, label: 'Drizzle', tint: 'text-blue' }
+  if (code <= 57)
+    return { Icon: CloudDrizzle, label: 'Drizzle', tint: 'text-blue' }
   if (code <= 67) return { Icon: CloudRain, label: 'Rain', tint: 'text-blue' }
   if (code <= 77) return { Icon: CloudSnow, label: 'Snow', tint: 'text-blue' }
-  if (code <= 82) return { Icon: CloudRain, label: 'Showers', tint: 'text-blue' }
-  if (code <= 86) return { Icon: CloudSnow, label: 'Snow showers', tint: 'text-blue' }
+  if (code <= 82)
+    return { Icon: CloudRain, label: 'Showers', tint: 'text-blue' }
+  if (code <= 86)
+    return { Icon: CloudSnow, label: 'Snow showers', tint: 'text-blue' }
   return { Icon: CloudLightning, label: 'Storms', tint: 'text-blue' }
 }
 
@@ -80,29 +88,34 @@ export function WeatherStrip({ weather }: { weather?: DayWeather | null }) {
   const { maxTempC, minTempC, rainMm, windKmh } = weather
 
   return (
-    <span className="flex items-center justify-between gap-3 rounded-xl bg-surface-2 px-3 py-2.5">
-      <span className="flex min-w-0 items-center gap-2.5">
+    // Wraps rather than shrinks: the temperature is 26px and does not
+    // truncate, so on a narrow card letting this row compress would slide the
+    // metrics underneath the numeral instead of moving them to their own line.
+    <span className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 rounded-xl bg-surface-2 px-3 py-2.5">
+      <span className="flex items-center gap-2.5">
         <Icon size={26} strokeWidth={1.7} className={`shrink-0 ${tint}`} />
-        <span className="min-w-0">
+        <span>
           {maxTempC !== undefined && (
             <span className="block text-metric-sm leading-none text-ink">
               {Math.round(maxTempC)}°
             </span>
           )}
           {label && (
-            <span className="mt-0.5 block truncate text-caption text-muted">
+            <span className="mt-0.5 block text-caption text-muted">
               {label}
             </span>
           )}
         </span>
       </span>
 
-      <span className="flex shrink-0 items-start gap-3.5">
+      <span className="flex items-start gap-3.5">
         {rainMm !== undefined && (
           <Metric
             label="Rain"
             value={`${rainMm.toFixed(1)} mm`}
-            meter={<BarMeter value={rainMm} max={RAIN_SCALE_MM} tint="bg-blue" />}
+            meter={
+              <BarMeter value={rainMm} max={RAIN_SCALE_MM} tint="bg-blue" />
+            }
           />
         )}
         {windKmh !== undefined && (

@@ -7,9 +7,6 @@
  * street-level geocoding, which Open-Meteo's suburb-level geocoder cannot do.
  */
 
-import { weatherKeyOf } from './useDayWeather'
-import type { DayWeather } from './useDayWeather'
-
 export type Coords = { lat?: number; lng?: number }
 
 const EARTH_RADIUS_KM = 6371
@@ -61,8 +58,11 @@ export function travelHint(
   const km = distanceKm(previous, current)
   if (km === null) return null
 
+  // No arrow on the same-suburb case: "Same suburb → Mount Lawley" names a
+  // destination the reader is already looking at on the card above.
+  if (km < SAME_SUBURB_KM) return 'Same suburb'
+
   const destination = current.suburb ? ` → ${current.suburb}` : ''
-  if (km < SAME_SUBURB_KM) return `Same suburb${destination}`
 
   // Under 10 km a single decimal is the difference between two streets and two
   // neighbourhoods; past that it is noise on an approximation this rough.
@@ -77,21 +77,22 @@ export function travelHint(
  * hint describes the card above it on screen, so measuring from a job the
  * current filter is hiding would describe a journey the reader cannot see.
  * The first job has no hint — there is no previous location to come from.
+ *
+ * Coordinates arrive through `coordsFor` rather than as a forecast map, so this
+ * module knows nothing about where they come from or how that cache is keyed.
+ * That keeps the whole file free of runtime imports, which is what lets
+ * `scripts/check-travel.mjs` exercise it directly under plain Node.
  */
-export function travelHintsFor(
-  jobs: Array<{ _id: string; suburb: string; postcode?: string }>,
-  // Explicitly `| undefined`: a job whose suburb has no forecast simply has no
-  // entry, and this project does not run `noUncheckedIndexedAccess`, so
-  // `Record<string, DayWeather>` would claim every lookup hits when it cannot.
-  weather: Record<string, DayWeather | undefined>,
-  dayKey: string,
+export function travelHintsFor<T extends { _id: string; suburb: string }>(
+  jobs: Array<T>,
+  coordsFor: (job: T) => Coords | undefined,
 ): Record<string, string | null> {
   const hints: Record<string, string | null> = {}
   let previous: (Coords & { suburb?: string }) | null = null
 
   for (const job of jobs) {
-    const forecast = weather[weatherKeyOf(job.suburb, job.postcode ?? '', dayKey)]
-    const here = { lat: forecast?.lat, lng: forecast?.lng, suburb: job.suburb }
+    const found = coordsFor(job)
+    const here = { lat: found?.lat, lng: found?.lng, suburb: job.suburb }
     hints[job._id] = travelHint(previous, here)
     previous = here
   }
