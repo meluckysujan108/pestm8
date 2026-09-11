@@ -120,7 +120,6 @@ export default defineSchema({
     postcode: v.string(),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
-    notes: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index('by_business', ['businessId'])
@@ -136,7 +135,8 @@ export default defineSchema({
     name: v.string(),
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
-    notes: v.optional(v.string()),
+    // Free-text notes used to live here; they are notes in the library now
+    // (kind "client"), migrated by convex/migrations/notesV2.ts.
     // A business-kind client's own head-office/mailing address — independent
     // of any `properties` (service-site) address. Optional and edit-later
     // only: never asked for at client-creation time, since the creation flow
@@ -254,16 +254,77 @@ export default defineSchema({
     // "can this custom template be hard-deleted?" — see customTemplates.remove.
     .index('by_custom_template', ['customTemplateId']),
 
+  /**
+   * The team's shared field knowledge. The note BODY lives in the
+   * prosemirror-sync component keyed by this row's `_id` (collaborative,
+   * step-merged — never a blob replaced wholesale, which `reports.data`'s
+   * history shows this codebase losing data to twice). This row holds what a
+   * note is about and the metadata the list/search need, derived from the
+   * body on every snapshot.
+   *
+   * What a note is "about" is read from its links, never a stored kind:
+   * a `jobId` makes it a visit note (and carries the job's property + client
+   * so a client's sheet finds every note about them in one index); a
+   * `propertyId` alone is standing site knowledge (gate code, dog, key);
+   * `clientId` alone is about the client; none is a team memo.
+   */
   notes: defineTable({
     businessId: v.id('businesses'),
     authorMembershipId: v.id('memberships'),
+    lastEditedByMembershipId: v.id('memberships'),
     jobId: v.optional(v.id('jobs')),
     propertyId: v.optional(v.id('properties')),
-    text: v.string(),
+    clientId: v.optional(v.id('clients')),
+    // Derived from the body in notesSync.onSnapshot — never client-written.
+    title: v.string(),
+    preview: v.string(),
+    plainText: v.string(),
+    checklistTotal: v.optional(v.number()),
+    checklistDone: v.optional(v.number()),
+    pinnedAt: v.optional(v.number()),
+    // Soft delete → "Recently Deleted", purged by cron after 30 days.
+    deletedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_business_updated', ['businessId', 'updatedAt'])
+    .index('by_job', ['jobId'])
+    .index('by_property', ['propertyId'])
+    .index('by_client', ['clientId'])
+    // The nightly purge's range scan; undefined sorts below every number.
+    .index('by_deletedAt', ['deletedAt'])
+    .searchIndex('search', {
+      searchField: 'plainText',
+      filterFields: ['businessId'],
+    }),
+
+  /**
+   * One row per (note, @mentioned member). A join table rather than an array
+   * on the note so "notes mentioning me" is an indexed query and unread
+   * state is per person. Rows are diffed against the body on every snapshot;
+   * a surviving mention keeps its `readAt`.
+   */
+  noteMentions: defineTable({
+    businessId: v.id('businesses'),
+    noteId: v.id('notes'),
+    membershipId: v.id('memberships'),
+    mentionedByMembershipId: v.id('memberships'),
+    createdAt: v.number(),
+    readAt: v.optional(v.number()),
+  })
+    .index('by_note', ['noteId'])
+    .index('by_membership_read', ['membershipId', 'readAt']),
+
+  /** Images referenced from a note body, so a purge can delete the files. */
+  noteAttachments: defineTable({
+    noteId: v.id('notes'),
+    storageId: v.id('_storage'),
     createdAt: v.number(),
   })
-    .index('by_business', ['businessId'])
-    .index('by_job', ['jobId']),
+    .index('by_note', ['noteId'])
+    // One file belongs to one note: the purge must never delete a file
+    // something else still references.
+    .index('by_storage', ['storageId']),
 
   /**
    * Cached per suburb and day (§4.3). A five-person business opening the app

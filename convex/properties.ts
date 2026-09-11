@@ -100,7 +100,6 @@ export const createForClient = mutation({
     suburb: v.string(),
     state: v.string(),
     postcode: v.string(),
-    notes: v.optional(v.string()),
   },
   handler: async (ctx, { businessId, clientId, ...address }) => {
     await requireMembership(ctx, businessId)
@@ -121,8 +120,7 @@ export const createForClient = mutation({
 
 /** The shape every "create a brand-new client" entry point needs — the
  * client-facing counterpart of `properties.create`'s own args, minus
- * `businessId` (the caller already has it) and `notes` (not asked for at
- * booking time; editable afterward via the client detail sheet). Reused by
+ * `businessId` (the caller already has it). Reused by
  * `jobs.create`/`recurrences.create` so booking a job for a client that
  * doesn't exist yet needs one submit, not a trip to the Clients page first. */
 export const newClientFields = v.object({
@@ -150,7 +148,6 @@ async function insertClientAndProperty(
     suburb: string
     state: string
     postcode: string
-    notes?: string
   },
 ): Promise<Id<'properties'>> {
   const now = Date.now()
@@ -170,7 +167,6 @@ async function insertClientAndProperty(
     suburb: input.suburb,
     state: input.state,
     postcode: input.postcode,
-    notes: input.notes,
     createdAt: now,
   })
 }
@@ -221,7 +217,6 @@ export const create = mutation({
     suburb: v.string(),
     state: v.string(),
     postcode: v.string(),
-    notes: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     await requireMembership(ctx, args.businessId)
@@ -237,7 +232,6 @@ export const update = mutation({
     suburb: v.optional(v.string()),
     state: v.optional(v.string()),
     postcode: v.optional(v.string()),
-    notes: v.optional(v.string()),
   },
   handler: async (ctx, { businessId, propertyId, ...patch }) => {
     await requireMembership(ctx, businessId)

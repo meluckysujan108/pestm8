@@ -9,21 +9,16 @@ import {
   uniqueEmail,
 } from './fixtures'
 
-test('an owner can add and delete a note', async ({ page }) => {
+test('an owner can write a note, see it in the list, and move it to Recently Deleted', async ({
+  page,
+}) => {
   const email = uniqueEmail('notes-owner')
   const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
 
-  const { businessId, slug } = await owner.client.mutation(
-    api.businesses.create,
-    { name: `Notes ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
-  )
-  await owner.client.mutation(api.properties.create, {
-    businessId,
-    clientName: 'J. Nguyen',
-    addressLine: '12 Wattle Street',
-    suburb: 'Bayswater',
+  const { slug } = await owner.client.mutation(api.businesses.create, {
+    name: `Notes ${Date.now()}`,
     state: 'WA',
-    postcode: '6053',
+    timezone: 'Australia/Perth',
   })
 
   await signInViaUi(page, email)
@@ -31,15 +26,27 @@ test('an owner can add and delete a note', async ({ page }) => {
 
   await expect(page.getByText('No notes yet')).toBeVisible()
 
-  const add = page.getByRole('button', { name: 'Add note' })
-  await page.getByLabel('Note').fill('Gate code 4821. Dog is friendly.')
+  const add = page.getByRole('button', { name: 'New note' })
   await expect(add).toBeEnabled()
   await add.click()
+  await page.getByRole('menuitem', { name: /Blank note/ }).click()
 
-  await expect(page.getByText('Gate code 4821. Dog is friendly.')).toBeVisible()
+  // No save button: the first line is the title, and the list follows the
+  // body as it is typed.
+  const body = page.locator('.note-editor')
+  await expect(body).toBeVisible()
+  await body.click()
+  await page.keyboard.type('Gate code 4821')
+  await page.keyboard.press('Enter')
+  await page.keyboard.type('Dog is friendly.')
 
-  await page.getByRole('button', { name: 'Delete note' }).click()
-  await expect(page.getByText('Gate code 4821. Dog is friendly.')).toHaveCount(0)
+  const row = page.getByRole('button', { name: /Gate code 4821/ })
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('Dog is friendly.')
+
+  await page.getByRole('button', { name: 'More' }).click()
+  await page.getByRole('menuitem', { name: 'Delete' }).click()
+  await expect(page.getByText('No notes yet')).toBeVisible()
 })
 
 test('a subcontractor cannot delete a note they did not write', async () => {
@@ -47,7 +54,7 @@ test('a subcontractor cannot delete a note they did not write', async () => {
 
   const noteId = await s.owner.client.mutation(api.notes.create, {
     businessId: s.businessId,
-    text: 'Owner-only note',
+    title: 'Owner-only note',
   })
 
   await s.owner.client.mutation(api.memberships.setCanViewAllJobs, {
@@ -67,22 +74,31 @@ test('a subcontractor cannot delete a note they did not write', async () => {
   )
 })
 
-test('notes are scoped like jobs are', async () => {
+test('team notes are shared knowledge; job notes follow job visibility', async () => {
   const s = await setupBusinessWithSub('notes-visibility')
 
   await s.owner.client.mutation(api.notes.create, {
     businessId: s.businessId,
-    text: 'Owner-only note',
+    title: 'Mix ratios for the truck',
+  })
+  await s.owner.client.mutation(api.notes.create, {
+    businessId: s.businessId,
+    jobId: s.ownerJobId,
+    title: 'Only on my own job',
   })
 
-  // Default subcontractor sees their own notes, not the whole business board.
+  const page = { numItems: 20, cursor: null }
   const subNotes = await s.sub.client.query(api.notes.list, {
     businessId: s.businessId,
+    filter: 'all',
+    paginationOpts: page,
   })
-  expect(subNotes).toHaveLength(0)
+  expect(subNotes.page.map((n) => n.title)).toEqual(['Mix ratios for the truck'])
 
   const ownerNotes = await s.owner.client.query(api.notes.list, {
     businessId: s.businessId,
+    filter: 'all',
+    paginationOpts: page,
   })
-  expect(ownerNotes).toHaveLength(1)
+  expect(ownerNotes.page).toHaveLength(2)
 })

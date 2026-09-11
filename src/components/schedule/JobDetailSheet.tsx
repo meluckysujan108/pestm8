@@ -11,11 +11,11 @@ import {
   Pencil,
   Plus,
   Repeat,
-  Send,
   Trash2,
   X,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
+import { JobNotesSection } from '#/components/notes/JobNotesSection'
 import { Combobox } from '#/components/primitives/Combobox'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
@@ -28,7 +28,7 @@ import {
   formatTime,
 } from '#/lib/format'
 import { WeatherGlyph } from './WeatherGlyph'
-import { isWet, isWindy, useDayWeather, weatherKeyOf } from '#/lib/useDayWeather'
+import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -287,6 +287,7 @@ function JobDetailBody({
             suburb={job.property?.suburb ?? ''}
             postcode={job.property?.postcode ?? ''}
             dayKey={dayKeyInZone(job.scheduledAt, timezone)}
+            todayKey={dayKeyInZone(Date.now(), timezone)}
           />
 
           <Section label="Recurrence">
@@ -335,7 +336,15 @@ function JobDetailBody({
             timezone={timezone}
           />
 
-          <JobNotes businessId={businessId} jobId={job._id} />
+          <JobNotesSection
+            businessId={businessId}
+            businessSlug={businessSlug}
+            timezone={timezone}
+            jobId={job._id}
+            jobType={job.jobType}
+            propertyId={job.propertyId}
+            addressLine={job.property?.addressLine ?? ''}
+          />
 
           <JobPhotos businessId={businessId} jobId={job._id} canEdit={job.canEdit} />
 
@@ -730,23 +739,32 @@ function JobWeather({
   suburb,
   postcode,
   dayKey,
+  todayKey,
 }: {
   businessId: Id<'businesses'>
   state: string
   suburb: string
   postcode: string
   dayKey: string
+  todayKey: string
 }) {
-  const weather = useDayWeather(
-    businessId,
-    state,
-    suburb ? [{ dayKey, suburb, postcode }] : [],
-  )
-  const day = weather[weatherKeyOf(suburb, postcode, dayKey)]
+  // Deliberately its own call rather than reading a map handed down from the
+  // schedule: a job reached by deep link (the notes editor links by `jobId`
+  // with no date) can sit on a different day from the one the schedule is
+  // showing, and its property can be in a different state from the business.
+  // The query is cached and keyed per day, so when the days do coincide this
+  // costs nothing.
+  const weather = useWeather(businessId, state, todayKey, [
+    { dayKey, suburb, postcode },
+  ])
+  const cell = weather.cell(suburb, postcode, dayKey)
 
   // Absent outside the forecast window, which is most of a year — showing an
-  // empty weather card for a job in March would read as "fine".
-  if (!day) return null
+  // empty weather card for a job in March would read as "fine". A pending or
+  // failed lookup is likewise silent here: unlike the schedule card, this
+  // section has no fixed slot to hold open.
+  if (cell.status !== 'ready') return null
+  const day = cell.weather
 
   const wet = isWet(day)
   const windy = isWindy(day)
@@ -947,111 +965,6 @@ function ReportRow({
         {report.status === 'finalised' ? 'Finalised' : 'Draft'}
       </span>
     </Link>
-  )
-}
-
-/**
- * Notes attached to this job, each with who actually wrote it — two
- * different technicians (or an owner) can leave notes on the same job, and
- * "who said this" matters as much as what was said.
- */
-function JobNotes({
-  businessId,
-  jobId,
-}: {
-  businessId: Id<'businesses'>
-  jobId: Id<'jobs'>
-}) {
-  const hydrated = useHydrated()
-  const [text, setText] = useState('')
-
-  const { data: notes } = useQuery(
-    convexQuery(api.notes.listForJob, { businessId, jobId }),
-  )
-
-  const convexCreate = useConvexMutation(api.notes.create)
-  const create = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      jobId: Id<'jobs'>
-      text: string
-    }) => convexCreate(args),
-    onSuccess: () => setText(''),
-  })
-
-  const convexRemove = useConvexMutation(api.notes.remove)
-  const remove = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; noteId: Id<'notes'> }) =>
-      convexRemove(args),
-  })
-
-  return (
-    <Section label="Notes">
-      {notes && notes.length > 0 && (
-        <div className="mb-3 flex flex-col gap-3">
-          {notes.map((note) => (
-            <div key={note._id} className="flex gap-2">
-              <span
-                aria-hidden
-                className="mt-1 size-2 shrink-0 rounded-full"
-                style={{ backgroundColor: note.authorColour }}
-              />
-              <div className="min-w-0 flex-1">
-                <p className="whitespace-pre-wrap text-body text-ink">
-                  {note.text}
-                </p>
-                <p className="mt-0.5 text-caption text-muted">
-                  {note.authorName}
-                  {note.authorRole === 'owner' ? ' · Owner' : ''} ·{' '}
-                  {new Intl.DateTimeFormat('en-AU', {
-                    day: 'numeric',
-                    month: 'short',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  }).format(new Date(note.createdAt))}
-                </p>
-              </div>
-              {note.mine && (
-                <button
-                  type="button"
-                  aria-label="Delete note"
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate({ businessId, noteId: note._id })}
-                  className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
-                >
-                  <Trash2 size={14} strokeWidth={1.7} />
-                </button>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-
-      <form
-        className="flex items-end gap-2"
-        onSubmit={(e) => {
-          e.preventDefault()
-          if (text.trim() === '') return
-          create.mutate({ businessId, jobId, text: text.trim() })
-        }}
-      >
-        <textarea
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Add a note about this job…"
-          rows={2}
-          className="h-16 flex-1 resize-none rounded-xl bg-surface-3 p-2.5 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        />
-        <button
-          type="submit"
-          aria-label="Add note"
-          disabled={!hydrated || create.isPending || text.trim() === ''}
-          className="flex size-10 shrink-0 items-center justify-center rounded-full bg-blue text-white transition active:scale-[.95] disabled:opacity-40"
-        >
-          <Send size={16} strokeWidth={2} />
-        </button>
-      </form>
-    </Section>
   )
 }
 

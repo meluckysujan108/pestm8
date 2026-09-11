@@ -6,6 +6,7 @@ import { Drawer } from 'vaul'
 import { AlertDialog } from 'radix-ui'
 import { Pencil, Plus, Star, Trash2, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
+import { ClientNotesSection } from '#/components/notes/ClientNotesSection'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { Segmented } from '#/components/primitives/Segmented'
@@ -151,12 +152,6 @@ function ClientBody({
             <ContactButtons name={client.name} phone={client.phone} email={client.email} />
           </div>
 
-          {client.notes && (
-            <p className="mt-3 whitespace-pre-wrap text-body text-ink-2">
-              {client.notes}
-            </p>
-          )}
-
           {client.kind === 'business' && (client.addressLine || client.suburb) && (
             <div className="mt-3">
               <p className="section-label mb-1">Business address</p>
@@ -176,6 +171,14 @@ function ClientBody({
       )}
 
       <ClientProperties businessId={businessId} clientId={clientId} />
+
+      <ClientNotesSection
+        businessId={businessId}
+        businessSlug={businessSlug}
+        timezone={timezone}
+        clientId={clientId}
+        clientName={client.name}
+      />
 
       <ClientJobHistory
         businessId={businessId}
@@ -252,7 +255,6 @@ function ClientEditForm({
     name: string
     phone?: string
     email?: string
-    notes?: string
     addressLine?: string
     suburb?: string
     state?: string
@@ -264,7 +266,6 @@ function ClientEditForm({
   const [name, setName] = useState(client.name)
   const [phone, setPhone] = useState(client.phone ?? '')
   const [email, setEmail] = useState(client.email ?? '')
-  const [notes, setNotes] = useState(client.notes ?? '')
   const [addressLine, setAddressLine] = useState(client.addressLine ?? '')
   const [suburb, setSuburb] = useState(client.suburb ?? '')
   const [state, setState] = useState(client.state ?? AU_STATES[0].code)
@@ -281,7 +282,6 @@ function ClientEditForm({
       name: string
       phone?: string
       email?: string
-      notes?: string
       addressLine?: string
       suburb?: string
       state?: string
@@ -302,7 +302,6 @@ function ClientEditForm({
           name,
           phone: phone.trim() || undefined,
           email: email.trim() || undefined,
-          notes: notes.trim() || undefined,
           // Omitted (not cleared) when kind isn't business: `clients.update`
           // skips undefined args, so toggling to person just stops showing
           // the address rather than wiping it — same "hidden, not deleted"
@@ -365,15 +364,6 @@ function ClientEditForm({
           </div>
         </>
       )}
-      <FormField label="Notes (optional)">
-        <textarea
-          value={notes}
-          onChange={(e) => setNotes(e.target.value)}
-          rows={3}
-          className="w-full resize-none rounded-xl bg-surface-3 p-2.5 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        />
-      </FormField>
-
       {save.isError && (
         <p
           role="alert"

@@ -14,4 +14,15 @@ crons.daily(
   internal.recurrences.materialiseAll,
 )
 
+/**
+ * Recently Deleted keeps a note for 30 days, like the phone's Notes app, then
+ * it is gone for good — including its mentions, photos and sync history.
+ */
+crons.cron(
+  'purge deleted notes',
+  '0 19 * * *', // ~03:00 Australia/Perth
+  internal.notes.purgeExpired,
+  {},
+)
+
 export default crons

@@ -460,16 +460,16 @@ console.log('Adding notes…')
 await owner.mutation(api.notes.create, {
   businessId,
   propertyId: chen,
-  text: 'Gate code 4821. Dog is friendly but will bark — knock first.',
+  title: 'Gate code 4821. Dog is friendly but will bark — knock first.',
 })
 await kevin.mutation(api.notes.create, {
   businessId,
   propertyId: okafor,
-  text: 'Client asked to switch to a low-odour product for the next visit — she works from home.',
+  title: 'Client asked to switch to a low-odour product for the next visit — she works from home.',
 })
 await owner.mutation(api.notes.create, {
   businessId,
-  text: 'Reminder: renew the vehicle chemical transport permit before end of quarter.',
+  title: 'Reminder: renew the vehicle chemical transport permit before end of quarter.',
 })
 
 console.log(`

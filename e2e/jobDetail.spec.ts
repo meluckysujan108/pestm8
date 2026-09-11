@@ -97,7 +97,7 @@ test('notes on a job resolve the actual author name and role, not just a colour'
   await s.owner.client.mutation(api.notes.create, {
     businessId: s.businessId,
     jobId: s.ownerJobId,
-    text: 'Owner note on this job',
+    title: 'Owner note on this job',
   })
   await s.owner.client.mutation(api.memberships.setCanViewAllJobs, {
     businessId: s.businessId,
@@ -107,7 +107,7 @@ test('notes on a job resolve the actual author name and role, not just a colour'
   await s.sub.client.mutation(api.notes.create, {
     businessId: s.businessId,
     jobId: s.ownerJobId,
-    text: 'Sub note on the same job',
+    title: 'Sub note on the same job',
   })
 
   const notes = await s.owner.client.query(api.notes.listForJob, {
@@ -116,8 +116,8 @@ test('notes on a job resolve the actual author name and role, not just a colour'
   })
 
   expect(notes).toHaveLength(2)
-  const ownerNote = notes.find((n) => n.text === 'Owner note on this job')
-  const subNote = notes.find((n) => n.text === 'Sub note on the same job')
+  const ownerNote = notes.find((n) => n.title === 'Owner note on this job')
+  const subNote = notes.find((n) => n.title === 'Sub note on the same job')
   expect(ownerNote?.authorName).toBe('Terence')
   expect(ownerNote?.authorRole).toBe('owner')
   expect(subNote?.authorName).toBe('Kevin')
@@ -141,12 +141,38 @@ test('notes on a job resolve the actual author name and role, not just a colour'
 
 test('a subcontractor cannot read or write notes on a job assigned to someone else without canViewAllJobs', async () => {
   const s = await setupBusinessWithSub('jobnotes-locked')
+  const noteId = await s.owner.client.mutation(api.notes.create, {
+    businessId: s.businessId,
+    jobId: s.ownerJobId,
+    title: 'Owner-only job note',
+  })
 
+  // Row path: a hidden note reads as no note at all.
   const notes = await s.sub.client.query(api.notes.listForJob, {
     businessId: s.businessId,
     jobId: s.ownerJobId,
   })
   expect(notes).toHaveLength(0)
+  expect(
+    await s.sub.client.query(api.notes.get, { businessId: s.businessId, noteId }),
+  ).toBeNull()
+
+  // Body path: the sync endpoints are gated separately from the row queries.
+  await expectRejected(
+    () => s.sub.client.query(api.notesSync.getSnapshot, { id: noteId }),
+    'NOT_FOUND',
+  )
+
+  // Write path: attaching a note to an invisible job is NOT_FOUND, as jobs.get is.
+  await expectRejected(
+    () =>
+      s.sub.client.mutation(api.notes.create, {
+        businessId: s.businessId,
+        jobId: s.ownerJobId,
+        title: 'Sneaky',
+      }),
+    'NOT_FOUND',
+  )
 })
 
 test('photos can be attached to and removed from a job by whoever can edit it, and read access follows job visibility', async () => {
