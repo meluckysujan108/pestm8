@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { canEditJob, jobVisibility, requireMembership } from './lib/access'
+import { canEditJob, jobVisibility, requireMembership, resolveViewScope } from './lib/access'
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
 import { clientNameOf, newClientFields, resolvePropertyId, withClient } from './properties'
 import { jobStatus } from './schema'
@@ -91,7 +91,7 @@ export const listDay = query({
     dayKey: v.string(), // "YYYY-MM-DD" in the tenant's timezone
   },
   handler: async (ctx, { businessId, dayKey }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -109,7 +109,7 @@ export const listDay = query({
 export const listWeek = query({
   args: { businessId: v.id('businesses'), startKey: v.string() },
   handler: async (ctx, { businessId, startKey }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -166,7 +166,7 @@ export const listMonth = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -220,7 +220,7 @@ export const monthTeamLoad = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -263,11 +263,15 @@ export const get = query({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
     const membership = await requireMembership(ctx, businessId)
+    // Visibility (can this job be seen at all) follows "view as" when active;
+    // canEdit below always reflects the REAL caller, never the viewed-as
+    // person — read access granted by view-as never implies write access.
+    const viewScope = await resolveViewScope(ctx, businessId)
 
     const job = await ctx.db.get(jobId)
     if (!job || job.businessId !== businessId) return null
 
-    const visibility = jobVisibility(membership)
+    const visibility = jobVisibility(viewScope)
     if (
       visibility.scope === 'assignee' &&
       job.assignedMembershipId !== visibility.membershipId
@@ -486,7 +490,7 @@ export const removePhoto = mutation({
 export const photos = query({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
 
     const job = await ctx.db.get(jobId)
     if (!job || job.businessId !== businessId) return []

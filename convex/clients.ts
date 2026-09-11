@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership, requireOwner } from './lib/access'
+import { jobVisibility, requireMembership, requireOwner, resolveViewScope } from './lib/access'
 import { canSeeReport, summarise } from './reports'
 import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
@@ -101,7 +101,7 @@ export const unarchive = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -137,7 +137,7 @@ export const jobHistory = query({
 export const reports = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db

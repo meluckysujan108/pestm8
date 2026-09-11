@@ -1,13 +1,14 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { jobVisibility, requireMembership } from './lib/access'
+import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
 import { clientNameOf } from './properties'
 
 export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const real = await requireMembership(ctx, businessId)
+    const viewScope = await resolveViewScope(ctx, businessId)
 
     const notes = await ctx.db
       .query('notes')
@@ -15,7 +16,7 @@ export const list = query({
       .order('desc')
       .collect()
 
-    const visibility = jobVisibility(membership)
+    const visibility = jobVisibility(viewScope)
     const visible =
       visibility.scope === 'business'
         ? notes
@@ -32,7 +33,9 @@ export const list = query({
           clientName: await clientNameOf(ctx, property),
           suburb: property?.suburb,
           authorColour: author?.colour ?? '#8E8E93',
-          mine: note.authorMembershipId === membership._id,
+          // Always the REAL caller — read access granted by "view as" never
+          // implies "this is something you wrote" or can delete.
+          mine: note.authorMembershipId === real._id,
         }
       }),
     )
@@ -48,7 +51,8 @@ export const list = query({
 export const listForJob = query({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const real = await requireMembership(ctx, businessId)
+    const viewScope = await resolveViewScope(ctx, businessId)
 
     const notes = await ctx.db
       .query('notes')
@@ -57,7 +61,7 @@ export const listForJob = query({
       .collect()
 
     const visible = notes.filter((n) => n.businessId === businessId)
-    const visibility = jobVisibility(membership)
+    const visibility = jobVisibility(viewScope)
     const scoped =
       visibility.scope === 'business'
         ? visible
@@ -74,7 +78,7 @@ export const listForJob = query({
           authorName: user?.name ?? 'Unknown',
           authorRole: author?.role,
           authorColour: author?.colour ?? '#8E8E93',
-          mine: note.authorMembershipId === membership._id,
+          mine: note.authorMembershipId === real._id,
         }
       }),
     )

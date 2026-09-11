@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership } from './lib/access'
+import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
 import { clientNameOf, withClient } from './properties'
 import { reportTemplate } from './schema'
 import { getTemplate } from '../src/lib/reportTemplates'
@@ -52,7 +52,7 @@ async function requireEditableReport(
 export const listByProperty = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
 
     const reports = await ctx.db
       .query('reports')
@@ -69,7 +69,7 @@ export const listByProperty = query({
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
 
     const reports = await ctx.db
       .query('reports')
@@ -135,10 +135,11 @@ export const get = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const membership = await requireMembership(ctx, businessId)
+    const viewScope = await resolveViewScope(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return null
-    if (!canSeeReport(membership, report)) return null
+    if (!canSeeReport(viewScope, report)) return null
 
     const rawProperty = await ctx.db.get(report.propertyId)
     const property = rawProperty && (await withClient(ctx, rawProperty))
@@ -258,7 +259,7 @@ export const attachSignature = mutation({
 export const signatureUrls = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}
@@ -448,7 +449,7 @@ export const removeGalleryPhoto = mutation({
 export const galleryPhotos = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return []
@@ -480,7 +481,7 @@ export const galleryPhotos = query({
 export const photoUrls = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}

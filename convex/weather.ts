@@ -36,6 +36,16 @@ function suburbKeyOf(suburb: string, postcode: string) {
   return `${suburb.trim().toLowerCase().replace(/\s+/g, '-')}-${postcode.trim()}`
 }
 
+/**
+ * `forDays` groups requests by suburb internally, but two jobs on the same
+ * day in different suburbs need distinct entries in its output map — bare
+ * `dayKey` would let one stomp the other. Mirrored client-side by
+ * `src/lib/useDayWeather.ts`'s `weatherKeyOf`.
+ */
+function compositeKeyOf(suburbKey: string, dayKey: string) {
+  return `${suburbKey}|${dayKey}`
+}
+
 export const readCache = internalQuery({
   args: { suburbKey: v.string(), dayKey: v.string() },
   handler: async (ctx, { suburbKey, dayKey }) =>
@@ -187,7 +197,7 @@ export const forDays = action({
           dayKey: row.dayKey,
         })
         if (cached && Date.now() - cached.fetchedAt < STALE_MS) {
-          out[row.dayKey] = {
+          out[compositeKeyOf(suburbKey, row.dayKey)] = {
             maxTempC: cached.maxTempC,
             minTempC: cached.minTempC,
             rainMm: cached.rainMm,
@@ -240,7 +250,7 @@ export const forDays = action({
             dayKey,
             ...entry,
           })
-          if (missing.includes(dayKey)) out[dayKey] = { ...entry, suburb }
+          if (missing.includes(dayKey)) out[compositeKeyOf(suburbKey, dayKey)] = { ...entry, suburb }
         }
       } catch {
         // Advisory only: an outage must never stop the schedule rendering.

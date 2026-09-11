@@ -76,6 +76,7 @@ export const getBySlug = query({
           canViewAllJobs: membership.canViewAllJobs,
           colour: membership.colour,
           licenceNumber: membership.licenceNumber,
+          phone: membership.phone,
         },
       }
     } catch {

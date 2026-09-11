@@ -73,7 +73,18 @@ export default defineSchema({
     businessId: v.id('businesses'),
     role,
     canViewAllJobs: v.boolean(),
+    // Distinct from canViewAllJobs (a data-scope grant): this governs whether
+    // a subcontractor can also view the app through OTHER members' eyes via
+    // the header account menu's "view as" — never grantable for viewing the
+    // owner, even when this is on (see viewAs.ts's resolveViewScope).
+    canViewOtherAccounts: v.optional(v.boolean()),
+    // The caller's own current "view as" selection — always self-only to
+    // write (see memberships.setViewingAs), and re-validated on every read
+    // rather than trusted, so a revoked grant or archived target silently
+    // self-heals back to viewing your own account.
+    viewingAsMembershipId: v.optional(v.id('memberships')),
     licenceNumber: v.optional(v.string()),
+    phone: v.optional(v.string()),
     colour: v.string(),
     status: membershipStatus,
     createdAt: v.number(),

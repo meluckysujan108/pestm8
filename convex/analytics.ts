@@ -1,7 +1,7 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { authComponent } from './auth'
-import { jobVisibility, requireMembership } from './lib/access'
+import { jobVisibility, resolveViewScope } from './lib/access'
 import { dayKeyOf, startOfDayInZone, todayKeyInZone } from './lib/dates'
 import { jobsInRange } from './jobs'
 import type { Id } from './_generated/dataModel'
@@ -26,7 +26,7 @@ function monthKeyOffset(monthKey: string, offset: number): string {
 export const overview = query({
   args: { businessId: v.id('businesses'), months: v.optional(v.number()) },
   handler: async (ctx, { businessId, months = 6 }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const membership = await resolveViewScope(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return null
 
