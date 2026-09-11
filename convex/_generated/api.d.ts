@@ -23,8 +23,14 @@ import type * as jobs from "../jobs.js";
 import type * as lib_access from "../lib/access.js";
 import type * as lib_colours from "../lib/colours.js";
 import type * as lib_dates from "../lib/dates.js";
+import type * as lib_forecastWindow from "../lib/forecastWindow.js";
+import type * as lib_noteAccess from "../lib/noteAccess.js";
+import type * as lib_noteTemplates from "../lib/noteTemplates.js";
+import type * as lib_richText from "../lib/richText.js";
 import type * as memberships from "../memberships.js";
+import type * as migrations_notesV2 from "../migrations/notesV2.js";
 import type * as notes from "../notes.js";
+import type * as notesSync from "../notesSync.js";
 import type * as properties from "../properties.js";
 import type * as recurrences from "../recurrences.js";
 import type * as reportAnnotations from "../reportAnnotations.js";
@@ -55,8 +61,14 @@ declare const fullApi: ApiFromModules<{
   "lib/access": typeof lib_access;
   "lib/colours": typeof lib_colours;
   "lib/dates": typeof lib_dates;
+  "lib/forecastWindow": typeof lib_forecastWindow;
+  "lib/noteAccess": typeof lib_noteAccess;
+  "lib/noteTemplates": typeof lib_noteTemplates;
+  "lib/richText": typeof lib_richText;
   memberships: typeof memberships;
+  "migrations/notesV2": typeof migrations_notesV2;
   notes: typeof notes;
+  notesSync: typeof notesSync;
   properties: typeof properties;
   recurrences: typeof recurrences;
   reportAnnotations: typeof reportAnnotations;
@@ -94,4 +106,5 @@ export declare const internal: FilterApi<
 
 export declare const components: {
   betterAuth: import("@convex-dev/better-auth/_generated/component.js").ComponentApi<"betterAuth">;
+  prosemirrorSync: import("@convex-dev/prosemirror-sync/_generated/component.js").ComponentApi<"prosemirrorSync">;
 };
