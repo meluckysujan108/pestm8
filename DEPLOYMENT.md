@@ -79,6 +79,63 @@ That needs `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` as GitHub
 secrets. The branch approach is preferred here because it needs no extra
 credentials and makes "what is in production" a git ref you can look at.
 
+## Finding your Convex URLs
+
+Every Convex deployment has **one name** and serves on **two domains**. They
+are not interchangeable:
+
+| Variable               | Domain                        | What lives there                                                    |
+| ---------------------- | ----------------------------- | ------------------------------------------------------------------- |
+| `VITE_CONVEX_URL`      | `https://<name>.convex.cloud` | Queries, mutations, actions                                         |
+| `VITE_CONVEX_SITE_URL` | `https://<name>.convex.site`  | HTTP actions — where `convex/http.ts` mounts the Better Auth routes |
+
+So for a deployment named `giddy-wombat-123`:
+
+```
+VITE_CONVEX_URL=https://giddy-wombat-123.convex.cloud
+VITE_CONVEX_SITE_URL=https://giddy-wombat-123.convex.site
+```
+
+You derive the second from the first by swapping the TLD. Getting this wrong
+breaks sign-in only — the app otherwise loads fine — so `scripts/check-env.mjs`
+rejects a `.convex.cloud` address in the `.site` slot rather than letting it
+reach a deploy.
+
+Where to read them:
+
+- **Your dev deployment** — `cat .env.local`. `npx convex dev` wrote
+  `CONVEX_DEPLOYMENT` and `VITE_CONVEX_URL` there.
+- **Any deployment** — [dashboard.convex.dev](https://dashboard.convex.dev) →
+  the project → Settings → _URL & Deploy Key_, which shows the Deployment URL
+  and the HTTP Actions URL. `npx convex dashboard` opens it.
+- **Production** — already in Vercel's environment variables, Production scope.
+
+## First-time environment setup
+
+Do these in order; each step leaves the live app working.
+
+1. **Staging project.** Convex dashboard → Create Project → `pestm8-staging`.
+   Deploy to it once and give it its own `BETTER_AUTH_SECRET`. Leave `SITE_URL`
+   alone — `scripts/vercel-build.sh` writes it per preview build.
+2. **Preview variables.** Add `VITE_CONVEX_URL` and `VITE_CONVEX_SITE_URL` to
+   Vercel with the **Preview** environment ticked, pointing at staging. A
+   variable scoped to Production only is absent from preview builds, which
+   fails them at the env gate.
+3. **Deploy keys.** Add `CONVEX_DEPLOY_KEY` twice — the staging key on
+   **Preview**, the production key on **Production**. Re-read the warning above
+   before saving.
+4. **Build command.** Set it to `bash scripts/vercel-build.sh`. Only after
+   step 3, since the script runs `convex deploy` in every environment.
+5. **Production branch.** Only once CI has created the `production` branch:
+   Settings → Git → Production Branch → `production`. Switching before it
+   exists stops production deploys until you switch back.
+6. **CI project and secrets.** `pestm8-ci` with `SITE_URL=http://localhost:3000`,
+   then the GitHub secrets above. This activates E2E and nightly backups, which
+   skip themselves until their secrets exist.
+
+Never point a Preview environment at the production deployment: every branch
+would read and write live customer data.
+
 ## Environment variables
 
 `VITE_`-prefixed variables reach the client by being **inlined at build time**,
