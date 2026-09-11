@@ -1,0 +1,4 @@
+# Format and auto-fix only what is staged. Fast by design — the slow checks
+# (typecheck, build, tests) belong in CI, where they do not stand between you
+# and a commit.
+pnpm exec lint-staged

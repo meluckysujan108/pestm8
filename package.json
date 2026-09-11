@@ -21,7 +21,8 @@
     "lint": "eslint",
     "format": "prettier --write . && eslint --fix",
     "check": "prettier --check .",
-    "verify": "pnpm check && pnpm lint && pnpm typecheck && pnpm typecheck:convex && pnpm check:dates"
+    "verify": "pnpm check && pnpm lint && pnpm typecheck && pnpm typecheck:convex && pnpm check:dates",
+    "prepare": "husky"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",
@@ -69,6 +70,8 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.20.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
     "prettier": "^3.8.1",
     "serwist": "^9.5.12",
     "typescript": "^6.0.2",
@@ -82,5 +85,13 @@
     "overrides": {
       "@react-pdf/font": "4.0.10"
     }
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,json,css,md}": [
+      "prettier --write"
+    ],
+    "*.{ts,tsx}": [
+      "eslint --fix"
+    ]
   }
 }
