@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { action, internalMutation, internalQuery } from './_generated/server'
 import { internal } from './_generated/api'
 import { requireMembership } from './lib/access'
+import type { ActionCtx } from './_generated/server'
 
 /**
  * Weather is decision-relevant here, not decoration: rain within a day of a
@@ -87,6 +88,34 @@ export const writeCache = internalMutation({
  * not a formality — the forecast is cheap, but the businessId is not something
  * a non-member should be able to probe.
  */
+export const readGeocache = internalQuery({
+  args: { suburbKey: v.string() },
+  handler: async (ctx, { suburbKey }) =>
+    ctx.db
+      .query('suburbGeocache')
+      .withIndex('by_suburb_key', (q) => q.eq('suburbKey', suburbKey))
+      .unique(),
+})
+
+export const writeGeocache = internalMutation({
+  args: {
+    suburbKey: v.string(),
+    state: v.string(),
+    lat: v.number(),
+    lng: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('suburbGeocache')
+      .withIndex('by_suburb_key', (q) => q.eq('suburbKey', args.suburbKey))
+      .unique()
+
+    const doc = { ...args, fetchedAt: Date.now() }
+    if (existing) await ctx.db.patch(existing._id, doc)
+    else await ctx.db.insert('suburbGeocache', doc)
+  },
+})
+
 export const assertAccessInternal = internalQuery({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
@@ -119,12 +148,28 @@ export type DailyWeather = {
   windKmh?: number
   code?: number
   suburb: string
+  // The suburb's centroid, so the schedule can show how far apart consecutive
+  // jobs are without a second round trip. Absent when geocoding failed.
+  lat?: number
+  lng?: number
 }
 
+/**
+ * Suburb centroid, cached permanently in `suburbGeocache`. Unlike a forecast,
+ * this answer does not go stale — Bayswater does not move — so there is no
+ * freshness window here, only "have we ever asked".
+ */
 async function geocode(
+  ctx: ActionCtx,
   suburb: string,
+  postcode: string,
   state: string,
 ): Promise<{ latitude: number; longitude: number } | null> {
+  const suburbKey = suburbKeyOf(suburb, postcode)
+
+  const cached = await ctx.runQuery(internal.weather.readGeocache, { suburbKey })
+  if (cached) return { latitude: cached.lat, longitude: cached.lng }
+
   // countryCode, not country: the latter is ignored and happily returns
   // Bayswater, New Zealand for an Australian pest controller.
   const res = await fetch(
@@ -147,7 +192,16 @@ async function geocode(
   const place = body.results?.find(
     (r) => r.country_code === 'AU' && (!wanted || r.admin1 === wanted),
   )
-  return place ? { latitude: place.latitude, longitude: place.longitude } : null
+  if (!place) return null
+
+  await ctx.runMutation(internal.weather.writeGeocache, {
+    suburbKey,
+    state,
+    lat: place.latitude,
+    lng: place.longitude,
+  })
+
+  return { latitude: place.latitude, longitude: place.longitude }
 }
 
 type DayRow = { dayKey: string; suburb: string; postcode: string }
@@ -190,6 +244,14 @@ export const forDays = action({
       const { suburb, postcode } = rows[0]
       const suburbKey = suburbKeyOf(suburb, postcode)
 
+      // Resolved before the forecast-cache check rather than after it: the
+      // coordinates belong on EVERY entry (they drive the schedule's travel
+      // hints), including entries whose forecast comes back from cache and so
+      // never reach the fetch below. After a suburb's first ever lookup this
+      // is a database read, not a network call.
+      const place = await geocode(ctx, suburb, postcode, state).catch(() => null)
+      const coords = place ? { lat: place.latitude, lng: place.longitude } : {}
+
       const missing: Array<string> = []
       for (const row of rows) {
         const cached = await ctx.runQuery(internal.weather.readCache, {
@@ -204,6 +266,7 @@ export const forDays = action({
             windKmh: cached.windKmh,
             code: cached.code,
             suburb,
+            ...coords,
           }
         } else {
           missing.push(row.dayKey)
@@ -212,7 +275,6 @@ export const forDays = action({
       if (missing.length === 0) continue
 
       try {
-        const place = await geocode(suburb, state)
         if (!place) continue
 
         const sorted = [...missing].sort()
@@ -250,7 +312,9 @@ export const forDays = action({
             dayKey,
             ...entry,
           })
-          if (missing.includes(dayKey)) out[compositeKeyOf(suburbKey, dayKey)] = { ...entry, suburb }
+          if (missing.includes(dayKey)) {
+            out[compositeKeyOf(suburbKey, dayKey)] = { ...entry, suburb, ...coords }
+          }
         }
       } catch {
         // Advisory only: an outage must never stop the schedule rendering.
@@ -295,27 +359,7 @@ export const forDay = action({
     }
 
     try {
-      // countryCode, not country: the latter is ignored and happily returns
-      // Bayswater, New Zealand for an Australian pest controller.
-      const geo = await fetch(
-        `${GEOCODE_URL}?name=${encodeURIComponent(suburb)}&count=10&countryCode=AU&language=en&format=json`,
-      )
-      if (!geo.ok) return null
-      const geoBody = (await geo.json()) as {
-        results?: Array<{
-          latitude: number
-          longitude: number
-          admin1?: string
-          country_code?: string
-        }>
-      }
-
-      const wanted = STATE_NAMES[state]
-      const place = geoBody.results?.find(
-        (r) => r.country_code === 'AU' && (!wanted || r.admin1 === wanted),
-      )
-      // Showing a Perth tech Melbourne's rainfall is worse than showing
-      // nothing, so an ambiguous match is refused rather than approximated.
+      const place = await geocode(ctx, suburb, postcode, state)
       if (!place) return null
 
       const forecast = await fetch(

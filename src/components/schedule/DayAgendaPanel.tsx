@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { JobCard } from './JobCard'
 import { JobTable } from './JobTable'
 import { WeatherBanner } from './WeatherBanner'
@@ -8,13 +7,15 @@ import { EmptyState } from '#/components/primitives/EmptyState'
 import { formatDayLabel } from '#/lib/format'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useDayWeather, weatherKeyOf } from '#/lib/useDayWeather'
+import { travelHintsFor } from '#/lib/travel'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
 
-type View = 'cards' | 'table'
+type View = 'list' | 'board' | 'table'
 
 const VIEW_OPTIONS: Array<{ value: View; label: string }> = [
-  { value: 'cards', label: 'Cards' },
+  { value: 'list', label: 'List' },
+  { value: 'board', label: 'Board' },
   { value: 'table', label: 'Table' },
 ]
 
@@ -32,6 +33,8 @@ export function DayAgendaPanel({
   selectedKey,
   jobs,
   members,
+  view,
+  onViewChange,
   onOpenJob,
 }: {
   businessId: Id<'businesses'>
@@ -40,10 +43,14 @@ export function DayAgendaPanel({
   selectedKey: string
   jobs: Array<JobRow>
   members: Array<{ _id: string; name: string; colour: string }>
+  // Owned by the route, not held locally: the choice lives in a search param
+  // so it survives a refresh and is shareable (§5.1), and so the mobile and
+  // desktop layouts cannot end up disagreeing about which view is active.
+  view: View
+  onViewChange: (view: View) => void
   onOpenJob: (jobId: string) => void
 }) {
   const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(jobs)
-  const [view, setView] = useState<View>('cards')
 
   const weather = useDayWeather(
     businessId,
@@ -52,6 +59,7 @@ export function DayAgendaPanel({
       .filter((j) => j.suburb)
       .map((j) => ({ dayKey: selectedKey, suburb: j.suburb, postcode: j.postcode ?? '' })),
   )
+  const travel = travelHintsFor(filteredJobs, weather, selectedKey)
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -64,7 +72,7 @@ export function DayAgendaPanel({
             {filteredJobs.length} {filteredJobs.length === 1 ? 'job' : 'jobs'}
           </p>
         </div>
-        <Segmented label="View" value={view} options={VIEW_OPTIONS} onChange={setView} />
+        <Segmented label="View" value={view} options={VIEW_OPTIONS} onChange={onViewChange} />
       </div>
 
       <ScheduleFilterBar
@@ -95,12 +103,20 @@ export function DayAgendaPanel({
               : 'No jobs match this filter.'
           }
         />
-      ) : view === 'cards' ? (
-        <div className="flex flex-col gap-2.5">
+      ) : view !== 'table' ? (
+        <div
+          className={
+            view === 'board'
+              ? 'grid grid-cols-1 items-stretch gap-3 xl:grid-cols-2'
+              : 'flex flex-col gap-2.5'
+          }
+        >
           {filteredJobs.map((job) => (
             <JobCard
               key={job._id}
               job={job}
+              variant={view}
+              travel={travel[job._id]}
               weather={weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)]}
               timezone={timezone}
               onOpen={onOpenJob}

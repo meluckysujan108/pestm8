@@ -10,6 +10,11 @@ export type DayWeather = {
   windKmh?: number
   code?: number
   suburb: string
+  // The suburb's centroid, resolved and cached server-side. Drives the
+  // schedule's travel hints (`src/lib/travel.ts`); absent when geocoding for
+  // that suburb failed, in which case the hint is simply not shown.
+  lat?: number
+  lng?: number
 }
 
 export type WeatherDayRequest = {

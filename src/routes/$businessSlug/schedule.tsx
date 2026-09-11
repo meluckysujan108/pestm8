@@ -27,6 +27,13 @@ import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
 import { ScheduleFilterBar } from '#/components/schedule/ScheduleFilterBar'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useDayWeather, weatherKeyOf } from '#/lib/useDayWeather'
+import { travelHintsFor } from '#/lib/travel'
+import { Segmented } from '#/components/primitives/Segmented'
+
+const VIEW_OPTIONS: Array<{ value: 'list' | 'board'; label: string }> = [
+  { value: 'list', label: 'List' },
+  { value: 'board', label: 'Board' },
+]
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
@@ -38,6 +45,11 @@ const searchSchema = z.object({
   // Lets a job be deep-linked straight to its detail sheet — e.g. from a
   // client's job history — without depending on which day is on screen.
   jobId: z.string().optional(),
+  // How the day is rendered, in the URL for the same reason `date` is: the way
+  // a tech prefers to read their day should survive a refresh (§5.1). `table`
+  // is desktop-only — a data grid does not fit a phone — so the mobile layout
+  // treats it as `board` rather than rendering something unusable.
+  view: z.enum(['list', 'board', 'table']).optional(),
 })
 
 export const Route = createFileRoute('/$businessSlug/schedule')({
@@ -47,11 +59,15 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
 
 function SchedulePage() {
   const { business, membership } = Route.useRouteContext()
-  const { date, jobId } = Route.useSearch()
+  const { date, jobId, view } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const openJobId = jobId ?? null
   const setOpenJobId = (id: string | null) =>
     navigate({ search: (prev) => ({ ...prev, jobId: id ?? undefined }), replace: true })
+  const activeView = view ?? 'board'
+  const cardVariant = activeView === 'table' ? 'board' : activeView
+  const setView = (next: 'list' | 'board' | 'table') =>
+    navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
   const [newJobOpen, setNewJobOpen] = useState(false)
   const [monthOpen, setMonthOpen] = useState(false)
   const [monthKey, setMonthKey] = useState<string | null>(null)
@@ -98,8 +114,12 @@ function SchedulePage() {
           .map((j) => ({ dayKey: selectedKey, suburb: j.suburb, postcode: j.postcode ?? '' })),
   )
 
+  const travel = travelHintsFor(filteredJobs, weather, selectedKey)
+
+  // `jobId` is deliberately dropped rather than carried: moving to another day
+  // should close a sheet showing a job that day no longer contains.
   const setDay = (dayKey: string) =>
-    navigate({ search: { date: dayKey }, replace: true })
+    navigate({ search: (prev) => ({ view: prev.view, date: dayKey }), replace: true })
 
   return (
     <>
@@ -143,6 +163,8 @@ function SchedulePage() {
             selectedKey={selectedKey}
             jobs={jobs}
             members={members}
+            view={activeView}
+            onViewChange={setView}
             onOpenJob={setOpenJobId}
           />
         </section>
@@ -203,14 +225,22 @@ function SchedulePage() {
               <h2 className="section-label">
                 {formatDayLabel(selectedKey)}
               </h2>
-              <ScheduleFilterBar
-                jobs={jobs}
-                members={members}
-                status={status}
-                setStatus={setStatus}
-                staffId={staffId}
-                setStaffId={setStaffId}
-              />
+              <div className="flex flex-wrap items-center gap-2">
+                <Segmented
+                  label="Card density"
+                  value={cardVariant}
+                  options={VIEW_OPTIONS}
+                  onChange={setView}
+                />
+                <ScheduleFilterBar
+                  jobs={jobs}
+                  members={members}
+                  status={status}
+                  setStatus={setStatus}
+                  staffId={staffId}
+                  setStaffId={setStaffId}
+                />
+              </div>
             </div>
 
             {filteredJobs.length === 0 ? (
@@ -226,11 +256,13 @@ function SchedulePage() {
               // Two columns from md: the same cards, re-flowed. A tablet
               // screen showing one 460px column of jobs wastes the extra
               // width that makes a week readable at a glance.
-              <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-start">
+              <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
                 {filteredJobs.map((job) => (
                   <JobCard
                     key={job._id}
                     job={job}
+                    variant={cardVariant}
+                    travel={travel[job._id]}
                     weather={weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)]}
                     timezone={business.timezone}
                     onOpen={setOpenJobId}

@@ -96,7 +96,7 @@ Shell      max-width 460px centred on canvas
 - **Hold-to-call / hold-to-email** — pointer-down starts a fill animation, pointer-up before completion cancels. Prevents pocket-dialling a client mid-job. Uses `onPointerDown/Up/Leave/Cancel`, `touch-action:none`, `user-select:none`.
 - **Segmented controls** for all binary/ternary filters — never dropdowns.
 - **Week strip with per-subcontractor dots** — colour-coded, so the Owner sees whose day is loaded at a glance.
-- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address.
+- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. *Amended:* the schedule's job card now has two variants, and the rule holds per-variant rather than per-surface — the compact **list** row still shows suburb alone, while the richer **board** card shows the full street address. A board card is being read, not scanned past, and at that size the address is the fastest way to recognise a job. `JobCard.tsx` is the only place this applies; every other list row is unchanged.
 - **Locked boilerplate blocks** — report disclaimers render in a grey inset card, visibly non-editable.
 
 ## 2.4 Responsive strategy
@@ -392,7 +392,9 @@ src/components/
     HoldButton.tsx                pointer-driven fill; click-through on desktop
   schedule/
     WeekStrip.tsx  DayDots.tsx  MonthPickerSheet.tsx
-    JobCard.tsx  JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx
+    JobCard.tsx                   list | board variants (§2.3)
+    WeatherStrip.tsx              per-card forecast: values, never advice
+    JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx
     WeekGrid.tsx                  desktop-only
   dashboard/
     RevenueCard.tsx  MetricCard.tsx  PipelineCard.tsx  FollowUpTasks.tsx

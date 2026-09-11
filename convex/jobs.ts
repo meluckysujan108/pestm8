@@ -66,6 +66,25 @@ export async function jobsInRange(
 }
 
 async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
+  // Resolving a name means a call into the auth component, so each assignee is
+  // looked up once per query rather than once per job — the same memoisation
+  // `listWeek` already does for colours. The map holds the in-flight promise,
+  // not the resolved string: `Promise.all` below starts every job at once, so
+  // caching only settled values would let a day's worth of jobs all miss for
+  // the same assignee before any of them had written an answer back.
+  const names = new Map<Id<'memberships'>, Promise<string>>()
+  const nameOf = (membershipId: Id<'memberships'>, userId?: string) => {
+    const inFlight = names.get(membershipId)
+    if (inFlight) return inFlight
+
+    const pending = (async () => {
+      const user = userId ? await authComponent.getAnyUserById(ctx, userId) : null
+      return user?.name ?? ''
+    })()
+    names.set(membershipId, pending)
+    return pending
+  }
+
   return Promise.all(
     jobs
       .sort((a, b) => a.scheduledAt - b.scheduledAt)
@@ -74,12 +93,15 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
         const assignee = await ctx.db.get(job.assignedMembershipId)
         return {
           ...job,
-          // Suburb only on list rows — full address belongs to the detail view
-          // and to legal documents (§2.3).
+          // The board-variant card shows the full street address; the compact
+          // list variant still shows suburb alone, per §2.3's reasoning that
+          // scanning a day wants the suburb.
+          addressLine: property?.addressLine ?? '',
           suburb: property?.suburb ?? '',
           postcode: property?.postcode ?? '',
           clientName: await clientNameOf(ctx, property),
           assigneeColour: assignee?.colour ?? '#8E8E93',
+          assigneeName: await nameOf(job.assignedMembershipId, assignee?.userId),
         }
       }),
   )

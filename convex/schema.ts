@@ -281,6 +281,25 @@ export default defineSchema({
   }).index('by_suburb_day', ['suburbKey', 'dayKey']),
 
   /**
+   * Suburb centroids resolved once from the geocoding API, keyed exactly like
+   * `weatherCache.suburbKey`. Two callers need them and neither should pay for
+   * a lookup twice: the forecast fetch (which previously re-geocoded every
+   * time its 3-hour forecast cache expired) and the schedule's travel hints.
+   *
+   * Deliberately NOT written onto `properties.lat`/`lng`: the geocoder
+   * resolves a whole suburb, so storing its centroid against a street address
+   * would claim a precision the number does not have. Kept at the granularity
+   * it is actually accurate to.
+   */
+  suburbGeocache: defineTable({
+    suburbKey: v.string(), // "bayswater-6053"
+    state: v.string(),
+    lat: v.number(),
+    lng: v.number(),
+    fetchedAt: v.number(),
+  }).index('by_suburb_key', ['suburbKey']),
+
+  /**
    * The `gallery` field kind's photos — as many per field as the technician
    * takes, unlike the fixed-slot `photos` kind's one-per-named-slot. A row per
    * table rather than an array on `reports`, per the guideline against
