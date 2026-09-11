@@ -104,7 +104,7 @@ export async function setupBusinessWithSub(label: string) {
   const subUser = await sub.client.query(api.auth.getCurrentUser, {})
   const subMembershipId = await owner.client.mutation(api.memberships.invite, {
     businessId,
-    userId: subUser!._id,
+    userId: subUser._id,
     role: 'subcontractor',
   })
   // invite() leaves the member "invited"; they activate themselves.

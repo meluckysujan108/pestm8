@@ -30,8 +30,8 @@ export const listForBusiness = query({
         return {
           _id: m._id,
           userId: m.userId,
-          name: (user?.name as string | undefined) ?? '',
-          email: (user?.email as string | undefined) ?? '',
+          name: user?.name ?? '',
+          email: user?.email ?? '',
           role: m.role,
           canViewAllJobs: m.canViewAllJobs,
           canViewOtherAccounts: m.canViewOtherAccounts ?? false,

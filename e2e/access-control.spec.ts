@@ -130,7 +130,7 @@ test.describe('role boundaries', () => {
     const subUserId = await sub.client.query(api.auth.getCurrentUser, {})
     const membershipId = await owner.client.mutation(api.memberships.invite, {
       businessId,
-      userId: subUserId!._id,
+      userId: subUserId._id,
       role: 'subcontractor',
     })
 
@@ -191,7 +191,7 @@ test.describe('role boundaries', () => {
     const subUser = await sub.client.query(api.auth.getCurrentUser, {})
     await owner.client.mutation(api.memberships.invite, {
       businessId,
-      userId: subUser!._id,
+      userId: subUser._id,
       role: 'subcontractor',
     })
 

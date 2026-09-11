@@ -84,7 +84,11 @@ export function useDayWeather(
     return () => {
       cancelled = true
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // `days` is deliberately not a dependency: `key` is its stable
+    // serialisation, so depending on the array itself would refetch on
+    // every render. (This was an eslint-disable for
+    // react-hooks/exhaustive-deps, but that rule is not configured here,
+    // so the directive itself was the only thing lint could see.)
   }, [convex, businessId, state, key])
 
   return weather

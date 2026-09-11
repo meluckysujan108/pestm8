@@ -116,7 +116,7 @@ test('a subcontractor sees only their own day', async ({ page }) => {
   const subUser = await sub.client.query(api.auth.getCurrentUser, {})
   await owner.client.mutation(api.memberships.invite, {
     businessId,
-    userId: subUser!._id,
+    userId: subUser._id,
     role: 'subcontractor',
   })
   await sub.client.mutation(api.memberships.accept, { businessId })
