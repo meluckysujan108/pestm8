@@ -24,7 +24,9 @@ import { useMediaQuery } from '#/lib/useMediaQuery'
 import { MonthPickerSheet } from '#/components/schedule/MonthPickerSheet'
 import { MonthCalendarCard } from '#/components/schedule/MonthCalendarCard'
 import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
-import { useDayWeather } from '#/lib/useDayWeather'
+import { ScheduleFilterBar } from '#/components/schedule/ScheduleFilterBar'
+import { useScheduleFilters } from '#/lib/scheduleFilters'
+import { useDayWeather, weatherKeyOf } from '#/lib/useDayWeather'
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
@@ -76,17 +78,24 @@ function SchedulePage() {
       dayKey: selectedKey,
     }),
   )
-
-  const weekWeather = useDayWeather(
+  const { data: members } = useSuspenseQuery(
+    convexQuery(api.memberships.listForBusiness, { businessId: business._id }),
+  )
+  const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(
+    jobs,
+    membership._id,
+  )
+  // DayAgendaPanel fetches its own weather when mounted (desktop); an empty
+  // request array here short-circuits before any Convex call, so this costs
+  // nothing on desktop.
+  const weather = useDayWeather(
     business._id,
     business.state,
-    week
-      .filter((d) => d.suburb)
-      .map((d) => ({
-        dayKey: d.dayKey,
-        suburb: d.suburb,
-        postcode: d.postcode,
-      })),
+    isDesktop
+      ? []
+      : jobs
+          .filter((j) => j.suburb)
+          .map((j) => ({ dayKey: selectedKey, suburb: j.suburb, postcode: j.postcode ?? '' })),
   )
 
   const setDay = (dayKey: string) =>
@@ -95,6 +104,8 @@ function SchedulePage() {
   return (
     <>
       <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
         kicker={formatMonthLabel(selectedKey)}
         onKickerClick={hydrated ? () => setMonthOpen(true) : undefined}
         title="Schedule"
@@ -119,7 +130,6 @@ function SchedulePage() {
         <section className="grid grid-cols-[340px_minmax(0,1fr)] items-start gap-5 px-4 pt-4 pb-6">
           <MonthCalendarCard
             businessId={business._id}
-            state={business.state}
             monthKey={monthKey ?? selectedKey.slice(0, 7)}
             selectedKey={selectedKey}
             todayKey={today}
@@ -132,6 +142,7 @@ function SchedulePage() {
             timezone={business.timezone}
             selectedKey={selectedKey}
             jobs={jobs}
+            members={members}
             onOpenJob={setOpenJobId}
           />
         </section>
@@ -168,7 +179,6 @@ function SchedulePage() {
               selectedKey={selectedKey}
               todayKey={today}
               load={week}
-              weather={weekWeather}
               onSelect={setDay}
             />
           </div>
@@ -189,24 +199,39 @@ function SchedulePage() {
           )}
 
           <section className="px-4 pt-4 pb-6">
-            <h2 className="section-label mb-3">
-              {formatDayLabel(selectedKey)}
-            </h2>
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h2 className="section-label">
+                {formatDayLabel(selectedKey)}
+              </h2>
+              <ScheduleFilterBar
+                jobs={jobs}
+                members={members}
+                status={status}
+                setStatus={setStatus}
+                staffId={staffId}
+                setStaffId={setStaffId}
+              />
+            </div>
 
-            {jobs.length === 0 ? (
+            {filteredJobs.length === 0 ? (
               <EmptyState
-                title="Nothing booked"
-                body="This day is clear. Tap + to book a job."
+                title={jobs.length === 0 ? 'Nothing booked' : 'No matching jobs'}
+                body={
+                  jobs.length === 0
+                    ? 'This day is clear. Tap + to book a job.'
+                    : 'No jobs match this filter.'
+                }
               />
             ) : (
               // Two columns from md: the same cards, re-flowed. A tablet
               // screen showing one 460px column of jobs wastes the extra
               // width that makes a week readable at a glance.
               <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-start">
-                {jobs.map((job) => (
+                {filteredJobs.map((job) => (
                   <JobCard
                     key={job._id}
                     job={job}
+                    weather={weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)]}
                     timezone={business.timezone}
                     onOpen={setOpenJobId}
                   />
@@ -228,7 +253,6 @@ function SchedulePage() {
 
       <MonthPickerSheet
         businessId={business._id}
-        state={business.state}
         open={monthOpen}
         monthKey={monthKey ?? selectedKey.slice(0, 7)}
         selectedKey={selectedKey}

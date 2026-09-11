@@ -64,6 +64,8 @@ function ReportsPage() {
   return (
     <>
       <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
         kicker={`${reports.length} ${reports.length === 1 ? 'report' : 'reports'}`}
         title="Reports"
         action={

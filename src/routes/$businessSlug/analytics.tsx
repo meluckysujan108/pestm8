@@ -31,7 +31,12 @@ function AnalyticsPage() {
 
   return (
     <>
-      <PageHeader kicker={business.name} title="Analytics" />
+      <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
+        kicker={business.name}
+        title="Analytics"
+      />
 
       <div className="flex flex-col gap-3 px-4 pt-4 pb-6 md:grid md:grid-cols-3 md:items-start">
         <Card className="md:col-span-3">

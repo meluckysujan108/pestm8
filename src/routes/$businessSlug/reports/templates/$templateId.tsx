@@ -26,7 +26,12 @@ function TemplateDetailPage() {
   if (membership.role !== 'owner') {
     return (
       <>
-        <PageHeader kicker="Templates" title="Template" />
+        <PageHeader
+          businessId={business._id}
+          businessSlug={business.slug}
+          kicker="Templates"
+          title="Template"
+        />
         <div className="px-4 pt-4 pb-6">
           <EmptyState
             title="Owners only"
@@ -41,7 +46,12 @@ function TemplateDetailPage() {
 
   return (
     <>
-      <PageHeader kicker="Templates" title={template.name} />
+      <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
+        kicker="Templates"
+        title={template.name}
+      />
 
       {template.archivedAt && (
         <div className="px-4 pt-4">

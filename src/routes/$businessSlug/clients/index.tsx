@@ -65,6 +65,8 @@ function ClientsPage() {
   return (
     <>
       <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
         kicker={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}`}
         title="Clients"
         action={

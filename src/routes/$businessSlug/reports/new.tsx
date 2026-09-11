@@ -72,7 +72,12 @@ function NewReportPage() {
 
   return (
     <>
-      <PageHeader kicker="New" title="Choose a template" />
+      <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
+        kicker="New"
+        title="Choose a template"
+      />
 
       <div className="px-4 pt-4 pb-6">
         {properties.length === 0 ? (

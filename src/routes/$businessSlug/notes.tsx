@@ -45,7 +45,12 @@ function NotesPage() {
 
   return (
     <>
-      <PageHeader kicker={business.name} title="Notes" />
+      <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
+        kicker={business.name}
+        title="Notes"
+      />
 
       <form
         className="px-4 pt-4"

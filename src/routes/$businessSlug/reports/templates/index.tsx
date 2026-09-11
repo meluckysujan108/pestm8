@@ -26,7 +26,12 @@ function TemplatesPage() {
   if (membership.role !== 'owner') {
     return (
       <>
-        <PageHeader kicker="Reports" title="Templates" />
+        <PageHeader
+          businessId={business._id}
+          businessSlug={business.slug}
+          kicker="Reports"
+          title="Templates"
+        />
         <div className="px-4 pt-4 pb-6">
           <EmptyState
             title="Owners only"
@@ -39,7 +44,12 @@ function TemplatesPage() {
 
   return (
     <>
-      <PageHeader kicker="Reports" title="Templates" />
+      <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
+        kicker="Reports"
+        title="Templates"
+      />
 
       <div className="px-4 pt-4 pb-6">
         <p className="section-label mb-2">Built-in</p>

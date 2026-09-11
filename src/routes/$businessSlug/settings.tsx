@@ -28,7 +28,12 @@ function SettingsPage() {
 
   return (
     <>
-      <PageHeader kicker={business.name} title="Settings" />
+      <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
+        kicker={business.name}
+        title="Settings"
+      />
 
       <div className="px-4 pt-4">
         <Segmented
@@ -53,6 +58,7 @@ function SettingsPage() {
             businessId={business._id}
             membershipId={membership._id}
             licenceNumber={membership.licenceNumber}
+            phone={membership.phone}
             state={business.state}
           />
         )}

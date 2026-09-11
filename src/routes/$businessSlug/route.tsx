@@ -3,6 +3,7 @@ import { convexQuery } from '@convex-dev/react-query'
 import { Outlet } from '@tanstack/react-router'
 import { api } from '../../../convex/_generated/api'
 import { AppShell } from '#/components/shell/AppShell'
+import { ViewingAsBanner } from '#/components/shell/ViewingAsBanner'
 
 export const Route = createFileRoute('/$businessSlug')({
   beforeLoad: async ({ context, params }) => {
@@ -25,8 +26,11 @@ function BusinessLayout() {
   const { business, membership } = Route.useRouteContext()
 
   return (
-    <AppShell business={business} membership={membership}>
-      <Outlet />
-    </AppShell>
+    <>
+      <ViewingAsBanner businessId={business._id} />
+      <AppShell business={business} membership={membership}>
+        <Outlet />
+      </AppShell>
+    </>
   )
 }
