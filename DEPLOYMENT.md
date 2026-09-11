@@ -17,12 +17,12 @@ sign in.
 
 ## The environments
 
-| Environment | Convex project                   | `SITE_URL` on it        | Frontend                 | Deployed by                 |
-| ----------- | -------------------------------- | ----------------------- | ------------------------ | --------------------------- |
-| Local       | your `npx convex dev` deployment | `http://localhost:3000` | `pnpm dev`               | you                         |
-| CI          | `pestm8-ci`                      | `http://localhost:3000` | `pnpm dev` in the runner | `.github/workflows/e2e.yml` |
-| Preview     | `pestm8-staging`                 | the branch's Vercel URL | Vercel Preview           | Vercel, per pull request    |
-| Production  | `pestm8`                         | your production origin  | Vercel Production        | Vercel, on merge to `main`  |
+| Environment | Convex project                   | `SITE_URL` on it        | Frontend                 | Deployed by                     |
+| ----------- | -------------------------------- | ----------------------- | ------------------------ | ------------------------------- |
+| Local       | your `npx convex dev` deployment | `http://localhost:3000` | `pnpm dev`               | you                             |
+| CI          | `pestm8-ci`                      | `http://localhost:3000` | `pnpm dev` in the runner | `.github/workflows/e2e.yml`     |
+| Preview     | `pestm8-staging`                 | the branch's Vercel URL | Vercel Preview           | Vercel, per pull request        |
+| Production  | `pestm8`                         | your production origin  | Vercel Production        | CI, via the `production` branch |
 
 Convex preview deployments are a paid-plan feature, so on the free plan the
 equivalent is a **separate Convex project** per environment — each gets its own
@@ -30,6 +30,54 @@ production deployment and its own deploy key.
 
 Each deployment needs its **own** `BETTER_AUTH_SECRET`
 (`openssl rand -base64 32`). Never reuse production's.
+
+## What actually deploys production
+
+**Production is the `production` branch, not `main`.**
+
+The `promote` job in `.github/workflows/ci.yml` is the only thing that moves
+it, and it runs only after `verify` passes and E2E has not failed. A commit
+that reaches `main` without passing those gates never reaches production — the
+app stays on the last good commit.
+
+This is deliberately standing in for GitHub branch rules, which are a paid
+feature on a private repository. Gating the _deploy_ rather than the _push_
+costs nothing, and is arguably the stronger guarantee: branch rules stop a bad
+commit from landing, whereas this stops a bad commit from being **served** even
+if it lands.
+
+To make Vercel honour it:
+
+**Vercel → Project Settings → Git → Production Branch: `production`**
+
+Pushes to `main` then produce _preview_ deployments, which is useful in itself —
+main stays continuously build-tested — while production only moves when CI says so.
+
+> **Order matters.** Change the Production Branch setting only after you have
+> seen the `promote` job succeed once and the `production` branch exists. Flip
+> it early and production simply stops receiving deploys.
+
+Rolling back becomes a git operation:
+
+```bash
+git push --force-with-lease origin <last-good-sha>:production
+```
+
+Vercel redeploys that commit. This does **not** roll back Convex — see
+[docs/RUNBOOK.md](./docs/RUNBOOK.md).
+
+### Alternative, if you would rather not add a branch
+
+Keep Vercel's production branch as `main`, disable its automatic deploys with a
+`vercel.json`, and have CI deploy through the Vercel CLI instead:
+
+```json
+{ "git": { "deploymentEnabled": { "main": false } } }
+```
+
+That needs `VERCEL_TOKEN`, `VERCEL_ORG_ID` and `VERCEL_PROJECT_ID` as GitHub
+secrets. The branch approach is preferred here because it needs no extra
+credentials and makes "what is in production" a git ref you can look at.
 
 ## Environment variables
 

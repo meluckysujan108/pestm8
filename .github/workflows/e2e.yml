@@ -1,8 +1,14 @@
 name: E2E
 
 on:
-  pull_request:
-    branches: [main]
+  # Called by ci.yml so a pull request and a push to main both run E2E as part
+  # of one gate, and so the production promotion can depend on its result.
+  workflow_call:
+    inputs:
+      suite:
+        description: Which specs to run — full, or core (access-control only)
+        type: string
+        default: core
   workflow_dispatch:
     inputs:
       suite:
@@ -77,14 +83,11 @@ jobs:
       # shell, so nothing user-controllable is ever spliced into a command.
       - name: Run Playwright
         env:
-          EVENT: ${{ github.event_name }}
           FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-e2e') }}
           SUITE: ${{ inputs.suite }}
         run: |
-          if [ "$EVENT" = pull_request ] && [ "$FULL_LABEL" != true ]; then
-            echo 'Pull request: access-control matrix only. Add the run-e2e label for the full suite.'
-            pnpm exec playwright test e2e/access-control.spec.ts
-          elif [ "$SUITE" = core ]; then
+          if [ "$SUITE" = core ] && [ "$FULL_LABEL" != true ]; then
+            echo 'Access-control matrix only. Add the run-e2e label for the full suite.'
             pnpm exec playwright test e2e/access-control.spec.ts
           else
             pnpm exec playwright test

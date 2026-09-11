@@ -24,11 +24,22 @@ it is why the rule below is "additive first" rather than "be careful".
 
 ## Symptom: the site is broken after a deploy
 
-1. **Vercel → Deployments → the last good one → Promote to Production.** The
-   frontend is back.
-2. Then revert the commit on `main` through a pull request, so `main` and
-   production agree again. Every pull request is squash-merged, so this is one
-   `git revert` of one commit.
+Production is whatever the `production` branch points at. Move it back:
+
+```bash
+git fetch origin
+git log --oneline origin/production        # find the last good commit
+git push --force-with-lease origin <good-sha>:refs/heads/production
+```
+
+Vercel redeploys that commit. (Vercel → Deployments → an older one → Promote to
+Production does the same thing through the dashboard, and is fine in a hurry —
+but then move the branch too, or the next promotion will roll the bad commit
+straight back out.)
+
+Then revert on `main` through a pull request so `main` and production agree
+again. Every pull request is squash-merged, so that is one `git revert` of one
+commit.
 
 Promoting an old deployment does **not** roll back Convex. If the bad deploy
 changed backend functions, step 2 is what actually fixes it — the merge

@@ -1,7 +1,13 @@
 # Working on PestM8
 
-`main` **is production.** A commit landing on `main` deploys to the live app.
-Everything here follows from that.
+`main` is the trunk. **Production is the `production` branch**, which only CI
+moves, and only after the checks pass. So a broken commit on `main` does not
+reach customers — it just fails to be promoted.
+
+That gate exists because GitHub branch protection is a paid feature on a
+private repository. It means direct pushes to `main` cannot be _blocked_, only
+discouraged (a pre-push hook locally, a loud warning in CI). Use pull requests
+anyway: the gate protects production, the pull request protects `main`.
 
 ## The loop
 
@@ -19,8 +25,9 @@ request becomes one commit on `main`, which is what makes a rollback a single
 Branch names: `feat/`, `fix/`, `chore/`, `docs/`. (`claude/…` is used by agent
 sessions.)
 
-Direct pushes to `main` are blocked. That is deliberate and it applies to
-everyone, including whoever owns the repository.
+A local pre-push hook refuses to push to `main`. If you ever bypass it with
+`--no-verify`, CI will post a warning on the commit saying it did not come from
+a pull request — and production will only move if everything passes anyway.
 
 ## Commands
 
@@ -78,6 +85,7 @@ button is not access control.
 
 ## Deploying
 
-You don't. Merging to `main` does it. See [DEPLOYMENT.md](./DEPLOYMENT.md) for
-how the environments are wired and [docs/RUNBOOK.md](./docs/RUNBOOK.md) for
-when it goes wrong.
+You don't. Merge to `main`; if CI is green, CI fast-forwards the `production`
+branch and Vercel deploys that. See [DEPLOYMENT.md](./DEPLOYMENT.md) for how
+the environments are wired and [docs/RUNBOOK.md](./docs/RUNBOOK.md) for when it
+goes wrong.
