@@ -47,6 +47,10 @@ if (missing.length > 0) {
     '  On a host, set them in the build environment — not only at runtime,',
   )
   console.error('  or the client bundle ships with them inlined as undefined.')
+  console.error(
+    '\n  On Vercel these are scoped per environment: a variable set only for\n' +
+      '  Production is absent from Preview builds, which is what this usually is.',
+  )
   console.error('\n  See DEPLOYMENT.md.\n')
   process.exit(1)
 }
