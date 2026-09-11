@@ -2,6 +2,10 @@
   "name": "pestm8",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.12.0 <23"
+  },
   "imports": {
     "#/*": "./src/*"
   },
@@ -10,11 +14,16 @@
     "generate-routes": "tsr generate",
     "build": "vite build && node scripts/build-sw.mjs",
     "preview": "vite preview",
+    "seed": "node scripts/seed.mjs",
     "test:e2e": "playwright test",
     "check:dates": "node scripts/check-dst-boundaries.mjs",
+    "check:routes": "tsr generate && git diff --exit-code src/routeTree.gen.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:convex": "tsc --noEmit -p convex/tsconfig.json",
     "lint": "eslint",
     "format": "prettier --write . && eslint --fix",
-    "check": "prettier --check ."
+    "check": "prettier --check .",
+    "verify": "pnpm check && pnpm lint && pnpm typecheck && pnpm typecheck:convex && pnpm check:routes && pnpm check:dates"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",
