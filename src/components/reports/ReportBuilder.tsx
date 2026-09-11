@@ -54,7 +54,10 @@ export function ReportBuilder({
   authorLicence?: string
   onFinalised: () => void
 }) {
-  const template = resolveReportTemplate({ template: templateId, customTemplate })
+  const template = resolveReportTemplate({
+    template: templateId,
+    customTemplate,
+  })
 
   const [data, setData] = useState<Record<string, unknown>>(() =>
     seedData(fieldsOf(template), initialData),
@@ -112,7 +115,8 @@ export function ReportBuilder({
     value: submittable(),
     // A locked report has nothing to save, and neither does one still hydrating.
     enabled: hydrated && !finalise.isSuccess,
-    save: (payload) => save.mutateAsync({ businessId, reportId, data: payload }),
+    save: (payload) =>
+      save.mutateAsync({ businessId, reportId, data: payload }),
   })
 
   async function onFinaliseClick() {

@@ -1,6 +1,10 @@
-import { createFileRoute, notFound, redirect } from '@tanstack/react-router'
+import {
+  createFileRoute,
+  notFound,
+  redirect,
+  Outlet,
+} from '@tanstack/react-router'
 import { convexQuery } from '@convex-dev/react-query'
-import { Outlet } from '@tanstack/react-router'
 import { api } from '../../../convex/_generated/api'
 import { AppShell } from '#/components/shell/AppShell'
 import { ViewingAsBanner } from '#/components/shell/ViewingAsBanner'

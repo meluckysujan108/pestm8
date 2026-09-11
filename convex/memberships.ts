@@ -1,7 +1,12 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { canViewAs, getAuthUserId, requireMembership, requireOwner } from './lib/access'
+import {
+  canViewAs,
+  getAuthUserId,
+  requireMembership,
+  requireOwner,
+} from './lib/access'
 import { nextColour } from './lib/colours'
 import { role } from './schema'
 
@@ -25,8 +30,8 @@ export const listForBusiness = query({
         return {
           _id: m._id,
           userId: m.userId,
-          name: (user?.name as string | undefined) ?? '',
-          email: (user?.email as string | undefined) ?? '',
+          name: user?.name ?? '',
+          email: user?.email ?? '',
           role: m.role,
           canViewAllJobs: m.canViewAllJobs,
           canViewOtherAccounts: m.canViewOtherAccounts ?? false,
@@ -478,6 +483,8 @@ export const setViewingAs = mutation({
     if (!target) throw new ConvexError('NOT_FOUND')
     if (!canViewAs(actor, target)) throw new ConvexError('NO_ACCESS')
 
-    await ctx.db.patch(actor._id, { viewingAsMembershipId: args.targetMembershipId })
+    await ctx.db.patch(actor._id, {
+      viewingAsMembershipId: args.targetMembershipId,
+    })
   },
 })

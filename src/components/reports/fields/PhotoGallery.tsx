@@ -1,7 +1,14 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Camera, ChevronDown, ChevronUp, PenLine, Star, Trash2 } from 'lucide-react'
+import {
+  Camera,
+  ChevronDown,
+  ChevronUp,
+  PenLine,
+  Star,
+  Trash2,
+} from 'lucide-react'
 import { api } from '../../../../convex/_generated/api'
 import { AnnotationEditor } from './AnnotationEditor'
 import type { EditorProps } from './registry'
@@ -48,7 +55,8 @@ export function GalleryControl({ field, ctx }: GalleryField) {
     }) => convexAdd(args),
   })
 
-  const atMax = field.maxPhotos !== undefined && photos.length >= field.maxPhotos
+  const atMax =
+    field.maxPhotos !== undefined && photos.length >= field.maxPhotos
 
   async function onPick(files: Array<File>) {
     setBusy(true)
@@ -234,14 +242,20 @@ function GalleryTile({
                 ? `${label} photo ${ordinal} — cover photo`
                 : `${label} photo ${ordinal} — set as cover`
             }
-            onClick={() => void setCover({ businessId, reportId, photoId: photo._id })}
+            onClick={() =>
+              void setCover({ businessId, reportId, photoId: photo._id })
+            }
             className={`absolute right-1 top-1 flex size-7 items-center justify-center rounded-full transition ${
               photo.isCover
                 ? 'bg-amber text-white'
                 : 'bg-black/40 text-white/80 hover:text-white'
             }`}
           >
-            <Star size={14} strokeWidth={2} fill={photo.isCover ? 'currentColor' : 'none'} />
+            <Star
+              size={14}
+              strokeWidth={2}
+              fill={photo.isCover ? 'currentColor' : 'none'}
+            />
           </button>
         )}
       </span>
@@ -253,7 +267,12 @@ function GalleryTile({
         onChange={(e) => setCaption(e.target.value)}
         onBlur={() => {
           if (caption !== (photo.caption ?? '')) {
-            void updateCaption({ businessId, reportId, photoId: photo._id, caption })
+            void updateCaption({
+              businessId,
+              reportId,
+              photoId: photo._id,
+              caption,
+            })
           }
         }}
         className="h-9 w-full rounded-lg bg-surface-3 px-2 text-[13px] text-ink outline-none focus:ring-2 focus:ring-blue"
@@ -266,7 +285,12 @@ function GalleryTile({
             disabled={index === 0}
             aria-label={`Move ${label} photo ${ordinal} up`}
             onClick={() =>
-              void move({ businessId, reportId, photoId: photo._id, direction: 'up' })
+              void move({
+                businessId,
+                reportId,
+                photoId: photo._id,
+                direction: 'up',
+              })
             }
             className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
@@ -277,7 +301,12 @@ function GalleryTile({
             disabled={index === total - 1}
             aria-label={`Move ${label} photo ${ordinal} down`}
             onClick={() =>
-              void move({ businessId, reportId, photoId: photo._id, direction: 'down' })
+              void move({
+                businessId,
+                reportId,
+                photoId: photo._id,
+                direction: 'down',
+              })
             }
             className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
@@ -297,7 +326,9 @@ function GalleryTile({
           <button
             type="button"
             aria-label={`Remove ${label} photo ${ordinal}`}
-            onClick={() => void remove({ businessId, reportId, photoId: photo._id })}
+            onClick={() =>
+              void remove({ businessId, reportId, photoId: photo._id })
+            }
             className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
             <Trash2 size={14} strokeWidth={1.8} />

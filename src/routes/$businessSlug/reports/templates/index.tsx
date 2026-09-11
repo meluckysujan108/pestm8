@@ -229,16 +229,22 @@ function CustomRow({
   const convexRemove = useConvexMutation(api.customTemplates.remove)
 
   const archive = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; templateId: Id<'customReportTemplates'> }) =>
-      convexArchive(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      templateId: Id<'customReportTemplates'>
+    }) => convexArchive(args),
   })
   const unarchive = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; templateId: Id<'customReportTemplates'> }) =>
-      convexUnarchive(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      templateId: Id<'customReportTemplates'>
+    }) => convexUnarchive(args),
   })
   const remove = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; templateId: Id<'customReportTemplates'> }) =>
-      convexRemove(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      templateId: Id<'customReportTemplates'>
+    }) => convexRemove(args),
     onError: async (error) => {
       // The delete button always tries a real delete first — the mutation
       // itself is the one place that actually knows whether anything
@@ -291,7 +297,9 @@ function CustomRow({
             type="button"
             aria-label="Unarchive"
             disabled={unarchive.isPending}
-            onClick={() => unarchive.mutate({ businessId, templateId: template._id })}
+            onClick={() =>
+              unarchive.mutate({ businessId, templateId: template._id })
+            }
             className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
           >
             <ArchiveRestore size={16} strokeWidth={1.7} />
@@ -301,7 +309,9 @@ function CustomRow({
             type="button"
             aria-label="Archive"
             disabled={archive.isPending}
-            onClick={() => archive.mutate({ businessId, templateId: template._id })}
+            onClick={() =>
+              archive.mutate({ businessId, templateId: template._id })
+            }
             className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
           >
             <Archive size={16} strokeWidth={1.7} />
@@ -311,7 +321,9 @@ function CustomRow({
           type="button"
           aria-label="Delete"
           disabled={remove.isPending}
-          onClick={() => remove.mutate({ businessId, templateId: template._id })}
+          onClick={() =>
+            remove.mutate({ businessId, templateId: template._id })
+          }
           className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
         >
           <Trash2 size={16} strokeWidth={1.7} />

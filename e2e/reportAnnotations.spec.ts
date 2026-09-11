@@ -48,11 +48,14 @@ test('the report author and an owner viewing a sub-authored report can both add 
     points: STROKE,
   })
 
-  const strokes = await s.owner.client.query(api.reportAnnotations.listAnnotations, {
-    businessId: s.businessId,
-    reportId,
-    page: 1,
-  })
+  const strokes = await s.owner.client.query(
+    api.reportAnnotations.listAnnotations,
+    {
+      businessId: s.businessId,
+      reportId,
+      page: 1,
+    },
+  )
   expect(strokes).toHaveLength(2)
 })
 
@@ -74,11 +77,14 @@ test('annotations work on a draft report too — the guard is not hardcoded to f
     points: STROKE,
   })
 
-  const strokes = await s.owner.client.query(api.reportAnnotations.listAnnotations, {
-    businessId: s.businessId,
-    reportId,
-    page: 1,
-  })
+  const strokes = await s.owner.client.query(
+    api.reportAnnotations.listAnnotations,
+    {
+      businessId: s.businessId,
+      reportId,
+      page: 1,
+    },
+  )
   expect(strokes).toHaveLength(1)
 })
 
@@ -166,11 +172,14 @@ test('undoLastStroke removes only the caller own most recent stroke', async () =
     page: 1,
   })
 
-  const remaining = await s.owner.client.query(api.reportAnnotations.listAnnotations, {
-    businessId: s.businessId,
-    reportId,
-    page: 1,
-  })
+  const remaining = await s.owner.client.query(
+    api.reportAnnotations.listAnnotations,
+    {
+      businessId: s.businessId,
+      reportId,
+      page: 1,
+    },
+  )
   expect(remaining).toHaveLength(1)
   expect(remaining[0].authorMembershipId).toBe(s.subMembershipId)
 })
@@ -217,11 +226,14 @@ test('clearMyStrokes removes only the caller own rows, leaving the other author 
     page: 1,
   })
 
-  const remaining = await s.owner.client.query(api.reportAnnotations.listAnnotations, {
-    businessId: s.businessId,
-    reportId,
-    page: 1,
-  })
+  const remaining = await s.owner.client.query(
+    api.reportAnnotations.listAnnotations,
+    {
+      businessId: s.businessId,
+      reportId,
+      page: 1,
+    },
+  )
   expect(remaining).toHaveLength(1)
   expect(remaining[0].authorMembershipId).toBe(s.subMembershipId)
 })

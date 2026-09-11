@@ -19,3 +19,6 @@ playwright-report
 .claude/scheduled_tasks.lock
 .vercel
 .env*
+
+# Keep the committed template visible despite the .env* rule above.
+!.env.example

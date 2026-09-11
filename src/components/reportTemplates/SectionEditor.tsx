@@ -47,10 +47,16 @@ export function SectionEditor({
   }
 
   function updateField(index: number, next: FieldDef) {
-    onChange({ ...section, fields: section.fields.map((f, i) => (i === index ? next : f)) })
+    onChange({
+      ...section,
+      fields: section.fields.map((f, i) => (i === index ? next : f)),
+    })
   }
   function removeField(index: number) {
-    onChange({ ...section, fields: section.fields.filter((_, i) => i !== index) })
+    onChange({
+      ...section,
+      fields: section.fields.filter((_, i) => i !== index),
+    })
   }
   function moveField(index: number, direction: 'up' | 'down') {
     const target = direction === 'up' ? index - 1 : index + 1
@@ -66,7 +72,9 @@ export function SectionEditor({
   function candidatesBefore(fieldIndex: number) {
     return [
       ...earlierFieldCandidates,
-      ...section.fields.slice(0, fieldIndex).map((f) => ({ key: f.key, label: f.label })),
+      ...section.fields
+        .slice(0, fieldIndex)
+        .map((f) => ({ key: f.key, label: f.label })),
     ]
   }
 
@@ -112,7 +120,9 @@ export function SectionEditor({
 
       <input
         value={section.preamble ?? ''}
-        onChange={(e) => onChange({ ...section, preamble: e.target.value || undefined })}
+        onChange={(e) =>
+          onChange({ ...section, preamble: e.target.value || undefined })
+        }
         placeholder="Preamble (optional)"
         className="mt-2 h-10 w-full rounded-xl bg-surface-3 px-3 text-[14px] text-ink-2 outline-none focus:ring-2 focus:ring-blue"
       />
@@ -188,14 +198,18 @@ export function SectionEditor({
         key={sheetNonce}
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        editing={editingIndex !== null ? section.fields[editingIndex] : undefined}
+        editing={
+          editingIndex !== null ? section.fields[editingIndex] : undefined
+        }
         existingKeys={
           editingIndex !== null
             ? new Set([...otherKeys, ...allKeysHere])
             : existingKeysForSheet
         }
         visibleWhenCandidates={
-          editingIndex !== null ? candidatesBefore(editingIndex) : candidatesBefore(section.fields.length)
+          editingIndex !== null
+            ? candidatesBefore(editingIndex)
+            : candidatesBefore(section.fields.length)
         }
         onSave={(field) => {
           if (editingIndex !== null) updateField(editingIndex, field)

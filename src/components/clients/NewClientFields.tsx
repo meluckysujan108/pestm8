@@ -52,7 +52,9 @@ export function NewClientFields({
         />
       </Field>
 
-      <Field label={value.kind === 'business' ? 'Business name' : 'Client name'}>
+      <Field
+        label={value.kind === 'business' ? 'Business name' : 'Client name'}
+      >
         <Input
           value={value.clientName}
           onChange={(clientName) => onChange({ clientName })}
@@ -99,10 +101,18 @@ export function NewClientFields({
       </div>
 
       <Field label="Phone (optional)">
-        <Input value={value.phone} onChange={(phone) => onChange({ phone })} type="tel" />
+        <Input
+          value={value.phone}
+          onChange={(phone) => onChange({ phone })}
+          type="tel"
+        />
       </Field>
       <Field label="Email (optional)">
-        <Input value={value.email} onChange={(email) => onChange({ email })} type="email" />
+        <Input
+          value={value.email}
+          onChange={(email) => onChange({ email })}
+          type="email"
+        />
       </Field>
     </>
   )

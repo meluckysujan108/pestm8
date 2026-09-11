@@ -27,7 +27,12 @@ const SECTIONS: Array<SectionDef> = [
     number: 1,
     title: 'Inspection',
     fields: [
-      { kind: 'text', key: 'clientRef', label: 'Client reference', required: true },
+      {
+        kind: 'text',
+        key: 'clientRef',
+        label: 'Client reference',
+        required: true,
+      },
       { kind: 'toggle', key: 'accessGranted', label: 'Was access granted?' },
       {
         kind: 'areas',
@@ -67,20 +72,28 @@ test.describe('custom report templates', () => {
     // the hand-written path).
     const bad = schema.safeParse({
       accessGranted: false,
-      areas: { 'Roof void': { status: 'noAccess' }, Subfloor: { status: 'inspected' } },
+      areas: {
+        'Roof void': { status: 'noAccess' },
+        Subfloor: { status: 'inspected' },
+      },
       items: [{ _id: 'a', note: 'Termite mud trail' }],
     })
     expect(bad.success).toBe(false)
     if (!bad.success) {
       const messages = bad.error.issues.map((i) => i.message)
       expect(messages).toContain('Client reference is required')
-      expect(messages).toContain('A reason is required when an area was not inspected')
+      expect(messages).toContain(
+        'A reason is required when an area was not inspected',
+      )
     }
 
     // A repeater below its `min` floor fails independently of everything else.
     const emptyRepeater = schema.safeParse({
       clientRef: 'REF-1',
-      areas: { 'Roof void': { status: 'inspected' }, Subfloor: { status: 'inspected' } },
+      areas: {
+        'Roof void': { status: 'inspected' },
+        Subfloor: { status: 'inspected' },
+      },
       items: [],
     })
     expect(emptyRepeater.success).toBe(false)
@@ -89,7 +102,10 @@ test.describe('custom report templates', () => {
     const good = schema.safeParse({
       clientRef: 'REF-1',
       accessGranted: true,
-      areas: { 'Roof void': { status: 'inspected' }, Subfloor: { status: 'inspected' } },
+      areas: {
+        'Roof void': { status: 'inspected' },
+        Subfloor: { status: 'inspected' },
+      },
       items: [{ _id: 'a', note: 'Nothing found' }],
     })
     expect(good.success).toBe(true)
@@ -146,10 +162,10 @@ test.describe('custom report templates', () => {
       postcode: '6066',
     })
 
-    const templateId = await owner.client.mutation(
-      api.customTemplates.create,
-      { businessId, ...customTemplateArgs() },
-    )
+    const templateId = await owner.client.mutation(api.customTemplates.create, {
+      businessId,
+      ...customTemplateArgs(),
+    })
 
     // Two reports against the same live template: one goes to finalised,
     // one stays a draft — the whole point is watching them diverge after an
@@ -181,7 +197,10 @@ test.describe('custom report templates', () => {
     const payload = {
       clientRef: 'REF-42',
       accessGranted: true,
-      areas: { 'Roof void': { status: 'inspected' }, Subfloor: { status: 'inspected' } },
+      areas: {
+        'Roof void': { status: 'inspected' },
+        Subfloor: { status: 'inspected' },
+      },
       items: [{ _id: 'row-1', note: 'Nothing found' }],
     }
     await owner.client.mutation(api.reports.finalise, {
@@ -231,12 +250,22 @@ test.describe('custom report templates', () => {
       businessId,
       reportId: draftReportId,
     })
-    expect(draftAfterEdit?.customTemplate?.name).toBe('Site Walkthrough (Revised)')
+    expect(draftAfterEdit?.customTemplate?.name).toBe(
+      'Site Walkthrough (Revised)',
+    )
   })
 
   test('access control: a subcontractor cannot author or edit a business template, a non-member cannot read one', async () => {
-    const owner = await signUpActor(uniqueEmail('customtpl-owner2'), FIXTURE_PASSWORD, 'Owner')
-    const sub = await signUpActor(uniqueEmail('customtpl-sub'), FIXTURE_PASSWORD, 'Sub')
+    const owner = await signUpActor(
+      uniqueEmail('customtpl-owner2'),
+      FIXTURE_PASSWORD,
+      'Owner',
+    )
+    const sub = await signUpActor(
+      uniqueEmail('customtpl-sub'),
+      FIXTURE_PASSWORD,
+      'Sub',
+    )
     const outsider = await signUpActor(
       uniqueEmail('customtpl-outsider'),
       FIXTURE_PASSWORD,
@@ -258,14 +287,18 @@ test.describe('custom report templates', () => {
     await sub.client.mutation(api.memberships.accept, { businessId })
 
     await expectRejected(
-      () => sub.client.mutation(api.customTemplates.create, { businessId, ...customTemplateArgs() }),
+      () =>
+        sub.client.mutation(api.customTemplates.create, {
+          businessId,
+          ...customTemplateArgs(),
+        }),
       'NO_ACCESS',
     )
 
-    const templateId = await owner.client.mutation(
-      api.customTemplates.create,
-      { businessId, ...customTemplateArgs() },
-    )
+    const templateId = await owner.client.mutation(api.customTemplates.create, {
+      businessId,
+      ...customTemplateArgs(),
+    })
 
     await expectRejected(
       () =>
@@ -278,26 +311,40 @@ test.describe('custom report templates', () => {
     )
 
     await expectRejected(
-      () => outsider.client.query(api.customTemplates.get, { businessId, templateId }),
+      () =>
+        outsider.client.query(api.customTemplates.get, {
+          businessId,
+          templateId,
+        }),
       'NO_ACCESS',
     )
   })
 
   test('cloneBuiltin copies a built-in template independently of its source module', async () => {
-    const owner = await signUpActor(uniqueEmail('customtpl-clone'), FIXTURE_PASSWORD, 'Owner')
+    const owner = await signUpActor(
+      uniqueEmail('customtpl-clone'),
+      FIXTURE_PASSWORD,
+      'Owner',
+    )
     const { businessId } = await owner.client.mutation(api.businesses.create, {
       name: `Clone Co ${Date.now()}`,
       state: 'WA',
       timezone: 'Australia/Perth',
     })
 
-    const templateId = await owner.client.mutation(api.customTemplates.cloneBuiltin, {
-      businessId,
-      sourceTemplateId: 'treatmentRecord',
-      name: 'Treatment Record (Ours)',
-    })
+    const templateId = await owner.client.mutation(
+      api.customTemplates.cloneBuiltin,
+      {
+        businessId,
+        sourceTemplateId: 'treatmentRecord',
+        name: 'Treatment Record (Ours)',
+      },
+    )
 
-    const cloned = await owner.client.query(api.customTemplates.get, { businessId, templateId })
+    const cloned = await owner.client.query(api.customTemplates.get, {
+      businessId,
+      templateId,
+    })
     expect(cloned?.name).toBe('Treatment Record (Ours)')
     expect(Array.isArray(cloned?.sections)).toBe(true)
     expect((cloned?.sections as Array<unknown>).length).toBeGreaterThan(0)
@@ -315,7 +362,11 @@ test.describe('custom report templates', () => {
   })
 
   test('duplicate copies an existing custom template into a second, independent row', async () => {
-    const owner = await signUpActor(uniqueEmail('customtpl-dup'), FIXTURE_PASSWORD, 'Owner')
+    const owner = await signUpActor(
+      uniqueEmail('customtpl-dup'),
+      FIXTURE_PASSWORD,
+      'Owner',
+    )
     const { businessId } = await owner.client.mutation(api.businesses.create, {
       name: `Duplicate Co ${Date.now()}`,
       state: 'WA',
@@ -347,7 +398,11 @@ test.describe('custom report templates', () => {
   })
 
   test('archive hides a template from active use without touching anything, unarchive reverses it', async () => {
-    const owner = await signUpActor(uniqueEmail('customtpl-archive'), FIXTURE_PASSWORD, 'Owner')
+    const owner = await signUpActor(
+      uniqueEmail('customtpl-archive'),
+      FIXTURE_PASSWORD,
+      'Owner',
+    )
     const { businessId } = await owner.client.mutation(api.businesses.create, {
       name: `Archive Co ${Date.now()}`,
       state: 'WA',
@@ -367,8 +422,14 @@ test.describe('custom report templates', () => {
       ...customTemplateArgs(),
     })
 
-    await owner.client.mutation(api.customTemplates.archive, { businessId, templateId })
-    const archived = await owner.client.query(api.customTemplates.get, { businessId, templateId })
+    await owner.client.mutation(api.customTemplates.archive, {
+      businessId,
+      templateId,
+    })
+    const archived = await owner.client.query(api.customTemplates.get, {
+      businessId,
+      templateId,
+    })
     expect(archived?.archivedAt).toBeTruthy()
 
     // Archiving is a picker-visibility switch only — it must not block a
@@ -387,7 +448,10 @@ test.describe('custom report templates', () => {
       'TEMPLATE_ARCHIVED',
     )
 
-    await owner.client.mutation(api.customTemplates.unarchive, { businessId, templateId })
+    await owner.client.mutation(api.customTemplates.unarchive, {
+      businessId,
+      templateId,
+    })
     const unarchived = await owner.client.query(api.customTemplates.get, {
       businessId,
       templateId,
@@ -407,7 +471,11 @@ test.describe('custom report templates', () => {
   })
 
   test('remove hard-deletes an unused template but refuses one that is in use', async () => {
-    const owner = await signUpActor(uniqueEmail('customtpl-remove'), FIXTURE_PASSWORD, 'Owner')
+    const owner = await signUpActor(
+      uniqueEmail('customtpl-remove'),
+      FIXTURE_PASSWORD,
+      'Owner',
+    )
     const { businessId } = await owner.client.mutation(api.businesses.create, {
       name: `Remove Co ${Date.now()}`,
       state: 'WA',
@@ -426,8 +494,16 @@ test.describe('custom report templates', () => {
       businessId,
       ...customTemplateArgs(),
     })
-    await owner.client.mutation(api.customTemplates.remove, { businessId, templateId: unusedId })
-    expect(await owner.client.query(api.customTemplates.get, { businessId, templateId: unusedId })).toBeNull()
+    await owner.client.mutation(api.customTemplates.remove, {
+      businessId,
+      templateId: unusedId,
+    })
+    expect(
+      await owner.client.query(api.customTemplates.get, {
+        businessId,
+        templateId: unusedId,
+      }),
+    ).toBeNull()
 
     const inUseId = await owner.client.mutation(api.customTemplates.create, {
       businessId,
@@ -443,16 +519,29 @@ test.describe('custom report templates', () => {
     })
 
     await expectRejected(
-      () => owner.client.mutation(api.customTemplates.remove, { businessId, templateId: inUseId }),
+      () =>
+        owner.client.mutation(api.customTemplates.remove, {
+          businessId,
+          templateId: inUseId,
+        }),
       'TEMPLATE_IN_USE',
     )
     // Still there, and still usable — a refused delete must not have
     // partially archived or otherwise mutated it.
-    expect(await owner.client.query(api.customTemplates.get, { businessId, templateId: inUseId })).toBeTruthy()
+    expect(
+      await owner.client.query(api.customTemplates.get, {
+        businessId,
+        templateId: inUseId,
+      }),
+    ).toBeTruthy()
   })
 
   test('list returns every template for a business, including archived ones', async () => {
-    const owner = await signUpActor(uniqueEmail('customtpl-list'), FIXTURE_PASSWORD, 'Owner')
+    const owner = await signUpActor(
+      uniqueEmail('customtpl-list'),
+      FIXTURE_PASSWORD,
+      'Owner',
+    )
     const { businessId } = await owner.client.mutation(api.businesses.create, {
       name: `List Co ${Date.now()}`,
       state: 'WA',
@@ -472,15 +561,25 @@ test.describe('custom report templates', () => {
       templateId: archivedId,
     })
 
-    const list = await owner.client.query(api.customTemplates.list, { businessId })
+    const list = await owner.client.query(api.customTemplates.list, {
+      businessId,
+    })
     const ids = list.map((t) => t._id)
     expect(ids).toContain(activeId)
     expect(ids).toContain(archivedId)
   })
 
   test('access control: a subcontractor cannot clone, duplicate, archive, or delete a template', async () => {
-    const owner = await signUpActor(uniqueEmail('customtpl-crud-acl'), FIXTURE_PASSWORD, 'Owner')
-    const sub = await signUpActor(uniqueEmail('customtpl-crud-sub'), FIXTURE_PASSWORD, 'Sub')
+    const owner = await signUpActor(
+      uniqueEmail('customtpl-crud-acl'),
+      FIXTURE_PASSWORD,
+      'Owner',
+    )
+    const sub = await signUpActor(
+      uniqueEmail('customtpl-crud-sub'),
+      FIXTURE_PASSWORD,
+      'Sub',
+    )
 
     const { businessId } = await owner.client.mutation(api.businesses.create, {
       name: `CRUD ACL Co ${Date.now()}`,
@@ -519,11 +618,19 @@ test.describe('custom report templates', () => {
       'NO_ACCESS',
     )
     await expectRejected(
-      () => sub.client.mutation(api.customTemplates.archive, { businessId, templateId }),
+      () =>
+        sub.client.mutation(api.customTemplates.archive, {
+          businessId,
+          templateId,
+        }),
       'NO_ACCESS',
     )
     await expectRejected(
-      () => sub.client.mutation(api.customTemplates.remove, { businessId, templateId }),
+      () =>
+        sub.client.mutation(api.customTemplates.remove, {
+          businessId,
+          templateId,
+        }),
       'NO_ACCESS',
     )
   })
@@ -534,11 +641,14 @@ test.describe('custom report templates', () => {
     const email = uniqueEmail('customtpl-picker')
     const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Owner')
 
-    const { businessId, slug } = await owner.client.mutation(api.businesses.create, {
-      name: `Picker Co ${Date.now()}`,
-      state: 'WA',
-      timezone: 'Australia/Perth',
-    })
+    const { businessId, slug } = await owner.client.mutation(
+      api.businesses.create,
+      {
+        name: `Picker Co ${Date.now()}`,
+        state: 'WA',
+        timezone: 'Australia/Perth',
+      },
+    )
     await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'P. Ng',

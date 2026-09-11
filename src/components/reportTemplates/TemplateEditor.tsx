@@ -113,7 +113,10 @@ export function TemplateEditor({
     }))
   }
   function removeSection(index: number) {
-    setDraft((d) => ({ ...d, sections: d.sections.filter((_, i) => i !== index) }))
+    setDraft((d) => ({
+      ...d,
+      sections: d.sections.filter((_, i) => i !== index),
+    }))
   }
   function moveSection(index: number, direction: 'up' | 'down') {
     const target = direction === 'up' ? index - 1 : index + 1
@@ -141,7 +144,9 @@ export function TemplateEditor({
           <span className="section-label">Short name</span>
           <input
             value={draft.shortName}
-            onChange={(e) => setDraft((d) => ({ ...d, shortName: e.target.value }))}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, shortName: e.target.value }))
+            }
             className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
           />
         </label>
@@ -149,7 +154,9 @@ export function TemplateEditor({
           <span className="section-label">Legal basis / tag</span>
           <input
             value={draft.legalBasis}
-            onChange={(e) => setDraft((d) => ({ ...d, legalBasis: e.target.value }))}
+            onChange={(e) =>
+              setDraft((d) => ({ ...d, legalBasis: e.target.value }))
+            }
             className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
           />
         </label>
@@ -191,10 +198,14 @@ export function TemplateEditor({
       </button>
 
       <label className="mt-6 flex flex-col gap-1.5">
-        <span className="section-label">Standard terms (printed, not editable by whoever fills this in)</span>
+        <span className="section-label">
+          Standard terms (printed, not editable by whoever fills this in)
+        </span>
         <textarea
           value={draft.boilerplate}
-          onChange={(e) => setDraft((d) => ({ ...d, boilerplate: e.target.value }))}
+          onChange={(e) =>
+            setDraft((d) => ({ ...d, boilerplate: e.target.value }))
+          }
           rows={6}
           className="w-full rounded-xl bg-surface-3 p-3 text-[14px] text-ink outline-none focus:ring-2 focus:ring-blue"
         />
@@ -205,7 +216,8 @@ export function TemplateEditor({
           role="alert"
           className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
-          {validation.error.issues[0]?.message ?? 'This template has a problem.'}
+          {validation.error.issues[0]?.message ??
+            'This template has a problem.'}
         </p>
       )}
 

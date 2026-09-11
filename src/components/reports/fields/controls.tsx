@@ -300,23 +300,22 @@ export function ChecksControl({ field, value, onChange }: Of<'checks'>) {
 
   return (
     <span className="flex flex-col gap-1.5">
-      {[
-        ...field.options,
-        ...custom.map((c) => ({ value: c, label: c })),
-      ].map((option) => (
-        <label
-          key={option.value}
-          className="flex items-center gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5"
-        >
-          <input
-            type="checkbox"
-            checked={selected.includes(option.value)}
-            onChange={() => toggle(option.value)}
-            className="size-4 accent-red"
-          />
-          <span className="text-body text-ink">{option.label}</span>
-        </label>
-      ))}
+      {[...field.options, ...custom.map((c) => ({ value: c, label: c }))].map(
+        (option) => (
+          <label
+            key={option.value}
+            className="flex items-center gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5"
+          >
+            <input
+              type="checkbox"
+              checked={selected.includes(option.value)}
+              onChange={() => toggle(option.value)}
+              className="size-4 accent-red"
+            />
+            <span className="text-body text-ink">{option.label}</span>
+          </label>
+        ),
+      )}
 
       {field.extensible && (
         <span className="mt-0.5 flex gap-2">
@@ -425,7 +424,12 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
   )
 }
 
-export function SignatureControl({ field, value, onChange, ctx }: Of<'signature'>) {
+export function SignatureControl({
+  field,
+  value,
+  onChange,
+  ctx,
+}: Of<'signature'>) {
   const signed = value as SignatureValue | undefined
   return (
     <SignaturePad

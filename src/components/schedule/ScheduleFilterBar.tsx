@@ -29,9 +29,19 @@ export function ScheduleFilterBar({
   // real option (not a raw id string in the trigger) rather than only ever
   // listing staff who already have a job.
   const selectedInLoad = staffLoad.some((s) => s.membershipId === staffId)
-  const selectedMember = !selectedInLoad ? members.find((m) => m._id === staffId) : undefined
+  const selectedMember = !selectedInLoad
+    ? members.find((m) => m._id === staffId)
+    : undefined
   const staffOptions = selectedMember
-    ? [...staffLoad, { membershipId: selectedMember._id, name: selectedMember.name, colour: selectedMember.colour, count: 0 }]
+    ? [
+        ...staffLoad,
+        {
+          membershipId: selectedMember._id,
+          name: selectedMember.name,
+          colour: selectedMember.colour,
+          count: 0,
+        },
+      ]
     : staffLoad
   // A subcontractor without canViewAllJobs only ever sees their own jobs, and
   // a single-tech day is the same case — a dropdown with one real choice is

@@ -50,7 +50,8 @@ export function VisibleWhenEditor({
   candidates: Array<{ key: string; label: string }>
 }) {
   const matchType = value ? matchTypeOf(value) : null
-  const when = value && 'when' in value ? value.when : (candidates[0]?.key ?? '')
+  const when =
+    value && 'when' in value ? value.when : (candidates[0]?.key ?? '')
 
   if (candidates.length === 0) {
     return (
@@ -85,7 +86,9 @@ export function VisibleWhenEditor({
             <span className="section-label">When this field…</span>
             <select
               value={when}
-              onChange={(e) => onChange(rebuild(matchType, e.target.value, value))}
+              onChange={(e) =>
+                onChange(rebuild(matchType, e.target.value, value))
+              }
               className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
             >
               {candidates.map((c) => (
@@ -115,8 +118,12 @@ export function VisibleWhenEditor({
               </span>
               <input
                 value={valueText(value)}
-                onChange={(e) => onChange(withValue(matchType, when, e.target.value))}
-                placeholder={matchType === 'eq' ? 'e.g. true, or a choice label' : ''}
+                onChange={(e) =>
+                  onChange(withValue(matchType, when, e.target.value))
+                }
+                placeholder={
+                  matchType === 'eq' ? 'e.g. true, or a choice label' : ''
+                }
                 className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
               />
             </label>
@@ -129,12 +136,20 @@ export function VisibleWhenEditor({
 
 /** Carries the value text over when only `when`/match type changed, so
  * switching the trigger field doesn't discard what was already typed. */
-function rebuild(matchType: MatchType, when: string, previous: Condition): Condition {
+function rebuild(
+  matchType: MatchType,
+  when: string,
+  previous: Condition,
+): Condition {
   const text = matchType === matchTypeOf(previous) ? valueText(previous) : ''
   return withValue(matchType, when, text)
 }
 
-function withValue(matchType: MatchType, when: string, text: string): Condition {
+function withValue(
+  matchType: MatchType,
+  when: string,
+  text: string,
+): Condition {
   switch (matchType) {
     case 'filled':
       return { when, filled: true }

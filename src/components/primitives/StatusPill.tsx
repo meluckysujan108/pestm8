@@ -1,9 +1,5 @@
 export type JobStatus =
-  | 'booked'
-  | 'inProgress'
-  | 'completed'
-  | 'invoiced'
-  | 'cancelled'
+  'booked' | 'inProgress' | 'completed' | 'invoiced' | 'cancelled'
 
 const STYLES: Record<JobStatus, { label: string; className: string }> = {
   booked: { label: 'Booked', className: 'bg-surface-2 text-ink-2' },

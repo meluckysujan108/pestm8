@@ -7,7 +7,10 @@ import { api } from '../../../convex/_generated/api'
 import { JOB_TYPES, REPEAT_OPTIONS } from '#/lib/format'
 import { Combobox } from '#/components/primitives/Combobox'
 import { Segmented } from '#/components/primitives/Segmented'
-import { EMPTY_NEW_CLIENT, NewClientFields } from '#/components/clients/NewClientFields'
+import {
+  EMPTY_NEW_CLIENT,
+  NewClientFields,
+} from '#/components/clients/NewClientFields'
 import type { NewClientFieldsValue } from '#/components/clients/NewClientFields'
 import type { RepeatValue } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -81,7 +84,8 @@ function NewJobForm({
     properties.length > 0 ? 'existing' : 'new',
   )
   const [propertyId, setPropertyId] = useState('')
-  const [newClient, setNewClient] = useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
+  const [newClient, setNewClient] =
+    useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
   const [assignee, setAssignee] = useState('')
   const [jobType, setJobType] = useState<string>(JOB_TYPES[0])
   const [time, setTime] = useState('09:00')
@@ -111,7 +115,8 @@ function NewJobForm({
   const create = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
-      property: { propertyId: Id<'properties'> } | { newClient: NewClientFieldsValue }
+      property:
+        { propertyId: Id<'properties'> } | { newClient: NewClientFieldsValue }
       assignedMembershipId: Id<'memberships'>
       jobType: string
       price: number

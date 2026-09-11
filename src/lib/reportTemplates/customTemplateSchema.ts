@@ -35,29 +35,49 @@ const base = {
   visibleWhen: conditionSchema.optional(),
 }
 
-const textField = z.object({ ...base, kind: z.literal('text'), placeholder: z.string().optional() })
+const textField = z.object({
+  ...base,
+  kind: z.literal('text'),
+  placeholder: z.string().optional(),
+})
 const areaField = z.object({
   ...base,
   kind: z.literal('area'),
   placeholder: z.string().optional(),
   rows: z.number().optional(),
 })
-const selectField = z.object({ ...base, kind: z.literal('select'), options: z.array(optionSchema) })
-const chipsField = z.object({ ...base, kind: z.literal('chips'), options: z.array(optionSchema) })
+const selectField = z.object({
+  ...base,
+  kind: z.literal('select'),
+  options: z.array(optionSchema),
+})
+const chipsField = z.object({
+  ...base,
+  kind: z.literal('chips'),
+  options: z.array(optionSchema),
+})
 const areasField = z.object({
   ...base,
   kind: z.literal('areas'),
   rows: z.array(z.string()),
   note: z.string().optional(),
 })
-const photosField = z.object({ ...base, kind: z.literal('photos'), slots: z.array(z.string()) })
+const photosField = z.object({
+  ...base,
+  kind: z.literal('photos'),
+  slots: z.array(z.string()),
+})
 const toggleField = z.object({
   ...base,
   kind: z.literal('toggle'),
   yes: z.string().optional(),
   no: z.string().optional(),
 })
-const radioField = z.object({ ...base, kind: z.literal('radio'), options: z.array(optionSchema) })
+const radioField = z.object({
+  ...base,
+  kind: z.literal('radio'),
+  options: z.array(optionSchema),
+})
 const dateField = z.object({
   ...base,
   kind: z.literal('date'),

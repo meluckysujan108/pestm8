@@ -83,7 +83,10 @@ export function AnnotationOverlay({
     for (const stroke of stored) {
       drawStroke(
         ctx,
-        stroke.points.map((p) => ({ x: p.x * canvas.width, y: p.y * canvas.height })),
+        stroke.points.map((p) => ({
+          x: p.x * canvas.width,
+          y: p.y * canvas.height,
+        })),
       )
     }
   }
@@ -125,7 +128,10 @@ export function AnnotationOverlay({
       businessId,
       reportId,
       page,
-      points: stroke.map((p) => ({ x: p.x / canvas.width, y: p.y / canvas.height })),
+      points: stroke.map((p) => ({
+        x: p.x / canvas.width,
+        y: p.y / canvas.height,
+      })),
     })
   }
 

@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { FIXTURE_PASSWORD, api, signInViaUi, signUpActor, uniqueEmail } from './fixtures'
+import {
+  FIXTURE_PASSWORD,
+  api,
+  signInViaUi,
+  signUpActor,
+  uniqueEmail,
+} from './fixtures'
 
 /**
  * The reports list page's dashboard cards, search, and status filter
@@ -17,11 +23,14 @@ test('the reports list buckets by status and searches across client, suburb, and
   const email = uniqueEmail('reportslist-owner')
   const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
 
-  const { businessId, slug } = await owner.client.mutation(api.businesses.create, {
-    name: `Reports List Co ${Date.now()}`,
-    state: 'WA',
-    timezone: 'Australia/Perth',
-  })
+  const { businessId, slug } = await owner.client.mutation(
+    api.businesses.create,
+    {
+      name: `Reports List Co ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
+  )
 
   const nguyen = await owner.client.mutation(api.properties.create, {
     businessId,
@@ -82,7 +91,9 @@ test('the reports list buckets by status and searches across client, suburb, and
   // Dashboard cards — scoped to `.section-label` since "Draft"/"Finalised"
   // also appear as status pill text and Segmented tab labels elsewhere on
   // this same page.
-  const draftCard = page.locator('.section-label', { hasText: 'Draft' }).locator('..')
+  const draftCard = page
+    .locator('.section-label', { hasText: 'Draft' })
+    .locator('..')
   await expect(draftCard.getByText('3', { exact: true })).toBeVisible()
   const finalisedCard = page
     .locator('.section-label', { hasText: 'Finalised' })
@@ -120,6 +131,8 @@ test('the reports list buckets by status and searches across client, suburb, and
   await expect(page.getByText('Pest Service Report')).toHaveCount(0)
 
   // No matches — the empty state, not a blank list.
-  await page.getByPlaceholder('Search by client, suburb or form').fill('nobody-lives-here')
+  await page
+    .getByPlaceholder('Search by client, suburb or form')
+    .fill('nobody-lives-here')
   await expect(page.getByText('No matches')).toBeVisible()
 })

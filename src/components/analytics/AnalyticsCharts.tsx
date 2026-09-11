@@ -54,7 +54,11 @@ const TOOLTIP_STYLE = {
  * data fetch rather than receiving it as a prop specifically so the query
  * and the `recharts` import stay in the same chunk.
  */
-export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }) {
+export function AnalyticsCharts({
+  businessId,
+}: {
+  businessId: Id<'businesses'>
+}) {
   const { data } = useSuspenseQuery(
     convexQuery(api.analytics.overview, { businessId }),
   )
@@ -73,7 +77,10 @@ export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }
     <div className="flex flex-col gap-4 px-4 pb-8 md:grid md:grid-cols-2">
       <ChartCard title="Revenue">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={revenueByMonth} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+          <LineChart
+            data={revenueByMonth}
+            margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
+          >
             <CartesianGrid stroke="var(--hairline)" vertical={false} />
             <XAxis
               dataKey="label"
@@ -85,7 +92,9 @@ export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }
               tick={{ fill: 'var(--muted)', fontSize: 12 }}
               axisLine={false}
               tickLine={false}
-              tickFormatter={(value: number) => formatMoney(value).replace(/\.00$/, '')}
+              tickFormatter={(value: number) =>
+                formatMoney(value).replace(/\.00$/, '')
+              }
               width={56}
             />
             <Tooltip
@@ -105,7 +114,10 @@ export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }
 
       <ChartCard title="Jobs booked">
         <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={volumeByMonth} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+          <BarChart
+            data={volumeByMonth}
+            margin={{ top: 8, right: 8, left: 8, bottom: 0 }}
+          >
             <CartesianGrid stroke="var(--hairline)" vertical={false} />
             <XAxis
               dataKey="label"
@@ -155,7 +167,9 @@ export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }
             >
               <span
                 className="size-2.5 rounded-full"
-                style={{ background: STATUS_COLOUR[entry.status] ?? 'var(--muted)' }}
+                style={{
+                  background: STATUS_COLOUR[entry.status] ?? 'var(--muted)',
+                }}
               />
               {STATUS_LABEL[entry.status] ?? entry.status} ({entry.count})
             </li>
@@ -203,7 +217,13 @@ export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }
   )
 }
 
-function ChartCard({ title, children }: { title: string; children: ReactNode }) {
+function ChartCard({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-4 shadow-elevation">
       <p className="section-label mb-2">{title}</p>

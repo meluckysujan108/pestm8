@@ -1,0 +1,101 @@
+name: E2E
+
+on:
+  # Called by ci.yml so a pull request and a push to main both run E2E as part
+  # of one gate, and so the production promotion can depend on its result.
+  workflow_call:
+    inputs:
+      suite:
+        description: Which specs to run — full, or core (access-control only)
+        type: string
+        default: core
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: Which specs to run
+        type: choice
+        default: full
+        options: [full, core]
+  schedule:
+    # 17:00 UTC ≈ 01:00 Australia/Perth — the full suite, overnight.
+    - cron: '0 17 * * *'
+
+concurrency:
+  # Every run deploys to the one shared CI Convex deployment, so they must not
+  # overlap. Unlike CI, in-flight runs are left to finish rather than cancelled:
+  # a half-deployed backend is worse than a slow queue.
+  group: e2e-convex-ci
+  cancel-in-progress: false
+
+jobs:
+  # Secrets are not readable from a job-level `if`, so the decision is made in
+  # a job that can read them. Until the CI Convex project exists, E2E skips
+  # cleanly instead of failing every pull request.
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          KEY: ${{ secrets.CONVEX_CI_DEPLOY_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo '::notice::CONVEX_CI_DEPLOY_KEY is not set — skipping E2E. See CONTRIBUTING.md.'
+          fi
+
+  e2e:
+    name: e2e-core
+    needs: guard
+    if: needs.guard.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_CI_DEPLOY_KEY }}
+      VITE_CONVEX_URL: ${{ secrets.CI_CONVEX_URL }}
+      VITE_CONVEX_SITE_URL: ${{ secrets.CI_CONVEX_SITE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Without this the suite would exercise new frontend code against
+      # whatever backend functions were deployed last — which is not a test of
+      # this pull request.
+      - name: Deploy this branch's backend to the CI deployment
+        run: npx convex deploy
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # On a pull request only the access-control matrix gates the merge: it is
+      # the suite where a regression is a business-ending trust failure
+      # (ARCHITECTURE.md §6.5), and it runs in a fraction of the time. The rest
+      # runs nightly and on demand.
+      # Expressions are passed through env rather than interpolated into the
+      # shell, so nothing user-controllable is ever spliced into a command.
+      - name: Run Playwright
+        env:
+          FULL_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-e2e') }}
+          SUITE: ${{ inputs.suite }}
+        run: |
+          if [ "$SUITE" = core ] && [ "$FULL_LABEL" != true ]; then
+            echo 'Access-control matrix only. Add the run-e2e label for the full suite.'
+            pnpm exec playwright test e2e/access-control.spec.ts
+          else
+            pnpm exec playwright test
+          fi
+
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 7

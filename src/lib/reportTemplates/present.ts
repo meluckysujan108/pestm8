@@ -30,7 +30,10 @@ export type Presented =
   | { kind: 'blank' }
   | { kind: 'text'; text: string; preserveWhitespace?: boolean }
   /** A labelled sub-list, e.g. each inspected area and its outcome. */
-  | { kind: 'pairs'; pairs: Array<{ label: string; value: string; tone: Tone }> }
+  | {
+      kind: 'pairs'
+      pairs: Array<{ label: string; value: string; tone: Tone }>
+    }
   /** Repeating rows under column headings. */
   | { kind: 'grid'; columns: Array<string>; rows: Array<Array<string>> }
 
@@ -106,7 +109,9 @@ export function present(field: FieldDef, value: unknown): Presented {
           const inspected = result.status === 'inspected'
           return {
             label: row,
-            value: inspected ? 'Inspected' : `No access — ${result.reason ?? ''}`,
+            value: inspected
+              ? 'Inspected'
+              : `No access — ${result.reason ?? ''}`,
             tone: inspected ? 'default' : 'warn',
           }
         }),

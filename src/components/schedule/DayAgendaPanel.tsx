@@ -42,7 +42,8 @@ export function DayAgendaPanel({
   members: Array<{ _id: string; name: string; colour: string }>
   onOpenJob: (jobId: string) => void
 }) {
-  const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(jobs)
+  const { status, setStatus, staffId, setStaffId, filteredJobs } =
+    useScheduleFilters(jobs)
   const [view, setView] = useState<View>('cards')
 
   const weather = useDayWeather(
@@ -50,7 +51,11 @@ export function DayAgendaPanel({
     state,
     jobs
       .filter((j) => j.suburb)
-      .map((j) => ({ dayKey: selectedKey, suburb: j.suburb, postcode: j.postcode ?? '' })),
+      .map((j) => ({
+        dayKey: selectedKey,
+        suburb: j.suburb,
+        postcode: j.postcode ?? '',
+      })),
   )
 
   return (
@@ -64,7 +69,12 @@ export function DayAgendaPanel({
             {filteredJobs.length} {filteredJobs.length === 1 ? 'job' : 'jobs'}
           </p>
         </div>
-        <Segmented label="View" value={view} options={VIEW_OPTIONS} onChange={setView} />
+        <Segmented
+          label="View"
+          value={view}
+          options={VIEW_OPTIONS}
+          onChange={setView}
+        />
       </div>
 
       <ScheduleFilterBar
@@ -101,7 +111,11 @@ export function DayAgendaPanel({
             <JobCard
               key={job._id}
               job={job}
-              weather={weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)]}
+              weather={
+                weather[
+                  weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)
+                ]
+              }
               timezone={timezone}
               onOpen={onOpenJob}
             />

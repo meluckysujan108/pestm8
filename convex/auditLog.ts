@@ -47,12 +47,12 @@ export const forEntity = query({
     // the guarantee obvious rather than implicit.
     const scoped = entries.filter((entry) => entry.businessId === businessId)
 
-    const actorIds = [...new Set(scoped.map((entry) => entry.actorMembershipId))]
+    const actorIds = [
+      ...new Set(scoped.map((entry) => entry.actorMembershipId)),
+    ]
     const actors = new Map(
       await Promise.all(
-        actorIds.map(
-          async (id) => [id, await ctx.db.get(id)] as const,
-        ),
+        actorIds.map(async (id) => [id, await ctx.db.get(id)] as const),
       ),
     )
 

@@ -42,7 +42,8 @@ export function JobTable({
         </thead>
         <tbody className="divide-y divide-hairline">
           {jobs.map((job) => {
-            const dayWeather = weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)]
+            const dayWeather =
+              weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)]
             return (
               <tr
                 key={job._id}
@@ -74,7 +75,9 @@ export function JobTable({
                     )}
                   </button>
                 </td>
-                <td className="px-2 py-2.5 text-body text-ink-2">{job.clientName}</td>
+                <td className="px-2 py-2.5 text-body text-ink-2">
+                  {job.clientName}
+                </td>
                 <td className="px-2 py-2.5 text-caption tabular-nums text-muted">
                   {formatTime(job.scheduledAt, timezone)}
                 </td>
@@ -84,7 +87,9 @@ export function JobTable({
                 <td className="px-2 py-2.5 text-caption text-muted">
                   <span className="flex items-center gap-1.5">
                     <span className="truncate">{job.suburb}</span>
-                    {dayWeather && <WeatherGlyph weather={dayWeather} size={14} />}
+                    {dayWeather && (
+                      <WeatherGlyph weather={dayWeather} size={14} />
+                    )}
                   </span>
                 </td>
                 <td className="px-2 py-2.5">

@@ -91,7 +91,9 @@ function NewReportPage() {
               <div className="flex flex-col gap-1.5">
                 <span className="section-label">Property</span>
                 <div className="rounded-xl bg-surface-3 px-3.5 py-3">
-                  <p className="text-[16px] text-ink">{lockedProperty.client?.name}</p>
+                  <p className="text-[16px] text-ink">
+                    {lockedProperty.client?.name}
+                  </p>
                   <p className="text-body text-muted">
                     {lockedProperty.addressLine}, {lockedProperty.suburb}
                   </p>
@@ -177,7 +179,9 @@ function NewReportPage() {
                           {template.legalBasis}
                         </span>
                       </div>
-                      <p className="mt-1 text-body text-muted">{template.blurb}</p>
+                      <p className="mt-1 text-body text-muted">
+                        {template.blurb}
+                      </p>
                     </button>
                   ))}
                 </div>

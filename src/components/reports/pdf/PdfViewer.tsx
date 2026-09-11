@@ -92,7 +92,10 @@ export function PdfViewer({
                 renderTextLayer={false}
                 renderAnnotationLayer={false}
                 onRenderSuccess={(rendered) =>
-                  setRenderedSize({ width: rendered.width, height: rendered.height })
+                  setRenderedSize({
+                    width: rendered.width,
+                    height: rendered.height,
+                  })
                 }
               />
               {renderedSize && (
@@ -142,7 +145,12 @@ export function PdfViewer({
         </div>
       )}
 
-      <Segmented label="Zoom" value={zoom} options={ZOOM_STOPS} onChange={setZoom} />
+      <Segmented
+        label="Zoom"
+        value={zoom}
+        options={ZOOM_STOPS}
+        onChange={setZoom}
+      />
     </div>
   )
 }

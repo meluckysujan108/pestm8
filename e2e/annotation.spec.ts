@@ -43,7 +43,10 @@ function chunk(type: string, data: Buffer): Buffer {
  * directly: IHDR, one IDAT of raw (uncompressed-filter) scanlines deflated,
  * IEND.
  */
-function solidColourPng(size: number, [r, g, b]: [number, number, number]): Buffer {
+function solidColourPng(
+  size: number,
+  [r, g, b]: [number, number, number],
+): Buffer {
   const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
 
   const ihdrData = Buffer.alloc(13)
@@ -85,7 +88,11 @@ test('a gallery photo can be annotated, and the annotated version survives final
 
   const { businessId, slug } = await owner.client.mutation(
     api.businesses.create,
-    { name: `Annotate Co ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    {
+      name: `Annotate Co ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
   )
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
@@ -106,21 +113,23 @@ test('a gallery photo can be annotated, and the annotated version survives final
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
 
-  const input = page.locator(
-    '[data-gallery-field="photos"] input[type=file]',
-  )
+  const input = page.locator('[data-gallery-field="photos"] input[type=file]')
   await input.setInputFiles({
     name: 'wall.png',
     mimeType: 'image/png',
     buffer: PNG_200,
   })
-  await expect(
-    page.getByLabel('Report photos photo 1 — caption'),
-  ).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByLabel('Report photos photo 1 — caption')).toBeVisible({
+    timeout: 20_000,
+  })
 
-  const photoBefore = await page.getByRole('img', { name: 'Report photos photo 1' }).getAttribute('src')
+  const photoBefore = await page
+    .getByRole('img', { name: 'Report photos photo 1' })
+    .getAttribute('src')
 
-  await page.getByRole('button', { name: 'Annotate Report photos photo 1' }).click()
+  await page
+    .getByRole('button', { name: 'Annotate Report photos photo 1' })
+    .click()
 
   const canvas = page.getByRole('img', { name: 'Photo annotation canvas' })
   await expect(canvas).toBeVisible()
@@ -134,7 +143,9 @@ test('a gallery photo can be annotated, and the annotated version survives final
   const box = (await canvas.boundingBox())!
   await page.mouse.move(box.x + box.width * 0.2, box.y + box.height * 0.2)
   await page.mouse.down()
-  await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.8, { steps: 10 })
+  await page.mouse.move(box.x + box.width * 0.8, box.y + box.height * 0.8, {
+    steps: 10,
+  })
   await page.mouse.up()
 
   await page.getByRole('button', { name: 'Save annotation' }).click()
@@ -142,7 +153,9 @@ test('a gallery photo can be annotated, and the annotated version survives final
 
   // A new storage id means a new URL — proves the stroke was actually
   // composited and re-uploaded, not just a no-op close.
-  const photoAfter = await page.getByRole('img', { name: 'Report photos photo 1' }).getAttribute('src')
+  const photoAfter = await page
+    .getByRole('img', { name: 'Report photos photo 1' })
+    .getAttribute('src')
   expect(photoAfter).not.toBe(photoBefore)
 
   await owner.client.mutation(api.reports.finalise, {
@@ -154,7 +167,9 @@ test('a gallery photo can be annotated, and the annotated version survives final
   await expect(page.getByText('Finalised and locked')).toBeVisible()
   // The finalised document's `ReportGallery` labels an uncaptioned photo by
   // its field, not positionally like the builder's `GalleryTile` does.
-  const photoFinal = await page.getByRole('img', { name: 'Report photos' }).getAttribute('src')
+  const photoFinal = await page
+    .getByRole('img', { name: 'Report photos' })
+    .getAttribute('src')
   expect(photoFinal).toBe(photoAfter)
 })
 
@@ -169,9 +184,12 @@ test('a finalised report rejects new annotations', async () => {
     data: {},
   })
 
-  const uploadUrl = await s.owner.client.mutation(api.reports.generateUploadUrl, {
-    businessId: s.businessId,
-  })
+  const uploadUrl = await s.owner.client.mutation(
+    api.reports.generateUploadUrl,
+    {
+      businessId: s.businessId,
+    },
+  )
   const uploadRes = await fetch(uploadUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'image/png' },

@@ -64,11 +64,13 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
     mimeType: 'image/png',
     buffer: PNG,
   })
+  await expect(page.getByLabel('Report photos photo 1 — caption')).toBeVisible({
+    timeout: 20_000,
+  })
   await expect(
-    page.getByLabel('Report photos photo 1 — caption'),
-  ).toBeVisible({ timeout: 20_000 })
-  await expect(
-    page.getByRole('button', { name: /Report photos photo 1 — (set as cover|cover photo)/ }),
+    page.getByRole('button', {
+      name: /Report photos photo 1 — (set as cover|cover photo)/,
+    }),
   ).toHaveCount(0)
 
   // --- second photo: now there is a set, so the cover flag means something ---
@@ -80,7 +82,9 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
   await expect(page.getByLabel('Report photos photo 2 — caption')).toBeVisible()
 
   // --- caption ---
-  await page.getByLabel('Report photos photo 1 — caption').fill('Front garden bed')
+  await page
+    .getByLabel('Report photos photo 1 — caption')
+    .fill('Front garden bed')
   await page.getByLabel('Report photos photo 1 — caption').blur()
   await expect(
     page.getByRole('img', { name: 'Front garden bed' }),
@@ -113,11 +117,13 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
   await page
     .getByRole('button', { name: 'Remove Report photos photo 1' })
     .click()
+  await expect(page.getByLabel('Report photos photo 2 — caption')).toHaveCount(
+    0,
+  )
   await expect(
-    page.getByLabel('Report photos photo 2 — caption'),
-  ).toHaveCount(0)
-  await expect(
-    page.getByRole('button', { name: /Report photos photo 1 — (set as cover|cover photo)/ }),
+    page.getByRole('button', {
+      name: /Report photos photo 1 — (set as cover|cover photo)/,
+    }),
   ).toHaveCount(0)
   await expect(
     page.getByRole('img', { name: 'Front garden bed' }),

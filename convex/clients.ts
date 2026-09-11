@@ -1,6 +1,11 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership, requireOwner, resolveViewScope } from './lib/access'
+import {
+  jobVisibility,
+  requireMembership,
+  requireOwner,
+  resolveViewScope,
+} from './lib/access'
 import { canSeeReport, summarise } from './reports'
 import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
@@ -158,6 +163,9 @@ export const reports = query({
       .flat()
       .filter((r) => r.businessId === businessId && canSeeReport(membership, r))
       .map(summarise)
-      .sort((a, b) => (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt))
+      .sort(
+        (a, b) =>
+          (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt),
+      )
   },
 })

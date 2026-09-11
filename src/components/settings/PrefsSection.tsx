@@ -39,8 +39,8 @@ function ReadOnlyBusiness({
       </dl>
 
       <p className="mt-2 text-caption text-muted">
-        State determines your timezone and how licence fields are labelled.
-        Ask a business owner to change these details.
+        State determines your timezone and how licence fields are labelled. Ask
+        a business owner to change these details.
       </p>
     </>
   )

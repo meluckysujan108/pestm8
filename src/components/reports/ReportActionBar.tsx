@@ -43,7 +43,12 @@ export function ReportActionBar({
   return (
     <>
       <div className="px-4 pt-4">
-        <Segmented label="Report view" value={tab} options={TABS} onChange={setTab} />
+        <Segmented
+          label="Report view"
+          value={tab}
+          options={TABS}
+          onChange={setTab}
+        />
       </div>
 
       {tab === 'form' && children}
@@ -121,7 +126,11 @@ function PdfTab({
       {url ? (
         hydrated ? (
           <Suspense fallback={<PdfViewerSkeleton />}>
-            <LazyPdfViewer businessId={businessId} reportId={reportId} url={url} />
+            <LazyPdfViewer
+              businessId={businessId}
+              reportId={reportId}
+              url={url}
+            />
           </Suspense>
         ) : (
           <PdfViewerSkeleton />
@@ -155,8 +164,7 @@ function PdfViewerSkeleton() {
 }
 
 const EMAIL_ERROR_MESSAGE: Record<string, string> = {
-  EMAIL_NOT_CONFIGURED:
-    'Email sending isn’t set up for this business yet.',
+  EMAIL_NOT_CONFIGURED: 'Email sending isn’t set up for this business yet.',
   REPORT_NOT_FINALISED: 'This report isn’t finalised yet.',
   PDF_UNAVAILABLE: 'Could not prepare the PDF to attach.',
   EMAIL_SEND_FAILED: 'The email failed to send. Check the log below.',

@@ -70,7 +70,10 @@ function zonedDateTimeToUtc(dayKey, hh, mm, timezone) {
   let matched = false
   for (let i = 0; i < 2; i++) {
     ts = naiveUtc - offsetMs(ts, timezone)
-    if (dayKeyOf(ts, timezone) === dayKey && timeKeyOf(ts, timezone) === `${pad(hh)}:${pad(mm)}`) {
+    if (
+      dayKeyOf(ts, timezone) === dayKey &&
+      timeKeyOf(ts, timezone) === `${pad(hh)}:${pad(mm)}`
+    ) {
       matched = true
       break
     }
@@ -96,13 +99,25 @@ function check(label, actual, expected) {
 // Australia/Sydney: 2026-10-04, clocks jump 2:00am -> 3:00am (AEST -> AEDT).
 {
   const ts = zonedDateTimeToUtc('2026-10-04', 2, 30, 'Australia/Sydney')
-  check('Sydney 2026-10-04 02:30 (in the gap) shifts to 03:30', timeKeyOf(ts, 'Australia/Sydney'), '03:30')
-  check('Sydney 2026-10-04 02:30 (in the gap) stays on the same day', dayKeyOf(ts, 'Australia/Sydney'), '2026-10-04')
+  check(
+    'Sydney 2026-10-04 02:30 (in the gap) shifts to 03:30',
+    timeKeyOf(ts, 'Australia/Sydney'),
+    '03:30',
+  )
+  check(
+    'Sydney 2026-10-04 02:30 (in the gap) stays on the same day',
+    dayKeyOf(ts, 'Australia/Sydney'),
+    '2026-10-04',
+  )
 }
 // America/Los_Angeles: 2026-03-08, clocks jump 2:00am -> 3:00am (PST -> PDT).
 {
   const ts = zonedDateTimeToUtc('2026-03-08', 2, 15, 'America/Los_Angeles')
-  check('LA 2026-03-08 02:15 (in the gap) shifts to 03:15', timeKeyOf(ts, 'America/Los_Angeles'), '03:15')
+  check(
+    'LA 2026-03-08 02:15 (in the gap) shifts to 03:15',
+    timeKeyOf(ts, 'America/Los_Angeles'),
+    '03:15',
+  )
 }
 
 // --- Ordinary times must still round-trip with zero drift ---
@@ -114,14 +129,26 @@ for (const [tz, dayKey, hh, mm] of [
   ['Pacific/Niue', '2026-06-15', 23, 59],
 ]) {
   const ts = zonedDateTimeToUtc(dayKey, hh, mm, tz)
-  check(`${tz} ${dayKey} ${pad(hh)}:${pad(mm)} round-trips (day)`, dayKeyOf(ts, tz), dayKey)
-  check(`${tz} ${dayKey} ${pad(hh)}:${pad(mm)} round-trips (time)`, timeKeyOf(ts, tz), `${pad(hh)}:${pad(mm)}`)
+  check(
+    `${tz} ${dayKey} ${pad(hh)}:${pad(mm)} round-trips (day)`,
+    dayKeyOf(ts, tz),
+    dayKey,
+  )
+  check(
+    `${tz} ${dayKey} ${pad(hh)}:${pad(mm)} round-trips (time)`,
+    timeKeyOf(ts, tz),
+    `${pad(hh)}:${pad(mm)}`,
+  )
 }
 
 // --- Midnight (startOfDayInZone's own input) around a transition day ---
 {
   const ts = zonedDateTimeToUtc('2026-10-04', 0, 0, 'Australia/Sydney')
-  check('Sydney midnight on the transition day round-trips', timeKeyOf(ts, 'Australia/Sydney'), '00:00')
+  check(
+    'Sydney midnight on the transition day round-trips',
+    timeKeyOf(ts, 'Australia/Sydney'),
+    '00:00',
+  )
 }
 
 if (failures > 0) {

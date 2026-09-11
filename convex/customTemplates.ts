@@ -152,26 +152,38 @@ export const duplicate = mutation({
 /** Removes it from the "start a new report" picker only — has zero effect
  * on any report already referencing it, draft or finalised. */
 export const archive = mutation({
-  args: { businessId: v.id('businesses'), templateId: v.id('customReportTemplates') },
+  args: {
+    businessId: v.id('businesses'),
+    templateId: v.id('customReportTemplates'),
+  },
   handler: async (ctx, { businessId, templateId }) => {
     await requireOwner(ctx, businessId)
     const existing = await ctx.db.get(templateId)
     if (!existing || existing.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
-    await ctx.db.patch(templateId, { archivedAt: Date.now(), updatedAt: Date.now() })
+    await ctx.db.patch(templateId, {
+      archivedAt: Date.now(),
+      updatedAt: Date.now(),
+    })
   },
 })
 
 export const unarchive = mutation({
-  args: { businessId: v.id('businesses'), templateId: v.id('customReportTemplates') },
+  args: {
+    businessId: v.id('businesses'),
+    templateId: v.id('customReportTemplates'),
+  },
   handler: async (ctx, { businessId, templateId }) => {
     await requireOwner(ctx, businessId)
     const existing = await ctx.db.get(templateId)
     if (!existing || existing.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
-    await ctx.db.patch(templateId, { archivedAt: undefined, updatedAt: Date.now() })
+    await ctx.db.patch(templateId, {
+      archivedAt: undefined,
+      updatedAt: Date.now(),
+    })
   },
 })
 
@@ -185,7 +197,10 @@ export const unarchive = mutation({
  * erasing history.
  */
 export const remove = mutation({
-  args: { businessId: v.id('businesses'), templateId: v.id('customReportTemplates') },
+  args: {
+    businessId: v.id('businesses'),
+    templateId: v.id('customReportTemplates'),
+  },
   handler: async (ctx, { businessId, templateId }) => {
     await requireOwner(ctx, businessId)
     const existing = await ctx.db.get(templateId)
@@ -195,7 +210,9 @@ export const remove = mutation({
 
     const inUse = await ctx.db
       .query('reports')
-      .withIndex('by_custom_template', (q) => q.eq('customTemplateId', templateId))
+      .withIndex('by_custom_template', (q) =>
+        q.eq('customTemplateId', templateId),
+      )
       .first()
     if (inUse) throw new ConvexError('TEMPLATE_IN_USE')
 

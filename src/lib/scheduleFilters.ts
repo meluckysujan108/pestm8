@@ -30,7 +30,10 @@ export function computeStaffLoad(
 ): Array<StaffLoad> {
   const counts = new Map<string, number>()
   for (const job of jobs) {
-    counts.set(job.assignedMembershipId, (counts.get(job.assignedMembershipId) ?? 0) + 1)
+    counts.set(
+      job.assignedMembershipId,
+      (counts.get(job.assignedMembershipId) ?? 0) + 1,
+    )
   }
   const byId = new Map(members.map((m) => [m._id, m]))
   return [...counts.entries()]

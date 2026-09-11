@@ -2,19 +2,27 @@
   "name": "pestm8",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.12.0"
+  },
   "imports": {
     "#/*": "./src/*"
   },
   "scripts": {
     "dev": "vite dev --port 3000",
-    "generate-routes": "tsr generate",
-    "build": "vite build && node scripts/build-sw.mjs",
+    "build": "node scripts/check-env.mjs && vite build && node scripts/build-sw.mjs",
     "preview": "vite preview",
+    "seed": "node scripts/seed.mjs",
     "test:e2e": "playwright test",
     "check:dates": "node scripts/check-dst-boundaries.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "typecheck:convex": "tsc --noEmit -p convex/tsconfig.json",
     "lint": "eslint",
     "format": "prettier --write . && eslint --fix",
-    "check": "prettier --check ."
+    "check": "prettier --check .",
+    "verify": "pnpm check && pnpm lint && pnpm typecheck && pnpm typecheck:convex && pnpm check:dates",
+    "prepare": "husky"
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",
@@ -62,6 +70,8 @@
     "@types/react-dom": "^19.2.0",
     "@vitejs/plugin-react": "^6.0.1",
     "eslint": "^9.20.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.5.1",
     "prettier": "^3.8.1",
     "serwist": "^9.5.12",
     "typescript": "^6.0.2",
@@ -75,5 +85,13 @@
     "overrides": {
       "@react-pdf/font": "4.0.10"
     }
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,mjs,json,css,md}": [
+      "prettier --write"
+    ],
+    "*.{ts,tsx}": [
+      "eslint --fix"
+    ]
   }
 }

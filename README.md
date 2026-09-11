@@ -7,7 +7,7 @@ product and architecture spec — it is the source of truth for this codebase.
 ## Getting started
 
 ```bash
-npm install
+pnpm install
 ```
 
 Provision a Convex deployment. This is interactive: it opens a browser to log
@@ -35,7 +35,7 @@ npx convex env set SITE_URL http://localhost:3000
 Then, with `npx convex dev` running in one terminal:
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 ## Access-control tests
@@ -49,15 +49,22 @@ npx playwright install chromium
 ```
 
 ```bash
-npm run test:e2e
+pnpm test:e2e
 ```
 
 ## Commands
 
-| Command | Does |
-|---|---|
-| `npm run dev` | Vite dev server on :3000 (needs `npx convex dev` alongside) |
-| `npm run build` | Production build |
-| `npm run generate-routes` | Regenerate `routeTree.gen.ts` after adding routes |
-| `npm run test:e2e` | Playwright access-control suite |
-| `npm run lint` / `npm run format` | ESLint + Prettier |
+| Command         | Does                                                            |
+| --------------- | --------------------------------------------------------------- |
+| `pnpm dev`      | Vite dev server on :3000 (needs `npx convex dev` alongside)     |
+| `pnpm build`    | Production build                                                |
+| `pnpm verify`   | Everything CI checks: format, lint, both typechecks, DST checks |
+| `pnpm format`   | Fix formatting and auto-fixable lint                            |
+| `pnpm test:e2e` | Playwright access-control suite                                 |
+| `pnpm seed`     | Fill a dev deployment with a realistic business                 |
+
+`src/routeTree.gen.ts` is regenerated automatically by `pnpm dev` and
+`pnpm build` — there is no separate command to run, and you should not edit it
+by hand. (Do not use `tsr generate` from `@tanstack/router-cli`: it does not
+emit the TanStack Start `Register` declaration the committed file carries, so
+it silently strips SSR router typing.)

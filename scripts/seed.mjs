@@ -53,7 +53,9 @@ async function signUp(email, name) {
     body: JSON.stringify({ email, password: PASSWORD, name }),
   })
   if (!res.ok) {
-    throw new Error(`sign-up failed for ${email}: ${res.status} ${await res.text()}`)
+    throw new Error(
+      `sign-up failed for ${email}: ${res.status} ${await res.text()}`,
+    )
   }
 
   // Sign-up sets the Better Auth session cookie; the Convex JWT is minted from
@@ -79,7 +81,9 @@ async function signUp(email, name) {
 }
 
 async function uploadPng(client, businessId, reportId) {
-  const uploadUrl = await client.mutation(api.reports.generateUploadUrl, { businessId })
+  const uploadUrl = await client.mutation(api.reports.generateUploadUrl, {
+    businessId,
+  })
   const res = await fetch(uploadUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'image/png' },
@@ -106,7 +110,9 @@ const { businessId, slug } = await owner.mutation(api.businesses.create, {
 })
 
 console.log('Setting up branding…')
-const logoUploadUrl = await owner.mutation(api.businesses.generateUploadUrl, { businessId })
+const logoUploadUrl = await owner.mutation(api.businesses.generateUploadUrl, {
+  businessId,
+})
 const logoRes = await fetch(logoUploadUrl, {
   method: 'POST',
   headers: { 'Content-Type': 'image/png' },
@@ -125,12 +131,22 @@ await owner.mutation(api.businesses.update, {
 })
 
 console.log('Inviting the team…')
-await owner.mutation(api.memberships.inviteByEmail, { businessId, email: kevinEmail, role: 'subcontractor' })
-await owner.mutation(api.memberships.inviteByEmail, { businessId, email: priyaEmail, role: 'subcontractor' })
+await owner.mutation(api.memberships.inviteByEmail, {
+  businessId,
+  email: kevinEmail,
+  role: 'subcontractor',
+})
+await owner.mutation(api.memberships.inviteByEmail, {
+  businessId,
+  email: priyaEmail,
+  role: 'subcontractor',
+})
 await kevin.mutation(api.memberships.claimInvitations, {})
 await priya.mutation(api.memberships.claimInvitations, {})
 
-const members = await owner.query(api.memberships.listForBusiness, { businessId })
+const members = await owner.query(api.memberships.listForBusiness, {
+  businessId,
+})
 const ownerMembershipId = members.find((m) => m.role === 'owner')._id
 const kevinMembership = members.find((m) => m.email === kevinEmail)
 const priyaMembership = members.find((m) => m.email === priyaEmail)
@@ -156,21 +172,95 @@ await owner.mutation(api.memberships.setLicence, {
 
 console.log('Adding properties…')
 const propertyDefs = [
-  { clientName: 'J. Nguyen', addressLine: '12 Wattle Street', suburb: 'Bayswater', postcode: '6053', phone: '0412 345 678', email: 'j.nguyen@example.com' },
-  { clientName: 'M. Roberts', addressLine: '4 Kalinda Way', suburb: 'Morley', postcode: '6062', phone: '0423 456 789' },
-  { clientName: 'S. Chen', addressLine: '88 Beaufort Street', suburb: 'Mount Lawley', postcode: '6050', phone: '0434 567 890', email: 's.chen@example.com' },
-  { clientName: 'A. Wilson', addressLine: '21 Guildford Road', suburb: 'Maylands', postcode: '6051' },
-  { clientName: 'D. Okafor', addressLine: '7 Hakea Court', suburb: 'Ballajura', postcode: '6066', phone: '0401 222 333' },
-  { clientName: 'R. Singh', addressLine: '2 Karri Loop', suburb: 'Kelmscott', postcode: '6111', phone: '0402 333 444', email: 'r.singh@example.com' },
-  { clientName: 'B. Tan', addressLine: '3 Marri Way', suburb: 'Forrestfield', postcode: '6058' },
-  { clientName: 'L. Fitzgerald', addressLine: '9 Jarrah Street', suburb: 'Armadale', postcode: '6112', phone: '0403 444 555' },
-  { clientName: 'K. Petrov', addressLine: '18 Banksia Road', suburb: 'Ellenbrook', postcode: '6069', email: 'k.petrov@example.com' },
-  { clientName: 'H. Yamamoto', addressLine: '5 Wandoo Street', suburb: 'Midland', postcode: '6056', phone: '0404 555 666' },
+  {
+    clientName: 'J. Nguyen',
+    addressLine: '12 Wattle Street',
+    suburb: 'Bayswater',
+    postcode: '6053',
+    phone: '0412 345 678',
+    email: 'j.nguyen@example.com',
+  },
+  {
+    clientName: 'M. Roberts',
+    addressLine: '4 Kalinda Way',
+    suburb: 'Morley',
+    postcode: '6062',
+    phone: '0423 456 789',
+  },
+  {
+    clientName: 'S. Chen',
+    addressLine: '88 Beaufort Street',
+    suburb: 'Mount Lawley',
+    postcode: '6050',
+    phone: '0434 567 890',
+    email: 's.chen@example.com',
+  },
+  {
+    clientName: 'A. Wilson',
+    addressLine: '21 Guildford Road',
+    suburb: 'Maylands',
+    postcode: '6051',
+  },
+  {
+    clientName: 'D. Okafor',
+    addressLine: '7 Hakea Court',
+    suburb: 'Ballajura',
+    postcode: '6066',
+    phone: '0401 222 333',
+  },
+  {
+    clientName: 'R. Singh',
+    addressLine: '2 Karri Loop',
+    suburb: 'Kelmscott',
+    postcode: '6111',
+    phone: '0402 333 444',
+    email: 'r.singh@example.com',
+  },
+  {
+    clientName: 'B. Tan',
+    addressLine: '3 Marri Way',
+    suburb: 'Forrestfield',
+    postcode: '6058',
+  },
+  {
+    clientName: 'L. Fitzgerald',
+    addressLine: '9 Jarrah Street',
+    suburb: 'Armadale',
+    postcode: '6112',
+    phone: '0403 444 555',
+  },
+  {
+    clientName: 'K. Petrov',
+    addressLine: '18 Banksia Road',
+    suburb: 'Ellenbrook',
+    postcode: '6069',
+    email: 'k.petrov@example.com',
+  },
+  {
+    clientName: 'H. Yamamoto',
+    addressLine: '5 Wandoo Street',
+    suburb: 'Midland',
+    postcode: '6056',
+    phone: '0404 555 666',
+  },
 ]
 const properties = await Promise.all(
-  propertyDefs.map((p) => owner.mutation(api.properties.create, { businessId, ...p, state: 'WA' })),
+  propertyDefs.map((p) =>
+    owner.mutation(api.properties.create, { businessId, ...p, state: 'WA' }),
+  ),
 )
-const [nguyen, roberts, chen, wilson, okafor, singh, tan, fitzgerald, petrov, yamamoto] = properties
+const [
+  nguyen,
+  roberts,
+  chen,
+  wilson,
+  okafor,
+  singh,
+  tan,
+  fitzgerald,
+  petrov,
+  yamamoto,
+] = properties
 
 console.log('Booking three weeks of jobs…')
 const DAY = 86_400_000
@@ -221,10 +311,39 @@ for (let day = -14; day < 0; day++) {
 
 // Today — a real mix across all three people.
 jobs.push(
-  { propertyId: nguyen, assignedMembershipId: ownerMembershipId, jobType: 'Termite Inspection', price: 38000, scheduledAt: at(0, 8, 30), durationMinutes: 90, complete: true },
-  { propertyId: roberts, assignedMembershipId: kevinMembership._id, jobType: 'General Pest Control', price: 22000, scheduledAt: at(0, 10, 0), durationMinutes: 60 },
-  { propertyId: singh, assignedMembershipId: priyaMembership._id, jobType: 'Cockroaches', price: 19000, scheduledAt: at(0, 13, 0), durationMinutes: 45 },
-  { propertyId: tan, assignedMembershipId: kevinMembership._id, jobType: 'Ants', price: 16000, scheduledAt: at(0, 15, 30), durationMinutes: 45 },
+  {
+    propertyId: nguyen,
+    assignedMembershipId: ownerMembershipId,
+    jobType: 'Termite Inspection',
+    price: 38000,
+    scheduledAt: at(0, 8, 30),
+    durationMinutes: 90,
+    complete: true,
+  },
+  {
+    propertyId: roberts,
+    assignedMembershipId: kevinMembership._id,
+    jobType: 'General Pest Control',
+    price: 22000,
+    scheduledAt: at(0, 10, 0),
+    durationMinutes: 60,
+  },
+  {
+    propertyId: singh,
+    assignedMembershipId: priyaMembership._id,
+    jobType: 'Cockroaches',
+    price: 19000,
+    scheduledAt: at(0, 13, 0),
+    durationMinutes: 45,
+  },
+  {
+    propertyId: tan,
+    assignedMembershipId: kevinMembership._id,
+    jobType: 'Ants',
+    price: 16000,
+    scheduledAt: at(0, 15, 30),
+    durationMinutes: 45,
+  },
 )
 
 // One cancelled job today, so that status renders somewhere real.
@@ -345,8 +464,15 @@ await kevin.mutation(api.reports.addGalleryPhoto, {
   fieldKey: 'coverPhoto',
   storageId: coverStorageId,
 })
-const [coverPhoto] = await kevin.query(api.reports.galleryPhotos, { businessId, reportId: serviceId })
-await kevin.mutation(api.reports.setGalleryCover, { businessId, reportId: serviceId, photoId: coverPhoto._id })
+const [coverPhoto] = await kevin.query(api.reports.galleryPhotos, {
+  businessId,
+  reportId: serviceId,
+})
+await kevin.mutation(api.reports.setGalleryCover, {
+  businessId,
+  reportId: serviceId,
+  photoId: coverPhoto._id,
+})
 const sigStorageId = await uploadPng(kevin, businessId, serviceId)
 await kevin.mutation(api.reports.attachSignature, {
   businessId,
@@ -359,7 +485,14 @@ await kevin.mutation(api.reports.finalise, {
   reportId: serviceId,
   data: {
     serviceDate: new Date().toISOString().slice(0, 10),
-    treatments: [{ _id: 'row-1', treatment: ['General Pest Control'], product: ['Biflex Ultra (100 g/L Bifenthrin)'], method: ['Vehicle mounted sprayer'] }],
+    treatments: [
+      {
+        _id: 'row-1',
+        treatment: ['General Pest Control'],
+        product: ['Biflex Ultra (100 g/L Bifenthrin)'],
+        method: ['Vehicle mounted sprayer'],
+      },
+    ],
     safeToStart: true,
     technicianSignature: { signedAt: Date.now() },
   },
@@ -377,7 +510,11 @@ const treatmentId = await owner.mutation(api.reports.create, {
 await owner.mutation(api.reports.finalise, {
   businessId,
   reportId: treatmentId,
-  data: { product: 'Biflex Ultra', targetPest: 'Spiders', areasTreated: 'External perimeter' },
+  data: {
+    product: 'Biflex Ultra',
+    targetPest: 'Spiders',
+    areasTreated: 'External perimeter',
+  },
 })
 
 console.log('Authoring a custom template…')
@@ -393,9 +530,15 @@ const customTemplateId = await owner.mutation(api.customTemplates.create, {
     {
       number: 1,
       title: 'Check',
-      preamble: 'Quick visual check of the property perimeter and any visible termite management system.',
+      preamble:
+        'Quick visual check of the property perimeter and any visible termite management system.',
       fields: [
-        { kind: 'toggle', key: 'activitySeen', label: 'Any termite activity seen?', required: true },
+        {
+          kind: 'toggle',
+          key: 'activitySeen',
+          label: 'Any termite activity seen?',
+          required: true,
+        },
         {
           kind: 'area',
           key: 'activityDetail',
@@ -407,7 +550,12 @@ const customTemplateId = await owner.mutation(api.customTemplates.create, {
           kind: 'areas',
           key: 'areas',
           label: 'Areas checked',
-          rows: ['Sub floor', 'Perimeter', 'Meter box', 'Garden beds against slab'],
+          rows: [
+            'Sub floor',
+            'Perimeter',
+            'Meter box',
+            'Garden beds against slab',
+          ],
         },
         {
           kind: 'select',
@@ -418,7 +566,13 @@ const customTemplateId = await owner.mutation(api.customTemplates.create, {
             { value: '12 months', label: '12 months' },
           ],
         },
-        { kind: 'signature', key: 'technicianSignature', label: 'Technician signature', slot: 'technician', role: 'technician' },
+        {
+          kind: 'signature',
+          key: 'technicianSignature',
+          label: 'Technician signature',
+          slot: 'technician',
+          role: 'technician',
+        },
       ],
     },
   ],
@@ -450,7 +604,10 @@ await owner.mutation(api.reports.finalise, {
       'Sub floor': { status: 'inspected' },
       Perimeter: { status: 'inspected' },
       'Meter box': { status: 'inspected' },
-      'Garden beds against slab': { status: 'noAccess', reason: 'Locked side gate — client to provide access next visit' },
+      'Garden beds against slab': {
+        status: 'noAccess',
+        reason: 'Locked side gate — client to provide access next visit',
+      },
     },
     nextCheck: '6 months',
   },

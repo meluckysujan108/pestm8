@@ -58,7 +58,9 @@ export async function signUpActor(
     body: JSON.stringify({ email, password, name }),
   })
   if (!res.ok) {
-    throw new Error(`sign-up failed for ${email}: ${res.status} ${await res.text()}`)
+    throw new Error(
+      `sign-up failed for ${email}: ${res.status} ${await res.text()}`,
+    )
   }
 
   const cookie = res.headers
@@ -102,7 +104,7 @@ export async function setupBusinessWithSub(label: string) {
   const subUser = await sub.client.query(api.auth.getCurrentUser, {})
   const subMembershipId = await owner.client.mutation(api.memberships.invite, {
     businessId,
-    userId: subUser!._id,
+    userId: subUser._id,
     role: 'subcontractor',
   })
   // invite() leaves the member "invited"; they activate themselves.
@@ -142,7 +144,6 @@ export async function setupBusinessWithSub(label: string) {
     ownerJobId,
   }
 }
-
 
 /**
  * Signs in through the real form. The submit button is disabled until the page

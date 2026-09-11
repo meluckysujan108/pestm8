@@ -1,7 +1,11 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import {
+  jobVisibility,
+  requireMembership,
+  resolveViewScope,
+} from './lib/access'
 import { clientNameOf } from './properties'
 
 export const list = query({
@@ -65,7 +69,9 @@ export const listForJob = query({
     const scoped =
       visibility.scope === 'business'
         ? visible
-        : visible.filter((n) => n.authorMembershipId === visibility.membershipId)
+        : visible.filter(
+            (n) => n.authorMembershipId === visibility.membershipId,
+          )
 
     return Promise.all(
       scoped.map(async (note) => {

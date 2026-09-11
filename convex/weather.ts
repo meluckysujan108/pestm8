@@ -250,7 +250,8 @@ export const forDays = action({
             dayKey,
             ...entry,
           })
-          if (missing.includes(dayKey)) out[compositeKeyOf(suburbKey, dayKey)] = { ...entry, suburb }
+          if (missing.includes(dayKey))
+            out[compositeKeyOf(suburbKey, dayKey)] = { ...entry, suburb }
         }
       } catch {
         // Advisory only: an outage must never stop the schedule rendering.

@@ -33,7 +33,9 @@ export function OptionsListEditor({
     <div className="flex flex-col gap-1.5">
       <span className="section-label">Options</span>
       {options.length === 0 && (
-        <p className="text-caption text-muted">No options yet — add at least one.</p>
+        <p className="text-caption text-muted">
+          No options yet — add at least one.
+        </p>
       )}
       {options.map((option, index) => (
         <div key={index} className="flex items-center gap-1.5">

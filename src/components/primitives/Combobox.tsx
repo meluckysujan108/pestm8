@@ -70,7 +70,11 @@ export function Combobox({
         className="flex h-12 w-full items-center justify-between gap-2 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
       >
         <span className="min-w-0 truncate text-left">{currentLabel}</span>
-        <ChevronsUpDown size={16} strokeWidth={1.7} className="shrink-0 text-muted" />
+        <ChevronsUpDown
+          size={16}
+          strokeWidth={1.7}
+          className="shrink-0 text-muted"
+        />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content

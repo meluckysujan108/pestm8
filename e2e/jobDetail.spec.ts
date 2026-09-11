@@ -18,7 +18,11 @@ import type { Id } from '../convex/_generated/dataModel'
  */
 
 test('jobs get a sequential, per-business number starting at 1', async () => {
-  const owner = await signUpActor(uniqueEmail('jobnum-owner'), FIXTURE_PASSWORD, 'Terence')
+  const owner = await signUpActor(
+    uniqueEmail('jobnum-owner'),
+    FIXTURE_PASSWORD,
+    'Terence',
+  )
   const { businessId } = await owner.client.mutation(api.businesses.create, {
     name: `Job Numbers Co ${Date.now()}`,
     state: 'WA',
@@ -32,7 +36,9 @@ test('jobs get a sequential, per-business number starting at 1', async () => {
     state: 'WA',
     postcode: '6053',
   })
-  const members = await owner.client.query(api.memberships.listForBusiness, { businessId })
+  const members = await owner.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
   const ownerMembershipId = members.find((m) => m.role === 'owner')!._id
 
   async function bookJob() {
@@ -58,23 +64,39 @@ test('jobs get a sequential, per-business number starting at 1', async () => {
 
   // A second, unrelated business starts its own count at 1 — this is a
   // per-business sequence, not a global one.
-  const otherOwner = await signUpActor(uniqueEmail('jobnum-other'), FIXTURE_PASSWORD, 'Priya')
+  const otherOwner = await signUpActor(
+    uniqueEmail('jobnum-other'),
+    FIXTURE_PASSWORD,
+    'Priya',
+  )
   const { businessId: otherBusinessId } = await otherOwner.client.mutation(
     api.businesses.create,
-    { name: `Other Co ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    {
+      name: `Other Co ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
   )
-  const otherPropertyId = await otherOwner.client.mutation(api.properties.create, {
-    businessId: otherBusinessId,
-    clientName: 'A. Wilson',
-    addressLine: '21 Guildford Road',
-    suburb: 'Maylands',
-    state: 'WA',
-    postcode: '6051',
-  })
-  const otherMembers = await otherOwner.client.query(api.memberships.listForBusiness, {
-    businessId: otherBusinessId,
-  })
-  const otherOwnerMembershipId = otherMembers.find((m) => m.role === 'owner')!._id
+  const otherPropertyId = await otherOwner.client.mutation(
+    api.properties.create,
+    {
+      businessId: otherBusinessId,
+      clientName: 'A. Wilson',
+      addressLine: '21 Guildford Road',
+      suburb: 'Maylands',
+      state: 'WA',
+      postcode: '6051',
+    },
+  )
+  const otherMembers = await otherOwner.client.query(
+    api.memberships.listForBusiness,
+    {
+      businessId: otherBusinessId,
+    },
+  )
+  const otherOwnerMembershipId = otherMembers.find(
+    (m) => m.role === 'owner',
+  )!._id
   const otherJobId = await otherOwner.client.mutation(api.jobs.create, {
     businessId: otherBusinessId,
     propertyId: otherPropertyId,
@@ -125,7 +147,11 @@ test('notes on a job resolve the actual author name and role, not just a colour'
 
   // A subcontractor without canViewAllJobs sees only their own note on this
   // job, the same visibility rule every other job-scoped query already has.
-  const priya = await signUpActor(uniqueEmail('jobnotes-priya'), FIXTURE_PASSWORD, 'Priya')
+  const priya = await signUpActor(
+    uniqueEmail('jobnotes-priya'),
+    FIXTURE_PASSWORD,
+    'Priya',
+  )
   await s.owner.client.mutation(api.memberships.inviteByEmail, {
     businessId: s.businessId,
     email: priya.email,
@@ -164,7 +190,9 @@ test('photos can be attached to and removed from a job by whoever can edit it, a
     headers: { 'Content-Type': 'image/png' },
     body: pngBytes,
   })
-  const { storageId } = (await uploadRes.json()) as { storageId: Id<'_storage'> }
+  const { storageId } = (await uploadRes.json()) as {
+    storageId: Id<'_storage'>
+  }
 
   await s.owner.client.mutation(api.jobs.addPhoto, {
     businessId: s.businessId,
@@ -255,7 +283,11 @@ test('a job can be marked completed, cancelled, and reopened as booked', async (
 
   // Someone not assigned to the job, and not the owner, cannot change its
   // status at all.
-  const outsider = await signUpActor(uniqueEmail('jobstatus-outsider'), FIXTURE_PASSWORD, 'Outsider')
+  const outsider = await signUpActor(
+    uniqueEmail('jobstatus-outsider'),
+    FIXTURE_PASSWORD,
+    'Outsider',
+  )
   await expectRejected(
     () =>
       outsider.client.mutation(api.jobs.update, {
@@ -288,7 +320,9 @@ test('cancelling a job from the status menu asks for confirmation first, with a 
   // honest that nothing is actually deleted.
   const confirm = page.getByRole('alertdialog')
   await expect(confirm.getByText('Cancel this job?')).toBeVisible()
-  await expect(confirm.getByText(/Termite Inspection for J\. Nguyen/)).toBeVisible()
+  await expect(
+    confirm.getByText(/Termite Inspection for J\. Nguyen/),
+  ).toBeVisible()
   await expect(confirm.getByText(/Nothing is deleted/)).toBeVisible()
 
   // Backing out changes nothing.
@@ -299,7 +333,10 @@ test('cancelling a job from the status menu asks for confirmation first, with a 
   // Confirming actually cancels it.
   await detail.getByRole('button', { name: 'Change job status' }).click()
   await page.getByRole('menuitem', { name: 'Cancelled' }).click()
-  await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel job' }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Cancel job' })
+    .click()
 
   await expect(detail.getByText('Cancelled')).toBeVisible()
   const job = await s.owner.client.query(api.jobs.get, {

@@ -1,0 +1,61 @@
+name: Backup production
+
+# Convex's scheduled backups are a paid-plan feature; `npx convex export` is
+# not. This is the free-plan equivalent: a nightly snapshot kept as a workflow
+# artifact. docs/RUNBOOK.md covers restoring one.
+on:
+  schedule:
+    # 18:30 UTC ≈ 02:30 Australia/Perth, after the recurrences cron at 18:00.
+    - cron: '30 18 * * *'
+  workflow_dispatch:
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    outputs:
+      configured: ${{ steps.check.outputs.configured }}
+    steps:
+      - id: check
+        env:
+          KEY: ${{ secrets.CONVEX_PROD_DEPLOY_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            echo 'configured=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'configured=false' >> "$GITHUB_OUTPUT"
+            echo '::warning::CONVEX_PROD_DEPLOY_KEY is not set — production is NOT being backed up.'
+          fi
+
+  export:
+    needs: guard
+    if: needs.guard.outputs.configured == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      - name: Snapshot the production deployment
+        env:
+          # The only credential in this repository that can touch production.
+          # It lives here and nowhere else.
+          CONVEX_DEPLOY_KEY: ${{ secrets.CONVEX_PROD_DEPLOY_KEY }}
+        run: npx convex export --path snapshot.zip
+
+      - name: Fail loudly on an empty snapshot
+        run: |
+          # A zero-byte or missing archive is the failure mode that would
+          # otherwise be discovered only during a restore.
+          test -s snapshot.zip
+          echo "Snapshot size: $(du -h snapshot.zip | cut -f1)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: convex-prod-${{ github.run_id }}
+          path: snapshot.zip
+          retention-days: 30

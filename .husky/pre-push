@@ -1,0 +1,21 @@
+# Refuse to push straight to main.
+#
+# The real enforcement is the GitHub ruleset on main; this is the local copy,
+# and it is what protects you if that ruleset is not in place — branch
+# protection on a private repository requires a paid GitHub plan.
+#
+# Deliberate override, if you ever genuinely need it:  git push --no-verify
+branch="$(git rev-parse --abbrev-ref HEAD)"
+if [ "$branch" = main ]; then
+  echo ''
+  echo '  Refusing to push directly to main — main is production.'
+  echo ''
+  echo '  Put the work on a branch and open a pull request:'
+  echo '      git switch -c fix/short-description'
+  echo ''
+  exit 1
+fi
+
+# Typecheck before the network round-trip, so the obvious CI failure is caught
+# here rather than three minutes later.
+pnpm typecheck && pnpm typecheck:convex
