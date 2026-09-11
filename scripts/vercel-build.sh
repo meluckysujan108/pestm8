@@ -1,37 +1,39 @@
 #!/usr/bin/env bash
 #
-# Vercel's Build Command. Lives in the repository rather than in a dashboard
-# text box so it is reviewable, diffable, and identical in every environment.
+# Vercel's Build Command. Lives in the repository rather than a dashboard text
+# box so it is reviewable, diffable, and identical in every environment.
 #
-#   Vercel → Project Settings → Build & Development Settings
+#   Vercel → Project Settings → Build & Deployment
 #   Build Command: bash scripts/vercel-build.sh
 #
 # Which Convex deployment this touches is decided entirely by CONVEX_DEPLOY_KEY,
-# which is set per-environment in Vercel. See DEPLOYMENT.md — putting the
-# production key in the Preview environment would make every pull request
-# deploy onto the live database.
+# set per-environment in Vercel:
+#
+#   Preview    → a PREVIEW deploy key. Convex creates a fresh, empty deployment
+#                named after the git branch, so a pull request cannot reach real
+#                data — it is not in the same database.
+#   Production → the PRODUCTION deploy key.
+#
+# Putting the production key on the Preview row would make every pull request
+# deploy onto the live database. See DEPLOYMENT.md.
 set -euo pipefail
 
 echo "VERCEL_ENV=${VERCEL_ENV:-unset}"
 
-if [ "${VERCEL_ENV:-}" = "preview" ]; then
-  # Preview builds share one staging Convex deployment, and Better Auth accepts
-  # exactly one origin: convex/auth.ts sets `baseURL` from SITE_URL and does not
-  # set trustedOrigins. VERCEL_BRANCH_URL is stable per branch (unlike
-  # VERCEL_URL, which changes every deployment), so staging is pointed at the
-  # branch being built. With one developer the branch you are looking at is
-  # always the last one built; with two, the later build wins and the other
-  # preview cannot sign in until it is rebuilt.
-  if [ -z "${VERCEL_BRANCH_URL:-}" ]; then
-    echo "✖ VERCEL_BRANCH_URL is empty — cannot point staging at this branch." >&2
-    echo "  Sign-in on the preview will fail. See DEPLOYMENT.md." >&2
-    exit 1
-  fi
-  echo "Pointing the staging deployment's SITE_URL at https://${VERCEL_BRANCH_URL}"
-  npx convex env set SITE_URL "https://${VERCEL_BRANCH_URL}"
+if [ -z "${CONVEX_DEPLOY_KEY:-}" ]; then
+  echo "✖ CONVEX_DEPLOY_KEY is not set for this environment." >&2
+  echo "  Vercel → Settings → Environment Variables: a preview deploy key on" >&2
+  echo "  Preview, the production key on Production. See DEPLOYMENT.md." >&2
+  exit 1
 fi
 
-# Deploys the Convex backend, then runs the frontend build against it. Both
-# halves of the release move together: there is no window where new frontend
-# code is live against old backend functions.
-npx convex deploy --cmd 'pnpm run build'
+# One command deploys the backend and builds the frontend against it, so the two
+# halves of a release move together — there is no window where new frontend code
+# is live against old backend functions.
+#
+# --cmd-url-env-var-name is what makes preview deployments usable at all: the
+# deployment is created during this command, so its URL cannot be configured in
+# advance and has to be injected into the build.
+exec npx convex deploy \
+  --cmd-url-env-var-name VITE_CONVEX_URL \
+  --cmd 'bash scripts/build.sh'

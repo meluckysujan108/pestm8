@@ -17,16 +17,21 @@ sign in.
 
 ## The environments
 
-| Environment | Convex project                   | `SITE_URL` on it        | Frontend                 | Deployed by                     |
-| ----------- | -------------------------------- | ----------------------- | ------------------------ | ------------------------------- |
-| Local       | your `npx convex dev` deployment | `http://localhost:3000` | `pnpm dev`               | you                             |
-| CI          | `pestm8-ci`                      | `http://localhost:3000` | `pnpm dev` in the runner | `.github/workflows/e2e.yml`     |
-| Preview     | `pestm8-staging`                 | the branch's Vercel URL | Vercel Preview           | Vercel, per pull request        |
-| Production  | `pestm8`                         | your production origin  | Vercel Production        | CI, via the `production` branch |
+| Environment | Convex project                        | `SITE_URL` on it        | Frontend                 | Deployed by                     |
+| ----------- | ------------------------------------- | ----------------------- | ------------------------ | ------------------------------- |
+| Local       | your `npx convex dev` deployment      | `http://localhost:3000` | `pnpm dev`               | you                             |
+| CI          | `pestm8-ci`                           | `http://localhost:3000` | `pnpm dev` in the runner | `.github/workflows/e2e.yml`     |
+| Preview     | a fresh preview deployment per branch | the branch's Vercel URL | Vercel Preview           | Vercel, per pull request        |
+| Production  | `pestm8`                              | your production origin  | Vercel Production        | CI, via the `production` branch |
 
-Convex preview deployments are a paid-plan feature, so on the free plan the
-equivalent is a **separate Convex project** per environment — each gets its own
-production deployment and its own deploy key.
+Preview deployments are created **automatically**. With a preview deploy key in
+`CONVEX_DEPLOY_KEY`, `npx convex deploy` provisions a deployment named after the
+current git branch, so every pull request gets its own private, empty database.
+A branch cannot touch real data because it is not in the same database.
+
+Their URLs cannot be configured in advance — the deployment does not exist until
+the build runs — which is why `scripts/vercel-build.sh` passes
+`--cmd-url-env-var-name VITE_CONVEX_URL` and lets Convex inject it.
 
 Each deployment needs its **own** `BETTER_AUTH_SECRET`
 (`openssl rand -base64 32`). Never reuse production's.
@@ -114,27 +119,26 @@ Where to read them:
 
 Do these in order; each step leaves the live app working.
 
-1. **Staging project.** Convex dashboard → Create Project → `pestm8-staging`.
-   Deploy to it once and give it its own `BETTER_AUTH_SECRET`. Leave `SITE_URL`
-   alone — `scripts/vercel-build.sh` writes it per preview build.
-2. **Preview variables.** Add `VITE_CONVEX_URL` and `VITE_CONVEX_SITE_URL` to
-   Vercel with the **Preview** environment ticked, pointing at staging. A
-   variable scoped to Production only is absent from preview builds, which
-   fails them at the env gate.
-3. **Deploy keys.** Add `CONVEX_DEPLOY_KEY` twice — the staging key on
-   **Preview**, the production key on **Production**. Re-read the warning above
-   before saving.
-4. **Build command.** Set it to `bash scripts/vercel-build.sh`. Only after
-   step 3, since the script runs `convex deploy` in every environment.
-5. **Production branch.** Only once CI has created the `production` branch:
+1. **Deploy keys.** Convex dashboard → Settings → Deploy Keys. Generate a
+   **preview** key and a **production** key. In Vercel → Settings →
+   Environment Variables, add `CONVEX_DEPLOY_KEY` twice: the preview key with
+   only **Preview** ticked, the production key with only **Production** ticked.
+   Re-read the warning above before saving — this is the one field where a
+   mistake reaches live data.
+2. **Build command.** Set it to `bash scripts/vercel-build.sh`. Only after
+   step 1, since the script runs `convex deploy` in every environment and
+   refuses to run without a key.
+3. **Production branch.** Only once CI has created the `production` branch:
    Settings → Git → Production Branch → `production`. Switching before it
    exists stops production deploys until you switch back.
-6. **CI project and secrets.** `pestm8-ci` with `SITE_URL=http://localhost:3000`,
-   then the GitHub secrets above. This activates E2E and nightly backups, which
-   skip themselves until their secrets exist.
+4. **CI secrets.** The GitHub secrets above activate E2E and nightly backups,
+   which skip themselves until their secrets exist.
 
-Never point a Preview environment at the production deployment: every branch
-would read and write live customer data.
+There is no staging project to create and no `VITE_` variable to set for
+Preview: each branch gets its own deployment, and its addresses are injected
+into the build. Preview databases start **empty** — signing in on a preview
+means creating an account on that branch's own database, which is the isolation
+working, not a fault.
 
 ## Environment variables
 
@@ -149,11 +153,11 @@ the browser. `scripts/check-env.mjs` fails the build instead.
 
 Set per-environment in Project Settings → Environment Variables:
 
-| Variable               | Production                  | Preview                                 |
-| ---------------------- | --------------------------- | --------------------------------------- |
-| `CONVEX_DEPLOY_KEY`    | production key for `pestm8` | production key for **`pestm8-staging`** |
-| `VITE_CONVEX_URL`      | prod `.cloud` URL           | staging `.cloud` URL                    |
-| `VITE_CONVEX_SITE_URL` | prod `.site` URL            | staging `.site` URL                     |
+| Variable               | Production                    | Preview                                       |
+| ---------------------- | ----------------------------- | --------------------------------------------- |
+| `CONVEX_DEPLOY_KEY`    | the **production** deploy key | the **preview** deploy key                    |
+| `VITE_CONVEX_URL`      | prod `.cloud` URL             | _leave unset_ — injected per build            |
+| `VITE_CONVEX_SITE_URL` | prod `.site` URL              | _leave unset_ — derived from the injected URL |
 
 > **The one mistake that breaks production.** Putting the _production_
 > `CONVEX_DEPLOY_KEY` in the **Preview** environment makes every pull request
@@ -184,12 +188,12 @@ production it is set once and left alone.
 
 ## GitHub secrets
 
-| Secret                                          | Used by               | Points at        |
-| ----------------------------------------------- | --------------------- | ---------------- |
-| `CONVEX_CI_DEPLOY_KEY`                          | `e2e.yml`             | `pestm8-ci`      |
-| `CI_CONVEX_URL`, `CI_CONVEX_SITE_URL`           | `e2e.yml`             | `pestm8-ci`      |
-| `STAGING_CONVEX_URL`, `STAGING_CONVEX_SITE_URL` | `ci.yml` build step   | `pestm8-staging` |
-| `CONVEX_PROD_DEPLOY_KEY`                        | `backup.yml` **only** | `pestm8`         |
+| Secret                                          | Used by               | Points at                     |
+| ----------------------------------------------- | --------------------- | ----------------------------- |
+| `CONVEX_CI_DEPLOY_KEY`                          | `e2e.yml`             | `pestm8-ci`                   |
+| `CI_CONVEX_URL`, `CI_CONVEX_SITE_URL`           | `e2e.yml`             | `pestm8-ci`                   |
+| `STAGING_CONVEX_URL`, `STAGING_CONVEX_SITE_URL` | `ci.yml` build step   | any non-production deployment |
+| `CONVEX_PROD_DEPLOY_KEY`                        | `backup.yml` **only** | `pestm8`                      |
 
 `CONVEX_PROD_DEPLOY_KEY` is the only credential in this repository that can
 touch production, and nothing but the backup workflow reads it.
