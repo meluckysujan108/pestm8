@@ -31,10 +31,21 @@ export default defineConfig({
   },
   timeout: 60_000,
   projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
-  webServer: {
-    command: 'pnpm dev',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  /**
+   * Only start a dev server when the suite is pointed at one. Setting
+   * E2E_BASE_URL aims the whole suite at an already-running deployment — a
+   * Vercel preview, or production — which is the only way to exercise the
+   * things that differ from localhost: HTTPS-only `__Secure-` cookie names,
+   * Nitro's Vercel preset, and real SSR. Both production incidents this suite
+   * would have caught (the sign-in cookie mismatch, the Vercel build layout)
+   * were invisible on http://localhost:3000.
+   */
+  webServer: process.env.E2E_BASE_URL
+    ? undefined
+    : {
+        command: 'pnpm dev',
+        url: 'http://localhost:3000',
+        reuseExistingServer: !process.env.CI,
+        timeout: 120_000,
+      },
 })
