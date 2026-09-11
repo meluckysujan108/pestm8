@@ -18,13 +18,16 @@ export function BusinessSwitcher({
   )
 
   const trigger = (
-    <div className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left">
+    // Collapsed, this reduces to the membership colour dot centred in the
+    // rail — the business name has nowhere to go at 52px, and a clipped
+    // "Coasta" reads as a rendering fault rather than as a name.
+    <div className="flex w-full items-center gap-2 rounded-xl px-2 py-2 text-left group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0">
       <span
         aria-hidden
         className="size-2.5 shrink-0 rounded-full"
         style={{ backgroundColor: membership.colour }}
       />
-      <span className="min-w-0 flex-1">
+      <span className="min-w-0 flex-1 group-data-[collapsible=icon]:sr-only">
         <span className="block truncate text-row-title text-ink">
           {current.name}
         </span>
@@ -44,7 +47,7 @@ export function BusinessSwitcher({
         <ChevronsUpDown
           size={16}
           strokeWidth={1.7}
-          className="mr-2 text-muted"
+          className="mr-2 text-muted group-data-[collapsible=icon]:hidden"
         />
       </Popover.Trigger>
       <Popover.Portal>

@@ -30,7 +30,25 @@ export default defineConfig({
     navigationTimeout: 30_000,
   },
   timeout: 60_000,
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    /**
+     * Every spec used to run at 1280 only, which is why the phone layout could
+     * drift without anything going red — and the phone is the layout a
+     * technician actually uses in the field. Scoped rather than universal: most
+     * specs assert backend behaviour through the UI and gain nothing from a
+     * second viewport, and each one costs a full sign-up + seed.
+     */
+    {
+      name: 'mobile',
+      // iPhone 13's device descriptor defaults to WebKit. Chromium emulates the
+      // same viewport, touch and user agent, and keeping one engine means a
+      // mobile failure is a layout bug rather than an engine difference — and
+      // one browser to install.
+      use: { ...devices['iPhone 13'], browserName: 'chromium' },
+      testMatch: /(shell|schedule)\.spec\.ts/,
+    },
+  ],
   webServer: {
     command: 'npm run dev',
     url: 'http://localhost:3000',

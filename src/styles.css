@@ -217,3 +217,118 @@
   -webkit-user-select: none;
   -webkit-touch-callout: none;
 }
+
+/* The note body (Tiptap). Deliberately the phone's Notes look: one big
+   title line, plain 17px body, round yellow checklist circles. Not the
+   typography plugin's `prose` — that is a reading style, this is a
+   writing surface. */
+@layer components {
+  .note-editor {
+    outline: none;
+    font-size: 17px;
+    line-height: 1.5;
+    color: var(--ink);
+    -webkit-tap-highlight-color: transparent;
+  }
+  .note-editor > * + * {
+    margin-top: 4px;
+  }
+  .note-editor h1 {
+    margin: 0 0 8px;
+    font-size: 24px;
+    font-weight: 700;
+    line-height: 1.2;
+    letter-spacing: -0.02em;
+  }
+  .note-editor p {
+    margin: 0;
+  }
+  .note-editor a {
+    color: var(--blue);
+    text-decoration: underline;
+  }
+  .note-editor ul,
+  .note-editor ol {
+    margin: 4px 0;
+    padding-left: 1.5em;
+  }
+  .note-editor ul {
+    list-style: disc;
+  }
+  .note-editor ol {
+    list-style: decimal;
+  }
+  .note-editor li + li {
+    margin-top: 2px;
+  }
+  .note-editor ul[data-type='taskList'] {
+    padding-left: 0;
+    list-style: none;
+  }
+  .note-editor ul[data-type='taskList'] li {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .note-editor ul[data-type='taskList'] li > label {
+    flex: 0 0 auto;
+    margin-top: 3px;
+  }
+  .note-editor ul[data-type='taskList'] li > div {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .note-editor ul[data-type='taskList'] input[type='checkbox'] {
+    appearance: none;
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    margin: 0;
+    border: 1.5px solid var(--muted-2);
+    border-radius: 999px;
+    background: var(--surface);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+  }
+  .note-editor ul[data-type='taskList'] input[type='checkbox']:checked {
+    border-color: var(--amber);
+    background: var(--amber);
+  }
+  .note-editor ul[data-type='taskList'] input[type='checkbox']:checked::after {
+    content: '';
+    width: 5px;
+    height: 9px;
+    margin-top: -2px;
+    border: solid #fff;
+    border-width: 0 2px 2px 0;
+    transform: rotate(45deg);
+  }
+  .note-editor ul[data-type='taskList'] li[data-checked='true'] > div {
+    color: var(--muted);
+    text-decoration: line-through;
+    text-decoration-color: var(--hairline);
+  }
+  .note-editor .mention {
+    display: inline-block;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-weight: 600;
+    color: var(--mention-colour, var(--blue));
+    background: color-mix(in srgb, var(--mention-colour, var(--blue)) 14%, transparent);
+  }
+  .note-editor .is-empty::before {
+    content: attr(data-placeholder);
+    float: left;
+    height: 0;
+    color: var(--muted-2);
+    pointer-events: none;
+  }
+  .note-editor img {
+    max-width: 100%;
+    border-radius: 12px;
+  }
+  .note-editor img.ProseMirror-selectednode {
+    outline: 3px solid var(--blue);
+  }
+}

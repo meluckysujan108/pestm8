@@ -1,27 +1,36 @@
 import { Link } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
+import { convexQuery } from '@convex-dev/react-query'
+import { api } from '../../../convex/_generated/api'
 import {
-  BarChart3,
-  CalendarDays,
-  FileText,
-  Settings,
-  StickyNote,
-  Users,
-} from 'lucide-react'
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarHeader,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuBadge,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+  SidebarRail,
+} from '#/components/ui/sidebar.tsx'
 import { BusinessSwitcher } from './BusinessSwitcher'
-import type { LucideIcon } from 'lucide-react'
+import { MobileDock } from './MobileDock'
+import { NAV_ITEMS, SETTINGS_ITEM } from './navItems'
+import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
 
-const TABS: Array<{ to: string; label: string; icon: LucideIcon }> = [
-  { to: '/$businessSlug/schedule', label: 'Schedule', icon: CalendarDays },
-  { to: '/$businessSlug/clients', label: 'Clients', icon: Users },
-  { to: '/$businessSlug/reports', label: 'Reports', icon: FileText },
-  { to: '/$businessSlug/notes', label: 'Notes', icon: StickyNote },
-  { to: '/$businessSlug/analytics', label: 'Analytics', icon: BarChart3 },
-]
-
 export type ShellBusiness = {
+  _id: Id<'businesses'>
   name: string
   slug: string
+}
+
+/** Unread @mentions, capped server-side — "9+" is as precise as a badge needs to be. */
+export function useUnreadMentions(businessId: Id<'businesses'>): number {
+  const { data } = useQuery(convexQuery(api.notes.unreadMentionCount, { businessId }))
+  return data ?? 0
 }
 
 export type ShellMembership = {
@@ -29,6 +38,13 @@ export type ShellMembership = {
   colour: string
 }
 
+/**
+ * Desktop is a collapsible sidebar beside an inset content panel; mobile is a
+ * bottom dock over a full-bleed column. Both navs are always in the DOM and the
+ * switch between them is CSS (`lg:`) — never a conditional render. That is not
+ * incidental: a nav that unmounts is a nav that cannot be found by a keyboard,
+ * a screen reader, or a test, and the access-control suite reads both.
+ */
 export function AppShell({
   business,
   membership,
@@ -38,64 +54,79 @@ export function AppShell({
   membership: ShellMembership
   children: ReactNode
 }) {
+  const unread = useUnreadMentions(business._id)
+
   return (
-    <div className="min-h-dvh lg:flex">
-      <nav className="hidden w-60 shrink-0 flex-col gap-1 border-r border-hairline bg-surface px-3 py-5 lg:flex">
-        <div className="px-2 pb-4">
+    <SidebarProvider>
+      <Sidebar variant="inset" collapsible="icon">
+        <SidebarHeader>
           <BusinessSwitcher current={business} membership={membership} />
-        </div>
-        {TABS.map((tab) => (
-          <Link
-            key={tab.to}
-            to={tab.to}
-            params={{ businessSlug: business.slug }}
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-row-title text-ink-2 transition hover:bg-surface-2 aria-[current=page]:bg-surface-2 aria-[current=page]:text-red"
-          >
-            <tab.icon size={20} strokeWidth={1.7} />
-            {tab.label}
-          </Link>
-        ))}
-        <div className="mt-auto">
-          <Link
-            to="/$businessSlug/settings"
-            params={{ businessSlug: business.slug }}
-            className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-row-title text-ink-2 transition hover:bg-surface-2 aria-[current=page]:bg-surface-2 aria-[current=page]:text-red"
-          >
-            <Settings size={20} strokeWidth={1.7} />
-            Settings
-          </Link>
-        </div>
-      </nav>
+        </SidebarHeader>
 
-      {/* 460px phone shell, a wider tablet column, then fluid to 1280 beside
-          the sidebar — the same components re-flowed, not a second app (§2.4). */}
-      <div className="mx-auto w-full max-w-[460px] md:max-w-[760px] lg:mx-0 lg:max-w-[1280px] lg:flex-1">
-        <main className="pb-[calc(64px+env(safe-area-inset-bottom))] lg:pb-0">
-          {children}
-        </main>
-      </div>
+        {/* One `nav`, wrapping both groups. Settings sits in its own group so
+            it can be pushed to the bottom, but it stays inside the landmark —
+            a "Settings" link outside the navigation is a link nothing looking
+            for navigation can find. */}
+        <SidebarContent>
+          <nav aria-label="Primary" className="flex min-h-0 flex-1 flex-col">
+            <SidebarGroup>
+              <SidebarMenu>
+                {NAV_ITEMS.map((item) => (
+                  <SidebarMenuItem key={item.to}>
+                    <SidebarMenuButton asChild tooltip={item.label}>
+                      <Link
+                        to={item.to}
+                        params={{ businessSlug: business.slug }}
+                        activeProps={{ 'data-active': 'true' }}
+                      >
+                        <item.icon size={20} strokeWidth={1.7} />
+                        <span>{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                    {item.label === 'Notes' && unread > 0 && (
+                      <SidebarMenuBadge className="rounded-full bg-blue px-1.5 text-[11px] font-bold text-white">
+                        {unread >= 10 ? '9+' : unread}
+                      </SidebarMenuBadge>
+                    )}
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
 
-      <nav className="chrome-blur fixed inset-x-0 bottom-0 z-40 flex border-t border-hairline pb-[env(safe-area-inset-bottom)] lg:hidden">
-        {TABS.map((tab) => (
-          <Link
-            key={tab.to}
-            to={tab.to}
-            params={{ businessSlug: business.slug }}
-            className="flex flex-1 flex-col items-center gap-1 py-2 text-tab-label text-muted transition aria-[current=page]:text-red"
-          >
-            <tab.icon size={22} strokeWidth={1.7} />
-            {tab.label}
-          </Link>
-        ))}
-        <Link
-          to="/$businessSlug/settings"
-          params={{ businessSlug: business.slug }}
-          className="flex flex-1 flex-col items-center gap-1 py-2 text-tab-label text-muted transition aria-[current=page]:text-red"
-        >
-          <Settings size={22} strokeWidth={1.7} />
-          Settings
-        </Link>
-      </nav>
-    </div>
+            <SidebarGroup className="mt-auto">
+              <SidebarMenu>
+                <SidebarMenuItem>
+                  <SidebarMenuButton asChild tooltip={SETTINGS_ITEM.label}>
+                    <Link
+                      to={SETTINGS_ITEM.to}
+                      params={{ businessSlug: business.slug }}
+                      activeProps={{ 'data-active': 'true' }}
+                    >
+                      <SETTINGS_ITEM.icon size={20} strokeWidth={1.7} />
+                      <span>{SETTINGS_ITEM.label}</span>
+                    </Link>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroup>
+          </nav>
+        </SidebarContent>
+
+        <SidebarRail />
+      </Sidebar>
+
+      <SidebarInset>
+        {/* The clamp goes on an inner wrapper, not the inset: the inset is the
+            white panel and should reach the window edge, while the content
+            column inside it stays readable (§2.4). */}
+        <div className="mx-auto w-full max-w-[460px] md:max-w-[760px] lg:max-w-[1280px]">
+          <main className="pb-[calc(68px+env(safe-area-inset-bottom))] lg:pb-0">
+            {children}
+          </main>
+        </div>
+      </SidebarInset>
+
+      <MobileDock businessSlug={business.slug} unreadNotes={unread} />
+    </SidebarProvider>
   )
 }

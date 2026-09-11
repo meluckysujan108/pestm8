@@ -11,6 +11,7 @@ import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react'
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
 import { ServiceWorker } from '#/components/shell/ServiceWorker'
+import { useHydrated } from '#/lib/useHydrated'
 import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
 import appCss from '../styles.css?url'
@@ -98,6 +99,35 @@ function RootComponent() {
   )
 }
 
+/**
+ * The devtools launcher is a fixed overlay pinned to a screen corner, so it
+ * necessarily sits on top of whatever the app puts there — the mobile dock's
+ * last tab at one corner, a settings toggle at another. A person can drag or
+ * dismiss it; an automated click just lands on the launcher and the test times
+ * out somewhere unrelated to what it was testing. So it is not rendered under
+ * automation, which `navigator.webdriver` reports.
+ *
+ * Gated on hydration as well because `navigator` does not exist server-side,
+ * and rendering it on the server then removing it on the client is a mismatch.
+ */
+function Devtools() {
+  const hydrated = useHydrated()
+  if (!hydrated || navigator.webdriver) return null
+
+  return (
+    <TanStackDevtools
+      config={{ position: 'bottom-right' }}
+      plugins={[
+        {
+          name: 'Tanstack Router',
+          render: <TanStackRouterDevtoolsPanel />,
+        },
+        TanStackQueryDevtools,
+      ]}
+    />
+  )
+}
+
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en-AU">
@@ -107,16 +137,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body>
         {children}
         <ServiceWorker />
-        <TanStackDevtools
-          config={{ position: 'bottom-right' }}
-          plugins={[
-            {
-              name: 'Tanstack Router',
-              render: <TanStackRouterDevtoolsPanel />,
-            },
-            TanStackQueryDevtools,
-          ]}
-        />
+        <Devtools />
         <Scripts />
       </body>
     </html>

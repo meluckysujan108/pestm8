@@ -101,11 +101,15 @@ test('Settings moved out of the page header: reachable from the mobile tab bar a
   const sidebarSettings = sidebarNav.getByRole('link', { name: 'Settings' })
   const analytics = sidebarNav.getByRole('link', { name: 'Analytics' })
   await expect(sidebarSettings).toBeVisible()
-  const [settingsBox, analyticsBox] = await Promise.all([
-    sidebarSettings.boundingBox(),
-    analytics.boundingBox(),
-  ])
-  expect(settingsBox!.y).toBeGreaterThan(analyticsBox!.y)
+  // The sidebar is a `fixed`, width-transitioned panel, so a link can report
+  // visible a frame before it has been laid out at its final position and
+  // `boundingBox()` still returns null. Poll for a settled box rather than
+  // measuring the first one offered.
+  const yOf = async (locator: typeof sidebarSettings) =>
+    (await locator.boundingBox())?.y ?? -1
+  await expect.poll(() => yOf(sidebarSettings)).toBeGreaterThan(0)
+  await expect.poll(() => yOf(analytics)).toBeGreaterThan(0)
+  expect(await yOf(sidebarSettings)).toBeGreaterThan(await yOf(analytics))
   await sidebarSettings.click()
   await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings$`))
 })

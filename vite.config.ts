@@ -8,6 +8,11 @@ import tailwindcss from '@tailwindcss/vite'
 import { nitro } from 'nitro/vite'
 
 const config = defineConfig({
+  // 3000 by default so `npm run dev` and the Playwright baseURL agree, but
+  // overridable: a second dev server on the same machine needs its own port,
+  // and putting it here rather than in the npm script keeps it working on
+  // shells that do not expand ${PORT:-3000}.
+  server: { port: Number(process.env.PORT) || 3000 },
   resolve: {
     tsconfigPaths: true,
     // better-auth's React client is served straight from node_modules while

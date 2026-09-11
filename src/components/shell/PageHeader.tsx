@@ -1,4 +1,5 @@
 import { ChevronDown } from 'lucide-react'
+import { SidebarTrigger } from '#/components/ui/sidebar.tsx'
 import { AccountMenu } from './AccountMenu'
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -21,7 +22,13 @@ export function PageHeader({
 }) {
   return (
     <header className="chrome-blur sticky top-0 z-30 flex items-end justify-between gap-3 border-b border-hairline px-4 pb-3 pt-[calc(12px+env(safe-area-inset-top))]">
-      <div className="min-w-0">
+      {/* Collapse control lives with the page title rather than in the sidebar
+          itself, so it stays reachable once the sidebar is down to icons.
+          Every PageHeader renders inside AppShell's SidebarProvider, so this
+          needs nothing from the nine routes that use it. */}
+      <SidebarTrigger className="mb-1 hidden shrink-0 lg:flex" />
+
+      <div className="min-w-0 flex-1">
         {kicker &&
           (onKickerClick ? (
             <button
