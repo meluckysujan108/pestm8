@@ -9,17 +9,37 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
+import { ClientCard } from '#/components/clients/ClientCard'
+import { ClientTable } from '#/components/clients/ClientTable'
+import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
+import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
+import { useClientFilters } from '#/lib/clientFilters'
+
+const VIEW_OPTIONS: Array<{ value: 'list' | 'board' | 'table'; label: string }> = [
+  { value: 'list', label: 'List' },
+  { value: 'board', label: 'Board' },
+  { value: 'table', label: 'Table' },
+]
 
 export const Route = createFileRoute('/$businessSlug/clients/')({
-  validateSearch: z.object({ q: z.string().optional() }),
+  // `view` mirrors the Schedule route exactly: the way an operator prefers
+  // to read their client list should survive a refresh, same as the way
+  // they prefer to read their day.
+  validateSearch: z.object({
+    q: z.string().optional(),
+    view: z.enum(['list', 'board', 'table']).optional(),
+  }),
   component: ClientsPage,
 })
 
 function ClientsPage() {
   const { business, membership } = Route.useRouteContext()
-  const { q } = Route.useSearch()
+  const { q, view } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
+  const activeView = view ?? 'board'
+  const setView = (next: 'list' | 'board' | 'table') =>
+    navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
   const [newOpen, setNewOpen] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const hydrated = useHydrated()
@@ -62,6 +82,9 @@ function ClientsPage() {
     })
   }, [clients, properties, q])
 
+  const { kind, setKind, suburb, setSuburb, filteredRows } = useClientFilters(rows)
+  const filtersActive = kind !== 'all' || suburb !== 'all'
+
   return (
     <>
       <PageHeader
@@ -101,42 +124,43 @@ function ClientsPage() {
       </div>
 
       <section className="px-4 pt-4 pb-6">
-        {rows.length === 0 ? (
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          <Segmented
+            label="View"
+            value={activeView}
+            options={VIEW_OPTIONS}
+            onChange={setView}
+          />
+          <ClientFilterBar
+            rows={rows}
+            kind={kind}
+            setKind={setKind}
+            suburb={suburb}
+            setSuburb={setSuburb}
+          />
+        </div>
+
+        {filteredRows.length === 0 ? (
           <EmptyState
-            title={q ? 'No matches' : 'No clients yet'}
+            title={q || filtersActive ? 'No matches' : 'No clients yet'}
             body={
-              q
-                ? 'Try a different name or address.'
+              q || filtersActive
+                ? 'Try a different name, address, or filter.'
                 : 'Add a client to start booking work for them.'
             }
           />
+        ) : activeView === 'table' ? (
+          <ClientTable rows={filteredRows} onOpenClient={setOpenId} />
         ) : (
-          <div className="flex flex-col gap-2.5">
-            {rows.map(({ client, properties: owned }) => (
-              <button
+          <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
+            {filteredRows.map(({ client, properties: owned }) => (
+              <ClientCard
                 key={client._id}
-                type="button"
-                onClick={() => setOpenId(client._id)}
-                className="w-full rounded-2xl border border-hairline bg-surface p-3.5 text-left shadow-elevation transition active:scale-[.99]"
-              >
-                <p className="text-row-title text-ink">{client.name}</p>
-                {owned.length === 1 ? (
-                  <>
-                    <p className="mt-0.5 truncate text-body text-ink-2">
-                      {owned[0].addressLine}
-                    </p>
-                    <p className="mt-0.5 text-caption text-muted">
-                      {owned[0].suburb}
-                    </p>
-                  </>
-                ) : (
-                  <p className="mt-0.5 text-caption text-muted">
-                    {owned.length === 0
-                      ? 'No properties yet'
-                      : `${owned.length} properties`}
-                  </p>
-                )}
-              </button>
+                client={client}
+                properties={owned}
+                variant={activeView}
+                onOpen={setOpenId}
+              />
             ))}
           </div>
         )}
