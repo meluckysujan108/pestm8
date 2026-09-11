@@ -4,7 +4,7 @@ import { StatusPill } from '#/components/primitives/StatusPill'
 import { WeatherGlyph } from './WeatherGlyph'
 import { WeatherStrip } from './WeatherStrip'
 import type { JobStatus } from '#/components/primitives/StatusPill'
-import type { DayWeather } from '#/lib/useDayWeather'
+import type { WeatherCell } from '#/lib/weather'
 
 export type JobRow = {
   _id: string
@@ -64,7 +64,7 @@ export function JobCard({
   onOpen,
 }: {
   job: JobRow
-  weather?: DayWeather
+  weather: WeatherCell
   timezone: string
   variant?: JobCardVariant
   /** Hop from the previous job in the day, e.g. "≈ 8 km → Morley". */
@@ -120,7 +120,9 @@ export function JobCard({
               board variant's job, and the detail sheet's (§2.3). */}
           <span className="mt-0.5 flex items-center gap-2 text-caption text-muted">
             <span className="truncate">{job.suburb}</span>
-            {weather && <WeatherGlyph weather={weather} size={14} />}
+            {weather.status === 'ready' && (
+              <WeatherGlyph weather={weather.weather} size={14} />
+            )}
             <span aria-hidden>·</span>
             <span className="shrink-0">
               {formatDuration(job.durationMinutes)}
@@ -204,7 +206,7 @@ export function JobCard({
           )}
         </span>
 
-        <WeatherStrip weather={weather} />
+        <WeatherStrip cell={weather} />
 
         <span className="mt-auto flex items-end justify-between gap-2 border-t border-hairline-2 pt-3">
           <span className="min-w-0 truncate text-caption text-muted">

@@ -1,67 +1,27 @@
-import { useEffect, useState } from 'react'
-import { useConvex } from 'convex/react'
 import { CloudRain, Droplets, Wind } from 'lucide-react'
-import { api } from '../../../convex/_generated/api'
-import type { Id } from '../../../convex/_generated/dataModel'
+import { isWet as wetAt, isWindy as windyAt } from '#/lib/weather'
+import type { WeatherCell } from '#/lib/weather'
 
-type Weather = {
-  maxTempC?: number
-  minTempC?: number
-  rainMm?: number
-  windKmh?: number
-  code?: number
-  suburb: string
-}
+/**
+ * The day's forecast for the first job's suburb, with the advice attached.
+ *
+ * Reads the schedule's own already-fetched lookup rather than issuing its own
+ * request: it previously called a second Convex action (`forDay`) that was a
+ * drifted copy of the one the cards use — no forecast-window guard, no
+ * coordinates — so the banner and the cards could disagree about the same day.
+ *
+ * Deliberately still the DAY aggregate, not any one job's hour: this answers
+ * "what is this day like", which is the question the wash-off advice below is
+ * really about. The per-job numbers live on the cards.
+ */
+export function WeatherBanner({ cell }: { cell: WeatherCell }) {
+  // Advisory only — never obscures the day's work, and never claims a forecast
+  // it does not have.
+  if (cell.status !== 'ready') return null
+  const weather = cell.weather
 
-/** Thresholds that actually change a technician's decision. */
-const RAIN_WARN_MM = 2
-const WIND_WARN_KMH = 25
-
-export function WeatherBanner({
-  businessId,
-  suburb,
-  postcode,
-  state,
-  dayKey,
-}: {
-  businessId: Id<'businesses'>
-  suburb: string
-  postcode: string
-  state: string
-  dayKey: string
-}) {
-  const convex = useConvex()
-  const [weather, setWeather] = useState<Weather | null>(null)
-
-  // An action, not a query: it calls an external API, so it cannot be
-  // reactive. Failures leave the banner absent rather than showing an error —
-  // the forecast is advisory and must never obscure the day's work.
-  useEffect(() => {
-    let cancelled = false
-    setWeather(null)
-
-    convex
-      .action(api.weather.forDay, {
-        businessId,
-        suburb,
-        postcode,
-        state,
-        dayKey,
-      })
-      .then((result) => {
-        if (!cancelled) setWeather(result)
-      })
-      .catch(() => {})
-
-    return () => {
-      cancelled = true
-    }
-  }, [convex, businessId, suburb, postcode, state, dayKey])
-
-  if (!weather) return null
-
-  const wet = (weather.rainMm ?? 0) >= RAIN_WARN_MM
-  const windy = (weather.windKmh ?? 0) >= WIND_WARN_KMH
+  const wet = wetAt(weather)
+  const windy = windyAt(weather)
   const advise = wet || windy
 
   return (

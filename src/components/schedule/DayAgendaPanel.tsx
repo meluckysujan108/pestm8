@@ -6,7 +6,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { formatDayLabel } from '#/lib/format'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
-import { useDayWeather, weatherKeyOf } from '#/lib/useDayWeather'
+import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { travelHintsFor } from '#/lib/travel'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -31,6 +31,7 @@ export function DayAgendaPanel({
   state,
   timezone,
   selectedKey,
+  todayKey,
   jobs,
   members,
   view,
@@ -41,6 +42,7 @@ export function DayAgendaPanel({
   state: string
   timezone: string
   selectedKey: string
+  todayKey: string
   jobs: Array<JobRow>
   members: Array<{ _id: string; name: string; colour: string }>
   // Owned by the route, not held locally: the choice lives in a search param
@@ -52,16 +54,20 @@ export function DayAgendaPanel({
 }) {
   const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(jobs)
 
-  const weather = useDayWeather(
+  const weather = useWeather(
     businessId,
     state,
-    jobs
-      .filter((j) => j.suburb)
-      .map((j) => ({ dayKey: selectedKey, suburb: j.suburb, postcode: j.postcode ?? '' })),
+    todayKey,
+    jobs.map((j) => ({
+      dayKey: selectedKey,
+      suburb: j.suburb,
+      postcode: j.postcode ?? '',
+    })),
   )
-  const travel = travelHintsFor(
-    filteredJobs,
-    (job) => weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
+  // Travel hints read lat/lng out of the RAW entries, not the rendered cell —
+  // the coordinates are geography, unrelated to whether a forecast resolved.
+  const travel = travelHintsFor(filteredJobs, (job) =>
+    weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
   )
 
   return (
@@ -89,11 +95,11 @@ export function DayAgendaPanel({
 
       {jobs.length > 0 && jobs[0].suburb && (
         <WeatherBanner
-          businessId={businessId}
-          suburb={jobs[0].suburb}
-          postcode={jobs[0].postcode ?? ''}
-          state={state}
-          dayKey={selectedKey}
+          cell={weather.cell(
+            jobs[0].suburb,
+            jobs[0].postcode ?? '',
+            selectedKey,
+          )}
         />
       )}
 
@@ -120,7 +126,7 @@ export function DayAgendaPanel({
               job={job}
               variant={view}
               travel={travel[job._id]}
-              weather={weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)]}
+              weather={weather.cell(job.suburb, job.postcode ?? '', selectedKey)}
               timezone={timezone}
               onOpen={onOpenJob}
             />

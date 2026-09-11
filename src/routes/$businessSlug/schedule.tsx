@@ -9,7 +9,6 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import { WeekStrip } from '#/components/schedule/WeekStrip'
 import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
-import { WeatherBanner } from '#/components/schedule/WeatherBanner'
 import { NewJobSheet } from '#/components/schedule/NewJobSheet'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import {
@@ -24,15 +23,17 @@ import { useMediaQuery } from '#/lib/useMediaQuery'
 import { MonthPickerSheet } from '#/components/schedule/MonthPickerSheet'
 import { MonthCalendarCard } from '#/components/schedule/MonthCalendarCard'
 import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
+import { JobTable } from '#/components/schedule/JobTable'
 import { ScheduleFilterBar } from '#/components/schedule/ScheduleFilterBar'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
-import { useDayWeather, weatherKeyOf } from '#/lib/useDayWeather'
+import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { travelHintsFor } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
 
-const VIEW_OPTIONS: Array<{ value: 'list' | 'board'; label: string }> = [
+const VIEW_OPTIONS: Array<{ value: 'list' | 'board' | 'table'; label: string }> = [
   { value: 'list', label: 'List' },
   { value: 'board', label: 'Board' },
+  { value: 'table', label: 'Table' },
 ]
 
 const searchSchema = z.object({
@@ -46,9 +47,7 @@ const searchSchema = z.object({
   // client's job history — without depending on which day is on screen.
   jobId: z.string().optional(),
   // How the day is rendered, in the URL for the same reason `date` is: the way
-  // a tech prefers to read their day should survive a refresh (§5.1). `table`
-  // is desktop-only — a data grid does not fit a phone — so the mobile layout
-  // treats it as `board` rather than rendering something unusable.
+  // a tech prefers to read their day should survive a refresh (§5.1).
   view: z.enum(['list', 'board', 'table']).optional(),
 })
 
@@ -101,22 +100,25 @@ function SchedulePage() {
     jobs,
     membership._id,
   )
-  // DayAgendaPanel fetches its own weather when mounted (desktop); an empty
-  // request array here short-circuits before any Convex call, so this costs
-  // nothing on desktop.
-  const weather = useDayWeather(
+  // No desktop/mobile special-case any more. The query is cached and keyed by
+  // its (canonicalised) day set, so the desktop panel asking for the same day
+  // shares this entry rather than issuing a second request — which is what the
+  // `isDesktop ? [] : ...` dance was working around.
+  const weather = useWeather(
     business._id,
     business.state,
-    isDesktop
-      ? []
-      : jobs
-          .filter((j) => j.suburb)
-          .map((j) => ({ dayKey: selectedKey, suburb: j.suburb, postcode: j.postcode ?? '' })),
+    today,
+    jobs.map((j) => ({
+      dayKey: selectedKey,
+      suburb: j.suburb,
+      postcode: j.postcode ?? '',
+    })),
   )
 
-  const travel = travelHintsFor(
-    filteredJobs,
-    (job) => weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
+  // Coordinates come from the raw entries: a travel hint is geography, and
+  // must not disappear just because a forecast is still in flight.
+  const travel = travelHintsFor(filteredJobs, (job) =>
+    weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
   )
 
   // `jobId` is deliberately dropped rather than carried: moving to another day
@@ -164,6 +166,7 @@ function SchedulePage() {
             state={business.state}
             timezone={business.timezone}
             selectedKey={selectedKey}
+            todayKey={today}
             jobs={jobs}
             members={members}
             view={activeView}
@@ -208,21 +211,6 @@ function SchedulePage() {
             />
           </div>
 
-          {/* Keyed to the first job's suburb and labelled with it: a day
-              spanning several suburbs has no single forecast, so claiming
-              one would be a quiet lie. */}
-          {jobs.length > 0 && jobs[0].suburb && (
-            <div className="pt-4">
-              <WeatherBanner
-                businessId={business._id}
-                suburb={jobs[0].suburb}
-                postcode={jobs[0].postcode ?? ''}
-                state={business.state}
-                dayKey={selectedKey}
-              />
-            </div>
-          )}
-
           <section className="px-4 pt-4 pb-6">
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <h2 className="section-label">
@@ -230,8 +218,8 @@ function SchedulePage() {
               </h2>
               <div className="flex flex-wrap items-center gap-2">
                 <Segmented
-                  label="Card density"
-                  value={cardVariant}
+                  label="View"
+                  value={activeView}
                   options={VIEW_OPTIONS}
                   onChange={setView}
                 />
@@ -255,6 +243,14 @@ function SchedulePage() {
                     : 'No jobs match this filter.'
                 }
               />
+            ) : activeView === 'table' ? (
+              <JobTable
+                jobs={filteredJobs}
+                weather={weather}
+                selectedKey={selectedKey}
+                timezone={business.timezone}
+                onOpenJob={setOpenJobId}
+              />
             ) : (
               // Two columns from md: the same cards, re-flowed. A tablet
               // screen showing one 460px column of jobs wastes the extra
@@ -266,7 +262,7 @@ function SchedulePage() {
                     job={job}
                     variant={cardVariant}
                     travel={travel[job._id]}
-                    weather={weather[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)]}
+                    weather={weather.cell(job.suburb, job.postcode ?? '', selectedKey)}
                     timezone={business.timezone}
                     onOpen={setOpenJobId}
                   />

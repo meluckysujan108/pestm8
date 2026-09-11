@@ -2,6 +2,16 @@ import { v } from 'convex/values'
 import { action, internalMutation, internalQuery } from './_generated/server'
 import { internal } from './_generated/api'
 import { requireMembership } from './lib/access'
+// Shared with the client (src/lib/weather.ts) rather than mirrored: these four
+// were previously private copies here with a comment asking whoever changed
+// them to keep the client's copy in step. That is how e2e/calendar.spec.ts
+// ended up asserting against a key shape the server had already stopped using.
+import {
+  compositeKeyOf,
+  suburbKeyOf,
+  withinForecastWindow,
+} from './lib/forecastWindow'
+import { dayKeyOf } from './lib/dates'
 import type { ActionCtx } from './_generated/server'
 
 /**
@@ -31,20 +41,6 @@ const STATE_NAMES: Record<string, string> = {
   TAS: 'Tasmania',
   VIC: 'Victoria',
   WA: 'Western Australia',
-}
-
-function suburbKeyOf(suburb: string, postcode: string) {
-  return `${suburb.trim().toLowerCase().replace(/\s+/g, '-')}-${postcode.trim()}`
-}
-
-/**
- * `forDays` groups requests by suburb internally, but two jobs on the same
- * day in different suburbs need distinct entries in its output map — bare
- * `dayKey` would let one stomp the other. Mirrored client-side by
- * `src/lib/useDayWeather.ts`'s `weatherKeyOf`.
- */
-function compositeKeyOf(suburbKey: string, dayKey: string) {
-  return `${suburbKey}|${dayKey}`
 }
 
 export const readCache = internalQuery({
@@ -116,30 +112,21 @@ export const writeGeocache = internalMutation({
   },
 })
 
+/**
+ * Membership check, plus the tenant's timezone — which the caller needs in
+ * order to know what "today" is. The forecast window is relative to the
+ * tenant's local day, not the server's UTC day: for an Australian tenant those
+ * differ for the first 8-11 hours of every local morning, and using UTC would
+ * quietly drop the far edge of the window during exactly that period.
+ */
 export const assertAccessInternal = internalQuery({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
     await requireMembership(ctx, businessId)
-    return true
+    const business = await ctx.db.get(businessId)
+    return { timezone: business?.timezone ?? 'Australia/Perth' }
   },
 })
-
-/**
- * Open-Meteo forecasts run about 16 days ahead and a few days back. Asking
- * outside that returns nothing useful, so days beyond the window are reported
- * as absent rather than fetched and quietly rendered as blank.
- */
-const FORECAST_AHEAD_DAYS = 14
-const FORECAST_BEHIND_DAYS = 2
-
-function withinForecastWindow(dayKey: string): boolean {
-  const day = Date.parse(`${dayKey}T00:00:00Z`)
-  if (Number.isNaN(day)) return false
-
-  const today = Date.parse(`${new Date().toISOString().slice(0, 10)}T00:00:00Z`)
-  const days = Math.round((day - today) / 86_400_000)
-  return days >= -FORECAST_BEHIND_DAYS && days <= FORECAST_AHEAD_DAYS
-}
 
 export type DailyWeather = {
   maxTempC?: number
@@ -227,11 +214,15 @@ export const forDays = action({
     ctx,
     { businessId, state, days },
   ): Promise<Record<string, DailyWeather>> => {
-    await ctx.runQuery(internal.weather.assertAccessInternal, { businessId })
+    const { timezone } = await ctx.runQuery(
+      internal.weather.assertAccessInternal,
+      { businessId },
+    )
+    const todayKey = dayKeyOf(Date.now(), timezone)
 
     const out: Record<string, DailyWeather> = {}
     const wanted = (days as Array<DayRow>).filter((d) =>
-      withinForecastWindow(d.dayKey),
+      withinForecastWindow(d.dayKey, todayKey),
     )
 
     const bySuburb = new Map<string, Array<DayRow>>()
@@ -325,81 +316,3 @@ export const forDays = action({
   },
 })
 
-export const forDay = action({
-  args: {
-    businessId: v.id('businesses'),
-    suburb: v.string(),
-    postcode: v.string(),
-    state: v.string(),
-    dayKey: v.string(),
-  },
-  // Annotated because the handler calls queries defined in this same file,
-  // which otherwise makes the inferred return type circular.
-  handler: async (
-    ctx,
-    { businessId, suburb, postcode, state, dayKey },
-  ): Promise<DailyWeather | null> => {
-    await ctx.runQuery(internal.weather.assertAccessInternal, { businessId })
-
-    const suburbKey = suburbKeyOf(suburb, postcode)
-
-    const cached = await ctx.runQuery(internal.weather.readCache, {
-      suburbKey,
-      dayKey,
-    })
-    if (cached && Date.now() - cached.fetchedAt < STALE_MS) {
-      return {
-        maxTempC: cached.maxTempC,
-        minTempC: cached.minTempC,
-        rainMm: cached.rainMm,
-        windKmh: cached.windKmh,
-        code: cached.code,
-        suburb,
-      }
-    }
-
-    try {
-      const place = await geocode(ctx, suburb, postcode, state)
-      if (!place) return null
-
-      const forecast = await fetch(
-        `${FORECAST_URL}?latitude=${place.latitude}&longitude=${place.longitude}` +
-          '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max' +
-          `&timezone=auto&start_date=${dayKey}&end_date=${dayKey}`,
-      )
-      if (!forecast.ok) return null
-
-      const body = (await forecast.json()) as {
-        daily?: {
-          weather_code?: Array<number>
-          temperature_2m_max?: Array<number>
-          temperature_2m_min?: Array<number>
-          precipitation_sum?: Array<number>
-          wind_speed_10m_max?: Array<number>
-        }
-      }
-      const daily = body.daily
-      if (!daily) return null
-
-      const result = {
-        maxTempC: daily.temperature_2m_max?.[0],
-        minTempC: daily.temperature_2m_min?.[0],
-        rainMm: daily.precipitation_sum?.[0],
-        windKmh: daily.wind_speed_10m_max?.[0],
-        code: daily.weather_code?.[0],
-      }
-
-      await ctx.runMutation(internal.weather.writeCache, {
-        suburbKey,
-        dayKey,
-        ...result,
-      })
-
-      return { ...result, suburb }
-    } catch {
-      // Weather is advisory. A forecast outage must never stop someone from
-      // seeing their day's work.
-      return null
-    }
-  },
-})

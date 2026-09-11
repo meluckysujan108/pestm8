@@ -6,6 +6,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import { weatherKeyOf } from '../convex/lib/forecastWindow'
 
 const DAY = 86_400_000
 
@@ -132,11 +133,16 @@ test('weather is returned per day, and omitted beyond the forecast window', asyn
     })),
   })
 
-  expect(result[today]).toBeDefined()
-  expect(result[soon]).toBeDefined()
-  expect(result[distant]).toBeUndefined()
+  // Keyed by suburb AND day, via the same helper the server keys with — this
+  // assertion previously indexed by bare `dayKey` and so could never pass,
+  // while the `toBeUndefined` beside it passed for the wrong reason.
+  const key = (dayKey: string) => weatherKeyOf('Bayswater', '6053', dayKey)
+
+  expect(result[key(today)]).toBeDefined()
+  expect(result[key(soon)]).toBeDefined()
+  expect(result[key(distant)]).toBeUndefined()
 
   // One call covering several days, each carrying its own numbers.
-  expect(result[today].suburb).toBe('Bayswater')
-  expect(typeof result[soon].maxTempC).toBe('number')
+  expect(result[key(today)].suburb).toBe('Bayswater')
+  expect(typeof result[key(soon)].maxTempC).toBe('number')
 })

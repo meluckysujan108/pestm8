@@ -258,5 +258,10 @@ test('a board card renders a weather panel for its own suburb', async ({
   await page.goto(`/${slug}/schedule`)
 
   const card = page.getByRole('button', { name: /Termite Inspection/ })
+  // The forecast now arrives asynchronously behind a placeholder rather than
+  // rendering "No forecast" synchronously on first paint, so wait for the
+  // placeholder to resolve before asserting. Without this the assertion races
+  // a live geocode + forecast round trip and passes or fails on timing.
+  await expect(card.getByTestId('weather-pending')).toHaveCount(0)
   await expect(card).toContainText(/\d+°|No forecast/)
 })

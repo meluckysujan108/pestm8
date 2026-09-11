@@ -9,7 +9,7 @@ import {
   Sun,
 } from 'lucide-react'
 import { BarMeter } from '#/components/primitives/BarMeter'
-import type { DayWeather } from '#/lib/useDayWeather'
+import type { WeatherCell } from '#/lib/weather'
 import type { LucideIcon } from 'lucide-react'
 
 /**
@@ -75,8 +75,26 @@ function Metric({
   )
 }
 
-export function WeatherStrip({ weather }: { weather?: DayWeather | null }) {
-  if (!weather) {
+export function WeatherStrip({ cell }: { cell: WeatherCell }) {
+  // Nothing at all beyond the forecast horizon. "No forecast" for a job three
+  // months out reads as a failure, when in fact no forecast could exist yet.
+  if (cell.status === 'outOfWindow') return null
+
+  if (cell.status === 'pending') {
+    // Deliberately the same height as the resolved strip below (a 26px numeral
+    // over a 2.5-unit padded box). A shorter placeholder would re-introduce the
+    // board-card reflow that `a9dc2cb` fixed — the card would visibly resize as
+    // each forecast landed.
+    return (
+      <span
+        data-testid="weather-pending"
+        aria-hidden
+        className="block h-[62px] animate-pulse rounded-xl bg-surface-2"
+      />
+    )
+  }
+
+  if (cell.status === 'absent') {
     return (
       <span className="block rounded-xl bg-surface-2 px-3 py-2.5 text-caption text-muted">
         No forecast
@@ -84,6 +102,7 @@ export function WeatherStrip({ weather }: { weather?: DayWeather | null }) {
     )
   }
 
+  const { weather } = cell
   const { Icon, label, tint } = describe(weather.code)
   const { maxTempC, minTempC, rainMm, windKmh } = weather
 

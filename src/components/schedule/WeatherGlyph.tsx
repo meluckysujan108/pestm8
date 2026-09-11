@@ -1,6 +1,6 @@
 import { CloudRain, Sun, Wind } from 'lucide-react'
-import { isWet, isWindy } from '#/lib/useDayWeather'
-import type { DayWeather } from '#/lib/useDayWeather'
+import { isWet, isWindy } from '#/lib/weather'
+import type { DayWeather } from '#/lib/weather'
 
 /**
  * A calendar day has room for one mark, so it shows the thing that would
