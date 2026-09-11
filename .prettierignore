@@ -1,3 +1,16 @@
 package-lock.json
 pnpm-lock.yaml
 yarn.lock
+
+# Generated
+src/routeTree.gen.ts
+convex/_generated
+
+# Build output — present whenever a check runs after a build, as CI does.
+.output
+.vercel
+.nitro
+.tanstack
+dist
+playwright-report
+test-results

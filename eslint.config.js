@@ -41,6 +41,15 @@ export default [
       // project, so the type-aware parser cannot read them.
       'convex/_generated/**',
       'src/routeTree.gen.ts',
+      // Build output. Present whenever lint runs after a build — which is the
+      // order CI uses, so without this the lint gate fails on its own artefacts.
+      '.output/**',
+      '.vercel/**',
+      '.nitro/**',
+      '.tanstack/**',
+      'dist/**',
+      'playwright-report/**',
+      'test-results/**',
     ],
   },
 ]
