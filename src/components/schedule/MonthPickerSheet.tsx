@@ -101,7 +101,7 @@ function MonthGrid({
   const byDay = new Map(days.map((d) => [d.dayKey, d]))
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
+    <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-12">
       <div className="flex items-center justify-between">
         <button
           type="button"
