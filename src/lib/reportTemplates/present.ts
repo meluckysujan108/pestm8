@@ -1,8 +1,12 @@
+
+import { withLocked } from './choices'
 import type {
   AreaResult,
+  DerivedSource,
   FieldDef,
   GpsValue,
   RepeaterRow,
+  RichDoc,
   SignatureValue,
 } from './types'
 
@@ -28,14 +32,165 @@ export type Presented =
   | { kind: 'omit' }
   /** Nothing recorded — the em dash. */
   | { kind: 'blank' }
-  | { kind: 'text'; text: string; preserveWhitespace?: boolean }
+  | { kind: 'text'; text: string; preserveWhitespace?: boolean; tone?: Tone }
+  /** Stacked, unlabelled — GPS as latitude, longitude and altitude. */
+  | { kind: 'lines'; lines: Array<string> }
+  /** Structured prose: headings, bullets, bold lead-ins, definitions. */
+  | { kind: 'rich'; doc: RichDoc }
+  /** A stored image — a signature, printed rather than described. */
+  | { kind: 'image'; url: string; caption?: string }
   /** A labelled sub-list, e.g. each inspected area and its outcome. */
   | { kind: 'pairs'; pairs: Array<{ label: string; value: string; tone: Tone }> }
   /** Repeating rows under column headings. */
   | { kind: 'grid'; columns: Array<string>; rows: Array<Array<string>> }
 
+/**
+ * The records a document prints from but never asks about. Declared here, once,
+ * because the on-screen painter and the PDF painter each hand-maintain their
+ * own shape over the same query — the exact duplication this module was
+ * created to end.
+ *
+ * Every part is optional: a draft resolves against live records that may be
+ * incomplete, and a field whose source is missing prints blank rather than
+ * inventing a value on a document someone signs.
+ */
+export type PresentContext = {
+  client?: {
+    name?: string
+    address?: string
+    phone?: string
+    email?: string
+  } | null
+  property?: { address?: string } | null
+  business?: {
+    name?: string
+    tradingName?: string
+    address?: string
+    phone?: string
+    email?: string
+    website?: string
+    abn?: string
+  } | null
+  /** The person named on the document, not necessarily its author. */
+  technician?: {
+    name?: string
+    licence?: string
+    phone?: string
+    address?: string
+  } | null
+  job?: { number?: string } | null
+  /** Membership id → printed name, for the `member` kind. */
+  roster?: Record<string, string>
+  /**
+   * Membership id → the facts a `derived` row bound to a member field prints
+   * about that person.
+   */
+  members?: Record<
+    string,
+    { name?: string; licence?: string; phone?: string; address?: string }
+  >
+  /**
+   * The report's own answers, so a `derived` row bound to a member field can
+   * see who was chosen there.
+   */
+  answers?: Record<string, unknown>
+  /**
+   * Signature slot → signed URL. Absent here, a signature prints as who signed
+   * and when — which is what every report finalised so far already shows.
+   */
+  signatureUrls?: Record<string, string>
+}
+
 function isBlank(value: unknown): boolean {
   return value === undefined || value === null || value === ''
+}
+
+/** Every cell unanswered — an empty array counts, the way an empty checklist does. */
+export function isEmptyRow(
+  columns: Array<{ key: string }>,
+  row: Record<string, unknown>,
+): boolean {
+  return columns.every((cell) => {
+    const v = row[cell.key]
+    return isBlank(v) || (Array.isArray(v) && v.length === 0)
+  })
+}
+
+/**
+ * Flatten a presented cell to the single string a grid row can hold.
+ *
+ * Exhaustive on purpose. The obvious version — `shown.kind === 'text' ? … : ''`
+ * — keeps compiling however wide `Presented` grows, so a new variant appearing
+ * in a repeater cell would print as an empty box on a signed PDF with nothing
+ * failing. `CellDef` makes that unreachable today; this makes it unreachable
+ * tomorrow too.
+ */
+function cellText(shown: Presented): string {
+  switch (shown.kind) {
+    case 'text':
+      return shown.text
+    case 'blank':
+      return '—'
+    case 'lines':
+      return shown.lines.join(' · ')
+    case 'pairs':
+      return shown.pairs.map((p) => `${p.label}: ${p.value}`).join('; ')
+    case 'omit':
+    case 'rich':
+    case 'image':
+    case 'grid':
+      // Structurally cannot fit one cell of one row. `CellDef` excludes every
+      // kind that produces these, so reaching here means the allowlist moved.
+      return ''
+    default: {
+      const _exhaustive: never = shown
+      void _exhaustive
+      return ''
+    }
+  }
+}
+
+/**
+ * A fact about the person chosen in one member field. Never falls back to
+ * anyone else: a blank choice prints a blank licence beside a blank name, not
+ * the author's licence under nobody.
+ */
+function memberFact(
+  source: DerivedSource,
+  memberKey: string,
+  ctx: PresentContext | undefined,
+): string | undefined {
+  const [group, key] = [source.slice(0, source.indexOf('.')), source.slice(source.indexOf('.') + 1)]
+  if (group !== 'technician') return derivedValue(source, ctx)
+  const chosen = ctx?.answers?.[memberKey]
+  if (typeof chosen !== 'string') return undefined
+  const facts: Record<string, string | undefined> | undefined =
+    ctx?.members?.[chosen]
+  const found = facts?.[key]
+  return found === undefined || found === '' ? undefined : found
+}
+
+/** Resolve a `derived` field against the records, or nothing. */
+function derivedValue(
+  source: DerivedSource,
+  ctx: PresentContext | undefined,
+): string | undefined {
+  if (!ctx) return undefined
+  const dot = source.indexOf('.')
+  const group = source.slice(0, dot)
+  const key = source.slice(dot + 1)
+  const record: Record<string, string | undefined> | null | undefined =
+    group === 'client'
+      ? ctx.client
+      : group === 'property'
+        ? ctx.property
+        : group === 'business'
+          ? ctx.business
+          : group === 'technician'
+            ? ctx.technician
+            : ctx.job
+  const found = record?.[key]
+  return found === undefined || found === '' ? undefined : found
 }
 
 /** `2026-09-04` → `4 September 2026`. Falls back to the raw string. */
@@ -64,14 +219,43 @@ function formatTime(value: string): string {
   }).format(new Date(Date.UTC(2000, 0, 1, hours, minutes)))
 }
 
-export function present(field: FieldDef, value: unknown): Presented {
-  // Photos are evidence with their own gallery section, never a row in the
-  // field table. This replaces a `.filter(f => f.kind !== 'photos')` that both
-  // surfaces had to remember to apply. `gallery` never stores a value in
-  // `data` at all, so it must be caught here too, before the blank check below
-  // would otherwise treat it as an unanswered field.
-  if (field.kind === 'photos' || field.kind === 'gallery') {
-    return { kind: 'omit' }
+export function present(
+  field: FieldDef,
+  value: unknown,
+  ctx?: PresentContext,
+): Presented {
+  // EVERY kind that prints from something other than `data` is decided here,
+  // ahead of the blank check below. That ordering is the whole point: a static
+  // note has no stored value, so reaching `isBlank` would return `blank` and
+  // both painters would print a labelled em dash — a warranty clause rendering
+  // as "Warranty preamble —" on a document a client signs. The `never` guard
+  // at the bottom cannot catch it, because the function has already returned.
+  switch (field.kind) {
+    // Evidence with its own gallery section, never a row in the field table.
+    // This replaces a `.filter(f => f.kind !== 'photos')` that both surfaces
+    // had to remember to apply.
+    // A cover belongs to a page, not a row, so it is omitted alongside them.
+    case 'photos':
+    case 'gallery':
+    case 'cover':
+      return { kind: 'omit' }
+
+    // The label is the editor's name for the block; the body is what prints.
+    case 'note':
+      return { kind: 'rich', doc: field.body }
+
+    case 'heading':
+      return { kind: 'text', text: field.text }
+
+    case 'derived': {
+      const resolved = field.member
+        ? memberFact(field.source, field.member, ctx)
+        : derivedValue(field.source, ctx)
+      if (resolved === undefined) return { kind: 'blank' }
+      return field.format === 'lines'
+        ? { kind: 'lines', lines: resolved.split('\n') }
+        : { kind: 'text', text: resolved }
+    }
   }
 
   if (isBlank(value)) return { kind: 'blank' }
@@ -142,7 +326,8 @@ export function present(field: FieldDef, value: unknown): Presented {
       if (!Array.isArray(value)) break
       // An item the technician added at fill time has no option entry — it
       // stores as its own label, so falling back to the raw value prints it.
-      const labels = value.map(
+      // Locked items print whether or not the stored array holds them.
+      const labels = withLocked(field, value).map(
         (v) => field.options.find((o) => o.value === v)?.label ?? String(v),
       )
       return { kind: 'text', text: labels.join(', ') }
@@ -153,6 +338,16 @@ export function present(field: FieldDef, value: unknown): Presented {
       if (typeof gps.lat !== 'number' || typeof gps.lng !== 'number') break
       // Six decimal places is ~0.1 m — past the accuracy of any phone GPS, and
       // enough to identify which side of a building the technician stood on.
+      if (field.format === 'lines') {
+        const lines = [
+          `Lat: ${gps.lat.toFixed(6)}`,
+          `Lng: ${gps.lng.toFixed(6)}`,
+        ]
+        if (gps.altitude !== undefined) {
+          lines.push(`Alt: ${gps.altitude.toFixed(1)} m`)
+        }
+        return { kind: 'lines', lines }
+      }
       const coords = `${gps.lat.toFixed(6)}, ${gps.lng.toFixed(6)}`
       return {
         kind: 'text',
@@ -177,14 +372,20 @@ export function present(field: FieldDef, value: unknown): Presented {
 
     case 'repeater': {
       if (!Array.isArray(value)) break
-      if (value.length === 0) return { kind: 'blank' }
-      const rows = (value as Array<RepeaterRow>).map((row) =>
+      // A row with nothing in it is a tap on "Add Row" that went nowhere. It
+      // prints as nothing — not a blank line in a signed treatment table —
+      // whether it reached storage through an old draft or straight from an API
+      // caller.
+      const filled = (value as Array<RepeaterRow>).filter((row) =>
+        !isEmptyRow(field.columns, row),
+      )
+      if (filled.length === 0) return { kind: 'blank' }
+      const rows = filled.map((row) =>
         field.columns.map((cell) => {
           // Cells present through the same rules as top-level fields, so a
           // product code reads as its label inside the grid too.
-          const cellShown = present(cell, row[cell.key])
-          if (cellShown.kind === 'text') return cellShown.text
-          return cellShown.kind === 'blank' ? '—' : ''
+          const cellShown = present(cell, row[cell.key], ctx)
+          return cellText(cellShown)
         }),
       )
       return {
@@ -192,6 +393,20 @@ export function present(field: FieldDef, value: unknown): Presented {
         columns: field.columns.map((cell) => cell.label),
         rows,
       }
+    }
+
+    case 'member': {
+      // Never the raw membership id: an id nobody can resolve prints as an
+      // unanswered row, not as a Convex id on a signed document.
+      const printed = ctx?.roster?.[String(value)]
+      return printed ? { kind: 'text', text: printed } : { kind: 'blank' }
+    }
+
+    case 'emails': {
+      const list = Array.isArray(value) ? value.map(String) : [String(value)]
+      const kept = list.filter((entry) => entry.trim() !== '')
+      if (kept.length === 0) return { kind: 'blank' }
+      return { kind: 'text', text: kept.join(', ') }
     }
 
     case 'text':

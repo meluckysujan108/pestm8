@@ -1,3 +1,4 @@
+import { isDataField } from './types'
 import type { FieldDef, SectionDef } from './types'
 
 /**
@@ -76,6 +77,11 @@ export function visibleSections(
         isVisible(field.visibleWhen, data),
       ),
     }))
+    // A section whose every field is hidden has nothing to show. One left
+    // holding only a note or a heading DOES survive: a legal preamble that
+    // always prints is exactly the kind of content static blocks exist for,
+    // and dropping it because it happens to ask no questions would delete it
+    // from the document with nothing failing.
     .filter((section) => section.fields.length > 0)
 }
 
@@ -92,9 +98,15 @@ export function pruneHidden(
   sections: Array<SectionDef>,
   data: Record<string, unknown>,
 ): Record<string, unknown> {
+  // Only fields whose key addresses an answer. A static block's key is a React
+  // handle, not an address into `data` — treating it as one makes `delete
+  // pruned[key]` a live grenade the moment a note's key matches a key some
+  // earlier version of the template stored a real answer under.
   const visible = new Set<string>()
   for (const section of visibleSections(sections, data)) {
-    for (const field of section.fields) visible.add(field.key)
+    for (const field of section.fields) {
+      if (isDataField(field)) visible.add(field.key)
+    }
   }
 
   const declared: Array<FieldDef> = sections.flatMap(
@@ -102,6 +114,7 @@ export function pruneHidden(
   )
   const pruned = { ...data }
   for (const field of declared) {
+    if (!isDataField(field)) continue
     if (!visible.has(field.key)) delete pruned[field.key]
   }
   // Keys the template does not declare are left alone rather than silently

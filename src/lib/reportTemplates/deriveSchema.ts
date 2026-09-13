@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { isFilled, visibleSections } from './visibility'
+import { isDataField } from './types'
 import type { CellDef, FieldDef, SectionDef } from './types'
 
 /**
@@ -47,11 +48,14 @@ function validateField(
   ctx: z.RefinementCtx,
   path: Array<string | number>,
 ) {
+  // Nothing to enforce against a key that holds no answer. Written as the
+  // shared guard rather than a hand-kept list of kinds, because the failure it
+  // prevents is not loud: tick "Required" on a printed note and this function
+  // reports "<label> is required" against a key no control can ever fill, so
+  // the report can never be finalised and the error points at nothing.
+  if (!isDataField(field)) return
+
   switch (field.kind) {
-    // Unenforceable from `data` — see the module comment.
-    case 'photos':
-    case 'gallery':
-      return
 
     // AS 4349.3's own rule, verbatim: an area not inspected must say why.
     // The exact message matches the built-in `areaResult` refine in

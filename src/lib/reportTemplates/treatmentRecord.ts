@@ -23,6 +23,8 @@ const TREATED_AREAS = [
  */
 export const treatmentRecord: ReportTemplate = {
   id: 'treatmentRecord',
+  // v1 — the paraphrased wording that shipped before the verbatim rewrite.
+  version: 1,
   name: 'Treatment Record',
   shortName: 'Treatment',
   legalBasis: 'APVMA',
