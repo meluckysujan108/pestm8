@@ -16,12 +16,19 @@ export function FieldRenderer({
   error,
   onChange,
   photoContext,
+  captionHidden = false,
 }: {
   field: FieldDef
   value: unknown
   error?: string
   onChange: (value: unknown) => void
   photoContext: EditorCtx
+  /**
+   * The caption repeats the heading directly above it (the treatment grid is
+   * captioned with its own section's title). Kept for screen readers, hidden
+   * from sight, as the printed document does.
+   */
+  captionHidden?: boolean
 }) {
   const editor = FIELD_EDITORS[field.kind] as FieldEditor
   const Control = editor.Control as React.ComponentType<EditorProps>
@@ -60,12 +67,16 @@ export function FieldRenderer({
     <div className="mt-4">
       {editor.group ? (
         <fieldset className="flex flex-col gap-1.5">
-          <legend className="section-label mb-1.5">{caption}</legend>
+          <legend className={captionHidden ? 'sr-only' : 'section-label mb-1.5'}>
+            {caption}
+          </legend>
           {control}
         </fieldset>
       ) : (
         <label className="flex flex-col gap-1.5">
-          <span className="section-label">{caption}</span>
+          <span className={captionHidden ? 'sr-only' : 'section-label'}>
+            {caption}
+          </span>
           {control}
         </label>
       )}

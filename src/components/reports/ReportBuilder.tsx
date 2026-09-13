@@ -253,6 +253,9 @@ export function ReportBuilder({
                   [field.key]: applyUpdate(next, prev[field.key]),
                 }))
               }
+              captionHidden={
+                field.kind === 'repeater' && sameWords(field.label, section.title)
+              }
               photoContext={{
                 businessId,
                 reportId,
@@ -323,4 +326,10 @@ export function ReportBuilder({
       </div>
     </div>
   )
+}
+
+/** The same words, whatever the case: a section title may be set in capitals. */
+function sameWords(a: string, b: string) {
+  const words = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
+  return words(a) === words(b)
 }
