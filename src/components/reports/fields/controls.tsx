@@ -2,6 +2,11 @@ import { useState } from 'react'
 import { MapPin } from 'lucide-react'
 import { PhotoSlots } from './PhotoSlots'
 import { SignaturePad } from './SignaturePad'
+import {
+  retainedOptions,
+  toggleCheck,
+  withLocked,
+} from '#/lib/reportTemplates/choices'
 import type { EditorProps } from './registry'
 import type {
   AreaResult,
@@ -53,8 +58,10 @@ export function SelectControl({ field, value, onChange }: Of<'select'>) {
       onChange={(e) => onChange(e.target.value)}
       className={inputClass}
     >
-      <option value="">Choose…</option>
-      {field.options.map((o) => (
+      {/* The source form's own placeholder when it has one (`-`), never
+          stored: choosing it clears the answer. */}
+      <option value="">{field.blankOption ?? 'Choose…'}</option>
+      {retainedOptions(field.options, value).map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
         </option>
@@ -67,7 +74,7 @@ export function ChipsControl({ field, value, onChange }: Of<'chips'>) {
   const selected = (value as Array<string> | undefined) ?? []
   return (
     <span className="flex flex-wrap gap-2">
-      {field.options.map((o) => {
+      {retainedOptions(field.options, value).map((o) => {
         const on = selected.includes(o.value)
         return (
           <button
@@ -196,9 +203,15 @@ export function ToggleControl({ field, value, onChange }: Of<'toggle'>) {
  * `aria-pressed` would announce as independent toggles rather than one choice.
  */
 export function RadioControl({ field, value, onChange }: Of<'radio'>) {
+  // A radio group cannot be unset, so a source placeholder like `-` becomes the
+  // choice that clears the answer rather than one that stores a dash.
+  const choices = [
+    ...(field.blankOption ? [{ value: '', label: field.blankOption }] : []),
+    ...retainedOptions(field.options, value),
+  ]
   return (
     <span className="flex flex-col gap-1.5">
-      {field.options.map((option) => (
+      {choices.map((option) => (
         <label
           key={option.value}
           className="flex items-center gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5"
@@ -207,8 +220,10 @@ export function RadioControl({ field, value, onChange }: Of<'radio'>) {
             type="radio"
             name={field.key}
             value={option.value}
-            checked={value === option.value}
-            onChange={() => onChange(option.value)}
+            checked={
+              option.value === '' ? value === undefined || value === '' : value === option.value
+            }
+            onChange={() => onChange(option.value === '' ? undefined : option.value)}
             className="size-4 accent-red"
           />
           <span className="text-body text-ink">{option.label}</span>
@@ -280,21 +295,19 @@ export function ChecksControl({ field, value, onChange }: Of<'checks'>) {
   )
 
   function toggle(itemValue: string) {
-    onChange((previous: unknown) => {
-      const current = (previous as Array<string> | undefined) ?? []
-      return current.includes(itemValue)
-        ? current.filter((v) => v !== itemValue)
-        : [...current, itemValue]
-    })
+    // Locked and exclusive items live in the shared rules, so the control and
+    // the printed document cannot disagree about what "locked" means.
+    onChange((previous: unknown) => toggleCheck(field, previous, itemValue))
   }
+  const locked = new Set(field.locked ?? [])
+  const shown = withLocked(field, selected)
 
   function addCustom() {
     const trimmed = draft.trim()
     if (!trimmed || selected.includes(trimmed)) return
-    onChange((previous: unknown) => [
-      ...((previous as Array<string> | undefined) ?? []),
-      trimmed,
-    ])
+    // Through the same rule as a tapped item, so a typed risk still clears an
+    // exclusive "No Risk Safe Access Given".
+    onChange((previous: unknown) => toggleCheck(field, previous, trimmed))
     setDraft('')
   }
 
@@ -310,7 +323,8 @@ export function ChecksControl({ field, value, onChange }: Of<'checks'>) {
         >
           <input
             type="checkbox"
-            checked={selected.includes(option.value)}
+            checked={shown.includes(option.value)}
+            disabled={locked.has(option.value)}
             onChange={() => toggle(option.value)}
             className="size-4 accent-red"
           />

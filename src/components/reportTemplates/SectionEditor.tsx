@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react'
 import { AddFieldSheet } from './AddFieldSheet'
 import { VisibleWhenEditor } from './VisibleWhenEditor'
 import { FIELD_KIND_LABELS } from './fieldKinds'
+import { isDataField } from '#/lib/reportTemplates'
 import type { FieldDef, SectionDef } from '#/lib/reportTemplates'
 
 /**
@@ -63,13 +64,23 @@ export function SectionEditor({
   // A field's own `visibleWhen` may reference any field declared earlier in
   // the *whole template* — every field in this section before it, plus
   // everything from earlier sections.
+  //
+  // Only fields that hold an answer. A condition pointing at a printed note
+  // reads `data[key]`, finds nothing, and never matches, so the field it
+  // guards is invisible forever with nothing reporting why — the dangling
+  // reference this dropdown exists to prevent, in a new shape.
   function candidatesBefore(fieldIndex: number) {
     return [
       ...earlierFieldCandidates,
-      ...section.fields.slice(0, fieldIndex).map((f) => ({ key: f.key, label: f.label })),
+      ...section.fields
+        .slice(0, fieldIndex)
+        .filter(isDataField)
+        .map((f) => ({ key: f.key, label: f.label })),
     ]
   }
 
+  // Unfiltered on purpose: a static block still needs a key nothing else uses,
+  // for React and for jump links.
   const allKeysHere = new Set(section.fields.map((f) => f.key))
   const existingKeysForSheet = new Set([...otherKeys, ...allKeysHere])
 

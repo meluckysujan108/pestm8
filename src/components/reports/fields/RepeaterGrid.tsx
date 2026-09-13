@@ -64,7 +64,13 @@ export function RepeaterControl({
             <button
               type="button"
               disabled={atMin}
-              aria-label={`Remove ${field.label.toLowerCase()} ${index + 1}`}
+              // The visible words first, so the accessible name contains what
+              // is on screen ("Delete Row") as well as which row it deletes.
+              aria-label={
+                field.removeLabel
+                  ? `${field.removeLabel} ${index + 1}`
+                  : `Remove ${field.label.toLowerCase()} ${index + 1}`
+              }
               onClick={() =>
                 onChange((previous: unknown) =>
                   ((previous as Array<RepeaterRow> | undefined) ?? []).filter(
@@ -72,9 +78,12 @@ export function RepeaterControl({
                   ),
                 )
               }
-              className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+              className="flex h-8 min-w-8 items-center justify-center gap-1 rounded-full px-1.5 text-caption text-muted transition active:scale-[.95] disabled:opacity-30"
             >
               <Trash2 size={15} strokeWidth={1.8} />
+              {/* The source form's own words ("Delete Row") when it has them. The
+                  accessible name above stays row-specific either way. */}
+              {field.removeLabel && <span>{field.removeLabel}</span>}
             </button>
           </span>
 

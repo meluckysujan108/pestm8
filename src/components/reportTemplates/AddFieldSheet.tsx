@@ -54,8 +54,28 @@ export function AddFieldSheet({
       draft.kind === 'checks') &&
     draft.options.length === 0
   const columnsMissing = draft !== null && draft.kind === 'repeater' && draft.columns.length === 0
+  // A heading with no text prints as a blank line; a note with an empty body
+  // prints as an empty box. Caught here rather than server-side, where the
+  // same mistake surfaces as a generic INVALID_TEMPLATE the author cannot act
+  // on.
+  const textMissing =
+    draft !== null && draft.kind === 'heading' && draft.text.trim().length === 0
+  const bodyMissing =
+    draft !== null &&
+    draft.kind === 'note' &&
+    draft.body.content.every(
+      (block) =>
+        (block.type === 'paragraph' || block.type === 'heading') &&
+        block.content.every((node) => node.text.trim() === ''),
+    )
   const canSave =
-    draft !== null && !keyConflict && !optionsMissing && !columnsMissing && draft.label.trim().length > 0
+    draft !== null &&
+    !keyConflict &&
+    !optionsMissing &&
+    !columnsMissing &&
+    !textMissing &&
+    !bodyMissing &&
+    draft.label.trim().length > 0
 
   return (
     <Drawer.Root

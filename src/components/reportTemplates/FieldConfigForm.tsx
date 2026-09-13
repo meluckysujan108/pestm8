@@ -3,7 +3,8 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { OptionsListEditor } from './OptionsListEditor'
 import { VisibleWhenEditor } from './VisibleWhenEditor'
 import { slugifyKey } from './fieldKinds'
-import type { FieldDef } from '#/lib/reportTemplates'
+import { isDataField } from '#/lib/reportTemplates'
+import type { FieldDef, RichDoc } from '#/lib/reportTemplates'
 import type { Condition } from '#/lib/reportTemplates/visibility'
 
 /**
@@ -79,10 +80,13 @@ export function FieldConfigForm({
       </label>
 
       {/* `areas` has its own no-access-reason rule instead of a plain
-          required flag; `photos`/`gallery` can never be enforced from
-          `data` at all (see `deriveSchema.ts`) — showing the toggle for
-          either would promise something that never actually happens. */}
-      {field.kind !== 'areas' && field.kind !== 'photos' && field.kind !== 'gallery' && (
+          required flag; nothing that stores no answer in `data` can be
+          enforced from it at all (see `deriveSchema.ts`) — showing the toggle
+          for either would promise something that never actually happens. On a
+          printed note the promise is worse than empty: ticking it makes the
+          finalise gate demand a value for a block with no control, and the
+          report can never be locked. */}
+      {isDataField(field) && field.kind !== 'areas' && (
         <label className="flex items-center justify-between gap-2">
           <span className="text-body text-ink">Required</span>
           <input
@@ -319,6 +323,91 @@ function KindSpecificFields({
           />
         </div>
       )
+
+    case 'heading':
+      return (
+        <>
+          <TextInput
+            label="Heading"
+            value={field.text}
+            onChange={(v) => onChange({ ...field, text: v })}
+          />
+          <TextInput
+            label="Note under the heading (optional)"
+            value={field.note ?? ''}
+            onChange={(v) => onChange({ ...field, note: v || undefined })}
+          />
+        </>
+      )
+
+    case 'note':
+      // The body is edited as plain paragraphs here. A real rich-text editor
+      // for notes arrives with the rest of the builder rebuild; until then
+      // this stays honest about what it can do rather than offering formatting
+      // it would silently drop.
+      return (
+        <>
+          <TextInput
+            label="Bold lead-in (optional)"
+            value={field.heading ?? ''}
+            onChange={(v) => onChange({ ...field, heading: v || undefined })}
+          />
+          <label className="flex flex-col gap-1.5">
+            <span className="section-label">Printed text</span>
+            <textarea
+              rows={6}
+              value={paragraphsToText(field.body)}
+              onChange={(e) =>
+                onChange({ ...field, body: textToParagraphs(e.target.value) })
+              }
+              className="w-full rounded-xl bg-surface-3 p-3.5 text-[16px] leading-relaxed text-ink outline-none focus:ring-2 focus:ring-blue"
+            />
+          </label>
+        </>
+      )
+
+    case 'derived':
+    case 'member':
+    case 'cover':
+    case 'emails':
+      // Not offered in `ALL_FIELD_KINDS`, so the picker cannot mint one — but
+      // a template cloned from a built-in can contain them, and this form must
+      // still open without blowing up on one.
+      return null
+
+    default: {
+      // A new kind must say how it is configured. Without this the switch just
+      // widens its inferred return to include `undefined`, React renders
+      // nothing, and the kind's config UI is silently absent.
+      const _exhaustive: never = field
+      void _exhaustive
+      return null
+    }
+  }
+}
+
+/**
+ * Plain paragraphs in and out of a `RichDoc`. Lossy by design: it cannot
+ * express bold, bullets or definitions, so it is only ever used to edit a body
+ * that has none, and the blocks it does not understand are left untouched.
+ */
+function paragraphsToText(doc: RichDoc): string {
+  return doc.content
+    .map((block) =>
+      block.type === 'paragraph' || block.type === 'heading'
+        ? block.content.map((node) => node.text).join('')
+        : '',
+    )
+    .join('\n\n')
+}
+
+function textToParagraphs(text: string): RichDoc {
+  return {
+    type: 'doc',
+    content: text.split(/\n{2,}/).map((paragraph) => ({
+      type: 'paragraph' as const,
+      content: paragraph === '' ? [] : [{ type: 'text' as const, text: paragraph }],
+    })),
   }
 }
 

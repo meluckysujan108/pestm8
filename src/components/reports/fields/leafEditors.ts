@@ -16,13 +16,29 @@ import {
 } from './controls'
 import { GalleryControl } from './PhotoGallery'
 import { emptyAreas } from '#/lib/reportTemplates'
-import type { FieldDef, FieldKind } from '#/lib/reportTemplates'
+import type { CellDef, FieldDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
+import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { ComponentType } from 'react'
+
+// Re-exported so `registry.ts` can register it for `cover` too without adding
+// its own edge to `PhotoGallery`, which imports `EditorProps` back from there.
+export { GalleryControl }
 
 export type EditorCtx = {
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
+  /**
+   * The business's active members, for the `member` kind. Optional because the
+   * builder gains it when the roster is threaded through; a control with no
+   * roster says so rather than rendering an empty chooser.
+   */
+  roster?: Array<{ id: string; name: string }>
+  /**
+   * The records the form prints from, so a `derived` row shows the client's
+   * actual name rather than a description of where it will come from.
+   */
+  context?: PresentContext
 }
 
 export type EditorProps<TField extends FieldDef = FieldDef> = {
@@ -82,11 +98,23 @@ export type FieldEditor<TField extends FieldDef = FieldDef> = {
  * left `FIELD_EDITORS` half-initialised at module-eval time. Keeping the leaves
  * here breaks it, and enforces at the module level what `CellDef` asserts in
  * the types: a repeater cannot contain a repeater.
+ *
+ * Keyed by a positive list rather than `Exclude<FieldKind, 'repeater'>`.
+ * `RepeaterGrid` resolves a cell's editor straight out of this object, so
+ * anything present here is reachable as a repeater cell — and an exclusion
+ * list would have silently demanded entries for every new kind, saying that a
+ * static note or a cover photo belongs inside a treatment row.
  */
+export type LeafFieldKind =
+  | CellDef['kind']
+  | 'areas'
+  | 'photos'
+  | 'gps'
+  | 'signature'
+  | 'gallery'
+
 export const LEAF_EDITORS: {
-  [K in Exclude<FieldKind, 'repeater'>]: FieldEditor<
-    Extract<FieldDef, { kind: K }>
-  >
+  [K in LeafFieldKind]: FieldEditor<Extract<FieldDef, { kind: K }>>
 } = {
   // Text-ish fields seed to '' so an untouched required field fails its own
   // .min(1) rule and reports the message written for it, rather than Zod's
@@ -115,7 +143,12 @@ export const LEAF_EDITORS: {
     Control: DateControl,
   },
   time: { group: false, seed: () => '', Control: TimeControl },
-  checks: { group: true, seed: () => [], Control: ChecksControl },
+  // Locked items start ticked — they are what the document is, not answers.
+  checks: {
+    group: true,
+    seed: (field) => [...(field.locked ?? [])],
+    Control: ChecksControl,
+  },
   gps: { group: true, seed: () => undefined, Control: GpsControl },
   // The drawn image lives in storage; `data` holds only `{ signedAt }`, and an
   // unsigned field holds nothing at all.

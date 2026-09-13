@@ -7,12 +7,21 @@ import { FieldRenderer } from './fields/FieldRenderer'
 import { seedData } from './fields/registry'
 import { applyUpdate } from './fields/leafEditors'
 import { BoilerplateBlock } from './BoilerplateBlock'
+import { UpgradeBanner } from './UpgradeBanner'
 import { DurableNoticePreview } from './DurableNoticePreview'
-import { durableNoticeText, fieldsOf, sectionsOf } from '#/lib/reportTemplates'
+import {
+  durableNoticeText,
+  fieldsOf,
+  printsDurableNotice,
+  sectionsOf,
+} from '#/lib/reportTemplates'
 import { pruneHidden, visibleSections } from '#/lib/reportTemplates/visibility'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
+import { isEmptyRow } from '#/lib/reportTemplates/present'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
+import type { OptionSetOverrides } from '#/lib/reportTemplates/optionSets'
+import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { SaveStatus } from '#/lib/useAutosave'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -37,6 +46,12 @@ export function ReportBuilder({
   businessId,
   reportId,
   template: templateId,
+  templateVersion,
+  optionSets,
+  roster,
+  context,
+  upgrade,
+  onRestarted,
   customTemplate,
   initialData,
   property,
@@ -47,6 +62,15 @@ export function ReportBuilder({
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
   template: TemplateId | 'custom'
+  templateVersion?: number
+  optionSets?: OptionSetOverrides | null
+  /** The team a `member` field can name. */
+  roster?: Array<{ id: string; name: string }>
+  /** The records the form prints from. */
+  context?: PresentContext | null
+  /** Set when this draft was written against wording the business no longer issues. */
+  upgrade?: 'switch' | 'restart' | null
+  onRestarted?: (newReportId: Id<'reports'>) => void
   customTemplate?: CustomTemplateShape | null
   initialData: Record<string, unknown>
   property: { addressLine: string; suburb: string } | null
@@ -54,7 +78,20 @@ export function ReportBuilder({
   authorLicence?: string
   onFinalised: () => void
 }) {
-  const template = resolveReportTemplate({ template: templateId, customTemplate })
+  // Memoised: with a business's own option lists applied, resolution builds a
+  // new template object, and a new object every render would re-render every
+  // field. Convex query results are referentially stable, so these inputs only
+  // change when the data does.
+  const template = useMemo(
+    () =>
+      resolveReportTemplate({
+        template: templateId,
+        templateVersion,
+        customTemplate,
+        optionSets,
+      }),
+    [templateId, templateVersion, customTemplate, optionSets],
+  )
 
   const [data, setData] = useState<Record<string, unknown>>(() =>
     seedData(fieldsOf(template), initialData),
@@ -70,6 +107,7 @@ export function ReportBuilder({
       businessId: Id<'businesses'>
       reportId: Id<'reports'>
       data: unknown
+      templateVersion?: number
     }) => convexSave(args),
   })
 
@@ -79,12 +117,13 @@ export function ReportBuilder({
       businessId: Id<'businesses'>
       reportId: Id<'reports'>
       data: unknown
+      templateVersion?: number
     }) => convexFinalise(args),
     onSuccess: onFinalised,
   })
 
   const noticeText = useMemo(() => {
-    if (templateId !== 'termiteManagementCert' || !property) return null
+    if (!printsDurableNotice(template) || !property) return null
     return durableNoticeText({
       businessName,
       licenceNumber: authorLicence,
@@ -97,7 +136,7 @@ export function ReportBuilder({
       addressLine: property.addressLine,
       suburb: property.suburb,
     })
-  }, [templateId, property, businessName, authorLicence, data])
+  }, [template, property, businessName, authorLicence, data])
 
   /**
    * What actually gets validated and stored. A field the technician can no
@@ -105,14 +144,35 @@ export function ReportBuilder({
    * not reach the report — nor block finalising while being invisible.
    */
   function submittable() {
-    return pruneHidden(sectionsOf(template), data)
+    const pruned = pruneHidden(sectionsOf(template), data)
+    // Rows left completely empty are discarded rather than validated, as the
+    // Service Report's validation notes promise: an inspection-only visit with
+    // a stray "Add Row" tap still finalises, and nothing prints for it.
+    for (const field of fieldsOf(template)) {
+      if (field.kind !== 'repeater') continue
+      const rows = pruned[field.key]
+      if (Array.isArray(rows)) {
+        pruned[field.key] = rows.filter(
+          (row: Record<string, unknown>) => !isEmptyRow(field.columns, row),
+        )
+      }
+    }
+    return pruned
   }
 
   const autosave = useAutosave({
     value: submittable(),
     // A locked report has nothing to save, and neither does one still hydrating.
     enabled: hydrated && !finalise.isSuccess,
-    save: (payload) => save.mutateAsync({ businessId, reportId, data: payload }),
+    // The revision this builder is rendering travels with every write, so a
+    // server holding a newer form refuses answers shaped for an older one.
+    save: (payload) =>
+      save.mutateAsync({
+        businessId,
+        reportId,
+        data: payload,
+        templateVersion: template.version,
+      }),
   })
 
   async function onFinaliseClick() {
@@ -138,6 +198,7 @@ export function ReportBuilder({
       businessId,
       reportId,
       data: payload,
+      templateVersion: template.version,
     })
   }
 
@@ -149,6 +210,16 @@ export function ReportBuilder({
         <p className="mt-1 text-body text-muted">
           {property.addressLine}, {property.suburb}
         </p>
+      )}
+
+      {upgrade && (
+        <UpgradeBanner
+          businessId={businessId}
+          reportId={reportId}
+          upgrade={upgrade}
+          beforeSwitch={() => autosave.flush()}
+          onRestarted={(id) => onRestarted?.(id)}
+        />
       )}
 
       {visibleSections(sectionsOf(template), data).map((section) => (
@@ -182,7 +253,14 @@ export function ReportBuilder({
                   [field.key]: applyUpdate(next, prev[field.key]),
                 }))
               }
-              photoContext={{ businessId, reportId }}
+              photoContext={{
+                businessId,
+                reportId,
+                roster,
+                // Live answers, so a licence row follows the technician picked
+                // a moment ago rather than the one last saved.
+                context: context ? { ...context, answers: data } : undefined,
+              }}
             />
           ))}
         </section>
@@ -190,7 +268,11 @@ export function ReportBuilder({
 
       {noticeText && <DurableNoticePreview text={noticeText} />}
 
-      <BoilerplateBlock text={template.boilerplate} />
+      <BoilerplateBlock
+        text={template.boilerplate}
+        terms={template.terms}
+        heading={template.print?.termsHeading}
+      />
 
       {autosave.status === 'error' && (
         <p

@@ -8,6 +8,7 @@ import { customTemplateSectionsSchema } from '#/lib/reportTemplates/customTempla
 import { useAutosave } from '#/lib/useAutosave'
 import { useHydrated } from '#/lib/useHydrated'
 import type { SaveStatus } from '#/lib/useAutosave'
+import { isDataField } from '#/lib/reportTemplates'
 import type { SectionDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -95,6 +96,10 @@ export function TemplateEditor({
     return draft.sections
       .slice(0, sectionIndex)
       .flatMap((section) => section.fields)
+      // Only fields that hold an answer — see `candidatesBefore` in
+      // SectionEditor. `keysOutside` above stays unfiltered, because key
+      // uniqueness has to cover static blocks too.
+      .filter(isDataField)
       .map((f) => ({ key: f.key, label: f.label }))
   }
 

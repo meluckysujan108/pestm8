@@ -26,17 +26,6 @@ export function FieldRenderer({
   const editor = FIELD_EDITORS[field.kind] as FieldEditor
   const Control = editor.Control as React.ComponentType<EditorProps>
 
-  const caption = (
-    <>
-      {field.label}
-      {'required' in field && field.required && (
-        <span aria-hidden className="ml-1 text-red">
-          *
-        </span>
-      )}
-    </>
-  )
-
   const control = (
     <Control
       field={field}
@@ -44,6 +33,27 @@ export function FieldRenderer({
       onChange={onChange}
       ctx={photoContext}
     />
+  )
+
+  // A printed note or a sub-heading has no caption, no required marker and no
+  // fieldset — it is content, not a question. Wrapping one in the framing
+  // below would show the author's editor-only name as a form label and a red
+  // asterisk beside a block nobody can fill in.
+  if (field.kind === 'note' || field.kind === 'heading') {
+    return <div className="mt-4">{control}</div>
+  }
+
+  const caption = (
+    <>
+      {field.label}
+      {/* `required` is on every field by construction, so this only ever asks
+          whether it is set — never whether the kind has the property. */}
+      {field.required && (
+        <span aria-hidden className="ml-1 text-red">
+          *
+        </span>
+      )}
+    </>
   )
 
   return (
@@ -60,7 +70,7 @@ export function FieldRenderer({
         </label>
       )}
 
-      {'hint' in field && field.hint && (
+      {field.hint && (
         <p className="mt-1 text-caption text-muted">{field.hint}</p>
       )}
       {field.kind === 'areas' && field.note && (

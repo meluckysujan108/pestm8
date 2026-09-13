@@ -43,7 +43,13 @@ export function useAutosave<T>({
 }): {
   status: SaveStatus
   lastSavedAt?: number
-  flush: () => Promise<void>
+  /**
+   * Resolves once the server holds what is on screen, or the save failed.
+   * Returns whether it holds it. Waits for a save already in flight rather than
+   * returning past it — a caller about to act on the server's copy (switch a
+   * draft to a new form, say) must not act on an older one.
+   */
+  flush: () => Promise<boolean>
 } {
   const [status, setStatus] = useState<SaveStatus>('draft')
   const [lastSavedAt, setLastSavedAt] = useState<number | undefined>()
@@ -59,6 +65,7 @@ export function useAutosave<T>({
   /** Serialised form of what the server is believed to hold. */
   const savedRef = useRef(JSON.stringify(value))
   const inFlight = useRef(false)
+  const inFlightPromise = useRef<Promise<void> | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const dirtySince = useRef<number | null>(null)
 
@@ -69,16 +76,21 @@ export function useAutosave<T>({
     }
   }
 
-  const run = useCallback(async () => {
+  /** Sends what is on screen. Resolves false only when the save failed. */
+  const run = useCallback(async (): Promise<boolean> => {
     clearTimer()
-    if (inFlight.current) return
+    if (inFlight.current) return true
 
     const pending = valueRef.current
     const snapshot = JSON.stringify(pending)
-    if (snapshot === savedRef.current) return
+    if (snapshot === savedRef.current) return true
 
     inFlight.current = true
     setStatus('saving')
+    let settle: () => void = () => {}
+    inFlightPromise.current = new Promise<void>((resolve) => {
+      settle = resolve
+    })
     try {
       await saveRef.current(pending)
       savedRef.current = snapshot
@@ -95,16 +107,27 @@ export function useAutosave<T>({
         dirtySince.current = Date.now()
         setStatus('dirty')
       }
+      return true
     } catch {
       setStatus('error')
+      return false
     } finally {
       inFlight.current = false
+      inFlightPromise.current = null
+      settle()
     }
   }, [])
 
   const flush = useCallback(async () => {
-    if (!enabled) return
-    await run()
+    if (!enabled) return true
+    // Bounded: a technician typing continuously during the flush cannot hold
+    // it open forever, and each pass sends everything on screen at that moment.
+    for (let pass = 0; pass < 4; pass += 1) {
+      if (inFlightPromise.current) await inFlightPromise.current
+      if (JSON.stringify(valueRef.current) === savedRef.current) return true
+      if (!(await run())) return false
+    }
+    return JSON.stringify(valueRef.current) === savedRef.current
   }, [enabled, run])
 
   useEffect(() => {

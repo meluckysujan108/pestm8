@@ -6,7 +6,7 @@ import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
-import { TEMPLATE_LIST } from '#/lib/reportTemplates'
+import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -115,7 +115,7 @@ function NewReportPage() {
             )}
 
             <div className="mt-5 flex flex-col gap-2.5">
-              {TEMPLATE_LIST.map((template) => (
+              {CREATABLE_TEMPLATES.map((template) => (
                 <button
                   key={template.id}
                   type="button"

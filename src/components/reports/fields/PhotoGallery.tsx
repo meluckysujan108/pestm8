@@ -8,7 +8,13 @@ import type { EditorProps } from './registry'
 import type { FieldDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
-type GalleryField = EditorProps<Extract<FieldDef, { kind: 'gallery' }>>
+/**
+ * Serves both photo-set kinds. A `cover` is a gallery of exactly one whose
+ * single photo is the document's front page — same upload path, same tiles,
+ * same storage rows, so a cover photo is never a second mechanism to keep in
+ * step with this one.
+ */
+type GalleryField = EditorProps<Extract<FieldDef, { kind: 'gallery' | 'cover' }>>
 
 type GalleryPhoto = {
   _id: Id<'reportPhotos'>
@@ -48,7 +54,9 @@ export function GalleryControl({ field, ctx }: GalleryField) {
     }) => convexAdd(args),
   })
 
-  const atMax = field.maxPhotos !== undefined && photos.length >= field.maxPhotos
+  // A cover is singular by definition; a gallery is capped only if it says so.
+  const maxPhotos = field.kind === 'cover' ? 1 : field.maxPhotos
+  const atMax = maxPhotos !== undefined && photos.length >= maxPhotos
 
   async function onPick(files: Array<File>) {
     setBusy(true)
@@ -60,7 +68,7 @@ export function GalleryControl({ field, ctx }: GalleryField) {
       // afterwards, and avoids opening a burst of concurrent uploads on a
       // connection that is already the constraint.
       for (const file of files) {
-        if (field.maxPhotos !== undefined && photos.length >= field.maxPhotos) {
+        if (maxPhotos !== undefined && photos.length >= maxPhotos) {
           break
         }
         const compressed = await compress(file, {
@@ -107,8 +115,12 @@ export function GalleryControl({ field, ctx }: GalleryField) {
               total={photos.length}
               label={field.label}
               // A cover flag only means something when there is more than one
-              // photo to distinguish between.
-              showCover={field.maxPhotos !== 1 && photos.length > 1}
+              // photo to distinguish between — and never on a `cover` field,
+              // where the field kind is already the claim about which photo
+              // this is.
+              showCover={
+                field.kind !== 'cover' && maxPhotos !== 1 && photos.length > 1
+              }
             />
           ))}
         </span>

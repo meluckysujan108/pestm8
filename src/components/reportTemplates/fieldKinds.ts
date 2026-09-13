@@ -1,4 +1,4 @@
-import type { FieldDef, FieldKind } from '#/lib/reportTemplates'
+import type { CellDef, FieldDef, FieldKind } from '#/lib/reportTemplates'
 
 /**
  * Everything the template editor needs to know about a field kind that isn't
@@ -10,6 +10,19 @@ import type { FieldDef, FieldKind } from '#/lib/reportTemplates'
  * never duplicate them, only describe the *authoring* side.
  */
 
+/**
+ * The kinds a business author may add to their own template.
+ *
+ * Deliberately not every kind. `derived`, `member`, `cover` and `emails` bind
+ * to records, rosters, page geometry and delivery — each is a promise the app
+ * keeps on the author's behalf, and offering one in a picker before the
+ * plumbing behind it exists would let someone build a form that silently
+ * prints nothing. `note` and `heading` are pure content and are offered from
+ * the start.
+ *
+ * An array, so nothing checks it for completeness — which is why the omissions
+ * are listed above rather than left to be discovered.
+ */
 export const ALL_FIELD_KINDS: Array<FieldKind> = [
   'text',
   'area',
@@ -27,11 +40,13 @@ export const ALL_FIELD_KINDS: Array<FieldKind> = [
   'photos',
   'gallery',
   'repeater',
+  'heading',
+  'note',
 ]
 
 /** The leaf subset `CellDef` restricts a repeater column to — no photos,
  * signatures, GPS, `areas`, or nested repeaters. */
-export const CELL_FIELD_KINDS: Array<FieldKind> = [
+export const CELL_FIELD_KINDS: Array<CellDef['kind']> = [
   'text',
   'area',
   'select',
@@ -61,6 +76,12 @@ export const FIELD_KIND_LABELS: Record<FieldKind, string> = {
   photos: 'Photos (fixed slots)',
   gallery: 'Photos (open-ended)',
   repeater: 'Repeating rows',
+  heading: 'Sub-heading',
+  note: 'Printed note',
+  derived: 'Record detail',
+  member: 'Team member',
+  cover: 'Front page photo',
+  emails: 'Email recipients',
 }
 
 export const FIELD_KIND_HINTS: Record<FieldKind, string> = {
@@ -80,6 +101,12 @@ export const FIELD_KIND_HINTS: Record<FieldKind, string> = {
   photos: 'A fixed set of named photo slots.',
   gallery: 'As many photos as needed, with captions and a cover flag.',
   repeater: 'Repeating rows of the same columns, e.g. a treatment grid.',
+  heading: 'Groups the questions beneath it. Asks nothing.',
+  note: 'Prose that prints on the document — a clause or a disclaimer.',
+  derived: 'Printed from the record. Never asked for, never stored.',
+  member: 'Who did the work, chosen from your team.',
+  cover: 'One landscape photo for the front page.',
+  emails: 'Extra addresses this document is sent to.',
 }
 
 export function slugifyKey(label: string, taken: Set<string>): string {
@@ -136,5 +163,25 @@ export function defaultField(
       return { kind, key, label }
     case 'repeater':
       return { kind, key, label, columns: [] }
+    case 'heading':
+      return { kind, key, label, text: label }
+    case 'note':
+      // A note with an empty body would print as a blank inset, so it starts
+      // with one empty paragraph the author types into rather than nothing.
+      return {
+        kind,
+        key,
+        label,
+        body: { type: 'doc', content: [{ type: 'paragraph', content: [] }] },
+        tone: 'note',
+      }
+    case 'derived':
+      return { kind, key, label, source: 'client.name' }
+    case 'member':
+      return { kind, key, label, roleWord: 'Technician' }
+    case 'cover':
+      return { kind, key, label }
+    case 'emails':
+      return { kind, key, label, semantic: 'emailTo' }
   }
 }

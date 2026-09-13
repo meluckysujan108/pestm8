@@ -7,7 +7,7 @@ import { Drawer } from 'vaul'
 import { api } from '../../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
-import { TEMPLATE_LIST } from '#/lib/reportTemplates'
+import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -54,12 +54,13 @@ function TemplatesPage() {
       <div className="px-4 pt-4 pb-6">
         <p className="section-label mb-2">Built-in</p>
         <div className="flex flex-col gap-2.5">
-          {TEMPLATE_LIST.map((template) => (
+          {CREATABLE_TEMPLATES.map((template) => (
             <BuiltinRow
               key={template.id}
               businessId={business._id}
-              // `TEMPLATE_LIST` only ever holds the 4 built-ins — `'custom'`
-              // is a marker `resolveReportTemplate` produces, never a source.
+              // Only the creatable built-ins — `'custom'` is a marker
+              // `resolveReportTemplate` produces, never a source, and a
+              // retired template is not offered to clone.
               templateId={template.id as TemplateId}
               name={template.name}
               legalBasis={template.legalBasis}
