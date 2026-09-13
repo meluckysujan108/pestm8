@@ -155,7 +155,12 @@ export const reports = query({
 
     return reportsByProperty
       .flat()
-      .filter((r) => r.businessId === businessId && canSeeReport(membership, r))
+      .filter(
+        (r) =>
+          r.businessId === businessId &&
+          r.deletedAt === undefined &&
+          canSeeReport(membership, r),
+      )
       .map(summarise)
       .sort((a, b) => (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt))
   },

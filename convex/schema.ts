@@ -28,6 +28,115 @@ export const reportTemplate = v.union(
 
 export const reportStatus = v.union(v.literal('draft'), v.literal('finalised'))
 
+/** Mirrors `OptionSetKey` in src/lib/reportTemplates/types.ts. */
+export const optionSetKey = v.union(
+  v.literal('treatments'),
+  v.literal('products'),
+  v.literal('quantities'),
+  v.literal('methods'),
+  v.literal('nextVisit'),
+  v.literal('risks'),
+  v.literal('riskActions'),
+  v.literal('housekeeping'),
+  v.literal('peoplePresent'),
+  v.literal('wallConstruction'),
+  v.literal('floorType'),
+  v.literal('roofType'),
+  v.literal('structureType'),
+  v.literal('structureHeight'),
+  v.literal('facade'),
+  v.literal('topography'),
+  v.literal('areasTreated'),
+  v.literal('limitationFactors'),
+  v.literal('noticeLocation'),
+)
+
+/** Mirrors `PrintSpec` — a closed shape we own, so validated strictly. */
+export const printSpec = v.object({
+  formName: v.string(),
+  numbering: v.union(v.literal('numbered'), v.literal('unnumbered')),
+  headings: v.optional(v.array(v.string())),
+  standardsLine: v.optional(v.string()),
+  cover: v.optional(
+    v.object({ title: v.string(), subtitle: v.optional(v.string()) }),
+  ),
+  termsHeading: v.optional(v.string()),
+  omitEmpty: v.optional(v.boolean()),
+})
+
+/**
+ * The records a finalised report prints from, as they stood when it was
+ * signed. See `reports.contextSnapshot`.
+ */
+export const reportContextSnapshot = v.object({
+  capturedAt: v.number(),
+  client: v.union(
+    v.null(),
+    v.object({
+      name: v.string(),
+      phone: v.optional(v.string()),
+      email: v.optional(v.string()),
+      address: v.optional(v.string()),
+    }),
+  ),
+  property: v.union(
+    v.null(),
+    v.object({
+      address: v.string(),
+      addressLine: v.string(),
+      suburb: v.string(),
+      state: v.string(),
+      postcode: v.string(),
+    }),
+  ),
+  business: v.union(
+    v.null(),
+    v.object({
+      name: v.string(),
+      tradingName: v.optional(v.string()),
+      address: v.optional(v.string()),
+      addressLine: v.optional(v.string()),
+      suburb: v.optional(v.string()),
+      postcode: v.optional(v.string()),
+      phone: v.optional(v.string()),
+      email: v.optional(v.string()),
+      abn: v.optional(v.string()),
+      licenceNumber: v.optional(v.string()),
+      logoStorageId: v.optional(v.id('_storage')),
+    }),
+  ),
+  technician: v.union(
+    v.null(),
+    v.object({
+      membershipId: v.id('memberships'),
+      name: v.optional(v.string()),
+      licence: v.optional(v.string()),
+      phone: v.optional(v.string()),
+      address: v.optional(v.string()),
+    }),
+  ),
+  author: v.object({
+    membershipId: v.id('memberships'),
+    licenceNumber: v.optional(v.string()),
+  }),
+  // Membership id -> the name as printed, e.g. "K. Edgar (Licence 4132)".
+  // Only the members a `member` field actually chose.
+  roster: v.record(v.string(), v.string()),
+  // Membership id -> the facts a row bound to that member field prints. Kept
+  // per member, because a form can name two different people.
+  members: v.optional(
+    v.record(
+      v.string(),
+      v.object({
+        name: v.optional(v.string()),
+        licence: v.optional(v.string()),
+        phone: v.optional(v.string()),
+        address: v.optional(v.string()),
+      }),
+    ),
+  ),
+})
+
 export const frequency = v.union(
   v.literal('monthly'),
   v.literal('quarterly'),
@@ -238,13 +347,57 @@ export default defineSchema({
     createdAt: v.number(),
     // Only set when `template === 'custom'`.
     customTemplateId: v.optional(v.id('customReportTemplates')),
-    // Frozen at finalise time — the same "becomes permanently valid" story
-    // `data` itself already has. Undefined while draft, since a draft reads
-    // the *live* `customReportTemplates` doc via `customTemplateId` instead
-    // (nothing is legally binding yet, so picking up a concurrent edit to
-    // the template is fine); always undefined for a built-in-templated
-    // report.
+    /**
+     * SUPERSEDED by `templateSnapshotId` — kept because 31 finalised rows on
+     * dev (and an unknown number on prod) still carry it, so removing it from
+     * this validator would reject them on the next push. Readers prefer
+     * `templateSnapshotId` and fall back to this. It is dropped in a later
+     * contract deploy, after every row has been backfilled and patched to
+     * `undefined`. See convex/migrations/reportSnapshotsV1.ts.
+     */
     customTemplateSnapshot: v.optional(v.any()),
+    /**
+     * The frozen template a finalised report renders from — every kind, not
+     * just custom. Built-ins were exempt while the 4 `.ts` files never
+     * changed; the verbatim rewrite ends that, so a signed document has to
+     * carry its own wording or it silently re-reads the new one.
+     *
+     * By reference, not inline, and NOT because of the 1 MB document limit —
+     * the worst snapshot is ~12 KB. Inlining a ~10 KB service report onto
+     * each of its finalised rows would grow this table roughly fivefold and
+     * make every later patch rewrite the whole snapshot. Deduplicated by
+     * content hash, hundreds of reports share a handful of rows.
+     *
+     * Optional forever: Convex cannot say "required only when finalised"
+     * without splitting this table into a status-discriminated union.
+     */
+    templateSnapshotId: v.optional(v.id('reportTemplateSnapshots')),
+    /**
+     * Which revision of the template this report was created against.
+     * Backfilled to 1 on every pre-existing row, so "was this written before
+     * or after the rewrite?" is answerable without guessing from dates.
+     */
+    templateVersion: v.optional(v.number()),
+    /**
+     * The client, site, business and technician facts this report printed,
+     * frozen at finalise.
+     *
+     * A verbatim template prints the client's name, the site address and the
+     * inspector's licence straight from the records rather than from typed
+     * answers. Read live, renaming a client next year would rewrite the name on
+     * a certificate signed this year — the same retroactive edit the template
+     * snapshot exists to prevent, arriving by a different door. Absent on
+     * reports finalised before this existed; those keep reading live, which is
+     * what they have always done.
+     */
+    contextSnapshot: v.optional(reportContextSnapshot),
+    /**
+     * Soft-deleted: hidden from every list and unopenable, never destroyed.
+     * Brought forward from the planned Recently Deleted feature so "start
+     * again" on a superseded draft can retire the old one without deleting
+     * the evidence photos attached to it.
+     */
+    deletedAt: v.optional(v.number()),
   })
     .index('by_business', ['businessId'])
     // "find the 2024 report for this address" — the reason properties are a
@@ -252,7 +405,10 @@ export default defineSchema({
     .index('by_property', ['propertyId'])
     .index('by_job', ['jobId'])
     // "can this custom template be hard-deleted?" — see customTemplates.remove.
-    .index('by_custom_template', ['customTemplateId']),
+    .index('by_custom_template', ['customTemplateId'])
+    // "which of this business's drafts might hold an answer being renamed?" —
+    // the option-library rename walks only these, never a finalised report.
+    .index('by_business_status_template', ['businessId', 'status', 'template']),
 
   /**
    * The team's shared field knowledge. The note BODY lives in the
@@ -378,7 +534,12 @@ export default defineSchema({
     order: v.number(),
     isCover: v.boolean(),
     createdAt: v.number(),
-  }).index('by_report_field', ['reportId', 'fieldKey']),
+  })
+    .index('by_report_field', ['reportId', 'fieldKey'])
+    // "which report owns this file?" — the same question `noteAttachments`
+    // asks, for the same reason: nothing may delete a stored image that a
+    // finalised document still prints.
+    .index('by_storage', ['storageId']),
 
   /**
    * Quick site photos attached directly to a job — "before/after" or
@@ -453,6 +614,12 @@ export default defineSchema({
     blurb: v.string(),
     sections: v.any(),
     boilerplate: v.string(),
+    // A verbatim built-in's warranty or terms pages and its printed framing.
+    // Copied by `cloneBuiltin`: without them a clone of the Service Report
+    // would silently drop its warranty pages, because its `boilerplate` is
+    // empty by design.
+    terms: v.optional(v.any()),
+    print: v.optional(printSpec),
     // Removes it from the "start a new report" picker only — has zero
     // effect on any report already referencing it. Mirrors how
     // `memberships.status` never hard-deletes ('removed' instead) and
@@ -462,4 +629,77 @@ export default defineSchema({
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index('by_business', ['businessId']),
+
+  /**
+   * The exact template a finalised report was signed against, stored once per
+   * distinct content and shared by every report that used it.
+   *
+   * Append-only and never deleted: a finalised report dereferences its row
+   * forever, so a purge here would blank out a signed document. Rows are not
+   * scoped to a business: a built-in that no business has customised is
+   * byte-identical across tenants, so a global content hash keeps one row per
+   * revision instead of one per tenant. A business that edits one of its option
+   * lists (its product list, say) mints its own row on its next finalise, and
+   * shares it with nobody unless their content is identical to the byte. Rows
+   * are only ever read through a report's `templateSnapshotId`, after the
+   * report's own access check — there is no lookup by hash from outside.
+   *
+   * `hash` is a canonical hash of the printed fields below (see
+   * `convex/lib/templateSnapshot.ts`). A collision is harmless by
+   * construction: the writer compares the canonical string on a hash hit and
+   * inserts a fresh row when they differ.
+   */
+  reportTemplateSnapshots: defineTable({
+    hash: v.string(),
+    // Which built-in this froze, or 'custom'. Kept so a snapshot can be read
+    // without also loading the report that points at it.
+    template: reportTemplate,
+    name: v.string(),
+    shortName: v.string(),
+    legalBasis: v.string(),
+    blurb: v.string(),
+    // `SectionDef[]`, always normalised through `sectionsOf()` so a flat
+    // `fields` built-in and a sectioned one freeze the same shape — including
+    // the synthetic `implicit: true` wrapper, which both painters print.
+    sections: v.any(),
+    boilerplate: v.string(),
+    // A RichDoc, validated where it is authored (`richDocSchema`); `v.any()`
+    // rather than a second copy of that recursive validator.
+    terms: v.optional(v.any()),
+    print: v.optional(printSpec),
+    features: v.optional(v.array(v.literal('durableNotice'))),
+    // The template revision this content came from, mirroring
+    // `reports.templateVersion`.
+    version: v.number(),
+    createdAt: v.number(),
+  }).index('by_hash', ['hash']),
+
+  /**
+   * A business's own version of a vocabulary its reports print — its product
+   * list, the treatments it offers. No row means the verbatim defaults from
+   * the built-in templates, which is where every business starts; a row is
+   * seeded lazily by the first owner edit.
+   *
+   * One document per list rather than a row per option: a list is bounded
+   * (`MAX_LIVE_OPTIONS`), always read and written whole, and changes rarely.
+   */
+  optionSets: defineTable({
+    businessId: v.id('businesses'),
+    key: optionSetKey,
+    // `value === label`, enforced by every writer: an answer stores the words
+    // it prints, so a report never needs this row to be read.
+    options: v.array(v.object({ value: v.string(), label: v.string() })),
+    /**
+     * Recent renames, newest last and bounded. The draft rewrites a rename
+     * schedules run in no guaranteed order; resolving through this log lets
+     * A->B and B->C converge on C whichever job runs first.
+     */
+    renames: v.array(
+      v.object({ from: v.string(), to: v.string(), at: v.number() }),
+    ),
+    // The built-in revision whose defaults seeded this row.
+    seedVersion: v.number(),
+    updatedAt: v.number(),
+    updatedByMembershipId: v.id('memberships'),
+  }).index('by_business_key', ['businessId', 'key']),
 })

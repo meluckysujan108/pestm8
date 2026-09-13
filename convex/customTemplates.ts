@@ -2,7 +2,11 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership, requireOwner } from './lib/access'
 import { customTemplateSectionsSchema } from '../src/lib/reportTemplates/customTemplateSchema'
-import { getTemplate, sectionsOf } from '../src/lib/reportTemplates'
+import {
+  RETIRED_TEMPLATES,
+  getTemplate,
+  sectionsOf,
+} from '../src/lib/reportTemplates'
 
 /** The 4 built-in ids — never `'custom'`, which only ever names a *resolved*
  * template, not a source one to clone from. */
@@ -96,6 +100,9 @@ export const cloneBuiltin = mutation({
   },
   handler: async (ctx, { businessId, sourceTemplateId, name }) => {
     const membership = await requireOwner(ctx, businessId)
+    if (RETIRED_TEMPLATES.has(sourceTemplateId)) {
+      throw new ConvexError('TEMPLATE_RETIRED')
+    }
     const source = getTemplate(sourceTemplateId)
 
     const now = Date.now()
@@ -105,11 +112,15 @@ export const cloneBuiltin = mutation({
       shortName: source.shortName,
       legalBasis: source.legalBasis,
       blurb: source.blurb,
-      // Normalised through `sectionsOf()` so a legacy flat-`fields` built-in
-      // (there are none left, but the type still allows it) clones the same
-      // shape every other surface already reads via that function.
+      // Normalised through `sectionsOf()` so a flat-`fields` built-in (the
+      // retired Treatment Record is one) clones the same shape every other
+      // surface already reads via that function.
       sections: sectionsOf(source),
       boilerplate: source.boilerplate,
+      // A verbatim built-in prints its warranty or terms from `terms`, with an
+      // empty `boilerplate` — without these a clone would silently lose them.
+      terms: source.terms,
+      print: source.print,
       createdByMembershipId: membership._id,
       createdAt: now,
       updatedAt: now,
@@ -142,6 +153,8 @@ export const duplicate = mutation({
       blurb: source.blurb,
       sections: source.sections,
       boilerplate: source.boilerplate,
+      terms: source.terms,
+      print: source.print,
       createdByMembershipId: membership._id,
       createdAt: now,
       updatedAt: now,

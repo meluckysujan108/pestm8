@@ -43,6 +43,11 @@ export const sendReportPdf = action({
     const template = resolveReportTemplate({
       template: report.template,
       customTemplate: report.customTemplate,
+      // Without this, a report emailed after a wording change gets the NEW
+      // template's name in the subject line and the attachment filename, for a
+      // document whose contents are the old one.
+      templateSnapshot: report.templateSnapshot,
+      templateVersion: report.templateVersion,
     })
 
     const pdfRes = await fetch(pdfUrl)
@@ -58,9 +63,13 @@ export const sendReportPdf = action({
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: fromEmail ? `${report.businessName} <${fromEmail}>` : report.businessName,
+        // The business as it is now, not as it was when the report was
+        // signed: a from-name and reply-to are delivery settings, not content.
+        from: fromEmail
+          ? `${report.sender?.name ?? report.businessName} <${fromEmail}>`
+          : (report.sender?.name ?? report.businessName),
         to: [to],
-        reply_to: report.business?.email || undefined,
+        reply_to: report.sender?.email || report.business?.email || undefined,
         subject,
         html: `<p>Please find attached your ${template.name.toLowerCase()} from ${report.businessName}.</p>`,
         attachments: [

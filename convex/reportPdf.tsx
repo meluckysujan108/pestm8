@@ -70,6 +70,11 @@ export const generate = action({
         report={{
           template: report.template,
           customTemplate: report.customTemplate,
+          // This action only ever runs on a finalised report, so it is the
+          // surface that most needs the frozen wording rather than today's.
+          templateSnapshot: report.templateSnapshot,
+          templateVersion: report.templateVersion,
+          context: report.context,
           legalBasis: report.legalBasis,
           finalisedAt: report.finalisedAt,
           data: (report.data ?? {}) as Record<string, unknown>,

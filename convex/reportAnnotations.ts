@@ -26,6 +26,7 @@ async function requireVisibleReport(
   if (!report || report.businessId !== businessId) {
     throw new ConvexError('NOT_FOUND')
   }
+  if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
   if (!canSeeReport(membership, report)) throw new ConvexError('NO_ACCESS')
   return { membership, report }
 }
