@@ -10,6 +10,18 @@ import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
+  // Without a loader the page suspends while it renders, and on an in-app
+  // navigation that suspension blanks the whole app shell until the report
+  // arrives. "Start again" navigates to a report no query has seen yet, so it
+  // showed an empty screen for a second or more. Loading first keeps the
+  // current screen up until the report is ready.
+  loader: ({ context, params }) =>
+    context.queryClient.ensureQueryData(
+      convexQuery(api.reports.get, {
+        businessId: context.business._id,
+        reportId: params.reportId as Id<'reports'>,
+      }),
+    ),
   component: ReportPage,
 })
 
