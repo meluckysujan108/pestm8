@@ -3,10 +3,18 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  setupBusinessWithSub,
   signInViaUi,
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import {
+  createCustomReport,
+  createReport,
+  customTemplateArgs,
+  finaliseReport,
+} from './fixtures/reportPayloads'
+import { getTemplate } from '../src/lib/reportTemplates'
 
 /**
  * §6.5 counts a report as delivered only once it leaves the app, so the export
@@ -16,8 +24,16 @@ import {
  * document being correct is worth nothing.
  */
 async function pdfText(path: string): Promise<string> {
+  return textOf(new Uint8Array(await readFile(path)))
+}
+
+async function pdfTextFromUrl(url: string): Promise<string> {
+  const res = await fetch(url)
+  return textOf(new Uint8Array(await res.arrayBuffer()))
+}
+
+async function textOf(data: Uint8Array): Promise<string> {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-  const data = new Uint8Array(await readFile(path))
   const doc = await pdfjs.getDocument({ data, useSystemFonts: true }).promise
 
   let text = ''
@@ -51,34 +67,25 @@ test('an exported inspection PDF carries its findings and scope limits', async (
     state: 'WA',
     postcode: '6053',
   })
-  const reportId = await owner.client.mutation(api.reports.create, {
-    businessId,
-    propertyId,
-    template: 'timberPestInspection',
-    legalBasis: 'AS 4349.3-2010',
-    data: {},
-  })
-  await owner.client.mutation(api.reports.finalise, {
-    businessId,
-    reportId,
-    data: {
-      areas: {
-        'Roof void': { status: 'inspected' },
-        Subfloor: {
-          status: 'noAccess',
-          reason: 'Insufficient clearance beneath bearers',
-        },
-        Interior: { status: 'inspected' },
-        'Exterior cladding': { status: 'inspected' },
-        'Decking and fencing': { status: 'inspected' },
-        Grounds: { status: 'inspected' },
-      },
-      activityEvidence: 'Live subterranean termite activity in the veranda post.',
-      damageEvidence: 'Moderate damage to the veranda post.',
-      conduciveConditions: 'Timber-to-ground contact at veranda posts.',
-      reinspectionInterval: '6',
-      recommendations: 'Install a termite management system to AS 3660.2.',
-    },
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'timberPestInspection',
+  )
+  await finaliseReport(owner.client, { businessId }, reportId, 'timberPestInspection', {
+    // The locked "12 Monthly…" item is deliberately NOT in the stored answer:
+    // it is what this document is, so it must print regardless.
+    inspectionTypeWarranty: ['Year 3'],
+    hinderedAccess: true,
+    hinderedAccessComments: 'Insufficient clearance beneath bearers',
+    termiteWorkings: true,
+    termiteWorkingsPhotoComments: 'Mud tubes on veranda post',
+    inspectionFrequency: '6 months',
+    // One conducive condition flagged, one clear: only the flagged one's
+    // guidance belongs on the client's copy.
+    siteDrainage: 'Inadequate',
+    ventilation: 'Adequate',
+    sendCopyToClient: true,
   })
 
   await signInViaUi(page, email)
@@ -94,34 +101,86 @@ test('an exported inspection PDF carries its findings and scope limits', async (
   const path = await download.path()
 
   const text = await pdfText(path)
+  const timber = getTemplate('timberPestInspection')
 
   // Identity and provenance.
-  expect(text).toContain('Timber Pest Inspection')
+  expect(text).toContain(timber.name)
+  expect(text).toContain('TIMBER PEST WARRANTY INSPECTION')
   expect(text).toContain('Bayside Pest Control')
   // Full street address, as every legal document requires.
   expect(text).toContain('12 Wattle Street')
+  // Section labels are letter-spaced, which splits their glyphs in the text
+  // layer ("1 . C L I E N T"), so compare them with the spaces taken out.
+  const squashed = text.replace(/\s/g, '')
+  expect(squashed).toContain('1.CLIENTDETAILS')
+  // Unanswered questions are left off a signed document (fidelity rule 8),
+  // and the words the form prints whole are not hyphenated across lines.
+  expect(text).not.toContain('Inspection Time —')
+  expect(text).not.toMatch(/prop- erty|In- spection/)
 
-  // A no-access area without its reason is the defect this product exists to
-  // prevent, so the reason has to survive into the delivered file.
+  expect(text).toContain('12 Monthly Timber Pest Visual Inspection')
+  expect(text).toContain('Year 3')
+
+  // A hindered area without its explanation is the defect this product exists
+  // to prevent, so the explanation has to survive into the delivered file.
   expect(text).toContain('Insufficient clearance beneath bearers')
-
-  // Labels, not storage codes.
+  expect(text).toContain('Mud tubes on veranda post')
   expect(text).toContain('6 months')
 
-  // The scope limits are what make the report defensible.
+  // The source form's own scope limits, verbatim. The paraphrase this replaced
+  // said "seven days" where the form says thirty, and invented a line about
+  // structural inspections the form never contained.
   expect(text).toContain('visual inspection only')
-  expect(text).toContain('NOT a structural inspection')
+  expect(text).toContain('more than thirty days')
+  expect(text).not.toContain('seven days')
+  expect(text).not.toContain('NOT a structural inspection')
+  // Interim terms, pending the owner's export of the Formitize terms body.
+  expect(text).toContain('Purpose Of Termite Management Systems')
+
+  // Guidance prints for the flagged condition only.
+  expect(text).toContain('require effective site drainage')
+  expect(text).not.toContain('Subfloor ventilation keeps floor frame dry')
+  // A control that drives delivery never prints.
+  expect(text).not.toContain('Send a copy of the Report')
 
   // Provenance footer — this went missing silently once already, because the
-  // absolute/`fixed` footer pattern only renders under Node. Generation moved
-  // server-side in Phase 5 specifically to make this possible at all.
-  expect(text).toContain('Bayside Pest Control · Timber Pest Inspection')
+  // absolute/`fixed` footer pattern only renders under Node.
+  expect(text).toContain(`Bayside Pest Control · ${timber.name}`)
   expect(text).toMatch(/Finalised \d{1,2}\/\d{1,2}\/\d{4}/)
-  // Real page numbers, likewise impossible before the server-side move.
   expect(text).toMatch(/Page \d+ of \d+/)
+})
 
-  // Areas print in the template's declared order, not storage order: Convex
-  // returns object keys sorted, which listed them alphabetically.
+test('a custom template PDF prints areas in declared order with their reasons', async () => {
+  const s = await setupBusinessWithSub('pdf-areas')
+  const templateId = await s.owner.client.mutation(api.customTemplates.create, {
+    businessId: s.businessId,
+    ...customTemplateArgs(),
+  })
+  const reportId = await createCustomReport(s.owner.client, s, templateId)
+  await s.owner.client.mutation(api.reports.finalise, {
+    businessId: s.businessId,
+    reportId,
+    data: {
+      areas: {
+        'Roof void': { status: 'inspected' },
+        Subfloor: {
+          status: 'noAccess',
+          reason: 'Insufficient clearance beneath bearers',
+        },
+        Interior: { status: 'inspected' },
+      },
+    },
+  })
+
+  const { url } = await s.owner.client.action(api.reportPdf.generate, {
+    businessId: s.businessId,
+    reportId,
+  })
+  const text = await pdfTextFromUrl(url!)
+
+  expect(text).toContain('Insufficient clearance beneath bearers')
+  // Declared order, not storage order: Convex returns object keys sorted,
+  // which once listed the areas alphabetically.
   expect(text.indexOf('Roof void')).toBeLessThan(text.indexOf('Subfloor'))
   expect(text.indexOf('Subfloor')).toBeLessThan(text.indexOf('Interior'))
 })

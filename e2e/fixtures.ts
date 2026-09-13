@@ -177,12 +177,15 @@ export type RejectionCode =
   | 'NOT_FOUND'
   | 'REPORT_FINALISED'
   | 'REPORT_NOT_FINALISED'
+  | 'REPORT_INCOMPLETE'
   | 'EMAIL_NOT_CONFIGURED'
   | 'LAST_OWNER'
   | 'ALREADY_MEMBER'
   | 'TEMPLATE_IN_USE'
   | 'TEMPLATE_ARCHIVED'
   | 'INVALID_TEMPLATE'
+  | 'TEMPLATE_RETIRED'
+  | 'TEMPLATE_VERSION_MISMATCH'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

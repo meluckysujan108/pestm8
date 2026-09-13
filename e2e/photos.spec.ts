@@ -8,6 +8,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import { createCustomReport, customTemplateArgs } from './fixtures/reportPayloads'
 
 /** Smallest valid PNG — enough to exercise compress → upload → attach. */
 const PNG = Buffer.from(
@@ -33,13 +34,17 @@ test('a photo uploaded in the builder survives onto the finalised document', asy
     state: 'WA',
     postcode: '6053',
   })
-  const reportId = await owner.client.mutation(api.reports.create, {
+  // Fixed named photo slots ("Before" / "After") live on in business-authored
+  // templates; the retired built-in that used them had no source form.
+  const templateId = await owner.client.mutation(api.customTemplates.create, {
     businessId,
-    propertyId,
-    template: 'treatmentRecord',
-    legalBasis: 'APVMA',
-    data: {},
+    ...customTemplateArgs(),
   })
+  const reportId = await createCustomReport(
+    owner.client,
+    { businessId, propertyId },
+    templateId,
+  )
 
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
@@ -66,15 +71,7 @@ test('a photo uploaded in the builder survives onto the finalised document', asy
   await owner.client.mutation(api.reports.finalise, {
     businessId,
     reportId,
-    data: {
-      product: 'Termidor',
-      activeConstituent: 'Fipronil',
-      apvmaNumber: '62873',
-      batchNumber: 'B-1',
-      dilutionRate: '10 mL/L',
-      targetPest: 'Termites',
-      treatedAreas: ['Kitchen'],
-    },
+    data: { product: 'Termidor' },
   })
 
   await page.reload()
@@ -85,13 +82,11 @@ test('a photo uploaded in the builder survives onto the finalised document', asy
 test('a finalised report accepts no further photos', async () => {
   const s = await setupBusinessWithSub('photo-lock')
 
-  const reportId = await s.owner.client.mutation(api.reports.create, {
+  const templateId = await s.owner.client.mutation(api.customTemplates.create, {
     businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'treatmentRecord',
-    legalBasis: 'APVMA',
-    data: {},
+    ...customTemplateArgs(),
   })
+  const reportId = await createCustomReport(s.owner.client, s, templateId)
 
   const uploadUrl = await s.owner.client.mutation(
     api.reports.generateUploadUrl,

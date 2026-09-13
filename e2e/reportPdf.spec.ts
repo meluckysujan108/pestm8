@@ -7,13 +7,15 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import { createReport, finaliseReport } from './fixtures/reportPayloads'
+import { fieldsOf, getTemplate } from '../src/lib/reportTemplates'
 
 const PNG = Buffer.from(
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
   'base64',
 )
 
-test('a gallery photo on a finalised report is embedded in the generated PDF', async () => {
+test('the front-page photo becomes its own landscape first page', async () => {
   const email = uniqueEmail('reportpdf-owner')
   const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
 
@@ -30,13 +32,11 @@ test('a gallery photo on a finalised report is embedded in the generated PDF', a
     state: 'WA',
     postcode: '6053',
   })
-  const reportId = await owner.client.mutation(api.reports.create, {
-    businessId,
-    propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
 
   const uploadUrl = await owner.client.mutation(api.reports.generateUploadUrl, {
     businessId,
@@ -47,18 +47,21 @@ test('a gallery photo on a finalised report is embedded in the generated PDF', a
     body: PNG,
   })
   const { storageId } = (await uploadRes.json()) as { storageId: string }
+  // The field the form declares as its front page, looked up rather than
+  // assumed — the key has to stay 'coverPhoto', because photos already
+  // uploaded to v1 drafts are stored under it.
+  const coverKey = fieldsOf(getTemplate('serviceReport')).find(
+    (field) => field.kind === 'cover',
+  )!.key
+  expect(coverKey).toBe('coverPhoto')
   await owner.client.mutation(api.reports.addGalleryPhoto, {
     businessId,
     reportId,
-    fieldKey: 'coverPhoto',
+    fieldKey: coverKey,
     storageId: storageId as never,
   })
 
-  await owner.client.mutation(api.reports.finalise, {
-    businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  await finaliseReport(owner.client, { businessId }, reportId, 'serviceReport')
 
   const result = await owner.client.action(api.reportPdf.generate, {
     businessId,
@@ -71,18 +74,23 @@ test('a gallery photo on a finalised report is embedded in the generated PDF', a
 
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise
-  // A full serviceReport spans several pages, so the photo isn't necessarily
-  // on page 1 — check the whole document rather than assuming placement.
-  let hasImage = false
-  for (let p = 1; p <= doc.numPages; p++) {
-    const ops = await (await doc.getPage(p)).getOperatorList()
-    if (ops.fnArray.includes(pdfjs.OPS.paintImageXObject)) hasImage = true
-  }
 
-  // The cover photo prints as an actual embedded image somewhere in the
-  // document, not merely a reference to it — this is the first PDF surface
-  // to carry photos at all.
-  expect(hasImage).toBe(true)
+  // Page 1 is the cover: landscape, carrying the photo as an embedded image.
+  // The source form asks for "1 Landscape Photo"; the photo having a page of
+  // its own is what makes that instruction mean something.
+  const first = await doc.getPage(1)
+  const [, , width, height] = first.view
+  expect(width).toBeGreaterThan(height)
+  const ops = await first.getOperatorList()
+  expect(ops.fnArray).toContain(pdfjs.OPS.paintImageXObject)
+
+  // And it is not printed a second time down in the photo grid.
+  let laterImages = 0
+  for (let p = 2; p <= doc.numPages; p++) {
+    const later = await (await doc.getPage(p)).getOperatorList()
+    laterImages += later.fnArray.filter((op) => op === pdfjs.OPS.paintImageXObject).length
+  }
+  expect(laterImages).toBe(0)
 
   // Cached on the report so a second download never re-renders.
   const cached = await owner.client.query(api.reports.get, {
@@ -95,13 +103,7 @@ test('a gallery photo on a finalised report is embedded in the generated PDF', a
 test('generating a PDF is rejected for a draft report or a non-member', async () => {
   const s = await setupBusinessWithSub('reportpdf-lock')
 
-  const draftReportId = await s.owner.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
+  const draftReportId = await createReport(s.owner.client, s, 'serviceReport')
 
   await expectRejected(
     () =>
@@ -112,11 +114,7 @@ test('generating a PDF is rejected for a draft report or a non-member', async ()
     'REPORT_NOT_FINALISED',
   )
 
-  await s.owner.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId: draftReportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  await finaliseReport(s.owner.client, s, draftReportId, 'serviceReport')
 
   const outsider = await signUpActor(
     uniqueEmail('reportpdf-outsider'),

@@ -282,13 +282,18 @@ await owner.mutation(api.recurrences.create, {
   durationMinutes: 30,
 })
 
+// The verbatim forms are revision 2. Every write to a report declares the
+// revision it was shaped for; the server refuses a mismatch, which is what
+// stops a stale browser tab saving old answers into a new form.
+const FORM_VERSION = 2
+
 console.log('Writing reports — drafts…')
 await owner.mutation(api.reports.create, {
   businessId,
   propertyId: roberts,
-  template: 'treatmentRecord',
-  legalBasis: 'APVMA',
-  data: { product: 'Termidor HE', targetPest: 'Ants' },
+  template: 'termiteManagementCert',
+  legalBasis: 'AS 3660.2-2017',
+  data: { product: 'Termidor HE' },
 })
 await kevin.mutation(api.reports.create, {
   businessId,
@@ -317,15 +322,17 @@ const certId = await owner.mutation(api.reports.create, {
 await owner.mutation(api.reports.finalise, {
   businessId,
   reportId: certId,
+  templateVersion: FORM_VERSION,
   data: {
-    systemType: 'chemical',
+    installDate: new Date().toISOString().slice(0, 10),
+    systemType: 'Chemical Soil Barrier',
     product: 'Termidor HE',
-    apvmaNumber: '62873',
-    batchNumber: 'TH-2026-118',
-    lifeExpectancy: '8 years',
-    installDate: new Date().toLocaleDateString('en-AU'),
-    reinspectionInterval: '12',
-    treatedZones: 'Full external perimeter, all penetrations and cold joints.',
+    activeConstituent: 'Fipronil 100g/L',
+    extentOfTreatment: 'Full external perimeter, all penetrations and cold joints.',
+    applicationMethod: ['Trenching & Soil Treatment', 'Drilling & Chemical Injection'],
+    reinspectionInterval: '12 months',
+    durableNoticeFitted: 'Yes',
+    durableNoticeLocation: 'Electricity Meter Box',
   },
 })
 
@@ -357,27 +364,50 @@ await kevin.mutation(api.reports.attachSignature, {
 await kevin.mutation(api.reports.finalise, {
   businessId,
   reportId: serviceId,
+  templateVersion: FORM_VERSION,
   data: {
     serviceDate: new Date().toISOString().slice(0, 10),
-    treatments: [{ _id: 'row-1', treatment: ['General Pest Control'], product: ['Biflex Ultra (100 g/L Bifenthrin)'], method: ['Vehicle mounted sprayer'] }],
+    // Answers are the verbatim words the form prints.
+    treatments: [
+      {
+        _id: 'row-1',
+        treatment: ['General Pest Control'],
+        product: ['Biflex Ultra (100 g/L Bifenthrin)'],
+        quantity: ['100ml/10L'],
+        method: ['Vehicle Mounted Sprayer'],
+      },
+    ],
+    weather: ['Sunny'],
+    risks: ['No Risk Safe Access Given'],
     safeToStart: true,
+    nextVisit: '3 Months',
     technicianSignature: { signedAt: Date.now() },
   },
 })
 
-// A plain treatment record, finalised — the simplest built-in template, so
-// the reports list has more than certificates and service reports in it.
-const treatmentId = await owner.mutation(api.reports.create, {
+// A finalised 12-monthly warranty inspection, so the reports list carries all
+// three of the forms the business issues. (The Treatment Record is retired:
+// it had no source form behind it.)
+const inspectionId = await owner.mutation(api.reports.create, {
   businessId,
   propertyId: wilson,
-  template: 'treatmentRecord',
-  legalBasis: 'APVMA',
+  template: 'timberPestInspection',
+  legalBasis: 'AS 4349.3-2010',
   data: {},
 })
 await owner.mutation(api.reports.finalise, {
   businessId,
-  reportId: treatmentId,
-  data: { product: 'Biflex Ultra', targetPest: 'Spiders', areasTreated: 'External perimeter' },
+  reportId: inspectionId,
+  templateVersion: FORM_VERSION,
+  data: {
+    inspectionDate: new Date().toISOString().slice(0, 10),
+    clientAgreesToInspection: 'Yes',
+    inspectionTypeWarranty: ['12 Monthly Timber Pest Visual Inspection to maintain Warranty', 'Year 2'],
+    summarySusceptibility: 'MODERATE, read report in full',
+    siteDrainage: 'Inadequate',
+    siteDrainageComments: 'Run-off pools against the rear slab edge after rain.',
+    inspectionFrequency: '12 months',
+  },
 })
 
 console.log('Authoring a custom template…')

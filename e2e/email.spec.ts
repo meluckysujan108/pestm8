@@ -7,6 +7,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import { createReport, finaliseReport } from './fixtures/reportPayloads'
 
 /**
  * No `RESEND_API_KEY` is configured in this dev deployment (that's the
@@ -18,18 +19,8 @@ import {
 test('sending a report email without a configured key fails clearly and logs nothing', async () => {
   const s = await setupBusinessWithSub('email-unconfigured')
 
-  const reportId = await s.owner.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
-  await s.owner.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
 
   await expectRejected(
     () =>
@@ -70,18 +61,12 @@ test('finalising a report is recorded in its action history', async () => {
     state: 'WA',
     postcode: '6053',
   })
-  const reportId = await owner.client.mutation(api.reports.create, {
-    businessId,
-    propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
-  await owner.client.mutation(api.reports.finalise, {
-    businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+  await finaliseReport(owner.client, { businessId }, reportId, 'serviceReport')
 
   const logs = await owner.client.query(api.auditLog.forEntity, {
     businessId,
@@ -95,18 +80,8 @@ test('finalising a report is recorded in its action history', async () => {
 test('a non-member cannot read a report action history', async () => {
   const s = await setupBusinessWithSub('auditlog-lock')
 
-  const reportId = await s.owner.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
-  await s.owner.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
 
   const outsider = await signUpActor(
     uniqueEmail('auditlog-outsider'),

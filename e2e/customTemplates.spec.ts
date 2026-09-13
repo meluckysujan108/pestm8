@@ -9,7 +9,14 @@ import {
 } from './fixtures'
 import { deriveGenericSchema } from '../src/lib/reportTemplates/deriveSchema'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
+import { customTemplateSectionsSchema } from '../src/lib/reportTemplates/customTemplateSchema'
+import {
+  CREATABLE_TEMPLATES,
+  getTemplate,
+  sectionsOf,
+} from '../src/lib/reportTemplates'
 import type { SectionDef } from '../src/lib/reportTemplates/types'
+import { createCustomReport } from './fixtures/reportPayloads'
 
 /**
  * Proves the Phase 2 "risky primitive" of the reports-reorg plan — the
@@ -154,22 +161,16 @@ test.describe('custom report templates', () => {
     // Two reports against the same live template: one goes to finalised,
     // one stays a draft — the whole point is watching them diverge after an
     // edit to the template they share.
-    const finalisedReportId = await owner.client.mutation(api.reports.create, {
-      businessId,
-      propertyId,
-      template: 'custom',
-      customTemplateId: templateId,
-      legalBasis: 'Internal',
-      data: {},
-    })
-    const draftReportId = await owner.client.mutation(api.reports.create, {
-      businessId,
-      propertyId,
-      template: 'custom',
-      customTemplateId: templateId,
-      legalBasis: 'Internal',
-      data: {},
-    })
+    const finalisedReportId = await createCustomReport(
+      owner.client,
+      { businessId, propertyId },
+      templateId,
+    )
+    const draftReportId = await createCustomReport(
+      owner.client,
+      { businessId, propertyId },
+      templateId,
+    )
 
     // Before any edit, a draft's `customTemplate` is the live doc.
     const freshDraft = await owner.client.query(api.reports.get, {
@@ -293,25 +294,43 @@ test.describe('custom report templates', () => {
 
     const templateId = await owner.client.mutation(api.customTemplates.cloneBuiltin, {
       businessId,
-      sourceTemplateId: 'treatmentRecord',
-      name: 'Treatment Record (Ours)',
+      sourceTemplateId: 'serviceReport',
+      name: 'Service Report (Ours)',
     })
 
+    const live = getTemplate('serviceReport')
     const cloned = await owner.client.query(api.customTemplates.get, { businessId, templateId })
-    expect(cloned?.name).toBe('Treatment Record (Ours)')
-    expect(Array.isArray(cloned?.sections)).toBe(true)
-    expect((cloned?.sections as Array<unknown>).length).toBeGreaterThan(0)
+    expect(cloned?.name).toBe('Service Report (Ours)')
+    // The whole verbatim form comes across: its sections, which the editor's
+    // own schema accepts without stripping a single prop, and the warranty
+    // pages, which live outside the sections.
+    expect(cloned?.sections).toEqual(sectionsOf(live))
+    expect(customTemplateSectionsSchema.safeParse(cloned?.sections).success).toBe(true)
+    expect(cloned?.terms).toEqual(live.terms)
+    expect(cloned?.print).toEqual(live.print)
+
+    // Saving the clone through the editor path round-trips every Phase 2 prop.
+    await owner.client.mutation(api.customTemplates.update, {
+      businessId,
+      templateId,
+      sections: cloned!.sections as Array<SectionDef>,
+    })
+    const saved = await owner.client.query(api.customTemplates.get, { businessId, templateId })
+    expect(saved?.sections).toEqual(sectionsOf(live))
 
     // Mutating the clone must never reach the real module — proven by
     // resolving the untouched built-in afterward and confirming its own
-    // name is exactly what `treatmentRecord.ts` has always said.
+    // name is exactly what `serviceReport.ts` says.
     await owner.client.mutation(api.customTemplates.update, {
       businessId,
       templateId,
       name: 'Mutated Clone',
     })
-    const builtin = resolveReportTemplate({ template: 'treatmentRecord' })
-    expect(builtin.name).not.toBe('Mutated Clone')
+    const builtin = resolveReportTemplate({
+      template: 'serviceReport',
+      templateVersion: live.version,
+    })
+    expect(builtin.name).toBe(live.name)
   })
 
   test('duplicate copies an existing custom template into a second, independent row', async () => {
@@ -376,14 +395,7 @@ test.describe('custom report templates', () => {
     // resolution mechanics.
     await expectRejected(
       () =>
-        owner.client.mutation(api.reports.create, {
-          businessId,
-          propertyId,
-          template: 'custom',
-          customTemplateId: templateId,
-          legalBasis: 'Internal',
-          data: {},
-        }),
+        createCustomReport(owner.client, { businessId, propertyId }, templateId),
       'TEMPLATE_ARCHIVED',
     )
 
@@ -395,14 +407,11 @@ test.describe('custom report templates', () => {
     expect(unarchived?.archivedAt).toBeUndefined()
 
     // Now that it is active again, starting a report against it succeeds.
-    const reportId = await owner.client.mutation(api.reports.create, {
-      businessId,
-      propertyId,
-      template: 'custom',
-      customTemplateId: templateId,
-      legalBasis: 'Internal',
-      data: {},
-    })
+    const reportId = await createCustomReport(
+      owner.client,
+      { businessId, propertyId },
+      templateId,
+    )
     expect(reportId).toBeTruthy()
   })
 
@@ -433,14 +442,7 @@ test.describe('custom report templates', () => {
       businessId,
       ...customTemplateArgs({ name: 'In Use Template' }),
     })
-    await owner.client.mutation(api.reports.create, {
-      businessId,
-      propertyId,
-      template: 'custom',
-      customTemplateId: inUseId,
-      legalBasis: 'Internal',
-      data: {},
-    })
+    await createCustomReport(owner.client, { businessId, propertyId }, inUseId)
 
     await expectRejected(
       () => owner.client.mutation(api.customTemplates.remove, { businessId, templateId: inUseId }),
@@ -504,7 +506,7 @@ test.describe('custom report templates', () => {
       () =>
         sub.client.mutation(api.customTemplates.cloneBuiltin, {
           businessId,
-          sourceTemplateId: 'treatmentRecord',
+          sourceTemplateId: 'serviceReport',
           name: 'Sub Clone',
         }),
       'NO_ACCESS',
@@ -567,7 +569,11 @@ test.describe('custom report templates', () => {
     await signInViaUi(page, email)
     await page.goto(`/${slug}/reports/new`)
 
-    await expect(page.getByText('Treatment Record')).toBeVisible()
+    for (const template of CREATABLE_TEMPLATES) {
+      await expect(page.getByText(template.name, { exact: true })).toBeVisible()
+    }
+    // Retired: its reports still render, but it is no longer offered.
+    await expect(page.getByText('Treatment Record', { exact: true })).toHaveCount(0)
     await expect(page.getByText('Handrail Inspection')).toBeVisible()
     await expect(page.getByText('Retired Form')).toHaveCount(0)
 

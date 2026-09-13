@@ -1,5 +1,20 @@
 import { expect, test } from '@playwright/test'
 import { FIXTURE_PASSWORD, api, signInViaUi, signUpActor, uniqueEmail } from './fixtures'
+import {
+  createCustomReport,
+  createReport,
+  customTemplateArgs,
+  finaliseReport,
+} from './fixtures/reportPayloads'
+import { getTemplate } from '../src/lib/reportTemplates'
+
+// Row names come from the templates themselves, matched exactly: Playwright's
+// default is a case-insensitive substring, which would let a renamed form pass.
+const CERTIFICATE = getTemplate('termiteManagementCert').name
+const TIMBER = getTemplate('timberPestInspection').name
+const SERVICE = getTemplate('serviceReport').name
+const WALKTHROUGH = 'Site Walkthrough'
+const exact = { exact: true } as const
 
 /**
  * The reports list page's dashboard cards, search, and status filter
@@ -42,39 +57,36 @@ test('the reports list buckets by status and searches across client, suburb, and
 
   // Two drafts for Nguyen, one draft for Roberts, one finalised for Nguyen —
   // deliberately uneven so the counts can't pass by accident (e.g. 2 and 2).
-  await owner.client.mutation(api.reports.create, {
+  await createReport(
+    owner.client,
+    { businessId, propertyId: nguyen },
+    'termiteManagementCert',
+  )
+  await createReport(
+    owner.client,
+    { businessId, propertyId: nguyen },
+    'timberPestInspection',
+  )
+  // A business-authored form for Roberts, so every draft has a distinct name.
+  const walkthrough = await owner.client.mutation(api.customTemplates.create, {
     businessId,
-    propertyId: nguyen,
-    template: 'termiteManagementCert',
-    legalBasis: 'AS 3660.2-2017',
-    data: {},
+    ...customTemplateArgs({ name: WALKTHROUGH }),
   })
-  await owner.client.mutation(api.reports.create, {
-    businessId,
-    propertyId: nguyen,
-    template: 'timberPestInspection',
-    legalBasis: 'AS 4349.3-2010',
-    data: {},
-  })
-  await owner.client.mutation(api.reports.create, {
-    businessId,
-    propertyId: roberts,
-    template: 'treatmentRecord',
-    legalBasis: 'APVMA',
-    data: {},
-  })
-  const finalisedReportId = await owner.client.mutation(api.reports.create, {
-    businessId,
-    propertyId: nguyen,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
-  await owner.client.mutation(api.reports.finalise, {
-    businessId,
-    reportId: finalisedReportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  await createCustomReport(
+    owner.client,
+    { businessId, propertyId: roberts },
+    walkthrough,
+  )
+  const finalisedReportId = await createReport(
+    owner.client,
+    { businessId, propertyId: nguyen },
+    'serviceReport',
+  )
+  await finaliseReport(
+    owner.client,
+    { businessId },
+    finalisedReportId, 'serviceReport',
+  )
 
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports`)
@@ -94,30 +106,30 @@ test('the reports list buckets by status and searches across client, suburb, and
   // the drafts (deliberately — a same-named draft/finalised pair would make
   // this assertion pass by accident).
   await page.getByRole('tab', { name: 'Draft' }).click()
-  await expect(page.getByText('Termite Management Certificate')).toBeVisible()
-  await expect(page.getByText('Timber Pest Inspection')).toBeVisible()
-  await expect(page.getByText('Treatment Record')).toBeVisible()
-  await expect(page.getByText('Pest Service Report')).toHaveCount(0)
+  await expect(page.getByText(CERTIFICATE, exact)).toBeVisible()
+  await expect(page.getByText(TIMBER, exact)).toBeVisible()
+  await expect(page.getByText(WALKTHROUGH, exact)).toBeVisible()
+  await expect(page.getByText(SERVICE, exact)).toHaveCount(0)
 
   // Filter tab: Finalised shows the one locked report.
   await page.getByRole('tab', { name: 'Finalised', exact: true }).click()
-  await expect(page.getByText('Timber Pest Inspection')).toHaveCount(0)
-  await expect(page.getByText('Pest Service Report')).toBeVisible()
+  await expect(page.getByText(TIMBER, exact)).toHaveCount(0)
+  await expect(page.getByText(SERVICE, exact)).toBeVisible()
 
   // Back to All, then search narrows across client/suburb/template together.
   await page.getByRole('tab', { name: 'All' }).click()
   await page.getByPlaceholder('Search by client, suburb or form').fill('Morley')
-  await expect(page.getByText('Treatment Record')).toBeVisible()
-  await expect(page.getByText('Timber Pest Inspection')).toHaveCount(0)
-  await expect(page.getByText('Pest Service Report')).toHaveCount(0)
+  await expect(page.getByText(WALKTHROUGH, exact)).toBeVisible()
+  await expect(page.getByText(TIMBER, exact)).toHaveCount(0)
+  await expect(page.getByText(SERVICE, exact)).toHaveCount(0)
 
   // Search + filter compose: Nguyen text search while on the Draft tab
   // excludes Nguyen's *finalised* report and Roberts entirely.
   await page.getByPlaceholder('Search by client, suburb or form').fill('Nguyen')
   await page.getByRole('tab', { name: 'Draft' }).click()
-  await expect(page.getByText('Timber Pest Inspection')).toBeVisible()
-  await expect(page.getByText('Treatment Record')).toHaveCount(0)
-  await expect(page.getByText('Pest Service Report')).toHaveCount(0)
+  await expect(page.getByText(TIMBER, exact)).toBeVisible()
+  await expect(page.getByText(WALKTHROUGH, exact)).toHaveCount(0)
+  await expect(page.getByText(SERVICE, exact)).toHaveCount(0)
 
   // No matches — the empty state, not a blank list.
   await page.getByPlaceholder('Search by client, suburb or form').fill('nobody-lives-here')

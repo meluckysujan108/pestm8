@@ -9,6 +9,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import { createReport, finaliseReport } from './fixtures/reportPayloads'
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256)
@@ -95,17 +96,21 @@ test('a gallery photo can be annotated, and the annotated version survives final
     state: 'WA',
     postcode: '6053',
   })
-  const reportId = await owner.client.mutation(api.reports.create, {
-    businessId,
-    propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
 
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
 
+
+  // "Report Photos" only shows while the form's own "Add Photos?" is Yes.
+  await page
+    .getByRole('group', { name: 'Add Photos?' })
+    .getByRole('button', { name: 'Yes', exact: true })
+    .click()
   const input = page.locator(
     '[data-gallery-field="photos"] input[type=file]',
   )
@@ -115,12 +120,12 @@ test('a gallery photo can be annotated, and the annotated version survives final
     buffer: PNG_200,
   })
   await expect(
-    page.getByLabel('Report photos photo 1 — caption'),
+    page.getByLabel('Report Photos photo 1 — caption', { exact: true }),
   ).toBeVisible({ timeout: 20_000 })
 
-  const photoBefore = await page.getByRole('img', { name: 'Report photos photo 1' }).getAttribute('src')
+  const photoBefore = await page.getByRole('img', { name: 'Report Photos photo 1', exact: true }).getAttribute('src')
 
-  await page.getByRole('button', { name: 'Annotate Report photos photo 1' }).click()
+  await page.getByRole('button', { name: 'Annotate Report Photos photo 1', exact: true }).click()
 
   const canvas = page.getByRole('img', { name: 'Photo annotation canvas' })
   await expect(canvas).toBeVisible()
@@ -142,32 +147,22 @@ test('a gallery photo can be annotated, and the annotated version survives final
 
   // A new storage id means a new URL — proves the stroke was actually
   // composited and re-uploaded, not just a no-op close.
-  const photoAfter = await page.getByRole('img', { name: 'Report photos photo 1' }).getAttribute('src')
+  const photoAfter = await page.getByRole('img', { name: 'Report Photos photo 1', exact: true }).getAttribute('src')
   expect(photoAfter).not.toBe(photoBefore)
 
-  await owner.client.mutation(api.reports.finalise, {
-    businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  await finaliseReport(owner.client, { businessId }, reportId, 'serviceReport')
   await page.reload()
   await expect(page.getByText('Finalised and locked')).toBeVisible()
   // The finalised document's `ReportGallery` labels an uncaptioned photo by
   // its field, not positionally like the builder's `GalleryTile` does.
-  const photoFinal = await page.getByRole('img', { name: 'Report photos' }).getAttribute('src')
+  const photoFinal = await page.getByRole('img', { name: 'Report Photos', exact: true }).getAttribute('src')
   expect(photoFinal).toBe(photoAfter)
 })
 
 test('a finalised report rejects new annotations', async () => {
   const s = await setupBusinessWithSub('annotate-lock')
 
-  const reportId = await s.owner.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
 
   const uploadUrl = await s.owner.client.mutation(api.reports.generateUploadUrl, {
     businessId: s.businessId,
@@ -190,11 +185,7 @@ test('a finalised report rejects new annotations', async () => {
   })
   const photoId = photo._id
 
-  await s.owner.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
 
   await expectRejected(
     () =>

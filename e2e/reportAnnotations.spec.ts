@@ -7,6 +7,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import { createReport, finaliseReport } from './fixtures/reportPayloads'
 
 /**
  * No PNG fixture needed here, unlike `annotation.spec.ts` (the photo
@@ -22,18 +23,8 @@ const STROKE = [
 test('the report author and an owner viewing a sub-authored report can both add strokes', async () => {
   const s = await setupBusinessWithSub('annot-visible')
 
-  const reportId = await s.sub.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
-  await s.sub.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  const reportId = await createReport(s.sub.client, s, 'serviceReport')
+  await finaliseReport(s.sub.client, s, reportId, 'serviceReport')
 
   await s.sub.client.mutation(api.reportAnnotations.addStroke, {
     businessId: s.businessId,
@@ -59,13 +50,7 @@ test('the report author and an owner viewing a sub-authored report can both add 
 test('annotations work on a draft report too — the guard is not hardcoded to finalised', async () => {
   const s = await setupBusinessWithSub('annot-draft')
 
-  const reportId = await s.owner.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
 
   await s.owner.client.mutation(api.reportAnnotations.addStroke, {
     businessId: s.businessId,
@@ -85,18 +70,8 @@ test('annotations work on a draft report too — the guard is not hardcoded to f
 test('a non-member cannot add or read annotations on someone else business report', async () => {
   const s = await setupBusinessWithSub('annot-lock')
 
-  const reportId = await s.owner.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
-  await s.owner.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
 
   const outsider = await signUpActor(
     uniqueEmail('annot-outsider'),
@@ -131,18 +106,8 @@ test('undoLastStroke removes only the caller own most recent stroke', async () =
   // Authored by the sub — an owner can always see any report, but a sub
   // without `canViewAllJobs` can only see the ones they authored, per
   // `canSeeReport`'s existing visibility rule.
-  const reportId = await s.sub.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
-  await s.sub.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  const reportId = await createReport(s.sub.client, s, 'serviceReport')
+  await finaliseReport(s.sub.client, s, reportId, 'serviceReport')
 
   // Owner draws first, then sub — so the "most recent" belongs to sub.
   await s.owner.client.mutation(api.reportAnnotations.addStroke, {
@@ -179,18 +144,8 @@ test('clearMyStrokes removes only the caller own rows, leaving the other author 
   const s = await setupBusinessWithSub('annot-clear')
 
   // Authored by the sub, same reasoning as the undo test above.
-  const reportId = await s.sub.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
-  await s.sub.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  const reportId = await createReport(s.sub.client, s, 'serviceReport')
+  await finaliseReport(s.sub.client, s, reportId, 'serviceReport')
 
   await s.owner.client.mutation(api.reportAnnotations.addStroke, {
     businessId: s.businessId,

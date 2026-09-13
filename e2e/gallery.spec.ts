@@ -9,6 +9,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
+import { createReport, finaliseReport } from './fixtures/reportPayloads'
 
 /** Smallest valid PNG — enough to exercise compress → upload → attach. */
 const PNG = Buffer.from(
@@ -17,8 +18,8 @@ const PNG = Buffer.from(
 )
 
 /**
- * A report can have more than one `gallery` field — this template has both a
- * single-photo "Front page photo" and a general "Report photos" — so, unlike
+ * A report can have more than one photo field — the Service Report has both a
+ * front-page cover photo and a general "Report Photos" gallery — so, unlike
  * `photos.spec.ts`'s `input[type=file]).first()` (safe there because a report
  * has only one slot-photo field), the target field has to be scoped
  * explicitly by its key rather than by DOM position.
@@ -45,17 +46,21 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
     state: 'WA',
     postcode: '6053',
   })
-  const reportId = await owner.client.mutation(api.reports.create, {
-    businessId,
-    propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
 
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
 
+
+  // "Report Photos" only shows while the form's own "Add Photos?" is Yes.
+  await page
+    .getByRole('group', { name: 'Add Photos?' })
+    .getByRole('button', { name: 'Yes', exact: true })
+    .click()
   const input = galleryFileInput(page, 'photos')
 
   // --- first photo: no cover toggle yet, nothing to distinguish it from ---
@@ -65,10 +70,10 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
     buffer: PNG,
   })
   await expect(
-    page.getByLabel('Report photos photo 1 — caption'),
+    page.getByLabel('Report Photos photo 1 — caption', { exact: true }),
   ).toBeVisible({ timeout: 20_000 })
   await expect(
-    page.getByRole('button', { name: /Report photos photo 1 — (set as cover|cover photo)/ }),
+    page.getByRole('button', { name: /Report Photos photo 1 — (set as cover|cover photo)/ }),
   ).toHaveCount(0)
 
   // --- second photo: now there is a set, so the cover flag means something ---
@@ -77,33 +82,33 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
     mimeType: 'image/png',
     buffer: PNG,
   })
-  await expect(page.getByLabel('Report photos photo 2 — caption')).toBeVisible()
+  await expect(page.getByLabel('Report Photos photo 2 — caption', { exact: true })).toBeVisible()
 
   // --- caption ---
-  await page.getByLabel('Report photos photo 1 — caption').fill('Front garden bed')
-  await page.getByLabel('Report photos photo 1 — caption').blur()
+  await page.getByLabel('Report Photos photo 1 — caption', { exact: true }).fill('Front garden bed')
+  await page.getByLabel('Report Photos photo 1 — caption', { exact: true }).blur()
   await expect(
     page.getByRole('img', { name: 'Front garden bed' }),
   ).toBeVisible()
 
   // --- cover: exclusive, setting the second clears the first ---
   await page
-    .getByRole('button', { name: 'Report photos photo 2 — set as cover' })
+    .getByRole('button', { name: 'Report Photos photo 2 — set as cover', exact: true })
     .click()
   await expect(
-    page.getByRole('button', { name: 'Report photos photo 2 — cover photo' }),
+    page.getByRole('button', { name: 'Report Photos photo 2 — cover photo', exact: true }),
   ).toBeVisible()
 
   // --- reorder: moving photo 2 up swaps it with photo 1 ---
   await page
-    .getByRole('button', { name: 'Move Report photos photo 2 up' })
+    .getByRole('button', { name: 'Move Report Photos photo 2 up', exact: true })
     .click()
   // The cover photo's caption was empty; the captioned one is now second.
   await expect(
     page.getByRole('img', { name: 'Front garden bed' }),
   ).toBeVisible()
   await expect(
-    page.getByRole('button', { name: 'Report photos photo 1 — cover photo' }),
+    page.getByRole('button', { name: 'Report Photos photo 1 — cover photo', exact: true }),
   ).toBeVisible()
 
   // --- remove: back to one photo, and the cover toggle disappears again ---
@@ -111,24 +116,20 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
   // is the captioned one — labels are positional, not tied to upload order,
   // so removing "photo 1" here is what leaves the captioned photo behind.
   await page
-    .getByRole('button', { name: 'Remove Report photos photo 1' })
+    .getByRole('button', { name: 'Remove Report Photos photo 1', exact: true })
     .click()
   await expect(
-    page.getByLabel('Report photos photo 2 — caption'),
+    page.getByLabel('Report Photos photo 2 — caption', { exact: true }),
   ).toHaveCount(0)
   await expect(
-    page.getByRole('button', { name: /Report photos photo 1 — (set as cover|cover photo)/ }),
+    page.getByRole('button', { name: /Report Photos photo 1 — (set as cover|cover photo)/ }),
   ).toHaveCount(0)
   await expect(
     page.getByRole('img', { name: 'Front garden bed' }),
   ).toBeVisible()
 
   // --- survives onto the finalised document, evidence intact ---
-  await owner.client.mutation(api.reports.finalise, {
-    businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  await finaliseReport(owner.client, { businessId }, reportId, 'serviceReport')
   await page.reload()
   await expect(page.getByText('Finalised and locked')).toBeVisible()
   await expect(
@@ -139,13 +140,7 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
 test('a finalised report accepts no further gallery photos', async () => {
   const s = await setupBusinessWithSub('gallery-lock')
 
-  const reportId = await s.owner.client.mutation(api.reports.create, {
-    businessId: s.businessId,
-    propertyId: s.propertyId,
-    template: 'serviceReport',
-    legalBasis: 'APVMA · AEPMA',
-    data: {},
-  })
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
 
   const uploadUrl = await s.owner.client.mutation(
     api.reports.generateUploadUrl,
@@ -158,11 +153,7 @@ test('a finalised report accepts no further gallery photos', async () => {
   })
   const { storageId } = (await res.json()) as { storageId: string }
 
-  await s.owner.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId,
-    data: { safeToStart: true, treatments: [] },
-  })
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
 
   // Photos are evidence; a locked report must not gain new ones afterwards —
   // the same guarantee `attachPhoto` gives the fixed-slot kind.
