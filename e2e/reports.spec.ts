@@ -213,7 +213,9 @@ test.describe('report document', () => {
 
     // §6.5 counts a report as delivered only if it leaves the app, so the
     // export is asserted as a real file rather than an enabled button. The
-    // download lives behind the action bar's "PDF" tab (Phase 6).
+    // download lives behind the action bar's "PDF" tab (Phase 6), which stays
+    // disabled until the page hydrates.
+    await expect(page.getByRole('tab', { name: 'PDF' })).toBeEnabled()
     await page.getByRole('tab', { name: 'PDF' }).click()
     const downloadPromise = page.waitForEvent('download')
     await page.getByRole('button', { name: 'Download PDF' }).click()
@@ -332,6 +334,10 @@ test.describe('report builder', () => {
 
     await signInViaUi(page, email)
     await page.goto(`/${slug}/reports/${reportId}`)
+
+    // The builder is server-rendered, and a tap before hydration is dropped.
+    // `Finalise & lock` stays disabled until the builder hydrates.
+    await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeEnabled()
 
     // Mark the roof void inaccessible without saying why.
     await page.getByRole('button', { name: 'Roof void: No access' }).click()

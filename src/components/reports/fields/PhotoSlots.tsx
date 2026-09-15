@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Camera, Check } from 'lucide-react'
 import { api } from '../../../../convex/_generated/api'
+import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 /**
@@ -53,6 +54,8 @@ function PhotoSlot({
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  // Same hydration gate as `GalleryControl`: until then a tap opens nothing.
+  const hydrated = useHydrated()
 
   const getUploadUrl = useConvexMutation(api.reports.generateUploadUrl)
   const convexAttach = useConvexMutation(api.reports.attachPhoto)
@@ -112,7 +115,7 @@ function PhotoSlot({
               ? `${slot} photo, uploaded — choose a different one`
               : `${slot} photo, none yet — add`
         }
-        disabled={busy}
+        disabled={busy || !hydrated}
         onClick={() => input.current?.click()}
         className="relative flex h-24 w-28 items-center justify-center overflow-hidden rounded-xl border border-dashed border-hairline bg-surface-3 text-muted transition active:scale-[.97] disabled:opacity-50"
       >

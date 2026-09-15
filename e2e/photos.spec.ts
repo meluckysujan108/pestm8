@@ -50,7 +50,9 @@ test('a photo uploaded in the builder survives onto the finalised document', asy
   await page.goto(`/${slug}/reports/${reportId}`)
 
   // The slot announces its own state, so this asserts what a screen reader
-  // would hear rather than poking at the <img> the button's label hides.
+  // would hear rather than poking at the <img> the button's label hides. It
+  // is also the hydration signal: the slot stays disabled until its input has
+  // an `onChange`, and files set before then are silently dropped.
   await expect(
     page.getByRole('button', { name: /Before photo, none yet/ }),
   ).toBeEnabled()

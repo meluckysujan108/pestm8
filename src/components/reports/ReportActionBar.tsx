@@ -39,11 +39,20 @@ export function ReportActionBar({
   children: ReactNode
 }) {
   const [tab, setTab] = useState<Tab>('form')
+  // The finalised report is server-rendered: a tap on "PDF" before hydration
+  // would land on a button with no handler and quietly do nothing.
+  const hydrated = useHydrated()
 
   return (
     <>
       <div className="px-4 pt-4">
-        <Segmented label="Report view" value={tab} options={TABS} onChange={setTab} />
+        <Segmented
+          label="Report view"
+          value={tab}
+          options={TABS}
+          onChange={setTab}
+          disabled={!hydrated}
+        />
       </div>
 
       {tab === 'form' && children}

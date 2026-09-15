@@ -8,6 +8,7 @@ import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { Segmented } from '#/components/primitives/Segmented'
+import { useHydrated } from '#/lib/useHydrated'
 
 const SEGMENTS = [
   { value: 'all' as const, label: 'All' },
@@ -30,6 +31,9 @@ function ReportsPage() {
   const { q, seg } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const active = seg ?? 'all'
+  // The list is server-rendered; a status tab tapped before hydration would
+  // do nothing, so the tabs wait until they work.
+  const hydrated = useHydrated()
 
   const { data: reports } = useSuspenseQuery(
     convexQuery(api.reports.listForBusiness, { businessId: business._id }),
@@ -119,6 +123,7 @@ function ReportsPage() {
       <div className="px-4 pt-3">
         <Segmented
           label="Report status"
+          disabled={!hydrated}
           value={active}
           options={SEGMENTS}
           onChange={(value) =>

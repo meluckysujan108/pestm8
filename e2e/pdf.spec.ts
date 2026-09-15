@@ -92,7 +92,9 @@ test('an exported inspection PDF carries its findings and scope limits', async (
   await page.goto(`/${slug}/reports/${reportId}`)
 
   // The download lives behind the action bar's "PDF" tab (Phase 6), not on
-  // the document itself.
+  // the document itself. The tab stays disabled until the page hydrates; a
+  // click before then would be swallowed by server-rendered markup.
+  await expect(page.getByRole('tab', { name: 'PDF' })).toBeEnabled()
   await page.getByRole('tab', { name: 'PDF' }).click()
 
   const downloadPromise = page.waitForEvent('download')

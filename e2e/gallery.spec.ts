@@ -55,6 +55,10 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
 
+  // A tap before hydration is dropped: the server-rendered button has no
+  // handler yet, and "Report Photos" would never appear. `Finalise & lock`
+  // stays disabled until the builder hydrates, so it is the readiness signal.
+  await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeEnabled()
 
   // "Report Photos" only shows while the form's own "Add Photos?" is Yes.
   await page
@@ -62,6 +66,16 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
     .getByRole('button', { name: 'Yes', exact: true })
     .click()
   const input = galleryFileInput(page, 'photos')
+
+  // Here the gallery mounts in the browser after the Yes tap, so it is already
+  // live. The wait matters when a draft reopens with "Add Photos?" already Yes:
+  // the gallery is then server-rendered, and files set before hydration land on
+  // an input with no `onChange` and are silently dropped. `setInputFiles` does
+  // not check enabled state, so the wait is on the add button, which stays
+  // disabled until the field hydrates.
+  await expect(
+    page.getByRole('button', { name: 'Report Photos — add photos' }),
+  ).toBeEnabled()
 
   // --- first photo: no cover toggle yet, nothing to distinguish it from ---
   await input.setInputFiles({

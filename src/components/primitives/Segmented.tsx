@@ -4,11 +4,14 @@ export function Segmented<T extends string>({
   options,
   onChange,
   label,
+  disabled = false,
 }: {
   value: T
   options: Array<{ value: T; label: string }>
   onChange: (value: T) => void
   label: string
+  /** Until the page hydrates, so a tap is never swallowed by inert markup. */
+  disabled?: boolean
 }) {
   return (
     <div
@@ -24,10 +27,11 @@ export function Segmented<T extends string>({
             type="button"
             role="tab"
             aria-selected={selected}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             className={`flex-1 rounded-[7px] px-3 py-1.5 text-[13px] font-semibold transition ${
               selected ? 'bg-surface text-ink shadow-elevation' : 'text-muted'
-            }`}
+            } disabled:opacity-60`}
           >
             {option.label}
           </button>

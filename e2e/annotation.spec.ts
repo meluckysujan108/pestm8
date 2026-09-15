@@ -105,6 +105,10 @@ test('a gallery photo can be annotated, and the annotated version survives final
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
 
+  // A tap before hydration is dropped: the server-rendered button has no
+  // handler yet, and "Report Photos" would never appear. `Finalise & lock`
+  // stays disabled until the builder hydrates, so it is the readiness signal.
+  await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeEnabled()
 
   // "Report Photos" only shows while the form's own "Add Photos?" is Yes.
   await page
@@ -114,6 +118,11 @@ test('a gallery photo can be annotated, and the annotated version survives final
   const input = page.locator(
     '[data-gallery-field="photos"] input[type=file]',
   )
+  // The add button stays disabled until the field hydrates; see the same wait
+  // in gallery.spec.ts for when that matters.
+  await expect(
+    page.getByRole('button', { name: 'Report Photos — add photos' }),
+  ).toBeEnabled()
   await input.setInputFiles({
     name: 'wall.png',
     mimeType: 'image/png',

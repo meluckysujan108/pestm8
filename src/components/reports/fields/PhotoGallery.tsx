@@ -4,6 +4,7 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Camera, ChevronDown, ChevronUp, PenLine, Star, Trash2 } from 'lucide-react'
 import { api } from '../../../../convex/_generated/api'
 import { AnnotationEditor } from './AnnotationEditor'
+import { useHydrated } from '#/lib/useHydrated'
 import type { EditorProps } from './registry'
 import type { FieldDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -35,6 +36,11 @@ export function GalleryControl({ field, ctx }: GalleryField) {
   const input = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  // Server-rendered: until hydration the add button has no `onClick`, so a tap
+  // opens no picker and is silently ignored. Disabled until then, so the
+  // not-ready state shows. It is also the e2e readiness signal: `setInputFiles`
+  // skips the button and would drop files on an input with no `onChange`.
+  const hydrated = useHydrated()
 
   const { data } = useQuery(
     convexQuery(api.reports.galleryPhotos, { businessId, reportId }),
@@ -128,7 +134,7 @@ export function GalleryControl({ field, ctx }: GalleryField) {
 
       <button
         type="button"
-        disabled={busy || atMax}
+        disabled={busy || atMax || !hydrated}
         aria-label={`${field.label} — add photos`}
         onClick={() => input.current?.click()}
         className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-40"
