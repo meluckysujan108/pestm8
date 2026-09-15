@@ -241,7 +241,7 @@ export function ReportBuilder({
             </>
           )}
 
-          {section.fields.map((field) => (
+          {section.fields.map((field, index) => (
             <FieldRenderer
               key={field.key}
               field={field}
@@ -254,7 +254,15 @@ export function ReportBuilder({
                 }))
               }
               captionHidden={
-                field.kind === 'repeater' && sameWords(field.label, section.title)
+                // Only where the heading really is directly above: a rendered
+                // heading, nothing between it and the grid, and no required
+                // marker that would vanish with the caption.
+                field.kind === 'repeater' &&
+                !section.implicit &&
+                !section.preamble &&
+                index === 0 &&
+                !field.required &&
+                sameWords(field.label, section.title)
               }
               photoContext={{
                 businessId,
