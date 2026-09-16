@@ -355,3 +355,53 @@ describe('evidence', () => {
     expect(drawn).toBe(12)
   })
 })
+
+describe('a table longer than a page', () => {
+  test('carries its column headings onto the second one, and only there', async () => {
+    // The treatment table's header row is marked `fixed`, which in react-pdf
+    // means "draw on every page". That is right for a table that breaks and
+    // wrong for the document — so this checks both halves: the headings
+    // reappear where the table continues, and do not appear on the pages that
+    // are nothing but warranty prose.
+    const rows = Array.from({ length: 45 }, (_, index) => ({
+      _id: `row-${index}`,
+      treatment: ['General Pest Control'],
+      product: [`Biflex Ultra (100 g/L Bifenthrin) — drum ${index + 1}`],
+      quantity: ['100ml/10L'],
+      method: ['Hand Compression Sprayer'],
+    }))
+
+    const { buffer } = await render(
+      serviceReport({ data: { ...serviceReport().data, treatments: rows } }),
+    )
+
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    const doc = await pdfjs.getDocument({
+      data: new Uint8Array(buffer),
+      useSystemFonts: true,
+    }).promise
+
+    const pages: Array<string> = []
+    for (let page = 1; page <= doc.numPages; page++) {
+      const content = await (await doc.getPage(page)).getTextContent()
+      pages.push(
+        content.items
+          .map((item) => ('str' in item ? item.str : ''))
+          .join(' ')
+          .replace(/\s+/g, ' '),
+      )
+    }
+
+    const withHeadings = pages.filter((text) =>
+      text.includes('Product & Active Ingredient'),
+    )
+    // More than one: the table is long enough to break, and a client should
+    // not have to guess which column held the product.
+    expect(withHeadings.length).toBeGreaterThan(1)
+    // But not every page: the warranty pages are not part of the table.
+    expect(withHeadings.length).toBeLessThan(doc.numPages)
+
+    // Every row reaches the page, none dropped at a break.
+    expect(pages.join(' ').match(/— drum \d+/g)).toHaveLength(45)
+  })
+})
