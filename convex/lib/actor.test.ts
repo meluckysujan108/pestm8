@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { describe, expect, test } from 'vitest'
 import { ConvexError } from 'convex/values'
+import { api } from '../_generated/api'
 import {
   requireActor,
   requireCapability,
@@ -700,5 +701,91 @@ describe('the legacy view-as, at the edges', () => {
       await ctx.db.patch(f.kevinId, { status: 'removed' })
     })
     expect((await read(f, f.priya)).readScope._id).toBe(f.priyaId)
+  })
+})
+
+describe('which roles may be handed out', () => {
+  /**
+   * The owner account is the key to the business and there is exactly one. The
+   * invite paths already refused it; `setRole` did not, so an owner could
+   * promote someone into a second, equally invisible owner — a state the model
+   * has no way to represent (whose roster hides whom?).
+   */
+  test('nobody can be promoted to owner', async () => {
+    const f = await scenario()
+    await expect(
+      f.terence.as.mutation(api.memberships.setRole, {
+        businessId: f.businessId,
+        membershipId: f.priyaId,
+        role: 'owner',
+      }),
+    ).rejects.toThrow('OWNER_INVITE_FORBIDDEN')
+  })
+
+  /**
+   * The column exists before the code that fills it — expand before migrate —
+   * but nothing yet assigns a team. A contractor minted today would hold
+   * business-wide `team.manage` with no team to scope it to.
+   */
+  test('nor to contractor, until a contractor can have a team', async () => {
+    const f = await scenario()
+    await expect(
+      f.terence.as.mutation(api.memberships.setRole, {
+        businessId: f.businessId,
+        membershipId: f.priyaId,
+        role: 'contractor',
+      }),
+    ).rejects.toThrow('ROLE_NOT_ASSIGNABLE')
+  })
+
+  test('the role people actually get still works', async () => {
+    const f = await scenario()
+    await f.terence.as.mutation(api.memberships.setRole, {
+      businessId: f.businessId,
+      membershipId: f.priyaId,
+      role: 'subcontractor',
+    })
+    const row = await f.t.run((ctx) => ctx.db.get(f.priyaId))
+    expect(row?.role).toBe('subcontractor')
+  })
+})
+
+describe('administering the business', () => {
+  /** The capability, not the role, is the gate now — and for an owner with
+   * nobody switched they are the same answer, which is what makes this slice
+   * safe to ship. */
+  test('a subcontractor is refused, an owner is not', async () => {
+    const f = await scenario()
+    await expect(
+      f.priya.as.mutation(api.memberships.setRole, {
+        businessId: f.businessId,
+        membershipId: f.kevinId,
+        role: 'subcontractor',
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+
+    await expect(
+      f.priya.as.query(api.invitations.listForBusiness, {
+        businessId: f.businessId,
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+  })
+
+  /**
+   * The rule that makes switching safe to offer: you switch back to
+   * administer. Without it, "work in Kevin's account" would also mean "keep
+   * every owner power while wearing Kevin's name".
+   */
+  test('an owner working inside someone’s account cannot administer', async () => {
+    const f = await scenario()
+    await openSwitch(f, f.terence, f.ownerMembershipId, f.kevinId)
+
+    await expect(
+      f.terence.as.mutation(api.memberships.setRole, {
+        businessId: f.businessId,
+        membershipId: f.priyaId,
+        role: 'subcontractor',
+      }),
+    ).rejects.toThrow('NO_ACCESS')
   })
 })

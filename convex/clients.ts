@@ -1,10 +1,15 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership, requireOwner, resolveViewScope } from './lib/access'
+import {
+  jobVisibility,
+  requireMembership,
+  resolveViewScope,
+} from './lib/access'
 import { canSeeReport, summarise } from './reports'
 import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
+import { requireActor, requireCapability } from './lib/actor'
 
 async function requireClient(
   ctx: QueryCtx,
@@ -59,8 +64,13 @@ export const update = mutation({
     await requireMembership(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
+    // Typed explicitly: the optional args really can arrive absent, but
+    // `Object.entries` infers them away, which made the filter below read as
+    // dead code to the linter while doing necessary work at runtime.
     const fields = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
+      Object.entries<string | undefined>(patch).filter(
+        ([, value]) => value !== undefined,
+      ),
     )
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(clientId, { ...fields, updatedAt: Date.now() })
@@ -76,7 +86,7 @@ export const update = mutation({
 export const archive = mutation({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'clients.manage')
     await requireClient(ctx, businessId, clientId)
     await ctx.db.patch(clientId, { archivedAt: Date.now() })
   },
@@ -85,7 +95,7 @@ export const archive = mutation({
 export const unarchive = mutation({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'clients.manage')
     await requireClient(ctx, businessId, clientId)
     await ctx.db.patch(clientId, { archivedAt: undefined })
   },

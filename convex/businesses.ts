@@ -1,8 +1,9 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { getAuthUserId, requireMembership, requireOwner } from './lib/access'
+import { getAuthUserId, requireMembership } from './lib/access'
 import { MEMBER_COLOURS } from './lib/colours'
 import { forSelf, recordAudit } from './lib/audit'
+import { requireActor, requireCapability } from './lib/actor'
 
 function slugify(name: string) {
   return name
@@ -151,7 +152,9 @@ export const update = mutation({
     licenceNumber: v.optional(v.string()),
   },
   handler: async (ctx, { businessId, ...patch }) => {
-    const actor = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'business.manage')
+    const actor = env.actor.real
 
     const fields = Object.fromEntries(
       Object.entries(patch as Record<string, unknown>).filter(
@@ -180,7 +183,7 @@ export const update = mutation({
 export const generateUploadUrl = mutation({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'business.manage')
     return ctx.storage.generateUploadUrl()
   },
 })

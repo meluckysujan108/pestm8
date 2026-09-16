@@ -2,11 +2,12 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { components } from './_generated/api'
 import { authComponent } from './auth'
-import { requireMembership, requireOwner } from './lib/access'
+import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
+import { requireActor, requireCapability } from './lib/actor'
 
 /**
  * Offboarding.
@@ -82,7 +83,7 @@ export const removalPreview = query({
     membershipId: v.id('memberships'),
   },
   handler: async (ctx, { businessId, membershipId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'team.manage')
     const target = await ctx.db.get(membershipId)
     if (!target || target.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
@@ -113,7 +114,11 @@ async function offboard(
     reassignTo,
     action,
   }: {
-    actor: Doc<'memberships'>
+    /** Only the id is ever used — for the audit row and `removedByMembershipId`
+     * — so this takes the id rather than the whole row. That lets the caller
+     * pass either a membership document or the resolved actor's facts, which
+     * are not the same shape and do not need to be. */
+    actor: { _id: Id<'memberships'> }
     target: Doc<'memberships'>
     businessId: Id<'businesses'>
     reassignTo?: Id<'memberships'>
@@ -246,7 +251,9 @@ export const remove = mutation({
     reassignTo: v.optional(v.id('memberships')),
   },
   handler: async (ctx, { businessId, membershipId, reassignTo }) => {
-    const actor = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'team.manage')
+    const actor = env.actor.real
 
     const target = await ctx.db.get(membershipId)
     if (!target || target.businessId !== businessId) {
