@@ -4,6 +4,7 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { DropdownMenu } from 'radix-ui'
 import { ChevronLeft, Plus, Search, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
+import type { Role } from '../../../convex/lib/capabilities'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { FilterDropdown } from '#/components/primitives/FilterDropdown'
 import { NOTE_TEMPLATES, NOTE_TEMPLATE_KEYS } from '../../../convex/lib/noteTemplates'
@@ -200,7 +201,7 @@ function OpenNote({
   businessSlug: string
   timezone: string
   noteId: Id<'notes'>
-  members: Array<{ id: string; label: string; colour: string; role: 'owner' | 'subcontractor' }>
+  members: Array<{ id: string; label: string; colour: string; role: Role }>
   attachOnOpen: boolean
   onBack: () => void
 }) {

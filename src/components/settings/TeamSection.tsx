@@ -9,6 +9,7 @@ import { Check, Copy, Mail, RefreshCw, Share2, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { MemberAccessRow } from './MemberAccessRow'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { Role } from '../../../convex/lib/capabilities'
 import { useHydrated } from '#/lib/useHydrated'
 
 /**
@@ -41,7 +42,7 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
     mutationFn: (args: {
       businessId: Id<'businesses'>
       email: string
-      role: 'owner' | 'subcontractor'
+      role: Role
     }) => convexCreate(args),
     onSuccess: ({ url }, variables) => {
       setFreshLink({ email: variables.email, url })

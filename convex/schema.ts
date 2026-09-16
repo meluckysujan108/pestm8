@@ -1,7 +1,45 @@
 import { defineSchema, defineTable } from 'convex/server'
 import { v } from 'convex/values'
 
-export const role = v.union(v.literal('owner'), v.literal('subcontractor'))
+/**
+ * `contractor` is new: a member who has a team of subcontractors, sees their
+ * own jobs, dispatches to their team, and can be given read-write access to
+ * their team's accounts. Widening a union is additive — every row already
+ * stored is still valid — so this deploys ahead of anything that writes it.
+ *
+ * `subcontractor` is deliberately unchanged rather than renamed. A rename
+ * would rewrite every membership row before any new code could read it, and
+ * the old PWA would then fail to validate its own members mid-session.
+ */
+export const role = v.union(
+  v.literal('owner'),
+  v.literal('contractor'),
+  v.literal('subcontractor'),
+)
+
+/**
+ * The four per-person toggles, stored as one object rather than four columns.
+ *
+ * One object, because `recomputeGrants` in lib/capabilities.ts computes all
+ * four together from the member and their parent: a grant is only ever valid
+ * relative to who gave it, so writing one toggle without re-deriving the rest
+ * is how a stale grant survives. The write matches the function.
+ *
+ * Absent means "legacy row, not migrated yet" — a single unambiguous check,
+ * where four independent optional booleans would leave a half-written row
+ * indistinguishable from a deliberately-all-off one.
+ *
+ * `switchInto` holds the CONTRACTOR'S id, not `true`. See the long note in
+ * lib/capabilities.ts: an id names who granted it, so moving a subcontractor
+ * to another team makes the grant inert by construction rather than by
+ * remembering to run cleanup.
+ */
+export const grants = v.object({
+  switchInto: v.union(v.null(), v.id('memberships')),
+  clientDirectory: v.boolean(),
+  prices: v.boolean(),
+  otherSchedules: v.boolean(),
+})
 export const membershipStatus = v.union(
   v.literal('active'),
   v.literal('invited'),
@@ -192,7 +230,39 @@ export default defineSchema({
     // rather than trusted, so a revoked grant or archived target silently
     // self-heals back to viewing your own account.
     viewingAsMembershipId: v.optional(v.id('memberships')),
+    /**
+     * The contractor this subcontractor works under — the only representation
+     * of "a contractor has a team". Null/absent for the owner, for
+     * contractors, and for subcontractors nobody has placed yet (who see only
+     * their own work, which is the safe default).
+     *
+     * Self-reference into this same table, so an id is enough; there is no
+     * separate teams table to drift out of step with the memberships.
+     */
+    parentMembershipId: v.optional(v.id('memberships')),
+    /** The four toggles. Absent = a row from before this model existed; see
+     * `grants` above and `recomputeGrants` in lib/capabilities.ts. Readers
+     * fall back to the legacy `canViewAllJobs` / `canViewOtherAccounts`
+     * fields until the migration has run. */
+    grants: v.optional(grants),
+    /**
+     * The name attribution prints, frozen on the membership rather than read
+     * live from the Better Auth user.
+     *
+     * Read live, someone who leaves and renames their account rewrites their
+     * own name on every audit row and every report they ever signed — a
+     * retroactive edit of compliance records through a profile form. Absent
+     * means "no snapshot yet, read the user"; that is today's behaviour.
+     */
+    displayName: v.optional(v.string()),
     licenceNumber: v.optional(v.string()),
+    /**
+     * When `licenceNumber` stops being valid. Absent means unknown, and
+     * `licenceStatus` in lib/capabilities.ts reads unknown as valid rather
+     * than expired — nobody is locked out of finalising by a field that has
+     * never been filled in.
+     */
+    licenceExpiresOn: v.optional(v.number()),
     phone: v.optional(v.string()),
     colour: v.string(),
     status: membershipStatus,
@@ -205,7 +275,11 @@ export default defineSchema({
   })
     .index('by_user', ['userId'])
     .index('by_business', ['businessId'])
-    .index('by_user_business', ['userId', 'businessId']),
+    .index('by_user_business', ['userId', 'businessId'])
+    // "Who is on my team" on every dispatch, roster and switch-target read.
+    // Without it that answer is a full scan of the business filtered in
+    // memory, which is also how an owner-row leak gets written by accident.
+    .index('by_business_parent', ['businessId', 'parentMembershipId']),
 
   // First-class, deliberately NOT derived from job history: reports must stay
   // findable by address years later, whether or not the original job survives.
@@ -365,6 +439,21 @@ export default defineSchema({
     // it would be destroyed by the next keystroke elsewhere on the form.
     signatureSlots: v.optional(v.record(v.string(), v.id('_storage'))),
     finalisedAt: v.optional(v.number()),
+    /**
+     * Who pressed Finalise, which is not always whose report it is.
+     *
+     * `authorMembershipId` and `contextSnapshot.technician` are the account
+     * the report belongs to — the licensed name the certificate prints. This
+     * records the human. On an unswitched finalise they are the same person
+     * and this is still written, so "absent" means only "finalised before
+     * this field existed", never "nobody knows".
+     *
+     * Regulated templates additionally refuse to finalise while switched at
+     * all (`canFinaliseReport`), so on those this equals the holder by
+     * construction — the field is what lets that be audited rather than
+     * assumed.
+     */
+    finalisedByMembershipId: v.optional(v.id('memberships')),
     pdfStorageId: v.optional(v.id('_storage')),
     // Set the moment an email actually sends (convex/email.ts). Independent
     // of `status` — a finalised report can be emailed zero, one, or many
@@ -584,9 +673,58 @@ export default defineSchema({
     createdAt: v.number(),
   }).index('by_job', ['jobId']),
 
+  /**
+   * An open "acting in someone else's account" session.
+   *
+   * Keyed by the Better Auth SESSION id, not the user or the membership, and
+   * that is the whole design:
+   *
+   *  - Signing out ends it. There is no switch state that outlives the
+   *    credential it was started with.
+   *  - Each device is independent. A contractor working in a sub's account on
+   *    the office iPad does not silently redirect what they tap on their own
+   *    phone — which, with writes attributed to the account, is how the wrong
+   *    person's name ends up on a report.
+   *
+   * A row is permission to *attempt*, never permission itself: every read and
+   * every write re-evaluates `canSwitchInto` against the live memberships, so
+   * revoking a toggle or moving a team takes effect on the next request
+   * whether or not anything deletes this row. Deletion is hygiene, not
+   * security. `expiresAt` is the same kind of belt-and-braces (12 hours) —
+   * it only stops a forgotten switch living overnight on a shared phone.
+   */
+  accountSwitches: defineTable({
+    sessionId: v.string(),
+    businessId: v.id('businesses'),
+    realMembershipId: v.id('memberships'),
+    targetMembershipId: v.id('memberships'),
+    startedAt: v.number(),
+    expiresAt: v.number(),
+  })
+    // The hot path: resolved once per request, before anything else runs.
+    .index('by_session', ['sessionId'])
+    // Both directions of cleanup — removing a member, or revoking the grant
+    // that let someone into their account.
+    .index('by_real', ['realMembershipId'])
+    .index('by_target', ['targetMembershipId']),
+
   auditLog: defineTable({
     businessId: v.id('businesses'),
+    /** The human who actually did it — always the real person, never the
+     * account they were working in. */
     actorMembershipId: v.id('memberships'),
+    /**
+     * Set only when the two differ: the account the change was made in.
+     * Present means "actor on behalf of this member"; absent means they were
+     * working as themselves, which is every row written before switching
+     * existed.
+     *
+     * This is the field that makes the account holder's own history
+     * answerable — "what was changed in my account, by whom" — which is the
+     * thing that makes handing someone access to your account reasonable at
+     * all.
+     */
+    onBehalfOfMembershipId: v.optional(v.id('memberships')),
     action: v.string(),
     entityType: v.string(),
     entityId: v.string(),
@@ -594,7 +732,10 @@ export default defineSchema({
     at: v.number(),
   })
     .index('by_business', ['businessId'])
-    .index('by_entity', ['entityType', 'entityId']),
+    .index('by_entity', ['entityType', 'entityId'])
+    // "Everything done in this account, newest first" — the holder-facing
+    // view, and the owner's per-member activity view, are the same query.
+    .index('by_account', ['onBehalfOfMembershipId', 'at']),
 
   /**
    * A non-destructive markup layer over the generated report PDF — a

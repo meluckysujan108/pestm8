@@ -5,6 +5,7 @@ import schema from './schema'
 import { canDeleteNote, canReadNote, canWriteNote, noteKind } from './lib/noteAccess'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
+import type { Role } from './lib/capabilities'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -22,7 +23,7 @@ async function seed(ctx: MutationCtx) {
     timezone: 'Australia/Perth',
     createdAt: now,
   })
-  const insertMember = (userId: string, role: 'owner' | 'subcontractor', canViewAllJobs = false) =>
+  const insertMember = (userId: string, role: Role, canViewAllJobs = false) =>
     ctx.db.insert('memberships', {
       userId,
       businessId,
