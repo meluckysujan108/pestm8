@@ -120,6 +120,19 @@ async function openSwitch(
   )
 }
 
+/**
+ * Resolve the actor directly.
+ *
+ * `t.run` gives a MUTATION context — convex-test builds it with
+ * `mutationGeneric`, so `ctx.db` has `insert` — which means `isMutation` in
+ * actor.ts is true here and the resolver reads the real clock. So anything
+ * asserted through this helper is the WRITE-side answer, whatever it is named.
+ *
+ * That matters for exactly one thing: expiry. A real query reads no clock, so
+ * an expired-but-unswept row still resolves to the target there. The query-side
+ * behaviour is asserted through real `.query()` calls instead — see the banner
+ * tests, which go through `accountSwitches.current`.
+ */
 const read = (f: Fixture, actor: TestActor) =>
   actor.as.run((ctx) => requireActor(ctx, f.businessId))
 
@@ -310,7 +323,7 @@ describe('switching into an account', () => {
    * point: a read that falls back shows you your own schedule; a write that
    * falls back stamps your name on a document meant to carry someone else's.
    */
-  test('an expired switch degrades a read and refuses a write', async () => {
+  test('an expired switch is dropped on the write path, and refuses', async () => {
     const f = await scenario()
     await openSwitch(f, f.terence, f.ownerMembershipId, f.kevinId, {
       expiresAt: Date.now() - 1,
@@ -589,7 +602,7 @@ describe('when a switch stops being valid', () => {
    * account" while the server served a third person's rows — the one left over
    * in the legacy column from some earlier session.
    */
-  test('it returns you to yourself, not to a stale view-as selection', async () => {
+  test('a write returns you to yourself, not to a stale view-as selection', async () => {
     const f = await scenario()
     await f.t.run((ctx) =>
       ctx.db.patch(f.ownerMembershipId, { viewingAsMembershipId: f.priyaId }),
@@ -949,5 +962,457 @@ describe('two people on one draft', () => {
     const f = await draft()
     await save(f, { findings: 'replaced wholesale' })
     expect(await stored(f)).toEqual({ findings: 'replaced wholesale' })
+  })
+})
+
+describe('starting and stopping a switch', () => {
+  const grant = (f: Fixture, sub: Id<'memberships'>, to: Id<'memberships'>) =>
+    f.t.run((ctx) =>
+      ctx.db.patch(sub, {
+        parentMembershipId: to,
+        grants: {
+          switchInto: to,
+          clientDirectory: false,
+          prices: false,
+          otherSchedules: false,
+        },
+      }),
+    )
+
+  const rows = (f: Fixture) =>
+    f.t.run((ctx) => ctx.db.query('accountSwitches').collect())
+
+  test('the owner works in a subcontractor’s account, then comes back', async () => {
+    const f = await scenario()
+    const { expiresAt } = await f.terence.as.mutation(
+      api.accountSwitches.start,
+      { businessId: f.businessId, targetMembershipId: f.kevinId },
+    )
+    expect(expiresAt).toBeGreaterThan(Date.now())
+    expect((await read(f, f.terence)).actor.acting._id).toBe(f.kevinId)
+
+    expect(
+      await f.terence.as.mutation(api.accountSwitches.stop, {
+        businessId: f.businessId,
+      }),
+    ).toEqual({ stopped: true })
+    expect((await read(f, f.terence)).actor.acting._id).toBe(
+      f.ownerMembershipId,
+    )
+    expect(await rows(f)).toEqual([])
+  })
+
+  /**
+   * The rule that exists so an account opened to one person does not become
+   * an account opened to everyone they can reach. It is enforced through
+   * `isSwitched`, which reads the row `start` is about to replace — so the
+   * check has to happen before the delete, not after.
+   */
+  test('a switch cannot be chained through the account you are standing in', async () => {
+    const f = await scenario()
+    await f.terence.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.kevinId,
+    })
+    await expect(
+      f.terence.as.mutation(api.accountSwitches.start, {
+        businessId: f.businessId,
+        targetMembershipId: f.priyaId,
+      }),
+    ).rejects.toThrow('NO_CHAINING')
+
+    // And the first switch is untouched — a refused second hop must not clear
+    // the row it was refused on behalf of.
+    expect((await rows(f)).map((r) => r.targetMembershipId)).toEqual([
+      f.kevinId,
+    ])
+  })
+
+  /**
+   * `targetMembershipId` is client-supplied, so a distinguishable refusal is
+   * an oracle: loop the ids, and the one that answers differently is the owner.
+   */
+  test('the owner is indistinguishable from an id that matches nothing', async () => {
+    const f = await scenario()
+    const ownerAttempt = f.priya.as
+      .mutation(api.accountSwitches.start, {
+        businessId: f.businessId,
+        targetMembershipId: f.ownerMembershipId,
+      })
+      .catch((e: Error) => e.message)
+    const strangerAttempt = f.priya.as
+      .mutation(api.accountSwitches.start, {
+        businessId: f.businessId,
+        targetMembershipId: f.joId,
+      })
+      .catch((e: Error) => e.message)
+
+    const [owner, stranger] = await Promise.all([ownerAttempt, strangerAttempt])
+    expect(owner).toContain('NOT_FOUND')
+    expect(stranger).toContain('NOT_FOUND')
+  })
+
+  /** What the caller already knows about themselves is safe to say plainly. */
+  test('a subcontractor who was never granted access is told so', async () => {
+    const f = await scenario()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.kevinId, { parentMembershipId: f.joId }),
+    )
+    await expect(
+      f.kevin.as.mutation(api.accountSwitches.start, {
+        businessId: f.businessId,
+        targetMembershipId: f.joId,
+      }),
+    ).rejects.toThrow('NOT_GRANTED')
+
+    await grant(f, f.kevinId, f.joId)
+    await f.kevin.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.joId,
+    })
+    expect((await read(f, f.kevin)).actor.acting._id).toBe(f.joId)
+  })
+
+  /**
+   * The lockout the design pass found. A revoked grant never expires, so a
+   * write-resolved `start` would throw before its body ran — leaving the
+   * person unable to start a new switch or to stop the dead one, with only the
+   * hourly sweep able to free them, and the sweep does not touch this row.
+   */
+  test('a switch whose grant was revoked can still be stopped and replaced', async () => {
+    const f = await scenario()
+    await grant(f, f.kevinId, f.joId)
+    await f.kevin.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.joId,
+    })
+
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.kevinId, {
+        grants: {
+          switchInto: null,
+          clientDirectory: false,
+          prices: false,
+          otherSchedules: false,
+        },
+      }),
+    )
+    expect((await read(f, f.kevin)).actor.degraded).toBe('SWITCH_REVOKED')
+
+    // Not trapped: the way out still works.
+    expect(
+      await f.kevin.as.mutation(api.accountSwitches.stop, {
+        businessId: f.businessId,
+      }),
+    ).toEqual({ stopped: true })
+  })
+
+  test('starting again replaces the row rather than adding one', async () => {
+    const f = await scenario()
+    await f.terence.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.kevinId,
+    })
+    await f.terence.as.mutation(api.accountSwitches.stop, {
+      businessId: f.businessId,
+    })
+    await f.terence.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.priyaId,
+    })
+    expect((await rows(f)).map((r) => r.targetMembershipId)).toEqual([
+      f.priyaId,
+    ])
+  })
+
+  test('stopping when nothing is open is not an error', async () => {
+    const f = await scenario()
+    expect(
+      await f.terence.as.mutation(api.accountSwitches.stop, {
+        businessId: f.businessId,
+      }),
+    ).toEqual({ stopped: false })
+  })
+
+  /** Both halves recorded, so the account holder can be shown who was in
+   * their account and when. */
+  test('both start and stop are recorded against the account', async () => {
+    const f = await scenario()
+    await f.terence.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.kevinId,
+    })
+    await f.terence.as.mutation(api.accountSwitches.stop, {
+      businessId: f.businessId,
+    })
+
+    const log = await f.t.run((ctx) => ctx.db.query('auditLog').collect())
+    expect(log.map((r) => r.action)).toEqual(['switch.start', 'switch.stop'])
+    for (const row of log) {
+      expect(row.actorMembershipId).toBe(f.ownerMembershipId)
+      expect(row.onBehalfOfMembershipId).toBe(f.kevinId)
+    }
+  })
+})
+
+describe('what the account menu offers', () => {
+  /** The menu is filtered by the same rule `start` enforces, so it can never
+   * offer something that would then be refused. */
+  test('the owner sees everyone but themselves', async () => {
+    const f = await scenario()
+    const list = await f.terence.as.query(api.accountSwitches.targets, {
+      businessId: f.businessId,
+    })
+    expect(list.map((t) => t.membershipId).sort()).toEqual(
+      [f.joId, f.kevinId, f.priyaId].sort(),
+    )
+  })
+
+  test('a subcontractor with no grant is offered nothing', async () => {
+    const f = await scenario()
+    expect(
+      await f.priya.as.query(api.accountSwitches.targets, {
+        businessId: f.businessId,
+      }),
+    ).toEqual([])
+  })
+
+  /** Never the owner, for anyone — they are not a permitted target, so they
+   * fall out of the filter rather than needing removing from it. */
+  test('the owner is in nobody else’s menu', async () => {
+    const f = await scenario()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.kevinId, {
+        parentMembershipId: f.joId,
+        grants: {
+          switchInto: f.joId,
+          clientDirectory: false,
+          prices: false,
+          otherSchedules: false,
+        },
+      }),
+    )
+    const list = await f.kevin.as.query(api.accountSwitches.targets, {
+      businessId: f.businessId,
+    })
+    expect(list.map((t) => t.membershipId)).toEqual([f.joId])
+  })
+})
+
+describe('what the banner says', () => {
+  test('nothing, when nobody is switched', async () => {
+    const f = await scenario()
+    expect(
+      await f.terence.as.query(api.accountSwitches.current, {
+        businessId: f.businessId,
+      }),
+    ).toEqual({ actingAs: null, expiresAt: null, degraded: null })
+  })
+
+  test('who, and until when', async () => {
+    const f = await scenario()
+    await f.terence.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.kevinId,
+    })
+    const banner = await f.terence.as.query(api.accountSwitches.current, {
+      businessId: f.businessId,
+    })
+    expect(banner.actingAs?.membershipId).toBe(f.kevinId)
+    expect(banner.actingAs?.name).toBe('Kevin')
+    expect(banner.expiresAt).toBeGreaterThan(Date.now())
+  })
+
+  /**
+   * A switch that stopped validating leaves the caller in their own account;
+   * without a reason they would simply find themselves somewhere else.
+   */
+  test('why it ended, when a grant was taken away', async () => {
+    const f = await scenario()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.kevinId, {
+        parentMembershipId: f.joId,
+        grants: {
+          switchInto: f.joId,
+          clientDirectory: false,
+          prices: false,
+          otherSchedules: false,
+        },
+      }),
+    )
+    await openSwitch(f, f.kevin, f.kevinId, f.joId)
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.kevinId, {
+        grants: {
+          switchInto: null,
+          clientDirectory: false,
+          prices: false,
+          otherSchedules: false,
+        },
+      }),
+    )
+
+    const banner = await f.kevin.as.query(api.accountSwitches.current, {
+      businessId: f.businessId,
+    })
+    expect(banner.actingAs).toBeNull()
+    expect(banner.degraded).toBe('SWITCH_REVOKED')
+  })
+
+  /**
+   * The banner must agree with every other read.
+   *
+   * Queries do not consult a clock, so an expired row still resolves to the
+   * target for the schedule, the reports list and everything else until the
+   * hourly sweep removes it. A banner that checked the time against the
+   * client's clock — which an earlier version of this did — would have been
+   * the only read in the app that thought the switch was over, announcing
+   * "you are back in your own account" above someone else's jobs.
+   *
+   * The moment it actually matters is a write, and writes read the server's
+   * clock and refuse.
+   */
+  test('and still names the account while the reads still serve it', async () => {
+    const f = await scenario()
+    await openSwitch(f, f.terence, f.ownerMembershipId, f.kevinId, {
+      expiresAt: Date.now() - 1,
+    })
+
+    const banner = await f.terence.as.query(api.accountSwitches.current, {
+      businessId: f.businessId,
+    })
+    const jobsSeeIt = await f.terence.as.query(api.accountSwitches.targets, {
+      businessId: f.businessId,
+    })
+
+    // Both still consider the switch live: consistent, if briefly stale.
+    expect(banner.actingAs?.membershipId).toBe(f.kevinId)
+    expect(jobsSeeIt).toEqual([])
+
+    // And the write path is where it is enforced.
+    await expect(write(f, f.terence)).rejects.toThrow('SWITCH_EXPIRED')
+  })
+})
+
+describe('the two decisions that keep a switch from trapping someone', () => {
+  /**
+   * `start` resolves for READ, and this is what that buys.
+   *
+   * A revoked grant never expires, so with a write-resolved `start` the
+   * resolver would throw SWITCH_REVOKED before the handler body ran — leaving
+   * this person unable to start any switch at all, for as long as the dead row
+   * existed, which nothing but the hourly sweep would clear and the sweep only
+   * looks at expiry.
+   *
+   * Written after a reviewer showed the earlier version of this test passed
+   * with `requireActor` swapped for `requireWriteActor`: it stopped at proving
+   * `stop` worked, and never tried to start a new switch from the dead state.
+   */
+  test('a dead switch does not stop you starting a different one', async () => {
+    const f = await scenario()
+    await f.terence.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.kevinId,
+    })
+
+    // Kevin leaves. The row is now permanently invalid and the hourly sweep
+    // will never touch it — the sweep only looks at expiry.
+    await f.t.run((ctx) => ctx.db.patch(f.kevinId, { status: 'removed' }))
+    expect((await read(f, f.terence)).actor.degraded).toBe(
+      'SWITCH_TARGET_INACTIVE',
+    )
+
+    // Resolved for write, `start` would throw SWITCH_TARGET_INACTIVE before
+    // its body ran, and the owner could not switch into anyone ever again.
+    await f.terence.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.priyaId,
+    })
+    expect((await read(f, f.terence)).actor.acting._id).toBe(f.priyaId)
+  })
+
+  /**
+   * "The worst thing this feature can do": two rows, `stop` clears one, the
+   * banner goes quiet, and the person carries on writing inside someone else's
+   * account under the other.
+   */
+  test('starting twice never leaves two rows behind', async () => {
+    const f = await scenario()
+    for (const target of [f.kevinId, f.priyaId, f.kevinId]) {
+      await f.terence.as.mutation(api.accountSwitches.start, {
+        businessId: f.businessId,
+        targetMembershipId: target,
+      })
+      await f.terence.as.mutation(api.accountSwitches.stop, {
+        businessId: f.businessId,
+      })
+    }
+    expect(
+      await f.t.run((ctx) => ctx.db.query('accountSwitches').collect()),
+    ).toEqual([])
+  })
+})
+
+describe('removing someone ends their switches', () => {
+  /**
+   * Access was already revoked without this — `canSwitchInto` is re-derived
+   * from live rows on every request, so a surviving row grants nothing the
+   * moment the membership stops being active. What it buys is that the table
+   * stops carrying rows that mean nothing, and `by_real` / `by_target` finally
+   * have the reader they were added for.
+   */
+  test('in both directions', async () => {
+    const f = await scenario()
+    // The owner is working in Kevin's account, from one device.
+    await f.terence.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.kevinId,
+    })
+    // And Kevin, from his own, is working in Jo's.
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.kevinId, {
+        parentMembershipId: f.joId,
+        grants: {
+          switchInto: f.joId,
+          clientDirectory: false,
+          prices: false,
+          otherSchedules: false,
+        },
+      }),
+    )
+    await f.kevin.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.joId,
+    })
+    expect(
+      await f.t.run((ctx) => ctx.db.query('accountSwitches').collect()),
+    ).toHaveLength(2)
+
+    // The owner has to come back to their own account first: administering is
+    // dropped while switched, which is the rule that makes switching safe to
+    // offer. `team.remove` refuses outright until they do.
+    await expect(
+      f.terence.as.mutation(api.team.remove, {
+        businessId: f.businessId,
+        membershipId: f.kevinId,
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+
+    await f.terence.as.mutation(api.accountSwitches.stop, {
+      businessId: f.businessId,
+    })
+    await f.terence.as.mutation(api.team.remove, {
+      businessId: f.businessId,
+      membershipId: f.kevinId,
+    })
+
+    // Kevin's own switch into Jo's account is gone too, though nothing he did
+    // ended it.
+    expect(
+      await f.t.run((ctx) => ctx.db.query('accountSwitches').collect()),
+    ).toEqual([])
+    expect(
+      (await f.t.run((ctx) => ctx.db.get(f.kevinId)))?.grants?.switchInto,
+    ).toBeNull()
   })
 })
