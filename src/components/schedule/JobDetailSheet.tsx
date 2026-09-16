@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Link } from '@tanstack/react-router'
+import { Link, useNavigate } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import { AlertDialog, DropdownMenu } from 'radix-ui'
 import {
@@ -19,6 +19,9 @@ import { JobNotesSection } from '#/components/notes/JobNotesSection'
 import { Combobox } from '#/components/primitives/Combobox'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
+import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
+import { suggestTemplate } from '#/lib/reportTemplates/suggest'
+import type { TemplateId } from '#/lib/reportTemplates'
 import {
   JOB_TYPES,
   REPEAT_LABELS,
@@ -333,6 +336,7 @@ function JobDetailBody({
             businessSlug={businessSlug}
             propertyId={job.propertyId}
             jobId={job._id}
+            jobType={job.jobType}
             timezone={timezone}
           />
 
@@ -872,14 +876,42 @@ function JobReports({
   businessSlug,
   propertyId,
   jobId,
+  jobType,
   timezone,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
   propertyId: Id<'properties'>
   jobId: Id<'jobs'>
+  jobType: string
   timezone: string
 }) {
+  const navigate = useNavigate()
+  const hydrated = useHydrated()
+  const convexCreate = useConvexMutation(api.reports.create)
+  const create = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      propertyId: Id<'properties'>
+      jobId: Id<'jobs'>
+      template: TemplateId
+      legalBasis: string
+      data: unknown
+    }) => convexCreate(args),
+    onSuccess: (reportId: Id<'reports'>) =>
+      navigate({
+        to: '/$businessSlug/reports/$reportId',
+        params: { businessSlug, reportId },
+      }),
+  })
+
+  // A termite inspection produces a Timber Pest Inspection; a general pest job
+  // a Service Report. Offering that directly saves the picker entirely, and
+  // the picker is still one tap away for the times it guesses wrong.
+  const suggestedId = suggestTemplate(jobType)
+  const suggested = suggestedId
+    ? CREATABLE_TEMPLATES.find((template) => template.id === suggestedId)
+    : undefined
   const { data } = useQuery(
     convexQuery(api.reports.listByProperty, { businessId, propertyId }),
   )
@@ -897,15 +929,46 @@ function JobReports({
         </div>
       )}
 
-      <Link
-        to="/$businessSlug/reports/new"
-        params={{ businessSlug }}
-        search={{ propertyId, jobId }}
-        className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
-      >
-        <Plus size={16} strokeWidth={1.8} />
-        New report
-      </Link>
+      {suggested ? (
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={create.isPending || !hydrated}
+            onClick={() =>
+              create.mutate({
+                businessId,
+                propertyId,
+                jobId,
+                template: suggested.id as TemplateId,
+                legalBasis: suggested.legalBasis,
+                data: {},
+              })
+            }
+            className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[14px] font-semibold text-surface transition active:scale-[.98] disabled:opacity-50"
+          >
+            <Plus size={16} strokeWidth={1.8} />
+            {create.isPending ? 'Starting…' : `Start ${suggested.shortName}`}
+          </button>
+          <Link
+            to="/$businessSlug/reports/new"
+            params={{ businessSlug }}
+            search={{ propertyId, jobId }}
+            className="flex h-10 items-center justify-center rounded-xl bg-surface-2 px-3 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+          >
+            Other…
+          </Link>
+        </div>
+      ) : (
+        <Link
+          to="/$businessSlug/reports/new"
+          params={{ businessSlug }}
+          search={{ propertyId, jobId }}
+          className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+        >
+          <Plus size={16} strokeWidth={1.8} />
+          New report
+        </Link>
+      )}
 
       {otherReports.length > 0 && (
         <>

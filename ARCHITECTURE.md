@@ -90,6 +90,15 @@ Shell      max-width 460px centred on canvas
 5. Report builder — full-screen, dynamic field renderer, Save draft / Finalise & lock
 6. Report document — full-screen, rendered document preview + PDF export
 
+*Amended (reports Phase 3):* the builder is no longer one scroll. A report opens
+on an **overview** of its sections and is filled **one section at a time**, with
+the open section in the URL (`?s=<section id>`) so the phone's back gesture
+leaves a section rather than the report. On `lg` a standing section rail sits
+beside a 720px content column — the page had been stretching every field across
+the whole 1280px shell. A seventh sheet joined the list: the **answer picker**,
+which a list of more than twelve options opens instead of stacking rows, and
+which every cell of a repeating row uses whatever its length.
+
 **Cross-cutting:** preview-as banner (sticky, dark, top), toast (bottom centre)
 
 ## 2.3 Interaction patterns worth naming
@@ -98,6 +107,9 @@ Shell      max-width 460px centred on canvas
 - **Week strip with per-subcontractor dots** — colour-coded, so the Owner sees whose day is loaded at a glance.
 - **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. *Amended:* the schedule's job card now has two variants, and the rule holds per-variant rather than per-surface — the compact **list** row still shows suburb alone, while the richer **board** card shows the full street address. A board card is being read, not scanned past, and at that size the address is the fastest way to recognise a job. `JobCard.tsx` is the only place this applies; every other list row is unchanged.
 - **Locked boilerplate blocks** — report disclaimers render in a grey inset card, visibly non-editable.
+- **Suggested answers** — an answer the app worked out (the forecast, the booked start time) is marked "Suggested" and blocks finalising until the technician confirms it, which pressing Next on that section does. Facts read off a record are never marked: a technician confirming what their own client record says is a tax on being helpful.
+- **One tap for a clean group** — a section or heading may declare `quick`, offering a single explicit tap that answers a whole group with its "nothing found" values. Never a stored default, never over an existing answer, and never over the form's mandatory gate (`semantic: 'safetyGate'`).
+- **Bottom sheets come from `primitives/Sheet.tsx`** — seven screens had each hand-rolled the same root/portal/overlay/content/handle/close block before the pickers needed an eighth.
 
 ## 2.4 Responsive strategy
 The design file is a 460px mobile shell. Desktop is an adaptive re-layout of the same components, not a separate app:

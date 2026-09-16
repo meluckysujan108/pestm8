@@ -21,7 +21,9 @@ export function ReportOverview({
   disabled: boolean
 }) {
   return (
-    <nav aria-label="Sections" className="mt-5">
+    // Named apart from the desktop rail below: two landmarks called "Sections"
+    // is a screen reader saying the same thing about two different things.
+    <nav aria-label="Report sections" className="mt-5">
       <ul className="overflow-hidden rounded-2xl border border-hairline bg-surface">
         {progress.sections.map((section) => (
           <li key={section.id} className="border-t border-hairline-2 first:border-t-0">
@@ -98,5 +100,54 @@ function SectionStatus({ section }: { section: SectionProgress }) {
           all blank: what is true is that nothing is outstanding. */}
       {section.answered > 0 ? 'Done' : 'Nothing needed'}
     </span>
+  )
+}
+
+/**
+ * The same sections as a standing list, for a screen with room for one.
+ *
+ * On a phone the overview IS the screen and a section replaces it; on a
+ * desktop there is space to keep the whole form in view beside the section
+ * being filled, so the technician can see what is left without leaving what
+ * they are doing.
+ */
+export function SectionNav({
+  progress,
+  currentId,
+  onOpen,
+  onOverview,
+}: {
+  progress: ReportProgress
+  currentId: string | null
+  onOpen: (section: SectionProgress) => void
+  onOverview: () => void
+}) {
+  return (
+    <nav aria-label="Sections" className="flex flex-col gap-0.5">
+      <button
+        type="button"
+        onClick={onOverview}
+        data-active={currentId === null}
+        className="rounded-lg px-3 py-2 text-left text-body text-muted transition data-[active=true]:bg-surface data-[active=true]:font-semibold data-[active=true]:text-ink"
+      >
+        Overview
+      </button>
+
+      {progress.sections.map((section) => (
+        <button
+          key={section.id}
+          type="button"
+          onClick={() => onOpen(section)}
+          data-active={section.id === currentId}
+          className="flex flex-col rounded-lg px-3 py-2 text-left transition data-[active=true]:bg-surface"
+        >
+          <span className="flex gap-2 text-body text-ink">
+            <span className="tabular-nums text-muted">{section.number ?? ''}</span>
+            <span className="min-w-0 flex-1 truncate">{section.title}</span>
+          </span>
+          <SectionStatus section={section} />
+        </button>
+      ))}
+    </nav>
   )
 }

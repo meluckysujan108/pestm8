@@ -21,7 +21,7 @@ import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import { reportProgress, sectionByKey, sectionKey } from '#/lib/reportTemplates/progress'
 import { quickAnswersFor } from '#/lib/reportTemplates/quickAnswers'
 import type { QuickMode } from '#/lib/reportTemplates/quickAnswers'
-import { ReportOverview } from './ReportOverview'
+import { ReportOverview, SectionNav } from './ReportOverview'
 import type { PrefillMap } from '#/lib/reportTemplates/seed'
 import type { SectionProgress } from '#/lib/reportTemplates/progress'
 import type { ReportIssue } from '#/lib/reportTemplates/validate'
@@ -32,6 +32,7 @@ import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { SaveStatus } from '#/lib/useAutosave'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
+import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { useAutosave } from '#/lib/useAutosave'
 
 /**
@@ -123,6 +124,7 @@ export function ReportBuilder({
   const [confirmed, setConfirmed] = useState<Array<string>>([])
 
   const hydrated = useHydrated()
+  const keyboardInset = useKeyboardInset()
 
   // Photos live outside `data`, so progress can only count them by asking.
   const { data: galleryPhotos } = useQuery({
@@ -328,7 +330,20 @@ export function ReportBuilder({
   }
 
   return (
-    <div className="px-4 pb-[calc(120px+env(safe-area-inset-bottom))] pt-2">
+    // One column on a phone; on a desktop a standing section list beside a
+    // readable measure — the page had been stretching every field across the
+    // full 1280px shell, which is not a form so much as a wall.
+    <div className="px-4 pb-[calc(120px+env(safe-area-inset-bottom))] pt-2 lg:grid lg:grid-cols-[minmax(200px,240px)_minmax(0,1fr)] lg:items-start lg:gap-8 lg:px-6">
+      <div className="sticky top-4 hidden lg:block">
+        <SectionNav
+          progress={progress}
+          currentId={current?.id ?? null}
+          onOpen={(section) => goToSection(section)}
+          onOverview={() => goToSection(null)}
+        />
+      </div>
+
+      <div className="lg:max-w-[720px]">
       <p className="section-label">{template.legalBasis}</p>
       <h1 className="mt-1 text-page-title text-ink">{template.name}</h1>
       {property && (
@@ -510,7 +525,14 @@ export function ReportBuilder({
       <div
         data-report-footer
         data-ready={hydrated ? 'true' : 'false'}
-        className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:bottom-0"
+        /* Typing a comment must not hide the way to the next section: iOS does
+           not shrink the layout viewport for the keyboard, so a fixed bar sits
+           under it unless it is offset by what the keyboard actually covers. */
+        style={keyboardInset > 0 ? { bottom: keyboardInset } : undefined}
+        // Fixed above the dock on a phone, where it must stay under the thumb;
+        // on a desktop it belongs at the end of the form it acts on, rather
+        // than floating across the middle of the screen.
+        className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:static lg:mt-8 lg:max-w-none lg:rounded-2xl lg:border lg:border-hairline lg:p-3"
       >
         {current ? (
           <>
@@ -577,6 +599,7 @@ export function ReportBuilder({
             )}
           </>
         )}
+        </div>
       </div>
     </div>
   )
