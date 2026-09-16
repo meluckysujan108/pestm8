@@ -5,6 +5,7 @@ import {
   boundPaths,
   renameInData,
 } from '../../src/lib/reportTemplates/optionSets'
+import { forSelf, recordAudit } from './audit'
 import type { OptionSetOverrides } from '../../src/lib/reportTemplates/optionSets'
 import type { OptionSetKey, SectionDef } from '../../src/lib/reportTemplates'
 import type { Doc, Id } from '../_generated/dataModel'
@@ -139,9 +140,8 @@ export async function rewriteDraftsForRename(
     )
     if (!changed) continue
     await ctx.db.patch(report._id, { data })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(args.actorMembershipId), {
       businessId: args.businessId,
-      actorMembershipId: args.actorMembershipId,
       action: 'report.optionRenamed',
       entityType: 'reports',
       entityId: report._id,

@@ -17,6 +17,7 @@ import { pinnedValues } from '../src/lib/reportTemplates/optionSets'
 import type { SectionDef } from '../src/lib/reportTemplates'
 import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
+import { forSelf, recordAudit } from './lib/audit'
 
 /**
  * Per-business option libraries: the vocabularies a business owns and its
@@ -107,9 +108,8 @@ export const renameOption = mutation({
       updatedAt: now,
       updatedByMembershipId: owner._id,
     })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(owner._id), {
       businessId,
-      actorMembershipId: owner._id,
       action: 'optionSet.rename',
       entityType: 'optionSets',
       entityId: row._id,

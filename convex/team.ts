@@ -4,6 +4,7 @@ import { components } from './_generated/api'
 import { authComponent } from './auth'
 import { requireMembership, requireOwner } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
+import { forSelf, recordAudit } from './lib/audit'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 
@@ -216,9 +217,8 @@ async function offboard(
     })
   }
 
-  await ctx.db.insert('auditLog', {
+  await recordAudit(ctx, forSelf(actor._id), {
     businessId,
-    actorMembershipId: actor._id,
     action,
     entityType: 'memberships',
     entityId: target._id,

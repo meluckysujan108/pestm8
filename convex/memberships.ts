@@ -10,6 +10,7 @@ import {
 import { nextColour } from './lib/colours'
 import { inviteState } from './lib/inviteTokens'
 import { role } from './schema'
+import { forSelf, recordAudit } from './lib/audit'
 
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
@@ -104,9 +105,8 @@ export const revokeInvitation = mutation({
 
     const now = Date.now()
     await ctx.db.patch(invitationId, { revokedAt: now })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(actor._id), {
       businessId,
-      actorMembershipId: actor._id,
       action: 'invitation.revoke',
       entityType: 'invitations',
       entityId: invitationId,
@@ -180,9 +180,8 @@ export const invite = mutation({
           createdAt: Date.now(),
         })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(actor._id), {
       businessId: args.businessId,
-      actorMembershipId: actor._id,
       action: 'membership.invite',
       entityType: 'memberships',
       entityId: membershipId,
@@ -224,9 +223,8 @@ export const accept = mutation({
 
     await ctx.db.patch(membership._id, { status: 'active' })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(membership._id), {
       businessId,
-      actorMembershipId: membership._id,
       action: 'membership.accept',
       entityType: 'memberships',
       entityId: membership._id,
@@ -282,9 +280,8 @@ export const setCanViewAllJobs = mutation({
       canViewAllJobs: args.canViewAllJobs,
     })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(actor._id), {
       businessId: args.businessId,
-      actorMembershipId: actor._id,
       action: 'membership.setCanViewAllJobs',
       entityType: 'memberships',
       entityId: args.membershipId,
@@ -320,9 +317,8 @@ export const setCanViewOtherAccounts = mutation({
       canViewOtherAccounts: args.canViewOtherAccounts,
     })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(actor._id), {
       businessId: args.businessId,
-      actorMembershipId: actor._id,
       action: 'membership.setCanViewOtherAccounts',
       entityType: 'memberships',
       entityId: args.membershipId,
@@ -359,9 +355,8 @@ export const setRole = mutation({
 
     await ctx.db.patch(args.membershipId, { role: args.role })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(actor._id), {
       businessId: args.businessId,
-      actorMembershipId: actor._id,
       action: 'membership.setRole',
       entityType: 'memberships',
       entityId: args.membershipId,
@@ -400,9 +395,8 @@ export const setLicence = mutation({
     // it silently — particularly an owner changing someone else's — left no
     // trace at all, which is the opposite of what a compliance dispute needs.
     if (previous !== licenceNumber) {
-      await ctx.db.insert('auditLog', {
+      await recordAudit(ctx, forSelf(actor._id), {
         businessId: args.businessId,
-        actorMembershipId: actor._id,
         action: 'membership.setLicence',
         entityType: 'memberships',
         entityId: args.membershipId,
