@@ -197,6 +197,11 @@ export default defineSchema({
     colour: v.string(),
     status: membershipStatus,
     createdAt: v.number(),
+    // Offboarding. `status: 'removed'` existed from the start but nothing ever
+    // wrote it — there was no way to remove anyone — so these record who cut
+    // access off and when, which is the part a compliance dispute asks about.
+    removedAt: v.optional(v.number()),
+    removedByMembershipId: v.optional(v.id('memberships')),
   })
     .index('by_user', ['userId'])
     .index('by_business', ['businessId'])
@@ -205,9 +210,17 @@ export default defineSchema({
   // First-class, deliberately NOT derived from job history: reports must stay
   // findable by address years later, whether or not the original job survives.
   /**
-   * Invitations are keyed by email, not userId: an owner inviting a
-   * subcontractor knows their email address and nothing else, and the person
-   * may not have an account yet. The membership is created when they claim it.
+   * An invitation is a single-use capability, not a name on a list.
+   *
+   * It used to be claimed by matching the signed-in user's email address,
+   * automatically, on every visit to "/". Since email verification is off and
+   * sign-up was open, whoever registered an invited address first joined the
+   * business — so an invitation was really an offer to the whole internet.
+   *
+   * Now the link itself is the credential: 32 random bytes generated in an
+   * action, of which only the SHA-256 hash is stored, so a database read
+   * cannot mint a working link. The email is kept as a binding (the invitee
+   * must sign up with that address) and as the thing the owner recognises.
    */
   invitations: defineTable({
     businessId: v.id('businesses'),
@@ -216,9 +229,22 @@ export default defineSchema({
     invitedByMembershipId: v.id('memberships'),
     claimedAt: v.optional(v.number()),
     createdAt: v.number(),
+    // Optional through EXPAND: rows written before token invites have none,
+    // and `inviteState` treats a row with no hash as legacy/unusable rather
+    // than as a valid open invitation.
+    tokenHash: v.optional(v.string()),
+    expiresAt: v.optional(v.number()),
+    // Soft revoke. A hard delete left no record of how someone joined, or of
+    // an invite an owner deliberately withdrew.
+    revokedAt: v.optional(v.number()),
+    // Who actually redeemed it, and what membership that produced — so the
+    // team roster can answer "how did this person get in?" years later.
+    claimedByUserId: v.optional(v.string()),
+    claimedMembershipId: v.optional(v.id('memberships')),
   })
     .index('by_email', ['email'])
-    .index('by_business', ['businessId']),
+    .index('by_business', ['businessId'])
+    .index('by_token_hash', ['tokenHash']),
 
   properties: defineTable({
     businessId: v.id('businesses'),

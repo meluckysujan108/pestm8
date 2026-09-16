@@ -1,8 +1,14 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { canViewAs, getAuthUserId, requireMembership, requireOwner } from './lib/access'
+import {
+  canViewAs,
+  getAuthUserId,
+  requireMembership,
+  requireOwner,
+} from './lib/access'
 import { nextColour } from './lib/colours'
+import { inviteState } from './lib/inviteTokens'
 import { role } from './schema'
 
 export const listForBusiness = query({
@@ -25,8 +31,8 @@ export const listForBusiness = query({
         return {
           _id: m._id,
           userId: m.userId,
-          name: (user?.name as string | undefined) ?? '',
-          email: (user?.email as string | undefined) ?? '',
+          name: user?.name ?? '',
+          email: user?.email ?? '',
           role: m.role,
           canViewAllJobs: m.canViewAllJobs,
           canViewOtherAccounts: m.canViewOtherAccounts ?? false,
@@ -41,9 +47,11 @@ export const listForBusiness = query({
 })
 
 /**
- * Invite by email. The owner knows an email address, not a Convex user id, and
- * the person may not have signed up yet — so this records an invitation the
- * recipient claims later rather than reaching into the auth tables.
+ * Superseded by `invitations.create`, which mints a single-use link.
+ *
+ * Kept as a loud failure rather than deleted: a stale PWA still has the old
+ * Team screen, and an owner tapping Invite there must not believe an
+ * invitation exists when nothing can redeem it. Deleted at CONTRACT.
  */
 export const inviteByEmail = mutation({
   args: {
@@ -52,42 +60,13 @@ export const inviteByEmail = mutation({
     role,
   },
   handler: async (ctx, args) => {
-    const actor = await requireOwner(ctx, args.businessId)
-    const email = args.email.trim().toLowerCase()
-    if (!email.includes('@')) throw new ConvexError('INVALID_EMAIL')
-
-    const existing = await ctx.db
-      .query('invitations')
-      .withIndex('by_email', (q) => q.eq('email', email))
-      .collect()
-
-    const outstanding = existing.find(
-      (i) => i.businessId === args.businessId && i.claimedAt === undefined,
-    )
-    if (outstanding) return outstanding._id
-
-    const invitationId = await ctx.db.insert('invitations', {
-      businessId: args.businessId,
-      email,
-      role: args.role,
-      invitedByMembershipId: actor._id,
-      createdAt: Date.now(),
-    })
-
-    await ctx.db.insert('auditLog', {
-      businessId: args.businessId,
-      actorMembershipId: actor._id,
-      action: 'invitation.create',
-      entityType: 'invitations',
-      entityId: invitationId,
-      meta: { email, role: args.role },
-      at: Date.now(),
-    })
-
-    return invitationId
+    await requireOwner(ctx, args.businessId)
+    throw new ConvexError('APP_UPDATE_REQUIRED')
   },
 })
 
+/** Superseded by `invitations.listForBusiness`, which also reports each link's
+ * state. Kept so a stale Team screen still renders; deleted at CONTRACT. */
 export const listInvitations = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
@@ -98,86 +77,61 @@ export const listInvitations = query({
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .collect()
 
+    const now = Date.now()
     return all
-      .filter((i) => i.claimedAt === undefined)
+      .filter((i) => inviteState(i, now) === 'valid')
       .map((i) => ({ _id: i._id, email: i.email, role: i.role }))
   },
 })
 
+/** Superseded by `invitations.revoke`. Now a soft revoke: a hard delete left no
+ * record that an invitation had ever been issued or withdrawn. */
 export const revokeInvitation = mutation({
   args: {
     businessId: v.id('businesses'),
     invitationId: v.id('invitations'),
   },
   handler: async (ctx, { businessId, invitationId }) => {
-    await requireOwner(ctx, businessId)
+    const actor = await requireOwner(ctx, businessId)
 
     const invitation = await ctx.db.get(invitationId)
     if (!invitation || invitation.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
-    await ctx.db.delete(invitationId)
+    if (invitation.claimedAt !== undefined) {
+      throw new ConvexError('ALREADY_MEMBER')
+    }
+
+    const now = Date.now()
+    await ctx.db.patch(invitationId, { revokedAt: now })
+    await ctx.db.insert('auditLog', {
+      businessId,
+      actorMembershipId: actor._id,
+      action: 'invitation.revoke',
+      entityType: 'invitations',
+      entityId: invitationId,
+      meta: { email: invitation.email },
+      at: now,
+    })
   },
 })
 
 /**
- * Claims every outstanding invitation matching the signed-in user's email.
- * Joining is deliberately the subcontractor's own action rather than something
- * an owner does to them — the same principle as memberships.accept (§1.4).
+ * Retired. This used to create an active membership for any invitation whose
+ * email matched the signed-in user's — with email verification off and sign-up
+ * open, that meant whoever registered an invited address first joined the
+ * business, and it ran automatically on every visit to "/".
+ *
+ * Joining now requires redeeming a single-use link (`invitations.redeem`).
+ *
+ * The signature is preserved and the body made a no-op on purpose: a PWA still
+ * running the old bundle calls this in its `/` beforeLoad, and an argument or
+ * name change there would turn every sign-in on that device into a bare
+ * "Server Error". Deleted at CONTRACT, once no client calls it.
  */
 export const claimInvitations = mutation({
   args: {},
-  handler: async (ctx) => {
-    const user = await authComponent.getAuthUser(ctx)
-    if (!user) throw new ConvexError('UNAUTHENTICATED')
-
-    const email = String(user.email ?? '').toLowerCase()
-    if (!email) return []
-
-    const invitations = await ctx.db
-      .query('invitations')
-      .withIndex('by_email', (q) => q.eq('email', email))
-      .collect()
-
-    const claimed: Array<string> = []
-
-    for (const invitation of invitations) {
-      if (invitation.claimedAt !== undefined) continue
-
-      const already = await ctx.db
-        .query('memberships')
-        .withIndex('by_user_business', (q) =>
-          q.eq('userId', user._id).eq('businessId', invitation.businessId),
-        )
-        .unique()
-
-      if (!already) {
-        const members = await ctx.db
-          .query('memberships')
-          .withIndex('by_business', (q) =>
-            q.eq('businessId', invitation.businessId),
-          )
-          .collect()
-
-        await ctx.db.insert('memberships', {
-          userId: user._id,
-          businessId: invitation.businessId,
-          role: invitation.role,
-          canViewAllJobs: false,
-          colour: nextColour(members.map((m) => m.colour)),
-          status: 'active',
-          createdAt: Date.now(),
-        })
-      } else if (already.status !== 'active') {
-        await ctx.db.patch(already._id, { status: 'active' })
-      }
-
-      await ctx.db.patch(invitation._id, { claimedAt: Date.now() })
-      claimed.push(invitation.businessId)
-    }
-
-    return claimed
-  },
+  handler: async (): Promise<Array<string>> => [],
 })
 
 export const invite = mutation({
@@ -188,6 +142,9 @@ export const invite = mutation({
   },
   handler: async (ctx, args) => {
     const actor = await requireOwner(ctx, args.businessId)
+    // The owner account is the key to the business; it is never handed out
+    // through an invitation, only by the bootstrap runbook.
+    if (args.role === 'owner') throw new ConvexError('OWNER_INVITE_FORBIDDEN')
 
     const existing = await ctx.db
       .query('memberships')
@@ -258,6 +215,11 @@ export const accept = mutation({
 
     if (!membership || membership.status !== 'invited') {
       throw new ConvexError('NOT_FOUND')
+    }
+    // An 'invited' row created before owner invites were blocked would
+    // otherwise still activate into a second owner account here.
+    if (membership.role === 'owner') {
+      throw new ConvexError('OWNER_INVITE_FORBIDDEN')
     }
 
     await ctx.db.patch(membership._id, { status: 'active' })
@@ -429,9 +391,25 @@ export const setLicence = mutation({
       throw new ConvexError('NO_ACCESS')
     }
 
-    await ctx.db.patch(args.membershipId, {
-      licenceNumber: args.licenceNumber,
-    })
+    const licenceNumber = args.licenceNumber.trim().slice(0, 64)
+    const previous = target.licenceNumber
+
+    await ctx.db.patch(args.membershipId, { licenceNumber })
+
+    // This number is printed on every certificate that person signs. Changing
+    // it silently — particularly an owner changing someone else's — left no
+    // trace at all, which is the opposite of what a compliance dispute needs.
+    if (previous !== licenceNumber) {
+      await ctx.db.insert('auditLog', {
+        businessId: args.businessId,
+        actorMembershipId: actor._id,
+        action: 'membership.setLicence',
+        entityType: 'memberships',
+        entityId: args.membershipId,
+        meta: { from: previous ?? '', to: licenceNumber },
+        at: Date.now(),
+      })
+    }
   },
 })
 
@@ -478,6 +456,8 @@ export const setViewingAs = mutation({
     if (!target) throw new ConvexError('NOT_FOUND')
     if (!canViewAs(actor, target)) throw new ConvexError('NO_ACCESS')
 
-    await ctx.db.patch(actor._id, { viewingAsMembershipId: args.targetMembershipId })
+    await ctx.db.patch(actor._id, {
+      viewingAsMembershipId: args.targetMembershipId,
+    })
   },
 })
