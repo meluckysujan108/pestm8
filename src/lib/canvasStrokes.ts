@@ -12,7 +12,7 @@ export type Point = { x: number; y: number }
 
 /** Pointer position in the canvas's own bitmap pixel space, not CSS pixels —
  * the two differ whenever the canvas is displayed at a different size than
- * its `width`/`height` attributes (see `SignaturePad.tsx`'s comment on this
+ * its `width`/`height` attributes (see `SignSheet.tsx`'s comment on this
  * exact distinction). */
 export function positionOf(e: React.PointerEvent<HTMLCanvasElement>): Point {
   const rect = e.currentTarget.getBoundingClientRect()

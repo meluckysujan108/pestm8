@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import type { Page } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
@@ -18,6 +19,20 @@ import { builderReady, createReport, sectionUrl } from './fixtures/reportPayload
  */
 
 test.use({ viewport: { width: 390, height: 844 } })
+
+/** Draws on the open signing sheet and commits it. */
+async function sign(page: Page, label: string) {
+  const pad = page.getByRole('img', { name: new RegExp(`${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} — sign here`) })
+  // The mouse does not scroll: drawing at coordinates below the fold lands on
+  // whatever is actually there, which is how this once "signed" nothing.
+  await pad.scrollIntoViewIfNeeded()
+  const box = (await pad.boundingBox())!
+  await page.mouse.move(box.x + 24, box.y + box.height * 0.6)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width - 40, box.y + box.height * 0.35, { steps: 10 })
+  await page.mouse.up()
+  await page.getByRole('button', { name: 'Done' }).click()
+}
 
 async function startJobReport(label: string) {
   const email = uniqueEmail(label)
@@ -251,16 +266,11 @@ test('a service report from a job reaches Finalise in well under 30 taps', async
   await page.getByRole('button', { name: /^Next:/ }).click()
 
   // 4. Recommendations and the signature.
-  const pad = page.getByRole('img', { name: /Technician's Signature — sign/ })
-  // The mouse does not scroll: drawing at coordinates below the fold lands on
-  // whatever is actually there, which is how this first "signed" nothing.
-  await pad.scrollIntoViewIfNeeded()
-  const box = (await pad.boundingBox())!
-  await page.mouse.move(box.x + 20, box.y + box.height / 2)
-  await page.mouse.down()
-  await page.mouse.move(box.x + box.width - 30, box.y + box.height / 2 - 12, { steps: 8 })
-  await page.mouse.up()
-  await expect(page.getByText('Signed')).toBeVisible()
+  await page.getByRole('button', { name: "Technician's Signature — sign" }).click()
+  await sign(page, "Technician's Signature")
+  await expect(
+    page.getByRole('button', { name: "Technician's Signature — signed, sign again" }),
+  ).toBeVisible()
 
   await page.getByRole('button', { name: 'Finalise & lock' }).click()
 

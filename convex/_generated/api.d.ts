@@ -33,6 +33,7 @@ import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
 import type * as memberships from "../memberships.js";
 import type * as migrations_notesV2 from "../migrations/notesV2.js";
 import type * as migrations_reportSnapshotsV1 from "../migrations/reportSnapshotsV1.js";
+import type * as migrations_signatureRecords from "../migrations/signatureRecords.js";
 import type * as notes from "../notes.js";
 import type * as notesSync from "../notesSync.js";
 import type * as optionSets from "../optionSets.js";
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   memberships: typeof memberships;
   "migrations/notesV2": typeof migrations_notesV2;
   "migrations/reportSnapshotsV1": typeof migrations_reportSnapshotsV1;
+  "migrations/signatureRecords": typeof migrations_signatureRecords;
   notes: typeof notes;
   notesSync: typeof notesSync;
   optionSets: typeof optionSets;

@@ -148,6 +148,8 @@ const gpsField = z.object({
 const signatureField = z.object({
   ...base,
   kind: z.literal('signature'),
+  statement: z.string().optional(),
+  askName: z.boolean().optional(),
   slot: z.string(),
   role: z.enum(['technician', 'client']),
 })

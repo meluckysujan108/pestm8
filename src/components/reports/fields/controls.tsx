@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { MapPin } from 'lucide-react'
 import { PhotoSlots } from './PhotoSlots'
-import { SignaturePad } from './SignaturePad'
+import { SignatureRow } from './SignatureRow'
 import {
   retainedOptions,
   toggleCheck,
@@ -505,13 +505,18 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
 export function SignatureControl({ field, value, onChange, ctx }: Of<'signature'>) {
   const signed = value as SignatureValue | undefined
   return (
-    <SignaturePad
+    <SignatureRow
       businessId={ctx.businessId}
       reportId={ctx.reportId}
       slot={field.slot}
       label={field.label}
+      statement={field.statement}
+      askName={field.askName ?? field.role === 'client'}
+      // The technician's own slot is the only one their saved signature may
+      // ever fill. A client's is signed by the client, on this phone, now.
+      ownSignature={field.role === 'technician'}
       signedAt={signed?.signedAt}
-      onSigned={(signedAt) =>
+      onSigned={(signedAt: number | undefined) =>
         onChange(signedAt === undefined ? undefined : { signedAt })
       }
     />

@@ -194,6 +194,14 @@ export default defineSchema({
     viewingAsMembershipId: v.optional(v.id('memberships')),
     licenceNumber: v.optional(v.string()),
     phone: v.optional(v.string()),
+    /**
+     * This member's own signature, saved once and reused on their own reports.
+     *
+     * Only ever applied by its owner: `reports.attachSignature` checks that the
+     * caller is the membership this belongs to. A saved signature applied by
+     * anyone else is forgery with extra steps, however convenient.
+     */
+    savedSignatureStorageId: v.optional(v.id('_storage')),
     colour: v.string(),
     status: membershipStatus,
     createdAt: v.number(),
@@ -369,7 +377,39 @@ export default defineSchema({
     // Out of `data` for exactly the reason above, and more urgently: autosave
     // rewrites that blob every couple of seconds, so a signature stored inside
     // it would be destroyed by the next keystroke elsewhere on the form.
-    signatureSlots: v.optional(v.record(v.string(), v.id('_storage'))),
+    /**
+     * What was signed, by whom, and against which words.
+     *
+     * A signature is evidence, so it carries its own provenance: the image in
+     * storage, when it was drawn, the statement printed above it and the
+     * revision of the form that statement belongs to. Under the Electronic
+     * Transactions Act what makes a signature stand up is the link between the
+     * person, the act and the document — a bare storage id records none of it.
+     *
+     * The union is the expand step of a migration: rows written before this
+     * hold a plain storage id. Read both through `signatureOf()`.
+     */
+    signatureSlots: v.optional(
+      v.record(
+        v.string(),
+        v.union(
+          v.id('_storage'),
+          v.object({
+            storageId: v.id('_storage'),
+            signedAt: v.number(),
+            /** Drawn here, or the technician's own saved signature reused. */
+            method: v.union(v.literal('drawn'), v.literal('saved')),
+            /** The name typed by whoever signed, where the form asks for one. */
+            signedBy: v.optional(v.string()),
+            /** The words agreed to, frozen: terms can be edited afterwards. */
+            statement: v.optional(v.string()),
+            templateVersion: v.optional(v.number()),
+            /** Whose device captured it — not necessarily who signed. */
+            capturedByMembershipId: v.optional(v.id('memberships')),
+          }),
+        ),
+      ),
+    ),
     finalisedAt: v.optional(v.number()),
     pdfStorageId: v.optional(v.id('_storage')),
     // Set the moment an email actually sends (convex/email.ts). Independent

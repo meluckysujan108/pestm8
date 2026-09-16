@@ -38,6 +38,17 @@ import type { Option, RichDoc, ReportTemplate } from './types'
  */
 
 /** Free text is the value, so it prints as itself on the finished record. */
+/**
+ * What the client agrees to by signing §9.
+ *
+ * One copy, printed above the pad by the form's own note and shown on the pad
+ * itself by the signing sheet, so the sentence somebody agreed to and the
+ * sentence the document prints cannot drift apart.
+ */
+// src: timber-pest-inspection.md:246
+const CLIENT_ACCEPTANCE =
+  'The Client acknowledges and agrees with the contents of this Report. The Client acknowledges and agrees that the Inspection has limitations, that the Property is free of Timber Pests and damage caused by Timber Pests and accepts and relies on the Inspection and Report solely at its own risk.'
+
 const asOptions = (values: Array<string>): Array<Option> =>
   values.map((value) => ({ value, label: value }))
 
@@ -1505,9 +1516,7 @@ export const timberPestInspection: ReportTemplate = {
           // FLAG: the client acknowledges "that the Property is free of Timber Pests and
           // damage caused by Timber Pests". A client cannot agree to that, and the rest of
           // the report says the opposite. Raise before it prints under a signature.
-          body: doc(
-            'The Client acknowledges and agrees with the contents of this Report. The Client acknowledges and agrees that the Inspection has limitations, that the Property is free of Timber Pests and damage caused by Timber Pests and accepts and relies on the Inspection and Report solely at its own risk.',
-          ),
+          body: doc(CLIENT_ACCEPTANCE),
         },
         {
           // src: timber-pest-inspection.md:247
@@ -1523,6 +1532,9 @@ export const timberPestInspection: ReportTemplate = {
           label: 'Signature',
           slot: 'client',
           role: 'client',
+          // Shown on the pad as well as printed above it: a client handed a
+          // phone should see what they are agreeing to on the screen they sign.
+          statement: CLIENT_ACCEPTANCE,
         },
         {
           // src: timber-pest-inspection.md:249

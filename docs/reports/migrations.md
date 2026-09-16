@@ -259,3 +259,20 @@ simply arrive unseeded.
 
 Open drafts on production need nothing. They keep their answers, gain no suggestions,
 and are validated on the rules of the revision they were written against.
+
+## Phase 4 — signatures that record the act, not just the image
+
+Expand-only. `reports.signatureSlots` accepts either a bare storage id or a
+record carrying `signedAt`, `method`, and optionally `signedBy`, `statement`,
+`templateVersion` and `capturedByMembershipId`; every reader goes through
+`storageIdOf()`. `memberships.savedSignatureStorageId` is new and optional.
+
+`migrations/signatureRecords.ts` converts the rows already stored, and is
+honest about what it cannot recover: an old row knows only the image, so
+`signedAt` comes from the report's own answers where the pad left one and
+falls back to the report's creation, `method` is `drawn` because that is the
+only way a signature could have been made then, and the rest is left absent
+rather than invented. Run on dev 2026-09-16: 246 bare ids converted, 257
+signatures, zero remaining.
+
+Contract later, once prod also reports zero: drop the `v.id('_storage')` arm.

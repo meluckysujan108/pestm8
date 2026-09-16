@@ -58,6 +58,20 @@ const WEATHER = [
   'Sunny',
 ]
 
+/**
+ * The words each signature agrees to.
+ *
+ * One copy, printed above the pad by the form's own `note` block and shown on
+ * the pad itself by the signing sheet — so the sentence somebody agreed to and
+ * the sentence the document prints cannot drift apart.
+ */
+// src: termite-certificate.md:126
+const INSTALLER_CERTIFICATION =
+  'I hereby certify that the subterranean termite management system described in this Certificate has been installed at the specified property in accordance with Australian Standard AS 3660.2-2017 and manufacturer requirements.'
+// src: termite-certificate.md:134
+const CLIENT_ACKNOWLEDGMENT =
+  'The Client acknowledges receipt of this Certificate of Installation and agrees to maintain the property in accordance with the recommendations to preserve system effectiveness and warranty.'
+
 // src: termite-certificate.md:62 — AS 3660.2 system types, inline
 const SYSTEM_TYPES = [
   'Chemical Soil Barrier',
@@ -551,9 +565,7 @@ export const termiteManagementCert: ReportTemplate = {
           key: 'certificationStatement',
           label: 'Installer certification statement',
           tone: 'statement',
-          body: paragraph(
-            'I hereby certify that the subterranean termite management system described in this Certificate has been installed at the specified property in accordance with Australian Standard AS 3660.2-2017 and manufacturer requirements.',
-          ),
+          body: paragraph(INSTALLER_CERTIFICATION),
         },
         // src: termite-certificate.md:127 — repeats §2's installer, as the form does
         {
@@ -594,6 +606,9 @@ export const termiteManagementCert: ReportTemplate = {
           label: 'Installer Signature',
           slot: 'installer',
           role: 'technician',
+          // Shown on the pad as well as printed above it: signing is agreeing
+          // to these words, and the sheet is where the agreeing happens.
+          statement: INSTALLER_CERTIFICATION,
           required: true,
         },
         // src: termite-certificate.md:132
@@ -627,7 +642,7 @@ export const termiteManagementCert: ReportTemplate = {
           label: 'Client acknowledgment statement',
           tone: 'statement',
           body: paragraph(
-            'The Client acknowledges receipt of this Certificate of Installation and agrees to maintain the property in accordance with the recommendations to preserve system effectiveness and warranty.',
+            CLIENT_ACKNOWLEDGMENT,
           ),
         },
         // src: termite-certificate.md:140 — "Single-line text input"
@@ -643,6 +658,7 @@ export const termiteManagementCert: ReportTemplate = {
           label: 'Client Signature',
           slot: 'client',
           role: 'client',
+          statement: CLIENT_ACKNOWLEDGMENT,
         },
         // src: termite-certificate.md:142
         { kind: 'date', key: 'clientDateSigned', label: 'Date Signed' },

@@ -204,6 +204,15 @@ export type FieldDef =
       kind: 'signature'
       slot: string
       role: 'technician' | 'client'
+      /**
+       * The words printed above the pad and agreed to by signing — the Timber
+       * report's client acknowledgment, the Certificate's installer
+       * certification. Frozen with the signature, because what a business
+       * prints can be edited afterwards and what someone agreed to cannot.
+       */
+      statement?: string
+      /** Ask whoever signs to type their name: an agent or tenant may sign. */
+      askName?: boolean
     })
   /**
    * Repeating rows of the same columns — the treatment grid, where one visit

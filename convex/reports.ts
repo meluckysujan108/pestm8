@@ -418,17 +418,77 @@ export const attachSignature = mutation({
     reportId: v.id('reports'),
     storageId: v.id('_storage'),
     slot: v.string(),
+    /** Typed by whoever signed, where the form asks for their name. */
+    signedBy: v.optional(v.string()),
+    /** The words printed above the pad, frozen with the signature. */
+    statement: v.optional(v.string()),
+    /** Set when reusing this member's own saved signature. */
+    method: v.optional(v.union(v.literal('drawn'), v.literal('saved'))),
+    /** Also keep this drawing as the signer's own, for their next report. */
+    saveForMember: v.optional(v.boolean()),
   },
-  handler: async (ctx, { businessId, reportId, storageId, slot }) => {
+  handler: async (
+    ctx,
+    { businessId, reportId, storageId, slot, signedBy, statement, method, saveForMember },
+  ) => {
     // A signature attests to a document's contents at a moment in time. Once
     // locked, it must not be possible to attach a different one.
-    const { report } = await requireEditableReport(ctx, businessId, reportId)
+    const { membership, report } = await requireEditableReport(ctx, businessId, reportId)
 
     await ctx.db.patch(reportId, {
-      signatureSlots: { ...(report.signatureSlots ?? {}), [slot]: storageId },
+      signatureSlots: {
+        ...(report.signatureSlots ?? {}),
+        [slot]: {
+          storageId,
+          signedAt: Date.now(),
+          method: method ?? 'drawn',
+          ...(signedBy ? { signedBy } : {}),
+          // Frozen with the signature: what a business prints can be edited
+          // afterwards, and what somebody agreed to cannot.
+          ...(statement ? { statement } : {}),
+          templateVersion: report.templateVersion,
+          capturedByMembershipId: membership._id,
+        },
+      },
     })
+
+    // Their own signature, kept for their own next report — and only ever the
+    // caller's own membership.
+    if (saveForMember) {
+      await ctx.db.patch(membership._id, { savedSignatureStorageId: storageId })
+    }
   },
 })
+
+/**
+ * The caller's saved signature, if they have one.
+ *
+ * Scoped to the real caller rather than to whoever they may be viewing as, and
+ * returning a storage id the client hands straight back to `attachSignature`:
+ * a member may only ever apply their own.
+ */
+export const mySavedSignature = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const membership = await requireMembership(ctx, businessId)
+    if (!membership.savedSignatureStorageId) return null
+    const url = await ctx.storage.getUrl(membership.savedSignatureStorageId)
+    return url ? { storageId: membership.savedSignatureStorageId, url } : null
+  },
+})
+
+/**
+ * The image behind a signature slot, whichever shape the row holds.
+ *
+ * Rows written before signatures carried their provenance hold a bare storage
+ * id. Both are read here rather than at each call site, so a reader cannot
+ * quietly forget the older shape and start rendering nothing.
+ */
+function storageIdOf(
+  held: NonNullable<Doc<'reports'>['signatureSlots']>[string],
+): Id<'_storage'> {
+  return typeof held === 'string' ? held : held.storageId
+}
 
 /** Signed URLs for display; storage ids are useless to the client on their own. */
 export const signatureUrls = query({
@@ -442,12 +502,10 @@ export const signatureUrls = query({
     if (!canSeeReport(membership, report)) return {}
 
     const entries = await Promise.all(
-      Object.entries(report.signatureSlots ?? {}).map(
-        async ([slot, storageId]) => {
-          const url = await ctx.storage.getUrl(storageId)
-          return [slot, url] as const
-        },
-      ),
+      Object.entries(report.signatureSlots ?? {}).map(async ([slot, held]) => {
+        const url = await ctx.storage.getUrl(storageIdOf(held))
+        return [slot, url] as const
+      }),
     )
 
     return Object.fromEntries(entries.filter(([, url]) => url !== null))
