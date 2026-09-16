@@ -15,7 +15,9 @@ import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
 import { migrateServiceReportV1 } from '../src/lib/reportTemplates/legacy/serviceReport.migrate'
 import type { Doc, Id } from './_generated/dataModel'
-import { reportScope } from './lib/capabilities'
+import { canFinaliseReport, reportScope } from './lib/capabilities'
+import { reportFactsFrom } from './lib/reportFacts'
+import { factsFromMembership } from './lib/membershipFacts'
 import type { TemplateId } from '../src/lib/reportTemplates'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
@@ -751,6 +753,32 @@ export const finalise = mutation({
     )
     requireSameVersion(report, templateVersion)
 
+    /**
+     * Whether this document may be signed, as opposed to merely edited.
+     *
+     * `canFinaliseReport` has existed since the access model was written down
+     * and has never been called, which meant the protection it describes did
+     * not exist: a regulated certificate could be signed with no licence on
+     * file at all, and — once switching is reachable — from inside the licence
+     * holder's account by someone who is not them.
+     *
+     * It runs after `requireEditableReport`, which is the stricter gate of the
+     * two (author only, no owner escape), so this can only ever add a refusal.
+     * The holder is the report's author: their name and licence are what the
+     * certificate prints, whoever filled the form in.
+     */
+    const holder = await ctx.db.get(report.authorMembershipId)
+    if (!holder) throw new ConvexError('NOT_FOUND')
+
+    const env = await requireActor(ctx, businessId)
+    const decision = canFinaliseReport(
+      env.actor,
+      reportFactsFrom(report),
+      { holder: factsFromMembership(holder) },
+      Date.now(),
+    )
+    if (!decision.ok) throw new ConvexError(decision.reason)
+
     // Frozen the instant this becomes a signed document — editing the live
     // custom template afterward must never change what was already finalised.
     // Undefined for a built-in template, whose 4 `.ts` files never change.
@@ -815,6 +843,10 @@ export const finalise = mutation({
       data,
       status: 'finalised',
       finalisedAt: now,
+      // Who pressed the button, which is not always whose licence prints.
+      // Written on every finalise, so absent can only mean "before this
+      // existed" and never "nobody knows".
+      finalisedByMembershipId: env.actor.real._id,
       ...(templateSnapshotId ? { templateSnapshotId } : {}),
       ...(contextSnapshot ? { contextSnapshot } : {}),
       ...(customTemplateSnapshot ? { customTemplateSnapshot } : {}),

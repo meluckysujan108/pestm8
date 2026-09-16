@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import {
+  licenceSelf,
   FIXTURE_PASSWORD,
   api,
   expectRejected,
@@ -143,6 +144,7 @@ test.describe('custom report templates', () => {
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    await licenceSelf(owner, businessId)
 
     const propertyId = await owner.client.mutation(api.properties.create, {
       businessId,
@@ -249,6 +251,7 @@ test.describe('custom report templates', () => {
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    await licenceSelf(owner, businessId)
 
     const subUser = await sub.client.query(api.auth.getCurrentUser, {})
     await owner.client.mutation(api.memberships.invite, {
@@ -291,6 +294,7 @@ test.describe('custom report templates', () => {
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    await licenceSelf(owner, businessId)
 
     const templateId = await owner.client.mutation(api.customTemplates.cloneBuiltin, {
       businessId,
@@ -340,6 +344,7 @@ test.describe('custom report templates', () => {
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    await licenceSelf(owner, businessId)
 
     const originalId = await owner.client.mutation(api.customTemplates.create, {
       businessId,
@@ -372,6 +377,7 @@ test.describe('custom report templates', () => {
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    await licenceSelf(owner, businessId)
     const propertyId = await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'A. Singh',
@@ -422,6 +428,7 @@ test.describe('custom report templates', () => {
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    await licenceSelf(owner, businessId)
     const propertyId = await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'D. Wells',
@@ -460,6 +467,7 @@ test.describe('custom report templates', () => {
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    await licenceSelf(owner, businessId)
 
     const activeId = await owner.client.mutation(api.customTemplates.create, {
       businessId,
@@ -489,6 +497,7 @@ test.describe('custom report templates', () => {
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    await licenceSelf(owner, businessId)
     const subUser = await sub.client.query(api.auth.getCurrentUser, {})
     await owner.client.mutation(api.memberships.invite, {
       businessId,
@@ -541,6 +550,7 @@ test.describe('custom report templates', () => {
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    await licenceSelf(owner, businessId)
     await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'P. Ng',

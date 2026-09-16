@@ -183,6 +183,21 @@ export async function setupBusinessWithSub(label: string) {
   const ownerMembershipId = members.find((m) => m.role === 'owner')!._id
   const subMembershipId = members.find((m) => m.email === sub.email)!._id
 
+  // Both licensed, because both are in a pest business and a regulated report
+  // cannot be signed without a licence on file — the rule `canFinaliseReport`
+  // enforces. `scripts/seed.mjs` has always set these; the fixtures did not,
+  // which made them a less realistic business than the seed.
+  await owner.client.mutation(api.memberships.setLicence, {
+    businessId,
+    membershipId: ownerMembershipId,
+    licenceNumber: 'PMT-4471',
+  })
+  await owner.client.mutation(api.memberships.setLicence, {
+    businessId,
+    membershipId: subMembershipId,
+    licenceNumber: 'TECH-8821',
+  })
+
   const ownerJobId = await owner.client.mutation(api.jobs.create, {
     businessId,
     propertyId,
@@ -297,3 +312,29 @@ export async function expectRejected(
 }
 
 export { api }
+
+/**
+ * Gives an actor a licence number on their own membership.
+ *
+ * A regulated report cannot be signed without one — `canFinaliseReport`
+ * refuses `HOLDER_LICENCE_MISSING` — and a pest business's people all have
+ * one. Specs that create a business inline start with an owner who does not,
+ * which is a realistic first minute of the product and an unrealistic state
+ * to be finalising an AS 4349.3 inspection from.
+ */
+export async function licenceSelf(
+  actor: Actor,
+  businessId: Id<'businesses'>,
+  licenceNumber = 'PMT-4471',
+): Promise<void> {
+  const members = await actor.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
+  const mine = members.find((m) => m.email === actor.email)
+  if (!mine) throw new Error(`${actor.email} is not a member of ${businessId}`)
+  await actor.client.mutation(api.memberships.setLicence, {
+    businessId,
+    membershipId: mine._id,
+    licenceNumber,
+  })
+}
