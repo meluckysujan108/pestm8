@@ -15,18 +15,35 @@ import {
   requireAssignableRole,
   requireCapability,
 } from './lib/actor'
+import { isVisiblePerson } from './lib/capabilities'
 
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
     const members = await ctx.db
       .query('memberships')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .collect()
 
-    const visible = members.filter((m) => m.status !== 'removed')
+    /**
+     * The owner is not on anyone else's roster.
+     *
+     * This query feeds six screens — the schedule's filter bar, the assignee
+     * picker, the job detail sheet, both note surfaces and Team settings — and
+     * returned every member's name, email, licence number and phone to anyone
+     * who asked. That is the single place the owner was most visible, and the
+     * switch-target list would have inherited it directly.
+     *
+     * It hides the PERSON, not the work: an owner-assigned job stays on the
+     * calendar and in the revenue totals, with the business's name where the
+     * technician's would be (`displayPerson`). Dropping the work instead would
+     * silently change what the numbers mean.
+     */
+    const visible = members
+      .filter((m) => m.status !== 'removed')
+      .filter((m) => isVisiblePerson(env.actor, { _id: m._id, role: m.role }))
 
     return Promise.all(
       visible.map(async (m) => {
