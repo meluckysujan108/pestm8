@@ -1,8 +1,8 @@
 import { betterAuth } from 'better-auth/minimal'
-import { APIError, createAuthMiddleware } from 'better-auth/api'
 import { createClient } from '@convex-dev/better-auth'
 import { convex } from '@convex-dev/better-auth/plugins'
 import { haveIBeenPwned } from 'better-auth/plugins/haveibeenpwned'
+import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api'
 import authConfig from './auth.config'
 import { components, internal } from './_generated/api'
 import { query } from './_generated/server'
@@ -45,6 +45,71 @@ const trustedOrigins = isLocalDeployment ? ['http://localhost:*'] : []
  * depend on IPs at all.
  */
 const rateLimitEnabled = process.env.AUTH_RATE_LIMIT === 'on'
+
+/**
+ * Refuses passwords that appear in known breaches, via k-anonymity — the single
+ * highest-value check for a crew who reuse passwords.
+ *
+ * Wrapped rather than used directly, to tell an outage apart from a verdict.
+ * The upstream plugin turns ANY failure of api.pwnedpasswords.com into a 500,
+ * and it guards `/change-password` and `/reset-password` as well as sign-up —
+ * so a third party being unreachable takes out the password recovery paths,
+ * which are exactly what you need working when something else has already gone
+ * wrong. It is also not theoretical: an outage mid-session failed 54 of 127 e2e
+ * tests, every one of them on sign-up returning 500.
+ *
+ * So: a verdict is honoured and an outage is not a verdict. If the service says
+ * the password is breached, that refusal stands. If we cannot reach the service
+ * at all, the password is hashed unchecked and the request continues. A breach
+ * check is advice; being unable to fetch the advice is not grounds to lock
+ * someone out of their own account.
+ *
+ * `enabled` is the plugin's own switch, off only where an outbound call per
+ * password would be wrong: the e2e suite signs up ~120 accounts per run, and
+ * each one is a live HTTPS request to a third party. Defaults ON, and stays on
+ * unless a deployment says otherwise — a security check must not disappear
+ * because an environment variable went missing.
+ */
+const breachCheckEnabled = process.env.AUTH_BREACH_CHECK !== 'off'
+
+export function isBreachVerdict(error: unknown): boolean {
+  return (
+    isAPIError(error) &&
+    (error as { body?: { code?: string } }).body?.code === 'PASSWORD_COMPROMISED'
+  )
+}
+
+function breachCheck() {
+  const plugin = haveIBeenPwned({ enabled: breachCheckEnabled })
+  const init = plugin.init
+
+  return {
+    ...plugin,
+    init(ctx: Parameters<typeof init>[0]) {
+      const patched = init(ctx)
+      const checkedHash = patched.context.password.hash
+
+      return {
+        ...patched,
+        context: {
+          ...patched.context,
+          password: {
+            ...patched.context.password,
+            async hash(password: string) {
+              try {
+                return await checkedHash(password)
+              } catch (error) {
+                if (isBreachVerdict(error)) throw error
+                // Unreachable service: hash it unchecked rather than refuse.
+                return ctx.password.hash(password)
+              }
+            },
+          },
+        },
+      }
+    },
+  }
+}
 
 /**
  * Invite-only sign-up.
@@ -129,13 +194,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
         },
       },
     },
-    plugins: [
-      // Refuses passwords that appear in known breaches, via k-anonymity — the
-      // single highest-value check for a crew who reuse passwords. Fails closed
-      // if the service is unreachable.
-      haveIBeenPwned(),
-      convex({ authConfig }),
-    ],
+    plugins: [breachCheck(), convex({ authConfig })],
   })
 
 export const getCurrentUser = query({
