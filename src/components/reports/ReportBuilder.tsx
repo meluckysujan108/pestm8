@@ -35,6 +35,9 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { useAutosave } from '#/lib/useAutosave'
+import { forgetDraft, recallDraft, rememberDraft } from '#/lib/draftMirror'
+import type { MirroredDraft } from '#/lib/draftMirror'
+import { Sheet } from '#/components/primitives/Sheet'
 
 /**
  * Honest about §5.5: there is no offline mutation queue, so a failed save is a
@@ -265,6 +268,26 @@ export function ReportBuilder({
     return submittablePayload(template, data)
   }
 
+  /**
+   * Answers this device holds that the server never acknowledged.
+   *
+   * Looked for once, on mount, and only while this is still a draft. What is
+   * found is not applied on its own: a technician who has since filled the
+   * form in on another phone should not have it silently overwritten by a tab
+   * that died last Tuesday.
+   */
+  const [stranded, setStranded] = useState<MirroredDraft | null>(null)
+  useEffect(() => {
+    if (!hydrated) return
+    let live = true
+    void recallDraft(reportId).then((found) => {
+      if (live && found) setStranded(found)
+    })
+    return () => {
+      live = false
+    }
+  }, [hydrated, reportId])
+
   const autosave = useAutosave({
     value: submittable(),
     // A locked report has nothing to save, and neither does one still hydrating.
@@ -278,6 +301,13 @@ export function ReportBuilder({
         data: payload,
         templateVersion: template.version,
       }),
+    // §5.5: there is still no offline mutation queue. This is a copy of the
+    // answers on the device that typed them, so a tab iOS kills mid-save is
+    // recoverable — not a sync.
+    mirror: {
+      remember: (payload) => void rememberDraft(reportId, payload),
+      forget: () => void forgetDraft(reportId),
+    },
   })
 
   const convexPreview = useConvexAction(api.reportPdf.preview)
@@ -605,6 +635,52 @@ export function ReportBuilder({
         </p>
       )}
 
+      {/* Offered, never applied on its own: these answers may be older than
+          what another device has since saved, and only the person who typed
+          them can tell. */}
+      <Sheet
+        open={stranded !== null}
+        onClose={() => setStranded(null)}
+        title="Unsaved answers on this phone"
+        description={
+          stranded
+            ? `Typed here ${whenRoughly(stranded.savedAt)}, and never saved to the server.`
+            : undefined
+        }
+        footer={
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                void forgetDraft(reportId)
+                setStranded(null)
+              }}
+              className="h-12 flex-1 rounded-xl bg-surface-2 text-[16px] font-semibold text-ink"
+            >
+              Discard
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (stranded) {
+                  setData((prev) => ({ ...prev, ...stranded.data }))
+                }
+                setStranded(null)
+              }}
+              className="h-12 flex-1 rounded-xl bg-ink text-[16px] font-semibold text-surface"
+            >
+              Restore them
+            </button>
+          </div>
+        }
+      >
+        <p className="text-body text-ink-2">
+          This phone still holds answers from a session that ended before they
+          reached the server — a tab closed, or a connection that dropped.
+          Restoring them puts them back on top of what is here now.
+        </p>
+      </Sheet>
+
       <FinaliseSheet
         open={confirming}
         onClose={() => setConfirming(false)}
@@ -704,6 +780,18 @@ export function ReportBuilder({
       </div>
     </div>
   )
+}
+
+/** `at 2:05 pm today`, `on 14 Sept` — enough to recognise a session by. */
+function whenRoughly(at: number): string {
+  const when = new Date(at)
+  const sameDay = new Date().toDateString() === when.toDateString()
+  const time = new Intl.DateTimeFormat('en-AU', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(when)
+  if (sameDay) return `at ${time} today`
+  return `on ${new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short' }).format(when)}, ${time}`
 }
 
 /** The same words, whatever the case: a section title may be set in capitals. */

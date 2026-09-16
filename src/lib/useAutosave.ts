@@ -32,12 +32,21 @@ export function useAutosave<T>({
   value,
   enabled,
   save,
+  mirror,
   debounceMs = 1200,
   maxWaitMs = 5000,
 }: {
   value: T
   enabled: boolean
   save: (value: T) => Promise<unknown>
+  /**
+   * A copy on the device, for the answers a save has not covered yet.
+   * `remember` runs as soon as the value differs from the server's, `forget`
+   * the moment it agrees again — so whatever is left behind is precisely the
+   * work a killed tab would otherwise lose. Best-effort on both sides; this
+   * hook never waits for it.
+   */
+  mirror?: { remember: (value: T) => void; forget: () => void }
   debounceMs?: number
   maxWaitMs?: number
 }): {
@@ -61,6 +70,9 @@ export function useAutosave<T>({
   // on it directly would reschedule the timer on each keystroke.
   const saveRef = useRef(save)
   saveRef.current = save
+
+  const mirrorRef = useRef(mirror)
+  mirrorRef.current = mirror
 
   /** Serialised form of what the server is believed to hold. */
   const savedRef = useRef(JSON.stringify(value))
@@ -100,6 +112,10 @@ export function useAutosave<T>({
       if (JSON.stringify(valueRef.current) === snapshot) {
         dirtySince.current = null
         setStatus('saved')
+        // The server holds it now, so the device's copy is no longer the only
+        // one — and a leftover copy would offer to "restore" answers that are
+        // already safe.
+        mirrorRef.current?.forget()
       } else {
         // A fresh dirty period, not a continuation. Leaving the old timestamp
         // here lets `waited` exceed maxWaitMs permanently, which pins `delay`
@@ -138,6 +154,9 @@ export function useAutosave<T>({
 
     if (dirtySince.current === null) dirtySince.current = Date.now()
     setStatus((current) => (current === 'saving' ? current : 'dirty'))
+    // Before the debounce, not after it: the tab that dies is the one that
+    // died during the wait.
+    mirrorRef.current?.remember(value)
 
     const waited = Date.now() - dirtySince.current
     const delay = Math.max(0, Math.min(debounceMs, maxWaitMs - waited))

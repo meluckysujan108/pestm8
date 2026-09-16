@@ -513,3 +513,139 @@ test.describe('the sheet before the lock', () => {
     expect(report!.status).toBe('draft')
   })
 })
+
+/**
+ * Puts a record into the device's mirror, exactly as a session that ended
+ * before its save landed would have left one.
+ *
+ * Seeded rather than simulated: the real cause is iOS discarding a
+ * backgrounded tab with a mutation still queued, and there is no way to ask a
+ * browser to do that. What can be tested is the contract either way — if this
+ * device holds answers the server never acknowledged, they are offered back.
+ */
+async function seedMirror(page: Page, reportId: string, data: Record<string, unknown>) {
+  await page.evaluate(
+    ([key, answers]) =>
+      new Promise<void>((resolve, reject) => {
+        const open = indexedDB.open('pestm8', 1)
+        open.onupgradeneeded = () =>
+          open.result.createObjectStore('reportDrafts', { keyPath: 'reportId' })
+        open.onerror = () => reject(open.error)
+        open.onsuccess = () => {
+          const tx = open.result.transaction('reportDrafts', 'readwrite')
+          tx.objectStore('reportDrafts').put({
+            reportId: key,
+            data: answers,
+            savedAt: Date.now(),
+          })
+          tx.oncomplete = () => {
+            open.result.close()
+            resolve()
+          }
+          tx.onerror = () => reject(tx.error)
+        }
+      }),
+    [reportId, data] as const,
+  )
+}
+
+async function mirrored(page: Page, reportId: string) {
+  return page.evaluate(
+    (key) =>
+      new Promise<unknown>((resolve) => {
+        const open = indexedDB.open('pestm8', 1)
+        open.onupgradeneeded = () =>
+          open.result.createObjectStore('reportDrafts', { keyPath: 'reportId' })
+        open.onerror = () => resolve(null)
+        open.onsuccess = () => {
+          const request = open.result
+            .transaction('reportDrafts', 'readonly')
+            .objectStore('reportDrafts')
+            .get(key)
+          request.onsuccess = () => {
+            open.result.close()
+            resolve(request.result ?? null)
+          }
+          request.onerror = () => resolve(null)
+        }
+      }),
+    reportId,
+  )
+}
+
+test.describe('answers that never reached the server', () => {
+  test('are offered back, and putting them back is what saves them', async ({ page }) => {
+    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-mirror')
+
+    await signInViaUi(page, email)
+    await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'comments'))
+    await builderReady(page)
+
+    await seedMirror(page, reportId, { comments: 'Nest behind the meter box' })
+    await page.reload()
+    await builderReady(page)
+
+    const sheet = page.getByRole('dialog')
+    await expect(sheet).toContainText('Unsaved answers on this phone')
+    await sheet.getByRole('button', { name: 'Restore them' }).click()
+
+    await expect(page.getByLabel("Technician's Comments")).toHaveValue(
+      'Nest behind the meter box',
+    )
+
+    // Restoring is what puts them on the server, so the recovery is real
+    // rather than a second copy of the same loss.
+    await expect
+      .poll(async () => {
+        const report = await owner.client.query(api.reports.get, { businessId, reportId })
+        return (report!.data as Record<string, unknown>).comments
+      })
+      .toBe('Nest behind the meter box')
+  })
+
+  test('are discarded when they are not wanted, and stay discarded', async ({ page }) => {
+    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-mirror-no')
+
+    await signInViaUi(page, email)
+    await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'comments'))
+    await builderReady(page)
+
+    await seedMirror(page, reportId, { comments: 'Typed on the wrong report' })
+    await page.reload()
+    await builderReady(page)
+    await page.getByRole('dialog').getByRole('button', { name: 'Discard' }).click()
+
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByLabel("Technician's Comments")).toHaveValue('')
+
+    // And the offer does not come back on the next open.
+    await page.reload()
+    await builderReady(page)
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    const report = await owner.client.query(api.reports.get, { businessId, reportId })
+    expect((report!.data as Record<string, unknown>).comments).toBeUndefined()
+  })
+
+  test('are forgotten the moment the server has them', async ({ page }) => {
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('fill-mirror-clear')
+
+    await signInViaUi(page, email)
+    await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'comments'))
+    await builderReady(page)
+
+    await page.getByLabel("Technician's Comments").fill('Ants at the meter box')
+    await expect
+      .poll(async () => {
+        const report = await owner.client.query(api.reports.get, { businessId, reportId })
+        return (report!.data as Record<string, unknown>).comments
+      })
+      .toBe('Ants at the meter box')
+
+    // A copy left behind after a successful save would offer to "restore"
+    // answers that are already safe — which reads as data loss where there
+    // was none.
+    await expect.poll(async () => await mirrored(page, reportId)).toBeNull()
+  })
+})
