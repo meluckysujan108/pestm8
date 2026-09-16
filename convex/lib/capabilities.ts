@@ -1,4 +1,4 @@
-import type { Id } from '../_generated/dataModel'
+import type { Doc, Id } from '../_generated/dataModel'
 
 /**
  * The access model, as data and pure functions.
@@ -429,6 +429,26 @@ export function jobScope(
   return { kind: 'own', membershipId: acting._id }
 }
 
+/**
+ * The same question as `isInScope`, asked of a report.
+ *
+ * Separate rather than shared, because the column differs: a job is scoped by
+ * who it is assigned to, a report by who authored it. A structural helper
+ * taking `{ membershipId }` would let either be passed where the other was
+ * meant and type-check perfectly — and the day a report gains an assignee, the
+ * wrong column would silently start deciding who can read compliance records.
+ */
+export function reportScope(
+  scope: RowScope,
+  report: { authorMembershipId: Id<'memberships'> },
+): boolean {
+  if (scope.kind === 'business') return true
+  if (scope.kind === 'own') {
+    return report.authorMembershipId === scope.membershipId
+  }
+  return scope.membershipIds.includes(report.authorMembershipId)
+}
+
 export function isInScope(
   scope: RowScope,
   row: { assignedMembershipId: Id<'memberships'> },
@@ -839,6 +859,49 @@ export function profileEditTarget(actor: ReadActor): Id<'memberships'> {
 }
 
 // ───────────────────────────────────────────────────────── reports & drafts
+
+/**
+ * Which kind of document a report is, taken from the schema's own union rather
+ * than written out again — so adding a template is a compile error in the table
+ * below until someone decides whether it carries a legal attestation.
+ */
+export type ReportTemplate = Doc<'reports'>['template']
+
+/**
+ * Whether finalising this document is an act of certification.
+ *
+ * A table, like `ROLE_POLICY`, and `satisfies` for the same reason: there is no
+ * default branch, so a new template cannot inherit an answer nobody gave.
+ *
+ * The three built-ins are the AS 4349.3 inspection, the AS 3660.2 termite
+ * certificate and the APVMA treatment record — documents that carry a licensed
+ * person's attestation. The service report does not; it is the everyday record
+ * of a visit.
+ *
+ * `custom` is true, and that is a deliberately cautious answer rather than an
+ * accurate one. "Editing" a built-in clones it (`customTemplates.cloneBuiltin`),
+ * legal basis and all, so a custom template may be a termite certificate in
+ * everything but name — and nothing stored tells the two apart: the clone does
+ * not record what it came from, and `reports.legalBasis` is a client-supplied
+ * string, so it cannot be trusted to decide this.
+ *
+ * The two ways to be wrong are not symmetric. Wrongly unregulated means a
+ * compliance certificate finalised under a licence its holder did not press the
+ * button for — the precise harm this exists to prevent. Wrongly regulated means
+ * someone switches back to their own account to press Finalise. So: cautious
+ * until a template can state what it is.
+ */
+const REGULATED_TEMPLATE = {
+  treatmentRecord: true,
+  timberPestInspection: true,
+  termiteManagementCert: true,
+  serviceReport: false,
+  custom: true,
+} satisfies Record<ReportTemplate, boolean>
+
+export function isRegulatedTemplate(template: ReportTemplate): boolean {
+  return REGULATED_TEMPLATE[template]
+}
 
 export type ReportFacts = {
   _id: Id<'reports'>

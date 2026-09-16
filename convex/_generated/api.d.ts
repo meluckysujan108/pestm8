@@ -34,6 +34,7 @@ import type * as lib_noteAccess from "../lib/noteAccess.js";
 import type * as lib_noteTemplates from "../lib/noteTemplates.js";
 import type * as lib_optionSets from "../lib/optionSets.js";
 import type * as lib_reportContext from "../lib/reportContext.js";
+import type * as lib_reportFacts from "../lib/reportFacts.js";
 import type * as lib_richText from "../lib/richText.js";
 import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
 import type * as memberships from "../memberships.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   "lib/noteTemplates": typeof lib_noteTemplates;
   "lib/optionSets": typeof lib_optionSets;
   "lib/reportContext": typeof lib_reportContext;
+  "lib/reportFacts": typeof lib_reportFacts;
   "lib/richText": typeof lib_richText;
   "lib/templateSnapshot": typeof lib_templateSnapshot;
   memberships: typeof memberships;
