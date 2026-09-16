@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as accountSwitches from "../accountSwitches.js";
 import type * as analytics from "../analytics.js";
 import type * as auditLog from "../auditLog.js";
 import type * as auth from "../auth.js";
@@ -22,11 +23,13 @@ import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
 import type * as jobs from "../jobs.js";
 import type * as lib_access from "../lib/access.js";
+import type * as lib_actor from "../lib/actor.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_colours from "../lib/colours.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_forecastWindow from "../lib/forecastWindow.js";
 import type * as lib_inviteTokens from "../lib/inviteTokens.js";
+import type * as lib_membershipFacts from "../lib/membershipFacts.js";
 import type * as lib_noteAccess from "../lib/noteAccess.js";
 import type * as lib_noteTemplates from "../lib/noteTemplates.js";
 import type * as lib_optionSets from "../lib/optionSets.js";
@@ -55,6 +58,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  accountSwitches: typeof accountSwitches;
   analytics: typeof analytics;
   auditLog: typeof auditLog;
   auth: typeof auth;
@@ -69,11 +73,13 @@ declare const fullApi: ApiFromModules<{
   invitations: typeof invitations;
   jobs: typeof jobs;
   "lib/access": typeof lib_access;
+  "lib/actor": typeof lib_actor;
   "lib/capabilities": typeof lib_capabilities;
   "lib/colours": typeof lib_colours;
   "lib/dates": typeof lib_dates;
   "lib/forecastWindow": typeof lib_forecastWindow;
   "lib/inviteTokens": typeof lib_inviteTokens;
+  "lib/membershipFacts": typeof lib_membershipFacts;
   "lib/noteAccess": typeof lib_noteAccess;
   "lib/noteTemplates": typeof lib_noteTemplates;
   "lib/optionSets": typeof lib_optionSets;
