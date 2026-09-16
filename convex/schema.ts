@@ -605,6 +605,19 @@ export default defineSchema({
     caption: v.optional(v.string()),
     order: v.number(),
     isCover: v.boolean(),
+    /**
+     * The shape of the image, as uploaded.
+     *
+     * Recorded so a document can print a photo at its own aspect instead of
+     * centre-cropping it into a fixed box — on evidence, a crop can remove the
+     * very thing the photo was taken to show. Optional: rows written before
+     * this, and images this browser could not decode, have no dimensions, and
+     * a reader that cannot tell falls back to the fixed box rather than
+     * guessing a shape.
+     */
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    bytes: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index('by_report_field', ['reportId', 'fieldKey'])

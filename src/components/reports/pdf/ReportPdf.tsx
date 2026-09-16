@@ -45,6 +45,9 @@ export type PdfGalleryPhoto = {
   order: number
   isCover: boolean
   url: string | null
+  /** As uploaded. Absent on photos taken before the app recorded it. */
+  width?: number
+  height?: number
 }
 
 export type PdfReport = {
@@ -505,6 +508,35 @@ function PhotosSection({
  * block: a set of twelve photos taller than a page would otherwise be pushed
  * off it and clipped.
  */
+/**
+ * How tall a photo prints, given its own shape.
+ *
+ * Evidence is never centre-cropped: a fixed 110pt box with `objectFit: cover`
+ * takes a tall photo of a subfloor and shows the middle third of it, which can
+ * remove the very thing the photo was taken to show. So a photo whose
+ * dimensions we know is drawn at its own aspect within the column, capped so
+ * that a portrait shot cannot eat a page on its own.
+ *
+ * A photo without dimensions — uploaded before the app recorded them — keeps
+ * the old fixed box. Guessing a shape for it would be worse than the crop.
+ */
+const TILE_WIDTH_PT = 240
+const MAX_TILE_HEIGHT_PT = 220
+
+function photoImageStyle(photo: PdfGalleryPhoto) {
+  if (!photo.width || !photo.height) return styles.photoImage
+  const height = Math.min(
+    MAX_TILE_HEIGHT_PT,
+    Math.round((photo.height / photo.width) * TILE_WIDTH_PT),
+  )
+  return {
+    width: '100%' as const,
+    height,
+    objectFit: 'contain' as const,
+    borderRadius: 4,
+  }
+}
+
 function GalleryPdf({
   label,
   photos,
@@ -529,7 +561,7 @@ function GalleryPdf({
         <View key={r} style={styles.photoGrid} wrap={false}>
           {row.map((photo, i) => (
             <View key={i} style={styles.photoTile}>
-              <Image src={photo.url!} style={styles.photoImage} />
+              <Image src={photo.url!} style={photoImageStyle(photo)} />
               {(photo.caption || photo.isCover) && (
                 <Text style={styles.photoCaption}>
                   {photo.caption}

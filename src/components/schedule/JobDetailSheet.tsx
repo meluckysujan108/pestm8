@@ -33,6 +33,7 @@ import {
 import { WeatherGlyph } from './WeatherGlyph'
 import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
+import { prepareUpload } from '#/lib/images/prepareUpload'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { RepeatValue } from '#/lib/format'
@@ -1074,18 +1075,13 @@ function JobPhotos({
     setBusy(true)
     setFailed(false)
     try {
-      const { default: compress } = await import('browser-image-compression')
       for (const file of files) {
-        const compressed = await compress(file, {
-          maxSizeMB: 1,
-          maxWidthOrHeight: 2000,
-          useWebWorker: true,
-        })
+        const image = await prepareUpload(file)
         const uploadUrl = await getUploadUrl({ businessId })
         const res = await fetch(uploadUrl, {
           method: 'POST',
-          headers: { 'Content-Type': compressed.type },
-          body: compressed,
+          headers: { 'Content-Type': image.blob.type },
+          body: image.blob,
         })
         if (!res.ok) throw new Error('upload failed')
         const { storageId } = (await res.json()) as { storageId: string }

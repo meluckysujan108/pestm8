@@ -313,7 +313,17 @@ function GalleryGroup({
               <img
                 src={photo.url}
                 alt={photo.caption || label}
-                className="h-32 w-full object-cover"
+                // Its own shape where the app knows it, capped so one portrait
+                // photo cannot fill the screen. Evidence is never
+                // centre-cropped: the crop can remove the thing the photo was
+                // taken to show. A photo with no recorded dimensions keeps the
+                // old fixed box rather than having a shape guessed for it.
+                style={aspectOf(photo)}
+                className={
+                  photo.width && photo.height
+                    ? 'max-h-64 w-full bg-surface-2 object-contain'
+                    : 'h-32 w-full object-cover'
+                }
               />
             )}
             {photo.caption && (
@@ -333,6 +343,13 @@ function GalleryGroup({
  * opens the PDF. Without it the photo the technician took for the front page
  * appears nowhere on screen.
  */
+/** The photo's own aspect, for the browser to reserve space with. */
+function aspectOf(photo: { width?: number; height?: number }) {
+  return photo.width && photo.height
+    ? { aspectRatio: `${photo.width} / ${photo.height}` }
+    : undefined
+}
+
 function CoverPhoto({
   businessId,
   reportId,

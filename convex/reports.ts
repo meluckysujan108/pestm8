@@ -524,8 +524,15 @@ export const addGalleryPhoto = mutation({
     fieldKey: v.string(),
     storageId: v.id('_storage'),
     caption: v.optional(v.string()),
+    /** What the image is, so the document can lay it out at its own aspect. */
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    bytes: v.optional(v.number()),
   },
-  handler: async (ctx, { businessId, reportId, fieldKey, storageId, caption }) => {
+  handler: async (
+    ctx,
+    { businessId, reportId, fieldKey, storageId, caption, width, height, bytes },
+  ) => {
     await requireEditableReport(ctx, businessId, reportId)
 
     const existing = await ctx.db
@@ -540,6 +547,9 @@ export const addGalleryPhoto = mutation({
       fieldKey,
       storageId,
       caption,
+      // Absent when the browser could not decode the image well enough to say.
+      ...(width && height ? { width, height } : {}),
+      ...(bytes ? { bytes } : {}),
       order: existing.length,
       // Never automatic: "the cover photo" is a claim about which image
       // represents the report, and that is the technician's call to make, the
@@ -702,6 +712,10 @@ export const galleryPhotos = query({
         caption: photo.caption,
         order: photo.order,
         isCover: photo.isCover,
+        // So a document can lay the photo out at its own aspect; absent for
+        // rows written before this, which fall back to a fixed box.
+        width: photo.width,
+        height: photo.height,
         url: await ctx.storage.getUrl(photo.storageId),
       })),
     )

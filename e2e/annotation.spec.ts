@@ -1,4 +1,3 @@
-import { deflateSync } from 'node:zlib'
 import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
@@ -10,73 +9,10 @@ import {
   uniqueEmail,
 } from './fixtures'
 import { builderReady, createReport, finaliseReport, sectionUrl } from './fixtures/reportPayloads'
+import { solidPng } from './fixtures/png'
 
-const CRC_TABLE = (() => {
-  const table = new Uint32Array(256)
-  for (let n = 0; n < 256; n++) {
-    let c = n
-    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1
-    table[n] = c >>> 0
-  }
-  return table
-})()
+const PNG_200 = solidPng(200, 200)
 
-function crc32(buf: Buffer): number {
-  let c = 0xffffffff
-  for (const byte of buf) c = CRC_TABLE[(c ^ byte) & 0xff] ^ (c >>> 8)
-  return (c ^ 0xffffffff) >>> 0
-}
-
-function chunk(type: string, data: Buffer): Buffer {
-  const length = Buffer.alloc(4)
-  length.writeUInt32BE(data.length)
-  const typeAndData = Buffer.concat([Buffer.from(type, 'ascii'), data])
-  const crc = Buffer.alloc(4)
-  crc.writeUInt32BE(crc32(typeAndData))
-  return Buffer.concat([length, typeAndData, crc])
-}
-
-/**
- * A hand-rolled PNG encoder — the 1x1 fixture PNG other specs use is too
- * small to draw a meaningful stroke on (the annotation canvas caps at
- * `min(naturalWidth, 640)`, so a 1x1 source stays 1x1). No image library is
- * a devDependency here, so this builds a real, valid solid-colour PNG
- * directly: IHDR, one IDAT of raw (uncompressed-filter) scanlines deflated,
- * IEND.
- */
-function solidColourPng(size: number, [r, g, b]: [number, number, number]): Buffer {
-  const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
-
-  const ihdrData = Buffer.alloc(13)
-  ihdrData.writeUInt32BE(size, 0)
-  ihdrData.writeUInt32BE(size, 4)
-  ihdrData[8] = 8 // bit depth
-  ihdrData[9] = 2 // colour type: RGB
-  ihdrData[10] = 0
-  ihdrData[11] = 0
-  ihdrData[12] = 0
-
-  const raw = Buffer.alloc(size * (1 + size * 3))
-  for (let y = 0; y < size; y++) {
-    const rowStart = y * (1 + size * 3)
-    raw[rowStart] = 0 // filter: none
-    for (let x = 0; x < size; x++) {
-      const p = rowStart + 1 + x * 3
-      raw[p] = r
-      raw[p + 1] = g
-      raw[p + 2] = b
-    }
-  }
-
-  return Buffer.concat([
-    signature,
-    chunk('IHDR', ihdrData),
-    chunk('IDAT', deflateSync(raw)),
-    chunk('IEND', Buffer.alloc(0)),
-  ])
-}
-
-const PNG_200 = solidColourPng(200, [80, 140, 80])
 
 test('a gallery photo can be annotated, and the annotated version survives finalise', async ({
   page,
@@ -115,7 +51,7 @@ test('a gallery photo can be annotated, and the annotated version survives final
     .getByRole('button', { name: 'Yes', exact: true })
     .click()
   const input = page.locator(
-    '[data-gallery-field="photos"] input[type=file]',
+    '[data-gallery-field="photos"] input[data-photo-source="library"]',
   )
   // The add button stays disabled until the field hydrates; see the same wait
   // in gallery.spec.ts for when that matters.

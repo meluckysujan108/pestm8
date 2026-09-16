@@ -62,7 +62,9 @@ test('a photo uploaded in the builder survives onto the finalised document', asy
   ).toBeEnabled()
 
   // The input is hidden behind the tile, so set files on it directly.
-  await page.locator('input[type=file]').first().setInputFiles({
+  // Scoped to the slot rather than positionally: `.first()` silently
+  // retargets the moment another file input is added to the screen.
+  await page.locator('[data-photo-slot="Before"] input[type=file]').setInputFiles({
     name: 'before.png',
     mimeType: 'image/png',
     buffer: PNG,

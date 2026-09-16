@@ -1,10 +1,19 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Camera, ChevronDown, ChevronUp, PenLine, Star, Trash2 } from 'lucide-react'
+import {
+  Camera,
+  ChevronDown,
+  ChevronUp,
+  Image as ImageIcon,
+  PenLine,
+  Star,
+  Trash2,
+} from 'lucide-react'
 import { api } from '../../../../convex/_generated/api'
 import { AnnotationEditor } from './AnnotationEditor'
 import { useHydrated } from '#/lib/useHydrated'
+import { prepareUpload } from '#/lib/images/prepareUpload'
 import type { EditorProps } from './registry'
 import type { FieldDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -33,9 +42,11 @@ type GalleryPhoto = {
  */
 export function GalleryControl({ field, ctx }: GalleryField) {
   const { businessId, reportId } = ctx
-  const input = useRef<HTMLInputElement>(null)
+  const camera = useRef<HTMLInputElement>(null)
+  const library = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  // The files that did not make it, kept so Retry can send them again.
+  const [failed, setFailed] = useState<Array<File>>([])
   // Server-rendered: until hydration the add button has no `onClick`, so a tap
   // opens no picker and is silently ignored. Disabled until then, so the
   // not-ready state shows. It is also the e2e readiness signal: `setInputFiles`
@@ -64,29 +75,34 @@ export function GalleryControl({ field, ctx }: GalleryField) {
   const maxPhotos = field.kind === 'cover' ? 1 : field.maxPhotos
   const atMax = maxPhotos !== undefined && photos.length >= maxPhotos
 
+  /**
+   * Uploads the photos that were picked, and keeps the ones that did not make
+   * it rather than dropping them.
+   *
+   * Previously one `catch` covered the whole batch: six photos where the third
+   * failed left three uploaded, three gone, and a message that said only
+   * "upload failed". A technician standing in a roof void cannot re-take those
+   * photos, so the files are held and offered back as Retry.
+   */
   async function onPick(files: Array<File>) {
     setBusy(true)
-    setFailed(false)
-    try {
-      const { default: compress } = await import('browser-image-compression')
-      // One at a time rather than in parallel: keeps upload order matching
-      // selection order, which is what "order" means to someone reordering
-      // afterwards, and avoids opening a burst of concurrent uploads on a
-      // connection that is already the constraint.
-      for (const file of files) {
-        if (maxPhotos !== undefined && photos.length >= maxPhotos) {
-          break
-        }
-        const compressed = await compress(file, {
-          maxSizeMB: 1,
-          maxWidthOrHeight: 2000,
-          useWebWorker: true,
-        })
+    setFailed([])
+    const missed: Array<File> = []
+    let room = maxPhotos === undefined ? files.length : maxPhotos - photos.length
+
+    // One at a time rather than in parallel: keeps upload order matching
+    // selection order, which is what "order" means to someone reordering
+    // afterwards, and avoids opening a burst of concurrent uploads on a
+    // connection that is already the constraint.
+    for (const file of files) {
+      if (room <= 0) break
+      try {
+        const image = await prepareUpload(file)
         const uploadUrl = await getUploadUrl({ businessId })
         const res = await fetch(uploadUrl, {
           method: 'POST',
-          headers: { 'Content-Type': compressed.type },
-          body: compressed,
+          headers: { 'Content-Type': image.blob.type },
+          body: image.blob,
         })
         if (!res.ok) throw new Error('upload failed')
         const { storageId } = (await res.json()) as { storageId: string }
@@ -95,13 +111,18 @@ export function GalleryControl({ field, ctx }: GalleryField) {
           reportId,
           fieldKey: field.key,
           storageId: storageId as Id<'_storage'>,
+          ...(image.passthrough
+            ? {}
+            : { width: image.width, height: image.height, bytes: image.bytes }),
         })
+        room--
+      } catch {
+        missed.push(file)
       }
-    } catch {
-      setFailed(true)
-    } finally {
-      setBusy(false)
     }
+
+    setFailed(missed)
+    setBusy(false)
   }
 
   return (
@@ -132,33 +153,71 @@ export function GalleryControl({ field, ctx }: GalleryField) {
         </span>
       )}
 
-      <button
-        type="button"
-        disabled={busy || atMax || !hydrated}
-        aria-label={`${field.label} — add photos`}
-        onClick={() => input.current?.click()}
-        className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-40"
-      >
-        <Camera size={16} strokeWidth={1.9} />
-        {busy
-          ? 'Uploading…'
-          : atMax
-            ? `${field.label} — limit reached`
-            : (field.addLabel ?? `Add ${field.label.toLowerCase()}`)}
-      </button>
+      {/* Two ways in, because they are two different acts. `capture` and
+          `multiple` on one input is not a choice between them: iOS honours
+          `capture` and opens the camera, so the library was unreachable from
+          the control that claimed to offer both. */}
+      <span className="flex gap-2">
+        <button
+          type="button"
+          disabled={busy || atMax || !hydrated}
+          aria-label={`${field.label} — add photos`}
+          onClick={() => camera.current?.click()}
+          className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-40"
+        >
+          <Camera size={16} strokeWidth={1.9} />
+          {busy ? 'Uploading…' : atMax ? 'Limit reached' : 'Take photo'}
+        </button>
+        <button
+          type="button"
+          disabled={busy || atMax || !hydrated}
+          aria-label={`${field.label} — choose from library`}
+          onClick={() => library.current?.click()}
+          className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 px-4 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-40"
+        >
+          <ImageIcon size={16} strokeWidth={1.9} />
+          Library
+        </button>
+      </span>
 
-      {failed && (
-        <span role="alert" className="text-caption text-amber-ink">
-          Upload failed. Check your connection and try again.
+      {failed.length > 0 && (
+        <span role="alert" className="flex items-center justify-between gap-2 text-caption text-amber-ink">
+          {failed.length === 1
+            ? '1 photo did not upload.'
+            : `${failed.length} photos did not upload.`}
+          <button
+            type="button"
+            disabled={busy}
+            // The files are still here. A technician in a roof void cannot go
+            // back and re-take them, so Retry sends what was picked, not a
+            // request to pick again.
+            onClick={() => void onPick(failed)}
+            className="font-semibold underline underline-offset-2 disabled:opacity-50"
+          >
+            Retry
+          </button>
         </span>
       )}
 
       <input
-        ref={input}
+        ref={camera}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        data-photo-source="camera"
+        className="hidden"
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? [])
+          if (files.length > 0) void onPick(files)
+          e.target.value = ''
+        }}
+      />
+      <input
+        ref={library}
         type="file"
         accept="image/*"
         multiple
-        capture="environment"
+        data-photo-source="library"
         className="hidden"
         onChange={(e) => {
           // Snapshotted to a plain array synchronously, before anything else
