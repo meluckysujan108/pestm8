@@ -17,9 +17,13 @@ import {
  * subcontractors are independent, so these run against the Convex functions
  * directly rather than trusting the UI to hide anything.
  *
- * Job-scoped rows in the matrix are pending Phase 2 (jobs do not exist yet)
- * and are marked test.fixme so they fail loudly when unskipped rather than
- * silently passing.
+ * Only the invoice and Xero rows are still test.fixme, since neither feature
+ * exists yet; they fail loudly when unskipped rather than silently passing.
+ *
+ * A negative assertion is only worth anything when the actor would otherwise
+ * have been allowed through. An invited-but-not-accepted member is rejected by
+ * requireMembership on status, so a test using one proves nothing about roles —
+ * hence the accept() calls and positive controls below.
  */
 
 const PASSWORD = 'fixture-password-8823'
@@ -35,7 +39,11 @@ test.describe('tenant isolation', () => {
 
     const { slug, businessId } = await owner.client.mutation(
       api.businesses.create,
-      { name: `Isolation ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+      {
+        name: `Isolation ${Date.now()}`,
+        state: 'WA',
+        timezone: 'Australia/Perth',
+      },
     )
 
     // A non-member gets null, identical to a slug that does not exist —
@@ -126,8 +134,21 @@ test.describe('role boundaries', () => {
     const subUserId = await sub.client.query(api.auth.getCurrentUser, {})
     const membershipId = await owner.client.mutation(api.memberships.invite, {
       businessId,
-      userId: subUserId!._id,
+      userId: subUserId._id,
       role: 'subcontractor',
+    })
+    // The sub must ACCEPT before this test means anything. While the
+    // membership is still 'invited', requireMembership rejects on status
+    // before requireOwner's role check is ever reached — so every assertion
+    // below would pass even if the role check were deleted.
+    await sub.client.mutation(api.memberships.accept, { businessId })
+
+    // Positive control: proves the actor really is an active member, so the
+    // rejections that follow are about role, not about status.
+    await sub.client.mutation(api.memberships.setLicence, {
+      businessId,
+      membershipId,
+      licenceNumber: 'PMT-1234',
     })
 
     await expectRejected(
@@ -146,6 +167,16 @@ test.describe('role boundaries', () => {
           businessId,
           membershipId,
           role: 'owner',
+        }),
+      'NO_ACCESS',
+    )
+
+    await expectRejected(
+      () =>
+        sub.client.mutation(api.memberships.setCanViewOtherAccounts, {
+          businessId,
+          membershipId,
+          canViewOtherAccounts: true,
         }),
       'NO_ACCESS',
     )
@@ -185,16 +216,31 @@ test.describe('role boundaries', () => {
     })
 
     const subUser = await sub.client.query(api.auth.getCurrentUser, {})
-    await owner.client.mutation(api.memberships.invite, {
-      businessId,
-      userId: subUser!._id,
-      role: 'subcontractor',
-    })
+    const subMembershipId = await owner.client.mutation(
+      api.memberships.invite,
+      {
+        businessId,
+        userId: subUser._id,
+        role: 'subcontractor',
+      },
+    )
+    // Without accept, the membership stays 'invited' and requireMembership
+    // rejects on status — never reaching setLicence's own self-or-owner check.
+    await sub.client.mutation(api.memberships.accept, { businessId })
 
     const members = await owner.client.query(api.memberships.listForBusiness, {
       businessId,
     })
     const ownerMembership = members.find((m) => m.role === 'owner')!
+
+    // Positive control: a licence belongs to the person who holds it, so the
+    // sub setting their OWN is allowed. This is what makes the rejection below
+    // a statement about whose licence it is.
+    await sub.client.mutation(api.memberships.setLicence, {
+      businessId,
+      membershipId: subMembershipId,
+      licenceNumber: 'PMT-5678',
+    })
 
     await expectRejected(
       () =>
@@ -232,9 +278,12 @@ test.describe('multi-tenant membership', () => {
       api.memberships.listForBusiness,
       { businessId: a.businessId },
     )
-    const betaMembers = await user.client.query(api.memberships.listForBusiness, {
-      businessId: b.businessId,
-    })
+    const betaMembers = await user.client.query(
+      api.memberships.listForBusiness,
+      {
+        businessId: b.businessId,
+      },
+    )
 
     expect(alphaMembers).toHaveLength(1)
     expect(betaMembers).toHaveLength(1)
