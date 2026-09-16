@@ -726,6 +726,10 @@ export const termiteManagementCert: ReportTemplate = {
   print: {
     // Fidelity rule 8: unanswered fields are omitted from the printed document.
     omitEmpty: true,
+    // The warranty and the conditions are pages of their own on both source
+    // documents, and a page break here stops the last answered row of the
+    // last section from being stranded above them.
+    termsBreak: true,
     // src: termite-certificate.md:1, :9 — "Form Title" (not extracted: META_DROP_LABEL / H1)
     formName:
       'Pest M8 Pest Control Existing Structure Certificate of Installation - Termite Management (AS 3660.2-2017)',

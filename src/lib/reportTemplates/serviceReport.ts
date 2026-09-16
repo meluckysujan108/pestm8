@@ -184,6 +184,7 @@ const TREATMENT_COLUMNS: Array<CellDef> = [
     // src: service-report-submitted.md:44; PDF p3 column header; options spec.md:28-40
     kind: 'checks',
     key: 'treatment',
+    width: 22,
     label: 'Treatment',
     summary: true,
     optionsFrom: 'treatments',
@@ -193,6 +194,7 @@ const TREATMENT_COLUMNS: Array<CellDef> = [
     // src: service-report-submitted.md:45; PDF p3 column header; options spec.md:43-55
     kind: 'checks',
     key: 'product',
+    width: 30,
     label: 'Product & Active Ingredient',
     summary: true,
     optionsFrom: 'products',
@@ -202,6 +204,7 @@ const TREATMENT_COLUMNS: Array<CellDef> = [
     // src: service-report-submitted.md:46 + spec.md:57 (variant pick over PDF p3 "…used")
     kind: 'checks',
     key: 'quantity',
+    width: 22,
     label: 'Quantity of Chemicals Used',
     optionsFrom: 'quantities',
     options: asOptions(QUANTITIES),
@@ -210,6 +213,7 @@ const TREATMENT_COLUMNS: Array<CellDef> = [
     // src: service-report-submitted.md:47 + spec.md:65 (PDF p3 "Aplication" corrected)
     kind: 'checks',
     key: 'method',
+    width: 26,
     label: 'Chemical Application Method',
     optionsFrom: 'methods',
     options: asOptions(METHODS),
@@ -799,6 +803,10 @@ export const serviceReport: ReportTemplate = {
   print: {
     // Fidelity rule 8: unanswered fields are omitted from the printed document.
     omitEmpty: true,
+    // The warranty and the conditions are pages of their own on both source
+    // documents, and a page break here stops the last answered row of the
+    // last section from being stranded above them.
+    termsBreak: true,
     // The footer and title band print "{brand} Service Report for {year}"
     // (PDF footer "Pest M8 Service Report for 2026"); the form's own name is the
     // cover title, and the brand and year come from the business and the date.

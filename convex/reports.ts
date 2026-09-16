@@ -334,6 +334,8 @@ export const get = query({
       pdfUrl,
       author: author && {
         _id: author._id,
+        // The name the document's footer prints, frozen at finalise.
+        name: contextSnapshot.author.name,
         licenceNumber: frozen
           ? frozen.author.licenceNumber
           : author.licenceNumber,
@@ -348,6 +350,11 @@ export const get = query({
       sender: business && { name: business.name, email: business.email },
       business: businessFacts && {
         name: businessFacts.name,
+        // Frozen with the rest of the context: a business that rebrands next
+        // year must not rewrite the header of a document it issued this one.
+        tradingName: businessFacts.tradingName,
+        brandName: businessFacts.brandName,
+        website: businessFacts.website,
         logoUrl,
         addressLine: businessFacts.addressLine,
         suburb: businessFacts.suburb,

@@ -97,6 +97,13 @@ type BaseField = {
   /** The key of the question this belongs to, for `printed: 'whenFlagged'`. */
   attachedTo?: string
   /**
+   * The share of a printed repeater table this column takes, relative to its
+   * siblings. Only meaningful on a `CellDef`: a product and its active
+   * ingredient need more room than a quantity, and columns split evenly when
+   * a template says nothing — which is what a business-authored repeater gets.
+   */
+  width?: number
+  /**
    * Read this answer back on the finalise sheet, before the report locks.
    *
    * A handful per form — what was done, whether it was safe, when the next
@@ -524,6 +531,15 @@ export type PrintSpec = {
   cover?: { title: string; subtitle?: string }
   /** The heading printed above `terms`. */
   termsHeading?: string
+  /**
+   * Start the terms on a fresh page.
+   *
+   * Both source documents do — the Service Report's warranty is pages 6 and 7,
+   * the Certificate's conditions are its own section — and it keeps the last
+   * row of the last section from being stranded alone above ten pages of
+   * standing prose.
+   */
+  termsBreak?: boolean
   /**
    * Leave unanswered questions off the finished document, as the source
    * vendor prints them — a signed report that reads as forty rows of "—" is

@@ -75,12 +75,14 @@ test('the front-page photo becomes its own landscape first page', async () => {
   const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
   const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise
 
-  // Page 1 is the cover: landscape, carrying the photo as an embedded image.
-  // The source form asks for "1 Landscape Photo"; the photo having a page of
-  // its own is what makes that instruction mean something.
+  // Page 1 is the cover, and it carries the photo. A portrait page with the
+  // landscape shot banded across its top, which is the anatomy of the document
+  // the client already receives — the form asks for "1 Landscape Photo"
+  // because of that band, and the photo having a page of its own is what makes
+  // the instruction mean something.
   const first = await doc.getPage(1)
   const [, , width, height] = first.view
-  expect(width).toBeGreaterThan(height)
+  expect(height).toBeGreaterThan(width)
   const ops = await first.getOperatorList()
   expect(ops.fnArray).toContain(pdfjs.OPS.paintImageXObject)
 

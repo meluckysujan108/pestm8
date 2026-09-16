@@ -61,6 +61,7 @@ export const printSpec = v.object({
     v.object({ title: v.string(), subtitle: v.optional(v.string()) }),
   ),
   termsHeading: v.optional(v.string()),
+  termsBreak: v.optional(v.boolean()),
   omitEmpty: v.optional(v.boolean()),
 })
 
@@ -94,6 +95,8 @@ export const reportContextSnapshot = v.object({
     v.object({
       name: v.string(),
       tradingName: v.optional(v.string()),
+      brandName: v.optional(v.string()),
+      website: v.optional(v.string()),
       address: v.optional(v.string()),
       addressLine: v.optional(v.string()),
       suburb: v.optional(v.string()),
@@ -117,6 +120,10 @@ export const reportContextSnapshot = v.object({
   ),
   author: v.object({
     membershipId: v.id('memberships'),
+    // Who submitted it, for the footer. Optional: reports finalised before
+    // the footer printed a name have no record of it, and inventing one from
+    // today's membership would credit whoever holds that row now.
+    name: v.optional(v.string()),
     licenceNumber: v.optional(v.string()),
   }),
   // Membership id -> the name as printed, e.g. "K. Edgar (Licence 4132)".
@@ -170,6 +177,18 @@ export default defineSchema({
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
     licenceNumber: v.optional(v.string()),
+    /**
+     * The three names one business prints under, which are not the same name.
+     *
+     * `name` is the entity. `tradingName` is what the document's header says
+     * issued it ("Pest M8 South"), and `reportBrandName` is what its title
+     * band calls the product ("Pest M8 Service Report for 2026"). The source
+     * documents carry all three, and each falls back to the one above it, so
+     * a business that never sets them still prints a coherent page.
+     */
+    tradingName: v.optional(v.string()),
+    reportBrandName: v.optional(v.string()),
+    website: v.optional(v.string()),
     // The next value `jobs.create` will hand out as that job's `jobNumber`.
     // Lives here rather than a separate counters table since there is
     // exactly one counter today; read-then-patch inside `jobs.create`'s own

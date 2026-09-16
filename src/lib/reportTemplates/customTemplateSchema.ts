@@ -43,6 +43,8 @@ const base = {
   attachedTo: z.string().optional(),
   // Mirrors `summary` in types.ts: read back on the finalise sheet.
   summary: z.boolean().optional(),
+  // Mirrors `width` in types.ts: a printed column's share of its table.
+  width: z.number().optional(),
   // Mirrors `FieldSemantic` in types.ts: what a question means to the app,
   // separate from the wording the form uses to ask it.
   semantic: z

@@ -1670,6 +1670,10 @@ export const timberPestInspection: ReportTemplate = {
   print: {
     // Fidelity rule 8: unanswered fields are omitted from the printed document.
     omitEmpty: true,
+    // The warranty and the conditions are pages of their own on both source
+    // documents, and a page break here stops the last answered row of the
+    // last section from being stranded above them.
+    termsBreak: true,
     // src: timber-pest-inspection.md:12 — the form's own printed name. The Form Title
     // (line 9) is file metadata the extractor drops, so the sub heading names it.
     formName: 'PEST M8 PEST CONTROL TIMBER PEST INSPECTION REPORT',

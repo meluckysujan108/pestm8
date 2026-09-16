@@ -76,8 +76,13 @@ export const generate = action({
           templateVersion: report.templateVersion,
           context: report.context,
           legalBasis: report.legalBasis,
+          finalised: true,
           finalisedAt: report.finalisedAt,
           reportNumber: report.reportNumber,
+          // Amendments, not resubmissions: a finalised report is never
+          // rewritten, so until the amend flow exists every document is v1.
+          version: 1,
+          submittedBy: report.author?.name,
           data: (report.data ?? {}) as Record<string, unknown>,
           businessName: report.businessName,
           business: report.business,
