@@ -1,10 +1,20 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { canEditJob, jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import {
+  canEditJob,
+  jobVisibility,
+  requireAssignableMember,
+  requireMembership,
+  resolveViewScope,
+} from './lib/access'
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
-import { clientNameOf, newClientFields, resolvePropertyId, withClient } from './properties'
-import { jobStatus } from './schema'
+import {
+  clientNameOf,
+  newClientFields,
+  resolvePropertyId,
+  withClient,
+} from './properties'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
@@ -78,7 +88,9 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
     if (inFlight) return inFlight
 
     const pending = (async () => {
-      const user = userId ? await authComponent.getAnyUserById(ctx, userId) : null
+      const user = userId
+        ? await authComponent.getAnyUserById(ctx, userId)
+        : null
       return user?.name ?? ''
     })()
     names.set(membershipId, pending)
@@ -101,7 +113,10 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
           postcode: property?.postcode ?? '',
           clientName: await clientNameOf(ctx, property),
           assigneeColour: assignee?.colour ?? '#8E8E93',
-          assigneeName: await nameOf(job.assignedMembershipId, assignee?.userId),
+          assigneeName: await nameOf(
+            job.assignedMembershipId,
+            assignee?.userId,
+          ),
         }
       }),
   )
@@ -152,7 +167,9 @@ export const listWeek = query({
       Array.from({ length: 7 }, async (_, i) => {
         const dayFrom = from + i * dayMs
         const inDay = jobs
-          .filter((j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs)
+          .filter(
+            (j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs,
+          )
           .sort((a, b) => a.scheduledAt - b.scheduledAt)
 
         // The first job's suburb stands for the day's weather. A day spanning
@@ -195,7 +212,9 @@ export const listMonth = query({
     const from = startOfDayInZone(`${monthKey}-01`, business.timezone)
     const [year, month] = monthKey.split('-').map(Number)
     const nextMonth =
-      month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
     const jobs = await jobsInRange(ctx, membership, from, to)
@@ -249,7 +268,9 @@ export const monthTeamLoad = query({
     const from = startOfDayInZone(`${monthKey}-01`, business.timezone)
     const [year, month] = monthKey.split('-').map(Number)
     const nextMonth =
-      month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
     const jobs = await jobsInRange(ctx, membership, from, to)
@@ -345,7 +366,10 @@ export const create = mutation({
     scheduledAt: v.number(),
     durationMinutes: v.number(),
   },
-  handler: async (ctx, { propertyId: existingPropertyId, newClient, ...args }) => {
+  handler: async (
+    ctx,
+    { propertyId: existingPropertyId, newClient, ...args },
+  ) => {
     const membership = await requireMembership(ctx, args.businessId)
 
     // Only an owner may put work on someone else's calendar.
@@ -361,10 +385,11 @@ export const create = mutation({
       newClient,
     })
 
-    const assignee = await ctx.db.get(args.assignedMembershipId)
-    if (!assignee || assignee.businessId !== args.businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
+    await requireAssignableMember(
+      ctx,
+      args.businessId,
+      args.assignedMembershipId,
+    )
 
     return ctx.db.insert('jobs', {
       ...args,
@@ -408,7 +433,17 @@ export const update = mutation({
     scheduledAt: v.optional(v.number()),
     durationMinutes: v.optional(v.number()),
     assignedMembershipId: v.optional(v.id('memberships')),
-    status: v.optional(jobStatus),
+    // Deliberately not `jobStatus`: 'invoiced' is set by the invoicing flow
+    // (ARCHITECTURE.md §4.5), never by an edit. Any assignee could previously
+    // mark their own job invoiced and move the owner's revenue figures.
+    status: v.optional(
+      v.union(
+        v.literal('booked'),
+        v.literal('inProgress'),
+        v.literal('completed'),
+        v.literal('cancelled'),
+      ),
+    ),
   },
   handler: async (ctx, { businessId, jobId, ...patch }) => {
     const { membership, job } = await requireEditableJob(ctx, businessId, jobId)
@@ -416,11 +451,16 @@ export const update = mutation({
     // Reassignment is an owner action even on your own job.
     if (
       patch.assignedMembershipId !== undefined &&
-      patch.assignedMembershipId !== job.assignedMembershipId &&
-      membership.role !== 'owner'
+      patch.assignedMembershipId !== job.assignedMembershipId
     ) {
-      throw new ConvexError('NO_ACCESS')
+      if (membership.role !== 'owner') throw new ConvexError('NO_ACCESS')
+      await requireAssignableMember(ctx, businessId, patch.assignedMembershipId)
     }
+
+    // An invoiced job is a billed job. Letting anyone with write access move it
+    // back to booked, re-price it or reschedule it silently contradicts an
+    // invoice that has already gone out.
+    if (job.status === 'invoiced') throw new ConvexError('JOB_INVOICED')
 
     // Same tenant check `create` already performs — a job can be corrected
     // to a different address, never moved to another business's property.
@@ -432,7 +472,9 @@ export const update = mutation({
     }
 
     const fields = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
+      Object.entries(patch as Record<string, unknown>).filter(
+        ([, value]) => value !== undefined,
+      ),
     )
     if (Object.keys(fields).length > 0) await ctx.db.patch(jobId, fields)
   },
