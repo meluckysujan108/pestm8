@@ -1,6 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership } from './lib/access'
+import { requireMembership } from './lib/access'
+import { isInScope } from './lib/capabilities'
 import { clientKind } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -261,7 +262,7 @@ export const update = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
 
     const property = await ctx.db.get(propertyId)
     if (!property || property.businessId !== businessId) return []
@@ -272,9 +273,6 @@ export const jobHistory = query({
       .order('desc')
       .collect()
 
-    const visibility = jobVisibility(membership)
-    return visibility.scope === 'business'
-      ? jobs
-      : jobs.filter((j) => j.assignedMembershipId === visibility.membershipId)
+    return jobs.filter((j) => isInScope(scope, j))
   },
 })

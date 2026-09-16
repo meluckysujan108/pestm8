@@ -30,6 +30,7 @@ import type * as lib_colours from "../lib/colours.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_forecastWindow from "../lib/forecastWindow.js";
 import type * as lib_inviteTokens from "../lib/inviteTokens.js";
+import type * as lib_jobScope from "../lib/jobScope.js";
 import type * as lib_membershipFacts from "../lib/membershipFacts.js";
 import type * as lib_noteAccess from "../lib/noteAccess.js";
 import type * as lib_noteTemplates from "../lib/noteTemplates.js";
@@ -82,6 +83,7 @@ declare const fullApi: ApiFromModules<{
   "lib/dates": typeof lib_dates;
   "lib/forecastWindow": typeof lib_forecastWindow;
   "lib/inviteTokens": typeof lib_inviteTokens;
+  "lib/jobScope": typeof lib_jobScope;
   "lib/membershipFacts": typeof lib_membershipFacts;
   "lib/noteAccess": typeof lib_noteAccess;
   "lib/noteTemplates": typeof lib_noteTemplates;

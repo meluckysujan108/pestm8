@@ -1,8 +1,8 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
-import { jobVisibility } from './lib/access'
 import { startOfDayInZone, todayKeyInZone } from './lib/dates'
 import { requireActor } from './lib/actor'
+import { jobsInScope, wireScope } from './lib/jobScope'
 
 /**
  * Dashboard metrics, scoped the same way the schedule is: a subcontractor
@@ -11,24 +11,11 @@ import { requireActor } from './lib/actor'
 export const summary = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return null
 
-    const visibility = jobVisibility(membership)
-
-    const all =
-      visibility.scope === 'business'
-        ? await ctx.db
-            .query('jobs')
-            .withIndex('by_business_date', (q) => q.eq('businessId', businessId))
-            .collect()
-        : await ctx.db
-            .query('jobs')
-            .withIndex('by_assignee_date', (q) =>
-              q.eq('assignedMembershipId', visibility.membershipId),
-            )
-            .collect()
+    const all = await jobsInScope(ctx, scope, { businessId })
 
     const todayKey = todayKeyInZone(business.timezone)
     const dayStart = startOfDayInZone(todayKey, business.timezone)
@@ -56,7 +43,7 @@ export const summary = query({
       invoicedThisMonth: live
         .filter((j) => j.status === 'invoiced' && j.scheduledAt >= monthStart)
         .reduce((sum, j) => sum + j.price, 0),
-      scope: visibility.scope,
+      scope: wireScope(scope),
     }
   },
 })

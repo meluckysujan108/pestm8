@@ -1,11 +1,11 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { authComponent } from './auth'
-import { jobVisibility } from './lib/access'
 import { dayKeyOf, startOfDayInZone, todayKeyInZone } from './lib/dates'
 import { jobsInRange } from './jobs'
 import type { Id } from './_generated/dataModel'
 import { requireActor } from './lib/actor'
+import { wireScope } from './lib/jobScope'
 
 /** Shifts a `"YYYY-MM"` key by `offset` months (either direction). */
 function monthKeyOffset(monthKey: string, offset: number): string {
@@ -27,7 +27,7 @@ function monthKeyOffset(monthKey: string, offset: number): string {
 export const overview = query({
   args: { businessId: v.id('businesses'), months: v.optional(v.number()) },
   handler: async (ctx, { businessId, months = 6 }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return null
 
@@ -44,7 +44,7 @@ export const overview = query({
     // rate would need a second, unfiltered scan — not worth it for a first
     // cut. `statusBreakdown` below can therefore only ever show
     // booked/inProgress/completed/invoiced.
-    const jobs = await jobsInRange(ctx, membership, from, to)
+    const jobs = await jobsInRange(ctx, scope, businessId, from, to)
 
     const revenueByMonth = new Map(monthKeys.map((k) => [k, 0]))
     const volumeByMonth = new Map(monthKeys.map((k) => [k, 0]))
@@ -97,7 +97,7 @@ export const overview = query({
       // subcontractor's technicianLoad always degenerates to one row
       // (themselves), so that chart is skipped entirely rather than shown
       // as a meaningless single bar.
-      scope: jobVisibility(membership).scope,
+      scope: wireScope(scope),
       months: monthKeys,
       revenueByMonth: monthKeys.map((k) => ({
         month: k,

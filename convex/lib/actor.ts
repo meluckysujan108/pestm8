@@ -75,6 +75,17 @@ export type ActorEnvelope = {
   /** Which rows this caller may read. See `scopeCapsFor` for why this is not
    * simply derived from `caps`. */
   scope: RowScope
+  /**
+   * The rows the REAL person may read, ignoring any lens they are looking
+   * through. The same object as `scope` unless they are switched or viewing as
+   * someone.
+   *
+   * For pickers and anything else that offers a choice the caller will act on
+   * themselves — attaching a note to a job, say. Offering the target's jobs
+   * there would let someone select work they cannot touch, and the failure
+   * would surface later as a refused write rather than an absent option.
+   */
+  realScope: RowScope
   /** True when `readScope` came from the legacy read-only view-as rather than
    * from a switch. Read access only — never let this reach a write path. */
   viewingAsLegacy: boolean
@@ -420,18 +431,46 @@ async function envelope(
   )
 
   const scopeCaps = scopeCapsFor(actor, caps, readScope, readScopeParent)
-  const team =
-    readScope.role === 'contractor' && !scopeCaps['schedules.seeOthers']
-      ? await teamOf(ctx, businessId, readScope._id)
-      : []
+  const scope = jobScope(
+    scopeCaps,
+    readScope,
+    await teamFor(ctx, businessId, readScope, scopeCaps),
+  )
+
+  // Only computed when it can differ. Looking through nobody's eyes, the
+  // person's own scope IS the scope, and a second team lookup would be a
+  // read on every request to answer a question nobody asked.
+  const looking = readScope._id !== rows.real._id
+  const realCaps = capabilitiesOf(rows.real, rows.realParent)
+  const realScope = looking
+    ? jobScope(
+        realCaps,
+        rows.real,
+        await teamFor(ctx, businessId, rows.real, realCaps),
+      )
+    : scope
 
   return {
     actor,
     readScope,
     caps,
-    scope: jobScope(scopeCaps, readScope, team),
-    viewingAsLegacy: !switched && readScope._id !== rows.real._id,
+    scope,
+    realScope,
+    viewingAsLegacy: !switched && looking,
   }
+}
+
+/** The team, loaded only when it can change the answer: `jobScope` consults it
+ * for exactly one case, a contractor who cannot already see every schedule. */
+async function teamFor(
+  ctx: Ctx,
+  businessId: Id<'businesses'>,
+  member: MembershipFacts,
+  caps: CapabilitySet,
+): Promise<ReadonlyArray<MembershipFacts>> {
+  return member.role === 'contractor' && !caps['schedules.seeOthers']
+    ? teamOf(ctx, businessId, member._id)
+    : []
 }
 
 /**

@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership } from './lib/access'
+import { requireMembership } from './lib/access'
 import { clientNameOf, withClient } from './properties'
 import { reportTemplate } from './schema'
 import {
@@ -15,27 +15,12 @@ import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
 import { migrateServiceReportV1 } from '../src/lib/reportTemplates/legacy/serviceReport.migrate'
 import type { Doc, Id } from './_generated/dataModel'
-import type { MembershipFacts } from './lib/capabilities'
+import { reportScope } from './lib/capabilities'
 import type { TemplateId } from '../src/lib/reportTemplates'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
 import { forSelf, recordAudit } from './lib/audit'
 import { requireActor } from './lib/actor'
-
-/**
- * Reports inherit job scoping: a subcontractor without canViewAllJobs sees the
- * reports they authored, not the whole business's compliance history.
- */
-export function canSeeReport(
-  m: MembershipFacts,
-  report: Doc<'reports'>,
-): boolean {
-  const visibility = jobVisibility(m)
-  return (
-    visibility.scope === 'business' ||
-    report.authorMembershipId === visibility.membershipId
-  )
-}
 
 /**
  * The guard every report-mutating mutation repeats: resolve membership, load
@@ -89,7 +74,7 @@ function requireSameVersion(
 export const listByProperty = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
 
     const reports = await ctx.db
       .query('reports')
@@ -102,7 +87,7 @@ export const listByProperty = query({
         (r) =>
           r.businessId === businessId &&
           r.deletedAt === undefined &&
-          canSeeReport(membership, r),
+          reportScope(scope, r),
       )
       .map(summarise)
   },
@@ -111,7 +96,7 @@ export const listByProperty = query({
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
 
     const reports = await ctx.db
       .query('reports')
@@ -120,7 +105,7 @@ export const listForBusiness = query({
       .collect()
 
     const visible = reports.filter(
-      (r) => r.deletedAt === undefined && canSeeReport(membership, r),
+      (r) => r.deletedAt === undefined && reportScope(scope, r),
     )
 
     // Resolved BEFORE the fan-out, not lazily inside it. Snapshots dedupe by
@@ -216,11 +201,11 @@ export const get = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const membership = await requireMembership(ctx, businessId)
-    const viewScope = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return null
-    if (!canSeeReport(viewScope, report)) return null
+    if (!reportScope(scope, report)) return null
     // Soft-deleted: gone from every list, and not openable by a stale link.
     if (report.deletedAt !== undefined) return null
 
@@ -434,12 +419,12 @@ export const attachSignature = mutation({
 export const signatureUrls = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}
     if (report.deletedAt !== undefined) return {}
-    if (!canSeeReport(membership, report)) return {}
+    if (!reportScope(scope, report)) return {}
 
     const entries = await Promise.all(
       Object.entries(report.signatureSlots ?? {}).map(
@@ -625,12 +610,12 @@ export const removeGalleryPhoto = mutation({
 export const galleryPhotos = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return []
     if (report.deletedAt !== undefined) return []
-    if (!canSeeReport(membership, report)) return []
+    if (!reportScope(scope, report)) return []
 
     const photos = await ctx.db
       .query('reportPhotos')
@@ -658,12 +643,12 @@ export const galleryPhotos = query({
 export const photoUrls = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}
     if (report.deletedAt !== undefined) return {}
-    if (!canSeeReport(membership, report)) return {}
+    if (!reportScope(scope, report)) return {}
 
     const entries = await Promise.all(
       Object.entries(report.photoSlots ?? {}).map(async ([slot, storageId]) => {
