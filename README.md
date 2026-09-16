@@ -7,7 +7,7 @@ product and architecture spec — it is the source of truth for this codebase.
 ## Getting started
 
 ```bash
-npm install
+pnpm install --frozen-lockfile
 ```
 
 Provision a Convex deployment. This is interactive: it opens a browser to log
@@ -32,32 +32,75 @@ npx convex env set BETTER_AUTH_SECRET="$(openssl rand -base64 32)"
 npx convex env set SITE_URL http://localhost:3000
 ```
 
+Two auth switches are **off unless set**, and both belong on production only:
+
+| Env var               | Effect                                                                                                                         |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| `AUTH_INVITE_ONLY=on` | Sign-up requires a live invitation token. Without it anyone can create an account (they join nothing, but the account exists). |
+| `AUTH_RATE_LIMIT=on`  | Database-backed rate limiting on sign-in, sign-up and password reset.                                                          |
+
+They stay off in dev and e2e because the test suite creates ~150 accounts per
+run. Before turning `AUTH_RATE_LIMIT` on, check what client IP actually reaches
+Convex through the Vercel proxy — if it resolves to nothing, every request
+shares one bucket and a tight limit locks out the whole business at once.
+
 Then, with `npx convex dev` running in one terminal:
 
 ```bash
-npm run dev
+pnpm dev
 ```
 
 ## Access-control tests
 
 The matrix in ARCHITECTURE.md §6.5 is the most important suite in this
 repository — it asserts tenant and role isolation at the Convex function
-level, not just in the UI. Job-scoped rows are `test.fixme` until Phase 2.
+level, not just in the UI. Only the invoice and Xero rows are `test.fixme`,
+since neither feature exists yet.
+
+Permission rules themselves are unit-tested with `convex-test` (`pnpm test`),
+which needs no deployment and runs in milliseconds. Playwright covers the
+journeys a person actually walks; per-permission cases belong in the unit
+suite.
 
 ```bash
 npx playwright install chromium
 ```
 
 ```bash
-npm run test:e2e
+pnpm test:e2e
 ```
+
+### Which deployment the suite runs against
+
+A run creates roughly 150 real accounts and 100 businesses and never cleans up,
+so it must never touch production. `e2e/fixtures.ts` and `scripts/seed.mjs`
+refuse anything that is not a `dev:` deployment, and refuse the production
+deployment names outright.
+
+This branch uses its own Convex project, **`pestm8-e2e`** (deployment
+`warmhearted-cricket-924`), rather than the shared personal dev deployment —
+two branches with different schemas cannot share one deployment, and test junk
+does not belong in the deployment used for manual QA. Its `SITE_URL` and
+`BETTER_AUTH_SECRET` are set on the deployment itself.
+
+Run the suite against a **production build**, not the dev server:
+
+```bash
+pnpm build && npx vite preview --port 3000
+```
+
+That exercises the service worker and the `__Secure-` cookie names, which only
+exist over a real build, and it sidesteps a Vite dep-optimiser bug in the
+current dependency set (see `optimizeDeps.exclude` in `vite.config.ts`).
 
 ## Commands
 
-| Command | Does |
-|---|---|
-| `npm run dev` | Vite dev server on :3000 (needs `npx convex dev` alongside) |
-| `npm run build` | Production build |
-| `npm run generate-routes` | Regenerate `routeTree.gen.ts` after adding routes |
-| `npm run test:e2e` | Playwright access-control suite |
-| `npm run lint` / `npm run format` | ESLint + Prettier |
+| Command                     | Does                                                        |
+| --------------------------- | ----------------------------------------------------------- |
+| `pnpm dev`                  | Vite dev server on :3000 (needs `npx convex dev` alongside) |
+| `pnpm build`                | Production build                                            |
+| `pnpm generate-routes`      | Regenerate `routeTree.gen.ts` after adding routes           |
+| `pnpm typecheck`            | `tsc --noEmit` over the app and `convex/`                   |
+| `pnpm test`                 | Vitest + convex-test unit suite (no deployment needed)      |
+| `pnpm test:e2e`             | Playwright access-control suite                             |
+| `pnpm lint` / `pnpm format` | ESLint + Prettier                                           |

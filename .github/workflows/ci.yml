@@ -1,0 +1,70 @@
+name: CI
+
+# Nothing gated either deploy before this existed: `npx convex deploy`
+# typechecks convex/ only, `vite build` typechecks nothing, and the Playwright
+# suite ran only when someone remembered. So a permissions refactor could reach
+# prod without a single check running.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed to diff against the base branch for the changed-files checks.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # --frozen-lockfile is what Vercel runs. Failing here is the whole point:
+      # a lockfile that lags package.json fails the Vercel build outright, and
+      # Vercel then keeps serving the previous build while main looks correct
+      # and git status is clean (see CLAUDE.md).
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      # Lint and formatting are scoped to the files this change touches.
+      # The repository has pre-existing violations (25 lint errors, and
+      # prettier disagrees with most files), and reformatting all of them in a
+      # security change would bury the diff and wreck git blame. New and
+      # edited code is still held to the standard.
+      - name: Changed files
+        id: changed
+        run: |
+          base="${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^' }}"
+          files=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD \
+            | grep -E '\.(ts|tsx|js|jsx|mjs|json|css|md)$' \
+            | grep -v '^convex/_generated/' \
+            | grep -v 'routeTree\.gen\.ts$' || true)
+          {
+            echo 'files<<EOF'
+            echo "$files"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Prettier (changed files)
+        if: steps.changed.outputs.files != ''
+        run: echo "${{ steps.changed.outputs.files }}" | xargs pnpm prettier --check
+
+      - name: ESLint (changed files)
+        if: steps.changed.outputs.files != ''
+        run: |
+          echo "${{ steps.changed.outputs.files }}" \
+            | grep -E '\.(ts|tsx|js|jsx|mjs)$' \
+            | xargs --no-run-if-empty pnpm eslint --max-warnings 0
