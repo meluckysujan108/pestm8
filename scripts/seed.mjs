@@ -319,11 +319,20 @@ const certId = await owner.mutation(api.reports.create, {
   legalBasis: 'AS 3660.2-2017',
   data: {},
 })
+// Signed before it is issued — and `finalise` now checks, as it should: the
+// signature is an image in storage, not a timestamp in the answers.
+await owner.mutation(api.reports.attachSignature, {
+  businessId,
+  reportId: certId,
+  storageId: await uploadPng(owner, businessId, certId),
+  slot: 'installer',
+})
 await owner.mutation(api.reports.finalise, {
   businessId,
   reportId: certId,
   templateVersion: FORM_VERSION,
   data: {
+    installerSignature: { signedAt: Date.now() },
     installDate: new Date().toISOString().slice(0, 10),
     systemType: 'Chemical Soil Barrier',
     product: 'Termidor HE',
@@ -395,11 +404,18 @@ const inspectionId = await owner.mutation(api.reports.create, {
   legalBasis: 'AS 4349.3-2010',
   data: {},
 })
+await owner.mutation(api.reports.attachSignature, {
+  businessId,
+  reportId: inspectionId,
+  storageId: await uploadPng(owner, businessId, inspectionId),
+  slot: 'technician',
+})
 await owner.mutation(api.reports.finalise, {
   businessId,
   reportId: inspectionId,
   templateVersion: FORM_VERSION,
   data: {
+    inspectorSignature: { signedAt: Date.now() },
     inspectionDate: new Date().toISOString().slice(0, 10),
     clientAgreesToInspection: 'Yes',
     inspectionTypeWarranty: ['12 Monthly Timber Pest Visual Inspection to maintain Warranty', 'Year 2'],

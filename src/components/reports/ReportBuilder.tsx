@@ -15,13 +15,14 @@ import {
   printsDurableNotice,
   sectionsOf,
 } from '#/lib/reportTemplates'
-import { pruneHidden, visibleSections } from '#/lib/reportTemplates/visibility'
+import { visibleSections } from '#/lib/reportTemplates/visibility'
+import { submittablePayload, validateReport } from '#/lib/reportTemplates/validate'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
-import { isEmptyRow } from '#/lib/reportTemplates/present'
 import { reportProgress, sectionByKey, sectionKey } from '#/lib/reportTemplates/progress'
 import { ReportOverview } from './ReportOverview'
 import type { PrefillMap } from '#/lib/reportTemplates/seed'
 import type { SectionProgress } from '#/lib/reportTemplates/progress'
+import type { ReportIssue } from '#/lib/reportTemplates/validate'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { OptionSetOverrides } from '#/lib/reportTemplates/optionSets'
@@ -127,6 +128,14 @@ export function ReportBuilder({
     enabled: hydrated,
   })
 
+  // A signature is an image in storage, not a timestamp in `data`, so whether
+  // one exists is a separate question — and the one the server asks too.
+  const { data: signatures } = useQuery({
+    ...convexQuery(api.reports.signatureUrls, { businessId, reportId }),
+    enabled: hydrated,
+  })
+  const signedSlots = useMemo(() => Object.keys(signatures ?? {}), [signatures])
+
   const photoCounts = useMemo(() => {
     const counts: Record<string, number> = {}
     for (const photo of galleryPhotos ?? []) {
@@ -150,14 +159,14 @@ export function ReportBuilder({
 
   const current = sectionByKey(progress, sectionId)
 
-  const [showBlocked, setShowBlocked] = useState(false)
+  const [issues, setIssues] = useState<Array<ReportIssue>>([])
   const blockedRef = useRef<HTMLDivElement>(null)
 
   // The list of what is missing answers a tap, so it must be where the eye
   // already is rather than below the terms at the foot of the page.
   useEffect(() => {
-    if (showBlocked) blockedRef.current?.scrollIntoView({ block: 'center' })
-  }, [showBlocked])
+    if (issues.length > 0) blockedRef.current?.scrollIntoView({ block: 'center' })
+  }, [issues])
 
   // A section can disappear while it is open — answering one question hides
   // another's whole section. Land the technician back on the overview rather
@@ -185,6 +194,16 @@ export function ReportBuilder({
       templateVersion?: number
     }) => convexFinalise(args),
     onSuccess: onFinalised,
+    // The server validates too. When it refuses, it says which questions —
+    // show those rather than "something went wrong", which is what a stale tab
+    // would otherwise report about a form that looked finished on screen.
+    onError: (error: unknown) => {
+      const refused = incompleteIssues(error)
+      if (refused) {
+        setIssues(refused)
+        setErrors(Object.fromEntries(refused.map((issue) => [issue.key, issue.message])))
+      }
+    },
   })
 
   const noticeText = useMemo(() => {
@@ -204,25 +223,12 @@ export function ReportBuilder({
   }, [template, property, businessName, authorLicence, data])
 
   /**
-   * What actually gets validated and stored. A field the technician can no
-   * longer see is a question no longer being asked, so its stale answer must
-   * not reach the report — nor block finalising while being invisible.
+   * What actually gets validated and stored — the same payload the server
+   * validates, built by the same function, so the two can never disagree about
+   * what this report says.
    */
   function submittable() {
-    const pruned = pruneHidden(sectionsOf(template), data)
-    // Rows left completely empty are discarded rather than validated, as the
-    // Service Report's validation notes promise: an inspection-only visit with
-    // a stray "Add Row" tap still finalises, and nothing prints for it.
-    for (const field of fieldsOf(template)) {
-      if (field.kind !== 'repeater') continue
-      const rows = pruned[field.key]
-      if (Array.isArray(rows)) {
-        pruned[field.key] = rows.filter(
-          (row: Record<string, unknown>) => !isEmptyRow(field.columns, row),
-        )
-      }
-    }
-    return pruned
+    return submittablePayload(template, data)
   }
 
   const autosave = useAutosave({
@@ -273,54 +279,48 @@ export function ReportBuilder({
 
   /**
    * What is standing between this report and being locked, named rather than
-   * counted: each entry says which question, in which section, and jumps there.
+   * counted: each entry says what is wrong, which section asks it, and jumps
+   * there. Built from the validator's own issues, so it says exactly what the
+   * server would say.
    */
   const blocked = useMemo(() => {
-    if (!showBlocked || progress.complete) return null
-    const labelOf = (key: string) =>
-      fieldsOf(template).find((field) => field.key === key)?.label ?? key
-    return progress.sections.flatMap((section) => [
-      ...section.missing.map((key) => ({ section, key, label: labelOf(key) })),
-      ...section.toConfirm.map((key) => ({
-        section,
-        key,
-        label: `Confirm ${labelOf(key).replace(/:$/, '')}`,
-      })),
-    ])
-  }, [showBlocked, progress, template])
+    if (issues.length === 0) return null
+    const sectionOf = (key: string) =>
+      progress.sections.find(
+        (section) => section.missing.includes(key) || section.toConfirm.includes(key),
+      ) ??
+      progress.sections.find((section) =>
+        sectionsOf(template)
+          .find((candidate) => candidate.title === section.title)
+          ?.fields.some((field) => field.key === key),
+      ) ??
+      null
+    return issues.map((issue) => ({ ...issue, section: sectionOf(issue.key) }))
+  }, [issues, progress, template])
 
   async function onFinaliseClick() {
     // Finalise sends its own payload, but flushing first means a failed
     // finalise still leaves the latest draft on the server.
     await autosave.flush()
 
-    // Everything outstanding, in one place, before the schema's message for
-    // whichever field it happens to reach first.
-    if (!progress.complete) {
-      setShowBlocked(true)
-      return
-    }
-    setShowBlocked(false)
-
-    const payload = submittable()
-    const parsed = template.schema.safeParse(payload)
-    if (!parsed.success) {
-      const next: Record<string, string> = {}
-      for (const issue of parsed.error.issues) {
-        // Deliberately `path[0]`, not the joined path: the areas checklist
-        // reports its refine failures at ['areas', '<row>'], and the message
-        // belongs on the one control that owns every row.
-        const key = String(issue.path[0] ?? '')
-        if (key && !next[key]) next[key] = issue.message
-      }
-      setErrors(next)
+    const result = validateReport({
+      template,
+      data,
+      signedSlots,
+      photoCounts,
+      prefill: pending,
+    })
+    if (!result.ok) {
+      setErrors(Object.fromEntries(result.issues.map((issue) => [issue.key, issue.message])))
+      setIssues(result.issues)
       return
     }
     setErrors({})
+    setIssues([])
     finalise.mutate({
       businessId,
       reportId,
-      data: payload,
+      data: result.payload,
       templateVersion: template.version,
     })
   }
@@ -431,14 +431,14 @@ export function ReportBuilder({
           </p>
           <ul className="mt-1.5 flex flex-col gap-1">
             {blocked.map((item) => (
-              <li key={`${item.section.id}:${item.key}`}>
+              <li key={item.key}>
                 <button
                   type="button"
                   onClick={() => goToSection(item.section)}
                   className="text-left underline underline-offset-2"
                 >
-                  {item.label}
-                  <span className="text-muted"> — {item.section.title}</span>
+                  {item.message}
+                  {item.section && <span className="text-muted"> — {item.section.title}</span>}
                 </button>
               </li>
             ))}
@@ -586,5 +586,26 @@ function FinaliseButton({
       <Lock size={17} strokeWidth={2} />
       {pending ? 'Locking…' : 'Finalise & lock'}
     </button>
+  )
+}
+
+/**
+ * The questions a server-side refusal named, if it named any.
+ *
+ * Convex delivers a `ConvexError`'s payload as `data`; anything else — a lost
+ * connection, a report someone else locked first — has none, and keeps the
+ * general message.
+ */
+function incompleteIssues(error: unknown): Array<ReportIssue> | null {
+  const data: unknown = (error as { data?: unknown } | null)?.data
+  if (!data || typeof data !== 'object') return null
+  const payload = data as { code?: unknown; issues?: unknown }
+  if (payload.code !== 'REPORT_INCOMPLETE' || !Array.isArray(payload.issues)) return null
+  return payload.issues.filter(
+    (issue): issue is ReportIssue =>
+      typeof issue === 'object' &&
+      issue !== null &&
+      typeof (issue as ReportIssue).key === 'string' &&
+      typeof (issue as ReportIssue).message === 'string',
   )
 }

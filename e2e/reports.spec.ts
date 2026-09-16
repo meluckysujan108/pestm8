@@ -18,6 +18,7 @@ import {
   customTemplateArgs,
   finaliseReport,
   saveReportDraft,
+  signReport,
   versionOf,
 } from './fixtures/reportPayloads'
 import { getTemplate } from '../src/lib/reportTemplates'
@@ -263,6 +264,87 @@ test.describe('report document', () => {
   })
 })
 
+test.describe('finalise refuses an unfinished report', () => {
+  test('server-side, not just on the screen', async () => {
+    const s = await setupBusinessWithSub('report-incomplete')
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+
+    // The browser is not the guard: a stale tab, a replayed request or any
+    // future non-browser caller must not be able to lock an undated,
+    // unsigned document.
+    await expectRejected(
+      () =>
+        s.owner.client.mutation(api.reports.finalise, {
+          businessId: s.businessId,
+          reportId,
+          data: { comments: 'all done' },
+          templateVersion: versionOf('serviceReport'),
+        }),
+      'REPORT_INCOMPLETE',
+    )
+
+    const report = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(report!.status).toBe('draft')
+  })
+
+  test('and says which questions, so the form can point at them', async () => {
+    const s = await setupBusinessWithSub('report-incomplete-issues')
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+
+    let data: unknown
+    try {
+      await s.owner.client.mutation(api.reports.finalise, {
+        businessId: s.businessId,
+        reportId,
+        data: {},
+        templateVersion: versionOf('serviceReport'),
+      })
+    } catch (error) {
+      data = (error as { data?: unknown }).data
+    }
+
+    const payload = data as { code?: string; issues?: Array<{ key: string; message: string }> }
+    expect(payload.code).toBe('REPORT_INCOMPLETE')
+    expect(payload.issues?.map((issue) => issue.key)).toContain('safeToStart')
+    expect(payload.issues?.every((issue) => issue.message.length > 0)).toBe(true)
+  })
+
+  test('a signature is an image, not a timestamp in the answers', async () => {
+    const s = await setupBusinessWithSub('report-unsigned')
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+
+    // Everything the form asks for, including a `signedAt` — but nothing was
+    // ever drawn, so there is no signature to print.
+    await expectRejected(
+      () =>
+        s.owner.client.mutation(api.reports.finalise, {
+          businessId: s.businessId,
+          reportId,
+          data: {
+            serviceDate: '2026-08-28',
+            safeToStart: true,
+            treatments: [],
+            technicianSignature: { signedAt: Date.now() },
+          },
+          templateVersion: versionOf('serviceReport'),
+        }),
+      'REPORT_INCOMPLETE',
+    )
+
+    // Signed for real, it locks.
+    await signReport(s.owner.client, s, reportId, 'technician')
+    await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+    const report = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(report!.status).toBe('finalised')
+  })
+})
+
 test.describe('report builder', () => {
   test('the Timber picker opens the verbatim AS 4349.3 form', async ({ page }) => {
     const email = uniqueEmail('builder-owner')
@@ -354,8 +436,10 @@ test.describe('report builder', () => {
 
     await page.getByRole('button', { name: 'Finalise & lock' }).click()
 
+    // Said twice on purpose: against the field, and in the list of what is
+    // still outstanding at the foot of the form.
     await expect(
-      page.getByText('A reason is required when an area was not inspected'),
+      page.getByText('A reason is required when an area was not inspected').first(),
     ).toBeVisible()
     // Still a draft: the form is still on screen rather than a locked document.
     await expect(

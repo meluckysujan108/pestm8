@@ -109,7 +109,7 @@ test('a suggested answer is marked, and confirmed by moving on', async ({ page }
   await expect
     .poll(async () => {
       const report = await owner.client.query(api.reports.get, { businessId, reportId })
-      return report!.prefill?.startTime?.confirmedAt !== undefined
+      return report!.prefill!.startTime.confirmedAt !== undefined
     })
     .toBe(true)
 })
@@ -124,12 +124,16 @@ test('finalising an unfinished report says what is missing, and jumps there', as
   // Never greyed out: pressing it is how a technician finds out what is left.
   await page.getByRole('button', { name: 'Finalise & lock' }).first().click()
 
+  // Each entry is the form's own words for what is wrong, not a field name.
   const outstanding = page.getByRole('alert')
   await expect(outstanding).toContainText('to finish')
-  await expect(outstanding.getByRole('button', { name: /Is it safe to commence work\?/ })).toBeVisible()
+  const safety = outstanding.getByRole('button', {
+    name: /Record whether it is safe to commence work/,
+  })
+  await expect(safety).toBeVisible()
 
   // And each one is a way into the section that asks it.
-  await outstanding.getByRole('button', { name: /Is it safe to commence work\?/ }).click()
+  await safety.click()
   await expect(page.getByRole('heading', { name: '3. RISK ASSESSMENT' })).toBeVisible()
   await expect(
     page.getByRole('group', { name: 'Is it safe to commence work?' }),

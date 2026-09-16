@@ -12,6 +12,7 @@ import {
 } from '../src/lib/reportTemplates'
 import { freezeTemplate } from './lib/templateSnapshot'
 import { seedFromContext } from '../src/lib/reportTemplates/seed'
+import { validateReport } from '../src/lib/reportTemplates/validate'
 import { dayKeyOf, timeKeyOf, todayKeyInZone } from './lib/dates'
 import { suburbKeyOf, withinForecastWindow } from './lib/forecastWindow'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
@@ -976,6 +977,55 @@ export const saveDraft = mutation({
 /**
  * Locks the report as a finalised, signed document.
  */
+/**
+ * Refuses a report that is not finished, naming what is missing.
+ *
+ * The issues travel with the error so the builder can mark the fields and jump
+ * to them, rather than showing "something went wrong" about a document the
+ * technician believes they completed.
+ */
+async function assertComplete(
+  ctx: MutationCtx,
+  report: Doc<'reports'>,
+  data: Record<string, unknown>,
+) {
+  const optionSets = await loadOverrides(ctx, report.businessId)
+  const template = resolveReportTemplate({
+    template: report.template,
+    // The revision this report was WRITTEN against: a v1 draft is judged by
+    // the rules it was filled under, never by today's form.
+    templateVersion: report.templateVersion,
+    customTemplate: report.customTemplateId
+      ? ((await ctx.db.get(report.customTemplateId)) ?? undefined)
+      : undefined,
+    optionSets,
+  })
+
+  const photos = await ctx.db
+    .query('reportPhotos')
+    .withIndex('by_report_field', (q) => q.eq('reportId', report._id))
+    .collect()
+  const photoCounts: Record<string, number> = {}
+  for (const photo of photos) {
+    photoCounts[photo.fieldKey] = (photoCounts[photo.fieldKey] ?? 0) + 1
+  }
+  for (const slot of Object.keys(report.photoSlots ?? {})) {
+    photoCounts[slot] = (photoCounts[slot] ?? 0) + 1
+  }
+
+  const result = validateReport({
+    template,
+    data,
+    signedSlots: Object.keys(report.signatureSlots ?? {}),
+    photoCounts,
+    prefill: report.prefill,
+  })
+
+  if (!result.ok) {
+    throw new ConvexError({ code: 'REPORT_INCOMPLETE', issues: result.issues })
+  }
+}
+
 export const finalise = mutation({
   args: {
     businessId: v.id('businesses'),
@@ -990,6 +1040,12 @@ export const finalise = mutation({
       reportId,
     )
     requireSameVersion(report, templateVersion)
+
+    // The same rules the builder applies, applied again where they are true.
+    // Until now they lived only in the browser, so a stale tab or a direct API
+    // call could lock an unsigned, undated document — and a compliance record
+    // whose rules are advisory is not a compliance record.
+    await assertComplete(ctx, report, (data ?? {}) as Record<string, unknown>)
 
     // Frozen the instant this becomes a signed document — editing the live
     // custom template afterward must never change what was already finalised.

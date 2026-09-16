@@ -94,6 +94,7 @@ export const FINALISE: Record<TemplateId, Record<string, unknown>> = {
     safeToStart: true,
     treatments: [],
     addPhotos: true,
+    technicianSignature: { signedAt: 1789000000000 },
   },
   timberPestInspection: {
     inspectionDate: '2026-08-28',
@@ -102,6 +103,10 @@ export const FINALISE: Record<TemplateId, Record<string, unknown>> = {
       '12 Monthly Timber Pest Visual Inspection to maintain Warranty',
       'Year 1',
     ],
+    inspectorSignature: { signedAt: 1789000000000 },
+    // The AS form prints the date beside the inspector's signature, and asks
+    // for it in its own right.
+    inspectorSignedDate: '2026-08-28',
   },
   termiteManagementCert: {
     installDate: '2026-08-28',
@@ -110,7 +115,51 @@ export const FINALISE: Record<TemplateId, Record<string, unknown>> = {
     activeConstituent: 'Fipronil 100g/L',
     reinspectionInterval: '12 months',
     durableNoticeFitted: 'Yes',
+    installerSignature: { signedAt: 1789000000000 },
   },
+}
+
+/**
+ * The signature slot each form requires before it can be finalised.
+ *
+ * `finalise` checks storage, not just the timestamp in the answers: a
+ * signature is an image, and a report that claims one without holding it is
+ * exactly what the check exists to stop.
+ */
+const REQUIRED_SLOT: Record<TemplateId, string> = {
+  serviceReport: 'technician',
+  timberPestInspection: 'technician',
+  termiteManagementCert: 'installer',
+}
+
+/** A 1x1 PNG — the smallest thing that is genuinely an image. */
+const SIGNATURE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+/** Signs a draft the way the pad does: upload the image, then attach it. */
+export async function signReport(
+  client: ConvexHttpClient,
+  ids: Pick<Ids, 'businessId'>,
+  reportId: Id<'reports'>,
+  slot: string,
+) {
+  const uploadUrl = await client.mutation(api.reports.generateUploadUrl, {
+    businessId: ids.businessId,
+  })
+  const res = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png' },
+    body: SIGNATURE_PNG,
+  })
+  const { storageId } = (await res.json()) as { storageId: Id<'_storage'> }
+  await client.mutation(api.reports.attachSignature, {
+    businessId: ids.businessId,
+    reportId,
+    storageId,
+    slot,
+  })
 }
 
 export async function finaliseReport(
@@ -120,6 +169,9 @@ export async function finaliseReport(
   template: TemplateId,
   overrides: Record<string, unknown> = {},
 ) {
+  // Signed first, because the server now refuses an unsigned report — as it
+  // should: every one of these forms is signed before it is issued.
+  await signReport(client, ids, reportId, REQUIRED_SLOT[template])
   return client.mutation(api.reports.finalise, {
     businessId: ids.businessId,
     reportId,

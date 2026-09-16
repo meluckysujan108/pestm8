@@ -235,3 +235,27 @@ blocks, which is exactly why the zero above was checked rather than assumed.
 Only when production reports zero finalised rows without a snapshot AND no v1 drafts
 remain on any deployment. Until then they serve the backfill, unmigrated signed
 reports, and the schema a v1 draft is still validated against.
+
+## Phase 3 — start and fill
+
+Expand-only again: a plain deploy, no loosening, no backfill.
+
+| Adds | Why |
+|---|---|
+| `reports.prefill` | Which answers the app worked out rather than read off a record, and when each was confirmed. Its own column because `data` is replaced wholesale on every autosave, so nothing server-managed can live inside it |
+| `jobs.startedAt` | When work actually began, stamped the first time a job goes `inProgress`. A report's start time is then a fact rather than a guess at the booking |
+
+Neither is required, and nothing existing needs rewriting: a report without
+`prefill` has no suggestions to confirm, and a job without `startedAt` falls back to
+the time it was booked for, marked as a suggestion.
+
+### Ship the frontend and backend together
+
+`finalise` now refuses an incomplete report (`REPORT_INCOMPLETE`). An older frontend
+cannot produce one, since it validated the same rules itself — except for the two it
+could not see (a signature image, a required photo), where the refusal is the point.
+`reports.create` gained no arguments, so a stale client still creates reports; they
+simply arrive unseeded.
+
+Open drafts on production need nothing. They keep their answers, gain no suggestions,
+and are validated on the rules of the revision they were written against.

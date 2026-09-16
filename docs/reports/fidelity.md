@@ -243,6 +243,22 @@ template's `validationNotes`, and surfaced to the owner as settings where noted.
   section confirms it, so this costs no extra taps — but nothing the app guessed can
   print under a signature unseen.
 
+Every one of these runs in `src/lib/reportTemplates/validate.ts`, which the builder
+and `reports.finalise` both call with the same payload. They were the browser's rules
+alone until Phase 3, which meant a stale tab, a replayed request or any non-browser
+caller could lock an unsigned, undated document; rules a compliance record only
+advises are not rules. Two of them can only be enforced server-side, and are:
+
+- A required signature must exist **as an image in storage**, not merely as the
+  `{ signedAt }` the control writes into the answers.
+- A required photo field must hold a photo, counted from `reportPhotos` — but only
+  where the caller can count them. Unknown never blocks, because refusing a report
+  the app could not measure locks a technician out of their own work.
+
+A refusal names the questions (`REPORT_INCOMPLETE` carries `issues`), so the form
+marks them and offers a way to each rather than saying "something went wrong". A
+report is judged against the revision it was written under, never today's form.
+
 ## What the source does not say, and we do not invent
 
 Checked against WA Health (Pesticides) Regulations 2011 reg 77, the AEPMA Code of
