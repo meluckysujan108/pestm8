@@ -6,7 +6,6 @@ import {
   jobVisibility,
   requireAssignableMember,
   requireMembership,
-  resolveViewScope,
 } from './lib/access'
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
 import {
@@ -16,8 +15,10 @@ import {
   withClient,
 } from './properties'
 import type { Doc, Id } from './_generated/dataModel'
+import type { MembershipFacts } from './lib/capabilities'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
+import { requireActor } from './lib/actor'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -45,7 +46,7 @@ export async function allocateJobNumber(
  */
 export async function jobsInRange(
   ctx: QueryCtx,
-  membership: Membership,
+  membership: MembershipFacts,
   from: number,
   to: number,
 ): Promise<Array<Doc<'jobs'>>> {
@@ -128,7 +129,7 @@ export const listDay = query({
     dayKey: v.string(), // "YYYY-MM-DD" in the tenant's timezone
   },
   handler: async (ctx, { businessId, dayKey }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -146,7 +147,7 @@ export const listDay = query({
 export const listWeek = query({
   args: { businessId: v.id('businesses'), startKey: v.string() },
   handler: async (ctx, { businessId, startKey }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -205,7 +206,7 @@ export const listMonth = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -261,7 +262,7 @@ export const monthTeamLoad = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -309,7 +310,7 @@ export const get = query({
     // Visibility (can this job be seen at all) follows "view as" when active;
     // canEdit below always reflects the REAL caller, never the viewed-as
     // person — read access granted by view-as never implies write access.
-    const viewScope = await resolveViewScope(ctx, businessId)
+    const viewScope = (await requireActor(ctx, businessId)).readScope
 
     const job = await ctx.db.get(jobId)
     if (!job || job.businessId !== businessId) return null
@@ -554,7 +555,7 @@ export const removePhoto = mutation({
 export const photos = query({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
 
     const job = await ctx.db.get(jobId)
     if (!job || job.businessId !== businessId) return []

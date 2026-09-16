@@ -1,7 +1,8 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
-import { jobVisibility, resolveViewScope } from './lib/access'
+import { jobVisibility } from './lib/access'
 import { startOfDayInZone, todayKeyInZone } from './lib/dates'
+import { requireActor } from './lib/actor'
 
 /**
  * Dashboard metrics, scoped the same way the schedule is: a subcontractor
@@ -10,7 +11,7 @@ import { startOfDayInZone, todayKeyInZone } from './lib/dates'
 export const summary = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
     const business = await ctx.db.get(businessId)
     if (!business) return null
 

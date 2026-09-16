@@ -3,6 +3,7 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { canDeleteNote, canReadNote, canWriteNote, noteKind } from './lib/noteAccess'
+import { factsFromMembership } from './lib/membershipFacts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 import type { Role } from './lib/capabilities'
@@ -107,7 +108,9 @@ async function seed(ctx: MutationCtx) {
 async function member(ctx: MutationCtx, id: Id<'memberships'>) {
   const m = await ctx.db.get(id)
   if (!m) throw new Error('missing membership')
-  return m
+  // The note gates take resolved facts, not the stored row — the same shape
+  // `requireActor` hands them in production.
+  return factsFromMembership(m)
 }
 
 async function read(ctx: MutationCtx, real: Id<'memberships'>, noteId: Id<'notes'>, scope = real) {

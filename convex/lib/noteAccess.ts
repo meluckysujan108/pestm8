@@ -1,7 +1,9 @@
 import { ConvexError } from 'convex/values'
-import { jobVisibility, requireMembership, resolveViewScope } from './access'
+import { jobVisibility } from './access'
+import { requireActor } from './actor'
+import type { MembershipFacts } from './capabilities'
 import type { Doc, Id } from '../_generated/dataModel'
-import type { Ctx, Membership } from './access'
+import type { Ctx } from './access'
 
 export type Note = Doc<'notes'>
 export type NoteKind = 'job' | 'site' | 'client' | 'team'
@@ -24,15 +26,17 @@ export function noteKind(note: {
  * authorship, mentions, deletion); `scope` honours "view as" for job
  * visibility only, exactly as `jobs.get` does.
  */
-export type NoteViewer = { real: Membership; scope: Membership }
+export type NoteViewer = { real: MembershipFacts; scope: MembershipFacts }
 
 export async function noteViewer(
   ctx: Ctx,
   businessId: Id<'businesses'>,
 ): Promise<NoteViewer> {
-  const real = await requireMembership(ctx, businessId)
-  const scope = await resolveViewScope(ctx, businessId)
-  return { real, scope }
+  // One resolution, not two: this used to call requireMembership and then
+  // resolveViewScope, which called it again — two round trips to answer one
+  // question, and two answers that could disagree.
+  const env = await requireActor(ctx, businessId)
+  return { real: env.actor.real, scope: env.readScope }
 }
 
 /**
@@ -79,7 +83,7 @@ export async function canWriteNote(
 }
 
 /** Deletion keeps today's rule: what you wrote, or anything if you own the business. */
-export function canDeleteNote(real: Membership, note: Note): boolean {
+export function canDeleteNote(real: MembershipFacts, note: Note): boolean {
   return real.role === 'owner' || note.authorMembershipId === real._id
 }
 
@@ -102,7 +106,8 @@ export async function requireNote(
   noteId: Id<'notes'>,
 ): Promise<Note> {
   const note = await ctx.db.get(noteId)
-  if (!note || note.businessId !== businessId) throw new ConvexError('NOT_FOUND')
+  if (!note || note.businessId !== businessId)
+    throw new ConvexError('NOT_FOUND')
   return note
 }
 
@@ -114,6 +119,7 @@ export async function requireReadableNote(
 ): Promise<{ note: Note; viewer: NoteViewer }> {
   const viewer = await noteViewer(ctx, businessId)
   const note = await requireNote(ctx, businessId, noteId)
-  if (!(await canReadNote(ctx, viewer, note))) throw new ConvexError('NOT_FOUND')
+  if (!(await canReadNote(ctx, viewer, note)))
+    throw new ConvexError('NOT_FOUND')
   return { note, viewer }
 }
