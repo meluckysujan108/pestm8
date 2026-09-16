@@ -148,6 +148,7 @@ const gpsField = z.object({
   ...base,
   kind: z.literal('gps'),
   format: z.literal('lines').optional(),
+  auto: z.boolean().optional(),
 })
 const signatureField = z.object({
   ...base,

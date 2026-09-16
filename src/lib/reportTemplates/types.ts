@@ -214,6 +214,14 @@ export type FieldDef =
        * finalised before this option was added already prints.
        */
       format?: 'lines'
+      /**
+       * Take the reading when the question is first shown, without asking —
+       * but ONLY where the browser already holds a granted permission, which
+       * is a decision the technician made once, deliberately, on this device.
+       * Never a prompt: a permission dialog that appears because a section
+       * scrolled into view is one people dismiss without reading.
+       */
+      auto?: boolean
     })
   /**
    * A drawn signature. The image goes to storage under `slot`; only the
@@ -618,6 +626,13 @@ export type GpsValue = {
   lng: number
   /** Metres. Absent when the device does not report it. */
   altitude?: number
+  /**
+   * The device's own estimate of how wrong it might be, in metres. Shown on
+   * screen, never printed: a reading good to ±8 m and one good to ±300 m look
+   * identical on the page, and only the person standing there can decide
+   * whether to take it again.
+   */
+  accuracy?: number
   at: number
 }
 

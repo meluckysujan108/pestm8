@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { MapPin } from 'lucide-react'
 import { PhotoSlots } from './PhotoSlots'
 import { SignatureRow } from './SignatureRow'
@@ -426,13 +426,29 @@ export function ChecksControl({ field, value, onChange, ctx }: Of<'checks'>) {
   )
 }
 
+/** `10:25 am` — when the reading was taken, in the phone's own timezone. */
+function formatClock(at: number): string {
+  return new Intl.DateTimeFormat('en-AU', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(at))
+}
+
 /**
- * Captures the device's location once, on demand.
+ * Captures the device's location.
  *
- * Never automatic: a coordinate on a report asserts the technician was at the
- * property, so it is recorded by a deliberate act rather than by the page
- * happening to load somewhere. A refusal is shown plainly instead of leaving
- * the button looking broken.
+ * A coordinate on a report asserts the technician was at the property, so this
+ * never prompts: a permission dialog that appears because a section scrolled
+ * into view is one people dismiss without reading, and an answer obtained that
+ * way is not evidence of anything. A field marked `auto` takes the reading by
+ * itself ONLY where the browser already holds a granted permission — a
+ * decision this person made once, deliberately, on this device — and only
+ * while the question is still unanswered, so it can never overwrite a reading
+ * someone took on purpose.
+ *
+ * The reading shows when it was taken and how good it is. Eight metres and
+ * three hundred metres look identical on a printed page, and only the person
+ * standing there can decide whether to take it again.
  */
 export function GpsControl({ field, value, onChange }: Of<'gps'>) {
   const [state, setState] = useState<'idle' | 'locating' | 'denied' | 'failed'>(
@@ -440,7 +456,7 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
   )
   const gps = value as GpsValue | undefined
 
-  function capture() {
+  const capture = useCallback(() => {
     setState('locating')
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -448,6 +464,7 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
           altitude: position.coords.altitude ?? undefined,
+          accuracy: position.coords.accuracy,
           at: Date.now(),
         })
         setState('idle')
@@ -457,7 +474,28 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
       },
       { enableHighAccuracy: true, timeout: 15_000 },
     )
-  }
+  }, [onChange])
+
+  const answered = gps !== undefined
+  useEffect(() => {
+    if (!field.auto || answered) return
+    if (typeof navigator === 'undefined') return
+    let live = true
+    // Not every browser reports on this permission — Safari did not for years
+    // — and a rejection here is a reason to leave it to the button, never to
+    // ask.
+    void Promise.resolve()
+      .then(() => navigator.permissions.query({ name: 'geolocation' }))
+      .then((status) => {
+        // Anything but an existing grant leaves the button to do its job.
+        // `prompt` in particular must not be turned into a prompt.
+        if (live && status.state === 'granted') capture()
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [field.auto, answered, capture])
 
   return (
     <span className="flex flex-col gap-1.5">
@@ -481,9 +519,15 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
       </button>
 
       {gps && (
-        <span className="text-caption tabular-nums text-muted">
-          {gps.lat.toFixed(6)}, {gps.lng.toFixed(6)}
-          {gps.altitude !== undefined && ` · ${gps.altitude.toFixed(1)} m`}
+        <span className="flex flex-col text-caption tabular-nums text-muted">
+          <span>
+            {gps.lat.toFixed(6)}, {gps.lng.toFixed(6)}
+            {gps.altitude !== undefined && ` · ${gps.altitude.toFixed(1)} m`}
+          </span>
+          <span>
+            captured {formatClock(gps.at)}
+            {gps.accuracy !== undefined && ` · ±${Math.round(gps.accuracy)} m`}
+          </span>
         </span>
       )}
 

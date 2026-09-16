@@ -649,3 +649,51 @@ test.describe('answers that never reached the server', () => {
     await expect.poll(async () => await mirrored(page, reportId)).toBeNull()
   })
 })
+
+test.describe('the one question the phone answers better', () => {
+  test('takes the reading by itself only where permission was already given', async ({
+    page,
+    context,
+  }) => {
+    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-gps')
+
+    // Granted once, deliberately, on this device — which is the only state the
+    // form is allowed to act on.
+    await context.grantPermissions(['geolocation'])
+    await context.setGeolocation({ latitude: -31.9187, longitude: 115.9315, accuracy: 8 })
+
+    await signInViaUi(page, email)
+    await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'location'))
+    await builderReady(page)
+
+    // No tap: the technician is standing at the property when they open §1.
+    await expect(page.getByText(/-31\.918700, 115\.931500/)).toBeVisible()
+    // And it says when, and how good it is — eight metres and three hundred
+    // look identical on a printed page.
+    await expect(page.getByText(/captured .* · ±8 m/)).toBeVisible()
+
+    await expect
+      .poll(async () => {
+        const report = await owner.client.query(api.reports.get, { businessId, reportId })
+        const gps = (report!.data as Record<string, { lat?: number }>).location
+        return gps?.lat
+      })
+      .toBeCloseTo(-31.9187, 3)
+  })
+
+  test('asks for nothing when the permission has never been given', async ({ page }) => {
+    const { email, slug, reportId } = await startJobReport('fill-gps-none')
+
+    await signInViaUi(page, email)
+    await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'location'))
+    await builderReady(page)
+
+    // A permission dialog that appears because a section scrolled into view is
+    // one people dismiss without reading, and an answer obtained that way is
+    // not evidence of anything.
+    await expect(
+      page.getByRole('button', { name: /GPS Coordinates — capture location/ }),
+    ).toBeVisible()
+    await expect(page.getByText(/captured/)).toHaveCount(0)
+  })
+})

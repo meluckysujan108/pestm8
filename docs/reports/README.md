@@ -1,0 +1,173 @@
+# Reports
+
+The compliance layer. A report is a form the business is legally required to
+issue, filled in on a phone in someone's back garden and delivered as a
+document a client keeps for years. Three things follow from that and explain
+most of the design: the wording is not ours to change, the finished document is
+immutable, and the technician's attention is the scarcest thing in the system.
+
+Start with `docs/reports/fidelity.md` for what the three Pest M8 forms say and
+why; this file is how the machinery works.
+
+## The shape of it
+
+```
+templates (data)  →  builder (fill)  →  finalise (freeze)  →  document (paint)
+src/lib/            src/components/     convex/reports.ts     buildReportModel
+reportTemplates/    reports/                                  ↓           ↓
+                                                        ReportDocument  ReportPdf
+```
+
+A template is **data**, not code: `sections → fields`, each field a kind the
+builder knows how to render and `present()` knows how to read back. Adding a
+state-specific variant or a fourth document type is a new definition file, never
+a change to the builder (ARCHITECTURE §5.3).
+
+Four modules carry the rules, and everything else paints:
+
+| Module | Owns |
+| --- | --- |
+| `visibility.ts` | which questions are being asked right now (`visibleWhen`) |
+| `present.ts` | what one stored ANSWER reads as — codes to labels, dates to prose, a signature to its image |
+| `documentModel.ts` | what the DOCUMENT is made of — sections, headings, blocks, cover, footer |
+| `validate.ts` | whether it can be locked, in the same code the server runs |
+
+`buildReportModel()` is pure and holds no React, so the Convex Node action, the
+browser and a vitest all build the identical model. Both painters — the DOM one
+in `ReportDocument.tsx` and the react-pdf one in `pdf/ReportPdf.tsx` — do
+nothing but draw it. They used to decide these things separately, and two
+painters agreeing by hand is how a PDF comes to disagree with the screen it was
+approved on.
+
+## Where answers come from
+
+Never re-ask what the system knows — but always print it. Three classes, and
+the difference matters on a document someone signs:
+
+- **Bound** — printed from a record, never stored in `data`. The client's name
+  and phone, the site address, the business block. A `derived` field. Live while
+  it is a draft, frozen into `contextSnapshot` at finalise, so renaming a client
+  next year does not rewrite a report issued this year.
+- **Fact** — read off a record into `data` at create, then editable and printed
+  as-is: the job's date, `jobs.startedAt`, the assigned technician, the first
+  treatment row from the job type. Not marked, because asking a technician to
+  confirm what their own client record says is a tax on being helpful.
+- **Suggestion** — something the app worked out: the forecast weather, a booked
+  start time, answers copied from the last visit. Carries
+  `reports.prefill[key]`, renders as a dashed "Suggested" chip, blocks finalise
+  until confirmed — and pressing `Next` on its section is the confirmation. A
+  guess never prints under a signature.
+
+`seedFromContext()` decides all of it, on the server, at create. The GPS field
+is the one client-side exception: `auto` takes a reading when the question is
+first shown, but only where the browser already holds a granted permission.
+
+## Finalising
+
+`reports.finalise` is the only one-way door in the app.
+
+1. Re-validates everything the browser validated, in the same `validateReport`,
+   and refuses with `REPORT_INCOMPLETE` carrying the issue paths.
+2. Freezes the wording: the resolved template is content-hashed into
+   `reportTemplateSnapshots` and referenced by `templateSnapshotId`. Reports
+   finalised against identical wording share one row.
+3. Freezes the records into `contextSnapshot`, including the business's names
+   and logo.
+4. Allocates `reportNumber` from `businesses.nextReportNumber` — at finalise,
+   not at create, so a draft abandoned in a van does not burn a number from a
+   sequence a client may quote back.
+5. Schedules `reportPipeline.afterFinalise`.
+
+Afterwards the report renders **only** from its own snapshots. A finalised
+report is never edited; a correction is a new version (reserved, not built).
+
+## Drawing the PDF
+
+`reportPipeline.renderIfNeeded()` is the single path, and every caller goes
+through it: the pipeline scheduled at finalise, the PDF tab, a download, an
+email send.
+
+- `internal.reports.claimPdf` takes the job, or reports that the file is
+  already current, or that someone else holds it. A caller who arrives while a
+  render runs waits for it — tapping Download a second after Finalise is the
+  normal case. A claim that never settles goes stale after five minutes.
+- Every rendered file becomes a `reportPdfs` row with the renderer and template
+  version that drew it. Superseded files are kept: a client emailed a report in
+  August must still be shown the file they were actually sent.
+- `RENDER_VERSION` in `convex/reports.ts` is the painter's version. Bumping it
+  re-renders every report on its next open, which is how a fix to the document
+  reaches files already drawn.
+- A scheduled action runs with **no identity**, so it reads through
+  `internal.reports.getForRender` and `photosForRender` rather than the public
+  queries, which would refuse it.
+- A draft can be rendered too, through `reportPdf.preview`: the same document
+  stamped `DRAFT` on every page, one per report, deleted the moment the real
+  one exists.
+
+## The page
+
+The anatomy `fidelity.md` refers to, matching the document the client already
+receives. Layout differences from the vendor's output are logged in that file's
+**Layout decisions** table.
+
+**Cover** (`pdf/CoverPage.tsx`) — a portrait page, the landscape front-page
+photo banded across the top ~46%, a white wave cut through it with a grey
+trailing curve, the logo, then a red rule, the form's title at 38pt, a second
+red rule, the subtitle, the full site address and the date the form records. No
+photo: the band is a red gradient rather than half a page of white.
+`objectFit: cover` here and only here — this is a designed band, not evidence.
+
+**Every body page** (`pdf/layout.tsx`) — the logo left and the business block
+right, both `fixed`; at the foot, the form name and `Page N of M` over a 1.5pt
+red rule, then `Submitted by: … @ 11:35:53 28 Aug 2026`, `Version:` and
+`Submission ID:`. Those three labels are the source form's, over PestM8's own
+values.
+
+**First body page** — a solid red title band, `{brand} {form name} for {year}`
+with the document's date fenced off at its right end. The AS forms print their
+own header lines and standards reference instead; a band above them would say
+the same thing twice.
+
+**Sections** — red 15pt headings in the form's own case, red bold sub-headings
+for a `heading` block, notes in a hairline-left inset (`important` gets a red
+rule and a bold `IMPORTANT:`; `statement` is set in Helvetica-Oblique). Nothing
+forces a page break except the terms: the vendor's per-section breaks left pages
+two-thirds blank.
+
+**Answers** (`pdf/tables.tsx`) — a 38/62 split, the label column tinted
+`#FFF2F2`, dotted separators, each row `wrap={false}` so a label is never
+orphaned from its answer. A toggle or choice whose template declares a flagged
+answer gets a 5pt bar: green when it is not the flagged one, amber when it is,
+red for `semantic: 'safetyGate'`. A repeater is lifted out of the row flow into
+its own table with a red header row that repeats across a page break.
+
+**Evidence** — photos at their own aspect inside a 240pt height cap, three to a
+row for portrait sets and two for landscape, chunked in JS so a twelve-photo
+set cannot be clipped off the page. Signatures print the drawn image with the
+signer named beneath.
+
+**Rule 8** — a signed document omits what was never answered, and now also the
+sub-heading left standing over nothing and the section left with nothing at
+all. A draft still shows the em dash, because the technician needs to see what
+is open.
+
+### Two things react-pdf will catch you with
+
+- `lineHeight` resolves against the font size **on its own style object**, and
+  the default is 18pt. `{ lineHeight: 1.4 }` on a wrapper with no `fontSize`
+  double-spaces every wrapped paragraph in the document. Always state them
+  together.
+- A `lineHeight` on `Page` itself breaks `fixed` + `position: absolute`, and the
+  footer silently renders nothing. It lives on a body wrapper instead.
+
+## Testing it
+
+- `src/components/reports/pdf/ReportPdf.test.tsx` renders the real component
+  through the real renderer under Node and reads the text layer back.
+  `PDF_OUT=<dir> pnpm vitest run ReportPdf` writes the files out to look at.
+- `src/lib/reportTemplates/fidelity.test.ts` compares every template string
+  against the machine-extracted source corpus, both ways: nothing omitted,
+  nothing invented.
+- `seam.test.ts` pins the v1 snapshot hashes that finalised reports dereference.
+- `e2e/pdf.spec.ts`, `reportPdf.spec.ts` and `reportSnapshot.spec.ts` assert the
+  delivered file: its text, its cover, its images and its frozen wording.

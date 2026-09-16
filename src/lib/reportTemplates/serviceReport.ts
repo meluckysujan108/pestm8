@@ -476,6 +476,10 @@ export const serviceReport: ReportTemplate = {
           key: 'location',
           label: 'GPS Coordinates',
           format: 'lines',
+          // The technician is standing at the property when they open §1, and
+          // this is the one question on the form whose answer the phone knows
+          // better than they do. Only where the permission is already granted.
+          auto: true,
         },
         {
           // src: service-report-submitted.md:25 (rule 3; spec.md:10 "Report Cover Photo" superseded)
