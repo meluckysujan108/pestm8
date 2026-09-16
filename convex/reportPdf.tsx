@@ -1,7 +1,7 @@
 'use node'
 
 import { ConvexError, v } from 'convex/values'
-import { action } from './_generated/server'
+import { action, internalAction } from './_generated/server'
 import { api, internal } from './_generated/api'
 
 /** `toBuffer()` resolves to a Node `ReadableStream`, not a `Buffer` — this
@@ -21,7 +21,7 @@ async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
  * library's API, unavailable in the browser build `DownloadPdfButton` used to
  * use.
  */
-export const ping = action({
+export const ping = internalAction({
   args: {},
   handler: async () => {
     const { pdf, Document, Page, Text } = await import('@react-pdf/renderer')
@@ -63,7 +63,8 @@ export const generate = action({
     ])
 
     const { pdf } = await import('@react-pdf/renderer')
-    const { ReportPdf } = await import('../src/components/reports/pdf/ReportPdf')
+    const { ReportPdf } =
+      await import('../src/components/reports/pdf/ReportPdf')
 
     const stream = await pdf(
       <ReportPdf

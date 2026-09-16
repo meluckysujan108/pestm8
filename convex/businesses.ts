@@ -150,13 +150,27 @@ export const update = mutation({
     licenceNumber: v.optional(v.string()),
   },
   handler: async (ctx, { businessId, ...patch }) => {
-    await requireOwner(ctx, businessId)
+    const actor = await requireOwner(ctx, businessId)
 
     const fields = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
+      Object.entries(patch as Record<string, unknown>).filter(
+        ([, value]) => value !== undefined,
+      ),
     )
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(businessId, fields)
+
+      // ABN, licence number and trading name are printed on compliance
+      // documents. Who changed them, and when, is part of the record.
+      await ctx.db.insert('auditLog', {
+        businessId,
+        actorMembershipId: actor._id,
+        action: 'business.update',
+        entityType: 'businesses',
+        entityId: businessId,
+        meta: { fields: Object.keys(fields) },
+        at: Date.now(),
+      })
     }
   },
 })

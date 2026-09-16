@@ -1,6 +1,10 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
-import { canEditJob, requireMembership } from './lib/access'
+import {
+  canEditJob,
+  requireAssignableMember,
+  requireMembership,
+} from './lib/access'
 import { allocateJobNumber } from './jobs'
 import { clientNameOf, newClientFields, resolvePropertyId } from './properties'
 import { frequency } from './schema'
@@ -83,7 +87,10 @@ export const create = mutation({
     anchorDate: v.number(),
     durationMinutes: v.number(),
   },
-  handler: async (ctx, { propertyId: existingPropertyId, newClient, ...args }) => {
+  handler: async (
+    ctx,
+    { propertyId: existingPropertyId, newClient, ...args },
+  ) => {
     const membership = await requireMembership(ctx, args.businessId)
 
     // Same rule as jobs.create: only an owner books someone else's calendar.
@@ -93,6 +100,12 @@ export const create = mutation({
     ) {
       throw new ConvexError('NO_ACCESS')
     }
+
+    await requireAssignableMember(
+      ctx,
+      args.businessId,
+      args.assignedMembershipId,
+    )
 
     const propertyId = await resolvePropertyId(ctx, args.businessId, {
       propertyId: existingPropertyId,
@@ -148,7 +161,7 @@ export const setActive = mutation({
       const now = Date.now()
       for (const job of jobs) {
         if (job.status === 'booked' && job.scheduledAt > now) {
-          await ctx.db.delete(job._id)
+          await ctx.db.patch(job._id, { status: 'cancelled' })
         }
       }
     }
@@ -214,6 +227,10 @@ export const materialiseAll = internalMutation({
     let created = 0
     for (const recurrence of recurrences) {
       if (!recurrence.active) continue
+      // Booking work for someone who has left is how a removed subcontractor
+      // keeps appearing on the schedule for the next six months.
+      const assignee = await ctx.db.get(recurrence.assignedMembershipId)
+      if (!assignee || assignee.status !== 'active') continue
       created += await materialiseOne(ctx, recurrence._id)
     }
     return { created }
@@ -319,6 +336,18 @@ export const stopFromJob = mutation({
       throw new ConvexError('NOT_FOUND')
     }
 
+    // Being handed one visit out of a series is not authority over the series.
+    // This checked only the job's own assignee, so a subcontractor given a
+    // single visit could end the owner's quarterly contract and wipe every
+    // remaining booking on it.
+    const membership = await requireMembership(ctx, businessId)
+    if (
+      membership.role !== 'owner' &&
+      recurrence.assignedMembershipId !== membership._id
+    ) {
+      throw new ConvexError('NO_ACCESS')
+    }
+
     await ctx.db.patch(jobId, { recurrenceId: undefined })
     await ctx.db.patch(recurrenceId, { active: false })
 
@@ -330,7 +359,9 @@ export const stopFromJob = mutation({
     const now = Date.now()
     for (const sibling of siblings) {
       if (sibling.status === 'booked' && sibling.scheduledAt > now) {
-        await ctx.db.delete(sibling._id)
+        // Cancelled, not deleted: someone turned up to these, or planned to.
+        // A hard delete leaves the owner no way to see what was dropped.
+        await ctx.db.patch(sibling._id, { status: 'cancelled' })
       }
     }
   },
