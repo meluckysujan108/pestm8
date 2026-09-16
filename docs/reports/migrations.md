@@ -276,3 +276,39 @@ rather than invented. Run on dev 2026-09-16: 246 bare ids converted, 257
 signatures, zero remaining.
 
 Contract later, once prod also reports zero: drop the `v.id('_storage')` arm.
+
+## Phase 4 — the document, and the pipeline that draws it
+
+Expand-only; no backfill is owed, and nothing has to run before the deploy.
+
+New optional columns: `businesses.tradingName` / `reportBrandName` / `website`
+(each falls back to the one above it, so a business that never opens the
+branding settings still prints a coherent header and title band);
+`reports.pdfStatus` / `pdfRenderVersion` / `pdfGeneratedAt` /
+`previewStorageId`; `reportPhotos` is unchanged. `reportPdfs` is a new
+append-only table. `reportContextSnapshot` gains `business.brandName`,
+`business.website` and `author.name` — all optional, so snapshots frozen
+before this keep resolving, and a report finalised then prints no
+`Submitted by:` line rather than a name taken from whoever holds that
+membership row today.
+
+**`printSpec` gained `termsBreak`, so `convex/schema.ts` had to be widened in
+the same change.** That validator is closed and `freezeTemplate` swallows its
+errors by design, so a `PrintSpec` addition that misses the schema stops every
+finalise from freezing its wording — silently, with finalised reports then
+rendering from whatever the live template says next month. The snapshot tests
+catch it; the rule is that the two move together.
+
+### Existing finalised reports re-render on next open
+
+`RENDER_VERSION` is 2 and rows finalised before it read as 0, so the first
+person to open an older report's PDF gets one drawn by the new painter. That
+is the mechanism working: what a report SAYS is frozen in its template and
+context snapshots and cannot change, while how it is drawn is deliberately
+not. The superseded file stays in storage — it is what somebody was sent —
+and the newly drawn one becomes the report's current pointer plus its first
+`reportPdfs` row.
+
+Worth knowing before the prod deploy: a client who asks for "the same PDF you
+sent me in August" will be handed the same content in the new layout until
+deliveries record which `reportPdfs` row they attached (Phase 5).
