@@ -5,6 +5,7 @@ import { authComponent } from './auth'
 import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
+import { NO_GRANTS } from './lib/capabilities'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { requireActor, requireCapability } from './lib/actor'
@@ -173,7 +174,35 @@ async function offboard(
     canViewAllJobs: false,
     canViewOtherAccounts: false,
     viewingAsMembershipId: undefined,
+    // Their grants go with them. A membership id is never reused, so a stale
+    // `switchInto` could not be redeemed by anyone — but leaving a removed
+    // person holding a grant makes the row read as though they still have
+    // access to someone's account, which is the opposite of what it now means.
+    grants: NO_GRANTS,
   })
+
+  /**
+   * Both directions of a switch end here, which is what the `by_real` and
+   * `by_target` indexes were added for and what nothing had used.
+   *
+   * Access is already revoked without this: `canSwitchInto` is re-derived from
+   * live rows on every single request, so a surviving row grants exactly
+   * nothing the moment the membership stops being active. It is cleaned up
+   * because a row that means nothing should not still exist — it would resume
+   * having meaning if the ids it names ever came back, and it makes the table
+   * a worse answer to "who is in whose account right now".
+   */
+  for (const index of ['by_real', 'by_target'] as const) {
+    const rows = await ctx.db
+      .query('accountSwitches')
+      .withIndex(index, (q) =>
+        index === 'by_real'
+          ? q.eq('realMembershipId', target._id)
+          : q.eq('targetMembershipId', target._id),
+      )
+      .collect()
+    for (const row of rows) await ctx.db.delete(row._id)
+  }
 
   // Anyone currently looking through this person's eyes stops doing so.
   const siblings = await ctx.db
