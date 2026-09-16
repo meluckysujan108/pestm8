@@ -7,7 +7,14 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
-import { builderReady, createReport, sectionUrl } from './fixtures/reportPayloads'
+import {
+  builderReady,
+  createReport,
+  saveReportDraft,
+  sectionUrl,
+  signReport,
+} from './fixtures/reportPayloads'
+import type { Id } from '../convex/_generated/dataModel'
 
 /**
  * Filling a report, the way a technician does it: an overview of the form, one
@@ -274,6 +281,13 @@ test('a service report from a job reaches Finalise in well under 30 taps', async
 
   await page.getByRole('button', { name: 'Finalise & lock' }).click()
 
+  // One last tap, and it is the one that matters: the sheet reads back what is
+  // about to become a record, and locking it is a deliberate second act rather
+  // than a stray press on the bar the Save button shares.
+  const confirm = page.getByRole('dialog')
+  await expect(confirm.getByText('General Pest Control')).toBeVisible()
+  await confirm.getByRole('button', { name: 'Finalise & lock' }).click()
+
   // Locked, with nothing typed: no date, no client, no site, no technician.
   await expect
     .poll(async () => {
@@ -361,5 +375,106 @@ test.describe('starting a report from the job it belongs to', () => {
     for (const name of ['Pest Service Report', 'Timber Pest Inspection']) {
       await expect(page.getByText(name, { exact: true })).toBeVisible()
     }
+  })
+})
+
+/**
+ * Everything the form insists on, answered through the API, so a spec about
+ * the last screen does not have to walk the whole form to reach it.
+ *
+ * Merges rather than replaces: `saveDraft` writes `data` wholesale, and the
+ * seeded date, time and technician are exactly what makes the report
+ * finishable.
+ */
+async function readyToLock(
+  owner: Awaited<ReturnType<typeof startJobReport>>['owner'],
+  businessId: Id<'businesses'>,
+  reportId: Id<'reports'>,
+  answers: Record<string, unknown>,
+) {
+  const report = await owner.client.query(api.reports.get, { businessId, reportId })
+  await saveReportDraft(owner.client, { businessId }, reportId, 'serviceReport', {
+    ...(report!.data as Record<string, unknown>),
+    // The pad writes its own timestamp into the answers as well as the image
+    // into storage; the form asks for both.
+    technicianSignature: { signedAt: 1789000000000 },
+    ...answers,
+  })
+  // Suggestions block the lock until someone has looked at them. Here, that
+  // someone is the fixture.
+  const keys = Object.keys(report!.prefill ?? {})
+  if (keys.length > 0) {
+    await owner.client.mutation(api.reports.confirmPrefill, { businessId, reportId, keys })
+  }
+  await signReport(owner.client, { businessId }, reportId, 'technician')
+}
+
+test.describe('the sheet before the lock', () => {
+  test('reads the report back, and offers the finish time it is the only one who knows', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-confirm-sheet')
+
+    await readyToLock(owner, businessId, reportId, {
+      treatments: [
+        {
+          _id: 'row-1',
+          treatment: ['General Pest Control'],
+          product: ['Biflex Ultra (100 g/L Bifenthrin)'],
+          quantity: ['100ml/10L'],
+          method: ['Hand Compression Sprayer'],
+        },
+      ],
+      safeToStart: false,
+      nextVisit: '6 Months',
+      finishTime: undefined,
+    })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    await builderReady(page)
+    await page.getByRole('button', { name: 'Finalise & lock' }).click()
+
+    const sheet = page.getByRole('dialog')
+    // What the report says, in the form's own words — not a field dump.
+    await expect(sheet.getByText('General Pest Control')).toBeVisible()
+    await expect(sheet.getByText('Biflex Ultra (100 g/L Bifenthrin)')).toBeVisible()
+    await expect(sheet.getByText('6 Months')).toBeVisible()
+    // The gate answered No still locks — and must be impossible to miss.
+    await expect(sheet.getByText('No', { exact: true })).toBeVisible()
+    // An unsigned client pad is a warning, never a refusal.
+    await expect(sheet.getByText(/Signature — not signed/)).toBeVisible()
+    await expect(sheet.getByText('No photos')).toBeVisible()
+
+    // The one answer nobody could have known any earlier.
+    await sheet.getByRole('button', { name: /Finish Time — set to/ }).click()
+    await sheet.getByRole('button', { name: 'Finalise & lock' }).click()
+
+    await expect
+      .poll(async () => {
+        const report = await owner.client.query(api.reports.get, { businessId, reportId })
+        return (report!.data as Record<string, unknown>).finishTime
+      })
+      .toMatch(/^\d{2}:\d{2}$/)
+  })
+
+  test('backing out of it changes nothing', async ({ page }) => {
+    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-sheet-cancel')
+
+    // No treatments at all: an inspection-only visit finalises, and the row
+    // the job type started is either completed or dropped.
+    await readyToLock(owner, businessId, reportId, { safeToStart: true, treatments: [] })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    await builderReady(page)
+    await page.getByRole('button', { name: 'Finalise & lock' }).click()
+    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
+
+    // Still editable: opening the sheet is asking what would happen, not
+    // agreeing to it.
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    const report = await owner.client.query(api.reports.get, { businessId, reportId })
+    expect(report!.status).toBe('draft')
   })
 })

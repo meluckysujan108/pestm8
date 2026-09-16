@@ -77,6 +77,7 @@ export const generate = action({
           context: report.context,
           legalBasis: report.legalBasis,
           finalisedAt: report.finalisedAt,
+          reportNumber: report.reportNumber,
           data: (report.data ?? {}) as Record<string, unknown>,
           businessName: report.businessName,
           business: report.business,

@@ -433,6 +433,7 @@ export const timberPestInspection: ReportTemplate = {
           // src: timber-pest-inspection.md:92
           kind: 'radio',
           key: 'summarySusceptibility',
+          summary: true,
           label:
             'In our opinion, the susceptibility of this property to timber pests is considered to be',
           // src: timber-pest-inspection.md:92
@@ -1061,6 +1062,7 @@ export const timberPestInspection: ReportTemplate = {
           // src: timber-pest-inspection.md:201
           kind: 'radio',
           key: 'susceptibilityRating',
+          summary: true,
           label: 'Susceptibility Rating',
           options: asOptions(['LOW', 'MODERATE', 'HIGH']), // src: timber-pest-inspection.md:201
         },
@@ -1423,6 +1425,7 @@ export const timberPestInspection: ReportTemplate = {
           // src: timber-pest-inspection.md:232
           kind: 'member',
           key: 'inspectorName',
+          summary: true,
           label: 'Inspector Name',
           roleWord: 'Inspector',
           defaultTo: 'jobAssignee',

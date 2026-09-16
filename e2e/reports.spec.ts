@@ -22,6 +22,7 @@ import {
   versionOf,
 } from './fixtures/reportPayloads'
 import { getTemplate } from '../src/lib/reportTemplates'
+import type { Id } from '../convex/_generated/dataModel'
 
 /**
  * The compliance layer (§5.3). The property that matters most is immutability:
@@ -342,6 +343,49 @@ test.describe('finalise refuses an unfinished report', () => {
       reportId,
     })
     expect(report!.status).toBe('finalised')
+  })
+})
+
+test.describe('the number a client quotes over the phone', () => {
+  test('is handed out when a report is finished, in the order they were finished', async () => {
+    const s = await setupBusinessWithSub('report-numbers')
+    const first = await createReport(s.owner.client, s, 'serviceReport')
+    const second = await createReport(s.owner.client, s, 'serviceReport')
+
+    // Finished in the opposite order to the one they were started in. A number
+    // allocated at create would leave the first-issued report numbered 2 — and
+    // a draft abandoned in a van would burn a number out of the sequence
+    // entirely, so the business's records would read 1, 3, 4 with no 2 to
+    // produce if anyone ever asked for it.
+    await signReport(s.owner.client, s, second, 'technician')
+    await finaliseReport(s.owner.client, s, second, 'serviceReport')
+    await signReport(s.owner.client, s, first, 'technician')
+    await finaliseReport(s.owner.client, s, first, 'serviceReport')
+
+    const numberOf = async (reportId: Id<'reports'>) =>
+      (await s.owner.client.query(api.reports.get, { businessId: s.businessId, reportId }))!
+        .reportNumber
+
+    expect(await numberOf(second)).toBe(1)
+    expect(await numberOf(first)).toBe(2)
+  })
+
+  test('counts per business, not across the app', async () => {
+    // Two businesses' first reports are both #1: the sequence is the thing a
+    // client is told, and it belongs to whoever issued the document.
+    const a = await setupBusinessWithSub('report-numbers-a')
+    const b = await setupBusinessWithSub('report-numbers-b')
+
+    for (const s of [a, b]) {
+      const reportId = await createReport(s.owner.client, s, 'serviceReport')
+      await signReport(s.owner.client, s, reportId, 'technician')
+      await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+      const report = await s.owner.client.query(api.reports.get, {
+        businessId: s.businessId,
+        reportId,
+      })
+      expect(report!.reportNumber).toBe(1)
+    }
   })
 })
 

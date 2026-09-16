@@ -1179,10 +1179,21 @@ export const finalise = mutation({
     }
 
     const now = Date.now()
+    // Allocated here rather than at create: a draft that is never finished
+    // should not consume a number from a sequence a client may later quote
+    // back over the phone. Read-then-patch is race-safe inside a Convex
+    // mutation, the same way `jobs.create` hands out job numbers.
+    const business = await ctx.db.get(businessId)
+    const reportNumber = report.reportNumber ?? business?.nextReportNumber ?? 1
+    if (report.reportNumber === undefined) {
+      await ctx.db.patch(businessId, { nextReportNumber: reportNumber + 1 })
+    }
+
     await ctx.db.patch(reportId, {
       data,
       status: 'finalised',
       finalisedAt: now,
+      reportNumber,
       ...(templateSnapshotId ? { templateSnapshotId } : {}),
       ...(contextSnapshot ? { contextSnapshot } : {}),
       ...(customTemplateSnapshot ? { customTemplateSnapshot } : {}),

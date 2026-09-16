@@ -22,6 +22,7 @@ import { reportProgress, sectionByKey, sectionKey } from '#/lib/reportTemplates/
 import { quickAnswersFor } from '#/lib/reportTemplates/quickAnswers'
 import type { QuickMode } from '#/lib/reportTemplates/quickAnswers'
 import { ReportOverview, SectionNav } from './ReportOverview'
+import { FinaliseSheet } from './FinaliseSheet'
 import type { PrefillMap } from '#/lib/reportTemplates/seed'
 import type { SectionProgress } from '#/lib/reportTemplates/progress'
 import type { ReportIssue } from '#/lib/reportTemplates/validate'
@@ -138,15 +139,34 @@ export function ReportBuilder({
     ...convexQuery(api.reports.signatureUrls, { businessId, reportId }),
     enabled: hydrated,
   })
-  const signedSlots = useMemo(() => Object.keys(signatures ?? {}), [signatures])
+  // `undefined` while the query is out, never `[]`: an empty list is the claim
+  // that nothing is signed, and making that claim early is how a technician
+  // gets told their signature is missing while it is on the screen behind the
+  // message.
+  const signedSlots = useMemo(
+    () => (signatures ? Object.keys(signatures) : undefined),
+    [signatures],
+  )
 
   const photoCounts = useMemo(() => {
+    if (!galleryPhotos) return undefined
     const counts: Record<string, number> = {}
-    for (const photo of galleryPhotos ?? []) {
+    for (const photo of galleryPhotos) {
       counts[photo.fieldKey] = (counts[photo.fieldKey] ?? 0) + 1
     }
     return counts
   }, [galleryPhotos])
+
+  /**
+   * Whether the page can answer for what this report holds.
+   *
+   * Hydration is not enough. Signatures and photos live outside `data` and
+   * arrive a moment later, and a completeness check run before they land reads
+   * "not loaded yet" as "not there" — which is the page telling a technician
+   * to do again what they have already done. So the lock waits for them, the
+   * same way it waits for hydration.
+   */
+  const ready = hydrated && signatures !== undefined && galleryPhotos !== undefined
 
   const pending = useMemo(() => {
     const out: PrefillMap = {}
@@ -162,6 +182,13 @@ export function ReportBuilder({
   )
 
   const current = sectionByKey(progress, sectionId)
+
+  /**
+   * Open once the report passes validation and before it is locked. Kept as
+   * its own state rather than "are there no issues", so the sheet appears only
+   * when the technician asked for it.
+   */
+  const [confirming, setConfirming] = useState(false)
 
   const [issues, setIssues] = useState<Array<ReportIssue>>([])
   const blockedRef = useRef<HTMLDivElement>(null)
@@ -202,6 +229,9 @@ export function ReportBuilder({
     // show those rather than "something went wrong", which is what a stale tab
     // would otherwise report about a form that looked finished on screen.
     onError: (error: unknown) => {
+      // Whatever went wrong is explained on the page behind the sheet, so the
+      // sheet has to get out of the way to let it be read.
+      setConfirming(false)
       const refused = incompleteIssues(error)
       if (refused) {
         setIssues(refused)
@@ -321,6 +351,30 @@ export function ReportBuilder({
     }
     setErrors({})
     setIssues([])
+    setConfirming(true)
+  }
+
+  /**
+   * The lock itself, from the sheet's own button.
+   *
+   * Validated a second time rather than reusing the payload that opened the
+   * sheet: the sheet can answer the finish time, and an answer made in the
+   * last five seconds belongs in the document as much as any other.
+   */
+  function onConfirmFinalise() {
+    const result = validateReport({
+      template,
+      data,
+      signedSlots,
+      photoCounts,
+      prefill: pending,
+    })
+    if (!result.ok) {
+      setConfirming(false)
+      setErrors(Object.fromEntries(result.issues.map((issue) => [issue.key, issue.message])))
+      setIssues(result.issues)
+      return
+    }
     finalise.mutate({
       businessId,
       reportId,
@@ -367,7 +421,7 @@ export function ReportBuilder({
           progress={progress}
           onOpen={(section) => goToSection(section)}
           onFinalise={() => void onFinaliseClick()}
-          disabled={finalise.isPending || !hydrated}
+          disabled={finalise.isPending || !ready}
         />
       )}
 
@@ -519,12 +573,25 @@ export function ReportBuilder({
         </p>
       )}
 
+      <FinaliseSheet
+        open={confirming}
+        onClose={() => setConfirming(false)}
+        onConfirm={onConfirmFinalise}
+        pending={finalise.isPending}
+        template={template}
+        data={data}
+        context={context}
+        signedSlots={signedSlots ?? []}
+        photoCount={Object.values(photoCounts ?? {}).reduce((total, n) => total + n, 0)}
+        onAnswer={(key, value) => setData((prev) => ({ ...prev, [key]: value }))}
+      />
+
       {/* `data-ready` is the readiness signal the e2e suite waits on: the
           footer's buttons change label per screen, so waiting on any one of
           them by name was a wait on the layout rather than on hydration. */}
       <div
         data-report-footer
-        data-ready={hydrated ? 'true' : 'false'}
+        data-ready={ready ? 'true' : 'false'}
         /* Typing a comment must not hide the way to the next section: iOS does
            not shrink the layout viewport for the keyboard, so a fixed bar sits
            under it unless it is offset by what the keyboard actually covers. */
@@ -560,7 +627,7 @@ export function ReportBuilder({
               </button>
             ) : (
               <FinaliseButton
-                disabled={finalise.isPending || !hydrated}
+                disabled={finalise.isPending || !ready}
                 pending={finalise.isPending}
                 onClick={() => void onFinaliseClick()}
               />
@@ -582,7 +649,7 @@ export function ReportBuilder({
                 than left guessing at a dead button. */}
             {progress.complete || !progress.firstIncomplete ? (
               <FinaliseButton
-                disabled={finalise.isPending || !hydrated}
+                disabled={finalise.isPending || !ready}
                 pending={finalise.isPending}
                 onClick={() => void onFinaliseClick()}
               />

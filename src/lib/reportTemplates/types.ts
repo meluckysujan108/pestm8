@@ -97,6 +97,15 @@ type BaseField = {
   /** The key of the question this belongs to, for `printed: 'whenFlagged'`. */
   attachedTo?: string
   /**
+   * Read this answer back on the finalise sheet, before the report locks.
+   *
+   * A handful per form — what was done, whether it was safe, when the next
+   * visit falls due — because a summary that lists everything is the document
+   * again, and nobody re-reads a document to confirm they wrote it. Which
+   * answers matter is a property of the form, so each template names its own.
+   */
+  summary?: boolean
+  /**
    * What this question MEANS to the app, as opposed to what it says. The forms
    * word the same job differently — "Send copy of the report to the client
    * email above…" on the Service Report, "Send a copy of the Report to the
@@ -110,6 +119,8 @@ type BaseField = {
    * `weather`          the weather answer, seeded from the forecast as a
    *                    suggestion the technician confirms.
    * `startTime`        when work began, seeded from the job.
+   * `finishTime`       when work ended — never seeded, because a duration is
+   *                    not an observation; the finalise sheet offers now.
    * `emailTo`          extra recipients.
    */
   semantic?: FieldSemantic
@@ -120,6 +131,7 @@ export type FieldSemantic =
   | 'safetyGate'
   | 'weather'
   | 'startTime'
+  | 'finishTime'
   | 'emailTo'
 
 /**

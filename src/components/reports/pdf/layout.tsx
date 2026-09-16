@@ -58,15 +58,24 @@ export function PdfHeader({
 export function PdfFooter({
   formId,
   timestamp,
+  submissionId,
 }: {
   formId: string
   timestamp?: string
+  /**
+   * The business's own report number, printed under the source form's own
+   * label. Absent on a draft, and on documents finalised before the app kept
+   * a sequence — printing a fabricated number would misrepresent the order
+   * documents were issued in.
+   */
+  submissionId?: number
 }) {
   return (
     <View style={styles.footer} fixed>
       <Text>
         {formId}
         {timestamp ? ` · ${timestamp}` : ''}
+        {submissionId !== undefined ? ` · Submission ID: ${submissionId}` : ''}
       </Text>
       <Text
         render={({ pageNumber, totalPages }) =>

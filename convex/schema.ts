@@ -175,6 +175,16 @@ export default defineSchema({
     // exactly one counter today; read-then-patch inside `jobs.create`'s own
     // mutation is race-safe under Convex's transactional guarantees.
     nextJobNumber: v.optional(v.number()),
+    /**
+     * The next value `reports.finalise` will stamp as a report's
+     * `reportNumber` — the number the finished document prints beside
+     * "Submission ID:", and the one a client quotes on the phone.
+     *
+     * Allocated at finalise rather than at create, because a draft that is
+     * never finished should not consume a number from a sequence a client may
+     * later ask about.
+     */
+    nextReportNumber: v.optional(v.number()),
   }).index('by_slug', ['slug']),
 
   memberships: defineTable({
@@ -347,6 +357,14 @@ export default defineSchema({
     // server-managed may live inside it.
     data: v.any(),
     photoIds: v.array(v.id('_storage')),
+    /**
+     * A short, human-sayable number for the finished document, allocated from
+     * the business's own sequence when it is locked. Optional because a draft
+     * has none, and because reports finalised before this existed were never
+     * given one — a fabricated number would misrepresent the order documents
+     * were actually issued in.
+     */
+    reportNumber: v.optional(v.number()),
     /**
      * Which answers the app worked out rather than read off a record — the
      * forecast, the booked start time — and when the technician confirmed

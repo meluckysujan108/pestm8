@@ -60,6 +60,8 @@ export type PdfReport = {
   context?: PresentContext | null
   legalBasis: string
   finalisedAt?: number
+  /** The business's own number for this document, printed as its Submission ID. */
+  reportNumber?: number
   data: Record<string, unknown>
   businessName: string
   business?: {
@@ -421,6 +423,7 @@ export function ReportPdf({ report }: { report: PdfReport }) {
         </View>
 
         <PdfFooter
+          submissionId={report.reportNumber}
           formId={`${report.businessName} · ${template.name}`}
           timestamp={
             report.finalisedAt

@@ -343,6 +343,7 @@ export const termiteManagementCert: ReportTemplate = {
         {
           kind: 'radio',
           key: 'systemType',
+          summary: true,
           label: 'System Type Installed',
           options: verbatim(SYSTEM_TYPES),
         },
@@ -545,6 +546,7 @@ export const termiteManagementCert: ReportTemplate = {
         {
           kind: 'date',
           key: 'nextInspectionDue',
+          summary: true,
           label: 'Next Inspection Due Date',
         },
       ],
@@ -571,6 +573,7 @@ export const termiteManagementCert: ReportTemplate = {
         {
           kind: 'member',
           key: 'certifyingInstaller',
+          summary: true,
           label: 'Installer Name',
           roleWord: 'Installer',
           defaultTo: 'jobAssignee',

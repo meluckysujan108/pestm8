@@ -41,10 +41,12 @@ const base = {
   visibleWhen: conditionSchema.optional(),
   printed: z.union([z.literal(false), z.literal('whenFlagged')]).optional(),
   attachedTo: z.string().optional(),
+  // Mirrors `summary` in types.ts: read back on the finalise sheet.
+  summary: z.boolean().optional(),
   // Mirrors `FieldSemantic` in types.ts: what a question means to the app,
   // separate from the wording the form uses to ask it.
   semantic: z
-    .enum(['sendCopyToClient', 'safetyGate', 'weather', 'startTime', 'emailTo'])
+    .enum(['sendCopyToClient', 'safetyGate', 'weather', 'startTime', 'finishTime', 'emailTo'])
     .optional(),
 }
 
