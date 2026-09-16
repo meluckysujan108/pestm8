@@ -41,6 +41,11 @@ const base = {
   visibleWhen: conditionSchema.optional(),
   printed: z.union([z.literal(false), z.literal('whenFlagged')]).optional(),
   attachedTo: z.string().optional(),
+  // Mirrors `FieldSemantic` in types.ts: what a question means to the app,
+  // separate from the wording the form uses to ask it.
+  semantic: z
+    .enum(['sendCopyToClient', 'safetyGate', 'weather', 'startTime', 'emailTo'])
+    .optional(),
 }
 
 const textField = z.object({ ...base, kind: z.literal('text'), placeholder: z.string().optional() })
@@ -290,7 +295,6 @@ const coverField = z.object({
 const emailsField = z.object({
   ...base,
   kind: z.literal('emails'),
-  semantic: z.literal('emailTo').optional(),
   placeholder: z.string().optional(),
 })
 

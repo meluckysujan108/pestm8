@@ -496,6 +496,7 @@ export const serviceReport: ReportTemplate = {
           // Form-only: the PDF never prints it (needs BaseField `printed: false`).
           kind: 'toggle',
           key: 'sendCopy',
+          semantic: 'sendCopyToClient',
           // Form-only (rule 3): drives delivery, never printed.
           printed: false,
           label:
@@ -508,6 +509,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'time',
           key: 'startTime',
           label: 'Start Time:',
+          semantic: 'startTime',
         },
         {
           // src: service-report-printed.pdf:p2 "Finish Time:" (rule 1); spec.md:15 time picker
@@ -528,6 +530,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'checks',
           key: 'weather',
           label: 'Weather on the Day',
+          semantic: 'weather',
           options: asOptions(WEATHER),
         },
       ],
@@ -656,6 +659,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'toggle',
           key: 'safeToStart',
           label: 'Is it safe to commence work?',
+          semantic: 'safetyGate',
           yes: 'Yes',
           no: 'No',
           required: true,
@@ -751,6 +755,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'emails',
           key: 'emailReportTo',
           label: 'Email Report To',
+          semantic: 'emailTo',
           // Form-only (rule 3): a delivery instruction, not document content.
           printed: false,
         },

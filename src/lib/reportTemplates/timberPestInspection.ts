@@ -167,6 +167,7 @@ export const timberPestInspection: ReportTemplate = {
           // src: timber-pest-inspection.md:36
           kind: 'toggle',
           key: 'sendCopyToClient',
+          semantic: 'sendCopyToClient',
           // Drives delivery, never printed — as the same vendor's Service Report
           // PDF shows for its identical control.
           printed: false,
@@ -194,6 +195,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'time',
           key: 'inspectionTime',
           label: 'Inspection Time',
+          semantic: 'startTime',
         },
         {
           // src: timber-pest-inspection.md:40
@@ -229,6 +231,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'radio',
           key: 'weatherConditions',
           label: 'Weather Conditions at time of inspection',
+          semantic: 'weather',
           // src: timber-pest-inspection.md:52-58
           options: asOptions([
             'Dry',
@@ -1474,6 +1477,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'emails',
           key: 'emailReportTo',
           label: 'Email Report To',
+          semantic: 'emailTo',
           // A delivery instruction, not document content.
           printed: false,
         },

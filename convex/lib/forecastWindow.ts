@@ -15,6 +15,15 @@ export const FORECAST_AHEAD_DAYS = 14
 export const FORECAST_BEHIND_DAYS = 2
 
 /**
+ * Thresholds that actually change a technician's decision, and now also what a
+ * report says the weather was. They live beside the window, in the one weather
+ * module with no Convex or React imports, so the schedule's cards, the report
+ * seeding and the server can all read the same two numbers.
+ */
+export const RAIN_WARN_MM = 2
+export const WIND_WARN_KMH = 25
+
+/**
  * `todayKey` is the caller's own "today", which must be computed in the
  * TENANT's timezone. Defaulting it to UTC would be wrong for every Australian
  * tenant for the first 8–11 hours of each local day: local `today + 14` would

@@ -431,9 +431,18 @@ export const update = mutation({
       }
     }
 
-    const fields = Object.fromEntries(
+    const fields: Record<string, unknown> = Object.fromEntries(
       Object.entries(patch).filter(([, value]) => value !== undefined),
     )
+
+    // The first time a job says work has begun, record when. A report started
+    // from this job prints that as its start time, instead of the technician
+    // remembering it an hour later. Stamped once: a job bounced back to
+    // `inProgress` after a pause still began when it began.
+    if (patch.status === 'inProgress' && job.startedAt === undefined) {
+      fields.startedAt = Date.now()
+    }
+
     if (Object.keys(fields).length > 0) await ctx.db.patch(jobId, fields)
   },
 })

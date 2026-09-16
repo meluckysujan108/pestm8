@@ -1,5 +1,5 @@
 import { v } from 'convex/values'
-import { action, internalMutation, internalQuery } from './_generated/server'
+import { action, internalAction, internalMutation, internalQuery } from './_generated/server'
 import { internal } from './_generated/api'
 import { requireMembership } from './lib/access'
 // Shared with the client (src/lib/weather.ts) rather than mirrored: these four
@@ -198,6 +198,101 @@ type DayRow = { dayKey: string; suburb: string; postcode: string }
  * several. One request per distinct suburb rather than one per day, since the
  * forecast API takes a date range.
  */
+/**
+ * One forecast request covering every day asked for, as `[dayKey, entry]`.
+ *
+ * Split out because two callers need the same numbers and only one of them has
+ * a signed-in user: the schedule asks through a public action, while a report
+ * being created schedules a fetch that runs with no identity at all.
+ */
+async function fetchDailyRange(
+  place: { latitude: number; longitude: number },
+  dayKeys: Array<string>,
+): Promise<Array<[string, DailyEntry]>> {
+  const sorted = [...dayKeys].sort()
+  if (sorted.length === 0) return []
+
+  const res = await fetch(
+    `${FORECAST_URL}?latitude=${place.latitude}&longitude=${place.longitude}` +
+      '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max' +
+      `&timezone=auto&start_date=${sorted[0]}&end_date=${sorted[sorted.length - 1]}`,
+  )
+  if (!res.ok) return []
+
+  const body = (await res.json()) as {
+    daily?: {
+      time?: Array<string>
+      weather_code?: Array<number>
+      temperature_2m_max?: Array<number>
+      temperature_2m_min?: Array<number>
+      precipitation_sum?: Array<number>
+      wind_speed_10m_max?: Array<number>
+    }
+  }
+  const daily = body.daily
+  if (!daily?.time) return []
+
+  return daily.time.map((dayKey, i) => [
+    dayKey,
+    {
+      maxTempC: daily.temperature_2m_max?.[i],
+      minTempC: daily.temperature_2m_min?.[i],
+      rainMm: daily.precipitation_sum?.[i],
+      windKmh: daily.wind_speed_10m_max?.[i],
+      code: daily.weather_code?.[i],
+    },
+  ])
+}
+
+type DailyEntry = {
+  maxTempC?: number
+  minTempC?: number
+  rainMm?: number
+  windKmh?: number
+  code?: number
+}
+
+/**
+ * Fetches the forecast a report wanted and was not able to find cached, then
+ * hands it back to the report as a suggested answer.
+ *
+ * Scheduled from `reports.create`, so it runs with no identity — every check
+ * that matters happened in the mutation that scheduled it, and the only thing
+ * this can touch is the one report it was given. Silent on failure: a report
+ * whose weather never arrives simply asks the technician, which is what the
+ * form did before any of this existed.
+ */
+export const fillForReport = internalAction({
+  args: {
+    reportId: v.id('reports'),
+    state: v.string(),
+    suburb: v.string(),
+    postcode: v.string(),
+    dayKey: v.string(),
+  },
+  handler: async (ctx, { reportId, state, suburb, postcode, dayKey }) => {
+    const suburbKey = suburbKeyOf(suburb, postcode)
+    try {
+      const place = await geocode(ctx, suburb, postcode, state)
+      if (!place) return
+
+      const fetched = await fetchDailyRange(place, [dayKey])
+      for (const [key, entry] of fetched) {
+        await ctx.runMutation(internal.weather.writeCache, { suburbKey, dayKey: key, ...entry })
+      }
+
+      const wanted = fetched.find(([key]) => key === dayKey)?.[1]
+      if (!wanted) return
+      await ctx.runMutation(internal.reports.applyWeatherSuggestion, {
+        reportId,
+        forecast: { rainMm: wanted.rainMm, windKmh: wanted.windKmh, code: wanted.code },
+      })
+    } catch {
+      // Advisory only, exactly as above.
+    }
+  },
+})
+
 export const forDays = action({
   args: {
     businessId: v.id('businesses'),
@@ -268,36 +363,8 @@ export const forDays = action({
       try {
         if (!place) continue
 
-        const sorted = [...missing].sort()
-        const res = await fetch(
-          `${FORECAST_URL}?latitude=${place.latitude}&longitude=${place.longitude}` +
-            '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max' +
-            `&timezone=auto&start_date=${sorted[0]}&end_date=${sorted[sorted.length - 1]}`,
-        )
-        if (!res.ok) continue
-
-        const body = (await res.json()) as {
-          daily?: {
-            time?: Array<string>
-            weather_code?: Array<number>
-            temperature_2m_max?: Array<number>
-            temperature_2m_min?: Array<number>
-            precipitation_sum?: Array<number>
-            wind_speed_10m_max?: Array<number>
-          }
-        }
-        const daily = body.daily
-        if (!daily?.time) continue
-
-        for (let i = 0; i < daily.time.length; i++) {
-          const dayKey = daily.time[i]
-          const entry = {
-            maxTempC: daily.temperature_2m_max?.[i],
-            minTempC: daily.temperature_2m_min?.[i],
-            rainMm: daily.precipitation_sum?.[i],
-            windKmh: daily.wind_speed_10m_max?.[i],
-            code: daily.weather_code?.[i],
-          }
+        const fetched = await fetchDailyRange(place, missing)
+        for (const [dayKey, entry] of fetched) {
           await ctx.runMutation(internal.weather.writeCache, {
             suburbKey,
             dayKey,

@@ -185,6 +185,7 @@ export const termiteManagementCert: ReportTemplate = {
         {
           kind: 'toggle',
           key: 'sendCopy',
+          semantic: 'sendCopyToClient',
           // Drives delivery, never printed — as the same vendor's Service Report
           // PDF shows for its identical control.
           printed: false,
@@ -210,11 +211,17 @@ export const termiteManagementCert: ReportTemplate = {
           required: true,
         },
         // src: termite-certificate.md:28
-        { kind: 'time', key: 'installTime', label: 'Time of Installation' },
+        {
+          kind: 'time',
+          key: 'installTime',
+          label: 'Time of Installation',
+          semantic: 'startTime',
+        },
         // src: termite-certificate.md:29-36 — "(Radio buttons)"
         {
           kind: 'radio',
           key: 'weather',
+          semantic: 'weather',
           label: 'Weather Conditions at time of installation',
           options: verbatim(WEATHER),
         },
@@ -600,6 +607,7 @@ export const termiteManagementCert: ReportTemplate = {
           kind: 'emails',
           key: 'emailCertificateTo',
           label: 'Email Certificate To',
+          semantic: 'emailTo',
           // A delivery instruction, not document content.
           printed: false,
         },

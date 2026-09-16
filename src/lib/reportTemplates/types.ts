@@ -96,7 +96,31 @@ type BaseField = {
   printed?: false | 'whenFlagged'
   /** The key of the question this belongs to, for `printed: 'whenFlagged'`. */
   attachedTo?: string
+  /**
+   * What this question MEANS to the app, as opposed to what it says. The forms
+   * word the same job differently — "Send copy of the report to the client
+   * email above…" on the Service Report, "Send a copy of the Report to the
+   * email address above…" on the other two — and the app must not key
+   * behaviour off wording it has promised to reproduce verbatim.
+   *
+   * `sendCopyToClient` a delivery toggle, seeded Yes when the client has an
+   *                    email on file.
+   * `safetyGate`       "Is it safe to commence work?" — never seeded, and a No
+   *                    is recorded rather than blocking.
+   * `weather`          the weather answer, seeded from the forecast as a
+   *                    suggestion the technician confirms.
+   * `startTime`        when work began, seeded from the job.
+   * `emailTo`          extra recipients.
+   */
+  semantic?: FieldSemantic
 }
+
+export type FieldSemantic =
+  | 'sendCopyToClient'
+  | 'safetyGate'
+  | 'weather'
+  | 'startTime'
+  | 'emailTo'
 
 /**
  * Field kinds the builder knows how to render. Adding a state-specific variant
@@ -281,7 +305,6 @@ export type FieldDef =
    */
   | (BaseField & {
       kind: 'emails'
-      semantic?: 'emailTo'
       placeholder?: string
     })
 

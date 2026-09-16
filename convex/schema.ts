@@ -289,6 +289,14 @@ export default defineSchema({
     durationMinutes: v.number(),
     status: jobStatus,
     recurrenceId: v.optional(v.id('recurrences')),
+    /**
+     * When work actually began, stamped the moment the job moves to
+     * `inProgress`. A report started from the job seeds its "Start Time:" from
+     * this — a fact, unlike `scheduledAt`, which is only when it was booked to
+     * begin. Optional: jobs that reached `inProgress` before this existed, and
+     * jobs that go straight to `completed`, have none.
+     */
+    startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     createdAt: v.number(),
     // A short, human-sayable number ("Job #142") — the Convex `_id` is
@@ -331,6 +339,30 @@ export default defineSchema({
     // server-managed may live inside it.
     data: v.any(),
     photoIds: v.array(v.id('_storage')),
+    /**
+     * Which answers the app worked out rather than read off a record — the
+     * forecast, the booked start time — and when the technician confirmed
+     * each. Its own column, never inside `data`: the client replaces that
+     * blob wholesale every couple of seconds, so provenance stored there
+     * would be destroyed by the next keystroke.
+     *
+     * An answer listed here and not yet confirmed blocks finalise. That is
+     * the whole point: a guess must never print under a signature unseen.
+     */
+    prefill: v.optional(
+      v.record(
+        v.string(),
+        v.object({
+          source: v.union(
+            v.literal('forecast'),
+            v.literal('scheduled'),
+            v.literal('lastVisit'),
+            v.literal('history'),
+          ),
+          confirmedAt: v.optional(v.number()),
+        }),
+      ),
+    ),
     // Kept out of `data` deliberately: it lived there once and every finalise
     // silently discarded the photos by overwriting the blob.
     photoSlots: v.optional(v.record(v.string(), v.id('_storage'))),

@@ -1,5 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
+import { internal } from './_generated/api'
 import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
 import { clientNameOf, withClient } from './properties'
 import { reportTemplate } from './schema'
@@ -10,6 +11,10 @@ import {
   templateFor,
 } from '../src/lib/reportTemplates'
 import { freezeTemplate } from './lib/templateSnapshot'
+import { seedFromContext } from '../src/lib/reportTemplates/seed'
+import { dayKeyOf, timeKeyOf, todayKeyInZone } from './lib/dates'
+import { suburbKeyOf, withinForecastWindow } from './lib/forecastWindow'
+import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { buildReportContext, toPresentContext } from './lib/reportContext'
 import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
@@ -670,6 +675,126 @@ export const photoUrls = query({
   },
 })
 
+/**
+ * The answers a new report starts with, and which of them were guesses.
+ *
+ * Every fact here comes from a record the business already keeps: the job's
+ * day and start, who it is assigned to, whether the client has an email. The
+ * only guesses are the forecast and, when work has not been started, the
+ * booked time — both recorded in `prefill` so the technician confirms them
+ * before the report can be finalised.
+ *
+ * Fails soft by design. A missing job, an unresolvable suburb or a forecast
+ * that has not been fetched yet must never stop someone starting a report, so
+ * anything unavailable is simply left blank for them to fill.
+ */
+async function seedNewReport(
+  ctx: MutationCtx,
+  args: {
+    businessId: Id<'businesses'>
+    propertyId: Id<'properties'>
+    jobId?: Id<'jobs'>
+    template: TemplateId | 'custom'
+    customTemplateId?: Id<'customReportTemplates'>
+    authorMembershipId: Id<'memberships'>
+    given: Record<string, unknown>
+  },
+): Promise<{
+  data: Record<string, unknown>
+  prefill: Record<string, { source: 'forecast' | 'scheduled' | 'lastVisit' | 'history' }>
+  fetchWeather: { state: string; suburb: string; postcode: string; dayKey: string } | null
+}> {
+  const business = await ctx.db.get(args.businessId)
+  if (!business) return { data: args.given, prefill: {}, fetchWeather: null }
+  const timezone = business.timezone
+
+  // An id is only as trustworthy as the check behind it: a job from another
+  // business, or at another address, seeds nothing.
+  const job = args.jobId ? await ctx.db.get(args.jobId) : null
+  const usableJob =
+    job && job.businessId === args.businessId && job.propertyId === args.propertyId ? job : null
+
+  const property = await ctx.db.get(args.propertyId)
+  const client = property ? await ctx.db.get(property.clientId) : null
+
+  const template = await templateForNewReport(ctx, args)
+  if (!template) return { data: args.given, prefill: {}, fetchWeather: null }
+
+  const dayKey = usableJob ? dayKeyOf(usableJob.scheduledAt, timezone) : undefined
+  const forecast = property && dayKey ? await cachedForecast(ctx, property, dayKey, timezone) : null
+
+  const { data, prefill } = seedFromContext(
+    template,
+    {
+      today: todayKeyInZone(timezone),
+      jobDate: dayKey,
+      startedTime: usableJob?.startedAt ? timeKeyOf(usableJob.startedAt, timezone) : undefined,
+      scheduledTime: usableJob ? timeKeyOf(usableJob.scheduledAt, timezone) : undefined,
+      jobType: usableJob?.jobType,
+      clientEmail: client?.email ?? null,
+      jobAssigneeMembershipId: usableJob?.assignedMembershipId,
+      authorMembershipId: args.authorMembershipId,
+      forecast,
+    },
+    args.given,
+  )
+
+  // What the caller supplied wins: `restartDraft` and the e2e fixtures both
+  // hand over answers that must not be second-guessed.
+  return {
+    data: { ...data, ...args.given },
+    prefill,
+    // Nothing cached for that day yet: fetch it in the background and patch it
+    // in when it lands. A suggestion arriving a second late is fine — it is a
+    // suggestion — and waiting on a third-party API to start a report is not.
+    fetchWeather:
+      property && dayKey && !forecast && withinForecastWindow(dayKey, todayKeyInZone(timezone))
+        ? { state: property.state, suburb: property.suburb, postcode: property.postcode, dayKey }
+        : null,
+  }
+}
+
+/** The template a report about to be created will be filled against. */
+async function templateForNewReport(
+  ctx: MutationCtx,
+  args: { businessId: Id<'businesses'>; template: TemplateId | 'custom'; customTemplateId?: Id<'customReportTemplates'> },
+) {
+  const optionSets = await loadOverrides(ctx, args.businessId)
+  if (args.template !== 'custom') {
+    return resolveReportTemplate({
+      template: args.template,
+      templateVersion: getTemplate(args.template).version,
+      optionSets,
+    })
+  }
+  const custom = args.customTemplateId ? await ctx.db.get(args.customTemplateId) : null
+  if (!custom) return null
+  return resolveReportTemplate({ template: 'custom', customTemplate: custom, optionSets })
+}
+
+/**
+ * The forecast already on file for this address and day.
+ *
+ * Read-only: a mutation cannot call the fetching action, and a report must not
+ * wait on a third-party API. When nothing is cached the weather question is
+ * simply left for the technician, who was standing in it.
+ */
+async function cachedForecast(
+  ctx: MutationCtx,
+  property: Doc<'properties'>,
+  dayKey: string,
+  timezone: string,
+) {
+  if (!withinForecastWindow(dayKey, todayKeyInZone(timezone))) return null
+  const row = await ctx.db
+    .query('weatherCache')
+    .withIndex('by_suburb_day', (q) =>
+      q.eq('suburbKey', suburbKeyOf(property.suburb, property.postcode)).eq('dayKey', dayKey),
+    )
+    .unique()
+  return row ? { rainMm: row.rainMm, windKmh: row.windKmh, code: row.code } : null
+}
+
 export const create = mutation({
   args: {
     businessId: v.id('businesses'),
@@ -704,7 +829,21 @@ export const create = mutation({
       if (custom.archivedAt) throw new ConvexError('TEMPLATE_ARCHIVED')
     }
 
-    return ctx.db.insert('reports', {
+    // A report started from a job knows the day, the time, who is on it and
+    // what the weather was doing. Seeded here rather than in the browser so
+    // the stored row matches what the technician sees from the first moment —
+    // a draft abandoned before the first keystroke used to hold nothing at all.
+    const seeded = await seedNewReport(ctx, {
+      businessId: args.businessId,
+      propertyId: args.propertyId,
+      jobId: args.jobId,
+      template: args.template,
+      customTemplateId: args.customTemplateId,
+      authorMembershipId: membership._id,
+      given: (args.data ?? {}) as Record<string, unknown>,
+    })
+
+    const reportId = await ctx.db.insert('reports', {
       businessId: args.businessId,
       propertyId: args.propertyId,
       jobId: args.jobId,
@@ -713,7 +852,8 @@ export const create = mutation({
       customTemplateId: args.template === 'custom' ? args.customTemplateId : undefined,
       legalBasis: args.legalBasis,
       status: 'draft',
-      data: args.data ?? {},
+      data: seeded.data,
+      ...(Object.keys(seeded.prefill).length > 0 ? { prefill: seeded.prefill } : {}),
       photoIds: [],
       // Stamped server-side, never accepted as an argument: which revision a
       // report was written against is a fact about the deployment, not a
@@ -722,6 +862,97 @@ export const create = mutation({
         args.template === 'custom' ? 1 : getTemplate(args.template).version,
       createdAt: Date.now(),
     })
+
+    if (seeded.fetchWeather) {
+      await ctx.scheduler.runAfter(0, internal.weather.fillForReport, {
+        reportId,
+        ...seeded.fetchWeather,
+      })
+    }
+
+    return reportId
+  },
+})
+
+/**
+ * Writes a forecast that arrived after the report was created.
+ *
+ * Only ever fills a blank: by the time this runs the technician may already
+ * have answered, and the app overwriting their own observation with a guess
+ * from an API would be exactly backwards. Internal, because the caller is a
+ * scheduled action with no identity — `reports.create` did the checking.
+ */
+export const applyWeatherSuggestion = internalMutation({
+  args: {
+    reportId: v.id('reports'),
+    forecast: v.object({
+      rainMm: v.optional(v.number()),
+      windKmh: v.optional(v.number()),
+      code: v.optional(v.number()),
+    }),
+  },
+  handler: async (ctx, { reportId, forecast }) => {
+    const report = await ctx.db.get(reportId)
+    if (!report || report.status !== 'draft' || report.deletedAt) return
+
+    const optionSets = await loadOverrides(ctx, report.businessId)
+    const template = resolveReportTemplate({
+      template: report.template,
+      templateVersion: report.templateVersion,
+      customTemplate: report.customTemplateId
+        ? ((await ctx.db.get(report.customTemplateId)) ?? undefined)
+        : undefined,
+      optionSets,
+    })
+
+    const data = (report.data ?? {}) as Record<string, unknown>
+    const business = await ctx.db.get(report.businessId)
+    const { data: seeded, prefill } = seedFromContext(
+      template,
+      { today: todayKeyInZone(business?.timezone ?? 'Australia/Perth'), forecast },
+      data,
+    )
+    if (Object.keys(seeded).length === 0) return
+
+    await ctx.db.patch(reportId, {
+      data: { ...data, ...seeded },
+      prefill: { ...(report.prefill ?? {}), ...prefill },
+    })
+  },
+})
+
+/**
+ * Marks answers the app suggested as seen and agreed to.
+ *
+ * Sent as the technician passes each section, so confirming costs no extra
+ * taps — but until it happens, `finalise` refuses. The confirmation is kept
+ * beside the answer rather than inside it, because `data` is replaced wholesale
+ * on every autosave.
+ */
+export const confirmPrefill = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    keys: v.array(v.string()),
+  },
+  handler: async (ctx, { businessId, reportId, keys }) => {
+    const { report } = await requireEditableReport(ctx, businessId, reportId)
+    const prefill = report.prefill
+    if (!prefill) return
+
+    const now = Date.now()
+    const next = { ...prefill }
+    let changed = false
+    for (const key of keys) {
+      // A key the app never suggested, or one already confirmed, is a no-op:
+      // a client is free to send the whole section's keys every time.
+      if (!(key in next)) continue
+      const entry = next[key]
+      if (entry.confirmedAt !== undefined) continue
+      next[key] = { ...entry, confirmedAt: now }
+      changed = true
+    }
+    if (changed) await ctx.db.patch(reportId, { prefill: next })
   },
 })
 
