@@ -84,13 +84,15 @@ test('the front-page photo becomes its own landscape first page', async () => {
   const ops = await first.getOperatorList()
   expect(ops.fnArray).toContain(pdfjs.OPS.paintImageXObject)
 
-  // And it is not printed a second time down in the photo grid.
+  // And it is not printed a second time down in the photo grid. The document
+  // carries exactly one other image — the technician's signature, drawn in its
+  // own row — so the count after the cover is the signature count, not zero.
   let laterImages = 0
   for (let p = 2; p <= doc.numPages; p++) {
     const later = await (await doc.getPage(p)).getOperatorList()
     laterImages += later.fnArray.filter((op) => op === pdfjs.OPS.paintImageXObject).length
   }
-  expect(laterImages).toBe(0)
+  expect(laterImages).toBe(1)
 
   // Cached on the report so a second download never re-renders.
   const cached = await owner.client.query(api.reports.get, {
@@ -129,4 +131,36 @@ test('generating a PDF is rejected for a draft report or a non-member', async ()
       }),
     'NO_ACCESS',
   )
+})
+
+test('a signature prints as the mark that was made, not as a sentence about it', async () => {
+  const s = await setupBusinessWithSub('reportpdf-signature')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+
+  // No cover photo this time, so every image in the file has to be a
+  // signature. Without that the two are indistinguishable in an operator
+  // list, and "the signature prints" would pass on a document that only
+  // printed the photo.
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+  const result = await s.owner.client.action(api.reportPdf.generate, {
+    businessId: s.businessId,
+    reportId,
+  })
+  const buf = Buffer.from(await (await fetch(result.url!)).arrayBuffer())
+
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buf) }).promise
+
+  const first = await doc.getPage(1)
+  const [, , width, height] = first.view
+  // Portrait: with nothing declared for the front page there is no cover.
+  expect(height).toBeGreaterThan(width)
+
+  let images = 0
+  for (let p = 1; p <= doc.numPages; p++) {
+    const ops = await (await doc.getPage(p)).getOperatorList()
+    images += ops.fnArray.filter((op) => op === pdfjs.OPS.paintImageXObject).length
+  }
+  expect(images).toBe(1)
 })

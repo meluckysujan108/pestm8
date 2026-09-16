@@ -193,6 +193,26 @@ function derivedValue(
   return found === undefined || found === '' ? undefined : found
 }
 
+/**
+ * Who signed and when, printed beneath the image.
+ *
+ * The drawn mark says nothing about whose hand it was: a client's pad may be
+ * signed by an agent or a tenant, and a document that shows a signature
+ * without naming the signer is weaker evidence than one that does.
+ */
+function signedCaption(value: unknown): string | undefined {
+  if (typeof value !== 'object' || value === null) return undefined
+  const sig = value as SignatureValue
+  const when =
+    typeof sig.signedAt === 'number'
+      ? new Intl.DateTimeFormat('en-AU', { dateStyle: 'long' }).format(
+          new Date(sig.signedAt),
+        )
+      : undefined
+  if (sig.signedBy && when) return `${sig.signedBy} — ${when}`
+  return sig.signedBy ?? when
+}
+
 /** `2026-09-04` → `4 September 2026`. Falls back to the raw string. */
 function formatDate(iso: string): string {
   const [year, month, day] = iso.split('-').map(Number)
@@ -255,6 +275,18 @@ export function present(
       return field.format === 'lines'
         ? { kind: 'lines', lines: resolved.split('\n') }
         : { kind: 'text', text: resolved }
+    }
+
+    // A signature is an image, and the image is the point: it is what the
+    // person actually did, and the only part of the document that is theirs
+    // rather than the app's. It lives in storage, not in `data`, so it prints
+    // only where the caller resolved a URL for the slot — falling through to
+    // the text form below otherwise, which is what every report finalised
+    // before the PDF could draw one already shows.
+    case 'signature': {
+      const url = ctx?.signatureUrls?.[field.slot]
+      if (url) return { kind: 'image', url, caption: signedCaption(value) }
+      break
     }
   }
 

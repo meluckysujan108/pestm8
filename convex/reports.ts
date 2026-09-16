@@ -302,7 +302,13 @@ export const get = query({
       customTemplate,
       templateSnapshot,
       /** The records this document prints from and never asks about. */
-      context: toPresentContext(contextSnapshot, finalised ? undefined : roster),
+      context: {
+        ...toPresentContext(contextSnapshot, finalised ? undefined : roster),
+        // The images themselves, so the document draws the signature rather
+        // than describing it. Resolved here rather than in a second query
+        // because both painters read this one context.
+        signatureUrls: await resolveSignatureUrls(ctx, report),
+      },
       /**
        * The team a `member` field can name, for the picker. Active members
        * only; empty for a form that names nobody, and for a signed report.
@@ -501,16 +507,32 @@ export const signatureUrls = query({
     if (report.deletedAt !== undefined) return {}
     if (!canSeeReport(membership, report)) return {}
 
-    const entries = await Promise.all(
-      Object.entries(report.signatureSlots ?? {}).map(async ([slot, held]) => {
-        const url = await ctx.storage.getUrl(storageIdOf(held))
-        return [slot, url] as const
-      }),
-    )
-
-    return Object.fromEntries(entries.filter(([, url]) => url !== null))
+    return resolveSignatureUrls(ctx, report)
   },
 })
+
+/**
+ * Slot → a URL for the image drawn there.
+ *
+ * Shared by the standalone query above and by `reports.get`, because the
+ * document prints the signature and the builder only needs to know one exists
+ * — and two readers of the same slots that resolve them differently is how a
+ * PDF comes to show a signature the screen does not.
+ */
+async function resolveSignatureUrls(
+  ctx: { storage: { getUrl: (id: Id<'_storage'>) => Promise<string | null> } },
+  report: Doc<'reports'>,
+): Promise<Record<string, string>> {
+  const entries = await Promise.all(
+    Object.entries(report.signatureSlots ?? {}).map(async ([slot, held]) => {
+      const url = await ctx.storage.getUrl(storageIdOf(held))
+      return [slot, url] as const
+    }),
+  )
+  return Object.fromEntries(
+    entries.filter((entry): entry is [string, string] => entry[1] !== null),
+  )
+}
 
 /**
  * Adds one photo to a `gallery` field. Unlike `attachPhoto`'s named slots, a
