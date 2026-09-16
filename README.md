@@ -44,6 +44,20 @@ run. Before turning `AUTH_RATE_LIMIT` on, check what client IP actually reaches
 Convex through the Vercel proxy — if it resolves to nothing, every request
 shares one bucket and a tight limit locks out the whole business at once.
 
+One switch runs the other way — **on unless set**, because a security check
+should not disappear when an environment variable goes missing:
+
+| Env var                 | Effect                                                                                                                  |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `AUTH_BREACH_CHECK=off` | Stops checking passwords against Have I Been Pwned. Set on the e2e deployment only.                                     |
+
+Every password set or changed otherwise costs one live HTTPS call to
+`api.pwnedpasswords.com`, and the e2e suite makes ~120 of them per run — an
+outage of that service once failed 54 of 127 tests. Production keeps the check
+on; it refuses a breached password as before, but an *unreachable* service no
+longer refuses anything, so a third party being down cannot lock anyone out of
+`/change-password` or `/reset-password`.
+
 Then, with `npx convex dev` running in one terminal:
 
 ```bash
