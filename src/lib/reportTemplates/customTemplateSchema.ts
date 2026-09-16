@@ -330,6 +330,7 @@ const sectionDefSchema = z.object({
   fields: z.array(fieldDefSchema),
   visibleWhen: conditionSchema.optional(),
   implicit: z.boolean().optional(),
+  quick: z.enum(['allYes', 'allClear']).optional(),
   // `heading: null` means print no heading, and is meaningfully different from
   // the key being absent — `.nullable().optional()` keeps both readings.
   print: z

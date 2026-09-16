@@ -39,6 +39,12 @@ export type EditorCtx = {
    * actual name rather than a description of where it will come from.
    */
   context?: PresentContext
+  /**
+   * Set for a cell inside a repeating row. Four answer lists stacked inside one
+   * card is what made a single treatment row 42 checkbox rows on a phone, so a
+   * cell always chooses through a sheet however short its list is.
+   */
+  inRow?: boolean
 }
 
 export type EditorProps<TField extends FieldDef = FieldDef> = {

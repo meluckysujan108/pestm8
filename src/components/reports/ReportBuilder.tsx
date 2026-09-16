@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { ArrowLeft, ArrowRight, Lock, Save } from 'lucide-react'
+import { ArrowLeft, ArrowRight, CheckCheck, Lock, Save } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { FieldRenderer } from './fields/FieldRenderer'
 import { seedData } from './fields/registry'
@@ -19,11 +19,13 @@ import { visibleSections } from '#/lib/reportTemplates/visibility'
 import { submittablePayload, validateReport } from '#/lib/reportTemplates/validate'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import { reportProgress, sectionByKey, sectionKey } from '#/lib/reportTemplates/progress'
+import { quickAnswersFor } from '#/lib/reportTemplates/quickAnswers'
+import type { QuickMode } from '#/lib/reportTemplates/quickAnswers'
 import { ReportOverview } from './ReportOverview'
 import type { PrefillMap } from '#/lib/reportTemplates/seed'
 import type { SectionProgress } from '#/lib/reportTemplates/progress'
 import type { ReportIssue } from '#/lib/reportTemplates/validate'
-import type { TemplateId } from '#/lib/reportTemplates'
+import type { FieldDef, TemplateId } from '#/lib/reportTemplates'
 import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { OptionSetOverrides } from '#/lib/reportTemplates/optionSets'
 import type { PresentContext } from '#/lib/reportTemplates/present'
@@ -383,6 +385,15 @@ export function ReportBuilder({
             </>
           )}
 
+          {section.quick && (
+            <QuickAnswer
+              mode={section.quick}
+              fields={section.fields}
+              data={data}
+              onAnswer={(patch) => setData((prev) => ({ ...prev, ...patch }))}
+            />
+          )}
+
           {section.fields.map((field, index) => (
             <FieldRenderer
               key={field.key}
@@ -406,6 +417,16 @@ export function ReportBuilder({
                 index === 0 &&
                 !field.required &&
                 sameWords(field.label, section.title)
+              }
+              after={
+                field.kind === 'heading' && field.quick ? (
+                  <QuickAnswer
+                    mode={field.quick}
+                    fields={groupAfter(section.fields, index)}
+                    data={data}
+                    onAnswer={(patch) => setData((prev) => ({ ...prev, ...patch }))}
+                  />
+                ) : undefined
               }
               photoContext={{
                 businessId,
@@ -607,5 +628,52 @@ function incompleteIssues(error: unknown): Array<ReportIssue> | null {
       issue !== null &&
       typeof (issue as ReportIssue).key === 'string' &&
       typeof (issue as ReportIssue).message === 'string',
+  )
+}
+
+/**
+ * The fields a heading's quick answer covers: everything under it, up to the
+ * next heading. A group is what the technician sees as one card, not the whole
+ * section it happens to sit in.
+ */
+function groupAfter(fields: Array<FieldDef>, headingIndex: number): Array<FieldDef> {
+  const rest = fields.slice(headingIndex + 1)
+  const nextHeading = rest.findIndex((field) => field.kind === 'heading')
+  return nextHeading === -1 ? rest : rest.slice(0, nextHeading)
+}
+
+/**
+ * One tap that answers a group of questions with "nothing found".
+ *
+ * Disappears once there is nothing left for it to settle, so it never reads as
+ * a button that does nothing, and says how many answers it would fill so the
+ * technician knows exactly what they are agreeing to.
+ */
+function QuickAnswer({
+  mode,
+  fields,
+  data,
+  onAnswer,
+}: {
+  mode: QuickMode
+  fields: Array<FieldDef>
+  data: Record<string, unknown>
+  onAnswer: (patch: Record<string, unknown>) => void
+}) {
+  const hydrated = useHydrated()
+  const patch = quickAnswersFor(fields, mode, data)
+  const count = Object.keys(patch).length
+  if (count === 0) return null
+
+  return (
+    <button
+      type="button"
+      disabled={!hydrated}
+      onClick={() => onAnswer(patch)}
+      className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-hairline bg-surface text-[15px] font-semibold text-ink transition active:scale-[.99] disabled:opacity-50"
+    >
+      <CheckCheck size={16} strokeWidth={2} />
+      {mode === 'allYes' ? `Yes to all ${count}` : `Nothing found — answer all ${count}`}
+    </button>
   )
 }

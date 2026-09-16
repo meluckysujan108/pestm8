@@ -438,6 +438,13 @@ export type SectionDef = {
   fields: Array<FieldDef>
   visibleWhen?: Condition
   /**
+   * Offers one explicit tap that answers this whole section's questions with
+   * their "nothing found" values — the twelve conducive conditions of a clean
+   * inspection. The same property on a `heading` answers only the group
+   * beneath it. Never a stored default: see `quickAnswers.ts`.
+   */
+  quick?: 'allYes' | 'allClear'
+  /**
    * Set only by `sectionsOf()` when wrapping a template that still declares a
    * flat `fields` list. The finished document and the PDF have always printed a
    * "Details" heading, so they print this one too — but the builder never did,

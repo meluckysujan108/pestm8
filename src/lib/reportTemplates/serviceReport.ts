@@ -588,6 +588,9 @@ export const serviceReport: ReportTemplate = {
           // src: service-report-submitted.md:66 (rule 3). The PDF prints no such heading.
           kind: 'heading',
           key: 'safetyChecklists',
+          // Six yes/no checks a technician answers the same way on almost
+          // every job. "Is it safe to commence work?" is excluded by rule.
+          quick: 'allYes',
           printed: false,
           label: 'Safety checklists heading',
           text: 'Safety & Compliance Checklists',

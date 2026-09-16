@@ -1,5 +1,6 @@
 import { FIELD_EDITORS } from './registry'
 import type { EditorCtx, EditorProps, FieldEditor } from './registry'
+import type { ReactNode } from 'react'
 import type { FieldDef } from '#/lib/reportTemplates'
 import type { SuggestionSource } from '#/lib/reportTemplates/seed'
 
@@ -19,6 +20,7 @@ export function FieldRenderer({
   photoContext,
   captionHidden = false,
   suggestion,
+  after,
 }: {
   field: FieldDef
   value: unknown
@@ -37,6 +39,8 @@ export function FieldRenderer({
    * not seen prints under their signature.
    */
   suggestion?: SuggestionSource
+  /** Rendered directly beneath — a heading's "answer all" button. */
+  after?: ReactNode
 }) {
   const editor = FIELD_EDITORS[field.kind] as FieldEditor
   const Control = editor.Control as React.ComponentType<EditorProps>
@@ -55,7 +59,12 @@ export function FieldRenderer({
   // below would show the author's editor-only name as a form label and a red
   // asterisk beside a block nobody can fill in.
   if (field.kind === 'note' || field.kind === 'heading') {
-    return <div className="mt-4">{control}</div>
+    return (
+      <div className="mt-4">
+        {control}
+        {after}
+      </div>
+    )
   }
 
   const caption = (

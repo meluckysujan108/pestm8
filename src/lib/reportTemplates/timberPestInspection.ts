@@ -1073,6 +1073,10 @@ export const timberPestInspection: ReportTemplate = {
     {
       id: 'conduciveConditions',
       number: 7,
+      // A clean inspection answers twelve of these the same way. One tap says
+      // so; it fills only what is still blank, and only where the form itself
+      // says which answer means a problem was found.
+      quick: 'allClear',
       title: 'CONDUCIVE CONDITIONS TO TIMBER PEST ATTACK',
       // src: timber-pest-inspection.md:208
       preamble:

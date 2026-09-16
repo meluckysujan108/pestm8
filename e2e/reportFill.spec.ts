@@ -6,7 +6,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
-import { builderReady, createReport } from './fixtures/reportPayloads'
+import { builderReady, createReport, sectionUrl } from './fixtures/reportPayloads'
 
 /**
  * Filling a report, the way a technician does it: an overview of the form, one
@@ -138,4 +138,57 @@ test('finalising an unfinished report says what is missing, and jumps there', as
   await expect(
     page.getByRole('group', { name: 'Is it safe to commence work?' }),
   ).toBeVisible()
+})
+
+test('a long answer list is searched, not scrolled', async ({ page }) => {
+  const { email, slug, reportId } = await startJobReport('fill-picker')
+
+  await signInViaUi(page, email)
+  await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'treatments'))
+  await builderReady(page)
+
+  // A treatment row is four choices, not four stacked lists: 13 products, 13
+  // treatments, 10 methods and 6 quantities came to 42 checkbox rows for one
+  // row of the grid.
+  await expect(page.getByRole('checkbox', { name: 'Advion Ant Gel (0.5 g/kg Indoxacarb)' })).toHaveCount(0)
+
+  await page.getByRole('button', { name: /Product & Active Ingredient — choose/ }).click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet.getByRole('checkbox', { name: /Biflex Ultra/ })).toBeVisible()
+
+  // Search narrows to the one the technician is holding.
+  await sheet.getByLabel(/^Search /).fill('fipronil')
+  await expect(sheet.getByRole('checkbox', { name: /Fipforce HP/ })).toBeVisible()
+  await expect(sheet.getByRole('checkbox', { name: /Biflex Ultra/ })).toHaveCount(0)
+
+  await sheet.getByRole('checkbox', { name: /Fipforce HP/ }).click()
+  await sheet.getByRole('button', { name: 'Done' }).click()
+
+  // And the answer reads back on the row, in the form's own words — including
+  // to a screen reader, which hears the answer rather than "choose".
+  await expect(
+    page.getByRole('button', { name: /Product & Active Ingredient — Fipforce HP/ }),
+  ).toBeVisible()
+})
+
+test('a clean safety checklist is one tap, and never answers the safety gate', async ({ page }) => {
+  const { email, owner, businessId, slug, reportId } = await startJobReport('fill-quick')
+
+  await signInViaUi(page, email)
+  await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'safetyChecklists'))
+  await builderReady(page)
+
+  await page.getByRole('button', { name: /Yes to all/ }).click()
+  // Gone once there is nothing left for it to settle.
+  await expect(page.getByRole('button', { name: /Yes to all/ })).toHaveCount(0)
+
+  await expect
+    .poll(async () => {
+      const report = await owner.client.query(api.reports.get, { businessId, reportId })
+      const data = report!.data as Record<string, unknown>
+      return { ppe: data.ppe, msds: data.msds, safe: data.safeToStart }
+    })
+    // "Is it safe to commence work?" is the form's one mandatory gate. The app
+    // answering it would defeat the only question the form insists on.
+    .toEqual({ ppe: true, msds: true, safe: undefined })
 })

@@ -7,6 +7,7 @@ import {
   toggleCheck,
   withLocked,
 } from '#/lib/reportTemplates/choices'
+import { PickerSheet, PickerTrigger } from './PickerSheet'
 import type { EditorProps } from './registry'
 import type {
   AreaResult,
@@ -51,7 +52,44 @@ export function AreaControl({ field, value, onChange }: Of<'area'>) {
   )
 }
 
-export function SelectControl({ field, value, onChange }: Of<'select'>) {
+/**
+ * Where a list stops being quicker to read in place than to search.
+ *
+ * Twelve is the Service Report's "Your Next Pest Control Visit is due in:"
+ * list, which reads fine as rows; thirteen is its product list, where every
+ * entry carries an active constituent in brackets and the one you use daily is
+ * somewhere in the middle. The line falls between them.
+ */
+const LIST_LIMIT = 12
+
+export function SelectControl({ field, value, onChange, ctx }: Of<'select'>) {
+  const [picking, setPicking] = useState(false)
+  const options = retainedOptions(field.options, value)
+  const chosen = typeof value === 'string' && value !== '' ? [value] : []
+
+  if (options.length > LIST_LIMIT || ctx.inRow) {
+    return (
+      <>
+        <PickerTrigger
+          label={field.label}
+          values={chosen}
+          placeholder={field.blankOption ?? 'Choose…'}
+          onOpen={() => setPicking(true)}
+        />
+        <PickerSheet
+          open={picking}
+          onClose={() => setPicking(false)}
+          title={field.label}
+          options={options}
+          selected={chosen}
+          multiple={false}
+          onToggle={(next: string) => onChange(next)}
+          onClear={() => onChange(undefined)}
+        />
+      </>
+    )
+  }
+
   return (
     <select
       value={(value as string | undefined) ?? ''}
@@ -61,7 +99,7 @@ export function SelectControl({ field, value, onChange }: Of<'select'>) {
       {/* The source form's own placeholder when it has one (`-`), never
           stored: choosing it clears the answer. */}
       <option value="">{field.blankOption ?? 'Choose…'}</option>
-      {retainedOptions(field.options, value).map((o) => (
+      {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
         </option>
@@ -286,9 +324,10 @@ export function NumberControl({ field, value, onChange }: Of<'number'>) {
  * lists print straight onto a signed document, and a code with no matching
  * option would render as gibberish there.
  */
-export function ChecksControl({ field, value, onChange }: Of<'checks'>) {
+export function ChecksControl({ field, value, onChange, ctx }: Of<'checks'>) {
   const selected = (value as Array<string> | undefined) ?? []
   const [draft, setDraft] = useState('')
+  const [picking, setPicking] = useState(false)
 
   const custom = selected.filter(
     (v) => !field.options.some((o) => o.value === v),
@@ -311,12 +350,36 @@ export function ChecksControl({ field, value, onChange }: Of<'checks'>) {
     setDraft('')
   }
 
+  const all = [...field.options, ...custom.map((c) => ({ value: c, label: c }))]
+
+  if (all.length > LIST_LIMIT || ctx.inRow) {
+    return (
+      <>
+        <PickerTrigger
+          label={field.label}
+          values={shown}
+          placeholder={field.addLabel ?? 'Choose…'}
+          onOpen={() => setPicking(true)}
+        />
+        <PickerSheet
+          open={picking}
+          onClose={() => setPicking(false)}
+          title={field.label}
+          options={all}
+          selected={shown}
+          multiple
+          disabledValues={[...locked]}
+          onToggle={toggle}
+          addLabel={field.extensible ? field.addLabel : undefined}
+          onAdd={field.extensible ? (item: string) => toggle(item) : undefined}
+        />
+      </>
+    )
+  }
+
   return (
     <span className="flex flex-col gap-1.5">
-      {[
-        ...field.options,
-        ...custom.map((c) => ({ value: c, label: c })),
-      ].map((option) => (
+      {all.map((option) => (
         <label
           key={option.value}
           className="flex items-center gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5"
