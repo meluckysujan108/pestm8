@@ -32,7 +32,7 @@ const modules = import.meta.glob('../convex/**/*.ts')
 // structurally satisfy, so naming the type by hand loses every table.
 function makeTestApp() {
   const t = convexTest(schema, modules)
-  betterAuthTest.register(t as Parameters<typeof betterAuthTest.register>[0])
+  betterAuthTest.register(t)
   return t
 }
 
@@ -63,36 +63,40 @@ export async function createActor(
 ): Promise<TestActor> {
   const now = Date.now()
 
-  const userId = await t.run(async (ctx) =>
-    ctx.runMutation(components.betterAuth.adapter.create, {
-      input: {
-        model: 'user',
-        data: {
-          name: opts.name ?? opts.email,
-          email: opts.email.toLowerCase(),
-          emailVerified: opts.emailVerified ?? false,
-          createdAt: now,
-          updatedAt: now,
+  const userId = await t
+    .run(async (ctx) =>
+      ctx.runMutation(components.betterAuth.adapter.create, {
+        input: {
+          model: 'user',
+          data: {
+            name: opts.name ?? opts.email,
+            email: opts.email.toLowerCase(),
+            emailVerified: opts.emailVerified ?? false,
+            createdAt: now,
+            updatedAt: now,
+          },
         },
-      },
-    }),
-  ).then((user: { _id: string }) => user._id)
+      }),
+    )
+    .then((user: { _id: string }) => user._id)
 
-  const sessionId = await t.run(async (ctx) =>
-    ctx.runMutation(components.betterAuth.adapter.create, {
-      input: {
-        model: 'session',
-        data: {
-          userId,
-          token: `test-session-${userId}`,
-          // Well clear of the `expiresAt > now` check inside getAuthUser.
-          expiresAt: now + 60 * 60 * 1000,
-          createdAt: now,
-          updatedAt: now,
+  const sessionId = await t
+    .run(async (ctx) =>
+      ctx.runMutation(components.betterAuth.adapter.create, {
+        input: {
+          model: 'session',
+          data: {
+            userId,
+            token: `test-session-${userId}`,
+            // Well clear of the `expiresAt > now` check inside getAuthUser.
+            expiresAt: now + 60 * 60 * 1000,
+            createdAt: now,
+            updatedAt: now,
+          },
         },
-      },
-    }),
-  ).then((session: { _id: string }) => session._id)
+      }),
+    )
+    .then((session: { _id: string }) => session._id)
 
   return {
     userId,

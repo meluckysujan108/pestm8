@@ -56,11 +56,32 @@ jobs:
             echo 'files<<EOF'
             echo "$files"
             echo 'EOF'
+            echo "base=$base"
           } >> "$GITHUB_OUTPUT"
 
-      - name: Prettier (changed files)
+      # Only files that were ALREADY prettier-clean have to stay clean. Held to
+      # the whole set instead, touching one line of a long-unformatted file
+      # (scripts/seed.mjs, say) would demand reformatting the entire thing — a
+      # few hundred lines of churn buried in an unrelated change, and a ruined
+      # git blame. This lets the repo converge as files are cleaned up, without
+      # forcing it inside someone else's diff.
+      - name: Prettier (changed files that were already clean)
         if: steps.changed.outputs.files != ''
-        run: echo "${{ steps.changed.outputs.files }}" | xargs pnpm prettier --check
+        run: |
+          base='${{ steps.changed.outputs.base }}'
+          dirty=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            [ -f "$f" ] || continue
+            if git show "$base:$f" 2>/dev/null \
+              | pnpm exec prettier --check --stdin-filepath "$f" >/dev/null 2>&1
+            then
+              pnpm exec prettier --check "$f" || dirty=1
+            else
+              echo "skipping $f — it was not prettier-clean before this change"
+            fi
+          done <<< '${{ steps.changed.outputs.files }}'
+          exit $dirty
 
       - name: ESLint (changed files)
         if: steps.changed.outputs.files != ''
