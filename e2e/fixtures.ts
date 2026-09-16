@@ -1,7 +1,8 @@
 import { expect } from '@playwright/test'
 import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../convex/_generated/api'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
+import type { Id } from '../convex/_generated/dataModel'
 
 /**
  * Fixture contract for the access-control matrix (ARCHITECTURE.md §6.5).
@@ -21,6 +22,44 @@ export const FIXTURE_PASSWORD = 'fixture-password-8823'
 const CONVEX_URL = process.env.VITE_CONVEX_URL!
 const SITE_URL = process.env.E2E_BASE_URL ?? 'http://localhost:3000'
 const AUTH_BASE = `${SITE_URL}/api/auth`
+
+/**
+ * A run creates about 150 real accounts and 100 businesses, and never cleans
+ * up. Nothing stopped that being pointed at production: the target comes from
+ * whichever .env.local happens to be present, and CLAUDE.md records that this
+ * checkout has pointed at the wrong project before.
+ *
+ * Production deployment names are refused by name, and anything that isn't a
+ * dev deployment is refused by shape.
+ */
+const FORBIDDEN_DEPLOYMENTS = ['rare-retriever-156', 'joyous-otter-223']
+
+function assertSafeTarget() {
+  const deployment = process.env.CONVEX_DEPLOYMENT ?? ''
+  const target = `${deployment} ${CONVEX_URL}`
+
+  for (const name of FORBIDDEN_DEPLOYMENTS) {
+    if (target.includes(name)) {
+      throw new Error(
+        `Refusing to run the e2e suite against ${name}. This suite creates ` +
+          `real accounts and businesses and never removes them.`,
+      )
+    }
+  }
+  if (deployment && !deployment.startsWith('dev:')) {
+    throw new Error(
+      `Refusing to run the e2e suite against "${deployment}" — it is not a ` +
+        `dev deployment. Point .env.local at the e2e deployment first.`,
+    )
+  }
+  if (!CONVEX_URL) {
+    throw new Error(
+      'VITE_CONVEX_URL is not set — is the e2e deployment configured?',
+    )
+  }
+}
+
+assertSafeTarget()
 
 export type Actor = {
   email: string
@@ -58,7 +97,9 @@ export async function signUpActor(
     body: JSON.stringify({ email, password, name }),
   })
   if (!res.ok) {
-    throw new Error(`sign-up failed for ${email}: ${res.status} ${await res.text()}`)
+    throw new Error(
+      `sign-up failed for ${email}: ${res.status} ${await res.text()}`,
+    )
   }
 
   const cookie = res.headers
@@ -75,6 +116,30 @@ export async function signUpActor(
 
 export function anonClient() {
   return new ConvexHttpClient(CONVEX_URL)
+}
+
+/**
+ * The real way someone joins: the owner mints a single-use link, the invitee
+ * redeems it. Nothing else creates a membership any more.
+ *
+ * Tests used to call `inviteByEmail` and then `claimInvitations`, which is the
+ * flow that let whoever registered an invited address walk in — so exercising
+ * it here would have been testing the hole rather than the product.
+ */
+export async function inviteAndJoin(
+  owner: Actor,
+  invitee: Actor,
+  businessId: Id<'businesses'>,
+  role: 'subcontractor' = 'subcontractor',
+) {
+  const { url } = await owner.client.action(api.invitations.create, {
+    businessId,
+    email: invitee.email,
+    role,
+  })
+  const token = url.split('/join/')[1]
+  if (!token) throw new Error(`invite url had no token: ${url}`)
+  return invitee.client.action(api.invitations.redeem, { token })
 }
 
 /**
@@ -99,14 +164,9 @@ export async function setupBusinessWithSub(label: string) {
     timezone: 'Australia/Perth',
   })
 
-  const subUser = await sub.client.query(api.auth.getCurrentUser, {})
-  const subMembershipId = await owner.client.mutation(api.memberships.invite, {
-    businessId,
-    userId: subUser!._id,
-    role: 'subcontractor',
-  })
-  // invite() leaves the member "invited"; they activate themselves.
-  await sub.client.mutation(api.memberships.accept, { businessId })
+  // Through the real link flow, so every spec that builds on this fixture is
+  // standing on the path production actually uses.
+  await inviteAndJoin(owner, sub, businessId)
 
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
@@ -121,6 +181,7 @@ export async function setupBusinessWithSub(label: string) {
     businessId,
   })
   const ownerMembershipId = members.find((m) => m.role === 'owner')!._id
+  const subMembershipId = members.find((m) => m.email === sub.email)!._id
 
   const ownerJobId = await owner.client.mutation(api.jobs.create, {
     businessId,
@@ -142,7 +203,6 @@ export async function setupBusinessWithSub(label: string) {
     ownerJobId,
   }
 }
-
 
 /**
  * Signs in through the real form. The submit button is disabled until the page
@@ -166,6 +226,28 @@ export async function signInViaUi(
   await expect(page).not.toHaveURL(/\/login/)
 }
 
+/**
+ * Clicks something and waits for what the click should cause, retrying the
+ * CLICK rather than just the assertion.
+ *
+ * Under a full-suite run a click can land after the server-rendered markup is
+ * on screen but before React has attached its handler, and that click is
+ * swallowed with no error. Waiting longer on the assertion never recovers it —
+ * the click has to happen again. This is the same hydration race the sign-in
+ * helper avoids by waiting for the submit button to enable; elsewhere there is
+ * no such readiness signal to wait on.
+ */
+export async function clickUntil(
+  locator: Locator,
+  settled: () => Promise<unknown>,
+  timeout = 30_000,
+) {
+  await expect(async () => {
+    await locator.click()
+    await settled()
+  }).toPass({ timeout })
+}
+
 export function uniqueEmail(label: string) {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@pestm8.test`
 }
@@ -186,6 +268,13 @@ export type RejectionCode =
   | 'INVALID_TEMPLATE'
   | 'TEMPLATE_RETIRED'
   | 'TEMPLATE_VERSION_MISMATCH'
+  | 'INVITE_ALREADY_USED'
+  | 'INVITE_EXPIRED'
+  | 'INVITE_REVOKED'
+  | 'INVITE_INVALID'
+  | 'INVITE_EMAIL_MISMATCH'
+  | 'OWNER_INVITE_FORBIDDEN'
+  | 'APP_UPDATE_REQUIRED'
 
 export async function expectRejected(
   call: () => Promise<unknown>,
