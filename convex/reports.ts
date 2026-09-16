@@ -15,7 +15,11 @@ import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
 import { migrateServiceReportV1 } from '../src/lib/reportTemplates/legacy/serviceReport.migrate'
 import type { Doc, Id } from './_generated/dataModel'
-import { canFinaliseReport, reportScope } from './lib/capabilities'
+import {
+  canFinaliseReport,
+  mergeDraft,
+  reportScope,
+} from './lib/capabilities'
 import { reportFactsFrom } from './lib/reportFacts'
 import { factsFromMembership } from './lib/membershipFacts'
 import type { TemplateId } from '../src/lib/reportTemplates'
@@ -724,14 +728,55 @@ export const saveDraft = mutation({
     reportId: v.id('reports'),
     data: v.any(),
     templateVersion: v.optional(v.number()),
+    /**
+     * The answers as they stood when this editor loaded them.
+     *
+     * Optional, and that is what keeps the currently-deployed client working:
+     * without it this mutation behaves exactly as it always has, replacing the
+     * stored answers with whatever arrived. A client that sends it gets a
+     * three-way merge instead, which is the only way two people editing one
+     * report can both keep their work.
+     *
+     * The alternative — a version number and a refusal — is worse here. An
+     * autosave fires every couple of seconds while someone types, so a stale
+     * version is the normal state of affairs rather than an exceptional one,
+     * and refusing would throw away a field someone had just filled in.
+     */
+    base: v.optional(v.any()),
   },
-  handler: async (ctx, { businessId, reportId, data, templateVersion }) => {
+  handler: async (
+    ctx,
+    { businessId, reportId, data, templateVersion, base },
+  ) => {
     // The whole point of finalising is that the document stops changing. A
     // signed compliance record that can be edited afterwards is worthless.
     const { report } = await requireEditableReport(ctx, businessId, reportId)
     requireSameVersion(report, templateVersion)
 
-    await ctx.db.patch(reportId, { data })
+    /**
+     * Two people on one draft stops being a freak event the day someone can
+     * work inside another person's account: a helper fills in section 3 on the
+     * office laptop while the licence holder answers section 5 on their phone,
+     * and until now whichever autosave landed second silently erased the
+     * other's answers. There is no error to notice, and no way back — the
+     * overwritten text was never anywhere but that form.
+     *
+     * Merged per answer, so both survive. Only the same answer edited two
+     * different ways is a conflict, and that one genuinely needs a person.
+     */
+    if (base === undefined) {
+      await ctx.db.patch(reportId, { data })
+      return
+    }
+
+    const merge = mergeDraft(
+      base as Record<string, unknown>,
+      (report.data ?? {}) as Record<string, unknown>,
+      data as Record<string, unknown>,
+    )
+    if (!merge.ok) throw new ConvexError('DRAFT_CONFLICT')
+
+    await ctx.db.patch(reportId, { data: merge.data })
   },
 })
 
