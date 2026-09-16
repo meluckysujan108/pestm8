@@ -14,9 +14,10 @@ import {
   withClient,
 } from './properties'
 import type { Doc, Id } from './_generated/dataModel'
-import { isInScope } from './lib/capabilities'
+import { displayPerson, isInScope } from './lib/capabilities'
 import { jobsInScope } from './lib/jobScope'
 import type { RowScope } from './lib/capabilities'
+import type { ActorEnvelope } from './lib/actor'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
 import { requireActor } from './lib/actor'
@@ -56,7 +57,15 @@ export async function jobsInRange(
   return jobs.filter((j) => j.status !== 'cancelled')
 }
 
-async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
+async function decorate(
+  ctx: QueryCtx,
+  env: ActorEnvelope,
+  businessId: Id<'businesses'>,
+  jobs: Array<Doc<'jobs'>>,
+) {
+  // The business's own name stands in for anyone the caller may not see.
+  const businessName = (await ctx.db.get(businessId))?.name ?? ''
+
   // Resolving a name means a call into the auth component, so each assignee is
   // looked up once per query rather than once per job — the same memoisation
   // `listWeek` already does for colours. The map holds the in-flight promise,
@@ -84,6 +93,22 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
       .map(async (job) => {
         const property = await ctx.db.get(job.propertyId)
         const assignee = await ctx.db.get(job.assignedMembershipId)
+        // Hides the person, not the job: an owner-assigned visit stays on the
+        // calendar, shown against the business rather than against a name
+        // nobody else is supposed to know.
+        const shown = assignee
+          ? displayPerson(
+              env.actor,
+              { _id: assignee._id, role: assignee.role },
+              {
+                personName: await nameOf(
+                  job.assignedMembershipId,
+                  assignee.userId,
+                ),
+                businessName,
+              },
+            )
+          : { membershipId: null, name: '', anonymised: false }
         return {
           ...job,
           // The board-variant card shows the full street address; the compact
@@ -94,10 +119,7 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
           postcode: property?.postcode ?? '',
           clientName: await clientNameOf(ctx, property),
           assigneeColour: assignee?.colour ?? '#8E8E93',
-          assigneeName: await nameOf(
-            job.assignedMembershipId,
-            assignee?.userId,
-          ),
+          assigneeName: shown.name,
         }
       }),
   )
@@ -109,14 +131,19 @@ export const listDay = query({
     dayKey: v.string(), // "YYYY-MM-DD" in the tenant's timezone
   },
   handler: async (ctx, { businessId, dayKey }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
     const from = startOfDayInZone(dayKey, business.timezone)
     const to = endOfDayInZone(dayKey, business.timezone)
 
-    return decorate(ctx, await jobsInRange(ctx, scope, businessId, from, to))
+    return decorate(
+      ctx,
+      env,
+      businessId,
+      await jobsInRange(ctx, env.scope, businessId, from, to),
+    )
   },
 })
 
@@ -186,7 +213,7 @@ export const listMonth = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -198,7 +225,7 @@ export const listMonth = query({
         : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
-    const jobs = await jobsInRange(ctx, scope, businessId, from, to)
+    const jobs = await jobsInRange(ctx, env.scope, businessId, from, to)
 
     const byDay = new Map<
       string,
@@ -242,7 +269,7 @@ export const monthTeamLoad = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -254,7 +281,7 @@ export const monthTeamLoad = query({
         : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
-    const jobs = await jobsInRange(ctx, scope, businessId, from, to)
+    const jobs = await jobsInRange(ctx, env.scope, businessId, from, to)
 
     const counts = new Map<Id<'memberships'>, number>()
     for (const job of jobs) {
@@ -270,9 +297,21 @@ export const monthTeamLoad = query({
         const user = assignee
           ? await authComponent.getAnyUserById(ctx, assignee.userId)
           : null
+        // The owner's row stays — dropping it would change what the month's
+        // totals mean — but carries the business's name rather than theirs.
+        const shown = assignee
+          ? displayPerson(
+              env.actor,
+              { _id: assignee._id, role: assignee.role },
+              {
+                personName: user?.name ?? 'Unassigned',
+                businessName: business.name,
+              },
+            )
+          : { name: 'Unassigned', anonymised: false }
         return {
           membershipId,
-          name: user?.name ?? 'Unassigned',
+          name: shown.name,
           colour: assignee?.colour ?? '#8E8E93',
           count,
         }

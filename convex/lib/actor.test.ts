@@ -789,3 +789,55 @@ describe('administering the business', () => {
     ).rejects.toThrow('NO_ACCESS')
   })
 })
+
+describe('the owner is not on anyone else’s roster', () => {
+  /**
+   * `memberships.listForBusiness` feeds six screens — the schedule filter bar,
+   * the assignee picker, the job detail sheet, both note surfaces and Team
+   * settings — and returned every member's name, email, licence number and
+   * phone to anyone who asked. It is also what a switch-target list would be
+   * built from, so it would have inherited the leak directly.
+   */
+  test('a subcontractor’s roster does not contain them', async () => {
+    const f = await scenario()
+    const roster = await f.priya.as.query(api.memberships.listForBusiness, {
+      businessId: f.businessId,
+    })
+    expect(roster.map((m) => m._id)).not.toContain(f.ownerMembershipId)
+    expect(roster.map((m) => m.role)).not.toContain('owner')
+  })
+
+  test('nor a contractor’s', async () => {
+    const f = await scenario()
+    const roster = await f.jo.as.query(api.memberships.listForBusiness, {
+      businessId: f.businessId,
+    })
+    expect(roster.map((m) => m._id)).not.toContain(f.ownerMembershipId)
+  })
+
+  test('the owner still sees everyone, including themselves', async () => {
+    const f = await scenario()
+    const roster = await f.terence.as.query(api.memberships.listForBusiness, {
+      businessId: f.businessId,
+    })
+    expect(roster.map((m) => m._id).sort()).toEqual(
+      [f.ownerMembershipId, f.joId, f.kevinId, f.priyaId].sort(),
+    )
+  })
+
+  /**
+   * Hides the person, not the work. Switched into a subcontractor, the owner
+   * is looking through eyes that cannot see them — including at their own
+   * row, which is the point: the disguise has to hold from the inside, or the
+   * first thing anyone does with a borrowed account is check.
+   */
+  test('and cannot see themselves while working in someone else’s account', async () => {
+    const f = await scenario()
+    await openSwitch(f, f.terence, f.ownerMembershipId, f.kevinId)
+
+    const roster = await f.terence.as.query(api.memberships.listForBusiness, {
+      businessId: f.businessId,
+    })
+    expect(roster.map((m) => m._id)).not.toContain(f.ownerMembershipId)
+  })
+})
