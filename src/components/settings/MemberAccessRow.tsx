@@ -1,5 +1,6 @@
-import { useMutation } from '@tanstack/react-query'
-import { useConvexMutation } from '@convex-dev/react-query'
+import { useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -19,9 +20,12 @@ export type Member = {
 export function MemberAccessRow({
   businessId,
   member,
+  others = [],
 }: {
   businessId: Id<'businesses'>
   member: Member
+  /** Active members who could take over this person's booked work. */
+  others?: Array<Member>
 }) {
   const convexSet = useConvexMutation(api.memberships.setCanViewAllJobs)
   const setAccess = useMutation({
@@ -32,7 +36,9 @@ export function MemberAccessRow({
     }) => convexSet(args),
   })
 
-  const convexSetViewOthers = useConvexMutation(api.memberships.setCanViewOtherAccounts)
+  const convexSetViewOthers = useConvexMutation(
+    api.memberships.setCanViewOtherAccounts,
+  )
   const setViewOthers = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
@@ -93,7 +99,9 @@ export function MemberAccessRow({
       {!isOwner && (
         <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
           <span className="min-w-0">
-            <span className="block text-body text-ink">Can view other accounts</span>
+            <span className="block text-body text-ink">
+              Can view other accounts
+            </span>
             <span className="block text-caption text-muted">
               Lets them switch their own view to see other subcontractors'
               schedules and clients from the header account menu — never the
@@ -116,6 +124,170 @@ export function MemberAccessRow({
           </Switch.Root>
         </label>
       )}
+
+      {!isOwner && (
+        <RemoveMember businessId={businessId} member={member} others={others} />
+      )}
     </div>
   )
+}
+
+/**
+ * Removing someone is the part that was missing entirely: there was no button
+ * and no mutation, so a subcontractor who left kept their access until someone
+ * edited the database by hand.
+ *
+ * It asks first, and the asking is specific — "Kevin has 12 jobs booked" is the
+ * difference between an informed decision and an accident.
+ */
+function RemoveMember({
+  businessId,
+  member,
+  others,
+}: {
+  businessId: Id<'businesses'>
+  member: Member
+  others: Array<Member>
+}) {
+  const [confirming, setConfirming] = useState(false)
+  const [reassignTo, setReassignTo] = useState<Id<'memberships'> | ''>('')
+
+  const preview = useQuery({
+    ...convexQuery(api.team.removalPreview, {
+      businessId,
+      membershipId: member._id,
+    }),
+    enabled: confirming,
+  })
+
+  const convexRemove = useConvexMutation(api.team.remove)
+  const remove = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      membershipId: Id<'memberships'>
+      reassignTo?: Id<'memberships'>
+    }) => convexRemove(args),
+    onSuccess: () => setConfirming(false),
+  })
+
+  const handover =
+    (preview.data?.futureJobs ?? 0) + (preview.data?.activeRecurrences ?? 0) > 0
+
+  if (!confirming) {
+    return (
+      <div className="mt-3 border-t border-hairline-2 pt-3">
+        <button
+          type="button"
+          onClick={() => setConfirming(true)}
+          className="text-caption font-semibold text-red"
+        >
+          Remove from team
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mt-3 border-t border-hairline-2 pt-3">
+      <p className="text-body text-ink">
+        Remove {member.name || member.email}?
+      </p>
+      <p className="mt-1 text-caption text-muted">
+        {preview.isPending
+          ? 'Checking what they have on…'
+          : describeWork(preview.data)}
+      </p>
+
+      {handover && (
+        <label className="mt-3 flex flex-col gap-1.5">
+          <span className="section-label">Hand their work to</span>
+          <select
+            value={reassignTo}
+            onChange={(e) =>
+              setReassignTo(e.target.value as Id<'memberships'> | '')
+            }
+            className="h-11 rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          >
+            <option value="">Choose someone…</option>
+            {others.map((other) => (
+              <option key={other._id} value={other._id}>
+                {other.name || other.email}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {remove.isError && (
+        <p
+          role="alert"
+          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+        >
+          {removeError(remove.error)}
+        </p>
+      )}
+
+      <div className="mt-3 flex gap-2">
+        <button
+          type="button"
+          onClick={() => setConfirming(false)}
+          className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={remove.isPending || (handover && !reassignTo)}
+          onClick={() =>
+            remove.mutate({
+              businessId,
+              membershipId: member._id,
+              reassignTo: reassignTo === '' ? undefined : reassignTo,
+            })
+          }
+          className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        >
+          {remove.isPending ? 'Removing…' : 'Remove'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function describeWork(
+  preview:
+    | { futureJobs: number; activeRecurrences: number; openDrafts: number }
+    | undefined,
+) {
+  if (!preview) return 'They lose access straight away.'
+  const parts: Array<string> = []
+  if (preview.futureJobs > 0) {
+    parts.push(
+      `${preview.futureJobs} job${preview.futureJobs === 1 ? '' : 's'} booked`,
+    )
+  }
+  if (preview.activeRecurrences > 0) {
+    parts.push(
+      `${preview.activeRecurrences} repeating service${preview.activeRecurrences === 1 ? '' : 's'}`,
+    )
+  }
+  if (preview.openDrafts > 0) {
+    parts.push(
+      `${preview.openDrafts} unfinished report${preview.openDrafts === 1 ? '' : 's'}, which move${preview.openDrafts === 1 ? 's' : ''} to you`,
+    )
+  }
+  if (parts.length === 0) return 'They lose access straight away.'
+  return `They have ${parts.join(' and ')}. They lose access straight away.`
+}
+
+function removeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+  if (message.includes('NEEDS_REASSIGNMENT')) {
+    return 'Choose who takes over their booked work first.'
+  }
+  if (message.includes('INVALID_ASSIGNEE')) {
+    return 'That person cannot take over the work. Pick an active member.'
+  }
+  if (message.includes('LAST_OWNER')) return 'The owner cannot be removed.'
+  return 'Could not remove them. Check your connection and try again.'
 }
