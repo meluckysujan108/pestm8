@@ -107,6 +107,42 @@ export async function createActor(
 }
 
 /**
+ * A SECOND live session for someone who is already signed in — the office iPad
+ * next to the phone in their pocket.
+ *
+ * Switching is keyed by session rather than by person precisely so these two
+ * behave independently, and that is only testable with two of them.
+ */
+export async function addSession(
+  t: TestApp,
+  actor: TestActor,
+): Promise<TestActor> {
+  const now = Date.now()
+  const sessionId = await t
+    .run(async (ctx) =>
+      ctx.runMutation(components.betterAuth.adapter.create, {
+        input: {
+          model: 'session',
+          data: {
+            userId: actor.userId,
+            token: `test-session-${actor.userId}-${now}`,
+            expiresAt: now + 60 * 60 * 1000,
+            createdAt: now,
+            updatedAt: now,
+          },
+        },
+      }),
+    )
+    .then((session: { _id: string }) => session._id)
+
+  return {
+    ...actor,
+    sessionId,
+    as: t.withIdentity({ subject: actor.userId, sessionId }),
+  }
+}
+
+/**
  * A business owned by `owner`, matching what `businesses.create` produces —
  * including `canViewAllJobs: true` on the owner's own membership.
  */
