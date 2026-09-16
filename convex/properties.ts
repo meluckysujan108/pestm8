@@ -1,9 +1,10 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import { jobVisibility, requireMembership } from './lib/access'
 import { clientKind } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
+import { requireActor } from './lib/actor'
 
 /** Embeds the owning client alongside a property — the detail-view shape
  * (mirrors how `jobs.get` embeds `assignee`/`property` wholesale). */
@@ -241,8 +242,13 @@ export const update = mutation({
       throw new ConvexError('NOT_FOUND')
     }
 
+    // Typed explicitly for the same reason as `clients.update`: the optional
+    // args really can arrive absent, but `Object.entries` infers them away,
+    // which makes a necessary runtime filter read as dead code.
     const fields = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
+      Object.entries<string | undefined>(patch).filter(
+        ([, value]) => value !== undefined,
+      ),
     )
     if (Object.keys(fields).length > 0) await ctx.db.patch(propertyId, fields)
   },
@@ -255,7 +261,7 @@ export const update = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
 
     const property = await ctx.db.get(propertyId)
     if (!property || property.businessId !== businessId) return []

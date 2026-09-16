@@ -1,6 +1,7 @@
 import { ConvexError } from 'convex/values'
 import { authComponent } from '../auth'
 import type { Doc, Id } from '../_generated/dataModel'
+import type { MembershipFacts } from './capabilities'
 import type { QueryCtx, MutationCtx } from '../_generated/server'
 
 export type Ctx = QueryCtx | MutationCtx
@@ -87,8 +88,14 @@ export type JobVisibility =
   | { scope: 'business'; businessId: Id<'businesses'> }
   | { scope: 'assignee'; membershipId: Id<'memberships'> }
 
-export function jobVisibility(m: Membership): JobVisibility {
-  return m.role === 'owner' || m.canViewAllJobs
+/**
+ * Takes resolved facts rather than a membership row, so the only place that
+ * reads the legacy `canViewAllJobs` column is `grantsFromMembership` — where
+ * the mapping to `otherSchedules` is written down and explained. Same answer
+ * for every row in existence; one fewer place that knows the old column name.
+ */
+export function jobVisibility(m: MembershipFacts): JobVisibility {
+  return m.role === 'owner' || m.grants.otherSchedules
     ? { scope: 'business', businessId: m.businessId }
     : { scope: 'assignee', membershipId: m._id }
 }

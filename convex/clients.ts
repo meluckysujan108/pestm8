@@ -3,7 +3,6 @@ import { mutation, query } from './_generated/server'
 import {
   jobVisibility,
   requireMembership,
-  resolveViewScope,
 } from './lib/access'
 import { canSeeReport, summarise } from './reports'
 import { clientKind } from './schema'
@@ -110,7 +109,7 @@ export const unarchive = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -146,7 +145,7 @@ export const jobHistory = query({
 export const reports = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db

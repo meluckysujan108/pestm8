@@ -1,10 +1,11 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { authComponent } from './auth'
-import { jobVisibility, resolveViewScope } from './lib/access'
+import { jobVisibility } from './lib/access'
 import { dayKeyOf, startOfDayInZone, todayKeyInZone } from './lib/dates'
 import { jobsInRange } from './jobs'
 import type { Id } from './_generated/dataModel'
+import { requireActor } from './lib/actor'
 
 /** Shifts a `"YYYY-MM"` key by `offset` months (either direction). */
 function monthKeyOffset(monthKey: string, offset: number): string {
@@ -26,7 +27,7 @@ function monthKeyOffset(monthKey: string, offset: number): string {
 export const overview = query({
   args: { businessId: v.id('businesses'), months: v.optional(v.number()) },
   handler: async (ctx, { businessId, months = 6 }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const membership = (await requireActor(ctx, businessId)).readScope
     const business = await ctx.db.get(businessId)
     if (!business) return null
 

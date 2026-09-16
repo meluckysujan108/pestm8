@@ -20,6 +20,7 @@ import { clientNameOf } from './properties'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Note, NoteViewer } from './lib/noteAccess'
+import { requireActor } from './lib/actor'
 
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 // A photo may only be attached within this long of being uploaded. Convex
@@ -675,7 +676,9 @@ async function requireDeletable(
   businessId: Id<'businesses'>,
   noteId: Id<'notes'>,
 ) {
-  const me = await requireMembership(ctx, businessId)
+  // The real caller: deleting is authorship-bearing, and the read-only
+  // view-as has never granted it.
+  const me = (await requireActor(ctx, businessId)).actor.real
   const note = await requireNote(ctx, businessId, noteId)
   if (!canDeleteNote(me, note)) throw new ConvexError('NO_ACCESS')
   return note
