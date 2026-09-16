@@ -90,6 +90,29 @@ operator splits the count. A gate that errors is safe. One that silently under-r
 would answer "zero missing" about a table it only half read, and that answer is the
 permission to ship the rewrite.
 
+### Results on prod
+
+Run 2026-09-16 against `prod:rare-retriever-156`, straight after the deploy that
+shipped Phases 1 and 2 together.
+
+| | Before | After |
+|---|---|---|
+| Reports | 30 | 30 |
+| Reports without a version | 30 | 0 |
+| Finalised | 12 | 12 |
+| Finalised without a snapshot | 12 | 0 |
+| Snapshot rows | 0 | 5 |
+
+The five rows are the four built-ins at revision 1 plus one custom shape. All four
+built-in hashes equal the values pinned in `seam.test.ts`, which is the evidence that
+matters: production froze the same v1 wording the tests describe, so the twelve
+reports signed before the rewrite still print what they were signed with. Prod was
+exported first to `~/pestm8-backups/prod-2026-09-13-before-reports-v2.zip`.
+
+18 drafts stayed on revision 1 and were not touched. They offer "Switch to the new
+form" (Service Report) or "Start again" (Timber, Certificate); five Treatment Record
+drafts keep working on the retired form.
+
 ### Why by reference and not inline
 
 Not the 1 MB document limit — the worst snapshot is about 12 KB, nowhere near it.
