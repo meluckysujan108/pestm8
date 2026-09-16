@@ -5,7 +5,8 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../../convex/_generated/api'
 import { ReportBuilder } from '#/components/reports/ReportBuilder'
-import { ReportDocument, pdfFileName } from '#/components/reports/ReportDocument'
+import { ReportDocument } from '#/components/reports/ReportDocument'
+import { documentIdentity } from '#/lib/reportTemplates/documentModel'
 import { ReportActionBar } from '#/components/reports/ReportActionBar'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -68,7 +69,14 @@ function ReportPage() {
         businessId={business._id}
         reportId={report._id}
         pdfUrl={report.pdfUrl ?? null}
-        fileName={pdfFileName(template.shortName, report.property?.addressLine)}
+        fileName={
+          documentIdentity({
+            template,
+            property: report.property,
+            businessName: report.businessName,
+            finalisedAt: report.finalisedAt,
+          }).fileName
+        }
       >
         <ReportDocument report={report} businessId={business._id} />
       </ReportActionBar>

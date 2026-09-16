@@ -206,7 +206,10 @@ export function ReportPdf({ report }: { report: PdfReport }) {
       language="en-AU"
     >
       {model.cover && (
-        <CoverPage cover={{ ...model.cover, logoUrl: model.header.logoUrl }} />
+        <CoverPage
+          cover={{ ...model.cover, logoUrl: model.header.logoUrl }}
+          watermark={report.watermark}
+        />
       )}
 
       <Page size="A4" style={styles.page}>

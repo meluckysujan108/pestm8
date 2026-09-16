@@ -448,7 +448,37 @@ export default defineSchema({
       ),
     ),
     finalisedAt: v.optional(v.number()),
+    /**
+     * The current rendered file, denormalised from the newest `reportPdfs`
+     * row so a download is one read. The rows are the record; this is the
+     * pointer.
+     */
     pdfStorageId: v.optional(v.id('_storage')),
+    /**
+     * Where a render is up to. `generating` is a claim, taken before the work
+     * starts, so two tabs opening the PDF tab at once do not both render and
+     * leave one blob orphaned in storage forever.
+     */
+    pdfStatus: v.optional(
+      v.union(
+        v.literal('pending'),
+        v.literal('generating'),
+        v.literal('ready'),
+        v.literal('failed'),
+      ),
+    ),
+    /** Which renderer drew the current file — see `RENDER_VERSION`. */
+    pdfRenderVersion: v.optional(v.number()),
+    pdfGeneratedAt: v.optional(v.number()),
+    /**
+     * A watermarked render of this draft, for looking at before locking.
+     *
+     * At most one per report: each preview deletes the last one, and finalise
+     * deletes it altogether. A preview is a throwaway of a document that does
+     * not exist yet, and keeping every one a technician asked for would fill
+     * storage with files nobody can tell apart.
+     */
+    previewStorageId: v.optional(v.id('_storage')),
     // Set the moment an email actually sends (convex/email.ts). Independent
     // of `status` — a finalised report can be emailed zero, one, or many
     // times, so "sent" is its own axis, not a third status value.
@@ -795,6 +825,31 @@ export default defineSchema({
     version: v.number(),
     createdAt: v.number(),
   }).index('by_hash', ['hash']),
+
+  /**
+   * Every PDF this report has ever been rendered as, newest last.
+   *
+   * Append-only, and superseded files are kept rather than deleted. A client
+   * who was emailed a report in August must still be able to be shown the file
+   * they were actually sent, whatever the renderer does afterwards — and once
+   * deliveries record which row they attached (Phase 5), "which file did they
+   * receive?" has an answer instead of an assumption.
+   *
+   * `reports.pdfStorageId` is the denormalised pointer at the newest row.
+   */
+  reportPdfs: defineTable({
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    storageId: v.id('_storage'),
+    /** The painter that drew it. A bump re-renders on next open. */
+    rendererVersion: v.number(),
+    /** The wording it was drawn from, mirroring `reports.templateVersion`. */
+    templateVersion: v.optional(v.number()),
+    /** The report's own amendment version — 1 until amendments exist. */
+    version: v.number(),
+    bytes: v.number(),
+    createdAt: v.number(),
+  }).index('by_report', ['reportId']),
 
   /**
    * A business's own version of a vocabulary its reports print — its product

@@ -53,8 +53,21 @@ export const sendReportPdf = action({
     const pdfRes = await fetch(pdfUrl)
     const pdfBuffer = Buffer.from(await pdfRes.arrayBuffer())
 
+    // One name for this document, everywhere: the PDF's own Title, the tab a
+    // viewer shows, the file in a Downloads folder and the attachment in this
+    // email used to be four different strings for the same report.
+    const { documentIdentity } = await import(
+      '../src/lib/reportTemplates/documentModel'
+    )
+    const identity = documentIdentity({
+      template,
+      property: report.property,
+      businessName: report.businessName,
+      finalisedAt: report.finalisedAt,
+    })
+
     const fromEmail = process.env.RESEND_FROM_EMAIL
-    const subject = `${template.name} — ${report.property?.addressLine ?? report.businessName}`
+    const subject = identity.title
 
     const emailRes = await fetch('https://api.resend.com/emails', {
       method: 'POST',
@@ -74,7 +87,7 @@ export const sendReportPdf = action({
         html: `<p>Please find attached your ${template.name.toLowerCase()} from ${report.businessName}.</p>`,
         attachments: [
           {
-            filename: `${template.shortName.toLowerCase()}.pdf`,
+            filename: identity.fileName,
             content: pdfBuffer.toString('base64'),
           },
         ],

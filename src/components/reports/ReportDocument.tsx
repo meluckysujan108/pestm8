@@ -417,15 +417,6 @@ function PhotoGrid({ photos, label }: { photos: Array<DocPhoto>; label: string }
   )
 }
 
-/** Named so a client can tell two reports apart in their downloads folder. */
-export function pdfFileName(shortName: string, addressLine?: string): string {
-  const place = (addressLine ?? 'report')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return `${shortName.toLowerCase()}-${place}.pdf`
-}
-
 /**
  * Paints what `present()` decided. It knows the shapes a value can take, never
  * the field kinds behind them — so a new kind reaches the document without this

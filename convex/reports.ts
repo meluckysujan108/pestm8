@@ -1,5 +1,10 @@
 import { ConvexError, v } from 'convex/values'
-import { internalMutation, mutation, query } from './_generated/server'
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from './_generated/server'
 import { internal } from './_generated/api'
 import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
 import { clientNameOf, withClient } from './properties'
@@ -224,6 +229,32 @@ export const get = query({
     // Soft-deleted: gone from every list, and not openable by a stale link.
     if (report.deletedAt !== undefined) return null
 
+    return {
+      ...(await projectReport(ctx, report)),
+      // A finalised report is immutable; only its author may edit a draft.
+      canEdit:
+        report.status === 'draft' &&
+        report.authorMembershipId === membership._id,
+      // The caller's own membership — `reportPdf`/`email` actions need this
+      // to attribute an audit-log entry, and can't call `requireMembership`
+      // themselves (actions have no `ctx.db`).
+      callerMembershipId: membership._id,
+    }
+  },
+})
+
+/**
+ * Everything the document is built from, with no access check of its own.
+ *
+ * `reports.get` runs the checks and calls this; `getForRender` calls it with
+ * none, because a scheduled render has no caller to check — a Convex action
+ * runs without an identity. Keeping it one function is the point: two
+ * projections of the same report would let the PDF a client is emailed differ
+ * from the one on screen, and only in the fields someone forgot to copy.
+ */
+async function projectReport(ctx: QueryCtx, report: Doc<'reports'>) {
+    const businessId = report.businessId
+
     const rawProperty = await ctx.db.get(report.propertyId)
     const liveProperty = rawProperty && (await withClient(ctx, rawProperty))
     const author = await ctx.db.get(report.authorMembershipId)
@@ -363,14 +394,83 @@ export const get = query({
         email: businessFacts.email,
         licenceNumber: businessFacts.licenceNumber,
       },
-      // A finalised report is immutable; only its author may edit a draft.
-      canEdit:
-        report.status === 'draft' &&
-        report.authorMembershipId === membership._id,
-      // The caller's own membership — `reportPdf`/`email` actions need this
-      // to attribute an audit-log entry, and can't call `requireMembership`
-      // themselves (actions have no `ctx.db`).
-      callerMembershipId: membership._id,
+    }
+}
+
+/**
+ * The same projection, for work that runs with no caller: the PDF render
+ * `finalise` schedules. Internal, so it is unreachable from a client.
+ */
+export const getForRender = internalQuery({
+  args: { reportId: v.id('reports') },
+  handler: async (ctx, { reportId }) => {
+    const report = await ctx.db.get(reportId)
+    if (!report || report.deletedAt !== undefined) return null
+    return projectReport(ctx, report)
+  },
+})
+
+/** Where a report's render is up to — small enough to poll while one runs. */
+export const pdfPointer = internalQuery({
+  args: { reportId: v.id('reports') },
+  handler: async (ctx, { reportId }) => {
+    const report = await ctx.db.get(reportId)
+    if (!report) return null
+    return {
+      status: report.pdfStatus,
+      storageId: report.pdfStorageId,
+      renderVersion: report.pdfRenderVersion ?? 0,
+    }
+  },
+})
+
+/**
+ * The report's evidence, for the same caller-less render.
+ *
+ * The public `galleryPhotos` and `photoUrls` both start with a membership
+ * check, and a scheduled action has no identity to check — it would be
+ * refused, and the document would print without its photos while looking
+ * perfectly fine.
+ */
+export const photosForRender = internalQuery({
+  args: { reportId: v.id('reports') },
+  handler: async (ctx, { reportId }) => {
+    const report = await ctx.db.get(reportId)
+    if (!report) return { gallery: [], slots: {} }
+
+    const rows = await ctx.db
+      .query('reportPhotos')
+      .withIndex('by_report_field', (q) => q.eq('reportId', reportId))
+      .collect()
+
+    const gallery = (
+      await Promise.all(
+        rows
+          .sort((a, b) => a.order - b.order)
+          .map(async (photo) => ({
+            fieldKey: photo.fieldKey,
+            caption: photo.caption,
+            order: photo.order,
+            isCover: photo.isCover,
+            width: photo.width,
+            height: photo.height,
+            url: await ctx.storage.getUrl(photo.storageId),
+          })),
+      )
+    ).filter((photo) => photo.url !== null)
+
+    const slotEntries = await Promise.all(
+      Object.entries(report.photoSlots ?? {}).map(async ([slot, storageId]) => {
+        const url = await ctx.storage.getUrl(storageId)
+        return [slot, url] as const
+      }),
+    )
+
+    return {
+      gallery,
+      slots: Object.fromEntries(
+        slotEntries.filter((entry): entry is [string, string] => entry[1] !== null),
+      ),
     }
   },
 })
@@ -1222,6 +1322,7 @@ export const finalise = mutation({
       data,
       status: 'finalised',
       finalisedAt: now,
+      pdfStatus: 'pending',
       reportNumber,
       ...(templateSnapshotId ? { templateSnapshotId } : {}),
       ...(contextSnapshot ? { contextSnapshot } : {}),
@@ -1238,19 +1339,137 @@ export const finalise = mutation({
       at: now,
     })
 
+    if (report.previewStorageId) {
+      // The draft's watermarked preview is a guess at a document that now
+      // exists for real.
+      await ctx.storage.delete(report.previewStorageId)
+      await ctx.db.patch(reportId, { previewStorageId: undefined })
+    }
+
+    // Render now, not when someone first asks for it. The technician who
+    // locked this is standing in a driveway; the person who opens the PDF
+    // should not be the one who pays for drawing it.
+    await ctx.scheduler.runAfter(0, internal.reportPipeline.afterFinalise, {
+      reportId,
+    })
+
     return reportId
   },
 })
 
 /**
- * Not exposed to clients — only `reportPdf.generate` calls this, after it has
- * already gone through `reports.get`'s own membership/visibility check to
- * fetch the data it rendered from.
+ * The version of the painter. Bumping it makes every report re-render on its
+ * next open, which is how a fix to the document reaches files already drawn.
+ * A superseded file is kept, never deleted: it is what someone was sent.
  */
-export const setPdfStorageId = internalMutation({
+export const RENDER_VERSION = 2
+
+/**
+ * Take the job of rendering this report, or say who already has it.
+ *
+ * Every caller goes through here — the pipeline after finalise, the PDF tab,
+ * a download, an email — because without a claim two tabs opening at the same
+ * moment both render, both store, and the loser's file is orphaned in storage
+ * with nothing pointing at it and nothing to clean it up.
+ *
+ * Returns the existing file when one is current, so the claim doubles as the
+ * cache read the callers used to do for themselves.
+ */
+export const claimPdf = internalMutation({
+  args: { reportId: v.id('reports') },
+  handler: async (
+    ctx,
+    { reportId },
+  ): Promise<
+    | { claimed: true }
+    | { claimed: false; storageId?: Id<'_storage'>; reason: 'ready' | 'busy' | 'gone' }
+  > => {
+    const report = await ctx.db.get(reportId)
+    if (!report || report.status !== 'finalised') {
+      return { claimed: false, reason: 'gone' }
+    }
+
+    const current =
+      report.pdfStorageId !== undefined &&
+      (report.pdfRenderVersion ?? 0) >= RENDER_VERSION
+    if (current) {
+      return { claimed: false, storageId: report.pdfStorageId, reason: 'ready' }
+    }
+
+    // A claim that never settled — the action died mid-render — must not lock
+    // the report out of ever having a PDF. Five minutes is far longer than a
+    // render and far shorter than a technician's patience.
+    const stale =
+      report.pdfStatus !== 'generating' ||
+      (report.pdfGeneratedAt ?? 0) < Date.now() - 5 * 60_000
+    if (!stale) return { claimed: false, reason: 'busy' }
+
+    await ctx.db.patch(reportId, {
+      pdfStatus: 'generating',
+      pdfGeneratedAt: Date.now(),
+    })
+    return { claimed: true }
+  },
+})
+
+/**
+ * Records a rendered file: a new `reportPdfs` row, and the report's pointer
+ * moved to it. The old row stays — it is the file someone was sent.
+ */
+export const setPdf = internalMutation({
+  args: {
+    reportId: v.id('reports'),
+    storageId: v.id('_storage'),
+    bytes: v.number(),
+  },
+  handler: async (ctx, { reportId, storageId, bytes }) => {
+    const report = await ctx.db.get(reportId)
+    if (!report) return
+
+    await ctx.db.insert('reportPdfs', {
+      businessId: report.businessId,
+      reportId,
+      storageId,
+      rendererVersion: RENDER_VERSION,
+      templateVersion: report.templateVersion,
+      version: 1,
+      bytes,
+      createdAt: Date.now(),
+    })
+    await ctx.db.patch(reportId, {
+      pdfStorageId: storageId,
+      pdfStatus: 'ready',
+      pdfRenderVersion: RENDER_VERSION,
+      pdfGeneratedAt: Date.now(),
+    })
+  },
+})
+
+/**
+ * Points the report at a fresh preview and throws the last one away.
+ *
+ * Deleting here rather than on a schedule keeps it to one blob per draft: a
+ * preview is only ever interesting until the next one is drawn.
+ */
+export const setPreview = internalMutation({
   args: { reportId: v.id('reports'), storageId: v.id('_storage') },
   handler: async (ctx, { reportId, storageId }) => {
-    await ctx.db.patch(reportId, { pdfStorageId: storageId })
+    const report = await ctx.db.get(reportId)
+    if (!report) return
+    if (report.previewStorageId) {
+      await ctx.storage.delete(report.previewStorageId)
+    }
+    await ctx.db.patch(reportId, { previewStorageId: storageId })
+  },
+})
+
+/** Releases the claim so the next open tries again rather than waiting on it. */
+export const failPdf = internalMutation({
+  args: { reportId: v.id('reports') },
+  handler: async (ctx, { reportId }) => {
+    const report = await ctx.db.get(reportId)
+    if (report?.pdfStatus !== 'generating') return
+    await ctx.db.patch(reportId, { pdfStatus: 'failed' })
   },
 })
 

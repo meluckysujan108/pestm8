@@ -41,6 +41,7 @@ import type * as properties from "../properties.js";
 import type * as recurrences from "../recurrences.js";
 import type * as reportAnnotations from "../reportAnnotations.js";
 import type * as reportPdf from "../reportPdf.js";
+import type * as reportPipeline from "../reportPipeline.js";
 import type * as reports from "../reports.js";
 import type * as viewAs from "../viewAs.js";
 import type * as weather from "../weather.js";
@@ -85,6 +86,7 @@ declare const fullApi: ApiFromModules<{
   recurrences: typeof recurrences;
   reportAnnotations: typeof reportAnnotations;
   reportPdf: typeof reportPdf;
+  reportPipeline: typeof reportPipeline;
   reports: typeof reports;
   viewAs: typeof viewAs;
   weather: typeof weather;

@@ -49,9 +49,28 @@ const styles = StyleSheet.create({
   subtitle: { fontSize: 12, fontFamily: FONT.bold, color: COLOURS.ink, marginTop: 12 },
   address: { fontSize: 11, color: COLOURS.ink2, marginTop: 5 },
   date: { fontSize: 10, color: COLOURS.muted, marginTop: 3 },
+  watermark: {
+    position: 'absolute',
+    top: '62%',
+    left: 0,
+    right: 0,
+    textAlign: 'center',
+    fontSize: 64,
+    fontFamily: FONT.bold,
+    color: COLOURS.red,
+    opacity: 0.12,
+    transform: 'rotate(-28deg)',
+  },
 })
 
-export function CoverPage({ cover }: { cover: NonNullable<ReportModel['cover']> & { logoUrl?: string } }) {
+export function CoverPage({
+  cover,
+  watermark,
+}: {
+  cover: NonNullable<ReportModel['cover']> & { logoUrl?: string }
+  /** Stamped here too: "every page" has to include the one people look at. */
+  watermark?: string
+}) {
   return (
     <Page size="A4" style={styles.page}>
       {cover.photo ? (
@@ -97,6 +116,8 @@ export function CoverPage({ cover }: { cover: NonNullable<ReportModel['cover']> 
             years should say when the visit was without being opened. */}
         {cover.date && <Text style={styles.date}>{cover.date}</Text>}
       </View>
+
+      {watermark && <Text style={styles.watermark}>{watermark}</Text>}
     </Page>
   )
 }

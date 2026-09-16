@@ -1,4 +1,4 @@
-import { Check, Clock, Lock, TriangleAlert } from 'lucide-react'
+import { Check, Clock, FileText, Loader2, Lock, TriangleAlert } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { sectionsOf } from '#/lib/reportTemplates'
 import { visibleSections } from '#/lib/reportTemplates/visibility'
@@ -31,6 +31,8 @@ export function FinaliseSheet({
   signedSlots,
   photoCount,
   onAnswer,
+  onPreview,
+  previewing,
 }: {
   open: boolean
   onClose: () => void
@@ -44,6 +46,9 @@ export function FinaliseSheet({
   photoCount: number
   /** Answers a question from here — the finish time, which is known now. */
   onAnswer: (key: string, value: unknown) => void
+  /** Opens a watermarked PDF of the draft. Absent while one is being drawn. */
+  onPreview?: () => void
+  previewing?: boolean
 }) {
   const fields = visibleSections(sectionsOf(template), data).flatMap((section) => section.fields)
   const summary = reportSummary(template, data, context)
@@ -64,6 +69,25 @@ export function FinaliseSheet({
       title="Ready to lock"
       description="A locked report can't be edited. Corrections go out as a new report."
       footer={
+        <>
+          {/* Read it before you lock it. Everything above is a summary; this
+              is the document itself, stamped DRAFT so a copy that escapes
+              cannot be mistaken for the real one. */}
+          {onPreview && (
+            <button
+              type="button"
+              disabled={previewing}
+              onClick={onPreview}
+              className="mb-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink disabled:opacity-50"
+            >
+              {previewing ? (
+                <Loader2 size={15} strokeWidth={2} className="animate-spin" />
+              ) : (
+                <FileText size={15} strokeWidth={1.9} />
+              )}
+              {previewing ? 'Preparing…' : 'Preview the document'}
+            </button>
+          )}
         <button
           type="button"
           disabled={pending}
@@ -73,6 +97,7 @@ export function FinaliseSheet({
           <Lock size={17} strokeWidth={2} />
           {pending ? 'Locking…' : 'Finalise & lock'}
         </button>
+        </>
       }
     >
       {summary.length > 0 && (

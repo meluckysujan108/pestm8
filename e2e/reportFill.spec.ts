@@ -458,6 +458,41 @@ test.describe('the sheet before the lock', () => {
       .toMatch(/^\d{2}:\d{2}$/)
   })
 
+  test('the document itself can be read before it is locked', async ({ page }) => {
+    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-preview')
+
+    await readyToLock(owner, businessId, reportId, { safeToStart: true, treatments: [] })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    await builderReady(page)
+    await page.getByRole('button', { name: 'Finalise & lock' }).click()
+
+    const sheet = page.getByRole('dialog')
+    // The tab is opened on the tap and pointed at the file when the render
+    // lands — a popup opened afterwards is one every browser blocks.
+    const opened = page.waitForEvent('popup')
+    await sheet.getByRole('button', { name: 'Preview the document' }).click()
+    await opened
+
+    // The watermarked copy is kept where the next one can replace it, rather
+    // than accumulating a file per look. (What it contains is asserted in
+    // reportPdf.spec.ts, where the bytes can be read.)
+    await expect
+      .poll(
+        async () => {
+          const report = await owner.client.query(api.reports.get, { businessId, reportId })
+          return report!.previewStorageId ?? null
+        },
+        { timeout: 30_000 },
+      )
+      .not.toBeNull()
+
+    // Still a draft: reading it is not agreeing to it.
+    const report = await owner.client.query(api.reports.get, { businessId, reportId })
+    expect(report!.status).toBe('draft')
+  })
+
   test('backing out of it changes nothing', async ({ page }) => {
     const { email, owner, businessId, slug, reportId } = await startJobReport('fill-sheet-cancel')
 

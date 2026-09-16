@@ -166,3 +166,96 @@ test('a signature prints as the mark that was made, not as a sentence about it',
   }
   expect(images).toBe(1)
 })
+
+test.describe('the render pipeline', () => {
+  test('a locked report already has its PDF before anyone asks', async () => {
+    const s = await setupBusinessWithSub('pdf-pipeline')
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+    await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+    // Scheduled by `finalise`, so the technician who locked it is not the one
+    // who waits for it to draw.
+    await expect
+      .poll(
+        async () => {
+          const report = await s.owner.client.query(api.reports.get, {
+            businessId: s.businessId,
+            reportId,
+          })
+          return report?.pdfStatus
+        },
+        { timeout: 30_000 },
+      )
+      .toBe('ready')
+
+    const before = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(before?.pdfUrl).toBeTruthy()
+
+    // And asking again does not draw a second one: the claim is what stops
+    // two tabs both rendering and orphaning a file in storage.
+    const again = await s.owner.client.action(api.reportPdf.generate, {
+      businessId: s.businessId,
+      reportId,
+    })
+    const after = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(again.storageId).toBe(before?.pdfStorageId)
+    expect(after?.pdfGeneratedAt).toBe(before?.pdfGeneratedAt)
+  })
+})
+
+test.describe('previewing a draft', () => {
+  test('is watermarked, and thrown away once the real document exists', async () => {
+    const s = await setupBusinessWithSub('pdf-preview')
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+
+    const result = await s.owner.client.action(api.reportPdf.preview, {
+      businessId: s.businessId,
+      reportId,
+    })
+    const bytes = Buffer.from(await (await fetch(result.url!)).arrayBuffer())
+    expect(bytes.subarray(0, 5).toString()).toBe('%PDF-')
+
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    const doc = await pdfjs.getDocument({
+      data: new Uint8Array(bytes),
+      useSystemFonts: true,
+    }).promise
+    const content = await (await doc.getPage(1)).getTextContent()
+    const text = content.items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ')
+      .replace(/\s+/g, ' ')
+    // Stamped on every page: a PDF is a thing people forward, and a draft that
+    // cannot be told from the signed document is worse than no draft at all.
+    expect(text).toContain('DRAFT')
+
+    const drafted = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(drafted?.previewStorageId).toBeTruthy()
+
+    await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+    // The guess is discarded the moment the document it guessed at exists.
+    const locked = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(locked?.previewStorageId).toBeUndefined()
+    await expectRejected(
+      () =>
+        s.owner.client.action(api.reportPdf.preview, {
+          businessId: s.businessId,
+          reportId,
+        }),
+      'REPORT_FINALISED',
+    )
+  })
+})

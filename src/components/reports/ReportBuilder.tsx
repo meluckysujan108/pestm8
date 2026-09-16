@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { convexQuery, useConvexAction, useConvexMutation } from '@convex-dev/react-query'
 import { ArrowLeft, ArrowRight, CheckCheck, Lock, Save } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { FieldRenderer } from './fields/FieldRenderer'
@@ -279,6 +279,38 @@ export function ReportBuilder({
         templateVersion: template.version,
       }),
   })
+
+  const convexPreview = useConvexAction(api.reportPdf.preview)
+  const preview = useMutation({
+    mutationFn: (args: { businessId: Id<'businesses'>; reportId: Id<'reports'> }) =>
+      convexPreview(args),
+  })
+
+  /**
+   * A watermarked PDF of the draft, opened in a new tab.
+   *
+   * The tab is opened in the click handler and pointed at the file when the
+   * render lands. Opening it afterwards instead is a popup with no user
+   * gesture behind it, which every browser blocks — and a technician gets
+   * nothing, with nothing to tell them why.
+   */
+  function openPreview() {
+    const tab = typeof window === 'undefined' ? null : window.open('', '_blank')
+    void autosave
+      .flush()
+      .then(() => preview.mutateAsync({ businessId, reportId }))
+      .then(
+        (result) => {
+          if (!result.url) {
+            tab?.close()
+            return
+          }
+          if (tab) tab.location.href = result.url
+          else window.open(result.url, '_blank', 'noopener')
+        },
+        () => tab?.close(),
+      )
+  }
 
   const convexConfirm = useConvexMutation(api.reports.confirmPrefill)
   const confirmSuggestions = useMutation({
@@ -584,6 +616,8 @@ export function ReportBuilder({
         signedSlots={signedSlots ?? []}
         photoCount={Object.values(photoCounts ?? {}).reduce((total, n) => total + n, 0)}
         onAnswer={(key, value) => setData((prev) => ({ ...prev, [key]: value }))}
+        onPreview={openPreview}
+        previewing={preview.isPending}
       />
 
       {/* `data-ready` is the readiness signal the e2e suite waits on: the
