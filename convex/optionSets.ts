@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { requireMembership, requireOwner } from './lib/access'
+import { requireMembership } from './lib/access'
 import {
   MAX_TEMPLATES_SCANNED,
   ensureRow,
@@ -18,6 +18,7 @@ import type { SectionDef } from '../src/lib/reportTemplates'
 import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 import { forSelf, recordAudit } from './lib/audit'
+import { requireActor, requireCapability } from './lib/actor'
 
 /**
  * Per-business option libraries: the vocabularies a business owns and its
@@ -64,7 +65,9 @@ export const renameOption = mutation({
     to: v.string(),
   },
   handler: async (ctx, { businessId, key, from, to }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const target = to.trim()
     if (target === from) return { rewritten: 0 }
     if (target.length === 0 || target.length > MAX_OPTION_LENGTH) {

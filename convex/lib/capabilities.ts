@@ -567,6 +567,31 @@ export function clampGrants(
   }
 }
 
+/**
+ * The roles that may actually be handed out today.
+ *
+ * `contractor` is in the schema because the column has to exist before the code
+ * that fills it — expand before migrate — but nothing yet supports a team:
+ * nobody assigns a `parentMembershipId`, and `canManageMember` is not wired
+ * into the team mutations. Minting one now would produce a member holding
+ * business-wide `team.manage` with no team to scope it to: more reach than a
+ * subcontractor, and less structure than an owner. The role becomes assignable
+ * in the same change that gives it a team.
+ *
+ * `owner` is absent for a different and permanent reason. There is exactly one
+ * owner account, it is the key to the business, and it is not handed out from
+ * inside the app. The invite paths already refuse it; `setRole` did not, so an
+ * owner could promote someone into a second, equally invisible owner — which
+ * the model has no way to represent.
+ */
+export const ASSIGNABLE_ROLES = [
+  'subcontractor',
+] as const satisfies ReadonlyArray<Role>
+
+export function isAssignableRole(role: Role): boolean {
+  return (ASSIGNABLE_ROLES as ReadonlyArray<Role>).includes(role)
+}
+
 export const NO_GRANTS: Grants = {
   switchInto: null,
   clientDirectory: false,

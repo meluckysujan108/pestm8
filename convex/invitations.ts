@@ -8,7 +8,7 @@ import {
 } from './_generated/server'
 import { internal } from './_generated/api'
 import { authComponent } from './auth'
-import { getAuthUserId, requireMembership, requireOwner } from './lib/access'
+import { getAuthUserId, requireMembership } from './lib/access'
 import { nextColour } from './lib/colours'
 import {
   INVITE_TTL_MS,
@@ -20,6 +20,12 @@ import {
 import { role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
 import type { Id } from './_generated/dataModel'
+import {
+  requireActor,
+  requireAssignableRole,
+  requireCapability,
+} from './lib/actor'
+import type { Role } from './lib/capabilities'
 
 /**
  * Joining a business, rebuilt around a link the owner shares.
@@ -32,8 +38,8 @@ import type { Id } from './_generated/dataModel'
  * it is created by the bootstrap runbook, not handed out over SMS.
  */
 
-function assertInvitableRole(value: string) {
-  if (value === 'owner') throw new ConvexError('OWNER_INVITE_FORBIDDEN')
+function assertInvitableRole(value: Role) {
+  requireAssignableRole(value)
 }
 
 /** Built from SITE_URL, never from a request header — a Host-header-derived
@@ -82,7 +88,9 @@ export const store = internalMutation({
     tokenHash: v.string(),
   },
   handler: async (ctx, args) => {
-    const actor = await requireOwner(ctx, args.businessId)
+    const env = await requireActor(ctx, args.businessId)
+    requireCapability(env, 'team.manage')
+    const actor = env.actor.real
     assertInvitableRole(args.role)
 
     const email = args.email.trim().toLowerCase()
@@ -169,7 +177,9 @@ export const applyNewToken = internalMutation({
     tokenHash: v.string(),
   },
   handler: async (ctx, args) => {
-    const actor = await requireOwner(ctx, args.businessId)
+    const env = await requireActor(ctx, args.businessId)
+    requireCapability(env, 'team.manage')
+    const actor = env.actor.real
     const invitation = await ctx.db.get(args.invitationId)
     if (!invitation || invitation.businessId !== args.businessId) {
       throw new ConvexError('NOT_FOUND')
@@ -385,7 +395,7 @@ export const checkForSignUp = internalQuery({
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'team.manage')
     const now = Date.now()
 
     const rows = await ctx.db
@@ -413,7 +423,9 @@ export const revoke = mutation({
     invitationId: v.id('invitations'),
   },
   handler: async (ctx, { businessId, invitationId }) => {
-    const actor = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'team.manage')
+    const actor = env.actor.real
     const invitation = await ctx.db.get(invitationId)
     if (!invitation || invitation.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')

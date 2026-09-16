@@ -4,6 +4,7 @@ import { factsFromMembership } from './membershipFacts'
 import {
   capabilitiesOf,
   effectiveCapabilities,
+  isAssignableRole,
   isSwitched,
   jobScope,
   resolveActorForRead,
@@ -16,6 +17,7 @@ import type {
   CapabilitySet,
   MembershipFacts,
   ReadActor,
+  Role,
   RowScope,
   SwitchSession,
   WriteActor,
@@ -545,6 +547,18 @@ export function hasCapability(
   capability: Capability,
 ): boolean {
   return env.caps[capability]
+}
+
+/**
+ * Refuse to hand out a role the app cannot yet support, or must never hand out
+ * at all. See `ASSIGNABLE_ROLES`.
+ *
+ * Keeps the existing error for the owner case: `OWNER_INVITE_FORBIDDEN` is
+ * already what the invite paths throw and what the UI knows how to say.
+ */
+export function requireAssignableRole(role: Role): void {
+  if (role === 'owner') throw new ConvexError('OWNER_INVITE_FORBIDDEN')
+  if (!isAssignableRole(role)) throw new ConvexError('ROLE_NOT_ASSIGNABLE')
 }
 
 /**

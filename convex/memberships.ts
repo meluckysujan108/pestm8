@@ -5,12 +5,16 @@ import {
   canViewAs,
   getAuthUserId,
   requireMembership,
-  requireOwner,
 } from './lib/access'
 import { nextColour } from './lib/colours'
 import { inviteState } from './lib/inviteTokens'
 import { role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
+import {
+  requireActor,
+  requireAssignableRole,
+  requireCapability,
+} from './lib/actor'
 
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
@@ -61,7 +65,7 @@ export const inviteByEmail = mutation({
     role,
   },
   handler: async (ctx, args) => {
-    await requireOwner(ctx, args.businessId)
+    requireCapability(await requireActor(ctx, args.businessId), 'team.manage')
     throw new ConvexError('APP_UPDATE_REQUIRED')
   },
 })
@@ -71,7 +75,7 @@ export const inviteByEmail = mutation({
 export const listInvitations = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'team.manage')
 
     const all = await ctx.db
       .query('invitations')
@@ -93,7 +97,9 @@ export const revokeInvitation = mutation({
     invitationId: v.id('invitations'),
   },
   handler: async (ctx, { businessId, invitationId }) => {
-    const actor = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'team.manage')
+    const actor = env.actor.real
 
     const invitation = await ctx.db.get(invitationId)
     if (!invitation || invitation.businessId !== businessId) {
@@ -141,10 +147,12 @@ export const invite = mutation({
     role,
   },
   handler: async (ctx, args) => {
-    const actor = await requireOwner(ctx, args.businessId)
+    const env = await requireActor(ctx, args.businessId)
+    requireCapability(env, 'team.manage')
+    const actor = env.actor.real
     // The owner account is the key to the business; it is never handed out
     // through an invitation, only by the bootstrap runbook.
-    if (args.role === 'owner') throw new ConvexError('OWNER_INVITE_FORBIDDEN')
+    requireAssignableRole(args.role)
 
     const existing = await ctx.db
       .query('memberships')
@@ -269,7 +277,9 @@ export const setCanViewAllJobs = mutation({
     canViewAllJobs: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const actor = await requireOwner(ctx, args.businessId)
+    const env = await requireActor(ctx, args.businessId)
+    requireCapability(env, 'team.manage')
+    const actor = env.actor.real
 
     const target = await ctx.db.get(args.membershipId)
     if (!target || target.businessId !== args.businessId) {
@@ -305,7 +315,9 @@ export const setCanViewOtherAccounts = mutation({
     canViewOtherAccounts: v.boolean(),
   },
   handler: async (ctx, args) => {
-    const actor = await requireOwner(ctx, args.businessId)
+    const env = await requireActor(ctx, args.businessId)
+    requireCapability(env, 'team.manage')
+    const actor = env.actor.real
 
     const target = await ctx.db.get(args.membershipId)
     if (!target || target.businessId !== args.businessId) {
@@ -335,7 +347,15 @@ export const setRole = mutation({
     role,
   },
   handler: async (ctx, args) => {
-    const actor = await requireOwner(ctx, args.businessId)
+    const env = await requireActor(ctx, args.businessId)
+    requireCapability(env, 'team.manage')
+    const actor = env.actor.real
+
+    // Which roles exist and which may be handed out are different questions;
+    // `ASSIGNABLE_ROLES` answers the second. This is also what stops an owner
+    // promoting someone into a second owner account, which nothing refused
+    // before — the invite paths did, but this one did not.
+    requireAssignableRole(args.role)
 
     const target = await ctx.db.get(args.membershipId)
     if (!target || target.businessId !== args.businessId) {
