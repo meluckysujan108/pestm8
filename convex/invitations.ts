@@ -18,6 +18,7 @@ import {
   newInviteToken,
 } from './lib/inviteTokens'
 import { role } from './schema'
+import { forSelf, recordAudit } from './lib/audit'
 import type { Id } from './_generated/dataModel'
 
 /**
@@ -131,9 +132,8 @@ export const store = internalMutation({
       expiresAt: now + INVITE_TTL_MS,
     })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(actor._id), {
       businessId: args.businessId,
-      actorMembershipId: actor._id,
       action: 'invitation.create',
       entityType: 'invitations',
       entityId: invitationId,
@@ -183,9 +183,8 @@ export const applyNewToken = internalMutation({
       expiresAt: now + INVITE_TTL_MS,
       revokedAt: undefined,
     })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(actor._id), {
       businessId: args.businessId,
-      actorMembershipId: actor._id,
       action: 'invitation.regenerate',
       entityType: 'invitations',
       entityId: args.invitationId,
@@ -341,9 +340,8 @@ export const redeemByHash = internalMutation({
       claimedMembershipId: membershipId,
     })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(membershipId), {
       businessId: invitation.businessId,
-      actorMembershipId: membershipId,
       action: 'invitation.redeem',
       entityType: 'invitations',
       entityId: invitation._id,
@@ -427,9 +425,8 @@ export const revoke = mutation({
 
     const now = Date.now()
     await ctx.db.patch(invitationId, { revokedAt: now })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(actor._id), {
       businessId,
-      actorMembershipId: actor._id,
       action: 'invitation.revoke',
       entityType: 'invitations',
       entityId: invitationId,

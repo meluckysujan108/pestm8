@@ -1,25 +1,46 @@
 import { v } from 'convex/values'
 import { internalMutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
+import { recordAudit } from './lib/audit'
 import type { Doc, Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
 
 /**
- * The one place anything writes an audit-log row — kept separate from the
- * mutations that trigger these events (`reports.finalise`, `email.send`)
- * because `email.send` is a Node action and can't touch `ctx.db` itself.
+ * The way in from an action.
+ *
+ * This used to claim it was the one place anything wrote an audit row. It was
+ * not — eighteen mutations inserted the row by hand and only `email.send` came
+ * through here — which is why the claim is gone and the actual single writer is
+ * `lib/audit.ts`. This is now just the door for callers with no `ctx.db` of
+ * their own: `email.send` is a Node action.
  */
 export const log = internalMutation({
   args: {
     businessId: v.id('businesses'),
     actorMembershipId: v.id('memberships'),
+    /** The account the change was made in, when that is not the actor. See
+     * `schema.ts` — absent means they were working as themselves. */
+    onBehalfOfMembershipId: v.optional(v.id('memberships')),
     action: v.string(),
     entityType: v.string(),
     entityId: v.string(),
     meta: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    await ctx.db.insert('auditLog', { ...args, at: Date.now() })
+    await recordAudit(
+      ctx,
+      {
+        actorMembershipId: args.actorMembershipId,
+        onBehalfOfMembershipId: args.onBehalfOfMembershipId,
+      },
+      {
+        businessId: args.businessId,
+        action: args.action,
+        entityType: args.entityType,
+        entityId: args.entityId,
+        meta: args.meta,
+      },
+    )
   },
 })
 

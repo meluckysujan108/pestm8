@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { getAuthUserId, requireMembership, requireOwner } from './lib/access'
 import { MEMBER_COLOURS } from './lib/colours'
+import { forSelf, recordAudit } from './lib/audit'
 
 function slugify(name: string) {
   return name
@@ -162,9 +163,8 @@ export const update = mutation({
 
       // ABN, licence number and trading name are printed on compliance
       // documents. Who changed them, and when, is part of the record.
-      await ctx.db.insert('auditLog', {
+      await recordAudit(ctx, forSelf(actor._id), {
         businessId,
-        actorMembershipId: actor._id,
         action: 'business.update',
         entityType: 'businesses',
         entityId: businessId,

@@ -10,6 +10,8 @@ try {
 
 export default defineConfig({
   testDir: './e2e',
+  // Fails fast when the baseURL is not serving the build — see the file.
+  globalSetup: './e2e/globalSetup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

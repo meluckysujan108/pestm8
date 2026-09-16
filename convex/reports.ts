@@ -18,6 +18,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import type { TemplateId } from '../src/lib/reportTemplates'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
+import { forSelf, recordAudit } from './lib/audit'
 
 /**
  * Reports inherit job scoping: a subcontractor without canViewAllJobs sees the
@@ -829,9 +830,8 @@ export const finalise = mutation({
       ...(customTemplateSnapshot ? { customTemplateSnapshot } : {}),
     })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(membership._id), {
       businessId,
-      actorMembershipId: membership._id,
       action: 'report.finalise',
       entityType: 'reports',
       entityId: reportId,
@@ -927,9 +927,8 @@ export const switchTemplateVersion = mutation({
       // signed is withdrawn.
       signatureSlots: undefined,
     })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(membership._id), {
       businessId,
-      actorMembershipId: membership._id,
       action: 'report.switchVersion',
       entityType: 'reports',
       entityId: reportId,
@@ -976,9 +975,8 @@ export const restartDraft = mutation({
       createdAt: now,
     })
     await ctx.db.patch(reportId, { deletedAt: now })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(membership._id), {
       businessId,
-      actorMembershipId: membership._id,
       action: 'report.restart',
       entityType: 'reports',
       entityId: reportId,
