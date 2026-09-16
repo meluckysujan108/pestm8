@@ -9,7 +9,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
-import { createReport, finaliseReport } from './fixtures/reportPayloads'
+import { builderReady, createReport, finaliseReport, sectionUrl } from './fixtures/reportPayloads'
 
 /** Smallest valid PNG — enough to exercise compress → upload → attach. */
 const PNG = Buffer.from(
@@ -53,12 +53,12 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
   )
 
   await signInViaUi(page, email)
-  await page.goto(`/${slug}/reports/${reportId}`)
+  // The photos live on the section that asks for them, not on the overview.
+  await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'addPhotos'))
 
   // A tap before hydration is dropped: the server-rendered button has no
-  // handler yet, and "Report Photos" would never appear. `Finalise & lock`
-  // stays disabled until the builder hydrates, so it is the readiness signal.
-  await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeEnabled()
+  // handler yet, and "Report Photos" would never appear.
+  await builderReady(page)
 
   // "Report Photos" only shows while the form's own "Add Photos?" is Yes.
   await page

@@ -11,8 +11,10 @@ import {
 } from './fixtures'
 import {
   FINALISE,
+  builderReady,
   createCustomReport,
   createReport,
+  customSectionUrl,
   customTemplateArgs,
   finaliseReport,
   saveReportDraft,
@@ -288,15 +290,21 @@ test.describe('report builder', () => {
     await page.getByRole('button', { name: new RegExp(timber.name) }).click()
 
     await expect(page.getByText(timber.legalBasis, { exact: true }).first()).toBeVisible()
-    // Every numbered section of the source form, in its own words.
+
+    // The overview lists every numbered section of the source form, in its own
+    // words — the form is answered one section at a time, so this is where the
+    // whole of it is visible at once.
     for (const section of timber.sections ?? []) {
       if (section.number === undefined) continue
       await expect(
-        page.getByRole('heading', { name: `${section.number}. ${section.title}`, exact: true }),
+        page.getByRole('button', { name: new RegExp(escapeForRegExp(section.title)) }).first(),
       ).toBeVisible()
     }
-    // The source's own recommendation notice — the paraphrase this replaced
-    // said "seven days" where the form says thirty.
+
+    // And opening one shows that section's own questions and notices. The
+    // source's recommendation notice is the paraphrase this replaced: it said
+    // "seven days" where the form says thirty.
+    await page.getByRole('button', { name: /CLIENT DETAILS/ }).first().click()
     await expect(
       page.getByText('more than thirty days after the Inspection Date', { exact: false }),
     ).toBeVisible()
@@ -333,11 +341,10 @@ test.describe('report builder', () => {
     )
 
     await signInViaUi(page, email)
-    await page.goto(`/${slug}/reports/${reportId}`)
+    await page.goto(customSectionUrl(slug, reportId))
 
     // The builder is server-rendered, and a tap before hydration is dropped.
-    // `Finalise & lock` stays disabled until the builder hydrates.
-    await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeEnabled()
+    await builderReady(page)
 
     // Mark the roof void inaccessible without saying why.
     await page.getByRole('button', { name: 'Roof void: No access' }).click()
@@ -356,3 +363,8 @@ test.describe('report builder', () => {
     ).toBeVisible()
   })
 })
+
+/** A section title is prose: brackets and dots in it are not pattern syntax. */
+function escapeForRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}

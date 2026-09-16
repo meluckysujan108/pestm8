@@ -1,4 +1,5 @@
 import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
+import { z } from 'zod'
 import { restartingReports } from '#/lib/restartingReports'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
@@ -10,6 +11,12 @@ import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
+  /**
+   * Which section is open, by the template's own section id. In the URL so the
+   * phone's back gesture leaves a section rather than the report, and so a
+   * refresh mid-job comes back to the same screen.
+   */
+  validateSearch: z.object({ s: z.string().optional() }),
   // Without a loader the page suspends while it renders, and on an in-app
   // navigation that suspension blanks the whole app shell until the report
   // arrives. "Start again" navigates to a report no query has seen yet, so it
@@ -28,6 +35,7 @@ export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
 function ReportPage() {
   const { business } = Route.useRouteContext()
   const { reportId } = Route.useParams()
+  const { s: section } = Route.useSearch()
   const navigate = useNavigate()
 
   const { data: report } = useSuspenseQuery(
@@ -82,6 +90,15 @@ function ReportPage() {
       template={report.template}
       templateVersion={report.templateVersion}
       optionSets={report.optionSets}
+      prefill={report.prefill}
+      section={section}
+      onSection={(next) =>
+        navigate({
+          to: '/$businessSlug/reports/$reportId',
+          params: { businessSlug: business.slug, reportId: report._id },
+          search: (prev) => ({ ...prev, s: next }),
+        })
+      }
       roster={report.roster}
       context={report.context}
       upgrade={report.upgrade}

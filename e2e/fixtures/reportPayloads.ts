@@ -1,6 +1,9 @@
+import { expect } from '@playwright/test'
 import { api } from '../fixtures'
-import { getTemplate } from '../../src/lib/reportTemplates'
+import { getTemplate, sectionsOf } from '../../src/lib/reportTemplates'
+import { sectionKey } from '../../src/lib/reportTemplates/progress'
 import type { SectionDef } from '../../src/lib/reportTemplates'
+import type { Page } from '@playwright/test'
 import type { ConvexHttpClient } from 'convex/browser'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -147,6 +150,47 @@ export async function saveReportDraft(
  * Those kinds still exist for custom templates; the built-ins that used them
  * were paraphrases of forms the business never issued.
  */
+/**
+ * Waits until the builder can actually be used.
+ *
+ * The report page is server-rendered, so a tap before hydration is dropped —
+ * and `setInputFiles` does not even check. The footer marks itself ready, which
+ * is true on every screen of the fill flow, unlike any one button's label.
+ */
+export async function builderReady(page: Page) {
+  await expect(page.locator('[data-report-footer][data-ready="true"]')).toBeVisible()
+}
+
+/**
+ * The URL of the section a field lives in.
+ *
+ * A report is filled a section at a time, so a spec that wants one control has
+ * to open the screen it is on. Derived from the template rather than written
+ * out, so a form reordered tomorrow does not quietly send a spec to the wrong
+ * screen — it sends it to the right one.
+ */
+export function sectionUrl(
+  slug: string,
+  reportId: Id<'reports'>,
+  template: TemplateId,
+  fieldKey: string,
+): string {
+  const sections = sectionsOf(getTemplate(template))
+  const index = sections.findIndex((section) =>
+    section.fields.some((field) => field.key === fieldKey),
+  )
+  if (index === -1) throw new Error(`No section holds the field ${fieldKey}`)
+  return `/${slug}/reports/${reportId}?s=${sectionKey(sections[index], index)}`
+}
+
+/**
+ * The first section of a business-authored template, which has no declared id
+ * and so is addressed positionally.
+ */
+export function customSectionUrl(slug: string, reportId: Id<'reports'>, index = 0): string {
+  return `/${slug}/reports/${reportId}?s=s${index + 1}`
+}
+
 export function customTemplateArgs(
   overrides: Partial<{ name: string; sections: Array<SectionDef> }> = {},
 ) {

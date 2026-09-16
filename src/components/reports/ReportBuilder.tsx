@@ -1,7 +1,7 @@
-import { useMemo, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
-import { useConvexMutation } from '@convex-dev/react-query'
-import { Lock, Save } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { ArrowLeft, ArrowRight, Lock, Save } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { FieldRenderer } from './fields/FieldRenderer'
 import { seedData } from './fields/registry'
@@ -18,6 +18,10 @@ import {
 import { pruneHidden, visibleSections } from '#/lib/reportTemplates/visibility'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import { isEmptyRow } from '#/lib/reportTemplates/present'
+import { reportProgress, sectionByKey, sectionKey } from '#/lib/reportTemplates/progress'
+import { ReportOverview } from './ReportOverview'
+import type { PrefillMap } from '#/lib/reportTemplates/seed'
+import type { SectionProgress } from '#/lib/reportTemplates/progress'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { OptionSetOverrides } from '#/lib/reportTemplates/optionSets'
@@ -51,6 +55,9 @@ export function ReportBuilder({
   roster,
   context,
   upgrade,
+  prefill,
+  section: sectionId,
+  onSection,
   onRestarted,
   customTemplate,
   initialData,
@@ -70,6 +77,12 @@ export function ReportBuilder({
   context?: PresentContext | null
   /** Set when this draft was written against wording the business no longer issues. */
   upgrade?: 'switch' | 'restart' | null
+  /** Answers the app worked out, and which have been confirmed. */
+  prefill?: PrefillMap | null
+  /** The section being filled, from the URL. Absent means the overview. */
+  section?: string
+  /** Moves between the overview and a section, keeping the browser's Back honest. */
+  onSection: (section: string | undefined) => void
   onRestarted?: (newReportId: Id<'reports'>) => void
   customTemplate?: CustomTemplateShape | null
   initialData: Record<string, unknown>
@@ -99,7 +112,59 @@ export function ReportBuilder({
 
   const [errors, setErrors] = useState<Record<string, string>>({})
 
+  /**
+   * Suggestions confirmed in this session, before the server has acknowledged.
+   * Held here so the chip clears the moment the technician acts rather than a
+   * round trip later.
+   */
+  const [confirmed, setConfirmed] = useState<Array<string>>([])
+
   const hydrated = useHydrated()
+
+  // Photos live outside `data`, so progress can only count them by asking.
+  const { data: galleryPhotos } = useQuery({
+    ...convexQuery(api.reports.galleryPhotos, { businessId, reportId }),
+    enabled: hydrated,
+  })
+
+  const photoCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    for (const photo of galleryPhotos ?? []) {
+      counts[photo.fieldKey] = (counts[photo.fieldKey] ?? 0) + 1
+    }
+    return counts
+  }, [galleryPhotos])
+
+  const pending = useMemo(() => {
+    const out: PrefillMap = {}
+    for (const [key, entry] of Object.entries(prefill ?? {})) {
+      if (entry.confirmedAt === undefined && !confirmed.includes(key)) out[key] = entry
+    }
+    return out
+  }, [prefill, confirmed])
+
+  const progress = useMemo(
+    () => reportProgress(template, data, { prefill: pending, photoCounts }),
+    [template, data, pending, photoCounts],
+  )
+
+  const current = sectionByKey(progress, sectionId)
+
+  const [showBlocked, setShowBlocked] = useState(false)
+  const blockedRef = useRef<HTMLDivElement>(null)
+
+  // The list of what is missing answers a tap, so it must be where the eye
+  // already is rather than below the terms at the foot of the page.
+  useEffect(() => {
+    if (showBlocked) blockedRef.current?.scrollIntoView({ block: 'center' })
+  }, [showBlocked])
+
+  // A section can disappear while it is open — answering one question hides
+  // another's whole section. Land the technician back on the overview rather
+  // than on a blank screen.
+  useEffect(() => {
+    if (sectionId && !current) onSection(undefined)
+  }, [sectionId, current, onSection])
 
   const convexSave = useConvexMutation(api.reports.saveDraft)
   const save = useMutation({
@@ -175,10 +240,68 @@ export function ReportBuilder({
       }),
   })
 
+  const convexConfirm = useConvexMutation(api.reports.confirmPrefill)
+  const confirmSuggestions = useMutation({
+    mutationFn: (args: { businessId: Id<'businesses'>; reportId: Id<'reports'>; keys: Array<string> }) =>
+      convexConfirm(args),
+  })
+
+  /**
+   * Confirms the suggestions on one section and moves on.
+   *
+   * Pressing Next IS the confirmation: the technician has just read the
+   * section, so asking them to tick each guess separately would be a tax on
+   * being helpful. Nothing is confirmed for a section they never opened.
+   */
+  function confirmKeys(keys: Array<string>) {
+    if (keys.length === 0) return
+    setConfirmed((prev) => [...new Set([...prev, ...keys])])
+    confirmSuggestions.mutate({ businessId, reportId, keys })
+  }
+
+  const previousSection = current ? (progress.sections[current.index - 1] ?? null) : null
+  const nextSection = current ? (progress.sections[current.index + 1] ?? null) : null
+
+  function goToSection(next: SectionProgress | null | undefined) {
+    if (current) confirmKeys(current.toConfirm)
+    void autosave.flush()
+    onSection(next ? next.id : undefined)
+    // A new screen starts at its own top, not halfway down the last one.
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0 })
+  }
+
+
+  /**
+   * What is standing between this report and being locked, named rather than
+   * counted: each entry says which question, in which section, and jumps there.
+   */
+  const blocked = useMemo(() => {
+    if (!showBlocked || progress.complete) return null
+    const labelOf = (key: string) =>
+      fieldsOf(template).find((field) => field.key === key)?.label ?? key
+    return progress.sections.flatMap((section) => [
+      ...section.missing.map((key) => ({ section, key, label: labelOf(key) })),
+      ...section.toConfirm.map((key) => ({
+        section,
+        key,
+        label: `Confirm ${labelOf(key).replace(/:$/, '')}`,
+      })),
+    ])
+  }, [showBlocked, progress, template])
+
   async function onFinaliseClick() {
     // Finalise sends its own payload, but flushing first means a failed
     // finalise still leaves the latest draft on the server.
     await autosave.flush()
+
+    // Everything outstanding, in one place, before the schema's message for
+    // whichever field it happens to reach first.
+    if (!progress.complete) {
+      setShowBlocked(true)
+      return
+    }
+    setShowBlocked(false)
+
     const payload = submittable()
     const parsed = template.schema.safeParse(payload)
     if (!parsed.success) {
@@ -222,11 +345,30 @@ export function ReportBuilder({
         />
       )}
 
-      {visibleSections(sectionsOf(template), data).map((section) => (
+      {!current && (
+        <ReportOverview
+          progress={progress}
+          onOpen={(section) => goToSection(section)}
+          onFinalise={() => void onFinaliseClick()}
+          disabled={finalise.isPending || !hydrated}
+        />
+      )}
+
+      {/* The overview lists the sections; a section screen shows exactly one.
+          Rendering every field on both would make the overview the long scroll
+          this flow exists to replace. */}
+      {visibleSections(sectionsOf(template), data)
+        .filter((section, index) => current && sectionKey(section, index) === current.id)
+        .map((section) => (
         <section key={section.title}>
           {/* An implicit section is this file's own wrapper around a legacy
               flat field list, not something the template asked for — printing
               a heading for it would invent UI the builder never had. */}
+          {current && (
+            <p className="mt-6 section-label">
+              Section {current.index + 1} of {progress.sections.length}
+            </p>
+          )}
           {!section.implicit && (
             <>
               <h2 className="mt-7 text-row-title text-ink">
@@ -253,6 +395,7 @@ export function ReportBuilder({
                   [field.key]: applyUpdate(next, prev[field.key]),
                 }))
               }
+              suggestion={(pending as Partial<PrefillMap>)[field.key]?.source}
               captionHidden={
                 // Only where the heading really is directly above: a rendered
                 // heading, nothing between it and the grid, and no required
@@ -277,13 +420,41 @@ export function ReportBuilder({
         </section>
       ))}
 
-      {noticeText && <DurableNoticePreview text={noticeText} />}
+      {blocked && (
+        <div
+          ref={blockedRef}
+          role="alert"
+          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-3 text-caption text-amber-ink"
+        >
+          <p className="font-semibold">
+            {blocked.length === 1 ? '1 thing to finish' : `${blocked.length} things to finish`}
+          </p>
+          <ul className="mt-1.5 flex flex-col gap-1">
+            {blocked.map((item) => (
+              <li key={`${item.section.id}:${item.key}`}>
+                <button
+                  type="button"
+                  onClick={() => goToSection(item.section)}
+                  className="text-left underline underline-offset-2"
+                >
+                  {item.label}
+                  <span className="text-muted"> — {item.section.title}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
-      <BoilerplateBlock
-        text={template.boilerplate}
-        terms={template.terms}
-        heading={template.print?.termsHeading}
-      />
+      {!current && noticeText && <DurableNoticePreview text={noticeText} />}
+
+      {!current && (
+        <BoilerplateBlock
+          text={template.boilerplate}
+          terms={template.terms}
+          heading={template.print?.termsHeading}
+        />
+      )}
 
       {autosave.status === 'error' && (
         <p
@@ -303,7 +474,7 @@ export function ReportBuilder({
           Could not finalise this report. It may already be locked.
         </p>
       )}
-      {Object.keys(errors).length > 0 && (
+      {Object.keys(errors).length > 0 && !blocked && (
         <p
           role="alert"
           className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
@@ -312,25 +483,79 @@ export function ReportBuilder({
         </p>
       )}
 
-      <div className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:bottom-0">
-        <button
-          type="button"
-          disabled={!hydrated || autosave.status === 'saving'}
-          onClick={() => void autosave.flush()}
-          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
-        >
-          <Save size={17} strokeWidth={1.7} />
-          {SAVE_LABELS[autosave.status]}
-        </button>
-        <button
-          type="button"
-          disabled={finalise.isPending || !hydrated}
-          onClick={() => void onFinaliseClick()}
-          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
-        >
-          <Lock size={17} strokeWidth={2} />
-          {finalise.isPending ? 'Locking…' : 'Finalise & lock'}
-        </button>
+      {/* `data-ready` is the readiness signal the e2e suite waits on: the
+          footer's buttons change label per screen, so waiting on any one of
+          them by name was a wait on the layout rather than on hydration. */}
+      <div
+        data-report-footer
+        data-ready={hydrated ? 'true' : 'false'}
+        className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:bottom-0"
+      >
+        {current ? (
+          <>
+            <button
+              type="button"
+              disabled={!hydrated}
+              onClick={() => goToSection(previousSection)}
+              className="flex h-12 items-center justify-center gap-2 rounded-xl bg-surface-2 px-4 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+            >
+              <ArrowLeft size={17} strokeWidth={1.8} />
+              {previousSection ? 'Back' : 'Overview'}
+            </button>
+            {nextSection ? (
+              <button
+                type="button"
+                disabled={!hydrated}
+                onClick={() => goToSection(nextSection)}
+                className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
+              >
+                <span className="truncate">
+                  Next: {nextSection.number ? `${nextSection.number}. ` : ''}
+                  {nextSection.title}
+                </span>
+                <ArrowRight size={17} strokeWidth={1.8} className="shrink-0" />
+              </button>
+            ) : (
+              <FinaliseButton
+                disabled={finalise.isPending || !hydrated}
+                pending={finalise.isPending}
+                onClick={() => void onFinaliseClick()}
+              />
+            )}
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              disabled={!hydrated || autosave.status === 'saving'}
+              onClick={() => void autosave.flush()}
+              className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+            >
+              <Save size={17} strokeWidth={1.7} />
+              {SAVE_LABELS[autosave.status]}
+            </button>
+            {/* Never greyed out: a technician who believes they are finished
+                must be able to press it and be told what is missing, rather
+                than left guessing at a dead button. */}
+            {progress.complete || !progress.firstIncomplete ? (
+              <FinaliseButton
+                disabled={finalise.isPending || !hydrated}
+                pending={finalise.isPending}
+                onClick={() => void onFinaliseClick()}
+              />
+            ) : (
+              <button
+                type="button"
+                disabled={!hydrated}
+                onClick={() => goToSection(progress.firstIncomplete)}
+                className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
+              >
+                Continue
+                <ArrowRight size={17} strokeWidth={1.8} />
+              </button>
+            )}
+          </>
+        )}
       </div>
     </div>
   )
@@ -340,4 +565,26 @@ export function ReportBuilder({
 function sameWords(a: string, b: string) {
   const words = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
   return words(a) === words(b)
+}
+
+function FinaliseButton({
+  disabled,
+  pending,
+  onClick,
+}: {
+  disabled: boolean
+  pending: boolean
+  onClick: () => void
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+    >
+      <Lock size={17} strokeWidth={2} />
+      {pending ? 'Locking…' : 'Finalise & lock'}
+    </button>
+  )
 }

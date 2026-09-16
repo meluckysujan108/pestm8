@@ -1,6 +1,7 @@
 import { FIELD_EDITORS } from './registry'
 import type { EditorCtx, EditorProps, FieldEditor } from './registry'
 import type { FieldDef } from '#/lib/reportTemplates'
+import type { SuggestionSource } from '#/lib/reportTemplates/seed'
 
 /**
  * The generic renderer §5.3 depends on: the builder knows field *kinds*, never
@@ -17,6 +18,7 @@ export function FieldRenderer({
   onChange,
   photoContext,
   captionHidden = false,
+  suggestion,
 }: {
   field: FieldDef
   value: unknown
@@ -29,6 +31,12 @@ export function FieldRenderer({
    * from sight, as the printed document does.
    */
   captionHidden?: boolean
+  /**
+   * Set when this answer was worked out by the app rather than given by the
+   * technician. Marked on screen until they confirm it, so nothing they have
+   * not seen prints under their signature.
+   */
+  suggestion?: SuggestionSource
 }) {
   const editor = FIELD_EDITORS[field.kind] as FieldEditor
   const Control = editor.Control as React.ComponentType<EditorProps>
@@ -81,6 +89,8 @@ export function FieldRenderer({
         </label>
       )}
 
+      {suggestion && <SuggestedChip source={suggestion} />}
+
       {field.hint && (
         <p className="mt-1 text-caption text-muted">{field.hint}</p>
       )}
@@ -93,5 +103,24 @@ export function FieldRenderer({
         </p>
       )}
     </div>
+  )
+}
+
+/** Where a suggested answer came from, in the technician's own terms. */
+const SUGGESTION_WORDING: Record<SuggestionSource, string> = {
+  forecast: 'From the forecast — check it before you finalise',
+  scheduled: 'From the booking — check it before you finalise',
+  lastVisit: 'From the last visit — check it before you finalise',
+  history: 'From previous reports — check it before you finalise',
+}
+
+function SuggestedChip({ source }: { source: SuggestionSource }) {
+  return (
+    <p className="mt-1.5 flex items-center gap-1.5 text-caption text-amber-ink">
+      <span className="rounded-md border border-dashed border-amber-line bg-amber-bg px-1.5 py-0.5 font-semibold">
+        Suggested
+      </span>
+      {SUGGESTION_WORDING[source]}
+    </p>
   )
 }

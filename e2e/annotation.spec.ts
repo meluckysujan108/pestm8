@@ -9,7 +9,7 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
-import { createReport, finaliseReport } from './fixtures/reportPayloads'
+import { builderReady, createReport, finaliseReport, sectionUrl } from './fixtures/reportPayloads'
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256)
@@ -103,12 +103,11 @@ test('a gallery photo can be annotated, and the annotated version survives final
   )
 
   await signInViaUi(page, email)
-  await page.goto(`/${slug}/reports/${reportId}`)
+  await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'addPhotos'))
 
   // A tap before hydration is dropped: the server-rendered button has no
-  // handler yet, and "Report Photos" would never appear. `Finalise & lock`
-  // stays disabled until the builder hydrates, so it is the readiness signal.
-  await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeEnabled()
+  // handler yet, and "Report Photos" would never appear.
+  await builderReady(page)
 
   // "Report Photos" only shows while the form's own "Add Photos?" is Yes.
   await page
