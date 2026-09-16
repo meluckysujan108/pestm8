@@ -841,3 +841,113 @@ describe('the owner is not on anyone else’s roster', () => {
     expect(roster.map((m) => m._id)).not.toContain(f.ownerMembershipId)
   })
 })
+
+describe('two people on one draft', () => {
+  async function draft() {
+    const f = await scenario()
+    const propertyId = await f.t.run(async (ctx) => {
+      const clientId = await ctx.db.insert('clients', {
+        businessId: f.businessId,
+        kind: 'person',
+        name: 'J. Nguyen',
+        createdAt: 0,
+        updatedAt: 0,
+      })
+      return ctx.db.insert('properties', {
+        businessId: f.businessId,
+        clientId,
+        addressLine: '12 Wattle Street',
+        suburb: 'Bayswater',
+        state: 'WA',
+        postcode: '6053',
+        createdAt: 0,
+      })
+    })
+    const reportId = await f.t.run((ctx) =>
+      ctx.db.insert('reports', {
+        businessId: f.businessId,
+        propertyId,
+        authorMembershipId: f.kevinId,
+        template: 'serviceReport',
+        legalBasis: 'APVMA',
+        status: 'draft',
+        data: { findings: 'ants under sink' },
+        photoIds: [],
+        createdAt: 0,
+      }),
+    )
+    return { ...f, reportId }
+  }
+
+  const save = (
+    f: Awaited<ReturnType<typeof draft>>,
+    data: Record<string, unknown>,
+    base?: Record<string, unknown>,
+  ) =>
+    f.kevin.as.mutation(api.reports.saveDraft, {
+      businessId: f.businessId,
+      reportId: f.reportId,
+      data,
+      ...(base ? { base } : {}),
+    })
+
+  const stored = (f: Awaited<ReturnType<typeof draft>>) =>
+    f.t.run(async (ctx) => (await ctx.db.get(f.reportId))?.data)
+
+  /**
+   * The everyday case once someone can work in another person's account: a
+   * helper fills in one section while the holder answers another. Before this,
+   * whichever autosave landed second erased the other's answers — with no
+   * error, and no copy of the lost text anywhere but that form.
+   */
+  test('both keep their answers', async () => {
+    const f = await draft()
+    const base = { findings: 'ants under sink' }
+
+    // The holder, on their phone, adds a recommendation.
+    await save(f, { ...base, recommendation: 'bait stations' }, base)
+    // The helper, on the laptop, had loaded the same base and adds a risk.
+    await save(f, { ...base, risk: 'pets on site' }, base)
+
+    expect(await stored(f)).toEqual({
+      findings: 'ants under sink',
+      recommendation: 'bait stations',
+      risk: 'pets on site',
+    })
+  })
+
+  /** The same answer edited two different ways is the one case that genuinely
+   * needs a person, so it is refused rather than guessed at. */
+  test('the same answer, changed two ways, is refused', async () => {
+    const f = await draft()
+    const base = { findings: 'ants under sink' }
+
+    await save(f, { findings: 'ants under sink, treated' }, base)
+    await expect(
+      save(f, { findings: 'German cockroaches' }, base),
+    ).rejects.toThrow('DRAFT_CONFLICT')
+
+    // And the first person's answer is still there, untouched.
+    expect(await stored(f)).toEqual({ findings: 'ants under sink, treated' })
+  })
+
+  test('clearing an answer is an edit like any other', async () => {
+    const f = await draft()
+    const base = { findings: 'ants under sink', risk: 'pets on site' }
+    await f.t.run((ctx) => ctx.db.patch(f.reportId, { data: base }))
+
+    await save(f, { findings: 'ants under sink' }, base)
+    expect(await stored(f)).toEqual({ findings: 'ants under sink' })
+  })
+
+  /**
+   * The deployed client does not send a base, and must keep working exactly as
+   * it does now — otherwise this ships ahead of the frontend and every autosave
+   * in the field starts failing.
+   */
+  test('a client that sends no base still replaces, as it always has', async () => {
+    const f = await draft()
+    await save(f, { findings: 'replaced wholesale' })
+    expect(await stored(f)).toEqual({ findings: 'replaced wholesale' })
+  })
+})
