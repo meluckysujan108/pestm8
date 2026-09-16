@@ -3,7 +3,6 @@ import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import {
   canEditJob,
-  jobVisibility,
   requireAssignableMember,
   requireMembership,
 } from './lib/access'
@@ -15,7 +14,9 @@ import {
   withClient,
 } from './properties'
 import type { Doc, Id } from './_generated/dataModel'
-import type { MembershipFacts } from './lib/capabilities'
+import { isInScope } from './lib/capabilities'
+import { jobsInScope } from './lib/jobScope'
+import type { RowScope } from './lib/capabilities'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
 import { requireActor } from './lib/actor'
@@ -46,33 +47,12 @@ export async function allocateJobNumber(
  */
 export async function jobsInRange(
   ctx: QueryCtx,
-  membership: MembershipFacts,
+  scope: RowScope,
+  businessId: Id<'businesses'>,
   from: number,
   to: number,
 ): Promise<Array<Doc<'jobs'>>> {
-  const visibility = jobVisibility(membership)
-
-  const jobs =
-    visibility.scope === 'business'
-      ? await ctx.db
-          .query('jobs')
-          .withIndex('by_business_date', (q) =>
-            q
-              .eq('businessId', visibility.businessId)
-              .gte('scheduledAt', from)
-              .lt('scheduledAt', to),
-          )
-          .collect()
-      : await ctx.db
-          .query('jobs')
-          .withIndex('by_assignee_date', (q) =>
-            q
-              .eq('assignedMembershipId', visibility.membershipId)
-              .gte('scheduledAt', from)
-              .lt('scheduledAt', to),
-          )
-          .collect()
-
+  const jobs = await jobsInScope(ctx, scope, { businessId, from, to })
   return jobs.filter((j) => j.status !== 'cancelled')
 }
 
@@ -129,14 +109,14 @@ export const listDay = query({
     dayKey: v.string(), // "YYYY-MM-DD" in the tenant's timezone
   },
   handler: async (ctx, { businessId, dayKey }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
     const from = startOfDayInZone(dayKey, business.timezone)
     const to = endOfDayInZone(dayKey, business.timezone)
 
-    return decorate(ctx, await jobsInRange(ctx, membership, from, to))
+    return decorate(ctx, await jobsInRange(ctx, scope, businessId, from, to))
   },
 })
 
@@ -147,14 +127,14 @@ export const listDay = query({
 export const listWeek = query({
   args: { businessId: v.id('businesses'), startKey: v.string() },
   handler: async (ctx, { businessId, startKey }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
     const from = startOfDayInZone(startKey, business.timezone)
     const to = from + 7 * 24 * 60 * 60 * 1000
 
-    const jobs = await jobsInRange(ctx, membership, from, to)
+    const jobs = await jobsInRange(ctx, scope, businessId, from, to)
     const assignees = new Map<Id<'memberships'>, string>()
     for (const job of jobs) {
       if (!assignees.has(job.assignedMembershipId)) {
@@ -206,7 +186,7 @@ export const listMonth = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -218,7 +198,7 @@ export const listMonth = query({
         : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
-    const jobs = await jobsInRange(ctx, membership, from, to)
+    const jobs = await jobsInRange(ctx, scope, businessId, from, to)
 
     const byDay = new Map<
       string,
@@ -262,7 +242,7 @@ export const monthTeamLoad = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
@@ -274,7 +254,7 @@ export const monthTeamLoad = query({
         : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
-    const jobs = await jobsInRange(ctx, membership, from, to)
+    const jobs = await jobsInRange(ctx, scope, businessId, from, to)
 
     const counts = new Map<Id<'memberships'>, number>()
     for (const job of jobs) {
@@ -310,16 +290,12 @@ export const get = query({
     // Visibility (can this job be seen at all) follows "view as" when active;
     // canEdit below always reflects the REAL caller, never the viewed-as
     // person — read access granted by view-as never implies write access.
-    const viewScope = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
 
     const job = await ctx.db.get(jobId)
     if (!job || job.businessId !== businessId) return null
 
-    const visibility = jobVisibility(viewScope)
-    if (
-      visibility.scope === 'assignee' &&
-      job.assignedMembershipId !== visibility.membershipId
-    ) {
+    if (!isInScope(scope, job)) {
       // Null rather than an error: a subcontractor must not be able to tell a
       // colleague's job apart from one that does not exist.
       return null
@@ -555,17 +531,11 @@ export const removePhoto = mutation({
 export const photos = query({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
 
     const job = await ctx.db.get(jobId)
     if (!job || job.businessId !== businessId) return []
-    const visibility = jobVisibility(membership)
-    if (
-      visibility.scope === 'assignee' &&
-      job.assignedMembershipId !== visibility.membershipId
-    ) {
-      return []
-    }
+    if (!isInScope(scope, job)) return []
 
     const rows = await ctx.db
       .query('jobPhotos')

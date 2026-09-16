@@ -1,10 +1,8 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import {
-  jobVisibility,
-  requireMembership,
-} from './lib/access'
-import { canSeeReport, summarise } from './reports'
+import { requireMembership } from './lib/access'
+import { summarise } from './reports'
+import { isInScope, reportScope } from './lib/capabilities'
 import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
@@ -109,7 +107,7 @@ export const unarchive = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -127,13 +125,9 @@ export const jobHistory = query({
     )
     const jobs = jobsByProperty.flat()
 
-    const visibility = jobVisibility(membership)
-    const visible =
-      visibility.scope === 'business'
-        ? jobs
-        : jobs.filter((j) => j.assignedMembershipId === visibility.membershipId)
-
-    return visible.sort((a, b) => b.scheduledAt - a.scheduledAt)
+    return jobs
+      .filter((j) => isInScope(scope, j))
+      .sort((a, b) => b.scheduledAt - a.scheduledAt)
   },
 })
 
@@ -145,7 +139,7 @@ export const jobHistory = query({
 export const reports = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const membership = (await requireActor(ctx, businessId)).readScope
+    const { scope } = await requireActor(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -168,7 +162,7 @@ export const reports = query({
         (r) =>
           r.businessId === businessId &&
           r.deletedAt === undefined &&
-          canSeeReport(membership, r),
+          reportScope(scope, r),
       )
       .map(summarise)
       .sort((a, b) => (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt))

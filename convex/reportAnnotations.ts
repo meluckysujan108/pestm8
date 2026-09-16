@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { canSeeReport } from './reports'
+import { reportScope } from './lib/capabilities'
 import type { Ctx } from './lib/access'
 import type { Id } from './_generated/dataModel'
 import { requireActor } from './lib/actor'
@@ -24,13 +24,14 @@ async function requireVisibleReport(
   // The REAL caller, deliberately: an annotation is authored, and the
   // read-only view-as has never granted authorship. `requireActor` resolves
   // both halves; this one wants the human.
-  const membership = (await requireActor(ctx, businessId)).actor.real
+  const env = await requireActor(ctx, businessId)
+  const membership = env.actor.real
   const report = await ctx.db.get(reportId)
   if (!report || report.businessId !== businessId) {
     throw new ConvexError('NOT_FOUND')
   }
   if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
-  if (!canSeeReport(membership, report)) throw new ConvexError('NO_ACCESS')
+  if (!reportScope(env.realScope, report)) throw new ConvexError('NO_ACCESS')
   return { membership, report }
 }
 
