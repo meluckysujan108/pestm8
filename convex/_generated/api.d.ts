@@ -22,6 +22,7 @@ import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
 import type * as jobs from "../jobs.js";
 import type * as lib_access from "../lib/access.js";
+import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_colours from "../lib/colours.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_forecastWindow from "../lib/forecastWindow.js";
@@ -68,6 +69,7 @@ declare const fullApi: ApiFromModules<{
   invitations: typeof invitations;
   jobs: typeof jobs;
   "lib/access": typeof lib_access;
+  "lib/capabilities": typeof lib_capabilities;
   "lib/colours": typeof lib_colours;
   "lib/dates": typeof lib_dates;
   "lib/forecastWindow": typeof lib_forecastWindow;

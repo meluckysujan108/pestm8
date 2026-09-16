@@ -4,12 +4,13 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { Role } from '../../../convex/lib/capabilities'
 
 export type Member = {
   _id: Id<'memberships'>
   name: string
   email: string
-  role: 'owner' | 'subcontractor'
+  role: Role
   canViewAllJobs: boolean
   canViewOtherAccounts: boolean
   licenceNumber?: string

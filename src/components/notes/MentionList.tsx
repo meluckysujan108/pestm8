@@ -1,11 +1,12 @@
 import { forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import type { SuggestionKeyDownProps } from '@tiptap/suggestion'
+import type { Role } from '../../../convex/lib/capabilities'
 
 export type MentionItem = {
   id: string
   label: string
   colour: string
-  role: 'owner' | 'subcontractor'
+  role: Role
 }
 
 export type MentionListProps = {
