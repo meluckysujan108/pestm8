@@ -31,7 +31,7 @@ import { reportSearchText } from './lib/reportSearch'
 import { buildReportContext, toPresentContext } from './lib/reportContext'
 import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
-import { carryOverFrom } from '../src/lib/reportTemplates/lastVisit'
+import { canCarryFrom, carryOverFrom } from '../src/lib/reportTemplates/lastVisit'
 import { migrateServiceReportV1 } from '../src/lib/reportTemplates/legacy/serviceReport.migrate'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
 import type { TemplateId } from '../src/lib/reportTemplates'
@@ -1479,12 +1479,29 @@ export const confirmPrefill = mutation({
  */
 const LAST_VISIT_SCAN = 40
 
+/** Adapts two report rows onto the pure rule in `lastVisit.ts`. */
+function carryFrom(draft: Doc<'reports'>, candidate: Doc<'reports'>): boolean {
+  return canCarryFrom(
+    {
+      id: draft._id,
+      templateRef: templateRefOf(draft),
+      templateVersion: draft.templateVersion,
+    },
+    {
+      id: candidate._id,
+      templateRef: templateRefOf(candidate),
+      templateVersion: candidate.templateVersion,
+      status: candidate.status,
+      deleted: candidate.deletedAt !== undefined,
+    },
+  )
+}
+
 async function lastVisitSource(
   ctx: QueryCtx,
   membership: Membership,
   draft: Doc<'reports'>,
 ) {
-  const ref = templateRefOf(draft)
   const rows = await ctx.db
     .query('reports')
     .withIndex('by_property', (q) => q.eq('propertyId', draft.propertyId))
@@ -1493,13 +1510,8 @@ async function lastVisitSource(
 
   const candidates = rows.filter(
     (row) =>
-      row._id !== draft._id &&
       row.businessId === draft.businessId &&
-      row.status === 'finalised' &&
-      row.deletedAt === undefined &&
-      // The same form: last year's timber inspection has nothing to say to
-      // this month's service report, and their keys do not correspond.
-      templateRefOf(row) === ref &&
+      carryFrom(draft, row) &&
       canSeeReport(membership, row),
   )
 
@@ -1600,9 +1612,7 @@ export const copyFromLastVisit = mutation({
       previous.businessId !== businessId ||
       previous._id === report._id ||
       previous.propertyId !== report.propertyId ||
-      previous.status !== 'finalised' ||
-      previous.deletedAt !== undefined ||
-      templateRefOf(previous) !== templateRefOf(report) ||
+      !carryFrom(report, previous) ||
       !canSeeReport(membership, previous)
     ) {
       throw new ConvexError('NOT_FOUND')

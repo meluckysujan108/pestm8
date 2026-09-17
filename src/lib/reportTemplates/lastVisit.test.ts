@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { getTemplate } from './index'
-import { carryOverFrom, carryOverKeys } from './lastVisit'
+import { fieldsOf, getTemplate } from './index'
+import { canCarryFrom, carryOverFrom, carryOverKeys } from './lastVisit'
 
 /**
  * What a return visit inherits, and what it must not.
@@ -43,17 +43,23 @@ describe('what the forms say carries over', () => {
       ...carryOverKeys(serviceReport),
       ...carryOverKeys(timber),
     ])
+    // Real keys, checked against the templates: asserting on a key no form
+    // declares passes whatever the code does, which is the opposite of what
+    // this test is for.
+    const declared = new Set(fieldsOf(serviceReport).map((field) => field.key))
     for (const key of [
       'serviceDate',
       'startTime',
       'finishTime',
       'weather',
-      'gps',
+      'location',
       'comments',
       'technicianSignature',
       'clientSignature',
-      'reportPhotos',
+      'coverPhoto',
+      'photos',
     ]) {
+      expect(declared.has(key), `${key} is not a field on the service report`).toBe(true)
       expect(carried.has(key), key).toBe(false)
     }
   })
@@ -173,5 +179,60 @@ describe('copying from the last visit', () => {
     const carried = carryOverFrom(serviceReport, {}, {})
     expect(carried.labels).toEqual([])
     expect(carried.data).toEqual({})
+  })
+})
+
+describe('which report counts as the last visit', () => {
+  const draft = { id: 'draft', templateRef: 'serviceReport', templateVersion: 2 }
+  const signed = {
+    id: 'older',
+    templateRef: 'serviceReport',
+    templateVersion: 2,
+    status: 'finalised',
+    deleted: false,
+  }
+
+  test('the same form, signed, at the same site', () => {
+    expect(canCarryFrom(draft, signed)).toBe(true)
+  })
+
+  test('never itself', () => {
+    expect(canCarryFrom(draft, { ...signed, id: 'draft' })).toBe(false)
+  })
+
+  test('never a draft — there is nothing settled to copy', () => {
+    expect(canCarryFrom(draft, { ...signed, status: 'draft' })).toBe(false)
+  })
+
+  test('never one in the bin', () => {
+    expect(canCarryFrom(draft, { ...signed, deleted: true })).toBe(false)
+  })
+
+  test('never a different form', () => {
+    // Last year's timber inspection has nothing to say to this month's
+    // service report, and their keys do not correspond.
+    expect(canCarryFrom(draft, { ...signed, templateRef: 'timberPestInspection' })).toBe(
+      false,
+    )
+  })
+
+  test('never a report signed against the old wording', () => {
+    // v1 holds 'Fipforce HP (100 g/L Fipronil)' where v2 says FIPRONIL, and
+    // '100 mL / 10 L' where v2 says '100ml/10L'. Carried into a v2 draft those
+    // are answers in no list it offers, arriving as suggestions on a document
+    // somebody signs.
+    expect(canCarryFrom(draft, { ...signed, templateVersion: 1 })).toBe(false)
+  })
+
+  test('a missing version reads as 1 on both sides', () => {
+    // Every report predating the stamp was backfilled to 1; one that slipped
+    // through must not be treated as matching a v2 draft.
+    expect(canCarryFrom(draft, { ...signed, templateVersion: undefined })).toBe(false)
+    expect(
+      canCarryFrom(
+        { ...draft, templateVersion: undefined },
+        { ...signed, templateVersion: undefined },
+      ),
+    ).toBe(true)
   })
 })

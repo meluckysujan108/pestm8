@@ -1074,8 +1074,8 @@ export default defineSchema({
   /**
    * Wording a business reuses in the long-answer boxes.
    *
-   * The three forms have fifty-one of them between them — twenty-three on the
-   * Timber report alone, one per conducive condition — and the sentences that
+   * The three forms have twenty-eight of them between them — twenty-three on
+   * the Timber report alone, one per conducive condition — and the sentences that
    * go in are the same sentences, visit after visit, typed with one thumb in
    * somebody's back garden. A phrase is offered, never applied: it goes in
    * when it is tapped and can be edited afterwards like anything typed.

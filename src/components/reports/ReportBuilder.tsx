@@ -154,7 +154,7 @@ export function ReportBuilder({
   })
   /**
    * The wording this business reuses in the long-answer boxes. One query for
-   * the whole form — a business keeps a couple of dozen across fifty-one
+   * the whole form — a business keeps a couple of dozen across twenty-eight
    * boxes — grouped here so a control asks a map rather than the server.
    */
   const { data: snippets } = useQuery({
@@ -165,26 +165,35 @@ export function ReportBuilder({
   const convexUsedSnippet = useConvexMutation(api.snippets.used)
   const convexRemoveSnippet = useConvexMutation(api.snippets.remove)
   const phrases = useMemo(() => {
+    // `undefined` while the query is out, never an empty map. This codebase
+    // has been bitten three times by a loading state read as a definite
+    // answer; here it would put "Save as a phrase" under a box that has
+    // twelve, and open a sheet saying "No phrases yet" over them.
+    if (snippets === undefined) return undefined
+
     const byField = new Map<string, Array<Snippet>>()
-    for (const row of snippets ?? []) {
+    for (const row of snippets) {
       byField.set(row.fieldKey, [...(byField.get(row.fieldKey) ?? []), row])
     }
     return {
       forField: (fieldKey: string) => byField.get(fieldKey) ?? [],
+      // Not swallowed: a refusal here is something the technician did — too
+      // long, or the business is full — and a tap that does nothing at all is
+      // the worst way to say so.
       save: (fieldKey: string, text: string) =>
-        void convexSaveSnippet({ businessId, fieldKey, text }).catch(() => {}),
-      // Fire and forget: this orders a list, and a report is not the place to
-      // surface a failed tally.
+        convexSaveSnippet({ businessId, fieldKey, text }),
+      // This one IS fire and forget: it orders a list, and a report is not the
+      // place to surface a failed tally.
       used: (id: string) =>
         void convexUsedSnippet({
           businessId,
           snippetId: id as Id<'reportSnippets'>,
         }).catch(() => {}),
       remove: (id: string) =>
-        void convexRemoveSnippet({
+        convexRemoveSnippet({
           businessId,
           snippetId: id as Id<'reportSnippets'>,
-        }).catch(() => {}),
+        }),
     }
   }, [
     snippets,
@@ -387,7 +396,12 @@ export function ReportBuilder({
    */
   const { data: lastVisit } = useQuery({
     ...convexQuery(api.reports.lastAtProperty, { businessId, reportId }),
-    enabled: hydrated,
+    // Only while the overview is showing, which is the only screen that can
+    // display the offer. This query reads the draft, so it re-runs on every
+    // autosave; left subscribed through a twenty-minute fill it would re-read
+    // the site's whole report history several hundred times to answer a
+    // question nobody is looking at.
+    enabled: hydrated && !current,
   })
   const justCopied = useRef(false)
   useEffect(() => {

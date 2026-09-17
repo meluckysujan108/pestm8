@@ -290,6 +290,7 @@ function OptionListSheet({
                       : `${option.label} — mark as one of the usual`
                   }
                   aria-pressed={option.usual}
+                  disabled={usual.isPending}
                   onClick={() =>
                     usual.mutate({
                       businessId,
@@ -312,7 +313,7 @@ function OptionListSheet({
                 <button
                   type="button"
                   aria-label={`Move ${option.label} up`}
-                  disabled={index === 0}
+                  disabled={index === 0 || reorder.isPending}
                   onClick={() => move(index, -1)}
                   className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted disabled:opacity-30"
                 >
@@ -321,7 +322,7 @@ function OptionListSheet({
                 <button
                   type="button"
                   aria-label={`Move ${option.label} down`}
-                  disabled={index === list.options.length - 1}
+                  disabled={index === list.options.length - 1 || reorder.isPending}
                   onClick={() => move(index, 1)}
                   className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted disabled:opacity-30"
                 >

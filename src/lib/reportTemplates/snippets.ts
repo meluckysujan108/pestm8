@@ -19,7 +19,12 @@ export const MAX_SNIPPETS_PER_FIELD = 12
  */
 export const MAX_SNIPPET_LENGTH = 600
 
-/** How many a business may hold at once, across every field. */
+/**
+ * How many a business may hold at once, across every field — enforced on save
+ * AND the size of the window `snippets.list` reads, which must be the same
+ * number. A phrase saved beyond what the list returns is one nobody can ever
+ * reach.
+ */
 export const MAX_SNIPPETS = 200
 
 export type Snippet = {
@@ -28,6 +33,9 @@ export type Snippet = {
   text: string
   usedCount: number
   createdAt: number
+  /** Its author, or an owner. Decided on the server, sent so the sheet can
+   *  withhold the control rather than offer one that refuses. */
+  canRemove: boolean
 }
 
 /**

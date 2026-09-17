@@ -117,14 +117,24 @@ test('a finalised report keeps the words it was signed with', async () => {
   expect((fresh!.optionSets?.products ?? []).map((o) => o.value)).not.toContain(original)
 })
 
-test('a technician may read the lists but never change one', async () => {
+test('the vocabulary is the owner’s to read and to change', async () => {
   const s = await setupBusinessWithSub('optionset-access')
-  const lists = await s.sub.client.query(api.optionSets.editable, {
+  const lists = await s.owner.client.query(api.optionSets.editable, {
     businessId: s.businessId,
   })
-  // Readable: a technician fills reports from these, and the settings screen
-  // is simply not on their tab bar.
   expect(lists.length).toBeGreaterThan(0)
+
+  // A technician fills reports from these lists but never edits them, and the
+  // editor's own payload is not theirs: `archived` is the list of products the
+  // business has deliberately stopped offering.
+  await expectRejected(
+    () => s.sub.client.query(api.optionSets.editable, { businessId: s.businessId }),
+    'NO_ACCESS',
+  )
+  // What they do get is the cheap half — which of the options to put first.
+  expect(
+    await s.sub.client.query(api.optionSets.usual, { businessId: s.businessId }),
+  ).toBeDefined()
 
   await expectRejected(
     () =>
@@ -236,6 +246,61 @@ test('an archived product goes from new reports but stays in the draft that chos
   const restored = await productsFor(s.owner.client, s.businessId)
   expect(restored.options.map((o) => o.value)).toContain(doomed)
   expect(restored.archived.map((o) => o.value)).not.toContain(doomed)
+})
+
+test('renaming a product keeps it starred', async () => {
+  const s = await setupBusinessWithSub('optionset-rename-star')
+  const products = await productsFor(s.owner.client, s.businessId)
+  const starred = products.options.find((o) => !products.pinned.includes(o.value))!.value
+
+  await s.owner.client.mutation(api.optionSets.setUsual, {
+    businessId: s.businessId,
+    key: 'products',
+    value: starred,
+    usual: true,
+  })
+  await s.owner.client.mutation(api.optionSets.renameOption, {
+    businessId: s.businessId,
+    key: 'products',
+    from: starred,
+    to: `${starred} EC`,
+  })
+
+  // The star is a separate fact from the words. Rebuilding the option around
+  // its new name used to drop it, silently, for every technician.
+  const after = await productsFor(s.owner.client, s.businessId)
+  const renamed = after.options.find((o) => o.value === `${starred} EC`)!
+  expect(renamed.usual).toBe(true)
+  expect(
+    (await s.owner.client.query(api.optionSets.usual, { businessId: s.businessId }))
+      .products,
+  ).toEqual([`${starred} EC`])
+})
+
+test('a rename cannot collide with something in the archive', async () => {
+  const s = await setupBusinessWithSub('optionset-rename-archived')
+  const products = await productsFor(s.owner.client, s.businessId)
+  const live = products.options.filter((o) => !products.pinned.includes(o.value))
+  const [keep, shelved] = [live[0].value, live[1].value]
+
+  await s.owner.client.mutation(api.optionSets.archiveOption, {
+    businessId: s.businessId,
+    key: 'products',
+    value: shelved,
+  })
+
+  // Renaming onto the archived name would leave two things called the same
+  // thing, one of which "Offer again" could never bring back.
+  await expectRejected(
+    () =>
+      s.owner.client.mutation(api.optionSets.renameOption, {
+        businessId: s.businessId,
+        key: 'products',
+        from: keep,
+        to: shelved,
+      }),
+    'OPTION_EXISTS',
+  )
 })
 
 test('the picker opens on what this business and this member actually use', async ({

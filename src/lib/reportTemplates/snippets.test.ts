@@ -79,7 +79,17 @@ describe('which questions have them', () => {
     expect(service).toContain('limitations')
 
     // The Timber report asks for a comment per conducive condition — which is
-    // the case phrases exist for.
+    // the case phrases exist for, and the bulk of the twenty-eight the three
+    // forms declare between them.
+    expect(snippetFields(getTemplate('timberPestInspection')).length).toBe(23)
+    expect(
+      ['serviceReport', 'timberPestInspection', 'termiteManagementCert'].reduce(
+        (total, id) =>
+          total + snippetFields(getTemplate(id as 'serviceReport')).length,
+        0,
+      ),
+    ).toBe(28)
+    // And enough of them that the per-field cap is the binding one.
     expect(
       snippetFields(getTemplate('timberPestInspection')).length,
     ).toBeGreaterThan(MAX_SNIPPETS_PER_FIELD)

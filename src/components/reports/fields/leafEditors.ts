@@ -67,9 +67,11 @@ export type EditorCtx = {
   phrases?: {
     /** This question's saved phrases, in the order they should be offered. */
     forField: (fieldKey: string) => Array<Snippet>
-    save: (fieldKey: string, text: string) => void
+    /** Rejects when the server refuses, so the sheet can say so. */
+    save: (fieldKey: string, text: string) => Promise<unknown>
+    /** Fire and forget: this orders a list, and nothing depends on it. */
     used: (id: string) => void
-    remove: (id: string) => void
+    remove: (id: string) => Promise<unknown>
   }
 }
 

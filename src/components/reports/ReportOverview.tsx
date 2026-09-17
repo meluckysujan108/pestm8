@@ -108,14 +108,6 @@ function SectionStatus({ section }: { section: SectionProgress }) {
   )
 }
 
-/**
- * The same sections as a standing list, for a screen with room for one.
- *
- * On a phone the overview IS the screen and a section replaces it; on a
- * desktop there is space to keep the whole form in view beside the section
- * being filled, so the technician can see what is left without leaving what
- * they are doing.
- */
 export type LastVisitOffer = {
   /** When the report it would copy from was signed. */
   finalisedAt: number
@@ -169,6 +161,14 @@ function visitDate(at: number) {
   })
 }
 
+/**
+ * The same sections as a standing list, for a screen with room for one.
+ *
+ * On a phone the overview IS the screen and a section replaces it; on a
+ * desktop there is space to keep the whole form in view beside the section
+ * being filled, so the technician can see what is left without leaving what
+ * they are doing.
+ */
 export function SectionNav({
   progress,
   currentId,

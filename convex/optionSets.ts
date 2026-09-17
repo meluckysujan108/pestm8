@@ -55,7 +55,12 @@ export const list = query({
 export const editable = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    // Owner only, like the mutations beside it. A technician's picker gets
+    // what it needs from `usual`, which is cheap; this one scans every custom
+    // template to work out what is pinned, and returns `archived` — the list
+    // of products the business has deliberately stopped offering, which
+    // appears on no technician's screen.
+    await requireOwner(ctx, businessId)
 
     const rows = await ctx.db
       .query('optionSets')
@@ -236,11 +241,20 @@ export const renameOption = mutation({
     if (row.options.some((o) => o.value === target)) {
       throw new ConvexError('OPTION_EXISTS')
     }
+    // Including one that is only in the archive: `addOption` restores by name,
+    // so a live option and an archived one sharing a name leaves a row in
+    // "No longer offered" that can never be brought back.
+    if ((row.archived ?? []).some((o) => o.value === target)) {
+      throw new ConvexError('OPTION_EXISTS')
+    }
 
     const now = Date.now()
     await ctx.db.patch(row._id, {
       options: row.options.map((o) =>
-        o.value === from ? { value: target, label: target } : o,
+        // Spread, not replaced: an option is more than its words now. Building
+        // a fresh object dropped `usual`, so renaming a starred product
+        // silently unstarred it for every technician in the business.
+        o.value === from ? { ...o, value: target, label: target } : o,
       ),
       renames: [...row.renames, { from, to: target, at: now }].slice(
         -MAX_RENAMES,

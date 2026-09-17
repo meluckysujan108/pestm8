@@ -106,8 +106,8 @@ Anything that would change a question or an answer is on the other side of
 that line: a clone.
 
 **Phrases** (`convex/snippets.ts`) — saved wording for the long-answer boxes,
-of which the three forms have fifty-one, twenty-three on the Timber report
-alone. Any member may add one, which is the difference from an option library:
+of which the three forms have twenty-eight, twenty-three of them on the Timber
+report alone. Any member may add one, which is the difference from an option library:
 a library IS the answer, a controlled vocabulary printed as a chosen value, so
 only an owner changes it; a phrase is a head start on an answer the technician
 could type anyway. Tapping one **adds** it to what is written rather than

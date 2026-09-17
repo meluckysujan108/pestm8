@@ -18,6 +18,38 @@ import type { RepeaterRow, ReportTemplate } from './types'
  * over an answer they have already given.
  */
 
+/**
+ * Whether a finished report may be the source for a draft at the same site.
+ *
+ * Kept here, pure and away from the query that runs it, because it is the rule
+ * rather than the plumbing: which of a property's history counts as "last
+ * time". The query supplies the rows and the visibility check; this decides
+ * whether a given one qualifies at all.
+ */
+export function canCarryFrom(
+  draft: { id: string; templateRef: string; templateVersion?: number },
+  candidate: {
+    id: string
+    templateRef: string
+    templateVersion?: number
+    status: string
+    deleted: boolean
+  },
+): boolean {
+  if (candidate.id === draft.id) return false
+  // A draft has not been issued; there is nothing settled to copy.
+  if (candidate.status !== 'finalised' || candidate.deleted) return false
+  // The same form: last year's timber inspection has nothing to say to this
+  // month's service report, and their keys do not correspond.
+  if (candidate.templateRef !== draft.templateRef) return false
+  // And the same REVISION of it. A report signed before the verbatim rewrite
+  // holds v1's strings — 'Fipforce HP (100 g/L Fipronil)' where v2 says
+  // FIPRONIL, '100 mL / 10 L' where v2 says '100ml/10L'. Copying those forward
+  // would put answers into a v2 draft that are in no list it offers, as
+  // suggestions, on a document somebody signs.
+  return (candidate.templateVersion ?? 1) === (draft.templateVersion ?? 1)
+}
+
 /** The keys a template says stay true between visits to the same site. */
 export function carryOverKeys(template: ReportTemplate): Array<string> {
   return fieldsOf(template)

@@ -5,7 +5,7 @@ import { builderReady, createReport, sectionUrl } from './fixtures/reportPayload
 /**
  * Phrases: the sentences a business writes over and over.
  *
- * The three forms have fifty-one long-answer boxes between them, and the words
+ * The three forms have twenty-eight long-answer boxes between them, and the words
  * that go in are the same words visit after visit, typed with one thumb in
  * somebody's back garden. Saved once, they are one tap away for everyone.
  *

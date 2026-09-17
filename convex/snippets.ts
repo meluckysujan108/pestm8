@@ -30,7 +30,7 @@ import {
 export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    const membership = await requireMembership(ctx, businessId)
 
     const rows = await ctx.db
       .query('reportSnippets')
@@ -44,6 +44,16 @@ export const list = query({
         text: row.text,
         usedCount: row.usedCount,
         createdAt: row.createdAt,
+        /**
+         * Whether this caller may drop it — its author, or the owner, who is
+         * answerable for what the business's reports say. Sent so the sheet
+         * can withhold the control rather than offer one that refuses: a
+         * technician tapping a bin and watching nothing happen learns only
+         * that the app is broken.
+         */
+        canRemove:
+          membership.role === 'owner' ||
+          row.createdByMembershipId === membership._id,
       })),
     )
   },
@@ -63,6 +73,13 @@ export const save = mutation({
     if (trimmed === '' || trimmed.length > MAX_SNIPPET_LENGTH) {
       throw new ConvexError('INVALID_SNIPPET')
     }
+    // A field key comes from whatever template the client is rendering, which
+    // may be one this deployment has never seen — a business's own form, or a
+    // revision since renamed. So it is not checked against a list, only kept
+    // to a sane shape, and the real defence is the total below.
+    if (fieldKey.length === 0 || fieldKey.length > 128) {
+      throw new ConvexError('INVALID_SNIPPET')
+    }
 
     const existing = await ctx.db
       .query('reportSnippets')
@@ -80,6 +97,15 @@ export const save = mutation({
     if (existing.length >= MAX_SNIPPETS_PER_FIELD) {
       throw new ConvexError('TOO_MANY_SNIPPETS')
     }
+
+    // And a ceiling for the business as a whole, because `list` reads at most
+    // `MAX_SNIPPETS` rows: without this, a row saved past the window would be
+    // accepted and then never shown to anybody, which is the worst of both.
+    const held = await ctx.db
+      .query('reportSnippets')
+      .withIndex('by_business_field', (q) => q.eq('businessId', businessId))
+      .take(MAX_SNIPPETS)
+    if (held.length >= MAX_SNIPPETS) throw new ConvexError('TOO_MANY_SNIPPETS')
 
     return ctx.db.insert('reportSnippets', {
       businessId,
