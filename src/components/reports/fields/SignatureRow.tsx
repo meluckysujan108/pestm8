@@ -41,7 +41,7 @@ export function SignatureRow({
   const { data: urls } = useQuery(
     convexQuery(api.reports.signatureUrls, { businessId, reportId }),
   )
-  const existing = (urls as Record<string, string> | undefined)?.[slot]
+  const existing = urls?.[slot]
 
   return (
     <span className="flex flex-col gap-2">
