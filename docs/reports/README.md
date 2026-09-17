@@ -160,6 +160,53 @@ is open.
 - A `lineHeight` on `Page` itself breaks `fixed` + `position: absolute`, and the
   footer silently renders nothing. It lives on a body wrapper instead.
 
+## Sending it
+
+A send is a `reportDeliveries` row, written before the provider is called and
+naming the `reportPdfs` row it attached. That is what makes "which file did the
+client receive on 28 August?" answerable once the renderer has moved on.
+
+- **Who it goes to** comes from the form, through the semantics rather than the
+  labels: `sendCopyToClient` means the client's address, `emailTo` means
+  whatever was typed into the form's own "Email Report To". `finalise` opens
+  those deliveries in the same transaction that locks the report, and the
+  render pipeline sends them once there is a file to attach.
+- **Who may send where.** A technician may send to addresses already on the
+  client record — the client, their contacts, the business itself. Anywhere
+  else is `pendingApproval` until an owner says yes, unless the business sets
+  `allowTechnicianRecipients`. The held row IS the request, so approving is a
+  decision about something real rather than a send retyped from memory, and
+  who asked and who allowed are kept as separate facts.
+- **How many.** Twenty per member per hour, counted from the delivery rows
+  themselves — they are already the exact record of every send, so a separate
+  token bucket would be a second, less accurate account of the same events.
+- **What "Sent" means.** That Resend accepted it. The webhook at
+  `POST /resend/webhook` moves a row to `bounced` when it did not land, and
+  clears the report's `emailedAt` if no other delivery of it survived — a
+  report the client never received is not a sent one.
+
+### Configuring it
+
+Three environment variables, none of which are set on any deployment today, so
+sending fails with `EMAIL_NOT_CONFIGURED` by design:
+
+| Variable | What it is |
+| --- | --- |
+| `RESEND_API_KEY` | The business's own Resend key |
+| `RESEND_FROM_EMAIL` | An address on a domain verified with Resend. Required, not optional: Resend rejects a `from` that is a bare display name, and the business's own address goes in `reply-to` |
+| `RESEND_WEBHOOK_SECRET` | The `whsec_…` for the endpoint, registered in Resend against this deployment's `.site` origin |
+
+Set them with `npx convex env set`, and confirm the deployment first —
+`.env.local` points at dev.
+
+The webhook signature is verified by hand (`convex/lib/svix.ts`) rather than
+with the `svix` package: this runs in Convex's default runtime, where Web
+Crypto is already there. The parts that are easy to get wrong — the timestamp
+window in both directions, checking every offered signature rather than the
+first so a secret rotation does not drop half the messages, a constant-time
+compare — are the parts `svix.test.ts` exercises. That is the deal one makes by
+not taking the library.
+
 ## Testing it
 
 - `src/components/reports/pdf/ReportPdf.test.tsx` renders the real component

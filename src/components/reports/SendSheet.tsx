@@ -32,6 +32,9 @@ const SEND_ERROR: Record<string, string> = {
   REPORT_NOT_FINALISED: 'This report isn’t finalised yet.',
   PDF_UNAVAILABLE: 'Could not prepare the PDF to attach.',
   EMAIL_SEND_FAILED: 'The email failed to send. The history below says why.',
+  SEND_RATE_LIMITED:
+    'That is a lot of reports in an hour. Try again shortly, or ask an owner.',
+  NO_RECIPIENT: 'Choose at least one person to send it to.',
 }
 
 export function SendSheet({

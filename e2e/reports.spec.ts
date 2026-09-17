@@ -582,3 +582,43 @@ test.describe('a business’s own settings for a form it did not write', () => {
     )
   })
 })
+
+test('a rodent treatment says when the label wants somebody back', async ({ page }) => {
+  const s = await setupBusinessWithSub('sgar-notice')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport', {
+    treatments: [
+      {
+        _id: 'r1',
+        treatment: ['Rodents'],
+        product: ['Ditrac All Weather Blox (0.05 g/kg Bromadiolone)'],
+        quantity: ['Bait Blocks'],
+        method: ['SGARS in compliance with the new 35 day ruling'],
+      },
+    ],
+  })
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/reports/${reportId}`)
+
+  // A suspension with replacement label instructions — the copy must never
+  // call it a ban or new legislation (docs/reports/fidelity.md).
+  const notice = page.getByText(/APVMA label instructions require an evaluation/)
+  await expect(notice).toBeVisible()
+  await expect(page.getByText(/\bban\b/i)).toHaveCount(0)
+  await expect(page.getByText(/new legislation/i)).toHaveCount(0)
+  // It points at the week, and books nothing: a visit has a price and a
+  // person attached, and the report knows neither.
+  await expect(page.getByRole('link', { name: 'Open that week' })).toBeVisible()
+})
+
+test('a report that used no rodenticide says nothing about one', async ({ page }) => {
+  const s = await setupBusinessWithSub('sgar-quiet')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/reports/${reportId}`)
+  await expect(page.getByRole('tab', { name: 'PDF' })).toBeEnabled()
+  await expect(page.getByText(/APVMA label instructions/)).toHaveCount(0)
+})

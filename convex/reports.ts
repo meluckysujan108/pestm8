@@ -386,6 +386,56 @@ export const counts = query({
 const COUNT_LIMIT = 200
 
 /**
+ * Drafts old enough to be a compliance problem rather than a work in progress.
+ *
+ * WA's Pesticides Regulations give an operator two business days to make the
+ * record; a report still sitting unfinished a week later is one nobody is
+ * going to remember the detail of. There is no notification channel in this
+ * app to nudge through — no push, no email to a member — so the nudge is
+ * simply that the library says so, where somebody is already looking.
+ */
+export const staleDrafts = query({
+  args: {
+    businessId: v.id('businesses'),
+    /**
+     * How old counts as stale. Part of the contract rather than a constant,
+     * so "drafts older than a day" is askable — and so the rule can be
+     * exercised without waiting four days for it to be true.
+     */
+    olderThanMs: v.optional(v.number()),
+  },
+  handler: async (ctx, { businessId, olderThanMs }) => {
+    const membership = await resolveViewScope(ctx, businessId)
+    const cutoff = Date.now() - (olderThanMs ?? STALE_AFTER_MS)
+
+    const rows = await ctx.db
+      .query('reports')
+      .withIndex('by_business_updated', (q) =>
+        q.eq('businessId', businessId).lt('updatedAt', cutoff),
+      )
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('status'), 'draft'),
+          q.eq(q.field('deletedAt'), undefined),
+        ),
+      )
+      .take(COUNT_LIMIT)
+
+    const mine = rows.filter((r) => canSeeReport(membership, r))
+    return {
+      count: mine.length,
+      /** The one to open, which is the oldest — it is the most forgotten. */
+      oldest: mine.sort(
+        (a, b) => (a.updatedAt ?? a.createdAt) - (b.updatedAt ?? b.createdAt),
+      )[0]?._id,
+    }
+  },
+})
+
+/** Two business days, rounded to the week's worth of slack a trade needs. */
+const STALE_AFTER_MS = 4 * 24 * 60 * 60 * 1000
+
+/**
  * Which settings row a report reads: the built-in's id, or the custom
  * template's. One function so the gate and the builder cannot look in
  * different places.

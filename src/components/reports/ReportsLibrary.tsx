@@ -3,7 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { usePaginatedQuery } from 'convex/react'
-import { Lock, RotateCcw, Trash2 } from 'lucide-react'
+import { Clock, Lock, RotateCcw, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
@@ -110,6 +110,12 @@ export function ReportsLibrary({
 
   return (
     <>
+      <StaleDrafts
+        businessId={businessId}
+        businessSlug={businessSlug}
+        onShowDrafts={() => onSegment('draft')}
+      />
+
       <div className="flex gap-2 px-4 pt-3">
         <SearchBox
           value={query}
@@ -166,6 +172,56 @@ export function ReportsLibrary({
         )}
       </section>
     </>
+  )
+}
+
+/**
+ * Says when reports have been left unfinished.
+ *
+ * WA's Pesticides Regulations give an operator two business days to make the
+ * record, and a half-filled report from last week is one nobody remembers the
+ * detail of. There is no notification channel in this app to nudge through, so
+ * the nudge is the library saying so where somebody is already looking — once,
+ * quietly, with a way straight to them.
+ */
+function StaleDrafts({
+  businessId,
+  businessSlug,
+  onShowDrafts,
+}: {
+  businessId: Id<'businesses'>
+  businessSlug: string
+  onShowDrafts: () => void
+}) {
+  const { data } = useQuery(convexQuery(api.reports.staleDrafts, { businessId }))
+  if (!data || data.count === 0) return null
+
+  return (
+    <div className="mx-4 mt-4 flex items-center gap-2.5 rounded-2xl border border-amber-line bg-amber-bg px-3.5 py-3">
+      <Clock size={16} strokeWidth={1.9} className="shrink-0 text-amber-ink" />
+      <p className="min-w-0 flex-1 text-caption text-amber-ink">
+        {data.count === 1
+          ? 'A report has been left unfinished for over four days.'
+          : `${data.count} reports have been left unfinished for over four days.`}
+      </p>
+      {data.oldest && data.count === 1 ? (
+        <Link
+          to="/$businessSlug/reports/$reportId"
+          params={{ businessSlug, reportId: data.oldest }}
+          className="shrink-0 text-caption font-semibold text-amber-ink underline"
+        >
+          Open
+        </Link>
+      ) : (
+        <button
+          type="button"
+          onClick={onShowDrafts}
+          className="shrink-0 text-caption font-semibold text-amber-ink underline"
+        >
+          Show
+        </button>
+      )}
+    </div>
   )
 }
 

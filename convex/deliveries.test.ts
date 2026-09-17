@@ -238,3 +238,103 @@ describe('what a settled delivery records', () => {
     expect(ready).not.toContain(held)
   })
 })
+
+describe('what the provider says afterwards', () => {
+  async function sent(t: ReturnType<typeof convexTest>, ids: Ids) {
+    const reportId = await t.run((ctx) => finalisedReport(ctx, ids, ids.ownerId))
+    const deliveryId = await t.mutation(internal.deliveries.queue, {
+      reportId,
+      to: ['client@example.com'],
+      cc: [],
+      subject: 'Service Report',
+      trigger: 'manual',
+      status: 'queued',
+      sentByMembershipId: ids.ownerId,
+    })
+    await t.mutation(internal.deliveries.settle, {
+      deliveryId,
+      status: 'sent',
+      providerMessageId: 'resend-abc',
+    })
+    return { reportId, deliveryId }
+  }
+
+  test('a bounce stops the report claiming it was sent', async () => {
+    const t = convexTest(schema, modules)
+    const ids = await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+    const { reportId, deliveryId } = await sent(t, ids)
+
+    await t.mutation(internal.deliveries.recordProviderEvent, {
+      providerMessageId: 'resend-abc',
+      event: 'bounced',
+      detail: 'Mailbox does not exist',
+    })
+
+    const row = await t.run((ctx) => ctx.db.get(deliveryId))
+    expect(row?.status).toBe('bounced')
+    expect(row?.error).toBe('Mailbox does not exist')
+
+    // "Sent" is what the library's bucket reads, and a report the client
+    // never received is not a sent one.
+    const report = await t.run((ctx) => ctx.db.get(reportId))
+    expect(report?.emailedAt).toBeUndefined()
+  })
+
+  test('a bounce to one recipient leaves a good send standing', async () => {
+    const t = convexTest(schema, modules)
+    const ids = await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+    const { reportId, deliveryId } = await sent(t, ids)
+
+    const second = await t.mutation(internal.deliveries.queue, {
+      reportId,
+      to: ['office@example.com'],
+      cc: [],
+      subject: 'Service Report',
+      trigger: 'manual',
+      status: 'queued',
+      sentByMembershipId: ids.ownerId,
+    })
+    await t.mutation(internal.deliveries.settle, {
+      deliveryId: second,
+      status: 'sent',
+      providerMessageId: 'resend-def',
+    })
+
+    await t.mutation(internal.deliveries.recordProviderEvent, {
+      providerMessageId: 'resend-abc',
+      event: 'bounced',
+    })
+
+    const row = await t.run((ctx) => ctx.db.get(deliveryId))
+    expect(row?.status).toBe('bounced')
+    // Somebody still received it, so the report has been sent.
+    const report = await t.run((ctx) => ctx.db.get(reportId))
+    expect(report?.emailedAt).toBeTypeOf('number')
+  })
+
+  test('a delivery confirmation changes nothing', async () => {
+    const t = convexTest(schema, modules)
+    const ids = await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+    const { deliveryId } = await sent(t, ids)
+
+    await t.mutation(internal.deliveries.recordProviderEvent, {
+      providerMessageId: 'resend-abc',
+      event: 'delivered',
+    })
+    const row = await t.run((ctx) => ctx.db.get(deliveryId))
+    expect(row?.status).toBe('sent')
+  })
+
+  test('an event for a message this deployment never sent is ignored', async () => {
+    const t = convexTest(schema, modules)
+    await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+
+    // Noise, not a failure: another deployment's webhook, or a replay.
+    await expect(
+      t.mutation(internal.deliveries.recordProviderEvent, {
+        providerMessageId: 'resend-unknown',
+        event: 'bounced',
+      }),
+    ).resolves.toBeNull()
+  })
+})

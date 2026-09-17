@@ -202,6 +202,32 @@ test('a form that asked for no copy opens no delivery', async () => {
   expect(history).toEqual([])
 })
 
+test('one person cannot send a hundred reports in an hour', async () => {
+  const s = await reportForSub('delivery-rate', 'client@example.com')
+
+  // Twenty is generous for a technician finishing a day's jobs and far below
+  // what a runaway retry loop manages. Counted from the delivery rows, which
+  // already are the record of every send — so the twenty-first is the one
+  // that is refused, not the twenty-second.
+  for (let n = 0; n < 20; n++) {
+    await s.sub.client.mutation(api.deliveries.request, {
+      businessId: s.businessId,
+      reportId: s.reportId,
+      to: ['client@example.com'],
+    })
+  }
+
+  await expectRejected(
+    () =>
+      s.sub.client.mutation(api.deliveries.request, {
+        businessId: s.businessId,
+        reportId: s.reportId,
+        to: ['client@example.com'],
+      }),
+    'SEND_RATE_LIMITED',
+  )
+})
+
 test.describe('the send sheet', () => {
   test.use({ viewport: { width: 430, height: 932 } })
 

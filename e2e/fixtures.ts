@@ -191,6 +191,8 @@ export type RejectionCode =
   // A permanent delete that skipped Recently Deleted — the 30-day safety net
   // is not optional.
   | 'NOT_IN_TRASH'
+  // Too many sends from one person in an hour.
+  | 'SEND_RATE_LIMITED'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

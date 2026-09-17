@@ -99,6 +99,16 @@ the whole 1280px shell. A seventh sheet joined the list: the **answer picker**,
 which a list of more than twelve options opens instead of stacking rows, and
 which every cell of a repeating row uses whatever its length.
 
+*Amended (reports Phases 4–5):* three more sheets, all from
+`primitives/Sheet.tsx`: the **finalise sheet**, which reads a report back
+before it locks; the **send sheet**, which offers the recipients the form
+itself asked for; and the **template settings sheet**, where an owner changes
+the parts of a built-in form that are theirs. The reports list became a
+library — server-paginated, server-searched (client, street, form name or
+report number), with a Recently Deleted segment for drafts. The report page's
+Email tab is now the send sheet plus a delivery history, and its Logs tab an
+activity timeline with actor names.
+
 **Cross-cutting:** preview-as banner (sticky, dark, top), toast (bottom centre)
 
 ## 2.3 Interaction patterns worth naming
@@ -107,6 +117,8 @@ which every cell of a repeating row uses whatever its length.
 - **Week strip with per-subcontractor dots** — colour-coded, so the Owner sees whose day is loaded at a glance.
 - **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. *Amended:* the schedule's job card now has two variants, and the rule holds per-variant rather than per-surface — the compact **list** row still shows suburb alone, while the richer **board** card shows the full street address. A board card is being read, not scanned past, and at that size the address is the fastest way to recognise a job. `JobCard.tsx` is the only place this applies; every other list row is unchanged.
 - **Locked boilerplate blocks** — report disclaimers render in a grey inset card, visibly non-editable.
+- **A delivery is a record, not an event** — every attempt to send a report is a `reportDeliveries` row, written before the provider is called and naming the `reportPdfs` row it attached, so "which file did the client receive?" has an answer after the renderer has moved on. `sent` means the provider accepted it; the Resend webhook moves a row to `bounced` later, and the report's Sent bucket with it.
+- **Who a report may be sent to** — a technician may send to addresses already on the client record; anywhere else is `pendingApproval` until an owner says yes, unless the business turns the restriction off. The held row IS the request, so approving is a decision about something real. Twenty sends an hour per member, counted from the delivery rows rather than a separate token bucket.
 - **Suggested answers** — an answer the app worked out (the forecast, the booked start time) is marked "Suggested" and blocks finalising until the technician confirms it, which pressing Next on that section does. Facts read off a record are never marked: a technician confirming what their own client record says is a tax on being helpful.
 - **One tap for a clean group** — a section or heading may declare `quick`, offering a single explicit tap that answers a whole group with its "nothing found" values. Never a stored default, never over an existing answer, and never over the form's mandatory gate (`semantic: 'safetyGate'`).
 - **The lock is two acts, not one** — `Finalise & lock` opens a sheet that reads the report back (what was applied, whether it was safe, who signed, how many photos, who the form says gets a copy) before anything is locked. Which answers are read back is the template's call, via `summary: true` on a field or a repeater column. Not a hold-to-confirm gesture: long presses misfire through gloves, and the guard a technician needs is knowing what is about to be locked, not being asked whether they are sure. The button is never greyed for an *incomplete* report — pressing it is how you find out what is missing — but it does wait for the report's evidence to load, because signatures and photos live outside `data` and a check run before they arrive reads "not loaded" as "not there".
@@ -310,6 +322,14 @@ convex/
   recurrences.ts             create, materialise, skipOccurrence, reschedule
   reports.ts                 create, saveDraft, finalise, get, listByProperty, search
   reportPdf.ts               [action] render via react-pdf, store, return storageId
+  *Amended (reports Phases 4–5):* `reports.ts` also owns the paginated
+  `list`/`search`/`counts` the library reads, the soft-delete trio
+  (`softDelete`/`restore`/`remove`) and its nightly `purgeExpired`, the
+  render claim (`claimPdf`/`setPdf`/`failPdf`) and the caller-less projections
+  scheduled work reads (`getForRender`, `photosForRender`). `reportPdf.ts` is
+  now a thin wrapper over `reportPipeline.tsx`, which owns the single render
+  path. `deliveries.ts` and `templateSettings.ts` are new; `http.ts` gained
+  its first hand-written route, the Resend webhook.
   notes.ts                   list, create, listForJob
   tasks.ts                   listOpen, complete, createDurableNoticeTask
   xero.ts                    [action] beginOAuth, completeOAuth, refresh, pushInvoice
@@ -382,9 +402,10 @@ src/routes/
       $propertyId.tsx
     invoices.tsx                  ?seg=
     reports/
-      index.tsx                   ?q=
+      index.tsx                   ?q= &seg=  (all|draft|finalised|sent|trash)
       new.tsx                     template picker
-      $reportId.tsx               builder (draft) or document (finalised)
+      $reportId.tsx               builder (draft) or document (finalised); ?s= section
+      templates/                  owner-only: built-in settings, custom templates
     notes.tsx                     ?filter=
     settings.tsx                  ?seg=profile|team|prefs
 ```

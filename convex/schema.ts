@@ -957,7 +957,11 @@ export default defineSchema({
   })
     .index('by_report', ['reportId'])
     // The owner's approval queue, and nothing else reads by status.
-    .index('by_business_status', ['businessId', 'status']),
+    .index('by_business_status', ['businessId', 'status'])
+    // "how many has this person sent in the last hour" — the send limit.
+    .index('by_sender', ['sentByMembershipId', 'createdAt'])
+    // A provider webhook arrives knowing only its own message id.
+    .index('by_provider_message', ['providerMessageId']),
 
   /**
    * Every PDF this report has ever been rendered as, newest last.

@@ -312,3 +312,34 @@ test('a subcontractor sees their own reports even when newer ones are not theirs
   })
   expect(visible.page.every((r) => r._id === theirs || false)).toBe(true)
 })
+
+test('a report left unfinished is said so, where somebody is looking', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('list-stale')
+  const stale = await createReport(s.owner.client, s, 'serviceReport')
+
+  // Asked for with a threshold of nothing, because no test can wait four days
+  // and a backdating mutation would be a production endpoint that exists only
+  // for tests. The threshold is a real argument: "drafts older than a day" is
+  // a question worth being able to ask.
+  const flagged = await s.owner.client.query(api.reports.staleDrafts, {
+    businessId: s.businessId,
+    olderThanMs: 0,
+  })
+  expect(flagged.count).toBe(1)
+  expect(flagged.oldest).toBe(stale)
+
+  // And a draft made this minute is not nagged about: WA's Pesticides
+  // Regulations give an operator two business days, and a banner that fires
+  // immediately is one nobody reads by the end of the week.
+  const quiet = await s.owner.client.query(api.reports.staleDrafts, {
+    businessId: s.businessId,
+  })
+  expect(quiet.count).toBe(0)
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/reports`)
+  await expect(page.getByRole('tab', { name: 'All' })).toBeEnabled()
+  await expect(page.getByText(/left unfinished/)).toHaveCount(0)
+})

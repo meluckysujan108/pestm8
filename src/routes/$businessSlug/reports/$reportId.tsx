@@ -67,6 +67,7 @@ function ReportPage() {
     return (
       <ReportActionBar
         businessId={business._id}
+        businessSlug={business.slug}
         reportId={report._id}
         pdfUrl={report.pdfUrl ?? null}
         report={report}

@@ -33,6 +33,7 @@ import type * as lib_reportContext from "../lib/reportContext.js";
 import type * as lib_reportEmail from "../lib/reportEmail.js";
 import type * as lib_reportSearch from "../lib/reportSearch.js";
 import type * as lib_richText from "../lib/richText.js";
+import type * as lib_svix from "../lib/svix.js";
 import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
 import type * as memberships from "../memberships.js";
 import type * as migrations_notesV2 from "../migrations/notesV2.js";
@@ -84,6 +85,7 @@ declare const fullApi: ApiFromModules<{
   "lib/reportEmail": typeof lib_reportEmail;
   "lib/reportSearch": typeof lib_reportSearch;
   "lib/richText": typeof lib_richText;
+  "lib/svix": typeof lib_svix;
   "lib/templateSnapshot": typeof lib_templateSnapshot;
   memberships: typeof memberships;
   "migrations/notesV2": typeof migrations_notesV2;

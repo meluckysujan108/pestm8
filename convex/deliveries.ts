@@ -199,6 +199,93 @@ export const known = query({
   },
 })
 
+/**
+ * What the provider told us later.
+ *
+ * "Sent" means Resend accepted it, which is not the same as it landing in an
+ * inbox — and on a compliance record the difference matters, because a report
+ * a client never received is a report that was not delivered however green the
+ * row looks. A bounce arrives minutes later and moves the row.
+ *
+ * Matched by the provider's own message id, which is the only thing a webhook
+ * knows about us. Unknown ids are ignored rather than erroring: a webhook for
+ * a message this deployment never sent is noise, not a failure.
+ */
+export const recordProviderEvent = internalMutation({
+  args: {
+    providerMessageId: v.string(),
+    event: v.union(
+      v.literal('delivered'),
+      v.literal('bounced'),
+      v.literal('complained'),
+    ),
+    detail: v.optional(v.string()),
+  },
+  handler: async (ctx, { providerMessageId, event, detail }) => {
+    const delivery = await ctx.db
+      .query('reportDeliveries')
+      .withIndex('by_provider_message', (q) =>
+        q.eq('providerMessageId', providerMessageId),
+      )
+      .unique()
+    if (!delivery) return
+
+    if (event === 'delivered') {
+      // Already 'sent'; a delivery confirmation adds nothing the row does not
+      // say, and demoting a bounced row back to sent would lose the fact.
+      return
+    }
+
+    await ctx.db.patch(delivery._id, {
+      status: 'bounced',
+      error:
+        detail ??
+        (event === 'complained'
+          ? 'Marked as spam by the recipient'
+          : 'The address bounced'),
+    })
+
+    // The report's own "Sent" bucket has to stop claiming it: that flag is
+    // what the library reads, and a bounced report is not a sent one.
+    const report = await ctx.db.get(delivery.reportId)
+    if (report?.emailedAt !== undefined) {
+      const others = await ctx.db
+        .query('reportDeliveries')
+        .withIndex('by_report', (q) => q.eq('reportId', delivery.reportId))
+        .collect()
+      const stillSent = others.some(
+        (row) => row._id !== delivery._id && row.status === 'sent',
+      )
+      if (!stillSent) await ctx.db.patch(delivery.reportId, { emailedAt: undefined })
+    }
+
+    await ctx.db.insert('auditLog', {
+      businessId: delivery.businessId,
+      actorMembershipId: delivery.sentByMembershipId ?? delivery.approvedByMembershipId ?? (await anyOwner(ctx, delivery.businessId)),
+      action: 'report.email.bounced',
+      entityType: 'reports',
+      entityId: delivery.reportId,
+      meta: { to: delivery.to, event, detail },
+      at: Date.now(),
+    })
+  },
+})
+
+/**
+ * An audit row needs an actor and a bounce has none — the provider is not a
+ * member. Attributed to whoever asked for the send, and to an owner when the
+ * form itself did.
+ */
+async function anyOwner(ctx: MutationCtx, businessId: Id<'businesses'>) {
+  const owner = await ctx.db
+    .query('memberships')
+    .withIndex('by_business', (q) => q.eq('businessId', businessId))
+    .filter((q) => q.eq(q.field('role'), 'owner'))
+    .first()
+  if (!owner) throw new ConvexError('NOT_FOUND')
+  return owner._id
+}
+
 /** Who this report has been sent to, and how each attempt went. */
 export const forReport = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
@@ -269,6 +356,8 @@ export const request = mutation({
     const addresses = normaliseAddresses(to)
     if (addresses.length === 0) throw new ConvexError('NO_RECIPIENT')
 
+    await assertWithinSendLimit(ctx, membership._id)
+
     const business = await ctx.db.get(businessId)
     const onFile = await knownFor(ctx, report)
     // An owner may send where they like; it is their client relationship.
@@ -304,6 +393,39 @@ export const request = mutation({
     return { deliveryId, status }
   },
 })
+
+/**
+ * How many reports one person may send in an hour.
+ *
+ * Generous for a technician finishing a day's jobs, and far below what a
+ * runaway retry loop or a compromised session would manage. A compliance
+ * document is an attachment with a client's address on it: the cost of
+ * sending a thousand of them is not the bandwidth.
+ *
+ * Counted from the delivery rows rather than a rate-limiter component,
+ * because those rows already ARE the record of every send, exactly and
+ * auditably — a separate token bucket would be a second, less accurate
+ * account of the same events, and a dependency to keep them in step.
+ */
+const SEND_LIMIT = 20
+const SEND_WINDOW_MS = 60 * 60 * 1000
+
+async function assertWithinSendLimit(
+  ctx: MutationCtx,
+  membershipId: Id<'memberships'>,
+) {
+  const since = Date.now() - SEND_WINDOW_MS
+  const recent = await ctx.db
+    .query('reportDeliveries')
+    .withIndex('by_sender', (q) =>
+      q.eq('sentByMembershipId', membershipId).gt('createdAt', since),
+    )
+    .take(SEND_LIMIT)
+
+  // `>=`, because this call is the one after the ones counted: twenty already
+  // in the window means this would be the twenty-first.
+  if (recent.length >= SEND_LIMIT) throw new ConvexError('SEND_RATE_LIMITED')
+}
 
 /**
  * An owner lets a held delivery go. The row is not rewritten — the request is

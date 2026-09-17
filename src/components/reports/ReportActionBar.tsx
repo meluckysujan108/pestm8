@@ -1,5 +1,7 @@
 import { Suspense, lazy, useEffect, useRef, useState } from 'react'
-import { Send } from 'lucide-react'
+import { CalendarClock, Send } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { sgarFollowUp } from '#/lib/reportTemplates/sgar'
 import type { ReactNode } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexAction } from '@convex-dev/react-query'
@@ -28,6 +30,75 @@ const TABS = [
 
 type Tab = (typeof TABS)[number]['value']
 
+/**
+ * When a rodent treatment has to be gone back to.
+ *
+ * The APVMA suspended second-generation anticoagulant rodenticides on 24 March
+ * 2026 with replacement label instructions, one of which is an evaluation
+ * within 35 days. The Service Report's method list carries that instruction
+ * verbatim, so a finished report already knows — and the person who needs to
+ * act on it is looking at the report, not at a calendar.
+ *
+ * It says so and links to the day. Booking the visit is a decision with a
+ * price and a person attached, and this knows neither.
+ */
+function SgarNotice({
+  businessSlug,
+  report,
+}: {
+  businessSlug: string
+  report: SendableReport
+}) {
+  const template = resolveReportTemplate({
+    template: report.template,
+    templateVersion: report.templateVersion,
+    customTemplate: report.customTemplate,
+    templateSnapshot: report.templateSnapshot,
+  })
+  const due = sgarFollowUp(
+    template,
+    (report.data ?? {}) as Record<string, unknown>,
+    report.finalisedAt,
+  )
+  if (!due) return null
+
+  const day = new Intl.DateTimeFormat('en-AU', {
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date(due.dueBy))
+
+  return (
+    <div className="mx-4 mt-4 flex items-start gap-2.5 rounded-2xl border border-amber-line bg-amber-bg px-3.5 py-3">
+      <CalendarClock size={16} strokeWidth={1.9} className="mt-0.5 shrink-0 text-amber-ink" />
+      <div className="min-w-0 flex-1">
+        <p className="text-caption text-amber-ink">
+          {/* A suspension with replacement label instructions — never a "ban",
+              never "new legislation". */}
+          This treatment used an SGAR. APVMA label instructions require an
+          evaluation within 35 days, so by {day}
+          {due.daysRemaining < 0 ? ' — which has passed' : ''}.
+        </p>
+        <Link
+          to="/$businessSlug/schedule"
+          params={{ businessSlug }}
+          search={{ date: dayKey(due.dueBy) }}
+          className="mt-1 inline-block text-caption font-semibold text-amber-ink underline"
+        >
+          Open that week
+        </Link>
+      </div>
+    </div>
+  )
+}
+
+/** `2026-10-22` — the shape the schedule's `?date=` takes. */
+function dayKey(at: number): string {
+  const when = new Date(at)
+  return `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(
+    when.getDate(),
+  ).padStart(2, '0')}`
+}
+
 /** What the send sheet needs from `reports.get`, and nothing more. */
 export type SendableReport = {
   template: TemplateId | 'custom'
@@ -47,6 +118,7 @@ export type SendableReport = {
  */
 export function ReportActionBar({
   businessId,
+  businessSlug,
   reportId,
   pdfUrl,
   fileName,
@@ -54,6 +126,7 @@ export function ReportActionBar({
   children,
 }: {
   businessId: Id<'businesses'>
+  businessSlug: string
   reportId: Id<'reports'>
   pdfUrl: string | null
   fileName: string
@@ -68,6 +141,8 @@ export function ReportActionBar({
 
   return (
     <>
+      <SgarNotice businessSlug={businessSlug} report={report} />
+
       <div className="px-4 pt-4">
         <Segmented
           label="Report view"

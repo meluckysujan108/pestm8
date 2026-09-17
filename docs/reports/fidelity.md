@@ -302,3 +302,10 @@ include "DO NOT use the product continuously for more than 35 days without an
 evaluation of the state of the infestation and of the efficacy of the treatment."
 The option string prints verbatim; our help text calls it a suspension with
 replacement label instructions, never a "ban" or "new legislation".
+
+A finished report that used that method therefore knows a date nobody has
+written down, and says so on the report itself — `src/lib/reportTemplates/sgar.ts`
+counts thirty-five days from the treatment and the finalised report shows when
+the evaluation is due, late included. It does not book the visit: that is a
+decision with a price and a person attached, and neither is anything the report
+can guess.

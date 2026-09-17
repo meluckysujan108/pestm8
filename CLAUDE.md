@@ -56,5 +56,8 @@ Useful for read-only inspection of a deployment, including prod:
 Add `--component betterAuth` or `--component prosemirrorSync` to read a
 component's own tables (Better Auth users live there, not in the app's).
 
-`RESEND_API_KEY` / `RESEND_FROM_EMAIL` are unset on every deployment, so
-emailing a report throws `EMAIL_NOT_CONFIGURED` by design (`convex/email.ts`).
+`RESEND_API_KEY` / `RESEND_FROM_EMAIL` / `RESEND_WEBHOOK_SECRET` are unset on
+every deployment, so emailing a report throws `EMAIL_NOT_CONFIGURED` by design
+(`convex/email.ts`) and the webhook at `POST /resend/webhook` answers 404.
+`RESEND_FROM_EMAIL` is required rather than optional — Resend rejects a `from`
+that is a bare display name. See `docs/reports/README.md` for what each does.
