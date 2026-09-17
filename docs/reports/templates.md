@@ -176,6 +176,38 @@ Saving and issuing are **different acts**:
 
 A technician's `customTemplates.get` never includes the draft at all.
 
+## The editor
+
+Settings for the form itself live on the template page; the editor is the
+generic renderer, one section at a time, with the same `FieldConfigForm` for
+every kind.
+
+**All twenty-two kinds are offerable.** `derived`, `member`, `cover` and
+`emails` were held back while they were promises the app had not kept — each
+binds to something outside the form, and offering one before that plumbing
+existed would have let somebody build a form that silently printed nothing.
+All four have it now.
+
+**Preview before you issue.** The Edit / Preview switch builds the same
+`ReportModel` the finished document is painted from, with no answers — so what
+it shows is the questions in the order a technician meets them, and what Rule 8
+will leave out. Authoring a compliance document blind is how a section ends up
+with a heading and nothing under it.
+
+### Not built
+
+Stated rather than left to be discovered:
+
+- **Drag to reorder.** Sections, fields and options move with up/down buttons.
+  `@dnd-kit` would be a new browser dependency, and on the phone this editor is
+  used on, two buttons beat a drag target.
+- **A canvas that renders each row as its real control**, a `/` command
+  palette, and a desktop keyboard layer. The section-at-a-time editor does the
+  same job with less to go wrong.
+- **Rich text in `note` bodies.** They are authored as plain paragraphs;
+  `RichDoc`'s headings, lists and marks are available to hand-written
+  templates only.
+
 ## Before you ship a wording change
 
 1. Bump `version`.

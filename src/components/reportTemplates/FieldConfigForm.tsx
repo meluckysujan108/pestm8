@@ -17,6 +17,48 @@ import type { Condition } from '#/lib/reportTemplates/visibility'
  * The one thing genuinely factored out is `OptionsListEditor`, reused by
  * four kinds, and `VisibleWhenEditor`, reused by every kind.
  */
+/**
+ * The record details a `derived` row can print, grouped the way an author
+ * thinks about them rather than in the order the union declares them.
+ */
+const DERIVED_SOURCES = [
+  {
+    label: 'Client',
+    items: [
+      { value: 'client.name', label: 'Client name' },
+      { value: 'client.address', label: 'Client address' },
+      { value: 'client.phone', label: 'Client phone' },
+      { value: 'client.email', label: 'Client email' },
+    ],
+  },
+  {
+    label: 'Site',
+    items: [{ value: 'property.address', label: 'Site address' }],
+  },
+  {
+    label: 'Your business',
+    items: [
+      { value: 'business.name', label: 'Business name' },
+      { value: 'business.tradingName', label: 'Trading name' },
+      { value: 'business.address', label: 'Business address' },
+      { value: 'business.phone', label: 'Business phone' },
+      { value: 'business.email', label: 'Business email' },
+      { value: 'business.website', label: 'Website' },
+      { value: 'business.abn', label: 'ABN' },
+    ],
+  },
+  {
+    label: 'The person who did the work',
+    items: [
+      { value: 'technician.name', label: 'Name' },
+      { value: 'technician.licence', label: 'Licence number' },
+      { value: 'technician.phone', label: 'Phone' },
+      { value: 'technician.address', label: 'Address' },
+    ],
+  },
+  { label: 'Job', items: [{ value: 'job.number', label: 'Job number' }] },
+] as const
+
 export function FieldConfigForm({
   field,
   onChange,
@@ -367,13 +409,73 @@ function KindSpecificFields({
       )
 
     case 'derived':
+      return (
+        <label className="flex flex-col gap-1.5">
+          <span className="section-label">Which detail</span>
+          <select
+            value={field.source}
+            onChange={(e) =>
+              onChange({ ...field, source: e.target.value as typeof field.source })
+            }
+            className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          >
+            {DERIVED_SOURCES.map((group) => (
+              <optgroup key={group.label} label={group.label}>
+                {group.items.map((item) => (
+                  <option key={item.value} value={item.value}>
+                    {item.label}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+          </select>
+          <span className="text-caption text-muted">
+            Printed from the record, never asked for. It stays live while the
+            report is a draft and freezes when the report is locked, so
+            renaming a client next year will not rewrite a document signed this
+            year.
+          </span>
+        </label>
+      )
+
     case 'member':
+      return (
+        <label className="flex flex-col gap-1.5">
+          <span className="section-label">What to call them</span>
+          <select
+            value={field.roleWord ?? 'Technician'}
+            onChange={(e) =>
+              onChange({ ...field, roleWord: e.target.value as 'Technician' })
+            }
+            className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          >
+            <option value="Technician">Technician</option>
+            <option value="Inspector">Inspector</option>
+            <option value="Installer">Installer</option>
+          </select>
+          <span className="text-caption text-muted">
+            Chosen from your active team, and printed with their licence
+            number.
+          </span>
+        </label>
+      )
+
     case 'cover':
+      return (
+        <p className="text-caption text-muted">
+          One landscape photo, banded across the top of the front page. A form
+          with more than one cover field uses the first.
+        </p>
+      )
+
     case 'emails':
-      // Not offered in `ALL_FIELD_KINDS`, so the picker cannot mint one — but
-      // a template cloned from a built-in can contain them, and this form must
-      // still open without blowing up on one.
-      return null
+      return (
+        <p className="text-caption text-muted">
+          Extra addresses this document is sent to when it is finalised. An
+          address that is on nobody&rsquo;s record still prints, but waits for
+          an owner to approve the send.
+        </p>
+      )
 
     default: {
       // A new kind must say how it is configured. Without this the switch just
