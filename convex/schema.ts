@@ -249,10 +249,13 @@ export default defineSchema({
      * The name attribution prints, frozen on the membership rather than read
      * live from the Better Auth user.
      *
-     * Read live, someone who leaves and renames their account rewrites their
-     * own name on every audit row and every report they ever signed — a
-     * retroactive edit of compliance records through a profile form. Absent
-     * means "no snapshot yet, read the user"; that is today's behaviour.
+     * Read live, someone who leaves and renames their account would rewrite
+     * their own name wherever attribution shows one. Absent means "no snapshot
+     * yet, read the user", which is still today's behaviour: no reader has
+     * been moved onto this column yet. It is captured now because a name can
+     * only be frozen while it is still true — the per-person activity view is
+     * what will read it. A signed report is already safe by a different route,
+     * freezing the technician into `reports.contextSnapshot` at finalise.
      */
     displayName: v.optional(v.string()),
     licenceNumber: v.optional(v.string()),

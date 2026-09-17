@@ -310,6 +310,14 @@ export const setCanViewAllJobs = mutation({
     if (!target || target.businessId !== args.businessId) {
       throw new ConvexError('NOT_FOUND')
     }
+    // `team.manage` says they may manage somebody; this says whether it is
+    // this somebody. A contractor holds the capability business-wide and the
+    // reach of their own team only — without this, the first contractor could
+    // widen anyone's access in the business through the legacy setters, which
+    // `setGrants` already refuses.
+    if (!canManageMember(env.actor, factsFromMembership(target))) {
+      throw new ConvexError('NO_ACCESS')
+    }
 
     /**
      * Writes through to the grants object as well, and must.
@@ -368,6 +376,15 @@ export const setCanViewOtherAccounts = mutation({
       throw new ConvexError('NOT_FOUND')
     }
     if (target.role === 'owner') throw new ConvexError('NO_ACCESS')
+    // `team.manage` says they may manage somebody; this says whether it is
+    // this somebody. A contractor holds the capability business-wide and the
+    // reach of their own team only — without this, the first contractor could
+    // widen anyone's access in the business through the legacy setters, which
+    // `setGrants` already refuses.
+    if (!canManageMember(env.actor, factsFromMembership(target))) {
+      throw new ConvexError('NO_ACCESS')
+    }
+
 
     await ctx.db.patch(args.membershipId, {
       canViewOtherAccounts: args.canViewOtherAccounts,

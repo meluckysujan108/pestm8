@@ -10,7 +10,27 @@ import { hashInviteToken } from './lib/inviteTokens'
 import type { GenericCtx } from '@convex-dev/better-auth'
 import type { DataModel } from './_generated/dataModel'
 
-const siteUrl = process.env.SITE_URL!
+/**
+ * Named rather than asserted with `!`, because the assertion turns a missing
+ * env var into a module-analysis TypeError — "Cannot read properties of
+ * undefined (reading 'startsWith')", pointing at whatever line the bundler
+ * blames, which is not this one. That is the first thing you hit on a
+ * deployment nobody has configured yet, and it reads like a code defect
+ * rather than a setting you have not made. Fail with the name of the thing
+ * that is missing.
+ */
+function requireEnv(name: string): string {
+  const value = process.env[name]
+  if (!value) {
+    throw new Error(
+      `${name} is not set on this Convex deployment. ` +
+        `Set it with: npx convex env set ${name} <value>`,
+    )
+  }
+  return value
+}
+
+const siteUrl = requireEnv('SITE_URL')
 
 /**
  * Better Auth validates the request Origin against `baseURL`, so anything not

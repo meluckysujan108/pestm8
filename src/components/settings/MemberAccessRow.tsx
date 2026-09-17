@@ -41,6 +41,16 @@ export function MemberAccessRow({
     }) => convexSetViewOthers(args),
   })
 
+  const convexSetLicence = useConvexMutation(api.memberships.setLicence)
+  const saveLicence = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      membershipId: Id<'memberships'>
+      licenceNumber: string
+    }) => convexSetLicence(args),
+  })
+  const [licence, setLicence] = useState(member.licenceNumber ?? '')
+
   const convexSetRole = useConvexMutation(api.memberships.setRole)
   const setRole = useMutation({
     mutationFn: (args: {
@@ -92,6 +102,49 @@ export function MemberAccessRow({
           </p>
         </div>
       </div>
+
+      {/*
+        Here, and not only on each person's own Profile page.
+        A regulated report cannot be finalised without a licence number on the
+        account it belongs to, and the owner is the one who knows those numbers
+        and the one who gets the phone call when a certificate will not sign.
+        Leaving it self-service meant the only way to prepare a team for that
+        rule was to ask every technician to go and type it in themselves.
+      */}
+      <form
+        className="mt-3 flex items-end gap-2 border-t border-hairline-2 pt-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          saveLicence.mutate({
+            businessId,
+            membershipId: member._id,
+            licenceNumber: licence,
+          })
+        }}
+      >
+        <label className="min-w-0 flex-1">
+          <span className="section-label">Licence number</span>
+          <input
+            value={licence}
+            onChange={(e) => setLicence(e.target.value)}
+            placeholder="Not set"
+            className="mt-1 h-11 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={saveLicence.isPending || licence === (member.licenceNumber ?? '')}
+          className="h-11 shrink-0 rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+        >
+          {saveLicence.isPending ? 'Saving…' : saveLicence.isSuccess ? 'Saved' : 'Save'}
+        </button>
+      </form>
+      {!member.licenceNumber && (
+        <p className="mt-1.5 text-caption text-amber-ink">
+          Without this they cannot finalise a termite certificate, timber pest
+          inspection or treatment record.
+        </p>
+      )}
 
       {!isOwner && (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-hairline-2 pt-3">

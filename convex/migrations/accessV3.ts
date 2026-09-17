@@ -20,10 +20,18 @@ import { grantsFromMembership } from '../lib/membershipFacts'
  * `canViewAllJobs` would silently mean "nobody can see anyone else's
  * schedule".
  *
- * `displayName` is frozen at the same time, for a different reason: attribution
- * reads it rather than the live Better Auth user, so that leaving the business
- * and renaming your login cannot rewrite your name on reports you signed and
- * audit rows you caused.
+ * `displayName` is populated at the same time, and it is worth being exact
+ * about what that does and does not buy today: NOTHING READS IT YET. The
+ * certificate case people reach for first is already covered elsewhere — a
+ * finalised report freezes the technician's name and licence into
+ * `contextSnapshot`, so renaming a login cannot rewrite a signed document —
+ * and `auditLog.forEntity` returns a colour rather than a name, so there is no
+ * name in the trail to rewrite either.
+ *
+ * It is filled in now because the value has to be captured while it is still
+ * true. A snapshot taken after somebody leaves and renames their login is a
+ * snapshot of the wrong name, and no later migration can recover it. The
+ * readers come with the per-person activity view.
  *
  * SAFETY, and it is the property that makes this re-runnable: every write is
  * conditional on the field being absent. A row an owner has since changed
