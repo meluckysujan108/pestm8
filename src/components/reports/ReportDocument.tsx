@@ -18,6 +18,7 @@ import type { PresentContext, Presented } from '#/lib/reportTemplates/present'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { OptionSetOverrides } from '#/lib/reportTemplates/optionSets'
+import type { TemplateSettings } from '#/lib/reportTemplates/settings'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -63,6 +64,7 @@ type ReportDoc = {
   /** The frozen wording, once this report is signed. See `reports.get`. */
   templateSnapshot?: CustomTemplateShape | null
   optionSets?: OptionSetOverrides | null
+  settings?: TemplateSettings | null
   /** The records this document prints from without asking. */
   context?: PresentContext | null
 }
@@ -80,8 +82,10 @@ export function ReportDocument({
     templateVersion: report.templateVersion,
     customTemplate: report.customTemplate,
     templateSnapshot: report.templateSnapshot,
-    // Only a draft carries these; a finalised report's lists are frozen.
+    // Only a draft carries these; a finalised report's lists and its chrome
+    // were frozen with its wording.
     optionSets: report.optionSets,
+    settings: report.settings,
   })
 
   // Photos live in their own table rather than in the answers, so the document

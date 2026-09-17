@@ -869,6 +869,52 @@ export default defineSchema({
   }).index('by_hash', ['hash']),
 
   /**
+   * A business's own settings for a form it did not write.
+   *
+   * The three Pest M8 forms are reproduced word for word and stay that way —
+   * their wording is the contract. But a few things on the page belong to the
+   * business rather than the form: what its cover says, what its footer calls
+   * it, and who has to sign before it can be locked. Changing those used to
+   * mean cloning the whole template into a custom one, which forks the wording
+   * too and loses every later correction to it.
+   *
+   * Structural changes still go through `cloneBuiltin`. This is only for the
+   * parts a business owns.
+   */
+  templateSettings: defineTable({
+    businessId: v.id('businesses'),
+    /** A built-in's id today; a custom template's id when those want settings. */
+    templateRef: v.string(),
+    /**
+     * Overrides merged over the form's own `PrintSpec`. Only the keys a
+     * business owns — nothing here can change a printed question or answer.
+     */
+    print: v.optional(
+      v.object({
+        cover: v.optional(
+          v.object({
+            title: v.optional(v.string()),
+            subtitle: v.optional(v.string()),
+          }),
+        ),
+        /** What the running footer and the title band call this form. */
+        formName: v.optional(v.string()),
+      }),
+    ),
+    /**
+     * Which signature slots must hold an image before a report can lock.
+     *
+     * The forms barely validate; the app added "the technician must sign",
+     * which is right for most businesses and wrong for the ones where the
+     * office locks reports the next morning. An empty array means the form's
+     * own `required` flags stand.
+     */
+    requiredSigners: v.optional(v.array(v.string())),
+    updatedByMembershipId: v.id('memberships'),
+    updatedAt: v.number(),
+  }).index('by_business_template', ['businessId', 'templateRef']),
+
+  /**
    * Every attempt to send a report to somebody, and what was attached.
    *
    * A row is written BEFORE the provider is called, so a send that dies

@@ -67,6 +67,7 @@ export const preview = action({
           customTemplate: report.customTemplate,
           templateSnapshot: report.templateSnapshot,
           templateVersion: report.templateVersion,
+          settings: report.settings,
           context: report.context,
           legalBasis: report.legalBasis,
           finalised: false,

@@ -26,6 +26,7 @@ import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { deliveryRecipients } from '../src/lib/reportTemplates/delivery'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import { knownRecipients } from './lib/recipients'
+import { settingsFor } from './templateSettings'
 import { reportSearchText } from './lib/reportSearch'
 import { buildReportContext, toPresentContext } from './lib/reportContext'
 import type { ReportContextSnapshot } from './lib/reportContext'
@@ -384,6 +385,17 @@ export const counts = query({
 
 const COUNT_LIMIT = 200
 
+/**
+ * Which settings row a report reads: the built-in's id, or the custom
+ * template's. One function so the gate and the builder cannot look in
+ * different places.
+ */
+export function templateRefOf(report: Doc<'reports'>): string {
+  return report.template === 'custom'
+    ? (report.customTemplateId ?? 'custom')
+    : report.template
+}
+
 export function summarise(r: Doc<'reports'>) {
   return {
     _id: r._id,
@@ -585,6 +597,15 @@ async function projectReport(ctx: QueryCtx, report: Doc<'reports'>) {
        * `null` once signed: its lists were frozen with its wording.
        */
       optionSets: finalised ? null : await loadOverrides(ctx, businessId),
+      /**
+       * The business's own cover wording and signing rule. `null` once
+       * signed: a finalised report's chrome was frozen with its wording, and
+       * an owner renaming the form next year must not relabel a document
+       * someone already received.
+       */
+      settings: finalised
+        ? null
+        : await settingsFor(ctx, businessId, templateRefOf(report)),
       /**
        * Whether this draft was written against a superseded form, and what the
        * technician can do about it: carry the answers across, or start again
@@ -1199,6 +1220,7 @@ async function templateForNewReport(
       template: args.template,
       templateVersion: getTemplate(args.template).version,
       optionSets,
+      settings: await settingsFor(ctx, args.businessId, args.template),
     })
   }
   const custom = args.customTemplateId ? await ctx.db.get(args.customTemplateId) : null
@@ -1440,6 +1462,9 @@ async function assertComplete(
       ? ((await ctx.db.get(report.customTemplateId)) ?? undefined)
       : undefined,
     optionSets,
+    // Who must sign is the business's rule, so the gate that refuses an
+    // unsigned report has to read the same settings the builder does.
+    settings: await settingsFor(ctx, report.businessId, templateRefOf(report)),
   })
 
   const photos = await ctx.db

@@ -99,6 +99,7 @@ function ReportPage() {
       template={report.template}
       templateVersion={report.templateVersion}
       optionSets={report.optionSets}
+      settings={report.settings}
       prefill={report.prefill}
       section={section}
       onSection={(next) =>

@@ -233,6 +233,29 @@ vendor's output is deliberate and reviewable.
 | Durable notice (Certificate) | Not on the form                                          | Not printed                      | The notice was app-invented. v1 certificates keep printing it exactly as before |
 | Typeface              | The vendor's                                                    | Helvetica, until the PDF redesign | Every character the three forms use is in Helvetica's WinAnsi encoding, verified by rendering and reading the text layer back. An embedded font is a design change, not a correctness fix, and belongs with the redesign |
 
+## What a business may change
+
+The three forms are reproduced word for word so that a correction to their
+wording reaches every business that issues them. A business that needed its own
+cover title or its own signing rule used to have to clone the whole template,
+which forks the wording too and cuts them off from every later fix.
+
+`templateSettings` is the narrow way round that. An owner may set, per form:
+
+| Setting | Reaches |
+| --- | --- |
+| Cover title and subtitle | `print.cover`, so the front page |
+| What the form is called | `print.formName`, so the running footer and the title band |
+| Which pads must be signed | Which `signature` fields are `required`, and therefore the gate that refuses to lock an unsigned report |
+
+Nothing here can change a printed question, an answer list or any wording the
+fidelity tests pin — that is still a clone, and the settings sheet says so.
+
+Settings are applied when a template is resolved, which means they are frozen
+into the snapshot at finalise along with the wording. A finalised report stops
+reading live settings entirely: an owner renaming the form next year must not
+relabel a document a client already has.
+
 ## Validation
 
 The forms barely validate — the Service Report's only mandatory gate is

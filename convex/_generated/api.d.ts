@@ -48,6 +48,7 @@ import type * as reportAnnotations from "../reportAnnotations.js";
 import type * as reportPdf from "../reportPdf.js";
 import type * as reportPipeline from "../reportPipeline.js";
 import type * as reports from "../reports.js";
+import type * as templateSettings from "../templateSettings.js";
 import type * as viewAs from "../viewAs.js";
 import type * as weather from "../weather.js";
 
@@ -98,6 +99,7 @@ declare const fullApi: ApiFromModules<{
   reportPdf: typeof reportPdf;
   reportPipeline: typeof reportPipeline;
   reports: typeof reports;
+  templateSettings: typeof templateSettings;
   viewAs: typeof viewAs;
   weather: typeof weather;
 }>;

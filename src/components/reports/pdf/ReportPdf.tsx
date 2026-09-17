@@ -17,6 +17,7 @@ import type {
   CustomTemplateShape,
   TemplateSnapshotShape,
 } from '../../../lib/reportTemplates/resolve'
+import type { TemplateSettings } from '../../../lib/reportTemplates/settings'
 
 /**
  * The document a client receives, painted from `buildReportModel`.
@@ -43,6 +44,11 @@ export type PdfReport = {
   templateVersion?: number
   /** The frozen wording this report was signed against, if it has been. */
   templateSnapshot?: TemplateSnapshotShape | null
+  /**
+   * The business's own cover wording and signing rule. Only ever set on a
+   * DRAFT preview: a finalised report's chrome is inside its snapshot.
+   */
+  settings?: TemplateSettings | null
   /** The records this document prints from without asking. */
   context?: PresentContext | null
   legalBasis: string
@@ -170,6 +176,7 @@ export function ReportPdf({ report }: { report: PdfReport }) {
     templateVersion: report.templateVersion,
     customTemplate: report.customTemplate,
     templateSnapshot: report.templateSnapshot,
+    settings: report.settings,
   })
 
   const model = buildReportModel({

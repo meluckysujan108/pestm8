@@ -1,7 +1,9 @@
 import { templateFor } from './index'
 import { deriveGenericSchema } from './deriveSchema'
 import { applyOptionSets } from './optionSets'
+import { applyTemplateSettings } from './settings'
 import type { OptionSetOverrides } from './optionSets'
+import type { TemplateSettings } from './settings'
 import type {
   PrintSpec,
   ReportTemplate,
@@ -67,14 +69,24 @@ export function resolveReportTemplate(report: {
    * not reorder or relabel them.
    */
   optionSets?: OptionSetOverrides | null
+  /**
+   * The business's own settings for this form — its cover wording, what the
+   * footer calls it, who must sign. Ignored whenever a snapshot is present,
+   * for the same reason the option lists are: a signed document's chrome was
+   * frozen with its wording.
+   */
+  settings?: TemplateSettings | null
 }): ReportTemplate {
   const snapshot = report.templateSnapshot
 
   if (report.template !== 'custom') {
     if (!snapshot) {
-      return applyOptionSets(
-        templateFor(report.template, report.templateVersion),
-        report.optionSets,
+      return applyTemplateSettings(
+        applyOptionSets(
+          templateFor(report.template, report.templateVersion),
+          report.optionSets,
+        ),
+        report.settings,
       )
     }
 
@@ -131,7 +143,10 @@ export function resolveReportTemplate(report: {
   }
   if (frozen) return built
 
-  const overlaid = applyOptionSets(built, report.optionSets)
+  const overlaid = applyTemplateSettings(
+    applyOptionSets(built, report.optionSets),
+    report.settings,
+  )
   return overlaid === built
     ? built
     : { ...overlaid, schema: deriveGenericSchema(overlaid.sections ?? []) }

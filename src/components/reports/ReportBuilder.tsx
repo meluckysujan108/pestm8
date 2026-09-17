@@ -29,6 +29,7 @@ import type { ReportIssue } from '#/lib/reportTemplates/validate'
 import type { FieldDef, TemplateId } from '#/lib/reportTemplates'
 import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { OptionSetOverrides } from '#/lib/reportTemplates/optionSets'
+import type { TemplateSettings } from '#/lib/reportTemplates/settings'
 import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { SaveStatus } from '#/lib/useAutosave'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -60,6 +61,7 @@ export function ReportBuilder({
   template: templateId,
   templateVersion,
   optionSets,
+  settings,
   roster,
   context,
   upgrade,
@@ -79,6 +81,8 @@ export function ReportBuilder({
   template: TemplateId | 'custom'
   templateVersion?: number
   optionSets?: OptionSetOverrides | null
+  /** The business's own cover wording and signing rule for this form. */
+  settings?: TemplateSettings | null
   /** The team a `member` field can name. */
   roster?: Array<{ id: string; name: string }>
   /** The records the form prints from. */
@@ -110,8 +114,9 @@ export function ReportBuilder({
         templateVersion,
         customTemplate,
         optionSets,
+        settings,
       }),
-    [templateId, templateVersion, customTemplate, optionSets],
+    [templateId, templateVersion, customTemplate, optionSets, settings],
   )
 
   const [data, setData] = useState<Record<string, unknown>>(() =>

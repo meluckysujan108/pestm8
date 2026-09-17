@@ -496,3 +496,89 @@ test.describe('report builder', () => {
 function escapeForRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
+
+test.describe('a business’s own settings for a form it did not write', () => {
+  test('changes who has to sign, and the server agrees', async () => {
+    const s = await setupBusinessWithSub('settings-signers')
+
+    // By default the technician must sign — the app's own rule, not the
+    // form's, and wrong for a business whose office locks reports the next
+    // morning.
+    const before = await createReport(s.owner.client, s, 'serviceReport')
+    await expectRejected(
+      () =>
+        s.owner.client.mutation(api.reports.finalise, {
+          businessId: s.businessId,
+          reportId: before,
+          data: { ...FINALISE.serviceReport },
+          templateVersion: versionOf('serviceReport'),
+        }),
+      'REPORT_INCOMPLETE',
+    )
+
+    await s.owner.client.mutation(api.templateSettings.set, {
+      businessId: s.businessId,
+      templateRef: 'serviceReport',
+      requiredSigners: [],
+    })
+
+    // Same payload, no signature attached, and now it locks.
+    const after = await createReport(s.owner.client, s, 'serviceReport')
+    await s.owner.client.mutation(api.reports.finalise, {
+      businessId: s.businessId,
+      reportId: after,
+      data: { ...FINALISE.serviceReport },
+      templateVersion: versionOf('serviceReport'),
+    })
+    const report = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId: after,
+    })
+    expect(report!.status).toBe('finalised')
+  })
+
+  test('only an owner may set them', async () => {
+    const s = await setupBusinessWithSub('settings-owner-only')
+    await expectRejected(
+      () =>
+        s.sub.client.mutation(api.templateSettings.set, {
+          businessId: s.businessId,
+          templateRef: 'serviceReport',
+          formName: 'Anything',
+        }),
+      'NO_ACCESS',
+    )
+  })
+
+  test('the cover follows the settings, and a signed report keeps its own', async () => {
+    const s = await setupBusinessWithSub('settings-cover')
+    await s.owner.client.mutation(api.templateSettings.set, {
+      businessId: s.businessId,
+      templateRef: 'serviceReport',
+      coverTitle: 'Pest Control Service Record',
+      formName: 'Service Record',
+    })
+
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+    const draft = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(draft!.settings?.print?.formName).toBe('Service Record')
+
+    await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+    // Frozen with the wording: the settings are baked into the snapshot, and
+    // the report stops reading live ones so a later rename cannot relabel a
+    // document somebody already received.
+    const locked = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(locked!.settings).toBeNull()
+    expect(locked!.templateSnapshot?.print?.formName).toBe('Service Record')
+    expect(locked!.templateSnapshot?.print?.cover?.title).toBe(
+      'Pest Control Service Record',
+    )
+  })
+})
