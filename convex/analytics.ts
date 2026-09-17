@@ -7,6 +7,7 @@ import type { Id } from './_generated/dataModel'
 import { requireActor } from './lib/actor'
 import { displayPerson } from './lib/capabilities'
 import { wireScope } from './lib/jobScope'
+import { hidePrices, redactTotal } from './lib/prices'
 
 /** Shifts a `"YYYY-MM"` key by `offset` months (either direction). */
 function monthKeyOffset(monthKey: string, offset: number): string {
@@ -27,7 +28,17 @@ function monthKeyOffset(monthKey: string, offset: number): string {
  */
 export const overview = query({
   args: { businessId: v.id('businesses'), months: v.optional(v.number()) },
-  handler: async (ctx, { businessId, months = 6 }) => {
+  handler: async (ctx, { businessId, months: requested = 6 }) => {
+    /**
+     * Clamped to the three windows the UI offers, for every caller.
+     *
+     * It was free text. `months: 1` collapses the window to the current month,
+     * and a month with one completed job makes `revenueByMonth` that job's
+     * price to the cent — an aggregate that reconstructs the row it was
+     * aggregating. Narrowing the window is the attack, so the window stops
+     * being arbitrary.
+     */
+    const months = [3, 6, 12].includes(requested) ? requested : 6
     const env = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return null
@@ -113,10 +124,13 @@ export const overview = query({
       // as a meaningless single bar.
       scope: wireScope(env.scope),
       months: monthKeys,
+      // Null rather than zero: a total of zero is a claim about the business,
+      // and this is the absence of one.
       revenueByMonth: monthKeys.map((k) => ({
         month: k,
-        value: revenueByMonth.get(k) ?? 0,
+        value: redactTotal(env.caps, revenueByMonth.get(k) ?? 0),
       })),
+      pricesHidden: hidePrices(env.caps),
       volumeByMonth: monthKeys.map((k) => ({
         month: k,
         value: volumeByMonth.get(k) ?? 0,

@@ -11,7 +11,7 @@ import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { Segmented } from '#/components/primitives/Segmented'
 import { AU_STATES } from '#/lib/au'
-import { formatMoney } from '#/lib/format'
+import { formatJobMoney } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
 import { dayKeyOf } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -928,7 +928,7 @@ function ClientJobHistory({
                 </span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                <span className="text-body text-ink">{formatMoney(job.price)}</span>
+                <span className="text-body text-ink">{formatJobMoney(job)}</span>
                 <StatusPill status={job.status} />
               </span>
             </Link>

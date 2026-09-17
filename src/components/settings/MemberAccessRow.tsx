@@ -4,15 +4,16 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
-import type { Role } from '../../../convex/lib/capabilities'
+import type { Grants, Role } from '../../../convex/lib/capabilities'
 
 export type Member = {
   _id: Id<'memberships'>
   name: string
   email: string
   role: Role
-  canViewAllJobs: boolean
+  grants: Grants
   canViewOtherAccounts: boolean
+  canManage: boolean
   licenceNumber?: string
   colour: string
   status: string
@@ -28,15 +29,6 @@ export function MemberAccessRow({
   /** Active members who could take over this person's booked work. */
   others?: Array<Member>
 }) {
-  const convexSet = useConvexMutation(api.memberships.setCanViewAllJobs)
-  const setAccess = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      membershipId: Id<'memberships'>
-      canViewAllJobs: boolean
-    }) => convexSet(args),
-  })
-
   const convexSetViewOthers = useConvexMutation(
     api.memberships.setCanViewOtherAccounts,
   )
@@ -46,6 +38,15 @@ export function MemberAccessRow({
       membershipId: Id<'memberships'>
       canViewOtherAccounts: boolean
     }) => convexSetViewOthers(args),
+  })
+
+  const convexSetGrants = useConvexMutation(api.memberships.setGrants)
+  const setGrants = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      membershipId: Id<'memberships'>
+      grants: Grants
+    }) => convexSetGrants(args),
   })
 
   const isOwner = member.role === 'owner'
@@ -81,13 +82,42 @@ export function MemberAccessRow({
             </span>
           </span>
           <Switch.Root
-            checked={member.canViewAllJobs}
-            disabled={setAccess.isPending}
+            checked={member.grants.otherSchedules}
+            disabled={setGrants.isPending}
             onCheckedChange={(checked) =>
-              setAccess.mutate({
+              setGrants.mutate({
                 businessId,
                 membershipId: member._id,
-                canViewAllJobs: checked,
+                grants: { ...member.grants, otherSchedules: checked },
+              })
+            }
+            className="relative mt-0.5 h-[31px] w-[51px] shrink-0 rounded-full bg-fill-track transition data-[state=checked]:bg-green disabled:opacity-50"
+          >
+            <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
+          </Switch.Root>
+        </label>
+      )}
+
+      {!isOwner && (
+        <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
+          <span className="min-w-0">
+            <span className="block text-body text-ink">Can see job prices</span>
+            <span className="block text-caption text-muted">
+              Prices on jobs, and the revenue figures on the dashboard and
+              analytics. With this off they see the work, not what it is worth.
+            </span>
+          </span>
+          <Switch.Root
+            checked={member.grants.prices}
+            disabled={setGrants.isPending}
+            onCheckedChange={(checked) =>
+              // The whole object with one field changed. Sending only the
+              // change would make every other toggle false the first time a
+              // legacy row gets a `grants` object written to it.
+              setGrants.mutate({
+                businessId,
+                membershipId: member._id,
+                grants: { ...member.grants, prices: checked },
               })
             }
             className="relative mt-0.5 h-[31px] w-[51px] shrink-0 rounded-full bg-fill-track transition data-[state=checked]:bg-green disabled:opacity-50"

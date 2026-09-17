@@ -16,6 +16,7 @@ import {
 import type { Doc, Id } from './_generated/dataModel'
 import { displayPerson, isInScope } from './lib/capabilities'
 import { jobsInScope } from './lib/jobScope'
+import { hidePrices, redactJob } from './lib/prices'
 import type { RowScope } from './lib/capabilities'
 import type { ActorEnvelope } from './lib/actor'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -110,7 +111,7 @@ async function decorate(
             )
           : { membershipId: null, name: '', anonymised: false }
         return {
-          ...job,
+          ...redactJob(env.caps, job),
           // The board-variant card shows the full street address; the compact
           // list variant still shows suburb alone, per §2.3's reasoning that
           // scanning a day wants the suburb.
@@ -329,12 +330,12 @@ export const get = query({
     // Visibility (can this job be seen at all) follows "view as" when active;
     // canEdit below always reflects the REAL caller, never the viewed-as
     // person — read access granted by view-as never implies write access.
-    const { scope } = await requireActor(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
     const job = await ctx.db.get(jobId)
     if (!job || job.businessId !== businessId) return null
 
-    if (!isInScope(scope, job)) {
+    if (!isInScope(env.scope, job)) {
       // Null rather than an error: a subcontractor must not be able to tell a
       // colleague's job apart from one that does not exist.
       return null
@@ -348,7 +349,7 @@ export const get = query({
       : null
 
     return {
-      ...job,
+      ...redactJob(env.caps, job),
       property,
       recurrence: recurrence && {
         _id: recurrence._id,
@@ -396,6 +397,11 @@ export const create = mutation({
       throw new ConvexError('NO_ACCESS')
     }
 
+    // A price from someone who cannot see prices is a placeholder, not a
+    // figure. Stored as nothing rather than as whatever the form defaulted to.
+    const env = await requireActor(ctx, args.businessId)
+    const price = hidePrices(env.caps) ? 0 : args.price
+
     const propertyId = await resolvePropertyId(ctx, args.businessId, {
       propertyId: existingPropertyId,
       newClient,
@@ -409,6 +415,7 @@ export const create = mutation({
 
     return ctx.db.insert('jobs', {
       ...args,
+      price,
       propertyId,
       status: 'booked',
       createdAt: Date.now(),
@@ -492,6 +499,19 @@ export const update = mutation({
         ([, value]) => value !== undefined,
       ),
     )
+
+    /**
+     * Someone who cannot see a price cannot change one — and this is the half
+     * that protects the data rather than the secret.
+     *
+     * Their edit form has no price box, so whatever it sends is a placeholder
+     * standing in for a figure they were never shown. Writing it back would
+     * destroy the real one silently, and every total downstream of it with it.
+     * Dropped rather than refused, so editing the date on a job still works.
+     */
+    const env = await requireActor(ctx, businessId)
+    if (hidePrices(env.caps)) delete fields.price
+
     if (Object.keys(fields).length > 0) await ctx.db.patch(jobId, fields)
   },
 })

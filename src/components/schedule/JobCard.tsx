@@ -1,5 +1,5 @@
 import { Repeat } from 'lucide-react'
-import { formatDuration, formatMoney, formatTime } from '#/lib/format'
+import { formatDuration, formatJobMoney, formatTime } from '#/lib/format'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { WeatherGlyph } from './WeatherGlyph'
 import { WeatherStrip } from './WeatherStrip'
@@ -132,7 +132,7 @@ export function JobCard({
           <span className="mt-2.5 flex items-center justify-between gap-2">
             <StatusPill status={job.status} />
             <span className="text-row-title text-ink">
-              {formatMoney(job.price)}
+              {formatJobMoney(job)}
             </span>
           </span>
         </span>
@@ -213,7 +213,7 @@ export function JobCard({
             {travel ?? ''}
           </span>
           <span className="shrink-0 text-metric-sm leading-none text-ink">
-            {formatMoney(job.price)}
+            {formatJobMoney(job)}
           </span>
         </span>
       </span>
