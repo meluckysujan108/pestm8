@@ -59,8 +59,14 @@ const areaField = z.object({
   placeholder: z.string().optional(),
   rows: z.number().optional(),
 })
-/** Mirrors `Choice` in types.ts — shared by every kind with a fixed answer list. */
-const optionSetKeySchema = z.enum([
+/**
+ * Mirrors `Choice` in types.ts — shared by every kind with a fixed answer list.
+ *
+ * Exported only so the three hand-written copies of this union — here, the
+ * Convex validator, and the settings screen's own list — can be checked
+ * against each other, which nothing else does.
+ */
+export const optionSetKeySchema = z.enum([
   'treatments',
   'products',
   'quantities',

@@ -17,6 +17,39 @@ import type { Option } from '#/lib/reportTemplates'
  * place than behind a sheet, and a sheet over four options is ceremony.
  */
 
+function OptionRow({
+  option,
+  on,
+  locked,
+  multiple,
+  onPick,
+}: {
+  option: Option
+  on: boolean
+  /** Kept ticked by the form — the standard's own wording, not an answer. */
+  locked: boolean
+  multiple: boolean
+  onPick: () => void
+}) {
+  return (
+    <li>
+      <button
+        type="button"
+        role={multiple ? 'checkbox' : 'radio'}
+        aria-checked={on}
+        disabled={locked}
+        onClick={onPick}
+        className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition disabled:opacity-60 ${
+          on ? 'border-red bg-red/8' : 'border-hairline bg-surface'
+        }`}
+      >
+        <span className="flex-1 text-body text-ink">{option.label}</span>
+        {on && <Check size={17} strokeWidth={2.4} className="shrink-0 text-red" />}
+      </button>
+    </li>
+  )
+}
+
 export function PickerSheet({
   open,
   onClose,
@@ -27,6 +60,7 @@ export function PickerSheet({
   onToggle,
   onClear,
   disabledValues = [],
+  usual = [],
   addLabel,
   onAdd,
 }: {
@@ -42,6 +76,12 @@ export function PickerSheet({
   onClear?: () => void
   /** Items the form keeps ticked — the standard's own wording, not an answer. */
   disabledValues?: Array<string>
+  /**
+   * The handful this business reaches for, from its own option list. Shown
+   * under a heading above the rest, because a picker that opens on the one
+   * you want is a picker you barely notice.
+   */
+  usual?: Array<string>
   /** Wording for adding an item the form never anticipated. */
   addLabel?: string
   onAdd?: (value: string) => void
@@ -55,9 +95,13 @@ export function PickerSheet({
     : options
 
   // What is already chosen, first: on a list this long, finding the thing you
-  // ticked by mistake is otherwise its own scroll.
+  // ticked by mistake is otherwise its own scroll. Then the handful this
+  // business reaches for, which is the difference between scrolling thirteen
+  // products and tapping the one used on nine jobs in ten.
   const chosen = matches.filter((option) => selected.includes(option.value))
-  const rest = matches.filter((option) => !selected.includes(option.value))
+  const unchosen = matches.filter((option) => !selected.includes(option.value))
+  const preferred = unchosen.filter((option) => usual.includes(option.value))
+  const rest = unchosen.filter((option) => !usual.includes(option.value))
 
   function add() {
     const trimmed = draft.trim()
@@ -106,31 +150,47 @@ export function PickerSheet({
         />
       </label>
 
+      {/* A heading only when there is something under it AND something below
+          it to distinguish from — on a list where everything is usual, the
+          word is noise. */}
+      {preferred.length > 0 && rest.length > 0 && (
+        <p className="section-label mt-3">Usually</p>
+      )}
+
       <ul className="mt-2 flex flex-col gap-1.5">
-        {[...chosen, ...rest].map((option) => {
-          const on = selected.includes(option.value)
-          const locked = disabledValues.includes(option.value)
-          return (
-            <li key={option.value}>
-              <button
-                type="button"
-                role={multiple ? 'checkbox' : 'radio'}
-                aria-checked={on}
-                disabled={locked}
-                onClick={() => {
-                  onToggle(option.value)
-                  if (!multiple) onClose()
-                }}
-                className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition disabled:opacity-60 ${
-                  on ? 'border-red bg-red/8' : 'border-hairline bg-surface'
-                }`}
-              >
-                <span className="flex-1 text-body text-ink">{option.label}</span>
-                {on && <Check size={17} strokeWidth={2.4} className="shrink-0 text-red" />}
-              </button>
-            </li>
-          )
-        })}
+        {[...chosen, ...preferred].map((option) => (
+          <OptionRow
+            key={option.value}
+            option={option}
+            on={selected.includes(option.value)}
+            locked={disabledValues.includes(option.value)}
+            multiple={multiple}
+            onPick={() => {
+              onToggle(option.value)
+              if (!multiple) onClose()
+            }}
+          />
+        ))}
+      </ul>
+
+      {preferred.length > 0 && rest.length > 0 && (
+        <p className="section-label mt-4">Everything else</p>
+      )}
+
+      <ul className="mt-2 flex flex-col gap-1.5">
+        {rest.map((option) => (
+          <OptionRow
+            key={option.value}
+            option={option}
+            on={selected.includes(option.value)}
+            locked={disabledValues.includes(option.value)}
+            multiple={multiple}
+            onPick={() => {
+              onToggle(option.value)
+              if (!multiple) onClose()
+            }}
+          />
+        ))}
 
         {matches.length === 0 && (
           <li className="px-1 py-3 text-caption text-muted">

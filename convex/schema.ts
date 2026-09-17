@@ -242,6 +242,20 @@ export default defineSchema({
      * anyone else is forgery with extra steps, however convenient.
      */
     savedSignatureStorageId: v.optional(v.id('_storage')),
+    /**
+     * What this member last reached for in each option library, most recent
+     * first — the other half of a picker's "Usually" group, alongside the
+     * business's own `usual` flags.
+     *
+     * Per member and not per business, because the list a rodent technician
+     * uses every day is not the one the termite crew uses, and neither of them
+     * should have to say so in Settings. Bounded hard: at most five values per
+     * key over the nineteen keys, written only when a picker closes on a
+     * changed answer, so it never grows and rarely churns.
+     */
+    reportPrefs: v.optional(
+      v.object({ recent: v.record(v.string(), v.array(v.string())) }),
+    ),
     colour: v.string(),
     status: membershipStatus,
     createdAt: v.number(),
@@ -1002,7 +1016,33 @@ export default defineSchema({
     key: optionSetKey,
     // `value === label`, enforced by every writer: an answer stores the words
     // it prints, so a report never needs this row to be read.
-    options: v.array(v.object({ value: v.string(), label: v.string() })),
+    options: v.array(
+      v.object({
+        value: v.string(),
+        label: v.string(),
+        /**
+         * The handful this business reaches for. A picker puts them first,
+         * which is the difference between scrolling thirteen products and
+         * tapping the one used on nine jobs out of ten.
+         *
+         * Never reaches the template: `loadOverrides` maps to `{value,label}`
+         * explicitly, because an extra field would mint a new snapshot row at
+         * finalise for a change that prints nothing.
+         */
+        usual: v.optional(v.boolean()),
+      }),
+    ),
+    /**
+     * Options this business has stopped offering.
+     *
+     * Kept rather than deleted: reports that already chose one still print it
+     * (an answer stores its own words), and a product coming back off the
+     * shelf is common enough that retyping it exactly — including the active
+     * constituent in brackets — is a needless chance to get it wrong.
+     */
+    archived: v.optional(
+      v.array(v.object({ value: v.string(), label: v.string() })),
+    ),
     /**
      * Recent renames, newest last and bounded. The draft rewrites a rename
      * schedules run in no guaranteed order; resolving through this log lets

@@ -18,6 +18,7 @@ import { GalleryControl } from './PhotoGallery'
 import { emptyAreas } from '#/lib/reportTemplates'
 import type { CellDef, FieldDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
+import type { OptionSetKey } from '#/lib/reportTemplates'
 import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { ComponentType } from 'react'
 
@@ -45,6 +46,18 @@ export type EditorCtx = {
    * cell always chooses through a sheet however short its list is.
    */
   inRow?: boolean
+  /**
+   * The handful of answers this business reaches for, by option-set key —
+   * `optionSets.editable`'s `usual` flags, which a picker puts at the top.
+   * Absent means no preference, which is where every business starts.
+   */
+  usual?: Partial<Record<OptionSetKey, Array<string>>>
+  /**
+   * Say that this member just reached for these answers, so the next picker on
+   * the same list offers them first. Absent where nothing is listening — a
+   * preview, a test — and a control must work without it.
+   */
+  remember?: (key: OptionSetKey, values: Array<string>) => void
 }
 
 export type EditorProps<TField extends FieldDef = FieldDef> = {

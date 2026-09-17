@@ -6,16 +6,18 @@ import { TeamSection } from '#/components/settings/TeamSection'
 import { ProfileSection } from '#/components/settings/ProfileSection'
 import { PrefsSection } from '#/components/settings/PrefsSection'
 import { BrandingSection } from '#/components/settings/BrandingSection'
+import { OptionLibrariesSection } from '#/components/settings/OptionLibrariesSection'
 
 const SEGMENTS = [
   { value: 'profile' as const, label: 'Profile' },
   { value: 'team' as const, label: 'Team' },
   { value: 'prefs' as const, label: 'Preferences' },
+  { value: 'reports' as const, label: 'Reports' },
 ]
 
 export const Route = createFileRoute('/$businessSlug/settings')({
   validateSearch: z.object({
-    seg: z.enum(['profile', 'team', 'prefs']).optional(),
+    seg: z.enum(['profile', 'team', 'prefs', 'reports']).optional(),
   }),
   component: SettingsPage,
 })
@@ -42,9 +44,13 @@ function SettingsPage() {
           options={
             // Team management is an owner concern; a subcontractor has no
             // roster to manage and shouldn't see a tab that rejects them.
+            // Team management and the business's own vocabularies are both
+            // owner concerns; a subcontractor has no roster to manage and no
+            // say in what every technician's reports offer, and a tab that
+            // rejects them is worse than no tab.
             membership.role === 'owner'
               ? SEGMENTS
-              : SEGMENTS.filter((s) => s.value !== 'team')
+              : SEGMENTS.filter((s) => s.value !== 'team' && s.value !== 'reports')
           }
           onChange={(value) =>
             navigate({ search: { seg: value }, replace: true })
@@ -64,6 +70,9 @@ function SettingsPage() {
         )}
         {active === 'team' && membership.role === 'owner' && (
           <TeamSection businessId={business._id} />
+        )}
+        {active === 'reports' && membership.role === 'owner' && (
+          <OptionLibrariesSection businessId={business._id} />
         )}
         {active === 'prefs' && (
           <>

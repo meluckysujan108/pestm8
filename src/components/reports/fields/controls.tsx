@@ -8,11 +8,12 @@ import {
   withLocked,
 } from '#/lib/reportTemplates/choices'
 import { PickerSheet, PickerTrigger } from './PickerSheet'
-import type { EditorProps } from './registry'
+import type { EditorCtx, EditorProps } from './registry'
 import type {
   AreaResult,
   FieldDef,
   GpsValue,
+  OptionSetKey,
   SignatureValue,
 } from '#/lib/reportTemplates'
 
@@ -62,6 +63,39 @@ export function AreaControl({ field, value, onChange }: Of<'area'>) {
  */
 const LIST_LIMIT = 12
 
+/**
+ * The few options this business actually reaches for, for whichever library
+ * this field draws on.
+ *
+ * A field with its options written into the template has no library behind it
+ * and therefore no preference to express — the form's own order is the answer.
+ */
+function usualFor(
+  field: { optionsFrom?: OptionSetKey },
+  ctx: EditorCtx,
+): Array<string> {
+  return field.optionsFrom ? (ctx.usual?.[field.optionsFrom] ?? []) : []
+}
+
+/**
+ * Says this member just reached for these answers, so the next picker on the
+ * same list offers them first.
+ *
+ * A checklist reports on close rather than on each tap — a technician who
+ * opens a sheet, looks, changes their mind and closes it has taught the app
+ * nothing — while a single choice reports the tap itself, which is both the
+ * answer and the moment the sheet closes.
+ */
+function remember(
+  field: { optionsFrom?: OptionSetKey },
+  ctx: EditorCtx,
+  chosen: Array<string>,
+) {
+  if (field.optionsFrom && chosen.length > 0) {
+    ctx.remember?.(field.optionsFrom, chosen)
+  }
+}
+
 export function SelectControl({ field, value, onChange, ctx }: Of<'select'>) {
   const [picking, setPicking] = useState(false)
   const options = retainedOptions(field.options, value)
@@ -83,7 +117,11 @@ export function SelectControl({ field, value, onChange, ctx }: Of<'select'>) {
           options={options}
           selected={chosen}
           multiple={false}
-          onToggle={(next: string) => onChange(next)}
+          usual={usualFor(field, ctx)}
+          onToggle={(next: string) => {
+            onChange(next)
+            remember(field, ctx, [next])
+          }}
           onClear={() => onChange(undefined)}
         />
       </>
@@ -363,12 +401,17 @@ export function ChecksControl({ field, value, onChange, ctx }: Of<'checks'>) {
         />
         <PickerSheet
           open={picking}
-          onClose={() => setPicking(false)}
+          onClose={() => {
+            setPicking(false)
+            // What was chosen, not what the form keeps ticked on its own.
+            remember(field, ctx, selected.filter((v) => !locked.has(v)))
+          }}
           title={field.label}
           options={all}
           selected={shown}
           multiple
           disabledValues={[...locked]}
+          usual={usualFor(field, ctx)}
           onToggle={toggle}
           addLabel={field.extensible ? field.addLabel : undefined}
           onAdd={field.extensible ? (item: string) => toggle(item) : undefined}

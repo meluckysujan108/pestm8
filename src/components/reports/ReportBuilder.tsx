@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexAction, useConvexMutation } from '@convex-dev/react-query'
 import { ArrowLeft, ArrowRight, CheckCheck, Lock, Save } from 'lucide-react'
@@ -26,7 +26,7 @@ import { FinaliseSheet } from './FinaliseSheet'
 import type { PrefillMap } from '#/lib/reportTemplates/seed'
 import type { SectionProgress } from '#/lib/reportTemplates/progress'
 import type { ReportIssue } from '#/lib/reportTemplates/validate'
-import type { FieldDef, TemplateId } from '#/lib/reportTemplates'
+import type { FieldDef, OptionSetKey, TemplateId } from '#/lib/reportTemplates'
 import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { OptionSetOverrides } from '#/lib/reportTemplates/optionSets'
 import type { TemplateSettings } from '#/lib/reportTemplates/settings'
@@ -140,6 +140,26 @@ export function ReportBuilder({
     ...convexQuery(api.reports.galleryPhotos, { businessId, reportId }),
     enabled: hydrated,
   })
+
+  /**
+   * What this business and this member reach for, by list — the "Usually"
+   * group at the top of every picker. Absent while the query is out, which a
+   * picker reads as no preference and renders as the form's own order; it is
+   * a nicety, and one that must never delay a control opening.
+   */
+  const { data: usual } = useQuery({
+    ...convexQuery(api.optionSets.usual, { businessId }),
+    enabled: hydrated,
+  })
+  const convexRemember = useConvexMutation(api.optionSets.remember)
+  const remember = useCallback(
+    (key: OptionSetKey, values: Array<string>) => {
+      // Fire and forget, and swallow: this is the app noticing a habit, and a
+      // failed note about a habit is not something to interrupt a report for.
+      void convexRemember({ businessId, key, values }).catch(() => {})
+    },
+    [convexRemember, businessId],
+  )
 
   // A signature is an image in storage, not a timestamp in `data`, so whether
   // one exists is a separate question — and the one the server asks too.
@@ -568,6 +588,8 @@ export function ReportBuilder({
                 businessId,
                 reportId,
                 roster,
+                usual,
+                remember,
                 // Live answers, so a licence row follows the technician picked
                 // a moment ago rather than the one last saved.
                 context: context ? { ...context, answers: data } : undefined,

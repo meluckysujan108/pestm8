@@ -193,6 +193,11 @@ export type RejectionCode =
   | 'NOT_IN_TRASH'
   // Too many sends from one person in an hour.
   | 'SEND_RATE_LIMITED'
+  // A word the form itself matches on — renaming it would change behaviour,
+  // not wording.
+  | 'OPTION_PINNED'
+  | 'OPTION_EXISTS'
+  | 'INVALID_OPTION'
 
 export async function expectRejected(
   call: () => Promise<unknown>,
