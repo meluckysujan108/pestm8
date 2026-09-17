@@ -21,6 +21,9 @@ import { validateReport } from '../src/lib/reportTemplates/validate'
 import { dayKeyOf, timeKeyOf, todayKeyInZone } from './lib/dates'
 import { suburbKeyOf, withinForecastWindow } from './lib/forecastWindow'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
+import { deliveryRecipients } from '../src/lib/reportTemplates/delivery'
+import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
+import { knownRecipients } from './lib/recipients'
 import { buildReportContext, toPresentContext } from './lib/reportContext'
 import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
@@ -1358,9 +1361,16 @@ export const finalise = mutation({
       await ctx.db.patch(reportId, { previewStorageId: undefined })
     }
 
+    // What the form itself asked for. Opened as a delivery row here, in the
+    // same transaction that locks the report, so "the form said send it" is
+    // recorded even if the send never happens — and a recipient nobody has on
+    // file waits for an owner, exactly as it would from the send sheet.
+    await queueFormDeliveries(ctx, report, data, membership)
+
     // Render now, not when someone first asks for it. The technician who
     // locked this is standing in a driveway; the person who opens the PDF
-    // should not be the one who pays for drawing it.
+    // should not be the one who pays for drawing it. The pipeline sends
+    // whatever is queued once there is a file to attach.
     await ctx.scheduler.runAfter(0, internal.reportPipeline.afterFinalise, {
       reportId,
     })
@@ -1368,6 +1378,61 @@ export const finalise = mutation({
     return reportId
   },
 })
+
+/**
+ * Opens the deliveries the form asked for, at the moment it is locked.
+ *
+ * A technician who ticked "Send copy of the report to the client email above"
+ * has given an instruction, and it belongs to the record whether or not the
+ * provider is configured, whether or not the send succeeds. The recipient rule
+ * applies here too: a novel address typed into `Email Report To` is a request
+ * an owner approves, not a send that happens because a form was locked.
+ */
+async function queueFormDeliveries(
+  ctx: MutationCtx,
+  report: Doc<'reports'>,
+  data: Record<string, unknown>,
+  membership: Membership,
+) {
+  const template = resolveReportTemplate({
+    template: report.template,
+    templateVersion: report.templateVersion,
+    customTemplate: report.customTemplateId
+      ? ((await ctx.db.get(report.customTemplateId)) ?? undefined)
+      : undefined,
+  })
+  const property = await ctx.db.get(report.propertyId)
+  const client = property ? await ctx.db.get(property.clientId) : null
+  const business = await ctx.db.get(report.businessId)
+
+  const { to, cc } = deliveryRecipients(template, data, {
+    clientEmail: client?.email,
+    businessCopyEmail: business?.reportCopyEmail ?? business?.email,
+  })
+  if (to.length === 0) return
+
+  const known = await knownRecipients(ctx, report)
+  const unrestricted =
+    membership.role === 'owner' || business?.allowTechnicianRecipients === true
+  const novel = to.filter((address) => !known.includes(address))
+
+  await ctx.db.insert('reportDeliveries', {
+    businessId: report.businessId,
+    reportId: report._id,
+    to,
+    cc,
+    subject: documentIdentity({
+      template,
+      property,
+      businessName: business?.name ?? '',
+      finalisedAt: Date.now(),
+    }).title,
+    trigger: 'finalise',
+    status: unrestricted || novel.length === 0 ? 'queued' : 'pendingApproval',
+    sentByMembershipId: membership._id,
+    createdAt: Date.now(),
+  })
+}
 
 /**
  * The version of the painter. Bumping it makes every report re-render on its

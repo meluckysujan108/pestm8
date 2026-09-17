@@ -151,6 +151,8 @@ export const update = mutation({
     tradingName: v.optional(v.string()),
     reportBrandName: v.optional(v.string()),
     website: v.optional(v.string()),
+    reportCopyEmail: v.optional(v.string()),
+    allowTechnicianRecipients: v.optional(v.boolean()),
   },
   handler: async (ctx, { businessId, ...patch }) => {
     await requireOwner(ctx, businessId)

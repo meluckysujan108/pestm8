@@ -144,6 +144,19 @@ export const afterFinalise = internalAction({
       await renderIfNeeded(ctx, reportId)
     } catch (error) {
       console.error('afterFinalise render failed', reportId, error)
+      // Without a file there is nothing to attach, and a delivery that goes
+      // out empty is worse than one that waits. The rows stay queued; the
+      // send sheet can retry them.
+      return
+    }
+
+    // Whatever the form asked for at finalise. Each is its own scheduled
+    // action: one recipient's provider failure must not stop the next.
+    const queued = await ctx.runQuery(internal.deliveries.readyForReport, {
+      reportId,
+    })
+    for (const deliveryId of queued) {
+      await ctx.scheduler.runAfter(0, internal.email.deliver, { deliveryId })
     }
   },
 })

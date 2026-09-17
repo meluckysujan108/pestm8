@@ -189,6 +189,17 @@ export default defineSchema({
     tradingName: v.optional(v.string()),
     reportBrandName: v.optional(v.string()),
     website: v.optional(v.string()),
+    /**
+     * Where the business keeps its own copy of every report it sends. Falls
+     * back to `email`; a business that wants no copy sets neither.
+     */
+    reportCopyEmail: v.optional(v.string()),
+    /**
+     * Let a technician send a report to an address that is on nobody's
+     * record. Off by default: a compliance document emailed to a typo is
+     * gone, and the owner is the one who would notice.
+     */
+    allowTechnicianRecipients: v.optional(v.boolean()),
     // The next value `jobs.create` will hand out as that job's `jobNumber`.
     // Lives here rather than a separate counters table since there is
     // exactly one counter today; read-then-patch inside `jobs.create`'s own
@@ -825,6 +836,51 @@ export default defineSchema({
     version: v.number(),
     createdAt: v.number(),
   }).index('by_hash', ['hash']),
+
+  /**
+   * Every attempt to send a report to somebody, and what was attached.
+   *
+   * A row is written BEFORE the provider is called, so a send that dies
+   * mid-flight leaves a record rather than nothing. It names the
+   * `reportPdfs` row it attached, which is what makes "which file did the
+   * client receive on 28 August?" a question with an answer once the
+   * renderer has moved on.
+   *
+   * `pendingApproval` is the recipient rule: a technician may send to the
+   * addresses already on the client's record, and anywhere else waits for an
+   * owner. The row exists either way, so an approval is a decision about a
+   * real request rather than a fresh one typed from memory.
+   */
+  reportDeliveries: defineTable({
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    /** Absent only if the render failed before anything could be attached. */
+    pdfId: v.optional(v.id('reportPdfs')),
+    to: v.array(v.string()),
+    cc: v.array(v.string()),
+    subject: v.string(),
+    /** The form's own send-copy toggle, or someone pressing Send. */
+    trigger: v.union(v.literal('finalise'), v.literal('manual')),
+    status: v.union(
+      v.literal('queued'),
+      v.literal('pendingApproval'),
+      v.literal('sent'),
+      v.literal('failed'),
+      v.literal('bounced'),
+    ),
+    /** Resend's id, for matching a webhook back to this row. */
+    providerMessageId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    /** Who asked for it. Absent when the form asked, at finalise. */
+    sentByMembershipId: v.optional(v.id('memberships')),
+    approvedByMembershipId: v.optional(v.id('memberships')),
+    createdAt: v.number(),
+    /** Set when the provider accepted it, which is what "Sent" means here. */
+    sentAt: v.optional(v.number()),
+  })
+    .index('by_report', ['reportId'])
+    // The owner's approval queue, and nothing else reads by status.
+    .index('by_business_status', ['businessId', 'status']),
 
   /**
    * Every PDF this report has ever been rendered as, newest last.

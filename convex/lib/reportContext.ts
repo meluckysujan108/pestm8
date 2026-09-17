@@ -27,7 +27,7 @@ const MAX_MEMBERS = 100
  * report page must never fail to open because one identity lookup did; the
  * member then prints by licence alone.
  */
-async function memberName(
+export async function memberName(
   ctx: QueryCtx | MutationCtx,
   userId: string,
 ): Promise<string> {
