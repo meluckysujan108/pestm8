@@ -445,7 +445,10 @@ export const assignTo = mutation({
       ...factsFromMembership(target),
       parentMembershipId: parent?._id ?? null,
     }
-    const nextGrants = recomputeGrants(moved, parent && factsFromMembership(parent))
+    const nextGrants = recomputeGrants(
+      moved,
+      parent && factsFromMembership(parent),
+    )
 
     await ctx.db.patch(membershipId, {
       parentMembershipId: parent?._id ?? undefined,
