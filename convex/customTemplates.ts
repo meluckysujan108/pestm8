@@ -1,5 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
+import type { Doc, Id } from './_generated/dataModel'
+import type { MutationCtx } from './_generated/server'
 import { requireMembership, requireOwner } from './lib/access'
 import { customTemplateSectionsSchema } from '../src/lib/reportTemplates/customTemplateSchema'
 import {
@@ -52,11 +54,209 @@ export const create = mutation({
       sections: parsed.data,
       boilerplate: args.boilerplate,
       createdByMembershipId: membership._id,
+      updatedByMembershipId: membership._id,
+      // Issued on creation: there is nothing to hold back from a form nobody
+      // has edited yet, and "published version 1" is what every row that
+      // predates this column already was.
+      publishedVersion: 1,
+      publishedAt: now,
       createdAt: now,
       updatedAt: now,
     })
   },
 })
+
+/**
+ * Keeps an edit without issuing it.
+ *
+ * Deliberately unvalidated. A form halfway through being edited is not a valid
+ * form — a field whose key is still being typed, a condition pointing at a
+ * question about to be added — and refusing to save it is how the editor came
+ * to report "check your connection" about a connection that was fine. The
+ * shape is checked at `publish`, which is the moment it starts to matter.
+ */
+export const saveDraft = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    templateId: v.id('customReportTemplates'),
+    name: v.string(),
+    shortName: v.string(),
+    legalBasis: v.string(),
+    blurb: v.string(),
+    sections: v.any(),
+    boilerplate: v.string(),
+  },
+  handler: async (ctx, { businessId, templateId, ...draft }) => {
+    const owner = await requireOwner(ctx, businessId)
+    const existing = await requireOwn(ctx, businessId, templateId)
+
+    await ctx.db.patch(existing._id, {
+      draft: { ...draft, savedAt: Date.now(), savedByMembershipId: owner._id },
+      updatedAt: Date.now(),
+      updatedByMembershipId: owner._id,
+    })
+  },
+})
+
+/**
+ * Issues the draft: from here on, a new report is started against it.
+ *
+ * This is where the shape is checked, and where a refusal is worth making —
+ * an owner is deciding to put this in front of their technicians, so a
+ * structural problem is news rather than an interruption.
+ */
+export const publish = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    templateId: v.id('customReportTemplates'),
+  },
+  handler: async (ctx, { businessId, templateId }) => {
+    const owner = await requireOwner(ctx, businessId)
+    const existing = await requireOwn(ctx, businessId, templateId)
+
+    const draft = existing.draft
+    if (!draft) throw new ConvexError('NOTHING_TO_PUBLISH')
+
+    const parsed = customTemplateSectionsSchema.safeParse(draft.sections)
+    if (!parsed.success) throw new ConvexError('INVALID_TEMPLATE')
+
+    const version = (existing.publishedVersion ?? 1) + 1
+    const now = Date.now()
+
+    await ctx.db.patch(existing._id, {
+      name: draft.name,
+      shortName: draft.shortName,
+      legalBasis: draft.legalBasis,
+      blurb: draft.blurb,
+      sections: parsed.data,
+      boilerplate: draft.boilerplate,
+      // Cleared, not kept: "published" and "has unpublished changes" are the
+      // same question asked twice, and two records of it drift.
+      draft: undefined,
+      publishedVersion: version,
+      publishedAt: now,
+      updatedAt: now,
+      updatedByMembershipId: owner._id,
+    })
+
+    await recordVersion(ctx, {
+      businessId,
+      templateId: existing._id,
+      version,
+      content: {
+        name: draft.name,
+        shortName: draft.shortName,
+        legalBasis: draft.legalBasis,
+        blurb: draft.blurb,
+        sections: parsed.data,
+        boilerplate: draft.boilerplate,
+        terms: existing.terms,
+        print: existing.print,
+      },
+      byMembershipId: owner._id,
+      at: now,
+    })
+
+    return { version }
+  },
+})
+
+/** Throws the edit away and goes back to what the business is issuing. */
+export const discardDraft = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    templateId: v.id('customReportTemplates'),
+  },
+  handler: async (ctx, { businessId, templateId }) => {
+    const owner = await requireOwner(ctx, businessId)
+    const existing = await requireOwn(ctx, businessId, templateId)
+    if (!existing.draft) return
+
+    await ctx.db.patch(existing._id, {
+      draft: undefined,
+      updatedAt: Date.now(),
+      updatedByMembershipId: owner._id,
+    })
+  },
+})
+
+/** Every issue of this form, newest first. */
+export const versions = query({
+  args: {
+    businessId: v.id('businesses'),
+    templateId: v.id('customReportTemplates'),
+  },
+  handler: async (ctx, { businessId, templateId }) => {
+    await requireMembership(ctx, businessId)
+
+    const rows = await ctx.db
+      .query('customReportTemplateVersions')
+      .withIndex('by_template', (q) => q.eq('templateId', templateId))
+      .order('desc')
+      // Bounded: a list on a settings screen, not an audit export.
+      .take(50)
+
+    return rows
+      .filter((row) => row.businessId === businessId)
+      .map((row) => ({
+        version: row.version,
+        name: row.name,
+        publishedAt: row.publishedAt,
+        publishedByMembershipId: row.publishedByMembershipId,
+        sections: (row.sections as Array<unknown>).length,
+      }))
+  },
+})
+
+/**
+ * Appends an issue of this form to its history.
+ *
+ * Both paths that change what the business issues come through here —
+ * `publish` and the direct `update` — so "what was this form saying in March?"
+ * is answerable whichever one was used.
+ */
+async function recordVersion(
+  ctx: MutationCtx,
+  entry: {
+    businessId: Id<'businesses'>
+    templateId: Id<'customReportTemplates'>
+    version: number
+    content: {
+      name: string
+      shortName: string
+      legalBasis: string
+      blurb: string
+      sections: unknown
+      boilerplate: string
+      terms?: unknown
+      print?: Doc<'customReportTemplates'>['print']
+    }
+    byMembershipId: Id<'memberships'>
+    at: number
+  },
+) {
+  const { terms, print, ...content } = entry.content
+  await ctx.db.insert('customReportTemplateVersions', {
+    businessId: entry.businessId,
+    templateId: entry.templateId,
+    version: entry.version,
+    ...content,
+    ...(terms !== undefined ? { terms } : {}),
+    ...(print !== undefined ? { print } : {}),
+    publishedByMembershipId: entry.byMembershipId,
+    publishedAt: entry.at,
+  })
+}
+
+async function requireOwn(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  templateId: Id<'customReportTemplates'>,
+) {
+  const doc = await ctx.db.get(templateId)
+  if (!doc || doc.businessId !== businessId) throw new ConvexError('NOT_FOUND')
+  return doc
+}
 
 export const get = query({
   args: {
@@ -64,10 +264,20 @@ export const get = query({
     templateId: v.id('customReportTemplates'),
   },
   handler: async (ctx, { businessId, templateId }) => {
-    await requireMembership(ctx, businessId)
+    const membership = await requireMembership(ctx, businessId)
     const doc = await ctx.db.get(templateId)
     if (!doc || doc.businessId !== businessId) return null
-    return doc
+
+    // The draft is the owner's unissued work, so it is not handed to the
+    // technicians who fill this form in — they get what the business issues,
+    // which is everything else on the row.
+    const { draft, ...published } = doc
+    return {
+      ...published,
+      draft: membership.role === 'owner' ? draft : undefined,
+      hasUnpublishedChanges: draft !== undefined,
+      publishedVersion: doc.publishedVersion ?? 1,
+    }
   },
 })
 
@@ -246,7 +456,17 @@ export const update = mutation({
       throw new ConvexError('NOT_FOUND')
     }
 
-    const patch: Record<string, unknown> = { ...rest, updatedAt: Date.now() }
+    const now = Date.now()
+    const version = (existing.publishedVersion ?? 1) + 1
+    const owner = await requireOwner(ctx, businessId)
+
+    const patch: Record<string, unknown> = {
+      ...rest,
+      updatedAt: now,
+      updatedByMembershipId: owner._id,
+      publishedVersion: version,
+      publishedAt: now,
+    }
     if (sections !== undefined) {
       const parsed = customTemplateSectionsSchema.safeParse(sections)
       if (!parsed.success) throw new ConvexError('INVALID_TEMPLATE')
@@ -254,5 +474,26 @@ export const update = mutation({
     }
 
     await ctx.db.patch(templateId, patch)
+
+    // This writes the PUBLISHED columns directly, so it issues a version of
+    // the form just as `publish` does, and the history says so either way.
+    const after = { ...existing, ...patch }
+    await recordVersion(ctx, {
+      businessId,
+      templateId,
+      version,
+      content: {
+        name: after.name,
+        shortName: after.shortName,
+        legalBasis: after.legalBasis,
+        blurb: after.blurb,
+        sections: after.sections,
+        boilerplate: after.boilerplate,
+        terms: after.terms,
+        print: after.print,
+      },
+      byMembershipId: owner._id,
+      at: now,
+    })
   },
 })

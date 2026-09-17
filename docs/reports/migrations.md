@@ -152,11 +152,16 @@ phase named.
 | `note` / `heading` static blocks | Yes | Phase 2 |
 | `derived` record facts | Yes | Phase 3, which adds the technician name and job record the context cannot reach today |
 
-The cover carries one consequence to settle when it is adopted: it is a second
-`<Page>`, so the footer's `Page N of M` will count it, and the first page of the
-report body becomes "Page 2 of 3". `e2e/pdf.spec.ts` asserts that footer. Nothing is
-affected today because no template declares a `cover` field, but Phase 2 must decide
-whether a title page is numbered before it changes `serviceReport`.
+The cover carried one consequence to settle when it was adopted: it is a second
+`<Page>`, so the footer's `Page N of M` counts it, and the first page of the
+report body is "Page 2 of 3". `e2e/pdf.spec.ts` asserts that footer.
+
+**Settled, by default rather than by decision.** `serviceReport.ts` and
+`timberPestInspection.ts` both declare a `cover` field, `CoverPage.tsx` renders
+its own `<Page size="A4">`, and `layout.tsx` prints `Page N of M`
+unconditionally — so the cover IS page 1 and the body starts at page 2. That is
+the right answer (a client counting pages counts the one with the address on
+it), but it was never written down until now.
 
 The cover is also worth explaining on its own terms. A cover photo has never once rendered as a
 cover: the PDF looks for a per-row `isCover` flag, that flag is only writable through
@@ -345,3 +350,56 @@ destroys anything that was finalised while sitting in the trash. The purge
 cron (`0 19 * * *` for notes, `20 19 * * *` for reports) deletes a draft's
 photo blobs only after a `by_storage` reference check, and never a member's
 saved signature.
+
+## Phase 6 — what the business owns
+
+Five schema changes, **all expand-only**: new optional columns and two new
+tables. There is no backfill and no invariant to check, because every absent
+value already reads as the right default — no starred options, no remembered
+answers, no saved phrases, no policy.
+
+| Change | Table | Absent means |
+|---|---|---|
+| `options[].usual` | `optionSets` | not one of the usual few |
+| `archived` | `optionSets` | nothing withdrawn |
+| `reportPrefs.recent` | `memberships` | this member has no habits yet |
+| `requireReportToComplete` | `businesses` | the policy is off |
+| `reportSnippets` (new table) | — | no saved phrases |
+| `templateSettings` (new table, Phase 5) | — | the form's own wording |
+
+Deploy is a single `npx convex deploy`. Nothing to run afterwards.
+
+Two bounds are worth knowing before the table grows:
+
+- `reportSnippets` is capped at 200 rows per business **on save**, and
+  `snippets.list` reads exactly that many. The two numbers are the same
+  constant on purpose: a phrase saved past the read window would be accepted
+  and then invisible to everybody.
+- `memberships.reportPrefs.recent` holds at most five values per option-set
+  key over nineteen keys, written only when a picker closes on a changed
+  answer. It cannot grow with use.
+
+## Phase 7 — saving a form and issuing one
+
+Expand-only again: `customReportTemplates` gains `draft`, `publishedVersion`,
+`publishedAt` and `updatedByMembershipId`, and `customReportTemplateVersions`
+is new.
+
+**No backfill is needed, and that is by construction.** The published content
+stays in the columns it has always been in (`sections`, `boilerplate`, and the
+rest), so every existing row is already a published v1 and every existing
+reader keeps working untouched. `publishedVersion` absent means 1.
+
+The one thing to know: `draft.sections` is stored as `v.any()` and is
+**deliberately not validated on write**. A form halfway through being edited is
+not a valid form, and refusing to save it is what made the old editor report
+"check your connection" about a connection that was fine. `publish` is where
+the shape is checked.
+
+### Contract, later
+
+Once no deployment holds a pre-Phase-7 row that was written by the old editor:
+
+- Nothing to tighten. `draft` is optional by design, and `publishedVersion`
+  stays optional for the same reason `templateSnapshotId` does — Convex cannot
+  express "required only for rows created after a date".

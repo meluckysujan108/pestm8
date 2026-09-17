@@ -6,8 +6,16 @@ document a client keeps for years. Three things follow from that and explain
 most of the design: the wording is not ours to change, the finished document is
 immutable, and the technician's attention is the scarcest thing in the system.
 
-Start with `docs/reports/fidelity.md` for what the three Pest M8 forms say and
-why; this file is how the machinery works.
+Four companion pages:
+
+| | |
+|---|---|
+| `fidelity.md` | what the three Pest M8 forms say, and why, clause by clause |
+| `templates.md` | authoring a template: the kinds, the contract, publishing |
+| `compliance.md` | what the law and the standards require, and what is deliberately not built |
+| `migrations.md` | one page per migration, in the order they must run |
+
+This file is how the machinery works.
 
 ## The shape of it
 
@@ -100,10 +108,13 @@ draft somewhere" is the state it exists to catch — and a job type
 `suggestTemplate` has no form for is never held up, because a quote visit
 blocked at Complete is how a business learns to switch a policy off.
 
-**Template settings** (`convex/templateSettings.ts`) — cover wording, footer
-name, signing rule, email subject and recipients, without forking the form.
-Anything that would change a question or an answer is on the other side of
-that line: a clone.
+**Template settings** (`convex/templateSettings.ts`) — cover title and
+subtitle, the footer's form name, and which signatures a report needs before
+it can lock. That is the whole writable surface; email is not part of it. A
+delivery's subject is computed per report (`deliveries.subjectFor`) and its
+recipients come from the form's own semantics plus `businesses.reportCopyEmail`
+— a business column, not a template one. Anything that would change a question
+or an answer is on the other side of the line: a clone.
 
 **Phrases** (`convex/snippets.ts`) — saved wording for the long-answer boxes,
 of which the three forms have twenty-eight, twenty-three of them on the Timber
@@ -125,9 +136,21 @@ puts them under "Usually" above the rest of the list. Per member because the
 list a rodent technician reaches for is not the termite crew's, and neither
 should have to say so in Settings.
 
-**Copy from last visit.** `reports.lastAtProperty` finds the newest finalised
-report of the same form at the same address (ranked by when it was *signed*,
-not started) and the overview offers what is still worth taking, by name. The
+**Copy from last visit.** `reports.lastAtProperty` reads the 40 newest reports
+at the address, keeps the ones `canCarryFrom` allows — finalised, not deleted,
+the same form AND the same revision of it — and ranks those by when they were
+*signed* rather than started. The overview then offers what is still worth
+taking, by name.
+
+The bound is applied before the filter, so at a site with weekly service
+reports an annual inspection can fall outside the window and simply not be
+offered. Narrowing it wants a `by_property_template` index, which is a staged
+index on a populated table and therefore a deploy of its own.
+
+The revision check is the one that matters for correctness: a report signed
+before the verbatim rewrite holds v1's strings, and carrying those into a v2
+draft would put answers in no list the form offers onto a document somebody
+signs. The
 form decides what may be carried: a field says `carryOver` when its answer is
 about the PLACE — what gets treated, what was found, how the house is built —
 and stays silent when it is about the DAY. Dates, times, weather, GPS,

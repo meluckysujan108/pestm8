@@ -847,10 +847,74 @@ export default defineSchema({
     // `memberships.status` never hard-deletes ('removed' instead) and
     // `recurrences.active` stops future work without erasing history.
     archivedAt: v.optional(v.number()),
+    /**
+     * Work in progress, not yet issued to anybody.
+     *
+     * The columns above are the PUBLISHED form — what `reports.create` starts
+     * a report against and what the builder fills in. This is the owner's
+     * uncommitted edit of them, and the split exists for two reasons.
+     *
+     * One: a form being edited is half-built by definition, and a half-built
+     * form must not become the one a technician opens in a driveway. Two:
+     * `sections` is validated on write, so autosaving an edit through it
+     * refused every keystroke that left the draft momentarily invalid — a
+     * dragged field, a half-typed condition — and the refusal surfaced as
+     * "check your connection", about a connection that was fine.
+     *
+     * So this is stored UNVALIDATED (`sections` is `v.any()` here and means
+     * it), and `publish` is where the shape is checked and the issues are
+     * named. Absent means there is nothing unpublished.
+     */
+    draft: v.optional(
+      v.object({
+        name: v.string(),
+        shortName: v.string(),
+        legalBasis: v.string(),
+        blurb: v.string(),
+        sections: v.any(),
+        boilerplate: v.string(),
+        savedAt: v.number(),
+        savedByMembershipId: v.id('memberships'),
+      }),
+    ),
+    /**
+     * Which issue of this form the published columns are. Absent means 1:
+     * every row that existed before publishing was a separate act from saving
+     * had been issued exactly once.
+     */
+    publishedVersion: v.optional(v.number()),
+    publishedAt: v.optional(v.number()),
+    updatedByMembershipId: v.optional(v.id('memberships')),
     createdByMembershipId: v.id('memberships'),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index('by_business', ['businessId']),
+
+  /**
+   * Every issue of a business-authored form, appended at publish.
+   *
+   * Distinct from `reportTemplateSnapshots`, which is content-addressed and
+   * keyed to what a FINALISED REPORT was signed against. This is the form's
+   * own history: what the business was issuing between one publish and the
+   * next, who published it, and what it said — so "what did this form look
+   * like in March?" is answerable even for a version no report was ever
+   * finalised against.
+   */
+  customReportTemplateVersions: defineTable({
+    businessId: v.id('businesses'),
+    templateId: v.id('customReportTemplates'),
+    version: v.number(),
+    name: v.string(),
+    shortName: v.string(),
+    legalBasis: v.string(),
+    blurb: v.string(),
+    sections: v.any(),
+    boilerplate: v.string(),
+    terms: v.optional(v.any()),
+    print: v.optional(printSpec),
+    publishedByMembershipId: v.id('memberships'),
+    publishedAt: v.number(),
+  }).index('by_template', ['templateId', 'version']),
 
   /**
    * The exact template a finalised report was signed against, stored once per

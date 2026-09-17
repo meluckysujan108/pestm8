@@ -245,9 +245,21 @@ recurrences: {
 }
 .index("by_business", ["businessId"])
 
+// *Amended (reports Phases 1-6).* The row below is the v1 design; the live
+// shape is convex/schema.ts. What was added, and why, in one line each:
+//   templateSnapshotId, templateVersion  what this report was SIGNED against
+//   contextSnapshot                      the client/site/business facts, frozen
+//   prefill                              which answers the app guessed
+//   signatureSlots                       the drawn images, outside `data`
+//   reportNumber, version                the "Submission ID:" the client quotes
+//   pdfStatus/StorageId/RenderVersion    the render claim and its current file
+//   deletedAt, updatedAt, searchText     Recently Deleted, ordering, search
+//   + by_business_updated, by_deletedAt, by_business_status_template, search
+// `photoIds` survives as a write-only array nothing reads (see migrations.md).
 reports: {
   businessId, jobId, propertyId, authorMembershipId,
-  template: "treatmentRecord" | "timberPestInspection" | "termiteManagementCert",
+  template: "serviceReport" | "timberPestInspection" | "termiteManagementCert"
+          | "treatmentRecord" | "custom",
   legalBasis,                           // "APVMA" | "AS 4349.3-2010" | "AS 3660.2-2017"
   status: "draft" | "finalised",
   data: v.any(),                        // template-shaped, validated by Zod at the edge
@@ -267,6 +279,12 @@ notes: {
 .index("by_business", ["businessId"])
 .index("by_job", ["jobId"])
 
+// NOT BUILT (reports Phase 7 note). No `tasks` table exists in
+// convex/schema.ts and no convex/tasks.ts exists. The durable-notice
+// follow-up it was designed for became `features: ['durableNotice']`, an
+// optional printed extra; the SGAR 35-day evaluation became an offer on the
+// finished report (`sgarFollowUp`) rather than a queued task. Kept here
+// because a follow-up table is still the right home if one is ever wanted.
 tasks: {                                 // manual follow-ups (durable notice etc.)
   businessId, jobId?, reportId?,
   kind: "durableNotice" | "other",
@@ -341,7 +359,7 @@ convex/
   `lastAtProperty`/`copyFromLastVisit`, which fill a return visit in from the
   last report at the same address.
   notes.ts                   list, create, listForJob
-  tasks.ts                   listOpen, complete, createDurableNoticeTask
+  tasks.ts                   NOT BUILT — see the `tasks` table note in §4.2
   xero.ts                    [action] beginOAuth, completeOAuth, refresh, pushInvoice
   invoices.ts                createFromJob, syncStatus
   sms.ts                     [action] sendReminder, sendReceipt
@@ -447,13 +465,16 @@ src/components/
   invoicing/
     InvoiceCard.tsx  XeroRouteRow.tsx  ScopeNotice.tsx
   reports/
-    TemplatePicker.tsx
     ReportBuilder.tsx             renders from template definition
-    fields/                       Text Area Select Chips AreasChecklist Photos
+    ReportOverview.tsx            the hub: sections, progress, last-visit offer
+    fields/                       registry + one control per kind, PickerSheet,
+                                  RowSheet, SignSheet, PhrasesSheet, RepeaterGrid
+    FinaliseSheet.tsx  SendSheet.tsx  InlineReports.tsx  ReportsLibrary.tsx
     BoilerplateBlock.tsx          locked disclaimer
-    DurableNoticePreview.tsx      mono label + manual-task warning
+    DurableNoticePreview.tsx      an optional extra behind `features`
     ReportDocument.tsx            on-screen rendered document
-    pdf/                          @react-pdf templates ×3
+    pdf/                          ONE painter (ReportPdf) + CoverPage, layout,
+                                  tables, theme, RichTextPdf, PdfViewer
   notes/
     NoteComposer.tsx  NoteCard.tsx  JobPill.tsx
   settings/
@@ -461,45 +482,80 @@ src/components/
 
 src/lib/
   reportTemplates/                THE compliance layer — see §5.3
-    treatmentRecord.ts  timberPestInspection.ts  termiteManagementCert.ts
+    serviceReport.ts  timberPestInspection.ts  termiteManagementCert.ts
+    treatmentRecord.ts            retired from the picker; kept so old reports render
+    legacy/                       v1 modules a pre-rewrite report resolves to
+    documentModel.ts  present.ts  visibility.ts  validate.ts  progress.ts
+    seed.ts  optionSets.ts  lastVisit.ts  snippets.ts  settings.ts  resolve.ts
     index.ts                      registry + shared Zod fragments
   access.ts                       client-side mirror of server rules (UI only)
   format.ts  useMediaQuery.ts  toast.ts
 ```
 
 ## 5.3 Report templates as data (the most important frontend decision)
-Each template is a declarative definition — field list, Zod schema, locked boilerplate, PDF component. The builder UI is a generic renderer over it. Adding a state-specific variant or a fourth document type becomes a new file, not a UI rewrite.
+Each template is a declarative definition — sections of typed fields, with the
+printed framing beside them. The builder UI is a generic renderer over it.
+Adding a state-specific variant or a fourth document type becomes a new file,
+not a UI rewrite.
+
+*Rewritten (reports Phase 7).* The shape below had drifted so far from the code
+that it described a different system: a `pdf` component per template, an
+`onFinalise` hook returning `tasks` rows, three template ids, and six field
+kinds. None of those exist. The authoring guide is
+`docs/reports/templates.md`; this is the contract.
 
 ```ts
 export type ReportTemplate = {
-  id: "treatmentRecord" | "timberPestInspection" | "termiteManagementCert";
-  name: string;
-  shortName: string;
-  legalBasis: string;                    // shown as a tag in the picker
-  blurb: string;
-  fields: FieldDef[];                    // drives the builder
-  schema: z.ZodType;                     // validates draft → finalise
-  boilerplate: string;                   // locked, rendered read-only
-  pdf: React.ComponentType<{ report; property; author; business }>;
-  onFinalise?: (ctx) => TaskSpec[];      // TMC returns the durable-notice task
-};
-
-type FieldDef =
-  | { kind: "text";   key; label; placeholder?; required? }
-  | { kind: "area";   key; label; placeholder?; rows? }
-  | { kind: "select"; key; label; options: {value,label}[] }
-  | { kind: "chips";  key; label; options: {value,label}[] }   // multi-select
-  | { kind: "areas";  key; label; rows: string[]; note? }      // inspected / no-access + reason
-  | { kind: "photos"; key; label; slots: string[] };
+  id: TemplateId | 'custom'        // 4 built-ins + business-authored
+  version: number                  // bump on ANY wording change
+  name, shortName, legalBasis, blurb: string
+  sections: SectionDef[]           // not a flat field list
+  terms?: RichDoc                  // the printed terms pages
+  print?: PrintSpec                // cover, headings, footer name, numbering
+  features?: Array<'durableNotice'>
+  corrections?: Correction[]       // every deliberate departure from the source
+  validationNotes?: string[]
+}
 ```
 
-**Template field content (from the compliance research):**
+Four things about it are load-bearing, and each replaces something the old
+shape got wrong:
 
-*Treatment Record (APVMA):* product, active constituent, APVMA reg no., batch number, dilution rate, target pest, treated areas (chips), weather conditions, technician + licence (auto), before/after photos.
+**There is no `pdf` component.** One pure `buildReportModel()` holds no React,
+so the Convex Node action, the browser and a vitest build the identical model;
+`ReportDocument.tsx` and `pdf/ReportPdf.tsx` do nothing but draw it. Two
+painters deciding layout separately is how a PDF comes to disagree with the
+screen it was approved on.
 
-*Timber Pest Inspection (AS 4349.3-2010):* areas checklist — roof void, subfloor, interior, exterior cladding, decking/fencing, grounds — each Inspected or No access **with a required reason**; evidence of activity; evidence of damage; conducive conditions; re-inspection interval; photos. Boilerplate: visual inspection only, ~7-day validity, not a structural inspection, not a safety or compliance inspection.
+**There is no `schema` property and no `onFinalise` hook.** Validation is
+derived from the fields (`deriveSchema`), and the Certificate's durable notice
+is a `features` flag no template currently sets rather than a callback that
+writes a `tasks` row — there is no `tasks` table.
 
-*Termite Management Certificate (AS 3660.2-2017 / NCC):* system type (chemical barrier / physical barrier / baiting), product, APVMA reg no., batch, life expectancy per label, install date, installer + licence (auto), re-inspection interval. Generates the durable-notice label preview and, on finalise, a `tasks` row: *"Fix durable notice in meter box"*.
+**22 field kinds, in three classes.** Answered-and-stored-in-`data`; answered
+but stored in `reportPhotos` / `signatureSlots` (`photos`, `gallery`, `cover`,
+`signature`); and not questions at all (`note`, `heading`, `derived`).
+`isDataField()` is the one guard every data-handling walk runs — `pruneHidden`,
+`deriveSchema`, `sectionProgress`, `seedData`, `present`. Miss it and a printed
+paragraph is treated as an unanswered question, and the report becomes
+permanently unfinalisable with an error pointing at nothing.
+
+**A finalised report never resolves the live template.** It dereferences
+`reportTemplateSnapshots` through `templateSnapshotId`, which is why correcting
+`Chemical Aplication Method` to `Application` does not alter a document signed
+last year. `resolveReportTemplate` merges, in order: the built-in module →
+the business's option libraries → its template settings — or a frozen snapshot,
+which wins and ignores both overlays.
+
+Business-authored templates additionally split **saving from issuing**:
+`saveDraft` keeps unvalidated work in progress, `publish` validates it and
+bumps `publishedVersion`, and `reports.create` reads only what is published.
+
+The per-template content that used to sit here was a research note from before
+the forms were transcribed, and it described fields the real documents do not
+have. What the three Pest M8 forms actually say, clause by clause, is
+`docs/reports/fidelity.md`; what the standards require of them is
+`docs/reports/compliance.md`.
 
 ## 5.4 Data-fetching pattern
 - Route loaders `ensureQueryData` for anything needed to render (schedule day, report being opened) — no loading spinner on first paint.

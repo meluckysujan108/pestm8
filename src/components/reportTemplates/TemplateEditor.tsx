@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
-import { Plus, Save } from 'lucide-react'
+import { Plus, Save, Send } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { SectionEditor } from './SectionEditor'
 import { customTemplateSectionsSchema } from '#/lib/reportTemplates/customTemplateSchema'
@@ -41,15 +41,29 @@ export function TemplateEditor({
   businessId,
   templateId,
   initial,
+  publishedVersion,
+  hasUnpublishedChanges,
+  onDiscarded,
 }: {
   businessId: Id<'businesses'>
   templateId: Id<'customReportTemplates'>
   initial: TemplateDraft
+  /** Which issue of this form the business is currently handing out. */
+  publishedVersion?: number
+  /** Whether the server already holds an edit nobody has been given yet. */
+  hasUnpublishedChanges?: boolean
+  /** Reload from the published form after the draft is thrown away. */
+  onDiscarded?: () => void
 }) {
   const [draft, setDraft] = useState<TemplateDraft>(initial)
   const hydrated = useHydrated()
 
-  const convexUpdate = useConvexMutation(api.customTemplates.update)
+  // Autosave writes the DRAFT, which the server keeps unvalidated. A form
+  // halfway through being edited is not a valid form, and refusing to save it
+  // is how this editor came to report "check your connection" about a
+  // connection that was fine. Nobody fills a report in against this until it
+  // is published.
+  const convexSaveDraft = useConvexMutation(api.customTemplates.saveDraft)
   const save = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
@@ -60,7 +74,21 @@ export function TemplateEditor({
       blurb: string
       sections: unknown
       boilerplate: string
-    }) => convexUpdate(args),
+    }) => convexSaveDraft(args),
+  })
+
+  const convexPublish = useConvexMutation(api.customTemplates.publish)
+  const publish = useMutation({
+    mutationFn: () => convexPublish({ businessId, templateId }),
+    onSuccess: () => setUnpublished(false),
+  })
+  const convexDiscard = useConvexMutation(api.customTemplates.discardDraft)
+  const discard = useMutation({
+    mutationFn: () => convexDiscard({ businessId, templateId }),
+    onSuccess: () => {
+      setUnpublished(false)
+      onDiscarded?.()
+    },
   })
 
   const autosave = useAutosave({
@@ -104,6 +132,20 @@ export function TemplateEditor({
   }
 
   const validation = customTemplateSectionsSchema.safeParse(draft.sections)
+
+  /**
+   * Whether the business is sitting on an edit it has not issued.
+   *
+   * Seeded from the server — an owner may have closed the tab mid-edit last
+   * week — and then driven by this session: any autosave leaves something
+   * unissued, and issuing or discarding settles it again.
+   */
+  const [unpublished, setUnpublished] = useState(hasUnpublishedChanges === true)
+  useEffect(() => {
+    if (autosave.status === 'dirty' || autosave.status === 'saving' || autosave.status === 'saved') {
+      setUnpublished(true)
+    }
+  }, [autosave.status])
 
   function addSection() {
     setDraft((d) => ({
@@ -223,16 +265,66 @@ export function TemplateEditor({
         </p>
       )}
 
-      <div className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:bottom-0">
-        <button
-          type="button"
-          disabled={!hydrated || autosave.status === 'saving'}
-          onClick={() => void autosave.flush()}
-          className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+      {publish.isError && (
+        <p
+          role="alert"
+          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
-          <Save size={17} strokeWidth={1.7} />
-          {SAVE_LABELS[autosave.status]}
-        </button>
+          {publish.error.message.includes('INVALID_TEMPLATE')
+            ? 'This form has a problem that has to be fixed before it can be issued.'
+            : publish.error.message.includes('NOTHING_TO_PUBLISH')
+              ? 'Nothing has changed since this form was last issued.'
+              : 'Could not issue this form.'}
+        </p>
+      )}
+
+      <div className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] flex-col gap-2 border-t border-hairline p-3 lg:bottom-0">
+        {/* Said plainly, because the whole point of the split is that saving
+            and issuing are now different acts. */}
+        <p className="text-caption text-muted">
+          {unpublished
+            ? `Not yet issued — your team is still filling in version ${publishedVersion ?? 1}.`
+            : `Issued. Your team fills in version ${publishedVersion ?? 1}.`}
+        </p>
+
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={!hydrated || autosave.status === 'saving'}
+            onClick={() => void autosave.flush()}
+            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+          >
+            <Save size={17} strokeWidth={1.7} />
+            {SAVE_LABELS[autosave.status]}
+          </button>
+
+          <button
+            type="button"
+            disabled={!hydrated || !unpublished || publish.isPending}
+            onClick={async () => {
+              // Flushed first: publishing what the server holds, while the
+              // last keystroke is still in a debounce, issues the version
+              // before it.
+              await autosave.flush()
+              publish.mutate()
+            }}
+            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          >
+            <Send size={16} strokeWidth={2} />
+            {publish.isPending ? 'Issuing…' : 'Issue to my team'}
+          </button>
+        </div>
+
+        {unpublished && (
+          <button
+            type="button"
+            disabled={discard.isPending}
+            onClick={() => discard.mutate()}
+            className="h-9 rounded-xl text-caption font-semibold text-muted transition active:scale-[.98] disabled:opacity-50"
+          >
+            Discard these changes
+          </button>
+        )}
       </div>
     </div>
   )

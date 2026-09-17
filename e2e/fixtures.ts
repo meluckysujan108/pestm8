@@ -202,6 +202,8 @@ export type RejectionCode =
   | 'INVALID_SNIPPET'
   // The business asks for a finalised report before a job is complete.
   | 'REPORT_REQUIRED'
+  // Publishing a form when nothing has changed since it was last issued.
+  | 'NOTHING_TO_PUBLISH'
 
 export async function expectRejected(
   call: () => Promise<unknown>,
