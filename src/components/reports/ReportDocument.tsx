@@ -75,7 +75,9 @@ export function ReportDocument({
   const data = (report.data ?? {}) as Record<string, unknown>
   // The answers ride along so a row bound to a member field can see who was
   // chosen there.
-  const context = report.context ? { ...report.context, answers: data } : undefined
+  const context = report.context
+    ? { ...report.context, answers: data }
+    : undefined
   const finalised = report.status === 'finalised'
 
   const noticeText =
@@ -255,7 +257,12 @@ function ReportPhotos({
     }),
   )
 
-  const entries = Object.entries((urls as Record<string, string>) ?? {})
+  // `| undefined` is the honest type: this is query data, so it is undefined
+  // while the query is in flight, and the `?? {}` below is what stops
+  // Object.entries throwing on that first render.
+  const entries = Object.entries(
+    (urls as Record<string, string> | undefined) ?? {},
+  )
   if (entries.length === 0) return null
 
   return (
@@ -478,7 +485,10 @@ function SectionRows({
   omitEmpty?: boolean
 }) {
   const rows = fields
-    .map((field) => ({ field, shown: present(field, data[field.key], context) }))
+    .map((field) => ({
+      field,
+      shown: present(field, data[field.key], context),
+    }))
     // `omit` covers the kinds that belong to another section — photos have
     // their own gallery below, and a bare labelled row here would read as a
     // field the technician forgot to fill in.
@@ -501,9 +511,7 @@ function SectionRows({
             (shown.kind === 'grid' || shown.kind === 'blank') &&
             field.kind === 'repeater' &&
             field.label === sectionHeading
-          ) && (
-            <dt className="section-label">{field.label}</dt>
-          )}
+          ) && <dt className="section-label">{field.label}</dt>}
           <dd className="mt-1 text-body text-ink">
             <FieldValue shown={shown} />
           </dd>
@@ -592,7 +600,10 @@ function FieldValue({ shown }: { shown: Presented }) {
             <thead>
               <tr className="border-b border-hairline">
                 {shown.columns.map((column) => (
-                  <th key={column} className="px-1 pb-1 font-semibold text-muted">
+                  <th
+                    key={column}
+                    className="px-1 pb-1 font-semibold text-muted"
+                  >
                     {column}
                   </th>
                 ))}
@@ -600,7 +611,10 @@ function FieldValue({ shown }: { shown: Presented }) {
             </thead>
             <tbody>
               {shown.rows.map((row, i) => (
-                <tr key={i} className="border-b border-hairline-2 last:border-0">
+                <tr
+                  key={i}
+                  className="border-b border-hairline-2 last:border-0"
+                >
                   {row.map((cell, j) => (
                     <td key={j} className="px-1 py-1.5 align-top text-ink-2">
                       {cell}
