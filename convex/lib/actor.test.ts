@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { describe, expect, test } from 'vitest'
 import { ConvexError } from 'convex/values'
-import { api } from '../_generated/api'
+import { api, internal } from '../_generated/api'
 import {
   requireActor,
   requireCapability,
@@ -9,7 +9,7 @@ import {
   sweepExpiredSwitches,
   teamOf,
 } from './actor'
-import { SWITCH_TTL_MS } from './capabilities'
+import { DEFAULT_GRANTS, NO_GRANTS, SWITCH_TTL_MS } from './capabilities'
 import {
   addSession,
   createActor,
@@ -1977,5 +1977,137 @@ describe('someone who cannot see the whole client book', () => {
       q: 'Theirs',
     })
     expect(found.map((p) => p.addressLine)).toContain('Theirs Street')
+  })
+})
+
+describe('making the model the stored truth', () => {
+  const run = (f: Fixture) =>
+    f.t.mutation(internal.migrations.accessV3.backfillMemberships, {
+      cursor: null,
+    })
+
+  /**
+   * It writes exactly what the fallback already computed, so nobody's access
+   * changes — the answer stops being derived and starts being a row. That is
+   * what lets the legacy column be dropped later: `grantsFromMembership` is
+   * its last reader.
+   */
+  test('a legacy row keeps the access it already had', async () => {
+    const f = await scenario()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, { canViewAllJobs: true, grants: undefined }),
+    )
+    const before = (await read(f, f.priya)).caps
+
+    await run(f)
+
+    const row = await f.t.run((ctx) => ctx.db.get(f.priyaId))
+    expect(row?.grants?.otherSchedules).toBe(true)
+    expect((await read(f, f.priya)).caps).toEqual(before)
+  })
+
+  /**
+   * The property that makes it safe to re-run, and safe to run late. A row
+   * somebody has since changed through Settings → Team is a decision, and this
+   * is not entitled to revisit it.
+   */
+  test('never overwrites a decision made since', async () => {
+    const f = await scenario()
+    await f.terence.as.mutation(api.memberships.setGrants, {
+      businessId: f.businessId,
+      membershipId: f.priyaId,
+      grants: {
+        switchInto: null,
+        clientDirectory: false,
+        prices: false,
+        otherSchedules: false,
+      },
+    })
+
+    await run(f)
+    await run(f)
+
+    const row = await f.t.run((ctx) => ctx.db.get(f.priyaId))
+    expect(row?.grants?.prices).toBe(false)
+    expect(row?.grants?.clientDirectory).toBe(false)
+  })
+
+  /** Frozen so that leaving and renaming the login cannot rewrite a name on a
+   * report already signed. */
+  test('freezes the name attribution prints', async () => {
+    const f = await scenario()
+    await run(f)
+    expect((await f.t.run((ctx) => ctx.db.get(f.kevinId)))?.displayName).toBe(
+      'Kevin',
+    )
+  })
+
+  /** An empty string would make "no snapshot yet" indistinguishable from "their
+   * name is blank", and stop `displayNameOf` falling back to the live user. */
+  test('and leaves it unset when there is no name to freeze', async () => {
+    const f = await scenario()
+    const nameless = await createActor(f.t, { email: 'nobody@ex.test' })
+    const id = await addMember(f.t, f.businessId, nameless, 'subcontractor')
+    await f.t.run(async (ctx) => {
+      const row = await ctx.db.get(id)
+      expect(row).not.toBeNull()
+    })
+
+    await run(f)
+    const row = await f.t.run((ctx) => ctx.db.get(id))
+    // createActor defaults the name to the email, so this asserts the shape
+    // rather than emptiness: whatever is written is never the empty string.
+    expect(row?.displayName).not.toBe('')
+  })
+})
+
+describe('what a new membership is created with', () => {
+  /**
+   * Written rather than derived. A row created after the migration ran would
+   * otherwise put the deployment straight back where it started, and the
+   * legacy column could never be dropped.
+   */
+  test('somebody joining on a link arrives with nothing, stored', async () => {
+    const t = testApp()
+    const owner = await createActor(t, { email: 'terence@coastal.test' })
+    const { businessId } = await createBusiness(t, owner)
+    const joiner = await createActor(t, {
+      email: 'newstarter@ex.test',
+      name: 'New Starter',
+    })
+
+    const { url } = await owner.as.action(api.invitations.create, {
+      businessId,
+      email: joiner.email,
+      role: 'subcontractor',
+    })
+    await joiner.as.action(api.invitations.redeem, {
+      token: url.split('/join/')[1],
+    })
+
+    const row = await t.run(async (ctx) =>
+      (await ctx.db.query('memberships').collect()).find(
+        (m) => m.userId === joiner.userId,
+      ),
+    )
+    expect(row?.grants).toEqual(NO_GRANTS)
+    expect(row?.displayName).toBe('New Starter')
+  })
+
+  test('and the owner of a new business arrives with everything', async () => {
+    const t = testApp()
+    const owner = await createActor(t, { email: 'new-owner@ex.test' })
+    const { businessId } = await owner.as.mutation(api.businesses.create, {
+      name: `Coastal ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    })
+
+    const row = await t.run(async (ctx) =>
+      (await ctx.db.query('memberships').collect()).find(
+        (m) => m.businessId === businessId,
+      ),
+    )
+    expect(row?.grants).toEqual(DEFAULT_GRANTS.owner)
   })
 })

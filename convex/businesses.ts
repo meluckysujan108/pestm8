@@ -1,6 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { getAuthUserId, requireMembership } from './lib/access'
+import { DEFAULT_GRANTS } from './lib/capabilities'
 import { MEMBER_COLOURS } from './lib/colours'
 import { forSelf, recordAudit } from './lib/audit'
 import { requireActor, requireCapability } from './lib/actor'
@@ -127,6 +128,12 @@ export const create = mutation({
       businessId,
       role: 'owner',
       canViewAllJobs: true,
+      // Written rather than left to be derived. `grantsFromMembership` would
+      // fill these in from `canViewAllJobs`, which is the fallback the
+      // migration exists to stop needing — a row created after it ran would
+      // otherwise put the deployment straight back into the state it just
+      // left, and the legacy column could never be dropped.
+      grants: DEFAULT_GRANTS.owner,
       colour: MEMBER_COLOURS[0],
       status: 'active',
       createdAt: now,

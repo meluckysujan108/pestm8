@@ -43,6 +43,7 @@ import type * as lib_reportFacts from "../lib/reportFacts.js";
 import type * as lib_richText from "../lib/richText.js";
 import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
 import type * as memberships from "../memberships.js";
+import type * as migrations_accessV3 from "../migrations/accessV3.js";
 import type * as migrations_notesV2 from "../migrations/notesV2.js";
 import type * as migrations_reportSnapshotsV1 from "../migrations/reportSnapshotsV1.js";
 import type * as notes from "../notes.js";
@@ -99,6 +100,7 @@ declare const fullApi: ApiFromModules<{
   "lib/richText": typeof lib_richText;
   "lib/templateSnapshot": typeof lib_templateSnapshot;
   memberships: typeof memberships;
+  "migrations/accessV3": typeof migrations_accessV3;
   "migrations/notesV2": typeof migrations_notesV2;
   "migrations/reportSnapshotsV1": typeof migrations_reportSnapshotsV1;
   notes: typeof notes;
