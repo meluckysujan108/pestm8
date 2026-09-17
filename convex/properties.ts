@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { isInScope } from './lib/capabilities'
+import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { clientKind } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -29,16 +30,39 @@ export async function clientNameOf(
 export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    const visible = await visibleClientIds(ctx, env)
 
     const properties = await ctx.db
       .query('properties')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .collect()
-    return Promise.all(properties.map((p) => withClient(ctx, p)))
+    // Wider than `clients.list`, and easy to miss: this embeds the whole
+    // client document on every row, so leaving it unscoped would hand back
+    // the same directory plus every service address.
+    return Promise.all(
+      properties
+        .filter((p) => inClientScope(visible, p.clientId))
+        .map((p) => withClient(ctx, p)),
+    )
   },
 })
 
+/**
+ * DELIBERATELY NOT SCOPED by the client directory toggle.
+ *
+ * This is how a technician finds an address when booking, and how
+ * `resolvePropertyId` links a job to a site that already exists. Hiding an
+ * address they cannot "see" does not stop them booking there — it stops them
+ * FINDING it, so they type it again and the business acquires a second
+ * property record for the same house, with its own job history and its own
+ * reports. A duplicate site in a compliance record is worse than a
+ * subcontractor reading a street address they were going to be sent to
+ * anyway.
+ *
+ * The directory is about the client — who they are, their contacts, their
+ * portfolio. This is about where the work is.
+ */
 export const search = query({
   args: { businessId: v.id('businesses'), q: v.string() },
   handler: async (ctx, { businessId, q }) => {
@@ -79,10 +103,12 @@ export const get = query({
 export const listByClient = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
     const client = await ctx.db.get(clientId)
     if (!client || client.businessId !== businessId) return []
+    const visible = await visibleClientIds(ctx, env)
+    if (!inClientScope(visible, client._id)) return []
 
     return ctx.db
       .query('properties')

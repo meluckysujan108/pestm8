@@ -177,6 +177,35 @@ export function MemberAccessRow({
       {!isOwner && (
         <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
           <span className="min-w-0">
+            <span className="block text-body text-ink">
+              Can see all clients
+            </span>
+            <span className="block text-caption text-muted">
+              The whole client list and their contact details. With this off
+              they see the clients they have worked for — and can still search
+              an address to book at.
+            </span>
+          </span>
+          <Switch.Root
+            checked={member.grants.clientDirectory}
+            disabled={setGrants.isPending}
+            onCheckedChange={(checked) =>
+              setGrants.mutate({
+                businessId,
+                membershipId: member._id,
+                grants: { ...member.grants, clientDirectory: checked },
+              })
+            }
+            className="relative mt-0.5 h-[31px] w-[51px] shrink-0 rounded-full bg-fill-track transition data-[state=checked]:bg-green disabled:opacity-50"
+          >
+            <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
+          </Switch.Root>
+        </label>
+      )}
+
+      {!isOwner && (
+        <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
+          <span className="min-w-0">
             <span className="block text-body text-ink">Can see job prices</span>
             <span className="block text-caption text-muted">
               Prices on jobs, and the revenue figures on the dashboard and

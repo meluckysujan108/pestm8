@@ -7,6 +7,7 @@ import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
 import { requireActor, requireCapability } from './lib/actor'
+import { inClientScope, visibleClientIds } from './lib/clientScope'
 
 async function requireClient(
   ctx: QueryCtx,
@@ -23,24 +24,30 @@ async function requireClient(
 export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    const visible = await visibleClientIds(ctx, env)
 
     const clients = await ctx.db
       .query('clients')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .collect()
-    return clients.filter((c) => c.archivedAt === undefined)
+    return clients
+      .filter((c) => c.archivedAt === undefined)
+      .filter((c) => inClientScope(visible, c._id))
   },
 })
 
 export const get = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
     const client = await ctx.db.get(clientId)
     if (!client || client.businessId !== businessId) return null
-    return client
+    // Null, not an error: a client they may not see must be indistinguishable
+    // from one that is not there.
+    const visible = await visibleClientIds(ctx, env)
+    return inClientScope(visible, client._id) ? client : null
   },
 })
 
