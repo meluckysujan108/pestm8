@@ -24,7 +24,7 @@ import {
   REPEAT_LABELS,
   REPEAT_OPTIONS,
   formatDuration,
-  formatMoney,
+  formatJobMoney,
   formatTime,
 } from '#/lib/format'
 import { WeatherGlyph } from './WeatherGlyph'
@@ -274,7 +274,7 @@ function JobDetailBody({
               </Section>
 
               <Section label="Price">
-                <p className="text-metric-sm text-ink">{formatMoney(job.price)}</p>
+                <p className="text-metric-sm text-ink">{formatJobMoney(job)}</p>
               </Section>
             </>
           )}
@@ -477,6 +477,7 @@ function JobEditForm({
     propertyId: Id<'properties'>
     jobType: string
     price: number
+    pricesHidden?: boolean
     scheduledAt: number
     durationMinutes: number
     assignedMembershipId: Id<'memberships'>
@@ -640,17 +641,23 @@ function JobEditForm({
             className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
           />
         </EditField>
-        <EditField label="Price (AUD)">
-          <input
-            type="number"
-            min="0"
-            step="0.01"
-            inputMode="decimal"
-            value={price}
-            onChange={(e) => setPrice(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </EditField>
+        {/* No box for a figure they were never shown. An input seeded from a
+            redacted price sends a placeholder back as if it were real, and the
+            server drops it — but an empty Price field that silently does
+            nothing is its own kind of lie. */}
+        {!job.pricesHidden && (
+          <EditField label="Price (AUD)">
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              inputMode="decimal"
+              value={price}
+              onChange={(e) => setPrice(e.target.value)}
+              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            />
+          </EditField>
+        )}
       </div>
 
       <EditField label="Repeat">

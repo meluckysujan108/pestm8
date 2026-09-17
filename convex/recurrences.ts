@@ -6,6 +6,9 @@ import {
   requireMembership,
 } from './lib/access'
 import { allocateJobNumber } from './jobs'
+import { requireActor } from './lib/actor'
+import { isInScope } from './lib/capabilities'
+import { redactJob } from './lib/prices'
 import { clientNameOf, newClientFields, resolvePropertyId } from './properties'
 import { frequency } from './schema'
 import type { MutationCtx } from './_generated/server'
@@ -53,18 +56,25 @@ function occurrencesFrom(
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
-    const recurrences = await ctx.db
+    const all = await ctx.db
       .query('recurrences')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .collect()
+
+    // Scoped like everything else. This query gated on bare membership, so
+    // every member could read every repeating contract in the business —
+    // including series belonging to people whose schedule they cannot see.
+    const recurrences = all.filter((r) =>
+      isInScope(env.scope, { assignedMembershipId: r.assignedMembershipId }),
+    )
 
     return Promise.all(
       recurrences.map(async (r) => {
         const property = await ctx.db.get(r.propertyId)
         return {
-          ...r,
+          ...redactJob(env.caps, r),
           clientName: await clientNameOf(ctx, property),
           suburb: property?.suburb ?? '',
         }

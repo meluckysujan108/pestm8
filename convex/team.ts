@@ -5,7 +5,8 @@ import { authComponent } from './auth'
 import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
-import { NO_GRANTS } from './lib/capabilities'
+import { canManageMember, NO_GRANTS } from './lib/capabilities'
+import { factsFromMembership } from './lib/membershipFacts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { requireActor, requireCapability } from './lib/actor'
@@ -325,5 +326,59 @@ export const leave = mutation({
       reassignTo,
       action: 'membership.leave',
     })
+  },
+})
+
+/**
+ * The team, for managing it — as distinct from `memberships.listForBusiness`,
+ * which is the roster six ordinary screens read.
+ *
+ * Separate because the two answer different questions and one of them is
+ * management information. Grants belong to whoever may change them, not to
+ * every picker and mention list in the app, and putting them on the shared
+ * roster would have shipped a person's access settings to every screen that
+ * needed a colour and a name.
+ */
+export const roster = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'team.manage')
+
+    const members = await ctx.db
+      .query('memberships')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .collect()
+
+    return Promise.all(
+      members
+        .filter((m) => m.status !== 'removed')
+        .map(async (m) => {
+          const user = await authComponent.getAnyUserById(ctx, m.userId)
+          const facts = factsFromMembership(m)
+          return {
+            _id: m._id,
+            name: user?.name ?? '',
+            email: user?.email ?? '',
+            role: m.role,
+            status: m.status,
+            colour: m.colour,
+            licenceNumber: m.licenceNumber,
+            /**
+             * What is in effect right now, which for a row that has never been
+             * written is derived from the legacy column rather than stored.
+             * The toggle sends this object back with one field changed, so
+             * that first write cannot silently zero the others.
+             */
+            grants: facts.grants,
+            /** The legacy read-only view-as, which is a different thing from
+             * `grants.switchInto` and still has its own column. */
+            canViewOtherAccounts: m.canViewOtherAccounts ?? false,
+            /** Whether this caller may change any of it — an owner may manage
+             * anyone but themselves; a contractor, only their own team. */
+            canManage: canManageMember(env.actor, facts),
+          }
+        }),
+    )
   },
 })

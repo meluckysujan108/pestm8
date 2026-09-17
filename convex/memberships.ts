@@ -1,21 +1,23 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import {
-  canViewAs,
-  getAuthUserId,
-  requireMembership,
-} from './lib/access'
+import { canViewAs, getAuthUserId, requireMembership } from './lib/access'
 import { nextColour } from './lib/colours'
 import { inviteState } from './lib/inviteTokens'
-import { role } from './schema'
+import { grants, role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
 import {
   requireActor,
   requireAssignableRole,
   requireCapability,
+  requireWriteActor,
 } from './lib/actor'
-import { isVisiblePerson } from './lib/capabilities'
+import {
+  canManageMember,
+  clampGrants,
+  isVisiblePerson,
+} from './lib/capabilities'
+import { factsFromMembership } from './lib/membershipFacts'
 
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
@@ -490,5 +492,64 @@ export const setViewingAs = mutation({
     await ctx.db.patch(actor._id, {
       viewingAsMembershipId: args.targetMembershipId,
     })
+  },
+})
+
+/**
+ * Sets one person's four toggles, in one write.
+ *
+ * One mutation rather than four, because `clampGrants` decides all four
+ * together against what the granter themselves holds: a contractor cannot hand
+ * out sight of prices they cannot see, and `switchInto` is only ever the
+ * target's own current contractor. Four independent mutations would each have
+ * to re-derive that, and would disagree the first time one of them was missed.
+ *
+ * The caller sends the whole object, including the toggles they are not
+ * changing. That matters more than it looks on a legacy row: writing a
+ * `grants` object for the first time is what makes `grantsFromMembership` stop
+ * falling back to `canViewAllJobs`, so anything absent from that first write
+ * silently becomes false. The row sends what is currently in effect with one
+ * field changed, and `team.roster` below hands it exactly that.
+ */
+export const setGrants = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    membershipId: v.id('memberships'),
+    grants,
+  },
+  handler: async (ctx, args) => {
+    const env = await requireWriteActor(ctx, args.businessId)
+    requireCapability(env, 'team.manage')
+
+    const target = await ctx.db.get(args.membershipId)
+    if (!target || target.businessId !== args.businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+
+    // `team.manage` says they may manage someone; this says whether it is this
+    // someone. A contractor holds the capability business-wide and the reach
+    // of their own team only.
+    const facts = factsFromMembership(target)
+    if (!canManageMember(env.actor, facts)) throw new ConvexError('NO_ACCESS')
+
+    const clamped = clampGrants(env.actor, facts, args.grants)
+    await ctx.db.patch(args.membershipId, {
+      grants: clamped,
+      // Kept in step while anything still reads it: the legacy column is the
+      // fallback for rows with no `grants`, and this row now has one.
+      canViewAllJobs: clamped.otherSchedules,
+    })
+
+    await recordAudit(ctx, forSelf(env.actor.real._id), {
+      businessId: args.businessId,
+      action: 'membership.setGrants',
+      entityType: 'memberships',
+      entityId: args.membershipId,
+      meta: { grants: clamped },
+    })
+
+    // Returned so the caller can see what survived the clamp, rather than
+    // showing a toggle as on when the server refused it.
+    return clamped
   },
 })

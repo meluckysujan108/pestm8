@@ -1416,3 +1416,206 @@ describe('removing someone ends their switches', () => {
     ).toBeNull()
   })
 })
+
+describe('someone who cannot see prices', () => {
+  /**
+   * Every membership in production is legacy-shaped, and
+   * `grantsFromMembership` resolves those to `prices: true` — deliberately, so
+   * nobody loses access on deploy. Which means a test that forgets to write an
+   * explicit grants object asserts redaction against someone who can see
+   * prices, and passes because nothing was hidden from anyone.
+   */
+  async function priced() {
+    const f = await scenario()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, {
+        grants: {
+          switchInto: null,
+          clientDirectory: true,
+          prices: false,
+          otherSchedules: true,
+        },
+      }),
+    )
+    const propertyId = await f.t.run(async (ctx) => {
+      const clientId = await ctx.db.insert('clients', {
+        businessId: f.businessId,
+        kind: 'person',
+        name: 'J. Nguyen',
+        createdAt: 0,
+        updatedAt: 0,
+      })
+      return ctx.db.insert('properties', {
+        businessId: f.businessId,
+        clientId,
+        addressLine: '12 Wattle Street',
+        suburb: 'Bayswater',
+        state: 'WA',
+        postcode: '6053',
+        createdAt: 0,
+      })
+    })
+    const jobId = await f.t.run((ctx) =>
+      ctx.db.insert('jobs', {
+        businessId: f.businessId,
+        propertyId,
+        assignedMembershipId: f.priyaId,
+        jobType: 'Termite Inspection',
+        price: 38000,
+        scheduledAt: Date.now(),
+        durationMinutes: 90,
+        status: 'completed',
+        createdAt: 0,
+      }),
+    )
+    return { ...f, propertyId, jobId }
+  }
+
+  test('is told the price is hidden, not shown a wrong one', async () => {
+    const f = await priced()
+    const job = await f.priya.as.query(api.jobs.get, {
+      businessId: f.businessId,
+      jobId: f.jobId,
+    })
+    expect(job?.pricesHidden).toBe(true)
+    // Zero, not absent: an absent key renders "$NaN", and the edit form seeds
+    // itself from this value.
+    expect(job?.price).toBe(0)
+  })
+
+  test('and the owner still sees it', async () => {
+    const f = await priced()
+    const job = await f.terence.as.query(api.jobs.get, {
+      businessId: f.businessId,
+      jobId: f.jobId,
+    })
+    expect(job?.pricesHidden).toBe(false)
+    expect(job?.price).toBe(38000)
+  })
+
+  /**
+   * The aggregate is the leak the row-level redaction misses. A month with one
+   * completed job makes the revenue total that job's price, to the cent — and
+   * the window was caller-supplied, so anyone could arrange that condition.
+   */
+  test('cannot read the price back out of the month’s revenue', async () => {
+    const f = await priced()
+    const overview = await f.priya.as.query(api.analytics.overview, {
+      businessId: f.businessId,
+      months: 1,
+    })
+    expect(overview?.pricesHidden).toBe(true)
+    for (const month of overview?.revenueByMonth ?? []) {
+      expect(month.value).toBeNull()
+    }
+  })
+
+  /** The count sits beside the value; when it is 1, the pair is the price. */
+  test('nor out of the count beside it', async () => {
+    const f = await priced()
+    const summary = await f.priya.as.query(api.dashboard.summary, {
+      businessId: f.businessId,
+    })
+    expect(summary?.awaitingInvoice).toBeNull()
+    expect(summary?.awaitingInvoiceValue).toBeNull()
+    expect(summary?.invoicedThisMonth).toBeNull()
+  })
+
+  /**
+   * The half that protects the data rather than the secret. Their form has no
+   * price box, so whatever it sends stands in for a figure they were never
+   * shown — writing it back would destroy the real one, and every total
+   * downstream of it.
+   */
+  test('cannot overwrite a price they were never shown', async () => {
+    const f = await priced()
+    await f.priya.as.mutation(api.jobs.update, {
+      businessId: f.businessId,
+      jobId: f.jobId,
+      price: 1,
+      jobType: 'General Pest',
+    })
+
+    const row = await f.t.run((ctx) => ctx.db.get(f.jobId))
+    expect(row?.price).toBe(38000)
+    // The rest of the edit still lands — refusing outright would stop them
+    // rescheduling their own job.
+    expect(row?.jobType).toBe('General Pest')
+  })
+})
+
+describe('setting someone’s toggles', () => {
+  test('the owner turns prices off, and it takes effect', async () => {
+    const f = await scenario()
+    const clamped = await f.terence.as.mutation(api.memberships.setGrants, {
+      businessId: f.businessId,
+      membershipId: f.priyaId,
+      grants: {
+        switchInto: null,
+        clientDirectory: true,
+        prices: false,
+        otherSchedules: true,
+      },
+    })
+    expect(clamped.prices).toBe(false)
+    expect((await read(f, f.priya)).caps['prices.see']).toBe(false)
+  })
+
+  /** A subcontractor has no business setting anyone's access, including their
+   * own — the capability drops out of the policy table, not out of a check. */
+  test('a subcontractor cannot', async () => {
+    const f = await scenario()
+    await expect(
+      f.priya.as.mutation(api.memberships.setGrants, {
+        businessId: f.businessId,
+        membershipId: f.kevinId,
+        grants: {
+          switchInto: null,
+          clientDirectory: true,
+          prices: true,
+          otherSchedules: true,
+        },
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+  })
+
+  /** The owner account is not administered from inside the app, by anyone,
+   * including itself. */
+  test('nor can the owner set their own', async () => {
+    const f = await scenario()
+    await expect(
+      f.terence.as.mutation(api.memberships.setGrants, {
+        businessId: f.businessId,
+        membershipId: f.ownerMembershipId,
+        grants: {
+          switchInto: null,
+          clientDirectory: true,
+          prices: true,
+          otherSchedules: true,
+        },
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+  })
+
+  /**
+   * The first write is what makes `grantsFromMembership` stop falling back to
+   * the legacy column, so anything missing from it silently becomes false.
+   * The legacy column is kept in step for whatever still reads it.
+   */
+  test('materialising grants keeps the legacy column in step', async () => {
+    const f = await scenario()
+    await f.terence.as.mutation(api.memberships.setGrants, {
+      businessId: f.businessId,
+      membershipId: f.priyaId,
+      grants: {
+        switchInto: null,
+        clientDirectory: true,
+        prices: true,
+        otherSchedules: false,
+      },
+    })
+    const row = await f.t.run((ctx) => ctx.db.get(f.priyaId))
+    expect(row?.grants?.otherSchedules).toBe(false)
+    expect(row?.canViewAllJobs).toBe(false)
+  })
+})

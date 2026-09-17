@@ -23,7 +23,10 @@ import { useHydrated } from '#/lib/useHydrated'
  */
 export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
   const { data: members } = useSuspenseQuery(
-    convexQuery(api.memberships.listForBusiness, { businessId }),
+    // The management view, not the shared roster: grants are access
+    // settings, and the roster six other screens read has no business
+    // carrying them.
+    convexQuery(api.team.roster, { businessId }),
   )
   const { data: invitations } = useSuspenseQuery(
     convexQuery(api.invitations.listForBusiness, { businessId }),
