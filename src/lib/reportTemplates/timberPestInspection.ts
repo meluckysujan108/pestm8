@@ -466,6 +466,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'select',
           key: 'facadeFaces',
           label: 'The front facade of the dwelling faces',
+          carryOver: true,
           optionsFrom: 'facade',
           blankOption: '-', // src: timber-pest-inspection.md:99
           // src: timber-pest-inspection.md:99
@@ -485,6 +486,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'select',
           key: 'siteTopography',
           label: 'Site Topography',
+          carryOver: true,
           optionsFrom: 'topography',
           blankOption: '-', // src: timber-pest-inspection.md:100
           // src: timber-pest-inspection.md:100
@@ -504,6 +506,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'select',
           key: 'structureType',
           label: 'Type of Structure',
+          carryOver: true,
           optionsFrom: 'structureType',
           blankOption: '-', // src: timber-pest-inspection.md:101
           // src: timber-pest-inspection.md:101
@@ -524,6 +527,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'select',
           key: 'structureHeight',
           label: 'Height of Structure',
+          carryOver: true,
           optionsFrom: 'structureHeight',
           blankOption: '-', // src: timber-pest-inspection.md:102
           // src: timber-pest-inspection.md:102
@@ -539,6 +543,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'checks',
           key: 'wallConstruction',
           label: 'Wall Construction',
+          carryOver: true,
           optionsFrom: 'wallConstruction',
           // src: timber-pest-inspection.md:103 — the source lists these comma-separated
           options: asOptions([
@@ -556,6 +561,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'checks',
           key: 'floorType',
           label: 'Floor Type',
+          carryOver: true,
           optionsFrom: 'floorType',
           // src: timber-pest-inspection.md:104 — the source lists these comma-separated
           options: asOptions([
@@ -579,6 +585,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'checks',
           key: 'roofType',
           label: 'Roof Type',
+          carryOver: true,
           optionsFrom: 'roofType',
           // src: timber-pest-inspection.md:106 — the source lists these comma-separated
           options: asOptions([

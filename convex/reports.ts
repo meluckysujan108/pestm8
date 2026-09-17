@@ -31,6 +31,7 @@ import { reportSearchText } from './lib/reportSearch'
 import { buildReportContext, toPresentContext } from './lib/reportContext'
 import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
+import { carryOverFrom } from '../src/lib/reportTemplates/lastVisit'
 import { migrateServiceReportV1 } from '../src/lib/reportTemplates/legacy/serviceReport.migrate'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
 import type { TemplateId } from '../src/lib/reportTemplates'
@@ -1465,6 +1466,161 @@ export const confirmPrefill = mutation({
       changed = true
     }
     if (changed) await ctx.db.patch(reportId, { prefill: next })
+  },
+})
+
+/**
+ * How many reports back to look for the last visit to this site.
+ *
+ * A property with years of history is read newest-first, and the one being
+ * looked for is almost always within the last handful. Bounded because this
+ * runs while a technician waits on the overview, and an unbounded scan of a
+ * long-standing client's history is exactly the wrong place to spend it.
+ */
+const LAST_VISIT_SCAN = 40
+
+async function lastVisitSource(
+  ctx: QueryCtx,
+  membership: Membership,
+  draft: Doc<'reports'>,
+) {
+  const ref = templateRefOf(draft)
+  const rows = await ctx.db
+    .query('reports')
+    .withIndex('by_property', (q) => q.eq('propertyId', draft.propertyId))
+    .order('desc')
+    .take(LAST_VISIT_SCAN)
+
+  const candidates = rows.filter(
+    (row) =>
+      row._id !== draft._id &&
+      row.businessId === draft.businessId &&
+      row.status === 'finalised' &&
+      row.deletedAt === undefined &&
+      // The same form: last year's timber inspection has nothing to say to
+      // this month's service report, and their keys do not correspond.
+      templateRefOf(row) === ref &&
+      canSeeReport(membership, row),
+  )
+
+  // Ranked by when each was SIGNED, not when it was started. A draft left in
+  // a van for a fortnight and finalised last week is the more recent visit,
+  // however old its first keystroke.
+  return candidates.reduce<Doc<'reports'> | null>(
+    (best, row) =>
+      best === null || visitAt(row) > visitAt(best) ? row : best,
+    null,
+  )
+}
+
+function visitAt(report: Doc<'reports'>): number {
+  return report.finalisedAt ?? report._creationTime
+}
+
+async function carryOverFor(
+  ctx: QueryCtx,
+  draft: Doc<'reports'>,
+  previous: Doc<'reports'>,
+) {
+  const optionSets = await loadOverrides(ctx, draft.businessId)
+  const template = resolveReportTemplate({
+    template: draft.template,
+    templateVersion: draft.templateVersion,
+    customTemplate: draft.customTemplateId
+      ? ((await ctx.db.get(draft.customTemplateId)) ?? undefined)
+      : undefined,
+    optionSets,
+  })
+
+  return carryOverFrom(
+    template,
+    (previous.data ?? {}) as Record<string, unknown>,
+    (draft.data ?? {}) as Record<string, unknown>,
+  )
+}
+
+/**
+ * The last time this business finished this form at this address, and what of
+ * it is still worth offering.
+ *
+ * Returns nothing rather than an empty offer: an overview that says "copy 0
+ * answers from 12 March" is a row to read and dismiss on every report at every
+ * site that has one.
+ */
+export const lastAtProperty = query({
+  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
+  handler: async (ctx, { businessId, reportId }) => {
+    const membership = await requireMembership(ctx, businessId)
+
+    const draft = await ctx.db.get(reportId)
+    if (!draft || draft.businessId !== businessId) return null
+    if (draft.status !== 'draft' || draft.deletedAt !== undefined) return null
+    if (!canSeeReport(membership, draft)) return null
+
+    const previous = await lastVisitSource(ctx, membership, draft)
+    if (!previous) return null
+
+    const carried = await carryOverFor(ctx, draft, previous)
+    if (carried.labels.length === 0) return null
+
+    return {
+      reportId: previous._id,
+      finalisedAt: visitAt(previous),
+      labels: carried.labels,
+    }
+  },
+})
+
+/**
+ * Fills this report in from the last one at the same address.
+ *
+ * Everything copied lands as a suggestion, so the technician passes each
+ * section and confirms it — which is what makes this safe to offer at all. A
+ * quarterly service really is the same treatment as last quarter, right up
+ * until the visit where it is not.
+ */
+export const copyFromLastVisit = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    fromReportId: v.id('reports'),
+  },
+  handler: async (ctx, { businessId, reportId, fromReportId }) => {
+    const { report, membership } = await requireEditableReport(
+      ctx,
+      businessId,
+      reportId,
+    )
+
+    const previous = await ctx.db.get(fromReportId)
+    // Re-checked rather than trusted: the id came from the client, and this
+    // copies one report's answers into another.
+    if (
+      !previous ||
+      previous.businessId !== businessId ||
+      previous._id === report._id ||
+      previous.propertyId !== report.propertyId ||
+      previous.status !== 'finalised' ||
+      previous.deletedAt !== undefined ||
+      templateRefOf(previous) !== templateRefOf(report) ||
+      !canSeeReport(membership, previous)
+    ) {
+      throw new ConvexError('NOT_FOUND')
+    }
+
+    const carried = await carryOverFor(ctx, report, previous)
+    if (carried.labels.length === 0) return { copied: 0, data: {} }
+
+    const data = (report.data ?? {}) as Record<string, unknown>
+    await ctx.db.patch(reportId, {
+      data: { ...data, ...carried.data },
+      prefill: { ...(report.prefill ?? {}), ...carried.prefill },
+      updatedAt: Date.now(),
+    })
+    // Handed back as well as written, because the builder holds the answers in
+    // its own state and autosaves them wholesale — a patch it does not know
+    // about is a patch its next save erases.
+    return { copied: carried.labels.length, data: carried.data }
   },
 })
 

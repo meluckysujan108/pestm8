@@ -10,6 +10,7 @@ import {
 import {
   builderReady,
   createReport,
+  finaliseReport,
   saveReportDraft,
   sectionUrl,
   signReport,
@@ -68,7 +69,7 @@ async function startJobReport(label: string) {
     durationMinutes: 60,
   })
   const reportId = await createReport(owner.client, { businessId, propertyId, jobId }, 'serviceReport')
-  return { email, owner, businessId, slug, reportId }
+  return { email, owner, businessId, slug, propertyId, reportId }
 }
 
 test('a report opens on its sections, and is filled one at a time', async ({ page }) => {
@@ -758,5 +759,95 @@ test.describe('reports where the work is', () => {
     // The section used to render nothing at all when empty, so a client with
     // no reports had no heading and no hint that reports exist.
     await expect(sheet.getByText(/No reports yet/)).toBeVisible()
+  })
+})
+
+test.describe('the second visit to the same address', () => {
+  test('offers what the last report said, and marks it until it is agreed to', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, propertyId, reportId } =
+      await startJobReport('fill-return')
+
+    // The first visit: the full cost, paid once.
+    const first = await owner.client.query(api.reports.get, { businessId, reportId })
+    const suggested = Object.keys(first!.prefill ?? {})
+    if (suggested.length > 0) {
+      await owner.client.mutation(api.reports.confirmPrefill, {
+        businessId,
+        reportId,
+        keys: suggested,
+      })
+    }
+    await finaliseReport(owner.client, { businessId }, reportId, 'serviceReport', {
+      ...(first!.data as Record<string, unknown>),
+      safeToStart: true,
+      treatments: [
+        {
+          _id: 'first-row',
+          treatment: ['Ants'],
+          product: ['Fipforce HP (100 g/L FIPRONIL)'],
+          quantity: ['100ml/10L'],
+          method: ['Spray'],
+        },
+      ],
+      nextVisit: '3 Months',
+      housekeeping: ['Remove all rubbish from around the house'],
+    })
+
+    const second = await createReport(
+      owner.client,
+      { businessId, propertyId },
+      'serviceReport',
+    )
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${second}`)
+    await builderReady(page)
+
+    // Named, not counted: "copy 6 answers" says nothing about whether you
+    // want them.
+    await expect(page.getByText(/^Copy from /)).toBeVisible()
+    await expect(
+      page.getByText(/Treatment, Product\(s\) and Quantities Applied/),
+    ).toBeVisible()
+    await page.getByRole('button', { name: 'Copy', exact: true }).click()
+    // The offer goes when there is nothing left to offer — and waiting for it
+    // is also waiting for the copy to land before navigating away from it.
+    await expect(page.getByText(/^Copy from /)).toHaveCount(0)
+
+    // The work arrives, already filled in...
+    await page.goto(sectionUrl(slug, second, 'serviceReport', 'treatments'))
+    await builderReady(page)
+    await expect(
+      page.getByRole('button', { name: /Product & Active Ingredient — Fipforce HP/ }),
+    ).toBeVisible()
+
+    // ...and marked, because a guess never prints under a signature until the
+    // technician has passed the section it is on.
+    await expect(page.getByText('Suggested').first()).toBeVisible()
+
+    const copied = await owner.client.query(api.reports.get, {
+      businessId,
+      reportId: second,
+    })
+    const rows = (copied!.data as Record<string, unknown>).treatments as Array<{
+      _id: string
+    }>
+    // A row of its own, not a shared one: two reports whose rows answer to the
+    // same name is how an edit to one lands in the other.
+    expect(rows[0]._id).not.toBe('first-row')
+    expect(copied!.prefill?.treatments?.source).toBe('lastVisit')
+  })
+
+  test('a first visit is offered nothing', async ({ page }) => {
+    const { email, slug, reportId } = await startJobReport('fill-first')
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    await builderReady(page)
+
+    // No history, no row to read and dismiss.
+    await expect(page.getByText(/^Copy from /)).toHaveCount(0)
   })
 })

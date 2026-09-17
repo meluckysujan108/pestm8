@@ -335,6 +335,45 @@ export function ReportBuilder({
     },
   })
 
+  /**
+   * The last time this business finished this form at this address, when
+   * there is something in it still worth offering. The query answers `null`
+   * for anything but a draft, and `null` both while it is out and when there
+   * is nothing — this is an offer, and an offer that is not there yet is
+   * simply not made.
+   */
+  const { data: lastVisit } = useQuery({
+    ...convexQuery(api.reports.lastAtProperty, { businessId, reportId }),
+    enabled: hydrated,
+  })
+  const justCopied = useRef(false)
+  useEffect(() => {
+    if (!justCopied.current) return
+    justCopied.current = false
+    void autosave.flush()
+  }, [data, autosave])
+
+  const convexCopyLast = useConvexMutation(api.reports.copyFromLastVisit)
+  const copyLast = useMutation({
+    mutationFn: (fromReportId: Id<'reports'>) =>
+      convexCopyLast({ businessId, reportId, fromReportId }),
+    onSuccess: (result: { copied: number; data: Record<string, unknown> }) => {
+      // Merged into the answers this builder holds, not just left on the
+      // server: `saveDraft` replaces `data` wholesale, so the next autosave
+      // would otherwise write the copy straight back out again.
+      if (result.copied === 0) return
+      setData((prev) => ({ ...prev, ...result.data }))
+      // Saved at once rather than on the next debounce. Copying is a
+      // deliberate bulk change, and the very next thing a technician does is
+      // open a section to look at it — which would otherwise leave the answers
+      // stranded on the device and greet them with a restore prompt. Deferred
+      // to the render that carries them, because a flush in this callback
+      // would still be looking at the answers as they were a moment ago.
+      justCopied.current = true
+    },
+  })
+
+
   const convexPreview = useConvexAction(api.reportPdf.preview)
   const preview = useMutation({
     mutationFn: (args: { businessId: Id<'businesses'>; reportId: Id<'reports'> }) =>
@@ -509,6 +548,16 @@ export function ReportBuilder({
           onOpen={(section) => goToSection(section)}
           onFinalise={() => void onFinaliseClick()}
           disabled={finalise.isPending || !ready}
+          lastVisit={
+            lastVisit
+              ? {
+                  finalisedAt: lastVisit.finalisedAt,
+                  labels: lastVisit.labels,
+                  onCopy: () => copyLast.mutate(lastVisit.reportId),
+                  pending: copyLast.isPending,
+                }
+              : undefined
+          }
         />
       )}
 

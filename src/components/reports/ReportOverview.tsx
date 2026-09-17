@@ -1,4 +1,4 @@
-import { Check, ChevronRight, FileText, Lock } from 'lucide-react'
+import { Check, ChevronRight, FileText, History, Lock } from 'lucide-react'
 import type { ReportProgress, SectionProgress } from '#/lib/reportTemplates/progress'
 
 /**
@@ -14,16 +14,21 @@ export function ReportOverview({
   onOpen,
   onFinalise,
   disabled,
+  lastVisit,
 }: {
   progress: ReportProgress
   onOpen: (section: SectionProgress) => void
   onFinalise: () => void
   disabled: boolean
+  /** The offer to fill this in from the last report at the same address. */
+  lastVisit?: LastVisitOffer
 }) {
   return (
     // Named apart from the desktop rail below: two landmarks called "Sections"
     // is a screen reader saying the same thing about two different things.
     <nav aria-label="Report sections" className="mt-5">
+      {lastVisit && <LastVisitCard offer={lastVisit} />}
+
       <ul className="overflow-hidden rounded-2xl border border-hairline bg-surface">
         {progress.sections.map((section) => (
           <li key={section.id} className="border-t border-hairline-2 first:border-t-0">
@@ -111,6 +116,59 @@ function SectionStatus({ section }: { section: SectionProgress }) {
  * being filled, so the technician can see what is left without leaving what
  * they are doing.
  */
+export type LastVisitOffer = {
+  /** When the report it would copy from was signed. */
+  finalisedAt: number
+  /** The questions it would answer, in the form's own words. */
+  labels: Array<string>
+  onCopy: () => void
+  pending: boolean
+}
+
+/**
+ * The second visit to a site, offered rather than assumed.
+ *
+ * A quarterly service is usually last quarter's treatment at the same house,
+ * and typing it again is the biggest tax on a return visit. It is still only
+ * an offer: what it fills in arrives marked as a suggestion, and the
+ * technician passes each section and agrees to it before anything prints.
+ */
+function LastVisitCard({ offer }: { offer: LastVisitOffer }) {
+  // Named rather than counted: "Copy 6 answers" tells a technician nothing
+  // about whether they want them.
+  const named = offer.labels.slice(0, 2).join(' and ')
+  const rest = offer.labels.length - 2
+
+  return (
+    <div className="mb-3 flex items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3 shadow-elevation">
+      <History size={17} strokeWidth={1.8} className="shrink-0 text-blue" />
+      <p className="min-w-0 flex-1 text-caption text-muted">
+        <span className="block text-row-title text-ink">
+          Copy from {visitDate(offer.finalisedAt)}?
+        </span>
+        {named}
+        {rest > 0 ? ` and ${rest} more` : ''}
+      </p>
+      <button
+        type="button"
+        disabled={offer.pending}
+        onClick={offer.onCopy}
+        className="h-9 shrink-0 rounded-xl bg-surface-2 px-3.5 text-caption font-semibold text-ink transition active:scale-[.97] disabled:opacity-50"
+      >
+        {offer.pending ? 'Copying…' : 'Copy'}
+      </button>
+    </div>
+  )
+}
+
+function visitDate(at: number) {
+  return new Date(at).toLocaleDateString('en-AU', {
+    day: 'numeric',
+    month: 'short',
+    year: 'numeric',
+  })
+}
+
 export function SectionNav({
   progress,
   currentId,

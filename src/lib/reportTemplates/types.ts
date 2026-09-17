@@ -131,6 +131,22 @@ type BaseField = {
    * `emailTo`          extra recipients.
    */
   semantic?: FieldSemantic
+  /**
+   * Offer last visit's answer when a report is started at a site that has had
+   * one before.
+   *
+   * A quarterly service is usually the same treatment, the same products and
+   * the same recommendations as three months ago, and re-entering all of it is
+   * the single biggest tax on the second visit. Only where the answer is about
+   * the PLACE and stays true between visits — what gets treated, what was
+   * found, what to do about it. Never dates, times, weather, GPS, signatures,
+   * photos or free-text comments: those are about the DAY, and a stale one
+   * under a signature is worse than a blank.
+   *
+   * Copied values arrive as suggestions, so nothing prints until the
+   * technician has looked at it.
+   */
+  carryOver?: boolean
 }
 
 export type FieldSemantic =
