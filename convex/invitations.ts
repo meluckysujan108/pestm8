@@ -25,6 +25,7 @@ import {
   requireAssignableRole,
   requireCapability,
 } from './lib/actor'
+import { NO_GRANTS } from './lib/capabilities'
 import type { Role } from './lib/capabilities'
 
 /**
@@ -334,6 +335,13 @@ export const redeemByHash = internalMutation({
         businessId: invitation.businessId,
         role: invitation.role,
         canViewAllJobs: false,
+        // Nothing, until somebody grants it. A new joiner arrives with no
+        // access to anyone else's work, which is what NO_GRANTS means and what
+        // `canViewAllJobs: false` beside it has always meant.
+        grants: NO_GRANTS,
+        // Frozen now so that leaving and renaming the login later cannot
+        // rewrite their name on reports they are about to sign.
+        displayName: user.name?.trim() || undefined,
         colour: nextColour(
           members.filter((m) => m.status !== 'removed').map((m) => m.colour),
         ),

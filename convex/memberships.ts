@@ -16,9 +16,13 @@ import {
   canManageMember,
   clampGrants,
   isVisiblePerson,
+  NO_GRANTS,
   recomputeGrants,
 } from './lib/capabilities'
-import { factsFromMembership } from './lib/membershipFacts'
+import {
+  factsFromMembership,
+  grantsFromMembership,
+} from './lib/membershipFacts'
 
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
@@ -203,6 +207,7 @@ export const invite = mutation({
           businessId: args.businessId,
           role: args.role,
           canViewAllJobs: false,
+          grants: NO_GRANTS,
           colour,
           status: 'invited',
           createdAt: Date.now(),
@@ -306,8 +311,27 @@ export const setCanViewAllJobs = mutation({
       throw new ConvexError('NOT_FOUND')
     }
 
+    /**
+     * Writes through to the grants object as well, and must.
+     *
+     * `grantsFromMembership` reads `grants` verbatim when the row has one and
+     * only falls back to `canViewAllJobs` when it does not. So the moment a row
+     * carries grants — which every row now does, whether created that way or
+     * backfilled — patching the legacy column alone changes nothing at all.
+     * The toggle would still move, still save, still be audited, and the
+     * person's schedule would not change.
+     *
+     * Caught by the e2e suite rather than reasoned about: two journeys that
+     * grant business-wide visibility and then assert it started failing the
+     * moment new members began arriving with a grants object.
+     */
+    const nextGrants = {
+      ...grantsFromMembership(target),
+      otherSchedules: args.canViewAllJobs,
+    }
     await ctx.db.patch(args.membershipId, {
       canViewAllJobs: args.canViewAllJobs,
+      grants: nextGrants,
     })
 
     await recordAudit(ctx, forSelf(actor._id), {
@@ -413,7 +437,7 @@ export const setRole = mutation({
     const parentDoc = becoming.parentMembershipId
       ? await ctx.db.get(becoming.parentMembershipId)
       : null
-    const grants = recomputeGrants(
+    const roleGrants = recomputeGrants(
       becoming,
       parentDoc ? factsFromMembership(parentDoc) : null,
     )
@@ -421,8 +445,8 @@ export const setRole = mutation({
     await ctx.db.patch(args.membershipId, {
       role: args.role,
       parentMembershipId: becoming.parentMembershipId ?? undefined,
-      grants,
-      canViewAllJobs: grants.otherSchedules,
+      grants: roleGrants,
+      canViewAllJobs: roleGrants.otherSchedules,
     })
 
     await recordAudit(ctx, forSelf(actor._id), {
