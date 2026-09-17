@@ -3,6 +3,7 @@ import {
   api,
   expectRejected,
   setupBusinessWithSub,
+  signInViaUi,
   signUpActor,
   uniqueEmail,
   FIXTURE_PASSWORD,
@@ -199,4 +200,115 @@ test('a form that asked for no copy opens no delivery', async () => {
     reportId,
   })
   expect(history).toEqual([])
+})
+
+test.describe('the send sheet', () => {
+  test.use({ viewport: { width: 430, height: 932 } })
+
+  test('offers the people the form asked for, and says who needs approval', async ({
+    page,
+  }) => {
+    const s = await setupBusinessWithSub('send-sheet')
+    const property = await s.owner.client.query(api.properties.get, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    await s.owner.client.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId: property!.clientId,
+      email: 'client@example.com',
+    })
+
+    const reportId = await createReport(s.sub.client, s, 'serviceReport')
+    await finaliseReport(s.sub.client, s, reportId, 'serviceReport', {
+      sendCopy: true,
+    })
+
+    await signInViaUi(page, s.sub.email)
+    await page.goto(`/${s.slug}/reports/${reportId}`)
+    await page.getByRole('tab', { name: 'Email' }).click()
+    await page.getByRole('button', { name: 'Send this report' }).click()
+
+    const sheet = page.getByRole('dialog')
+    // The address the form asked for, already chosen — nobody retypes what
+    // they have just answered a question about.
+    const client = sheet.getByRole('button', { name: /jared@example\.com/ })
+    await expect(client).toHaveAttribute('aria-pressed', 'true')
+    await expect(sheet.getByRole('button', { name: /Send to 1 person/ })).toBeVisible()
+
+    // Someone else, and the sheet says before Send that it will be held.
+    await sheet.getByRole('button', { name: 'Send to someone else' }).click()
+    await sheet.getByLabel('Email address').fill('stranger@elsewhere.example')
+    await sheet.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(sheet.getByText('Needs approval')).toBeVisible()
+    await expect(sheet.getByRole('button', { name: 'Request approval' })).toBeVisible()
+  })
+
+  test('a delivery the form opened shows in the history without anyone sending', async ({
+    page,
+  }) => {
+    const s = await setupBusinessWithSub('send-sheet-history')
+    const property = await s.owner.client.query(api.properties.get, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    await s.owner.client.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId: property!.clientId,
+      email: 'client@example.com',
+    })
+
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+    await finaliseReport(s.owner.client, s, reportId, 'serviceReport', {
+      sendCopy: true,
+    })
+
+    await signInViaUi(page, s.owner.email)
+    await page.goto(`/${s.slug}/reports/${reportId}`)
+    await page.getByRole('tab', { name: 'Email' }).click()
+
+    // Queued rather than sent: no Resend key on this deployment. The record
+    // exists either way, which is the point of writing it before the call.
+    await expect(page.getByText(/jared@example\.com/)).toBeVisible()
+    await expect(page.getByText(/asked for by the form/)).toBeVisible()
+  })
+
+  test('says what happened to each recipient, not one verdict for all', async ({
+    page,
+  }) => {
+    const s = await setupBusinessWithSub('send-sheet-mixed')
+    const property = await s.owner.client.query(api.properties.get, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    await s.owner.client.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId: property!.clientId,
+      email: 'client@example.com',
+    })
+    const reportId = await createReport(s.sub.client, s, 'serviceReport')
+    await finaliseReport(s.sub.client, s, reportId, 'serviceReport', {
+      sendCopy: true,
+    })
+
+    await signInViaUi(page, s.sub.email)
+    await page.goto(`/${s.slug}/reports/${reportId}`)
+    await page.getByRole('tab', { name: 'Email' }).click()
+    await page.getByRole('button', { name: 'Send this report' }).click()
+
+    const sheet = page.getByRole('dialog')
+    await sheet.getByRole('button', { name: 'Send to someone else' }).click()
+    await sheet.getByLabel('Email address').fill('stranger@elsewhere.example')
+    await sheet.getByRole('button', { name: 'Add', exact: true }).click()
+    await sheet.getByRole('button', { name: 'Request approval' }).click()
+
+    // One line per recipient, each naming its own address. This deployment
+    // has no Resend key so both say the same thing — but they say it
+    // separately, which is the point: a client's address can go while a
+    // strata office's waits for the owner, and a single verdict for the tap
+    // would misreport one of them.
+    const results = sheet.getByRole('status')
+    await expect(results.getByText(/^jared@example\.com —/)).toBeVisible()
+    await expect(results.getByText(/^stranger@elsewhere\.example —/)).toBeVisible()
+  })
 })

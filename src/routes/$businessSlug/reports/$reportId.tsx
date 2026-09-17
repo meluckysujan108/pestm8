@@ -69,6 +69,7 @@ function ReportPage() {
         businessId={business._id}
         reportId={report._id}
         pdfUrl={report.pdfUrl ?? null}
+        report={report}
         fileName={
           documentIdentity({
             template,

@@ -174,6 +174,31 @@ async function subjectFor(
   }).title
 }
 
+/**
+ * The addresses this business already corresponds with about this report.
+ *
+ * Public so the send sheet can say "this one needs the owner's approval"
+ * BEFORE someone presses Send, rather than after. Nothing here is new to the
+ * caller: they can already open the client record it comes from.
+ */
+export const known = query({
+  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
+  handler: async (ctx, { businessId, reportId }) => {
+    const membership = await requireMembership(ctx, businessId)
+    const report = await ctx.db.get(reportId)
+    if (!report || report.businessId !== businessId) return { addresses: [], unrestricted: false }
+    if (!canSeeReport(membership, report)) return { addresses: [], unrestricted: false }
+
+    const business = await ctx.db.get(businessId)
+    return {
+      addresses: await knownFor(ctx, report),
+      unrestricted:
+        membership.role === 'owner' ||
+        business?.allowTechnicianRecipients === true,
+    }
+  },
+})
+
 /** Who this report has been sent to, and how each attempt went. */
 export const forReport = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
@@ -245,11 +270,11 @@ export const request = mutation({
     if (addresses.length === 0) throw new ConvexError('NO_RECIPIENT')
 
     const business = await ctx.db.get(businessId)
-    const known = await knownFor(ctx, report)
+    const onFile = await knownFor(ctx, report)
     // An owner may send where they like; it is their client relationship.
     const unrestricted =
       membership.role === 'owner' || business?.allowTechnicianRecipients === true
-    const novel = addresses.filter((address) => !known.includes(address))
+    const novel = addresses.filter((address) => !onFile.includes(address))
     const status = unrestricted || novel.length === 0 ? 'queued' : 'pendingApproval'
 
     const deliveryId = await ctx.db.insert('reportDeliveries', {

@@ -1,6 +1,7 @@
 import { v } from 'convex/values'
 import { internalMutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
+import { memberName } from './lib/reportContext'
 
 /**
  * The one place anything writes an audit-log row — kept separate from the
@@ -50,9 +51,21 @@ export const forEntity = query({
     const actorIds = [...new Set(scoped.map((entry) => entry.actorMembershipId))]
     const actors = new Map(
       await Promise.all(
-        actorIds.map(
-          async (id) => [id, await ctx.db.get(id)] as const,
-        ),
+        actorIds.map(async (id) => {
+          const membership = await ctx.db.get(id)
+          return [
+            id,
+            membership
+              ? {
+                  // A history that reads "Emailed" with a colour dot beside it
+                  // tells an owner nothing about who did it, and "who sent
+                  // this" is the question the history exists to answer.
+                  name: await memberName(ctx, membership.userId),
+                  colour: membership.colour,
+                }
+              : null,
+          ] as const
+        }),
       ),
     )
 
@@ -64,6 +77,7 @@ export const forEntity = query({
         meta: entry.meta,
         at: entry.at,
         actorColour: actors.get(entry.actorMembershipId)?.colour,
+        actorName: actors.get(entry.actorMembershipId)?.name,
       }))
   },
 })

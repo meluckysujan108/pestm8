@@ -93,7 +93,7 @@ export async function setupBusinessWithSub(label: string) {
     'Kevin',
   )
 
-  const { businessId } = await owner.client.mutation(api.businesses.create, {
+  const { businessId, slug } = await owner.client.mutation(api.businesses.create, {
     name: `${label} ${Date.now()}`,
     state: 'WA',
     timezone: 'Australia/Perth',
@@ -136,6 +136,8 @@ export async function setupBusinessWithSub(label: string) {
     owner,
     sub,
     businessId,
+    // The URL a spec that drives the UI needs; API-only specs ignore it.
+    slug,
     propertyId,
     ownerMembershipId,
     subMembershipId,
