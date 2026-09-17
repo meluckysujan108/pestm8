@@ -106,18 +106,25 @@ export const listByProperty = query({
       .query('reports')
       .withIndex('by_property', (q) => q.eq('propertyId', propertyId))
       .order('desc')
-      .collect()
+      // Bounded: this is a section inside a sheet, not the library. A
+      // property with years of history gets its newest, and the library is
+      // one tap away for the rest.
+      .take(INLINE_LIMIT)
 
-    return reports
-      .filter(
+    return decorate(
+      ctx,
+      reports.filter(
         (r) =>
           r.businessId === businessId &&
           r.deletedAt === undefined &&
           canSeeReport(membership, r),
-      )
-      .map(summarise)
+      ),
+    )
   },
 })
+
+/** As many as belong in a sheet section, and no more. */
+export const INLINE_LIMIT = 20
 
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
@@ -306,7 +313,7 @@ function segmentPredicate(
  * name, each read from the freeze once the report is signed so the list says
  * what the document says.
  */
-async function decorate(ctx: QueryCtx, rows: Array<Doc<'reports'>>) {
+export async function decorate(ctx: QueryCtx, rows: Array<Doc<'reports'>>) {
   // Resolved BEFORE the fan-out, not lazily inside it. Snapshots dedupe by
   // content hash, so many finalised reports share a handful of rows — but
   // `Promise.all` starts every handler before any of them can populate a

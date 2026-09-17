@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import { AlertDialog, DropdownMenu } from 'radix-ui'
 import {
@@ -9,7 +9,6 @@ import {
   Check,
   ChevronDown,
   Pencil,
-  Plus,
   Repeat,
   Trash2,
   X,
@@ -19,9 +18,6 @@ import { JobNotesSection } from '#/components/notes/JobNotesSection'
 import { Combobox } from '#/components/primitives/Combobox'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
-import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
-import { suggestTemplate } from '#/lib/reportTemplates/suggest'
-import type { TemplateId } from '#/lib/reportTemplates'
 import {
   JOB_TYPES,
   REPEAT_LABELS,
@@ -33,6 +29,10 @@ import {
 import { WeatherGlyph } from './WeatherGlyph'
 import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
+import {
+  InlineReportsSection,
+  StartReportButtons,
+} from '#/components/reports/InlineReports'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -872,6 +872,14 @@ function PropertyHistory({
  * `reports.listByProperty` already carry `jobId` end to end; this is the
  * first UI that actually uses it.
  */
+/**
+ * What this visit produced, and what else exists at the address.
+ *
+ * Two sections rather than one list: the report for THIS job is the thing a
+ * technician is looking for, and the property's history is context. Both are
+ * drawn by the shared `InlineReportsSection`, which the client sheet uses too
+ * — this used to be a second, quietly diverging copy of the same row.
+ */
 function JobReports({
   businessId,
   businessSlug,
@@ -887,148 +895,45 @@ function JobReports({
   jobType: string
   timezone: string
 }) {
-  const navigate = useNavigate()
-  const hydrated = useHydrated()
-  const convexCreate = useConvexMutation(api.reports.create)
-  const create = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      propertyId: Id<'properties'>
-      jobId: Id<'jobs'>
-      template: TemplateId
-      legalBasis: string
-      data: unknown
-    }) => convexCreate(args),
-    onSuccess: (reportId: Id<'reports'>) =>
-      navigate({
-        to: '/$businessSlug/reports/$reportId',
-        params: { businessSlug, reportId },
-      }),
-  })
-
-  // A termite inspection produces a Timber Pest Inspection; a general pest job
-  // a Service Report. Offering that directly saves the picker entirely, and
-  // the picker is still one tap away for the times it guesses wrong.
-  const suggestedId = suggestTemplate(jobType)
-  const suggested = suggestedId
-    ? CREATABLE_TEMPLATES.find((template) => template.id === suggestedId)
-    : undefined
   const { data } = useQuery(
     convexQuery(api.reports.listByProperty, { businessId, propertyId }),
   )
-  const reports = data ?? []
-  const forThisJob = reports.filter((r) => r.jobId === jobId)
-  const otherReports = reports.filter((r) => r.jobId !== jobId)
+
+  // `undefined` while the query is out, so the section can say "Loading…"
+  // rather than "no reports for this visit yet" about reports it has not
+  // looked for.
+  const forThisJob = data?.filter((r) => r.jobId === jobId)
+  const elsewhere = data?.filter((r) => r.jobId !== jobId)
 
   return (
-    <Section label="Reports">
-      {forThisJob.length > 0 && (
-        <div className="mb-3 flex flex-col divide-y divide-hairline">
-          {forThisJob.map((report) => (
-            <ReportRow key={report._id} businessSlug={businessSlug} report={report} timezone={timezone} />
-          ))}
-        </div>
-      )}
+    <>
+      <InlineReportsSection
+        businessSlug={businessSlug}
+        timezone={timezone}
+        label="Reports for this visit"
+        reports={forThisJob}
+        empty="Nothing yet for this visit."
+        action={
+          <StartReportButtons
+            businessId={businessId}
+            businessSlug={businessSlug}
+            propertyId={propertyId}
+            jobId={jobId}
+            jobType={jobType}
+          />
+        }
+      />
 
-      {suggested ? (
-        <div className="flex gap-2">
-          <button
-            type="button"
-            disabled={create.isPending || !hydrated}
-            onClick={() =>
-              create.mutate({
-                businessId,
-                propertyId,
-                jobId,
-                template: suggested.id as TemplateId,
-                legalBasis: suggested.legalBasis,
-                data: {},
-              })
-            }
-            className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[14px] font-semibold text-surface transition active:scale-[.98] disabled:opacity-50"
-          >
-            <Plus size={16} strokeWidth={1.8} />
-            {create.isPending ? 'Starting…' : `Start ${suggested.shortName}`}
-          </button>
-          <Link
-            to="/$businessSlug/reports/new"
-            params={{ businessSlug }}
-            search={{ propertyId, jobId }}
-            className="flex h-10 items-center justify-center rounded-xl bg-surface-2 px-3 text-[14px] font-semibold text-ink transition active:scale-[.98]"
-          >
-            Other…
-          </Link>
-        </div>
-      ) : (
-        <Link
-          to="/$businessSlug/reports/new"
-          params={{ businessSlug }}
-          search={{ propertyId, jobId }}
-          className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
-        >
-          <Plus size={16} strokeWidth={1.8} />
-          New report
-        </Link>
+      {elsewhere && elsewhere.length > 0 && (
+        <InlineReportsSection
+          businessSlug={businessSlug}
+          timezone={timezone}
+          label="Other reports at this property"
+          reports={elsewhere}
+          empty=""
+        />
       )}
-
-      {otherReports.length > 0 && (
-        <>
-          <p className="section-label mb-2 mt-4">Other reports at this property</p>
-          <div className="flex flex-col divide-y divide-hairline">
-            {otherReports.map((report) => (
-              <ReportRow key={report._id} businessSlug={businessSlug} report={report} timezone={timezone} />
-            ))}
-          </div>
-        </>
-      )}
-    </Section>
-  )
-}
-
-function ReportRow({
-  businessSlug,
-  report,
-  timezone,
-}: {
-  businessSlug: string
-  report: {
-    _id: Id<'reports'>
-    legalBasis: string
-    status: string
-    finalisedAt?: number
-    createdAt: number
-  }
-  timezone: string
-}) {
-  return (
-    <Link
-      to="/$businessSlug/reports/$reportId"
-      params={{ businessSlug, reportId: report._id }}
-      className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
-    >
-      <span className="min-w-0">
-        <span className="block truncate text-body text-ink">
-          {report.legalBasis}
-        </span>
-        <span className="text-caption text-muted">
-          {new Intl.DateTimeFormat('en-AU', {
-            timeZone: timezone,
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-          }).format(new Date(report.finalisedAt ?? report.createdAt))}
-        </span>
-      </span>
-      <span
-        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-          report.status === 'finalised'
-            ? 'bg-green/12 text-green'
-            : 'border border-amber-line bg-amber-bg text-amber-ink'
-        }`}
-      >
-        {report.status === 'finalised' ? 'Finalised' : 'Draft'}
-      </span>
-    </Link>
+    </>
   )
 }
 

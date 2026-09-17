@@ -291,9 +291,11 @@ test('a subcontractor sees their own reports even when newer ones are not theirs
   // page is entirely other people's reports — and a list that stopped there
   // would tell them they have none.
   const theirs = await createReport(s.sub.client, s, 'serviceReport')
-  for (let n = 0; n < 26; n++) {
-    await createReport(s.owner.client, s, 'serviceReport')
-  }
+  // In parallel: twenty-six sequential creates is a minute of setup under
+  // worker contention, and this test is about the paging, not the seeding.
+  await Promise.all(
+    Array.from({ length: 26 }, () => createReport(s.owner.client, s, 'serviceReport')),
+  )
 
   await signInViaUi(page, s.sub.email)
   await page.goto(`/${s.slug}/reports`)

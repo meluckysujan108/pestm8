@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { jobVisibility, requireMembership, requireOwner, resolveViewScope } from './lib/access'
-import { canSeeReport, summarise } from './reports'
+import { INLINE_LIMIT, canSeeReport, decorate as decorateReports } from './reports'
 import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
@@ -153,7 +153,7 @@ export const reports = query({
       ),
     )
 
-    return reportsByProperty
+    const visible = reportsByProperty
       .flat()
       .filter(
         (r) =>
@@ -161,7 +161,12 @@ export const reports = query({
           r.deletedAt === undefined &&
           canSeeReport(membership, r),
       )
-      .map(summarise)
       .sort((a, b) => (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt))
+      // Bounded: this is a section inside a sheet. The library holds the rest.
+      .slice(0, INLINE_LIMIT)
+
+    // The same decoration the library gives a row, so a report is named the
+    // same thing wherever it is listed.
+    return decorateReports(ctx, visible)
   },
 })

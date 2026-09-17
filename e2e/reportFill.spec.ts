@@ -697,3 +697,66 @@ test.describe('the one question the phone answers better', () => {
     await expect(page.getByText(/captured/)).toHaveCount(0)
   })
 })
+
+test.describe('reports where the work is', () => {
+  test('a job sheet separates this visit from the property’s history', async ({ page }) => {
+    const { email, owner, businessId, slug, reportId } = await startJobReport('inline-job')
+
+    // A second report at the same address, from no job at all: the property's
+    // history, not this visit's.
+    const property = await owner.client.query(api.reports.get, { businessId, reportId })
+    await createReport(
+      owner.client,
+      { businessId, propertyId: property!.propertyId },
+      'timberPestInspection',
+    )
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/schedule`)
+    await page.getByRole('button', { name: /General Pest Control/ }).first().click()
+
+    const sheet = page.getByRole('dialog')
+    // The report for THIS job is the thing a technician came looking for; the
+    // rest is context.
+    const thisVisit = sheet.getByRole('heading', { name: 'Reports for this visit' })
+    await expect(thisVisit).toBeVisible()
+    await expect(
+      sheet.getByRole('heading', { name: 'Other reports at this property' }),
+    ).toBeVisible()
+
+    // Named for the form, not for the standard it was written to — three
+    // different documents all used to read "APVMA · AEPMA".
+    await expect(sheet.getByText('Pest Service Report').first()).toBeVisible()
+    await expect(sheet.getByText('Timber Pest Inspection').first()).toBeVisible()
+  })
+
+  test('a client with no reports is told so, rather than shown nothing', async ({
+    page,
+  }) => {
+    const email = uniqueEmail('inline-client')
+    const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
+    const { businessId, slug } = await owner.client.mutation(api.businesses.create, {
+      name: `Inline ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    })
+    await owner.client.mutation(api.properties.create, {
+      businessId,
+      clientName: 'J. Nguyen',
+      addressLine: '12 Wattle Street',
+      suburb: 'Bayswater',
+      state: 'WA',
+      postcode: '6053',
+    })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/clients`)
+    await page.getByText('J. Nguyen').first().click()
+
+    const sheet = page.getByRole('dialog')
+    await expect(sheet.getByRole('heading', { name: 'Reports' })).toBeVisible()
+    // The section used to render nothing at all when empty, so a client with
+    // no reports had no heading and no hint that reports exist.
+    await expect(sheet.getByText(/No reports yet/)).toBeVisible()
+  })
+})
