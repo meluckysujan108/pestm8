@@ -1,9 +1,14 @@
-import { createFileRoute, notFound, redirect } from '@tanstack/react-router'
+import {
+  createFileRoute,
+  notFound,
+  Outlet,
+  redirect,
+} from '@tanstack/react-router'
 import { convexQuery } from '@convex-dev/react-query'
-import { Outlet } from '@tanstack/react-router'
 import { api } from '../../../convex/_generated/api'
 import { AppShell } from '#/components/shell/AppShell'
-import { ViewingAsBanner } from '#/components/shell/ViewingAsBanner'
+import { SwitchBanner } from '#/components/shell/SwitchBanner'
+import { AccessProvider } from '#/lib/access'
 
 export const Route = createFileRoute('/$businessSlug')({
   beforeLoad: async ({ context, params }) => {
@@ -17,6 +22,14 @@ export const Route = createFileRoute('/$businessSlug')({
     // caller isn't a member of, so this 404 leaks no existence information.
     if (!business) throw notFound()
 
+    // Warmed here so the shell renders without a suspense flash. It is NOT
+    // read from this context: `access.me` follows a switch and a snapshot
+    // taken here could not, because `ensureQueryData` returns the cache
+    // rather than refetching. Gates read it live, through `useAccess`.
+    await context.queryClient.ensureQueryData(
+      convexQuery(api.access.me, { businessId: business._id }),
+    )
+
     return { business, membership: business.membership }
   },
   component: BusinessLayout,
@@ -26,11 +39,14 @@ function BusinessLayout() {
   const { business, membership } = Route.useRouteContext()
 
   return (
-    <>
-      <ViewingAsBanner businessId={business._id} />
-      <AppShell business={business} membership={membership}>
+    <AccessProvider businessId={business._id}>
+      <AppShell
+        business={business}
+        membership={membership}
+        banner={<SwitchBanner businessId={business._id} />}
+      >
         <Outlet />
       </AppShell>
-    </>
+    </AccessProvider>
   )
 }

@@ -291,7 +291,9 @@ const ADMIN_CAPABILITIES = [
   'clients.manage',
 ] as const satisfies ReadonlyArray<Capability>
 
-const ALL_CAPABILITIES = Object.keys(
+/** Every capability, derived from the policy table so the two cannot drift.
+ * Exported because the client needs the full set to render gates from. */
+export const ALL_CAPABILITIES = Object.keys(
   ROLE_POLICY.owner,
 ) as ReadonlyArray<Capability>
 

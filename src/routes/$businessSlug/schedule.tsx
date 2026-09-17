@@ -29,6 +29,7 @@ import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { travelHintsFor } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
+import { useActing, useCan } from '#/lib/access'
 
 const VIEW_OPTIONS: Array<{ value: 'list' | 'board' | 'table'; label: string }> = [
   { value: 'list', label: 'List' },
@@ -57,7 +58,10 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
 })
 
 function SchedulePage() {
-  const { business, membership } = Route.useRouteContext()
+  const { business } = Route.useRouteContext()
+  const canDispatch = useCan('jobs.dispatch')
+  // The account being worked in, so the day opens on the right person's round.
+  const acting = useActing()
   const { date, jobId, view } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const openJobId = jobId ?? null
@@ -98,7 +102,7 @@ function SchedulePage() {
   )
   const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(
     jobs,
-    membership._id,
+    acting.membershipId,
   )
   // No desktop/mobile special-case any more. The query is cached and keyed by
   // its (canonicalised) day set, so the desktop panel asking for the same day
@@ -111,14 +115,14 @@ function SchedulePage() {
     jobs.map((j) => ({
       dayKey: selectedKey,
       suburb: j.suburb,
-      postcode: j.postcode ?? '',
+      postcode: j.postcode,
     })),
   )
 
   // Coordinates come from the raw entries: a travel hint is geography, and
   // must not disappear just because a forecast is still in flight.
   const travel = travelHintsFor(filteredJobs, (job) =>
-    weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
+    weather.byKey[weatherKeyOf(job.suburb, job.postcode, selectedKey)],
   )
 
   // `jobId` is deliberately dropped rather than carried: moving to another day
@@ -262,7 +266,7 @@ function SchedulePage() {
                     job={job}
                     variant={cardVariant}
                     travel={travel[job._id]}
-                    weather={weather.cell(job.suburb, job.postcode ?? '', selectedKey)}
+                    weather={weather.cell(job.suburb, job.postcode, selectedKey)}
                     timezone={business.timezone}
                     onOpen={setOpenJobId}
                   />
@@ -278,7 +282,7 @@ function SchedulePage() {
         businessSlug={business.slug}
         timezone={business.timezone}
         jobId={openJobId}
-        canReassign={membership.role === 'owner'}
+        canReassign={canDispatch}
         onClose={() => setOpenJobId(null)}
       />
 

@@ -4,6 +4,7 @@ import { convexQuery } from '@convex-dev/react-query'
 import { Check, ChevronsUpDown } from 'lucide-react'
 import { Popover } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
+import { useAccess } from '#/lib/access'
 import type { ShellBusiness, ShellMembership } from './AppShell'
 
 export function BusinessSwitcher({
@@ -16,6 +17,10 @@ export function BusinessSwitcher({
   const { data: businesses } = useSuspenseQuery(
     convexQuery(api.businesses.listForUser, {}),
   )
+  // Live, not the route-context snapshot beside it: that is resolved once in
+  // `beforeLoad` and cannot follow a role change or a switch. The colour still
+  // comes from the snapshot because it is the person's own and does not move.
+  const { role } = useAccess()
 
   const trigger = (
     // Collapsed, this reduces to the membership colour dot centred in the
@@ -31,9 +36,7 @@ export function BusinessSwitcher({
         <span className="block truncate text-row-title text-ink">
           {current.name}
         </span>
-        <span className="block text-caption capitalize text-muted">
-          {membership.role}
-        </span>
+        <span className="block text-caption capitalize text-muted">{role}</span>
       </span>
     </div>
   )
