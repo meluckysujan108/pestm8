@@ -30,6 +30,14 @@ export default defineConfig({
     trace: 'on-first-retry',
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
+    /**
+     * The suite asserts the light palette — `design-tokens.spec.ts` reads a
+     * rendered colour and checks it is dark enough to be text. With no cookie
+     * the app follows the OS, so that assertion was only passing because
+     * Playwright happens to default to light. Pin it, and keep the dark-mode
+     * assertions in `theme.spec.ts`, which opts in per test.
+     */
+    colorScheme: 'light',
   },
   timeout: 60_000,
   projects: [

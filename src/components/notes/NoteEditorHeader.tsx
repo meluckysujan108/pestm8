@@ -246,7 +246,7 @@ export function NoteEditorHeader({
 
       <AlertDialog.Root open={confirmPurgeOpen} onOpenChange={setConfirmPurgeOpen}>
         <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/30" />
+          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
           <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
             <AlertDialog.Title className="text-row-title text-ink">
               Delete this note for good?

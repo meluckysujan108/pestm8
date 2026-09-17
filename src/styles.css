@@ -3,10 +3,37 @@
 
 /*
  * PestM8 design tokens — source of truth is PestM8_dc.html (ARCHITECTURE.md §2.1).
- * The app is deliberately light-only: it mirrors iOS Calendar, and the design
- * partner's field use is outdoors in daylight.
+ *
+ * Colour lives in exactly two places: the palette blocks below, and the
+ * shadcn contract that maps onto them. Nothing under src/ should name a colour
+ * literally — that is what makes a second theme a ~25-line change here rather
+ * than a sweep through the ~700 places a colour utility is used.
+ *
+ * A theme is selected by `data-theme`, normally on <html>, written before first
+ * paint by `themeInitScript` in src/lib/theme.ts. An attribute rather than a
+ * class because it is symmetric and nestable: `<article data-theme="light">`
+ * pins a subtree to light inside a dark app, which is how the report preview
+ * goes on matching the PDF it will be printed as.
  */
-:root {
+
+/*
+ * Binds Tailwind's `dark:` variant to the app's own preference. v4's default is
+ * `prefers-color-scheme`, which fires even for someone who has explicitly
+ * chosen Light — the bug that made the vendored shadcn `dark:` classes apply on
+ * dark-OS devices while this file still claimed the app was light-only.
+ *
+ * Nothing under src/ should need the variant; the palette carries the theme.
+ * It is declared so that anything re-vendored from shadcn later obeys the
+ * toggle instead of the OS.
+ */
+@custom-variant dark (&:where([data-theme='dark'], [data-theme='dark'] *));
+
+/* Raw palette, light. Along with its dark twin below, the only thing a theme
+   re-declares. */
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
   --ink: #1c1c1e;
   --ink-2: #3a3a3c;
   --muted: #8e8e93;
@@ -27,17 +54,94 @@
   --amber-bg: #fff8ec;
   --amber-line: #ffe2b8;
 
+  /* Sticky headers and the mobile dock, behind a backdrop-filter. */
+  --chrome: rgba(255, 255, 255, 0.92);
+  /* Dimmer behind sheets and dialogs. */
+  --scrim: rgba(0, 0, 0, 0.3);
+
+  --elevation: 0 1px 2px rgba(16, 17, 26, 0.04), 0 10px 24px -16px rgba(16, 17, 26, 0.26);
+  --elevation-red: 0 1px 2px rgba(255, 59, 48, 0.22), 0 8px 18px -10px rgba(255, 59, 48, 0.55);
+}
+
+/*
+ * Raw palette, dark — iOS's dark mode, since the app mirrors iOS Calendar.
+ * Two of its habits are load-bearing here:
+ *
+ * Elevation is lightness, not shadow. A drop shadow reads as nothing against
+ * #000, so --canvas is black and cards sit *above* it at #1c1c1e — the reverse
+ * of light, where white cards sit above a grey canvas. Every `bg-surface` card
+ * keeps reading as lifted without a component changing.
+ *
+ * --blue and --amber are deliberately unchanged: #0A84FF and #FF9F0A are
+ * already iOS's *dark* systemBlue and systemOrange. Light-mode iOS would use
+ * #007AFF and #FF9500, so the light palette is the one that diverges. Do not
+ * "fix" them to match.
+ */
+:root[data-theme='dark'],
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --ink: #ffffff;
+  --ink-2: #e5e5ea;
+  --muted: #98989f;
+  --muted-2: #8e8e93;
+  /* Must stay translucent: a hairline composites over both --canvas (#000) and
+     --surface (#1c1c1e), and `* { @apply border-border }` makes it the default
+     border colour for every element in the app. At 14% white it resolves to
+     ≈#242426 on canvas and ≈#35353a on a card — visible against both. */
+  --hairline: rgba(235, 235, 245, 0.14);
+  --hairline-2: rgba(235, 235, 245, 0.08);
+  --surface: #1c1c1e;
+  --surface-2: #2c2c2e;
+  /* Nearer --surface than --surface-2 is, mirroring light (#f4f4f8 sits nearer
+     white than #f2f2f7 does), so input wells keep reading as input wells. */
+  --surface-3: #2a2a2c;
+  --canvas: #000000;
+  --fill-track: rgba(120, 120, 128, 0.28);
+
+  --red: #ff453a;
+  --blue: #0a84ff;
+  --green: #30d158;
+  --amber: #ff9f0a;
+  /* Warning *text*, so it inverts: a dark orange for a pale well in light, a
+     bright one for a dark well here. */
+  --amber-ink: #ffb340;
+  --amber-bg: #2a1e0a;
+  --amber-line: #4d3712;
+
+  --chrome: rgba(28, 28, 30, 0.82);
+  /* 30% black over a black canvas barely dims; a sheet needs its backdrop to
+     recede further here than it does in light. */
+  --scrim: rgba(0, 0, 0, 0.6);
+
+  /* A hairline ring does the edge-definition work the shadow can no longer do.
+     The token stays defined so `shadow-elevation` keeps resolving. */
+  --elevation: 0 0 0 0.5px rgba(235, 235, 245, 0.09), 0 8px 20px -12px rgba(0, 0, 0, 0.9);
+  --elevation-red: 0 0 0 0.5px rgba(255, 69, 58, 0.35), 0 8px 18px -10px rgba(255, 69, 58, 0.5);
+}
+
+/* Geometry — never themed. */
+:root {
   --radius: 12px;
   --radius-card: 18px;
   --radius-card-lg: 22px;
   --radius-segmented: 9px;
   --radius-sheet: 22px;
+}
 
-  --elevation: 0 1px 2px rgba(16, 17, 26, 0.04), 0 10px 24px -16px rgba(16, 17, 26, 0.26);
-  --elevation-red: 0 1px 2px rgba(255, 59, 48, 0.22), 0 8px 18px -10px rgba(255, 59, 48, 0.55);
-
-  /* shadcn/ui contract — remapped onto the tokens above so copied-in
-     components inherit the iOS look instead of the default zinc palette. */
+/*
+ * shadcn/ui contract — remapped onto the tokens above so copied-in components
+ * inherit the iOS look instead of the default zinc palette.
+ *
+ * Scoped to `[data-theme]` as well as `:root`. These are computed once on the
+ * element that carries the palette and merely inherited below it, so without
+ * the second selector a nested `data-theme="light"` subtree would re-declare
+ * --canvas and --ink but go on inheriting the *document's* dark --border and
+ * --card — putting dark hairlines on the light report paper, via the global
+ * `* { @apply border-border }`.
+ */
+:root,
+[data-theme] {
   --background: var(--canvas);
   --foreground: var(--ink);
   --card: var(--surface);
@@ -83,6 +187,8 @@
   --color-surface-3: var(--surface-3);
   --color-canvas: var(--canvas);
   --color-fill-track: var(--fill-track);
+  --color-chrome: var(--chrome);
+  --color-scrim: var(--scrim);
   --color-red: var(--red);
   --color-blue: var(--blue);
   --color-green: var(--green);
@@ -196,7 +302,7 @@
 }
 
 @utility chrome-blur {
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--chrome);
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
 }

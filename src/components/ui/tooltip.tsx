@@ -44,7 +44,10 @@ function TooltipContent({
         data-slot="tooltip-content"
         sideOffset={sideOffset}
         className={cn(
-          'z-50 rounded-lg bg-ink px-2.5 py-1.5 text-caption font-semibold text-white shadow-elevation',
+          // text-canvas, not text-white: --ink is near-black in light and
+          // pure white in dark, so a fixed white would be white-on-white.
+          // Pairing the two tokens keeps this an inverted chip in both.
+          'z-50 rounded-lg bg-ink px-2.5 py-1.5 text-caption font-semibold text-canvas shadow-elevation',
           'animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95',
           className,
         )}

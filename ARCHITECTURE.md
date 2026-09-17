@@ -35,25 +35,37 @@ A calendar-first job scheduling and compliance-reporting tool for small Australi
 
 ## 2.1 Tokens
 ```
-Colour
-  --ink          #1C1C1E   primary text
-  --ink-2        #3A3A3C   body text
-  --muted        #8E8E93   secondary text
-  --muted-2      #9B9BA1   section labels
-  --hairline     rgba(60,60,67,.10)
-  --hairline-2   rgba(60,60,67,.07)
-  --surface      #FFFFFF
-  --surface-2    #F2F2F7   inset cards
-  --surface-3    #F4F4F8   input fill
-  --canvas       #EDEDF1   app background
-  --fill-track   rgba(118,118,128,.08)  segmented control track
-  --red          #FF3B30   primary action, selected date, brand
-  --blue         #0A84FF   links, contact actions, secondary buttons
-  --green        #34C759   invoiced / success
-  --amber        #FF9F0A   completed-awaiting-invoice
-  --amber-ink    #B26B00   warning text
-  --amber-bg     #FFF8EC   warning surface
-  --amber-line   #FFE2B8   warning border
+Colour — light / dark. Both themes ship; the app follows the OS unless the
+person picks one in the account menu (§2.2). Only these raw tokens are
+re-declared per theme, so nothing else in the system is themed twice.
+
+                 light                  dark
+  --ink          #1C1C1E                #FFFFFF    primary text
+  --ink-2        #3A3A3C                #E5E5EA    body text
+  --muted        #8E8E93                #98989F    secondary text
+  --muted-2      #9B9BA1                #8E8E93    section labels
+  --hairline     rgba(60,60,67,.10)     rgba(235,235,245,.14)
+  --hairline-2   rgba(60,60,67,.07)     rgba(235,235,245,.08)
+  --surface      #FFFFFF                #1C1C1E    cards
+  --surface-2    #F2F2F7                #2C2C2E    inset cards
+  --surface-3    #F4F4F8                #2A2A2C    input fill
+  --canvas       #EDEDF1                #000000    app background
+  --fill-track   rgba(118,118,128,.08)  rgba(120,120,128,.28)  segmented track
+  --chrome       rgba(255,255,255,.92)  rgba(28,28,30,.82)     sticky bars
+  --scrim        rgba(0,0,0,.30)        rgba(0,0,0,.60)        sheet backdrop
+  --red          #FF3B30                #FF453A    primary action, brand
+  --blue         #0A84FF                #0A84FF    links, contact actions
+  --green        #34C759                #30D158    invoiced / success
+  --amber        #FF9F0A                #FF9F0A    completed-awaiting-invoice
+  --amber-ink    #B26B00                #FFB340    warning text
+  --amber-bg     #FFF8EC                #2A1E0A    warning surface
+  --amber-line   #FFE2B8                #4D3712    warning border
+
+  Dark inverts the elevation model: --canvas is black and cards sit *above* it,
+  where light has white cards on a grey canvas. --blue and --amber do not move
+  because the light palette already uses iOS's *dark* systemBlue/systemOrange.
+  Printed surfaces do not follow the theme — the report preview pins itself
+  light so it goes on matching the PDF (ReportDocument.tsx).
 
 Typography — -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', system-ui
   H1 page title      28px / 700 / -.024em
@@ -72,7 +84,7 @@ Radius     card 18–22px · input 12px · segmented 8–9px · pill 100px · sh
 Elevation  0 1px 2px rgba(16,17,26,.04), 0 10px 24px -16px rgba(16,17,26,.26)
 Red button 0 1px 2px rgba(255,59,48,.22), 0 8px 18px -10px rgba(255,59,48,.55)
 Motion     sheetUp .26s cubic-bezier(.32,.72,0,1) · fadeIn .2s · button active scale(.975)
-Chrome     sticky header + tab bar, rgba(255,255,255,.92) + backdrop-filter blur(24px) saturate(180%)
+Chrome     sticky header + tab bar, var(--chrome) + backdrop-filter blur(24px) saturate(180%)
 Numerals   font-variant-numeric: tabular-nums globally
 Shell      max-width 460px centred on canvas
 ```

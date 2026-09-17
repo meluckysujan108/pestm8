@@ -63,7 +63,7 @@ export function JobDetailSheet({
   return (
     <Drawer.Root open={jobId !== null} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-black/30" />
+        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
 
@@ -363,7 +363,7 @@ function JobDetailBody({
 
           <AlertDialog.Root open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
             <AlertDialog.Portal>
-              <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/30" />
+              <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
               <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
                 <AlertDialog.Title className="text-row-title text-ink">
                   Cancel this job?
@@ -403,7 +403,7 @@ function JobDetailBody({
             onOpenChange={setConfirmStopRepeatingOpen}
           >
             <AlertDialog.Portal>
-              <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/30" />
+              <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
               <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
                 <AlertDialog.Title className="text-row-title text-ink">
                   Stop repeating this service?
