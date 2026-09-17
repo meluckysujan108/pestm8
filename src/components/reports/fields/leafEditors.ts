@@ -19,6 +19,7 @@ import { emptyAreas } from '#/lib/reportTemplates'
 import type { CellDef, FieldDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import type { OptionSetKey } from '#/lib/reportTemplates'
+import type { Snippet } from '#/lib/reportTemplates/snippets'
 import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { ComponentType } from 'react'
 
@@ -58,6 +59,18 @@ export type EditorCtx = {
    * preview, a test — and a control must work without it.
    */
   remember?: (key: OptionSetKey, values: Array<string>) => void
+  /**
+   * The wording this business reuses in the long-answer boxes, and what a
+   * phrases sheet does with it. Absent where nothing is listening — a preview,
+   * a test — and the box still works as a plain textarea.
+   */
+  phrases?: {
+    /** This question's saved phrases, in the order they should be offered. */
+    forField: (fieldKey: string) => Array<Snippet>
+    save: (fieldKey: string, text: string) => void
+    used: (id: string) => void
+    remove: (id: string) => void
+  }
 }
 
 export type EditorProps<TField extends FieldDef = FieldDef> = {

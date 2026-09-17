@@ -8,6 +8,8 @@ import {
   withLocked,
 } from '#/lib/reportTemplates/choices'
 import { PickerSheet, PickerTrigger } from './PickerSheet'
+import { PhrasesSheet } from './PhrasesSheet'
+import { withSnippet } from '#/lib/reportTemplates/snippets'
 import type { EditorCtx, EditorProps } from './registry'
 import type {
   AreaResult,
@@ -41,15 +43,50 @@ export function TextControl({ field, value, onChange }: Of<'text'>) {
   )
 }
 
-export function AreaControl({ field, value, onChange }: Of<'area'>) {
+export function AreaControl({ field, value, onChange, ctx }: Of<'area'>) {
+  const [picking, setPicking] = useState(false)
+  const text = (value as string | undefined) ?? ''
+  const phrases = ctx.phrases
+  const saved = phrases?.forField(field.key) ?? []
+
   return (
-    <textarea
-      value={(value as string | undefined) ?? ''}
-      placeholder={field.placeholder}
-      rows={field.rows ?? 3}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-xl bg-surface-3 p-3.5 text-[16px] leading-relaxed text-ink outline-none focus:ring-2 focus:ring-blue"
-    />
+    <span className="flex flex-col gap-1.5">
+      <textarea
+        value={text}
+        placeholder={field.placeholder}
+        rows={field.rows ?? 3}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl bg-surface-3 p-3.5 text-[16px] leading-relaxed text-ink outline-none focus:ring-2 focus:ring-blue"
+      />
+
+      {/* Offered once there is something to offer OR something to keep, so a
+          business that has never saved one never sees the button. */}
+      {phrases && (saved.length > 0 || text.trim() !== '') && (
+        <button
+          type="button"
+          onClick={() => setPicking(true)}
+          className="self-start rounded-lg px-1 py-0.5 text-caption font-semibold text-blue transition active:scale-[.97]"
+        >
+          {saved.length > 0 ? `Phrases (${saved.length})` : 'Save as a phrase'}
+        </button>
+      )}
+
+      {phrases && (
+        <PhrasesSheet
+          open={picking}
+          onClose={() => setPicking(false)}
+          label={field.label}
+          phrases={saved}
+          current={text}
+          onPick={(phrase) => {
+            onChange(withSnippet(text, phrase.text))
+            phrases.used(phrase.id)
+          }}
+          onSave={(written) => phrases.save(field.key, written)}
+          onRemove={(phrase) => phrases.remove(phrase.id)}
+        />
+      )}
+    </span>
   )
 }
 

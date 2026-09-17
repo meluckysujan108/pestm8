@@ -1056,4 +1056,31 @@ export default defineSchema({
     updatedAt: v.number(),
     updatedByMembershipId: v.id('memberships'),
   }).index('by_business_key', ['businessId', 'key']),
+
+  /**
+   * Wording a business reuses in the long-answer boxes.
+   *
+   * The three forms have fifty-one of them between them — twenty-three on the
+   * Timber report alone, one per conducive condition — and the sentences that
+   * go in are the same sentences, visit after visit, typed with one thumb in
+   * somebody's back garden. A phrase is offered, never applied: it goes in
+   * when it is tapped and can be edited afterwards like anything typed.
+   *
+   * Shared across the business rather than kept per member, so an owner can
+   * write the wording they want issued once and everyone has it. Any member
+   * may add one — this is text a technician could type anyway, so saving it
+   * grants no authority the form did not already give them. Unlike an option
+   * library, which IS the answer, a phrase is only a head start on one.
+   */
+  reportSnippets: defineTable({
+    businessId: v.id('businesses'),
+    /** The field it was written for — wording belongs to the question. */
+    fieldKey: v.string(),
+    text: v.string(),
+    createdByMembershipId: v.id('memberships'),
+    /** The order they are offered in: what gets used rises. */
+    usedCount: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index('by_business_field', ['businessId', 'fieldKey']),
 })

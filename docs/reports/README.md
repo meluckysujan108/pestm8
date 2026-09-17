@@ -62,6 +62,79 @@ the difference matters on a document someone signs:
 is the one client-side exception: `auto` takes a reading when the question is
 first shown, but only where the browser already holds a granted permission.
 
+## What the business owns
+
+The forms are reproduced word for word, which means their wording is not the
+business's to change. Three things are — and each one is the difference
+between a form that fits this business and one it works around.
+
+**Option libraries** (`convex/optionSets.ts`, Settings › Reports). The
+nineteen vocabularies the forms draw on: products, treatments, application
+methods, what a next visit interval may say, how a building is described. An
+owner adds, renames, reorders, stars the usual few, stops offering one, or
+resets to the form's own list. Owner only: a vocabulary prints on every
+technician's signed documents.
+
+- **Renaming rewrites open drafts** in the same transaction, including inside
+  repeater cells (`rewriteDraftsForRename`). Inline rather than scheduled,
+  because renames chain — A→B then C→A — and jobs running out of order cannot
+  tell an original A from a C renamed a moment ago.
+- It is **best-effort against a technician editing that draft right now**;
+  their next save carries the old word back. Said out loud in the settings
+  copy rather than solved with a locking scheme a one-technician draft does
+  not need.
+- **Pinned values cannot be renamed.** A template that matches an option by
+  value — a locked item, an exclusive one, an answer a `visibleWhen` tests —
+  would have its behaviour changed, not its wording. `pinnedValues()` collects
+  them from the built-ins *and* the business's own templates; the editor greys
+  them rather than letting the mutation refuse afterwards. None of the three
+  Pest M8 forms pins anything today: they print these lists and nothing more.
+- Finalised reports are never touched. They carry their own frozen copy of
+  every list inside `templateSnapshotId`.
+
+**Template settings** (`convex/templateSettings.ts`) — cover wording, footer
+name, signing rule, email subject and recipients, without forking the form.
+Anything that would change a question or an answer is on the other side of
+that line: a clone.
+
+**Phrases** (`convex/snippets.ts`) — saved wording for the long-answer boxes,
+of which the three forms have fifty-one, twenty-three on the Timber report
+alone. Any member may add one, which is the difference from an option library:
+a library IS the answer, a controlled vocabulary printed as a chosen value, so
+only an owner changes it; a phrase is a head start on an answer the technician
+could type anyway. Tapping one **adds** it to what is written rather than
+replacing it — the standard wording and the one thing that was different about
+today are both wanted.
+
+## Fewer taps the second time
+
+Two mechanisms, both of which cost nothing to set up.
+
+**What a picker offers first.** `optionSets.usual` unions the business's own
+`usual` flags with `memberships.reportPrefs.recent[key]` — five deep, per
+member, learned when a picker closes rather than on every tap — and the sheet
+puts them under "Usually" above the rest of the list. Per member because the
+list a rodent technician reaches for is not the termite crew's, and neither
+should have to say so in Settings.
+
+**Copy from last visit.** `reports.lastAtProperty` finds the newest finalised
+report of the same form at the same address (ranked by when it was *signed*,
+not started) and the overview offers what is still worth taking, by name. The
+form decides what may be carried: a field says `carryOver` when its answer is
+about the PLACE — what gets treated, what was found, how the house is built —
+and stays silent when it is about the DAY. Dates, times, weather, GPS,
+comments, photos and signatures are never carried, because a stale one under a
+signature is worse than a blank: a blank reads as unanswered, "Sunny, 9:15 am"
+reads as observed.
+
+Everything copied lands as a `lastVisit` suggestion, so it is still confirmed
+before it prints, and nothing is copied over an answer already given. The
+mutation hands the patch back as well as writing it — the builder holds the
+answers in its own state and autosaves them wholesale, so a patch it does not
+know about is one its next save erases — and the builder flushes immediately,
+or the copy sits in the draft mirror and greets the technician with a restore
+prompt.
+
 ## Finalising
 
 `reports.finalise` is the only one-way door in the app.
@@ -218,3 +291,7 @@ not taking the library.
 - `seam.test.ts` pins the v1 snapshot hashes that finalised reports dereference.
 - `e2e/pdf.spec.ts`, `reportPdf.spec.ts` and `reportSnapshot.spec.ts` assert the
   delivered file: its text, its cover, its images and its frozen wording.
+- `e2e/optionSets.spec.ts` and `e2e/snippets.spec.ts` cover what the business
+  owns, and `e2e/reportFill.spec.ts`'s "second visit" tests cover the return
+  visit end to end. The access rules live in e2e rather than convex-test,
+  which has no Better Auth component and so cannot answer "who is asking".

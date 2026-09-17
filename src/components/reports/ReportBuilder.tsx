@@ -33,6 +33,7 @@ import type { TemplateSettings } from '#/lib/reportTemplates/settings'
 import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { SaveStatus } from '#/lib/useAutosave'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { Snippet } from '#/lib/reportTemplates/snippets'
 import { useHydrated } from '#/lib/useHydrated'
 import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { useAutosave } from '#/lib/useAutosave'
@@ -151,6 +152,48 @@ export function ReportBuilder({
     ...convexQuery(api.optionSets.usual, { businessId }),
     enabled: hydrated,
   })
+  /**
+   * The wording this business reuses in the long-answer boxes. One query for
+   * the whole form — a business keeps a couple of dozen across fifty-one
+   * boxes — grouped here so a control asks a map rather than the server.
+   */
+  const { data: snippets } = useQuery({
+    ...convexQuery(api.snippets.list, { businessId }),
+    enabled: hydrated,
+  })
+  const convexSaveSnippet = useConvexMutation(api.snippets.save)
+  const convexUsedSnippet = useConvexMutation(api.snippets.used)
+  const convexRemoveSnippet = useConvexMutation(api.snippets.remove)
+  const phrases = useMemo(() => {
+    const byField = new Map<string, Array<Snippet>>()
+    for (const row of snippets ?? []) {
+      byField.set(row.fieldKey, [...(byField.get(row.fieldKey) ?? []), row])
+    }
+    return {
+      forField: (fieldKey: string) => byField.get(fieldKey) ?? [],
+      save: (fieldKey: string, text: string) =>
+        void convexSaveSnippet({ businessId, fieldKey, text }).catch(() => {}),
+      // Fire and forget: this orders a list, and a report is not the place to
+      // surface a failed tally.
+      used: (id: string) =>
+        void convexUsedSnippet({
+          businessId,
+          snippetId: id as Id<'reportSnippets'>,
+        }).catch(() => {}),
+      remove: (id: string) =>
+        void convexRemoveSnippet({
+          businessId,
+          snippetId: id as Id<'reportSnippets'>,
+        }).catch(() => {}),
+    }
+  }, [
+    snippets,
+    businessId,
+    convexSaveSnippet,
+    convexUsedSnippet,
+    convexRemoveSnippet,
+  ])
+
   const convexRemember = useConvexMutation(api.optionSets.remember)
   const remember = useCallback(
     (key: OptionSetKey, values: Array<string>) => {
@@ -639,6 +682,7 @@ export function ReportBuilder({
                 roster,
                 usual,
                 remember,
+                phrases,
                 // Live answers, so a licence row follows the technician picked
                 // a moment ago rather than the one last saved.
                 context: context ? { ...context, answers: data } : undefined,

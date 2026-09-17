@@ -82,6 +82,8 @@ Shell      max-width 460px centred on canvas
 
 **Settings:** reached via avatar in header (not a tab), 3 segments — Profile / Team / Preferences
 
+*Amended (reports Phase 6):* a fourth segment, **Reports**, owner-only. It holds the business's option libraries — the nineteen vocabularies the forms draw on — one card per list opening a sheet that adds, renames, reorders, stars the usual few, archives and restores. The forms' wording is reproduced verbatim and is not the business's to change; the lists of answers ARE, and until this existed changing one needed a developer.
+
 **Modal sheets (5):**
 1. Month picker — bottom sheet, month grid, job-count dots, "Today"
 2. Job detail — bottom sheet, 92vh max, property/assignment/recurrence/actions
@@ -330,6 +332,14 @@ convex/
   now a thin wrapper over `reportPipeline.tsx`, which owns the single render
   path. `deliveries.ts` and `templateSettings.ts` are new; `http.ts` gained
   its first hand-written route, the Resend webhook.
+  *Amended (reports Phase 6):* `optionSets.ts` gained the owner mutations the
+  settings screen needs and two queries a technician's builder reads —
+  `editable` for the editor, `usual` for what a picker offers first (the
+  business's starred options unioned with this member's own recents, kept in
+  `memberships.reportPrefs`). `snippets.ts` is new: saved wording for the
+  long-answer boxes, writable by any member. `reports.ts` gained
+  `lastAtProperty`/`copyFromLastVisit`, which fill a return visit in from the
+  last report at the same address.
   notes.ts                   list, create, listForJob
   tasks.ts                   listOpen, complete, createDurableNoticeTask
   xero.ts                    [action] beginOAuth, completeOAuth, refresh, pushInvoice

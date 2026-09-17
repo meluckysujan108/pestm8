@@ -198,6 +198,8 @@ export type RejectionCode =
   | 'OPTION_PINNED'
   | 'OPTION_EXISTS'
   | 'INVALID_OPTION'
+  | 'TOO_MANY_SNIPPETS'
+  | 'INVALID_SNIPPET'
 
 export async function expectRejected(
   call: () => Promise<unknown>,
