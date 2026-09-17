@@ -1,11 +1,24 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Link } from '@tanstack/react-router'
+import { Link, useRouteContext } from '@tanstack/react-router'
 import { Popover } from 'radix-ui'
-import { Bell, LogOut, Settings, User } from 'lucide-react'
+import {
+  Bell,
+  Check,
+  LogOut,
+  Monitor,
+  Moon,
+  Settings,
+  Sun,
+  User,
+} from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { useAccess } from '#/lib/access'
+import { useHydrated } from '#/lib/useHydrated'
+import { useThemePref } from '#/lib/useTheme'
+import type { LucideIcon } from 'lucide-react'
+import type { ThemePref } from '#/lib/theme'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -28,6 +41,10 @@ export function AccountMenu({
   const [open, setOpen] = useState(false)
   const [showNotifications, setShowNotifications] = useState(false)
 
+  // Per src/lib/useHydrated.ts: this button only opens a popover, so before
+  // hydration it does nothing at all — silently. It is also the readiness
+  // signal e2e waits on instead of a timeout.
+  const hydrated = useHydrated()
   const access = useAccess()
   const { data: targets } = useQuery(
     convexQuery(api.accountSwitches.targets, { businessId }),
@@ -63,6 +80,7 @@ export function AccountMenu({
     >
       <Popover.Trigger
         type="button"
+        disabled={!hydrated}
         aria-label="Account menu"
         className="flex size-9 items-center justify-center rounded-full bg-surface-2 text-ink-2 transition active:scale-[.95]"
       >
@@ -170,10 +188,62 @@ export function AccountMenu({
                 <Bell size={16} strokeWidth={1.7} />
                 Notifications
               </button>
+
+              <div className="my-1 border-t border-hairline" />
+              <ThemeRows />
             </>
           )}
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
+  )
+}
+
+const THEMES: Array<{ value: ThemePref; label: string; icon: LucideIcon }> = [
+  { value: 'light', label: 'Light', icon: Sun },
+  { value: 'dark', label: 'Dark', icon: Moon },
+  { value: 'system', label: 'System', icon: Monitor },
+]
+
+/**
+ * Three rows rather than the `Segmented` control §2.3 asks for on a ternary
+ * choice: that primitive takes labels only, and an appearance picker reads far
+ * faster with the icons. Rows also match every other item in this menu.
+ *
+ * The menu deliberately stays open on a choice — the whole app repaints behind
+ * it, which is the confirmation.
+ *
+ * No hydration guard of its own: the menu cannot be opened before the trigger
+ * hydrates, so nothing here is reachable early.
+ */
+function ThemeRows() {
+  const { theme } = useRouteContext({ from: '__root__' })
+  const [pref, setTheme] = useThemePref(theme)
+
+  return (
+    <>
+      <p className="section-label px-2.5 pb-1 pt-2">Appearance</p>
+      <div role="radiogroup" aria-label="Appearance">
+        {THEMES.map(({ value, label, icon: Icon }) => {
+          const selected = value === pref
+          return (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={selected}
+              onClick={() => setTheme(value)}
+              className="flex w-full items-center gap-2 rounded-xl px-2.5 py-2 text-left text-row-title text-ink transition hover:bg-surface-2 disabled:opacity-50"
+            >
+              <Icon size={16} strokeWidth={1.7} />
+              <span className="flex-1">{label}</span>
+              {selected && (
+                <Check size={16} strokeWidth={2} className="text-blue" />
+              )}
+            </button>
+          )
+        })}
+      </div>
+    </>
   )
 }

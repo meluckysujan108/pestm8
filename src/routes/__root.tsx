@@ -1,11 +1,13 @@
 import {
   HeadContent,
   Outlet,
+  ScriptOnce,
   Scripts,
   createRootRouteWithContext,
   useRouteContext,
 } from '@tanstack/react-router'
 import { createServerFn } from '@tanstack/react-start'
+import { getCookie } from '@tanstack/react-start/server'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react'
@@ -14,6 +16,8 @@ import { ServiceWorker } from '#/components/shell/ServiceWorker'
 import { useHydrated } from '#/lib/useHydrated'
 import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
+import { THEME_COOKIE, normaliseThemePref, themeInitScript } from '#/lib/theme'
+import { useSystemThemeSync } from '#/lib/useTheme'
 import appCss from '../styles.css?url'
 
 import type { QueryClient } from '@tanstack/react-query'
@@ -25,7 +29,12 @@ interface RouterContext {
   convexQueryClient: ConvexQueryClient
 }
 
-const getAuth = createServerFn({ method: 'GET' }).handler(() => getToken())
+// One round trip, not two: `beforeLoad` already pays for this on every client
+// navigation, so the theme cookie rides along with the token.
+const getInitialState = createServerFn({ method: 'GET' }).handler(async () => ({
+  token: await getToken(),
+  theme: normaliseThemePref(getCookie(THEME_COOKIE)),
+}))
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => ({
@@ -46,11 +55,13 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     ],
   }),
   beforeLoad: async ({ context }) => {
-    const token = await getAuth()
+    const { token, theme } = await getInitialState()
     if (token) {
       context.convexQueryClient.serverHttpClient?.setAuth(token)
     }
-    return { isAuthenticated: !!token, token }
+    // `theme` seeds React state only. The attribute on <html> belongs to
+    // themeInitScript alone — see src/lib/theme.ts for why.
+    return { isAuthenticated: !!token, token, theme }
   },
   component: RootComponent,
   shellComponent: RootDocument,
@@ -79,6 +90,10 @@ function NotFound() {
 
 function RootComponent() {
   const { convexQueryClient, token } = useRouteContext({ from: Route.id })
+
+  // Mounted once, at the root: while the preference is `system`, this is what
+  // makes the app follow a phone that flips to dark at sunset.
+  useSystemThemeSync()
 
   // @convex-dev/better-auth 0.12.5 declares AuthClient as
   // createAuthClient<BetterAuthClientPlugin & { plugins }>, intersecting a
@@ -130,8 +145,15 @@ function Devtools() {
 
 function RootDocument({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en-AU">
+    // ScriptOnce sets data-theme and data-theme-pref while the head is being
+    // parsed, so the first paint is already the right theme. React renders no
+    // theme attribute of its own, which leaves reconciliation nothing to
+    // clobber later; suppressHydrationWarning covers the two attributes React
+    // did not put there. It renders server-side only and removes its own node,
+    // so the client's empty head matches.
+    <html lang="en-AU" suppressHydrationWarning>
       <head>
+        <ScriptOnce>{themeInitScript}</ScriptOnce>
         <HeadContent />
       </head>
       <body>

@@ -93,7 +93,10 @@ export function UpgradeBanner({
           <button
             type="button"
             onClick={() => setOpen(true)}
-            className="mt-2 h-9 rounded-xl bg-amber-ink px-3 text-[14px] font-semibold text-white transition active:scale-[.975]"
+            // --amber-ink is warning *text*, so it inverts between themes: a
+            // dark orange on a pale well in light, a bright one on a dark
+            // well in dark. White would be unreadable on the second.
+            className="mt-2 h-9 rounded-xl bg-amber-ink px-3 text-[14px] font-semibold text-canvas transition active:scale-[.975]"
           >
             {switching ? 'Switch to the new form' : 'Start again'}
           </button>
@@ -102,7 +105,7 @@ export function UpgradeBanner({
 
       <AlertDialog.Root open={open} onOpenChange={setOpen}>
         <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/30" />
+          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
           <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
             <AlertDialog.Title className="text-row-title text-ink">
               {switching ? 'Switch to the new form?' : 'Start again on the new form?'}

@@ -95,7 +95,11 @@ export function ReportDocument({
       : null
 
   return (
-    <article className="px-4 pt-4 pb-8">
+    // Pinned light in both themes. What this shows must match what
+    // reports/pdf/* prints on white paper, so it does not follow the app.
+    // data-theme re-declares the light palette for this subtree — the same
+    // rule that themes the document root; see src/styles.css.
+    <article data-theme="light" className="bg-canvas px-4 pt-4 pb-8 text-ink">
       <p className="section-label">{report.legalBasis}</p>
       <CoverPhoto
         businessId={businessId}

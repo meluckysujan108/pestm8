@@ -27,7 +27,14 @@ import type { VariantProps } from 'class-variance-authority'
  *    initial open state, which cannot agree with a server render. If the
  *    collapsed state should persist, read the cookie in the route's
  *    `beforeLoad` and pass it as `defaultOpen` — that runs before render.
- * 4. **No `dark:` variants.** The app is light-only by design (styles.css).
+ *    src/lib/theme.ts follows exactly this pattern for the theme preference.
+ * 4. **No `dark:` variants.** Not because the app is light-only — it is not,
+ *    since the appearance toggle — but because it does not need them: the
+ *    `--sidebar-*` tokens below are re-declared per theme in styles.css, so
+ *    this component follows the theme without naming a colour twice. Upstream's
+ *    `dark:` classes were deleted rather than kept, having silently applied on
+ *    every dark-OS device back when Tailwind's default variant still keyed off
+ *    `prefers-color-scheme`.
  *
  * The `--sidebar-*` colour tokens this leans on are already defined and
  * remapped onto the iOS palette in styles.css, so nothing here introduces the
