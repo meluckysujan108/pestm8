@@ -736,19 +736,50 @@ describe('which roles may be handed out', () => {
   })
 
   /**
-   * The column exists before the code that fills it — expand before migrate —
-   * but nothing yet assigns a team. A contractor minted today would hold
-   * business-wide `team.manage` with no team to scope it to.
+   * Held back until there was a team to scope one to: a contractor holds
+   * `team.manage` business-wide and is narrowed to their own people by
+   * `canManageMember`, so one minted before `team.assignTo` existed would have
+   * had more reach than a subcontractor and less structure than an owner.
    */
-  test('nor to contractor, until a contractor can have a team', async () => {
+  test('but a contractor can be, now that a contractor can have a team', async () => {
     const f = await scenario()
-    await expect(
-      f.terence.as.mutation(api.memberships.setRole, {
-        businessId: f.businessId,
-        membershipId: f.priyaId,
-        role: 'contractor',
+    await f.terence.as.mutation(api.memberships.setRole, {
+      businessId: f.businessId,
+      membershipId: f.priyaId,
+      role: 'contractor',
+    })
+    expect((await f.t.run((ctx) => ctx.db.get(f.priyaId)))?.role).toBe(
+      'contractor',
+    )
+  })
+
+  /**
+   * A grant that names the contractor you no longer work under reads as live
+   * and is not — `canSwitchInto` refuses it on every request, but the record
+   * is worse than no record.
+   */
+  test('and being promoted drops the grant to work in a contractor’s account', async () => {
+    const f = await scenario()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.kevinId, {
+        parentMembershipId: f.joId,
+        grants: {
+          switchInto: f.joId,
+          clientDirectory: false,
+          prices: false,
+          otherSchedules: false,
+        },
       }),
-    ).rejects.toThrow('ROLE_NOT_ASSIGNABLE')
+    )
+    await f.terence.as.mutation(api.memberships.setRole, {
+      businessId: f.businessId,
+      membershipId: f.kevinId,
+      role: 'contractor',
+    })
+
+    const row = await f.t.run((ctx) => ctx.db.get(f.kevinId))
+    expect(row?.grants?.switchInto).toBeNull()
+    expect(row?.parentMembershipId).toBeUndefined()
   })
 
   test('the role people actually get still works', async () => {
@@ -1617,5 +1648,183 @@ describe('setting someone’s toggles', () => {
     const row = await f.t.run((ctx) => ctx.db.get(f.priyaId))
     expect(row?.grants?.otherSchedules).toBe(false)
     expect(row?.canViewAllJobs).toBe(false)
+  })
+})
+
+describe('a contractor and their team', () => {
+  /** Jo becomes a contractor; Kevin works under her. Priya does not. */
+  async function team() {
+    const f = await scenario()
+    await f.terence.as.mutation(api.memberships.setRole, {
+      businessId: f.businessId,
+      membershipId: f.joId,
+      role: 'contractor',
+    })
+    await f.terence.as.mutation(api.team.assignTo, {
+      businessId: f.businessId,
+      membershipId: f.kevinId,
+      parentMembershipId: f.joId,
+    })
+    return f
+  }
+
+  test('the team is who was assigned to it, and nobody else', async () => {
+    const f = await team()
+    const roster = await f.t.run((ctx) => teamOf(ctx, f.businessId, f.joId))
+    expect(roster.map((m) => m._id)).toEqual([f.kevinId])
+  })
+
+  /**
+   * `team.manage` is business-wide for a contractor and narrowed to their own
+   * people by `canManageMember`. Without that narrowing, promoting someone
+   * would handed them the whole business.
+   */
+  test('a contractor manages their own team and no one else', async () => {
+    const f = await team()
+    await f.jo.as.mutation(api.memberships.setGrants, {
+      businessId: f.businessId,
+      membershipId: f.kevinId,
+      grants: {
+        switchInto: null,
+        clientDirectory: false,
+        prices: false,
+        otherSchedules: false,
+      },
+    })
+
+    await expect(
+      f.jo.as.mutation(api.memberships.setGrants, {
+        businessId: f.businessId,
+        membershipId: f.priyaId,
+        grants: {
+          switchInto: null,
+          clientDirectory: true,
+          prices: true,
+          otherSchedules: true,
+        },
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+  })
+
+  /** A contractor cannot hand out sight of prices they do not have. */
+  test('a contractor cannot grant more than they hold', async () => {
+    const f = await team()
+    await f.terence.as.mutation(api.memberships.setGrants, {
+      businessId: f.businessId,
+      membershipId: f.joId,
+      grants: {
+        switchInto: null,
+        clientDirectory: false,
+        prices: false,
+        otherSchedules: true,
+      },
+    })
+
+    const clamped = await f.jo.as.mutation(api.memberships.setGrants, {
+      businessId: f.businessId,
+      membershipId: f.kevinId,
+      grants: {
+        switchInto: null,
+        clientDirectory: true,
+        prices: true,
+        otherSchedules: true,
+      },
+    })
+    expect(clamped.prices).toBe(false)
+    expect(clamped.clientDirectory).toBe(false)
+    expect(clamped.otherSchedules).toBe(true)
+  })
+
+  /** The upward hop the whole grant exists for. */
+  test('a subcontractor can work in their own contractor’s account, once granted', async () => {
+    const f = await team()
+    await expect(
+      f.kevin.as.mutation(api.accountSwitches.start, {
+        businessId: f.businessId,
+        targetMembershipId: f.joId,
+      }),
+    ).rejects.toThrow('NOT_GRANTED')
+
+    await f.jo.as.mutation(api.memberships.setGrants, {
+      businessId: f.businessId,
+      membershipId: f.kevinId,
+      grants: {
+        switchInto: f.joId,
+        clientDirectory: false,
+        prices: false,
+        otherSchedules: false,
+      },
+    })
+    await f.kevin.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: f.joId,
+    })
+    expect((await read(f, f.kevin)).actor.acting._id).toBe(f.joId)
+  })
+
+  /**
+   * The grant names the contractor who gave it, so a move makes it inert by
+   * construction rather than by anything remembering to clear it — and
+   * `assignTo` clears it anyway.
+   */
+  test('moving teams ends that grant', async () => {
+    const f = await team()
+    await f.jo.as.mutation(api.memberships.setGrants, {
+      businessId: f.businessId,
+      membershipId: f.kevinId,
+      grants: {
+        switchInto: f.joId,
+        clientDirectory: false,
+        prices: false,
+        otherSchedules: false,
+      },
+    })
+
+    await f.terence.as.mutation(api.team.assignTo, {
+      businessId: f.businessId,
+      membershipId: f.kevinId,
+      parentMembershipId: null,
+    })
+    const row = await f.t.run((ctx) => ctx.db.get(f.kevinId))
+    expect(row?.grants?.switchInto).toBeNull()
+    expect(row?.parentMembershipId).toBeUndefined()
+  })
+
+  /**
+   * The bug this slice had to fix first: an absent parent is not a parent who
+   * grants nothing. Nobody had a team until today, so treating it that way
+   * would have wiped every toggle in the business on the first assignment.
+   */
+  test('taking someone off a team keeps what the owner gave them', async () => {
+    const f = await team()
+    await f.terence.as.mutation(api.memberships.setGrants, {
+      businessId: f.businessId,
+      membershipId: f.priyaId,
+      grants: {
+        switchInto: null,
+        clientDirectory: true,
+        prices: true,
+        otherSchedules: true,
+      },
+    })
+    await f.terence.as.mutation(api.team.assignTo, {
+      businessId: f.businessId,
+      membershipId: f.priyaId,
+      parentMembershipId: null,
+    })
+    expect(
+      (await f.t.run((ctx) => ctx.db.get(f.priyaId)))?.grants?.prices,
+    ).toBe(true)
+  })
+
+  test('only a subcontractor belongs to a team', async () => {
+    const f = await team()
+    await expect(
+      f.terence.as.mutation(api.team.assignTo, {
+        businessId: f.businessId,
+        membershipId: f.joId,
+        parentMembershipId: f.joId,
+      }),
+    ).rejects.toThrow('NOT_A_TEAM_MEMBER')
   })
 })

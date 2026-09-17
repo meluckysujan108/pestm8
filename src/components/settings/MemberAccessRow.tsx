@@ -14,6 +14,7 @@ export type Member = {
   grants: Grants
   canViewOtherAccounts: boolean
   canManage: boolean
+  parentMembershipId?: Id<'memberships'> | null
   licenceNumber?: string
   colour: string
   status: string
@@ -39,6 +40,28 @@ export function MemberAccessRow({
       canViewOtherAccounts: boolean
     }) => convexSetViewOthers(args),
   })
+
+  const convexSetRole = useConvexMutation(api.memberships.setRole)
+  const setRole = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      membershipId: Id<'memberships'>
+      role: 'subcontractor' | 'contractor'
+    }) => convexSetRole(args),
+  })
+
+  const convexAssignTo = useConvexMutation(api.team.assignTo)
+  const assignTo = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      membershipId: Id<'memberships'>
+      parentMembershipId: Id<'memberships'> | null
+    }) => convexAssignTo(args),
+  })
+
+  const contractors = others.filter(
+    (m) => m.role === 'contractor' && m.status === 'active',
+  )
 
   const convexSetGrants = useConvexMutation(api.memberships.setGrants)
   const setGrants = useMutation({
@@ -69,6 +92,59 @@ export function MemberAccessRow({
           </p>
         </div>
       </div>
+
+      {!isOwner && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-hairline-2 pt-3">
+          <label className="flex items-center gap-2">
+            <span className="text-caption text-muted">Role</span>
+            <select
+              value={member.role}
+              disabled={setRole.isPending}
+              onChange={(e) =>
+                setRole.mutate({
+                  businessId,
+                  membershipId: member._id,
+                  role: e.target.value as 'subcontractor' | 'contractor',
+                })
+              }
+              className="h-9 rounded-xl bg-surface-3 px-2.5 text-body text-ink outline-none focus:ring-2 focus:ring-blue disabled:opacity-50"
+            >
+              <option value="subcontractor">Subcontractor</option>
+              <option value="contractor">Contractor</option>
+            </select>
+          </label>
+
+          {/* Only a subcontractor belongs to a team — a contractor's place is
+              beside the owner, and the model is one level deep. */}
+          {member.role === 'subcontractor' && contractors.length > 0 && (
+            <label className="flex items-center gap-2">
+              <span className="text-caption text-muted">Works under</span>
+              <select
+                value={member.parentMembershipId ?? ''}
+                disabled={assignTo.isPending}
+                onChange={(e) =>
+                  assignTo.mutate({
+                    businessId,
+                    membershipId: member._id,
+                    parentMembershipId:
+                      e.target.value === ''
+                        ? null
+                        : (e.target.value as Id<'memberships'>),
+                  })
+                }
+                className="h-9 rounded-xl bg-surface-3 px-2.5 text-body text-ink outline-none focus:ring-2 focus:ring-blue disabled:opacity-50"
+              >
+                <option value="">Nobody — answers to you</option>
+                {contractors.map((c) => (
+                  <option key={c._id} value={c._id}>
+                    {c.name || c.email}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+        </div>
+      )}
 
       {/* Owners already see everything, so offering the toggle would imply it
           could be turned off. */}
