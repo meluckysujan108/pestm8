@@ -42,6 +42,62 @@ function freshRows(rows: Array<RepeaterRow>): Array<RepeaterRow> {
   return rows.map((row) => ({ ...row, _id: crypto.randomUUID() }))
 }
 
+function asRows(value: unknown): Array<RepeaterRow> {
+  return Array.isArray(value) ? (value as Array<RepeaterRow>) : []
+}
+
+/**
+ * A repeater row counts as answered only when every cell of it is.
+ *
+ * The same rule `validateReport` applies — it refuses a half-filled row with
+ * "Complete this row or delete it" — and it is the rule that makes carrying
+ * treatments work at all. A service report started from a job arrives with one
+ * row whose Treatment cell is ticked from the job type and whose product,
+ * quantity and method are blank. Reading that as "the technician has answered
+ * this" would withhold the three answers they most want.
+ */
+function rowComplete(row: RepeaterRow, columns: Array<string>): boolean {
+  return columns.every((column) => !isEmpty(row[column]))
+}
+
+/**
+ * Last visit's rows, filled into this report's without displacing anything.
+ *
+ * Blanks only, cell by cell: today's Treatment came off today's job and is a
+ * fact, while last visit's is a guess about the same site — so the fact stays
+ * and the guess fills the three cells beside it. Rows last visit had and this
+ * one does not are appended only while nothing here is finished, because
+ * adding a row to a table somebody is already filling in is a rearrangement,
+ * not a head start.
+ */
+function mergeRows(
+  previous: Array<RepeaterRow>,
+  current: Array<RepeaterRow>,
+  columns: Array<string>,
+): Array<RepeaterRow> | null {
+  const started = current.some((row) => rowComplete(row, columns))
+
+  let changed = false
+  const merged = current.map((row, index) => {
+    // Rows this report has and last visit did not simply keep what they hold.
+    if (index >= previous.length) return row
+    const from = previous[index]
+    const filled: RepeaterRow = { ...row }
+    for (const column of columns) {
+      if (isEmpty(filled[column]) && !isEmpty(from[column])) {
+        filled[column] = from[column]
+        changed = true
+      }
+    }
+    return filled
+  })
+
+  const extra = started ? [] : freshRows(previous.slice(current.length))
+  if (extra.length > 0) changed = true
+
+  return changed ? [...merged, ...extra] : null
+}
+
 export type CarriedOver = {
   /** The answers to merge in, already excluding anything answered. */
   data: Record<string, unknown>
@@ -63,12 +119,24 @@ export function carryOverFrom(
   for (const field of fieldsOf(template)) {
     if (field.carryOver !== true) continue
     const value = previous[field.key]
-    // Blank last time is nothing to offer, and an answer already given this
-    // time is the technician's — a suggestion never overwrites one.
-    if (isEmpty(value) || !isEmpty(current[field.key])) continue
+    // Blank last time is nothing to offer.
+    if (isEmpty(value)) continue
 
-    data[field.key] =
-      field.kind === 'repeater' ? freshRows(value as Array<RepeaterRow>) : value
+    if (field.kind === 'repeater') {
+      const merged = mergeRows(
+        asRows(value),
+        asRows(current[field.key]),
+        field.columns.map((column) => column.key),
+      )
+      if (merged === null) continue
+      data[field.key] = merged
+    } else {
+      // An answer already given this time is the technician's — a suggestion
+      // never overwrites one.
+      if (!isEmpty(current[field.key])) continue
+      data[field.key] = value
+    }
+
     prefill[field.key] = { source: 'lastVisit' }
     labels.push(field.label)
   }

@@ -105,6 +105,70 @@ describe('copying from the last visit', () => {
     expect(rows[0]._id).not.toBe('old-row')
   })
 
+  test('a row the job seeded keeps its own treatment and gains the rest', () => {
+    // The case that matters most. A service report started from a General Pest
+    // Control job arrives with one row whose Treatment is ticked from the job
+    // type and whose product, quantity and method are blank — the three
+    // answers a technician most wants filled. Today's treatment is a fact off
+    // today's job; last visit's is a guess about the same site, so the fact
+    // stays and the guess fills the cells beside it.
+    const seeded = {
+      treatments: [
+        { _id: 'today', treatment: ['General Pest Control'], product: [], quantity: [], method: [] },
+      ],
+    }
+    const carried = carryOverFrom(serviceReport, previous, seeded)
+    const rows = carried.data.treatments as Array<Record<string, unknown>>
+
+    expect(rows).toHaveLength(1)
+    expect(rows[0].treatment).toEqual(['General Pest Control'])
+    expect(rows[0].product).toEqual(['Fipforce HP'])
+    // The same row, so a technician editing it is editing what they can see.
+    expect(rows[0]._id).toBe('today')
+  })
+
+  test('a row already finished is left exactly as it is', () => {
+    const done = {
+      treatments: [
+        {
+          _id: 'today',
+          treatment: ['Wasps'],
+          product: ['Something else'],
+          quantity: ['5 L'],
+          method: ['Dust'],
+        },
+      ],
+    }
+    const carried = carryOverFrom(serviceReport, previous, done)
+    expect('treatments' in carried.data).toBe(false)
+  })
+
+  test('last visit’s extra rows arrive only while nothing here is finished', () => {
+    const twoLastTime = {
+      treatments: [
+        { _id: 'a', treatment: ['Ants'], product: ['P1'], quantity: ['Q'], method: ['M'] },
+        { _id: 'b', treatment: ['Spiders'], product: ['P2'], quantity: ['Q'], method: ['M'] },
+      ],
+    }
+
+    // Nothing finished here: the second row is a head start.
+    const blank = carryOverFrom(serviceReport, twoLastTime, {
+      treatments: [
+        { _id: 'today', treatment: ['Ants'], product: [], quantity: [], method: [] },
+      ],
+    })
+    expect((blank.data.treatments as Array<unknown>).length).toBe(2)
+
+    // A finished row here: adding to a table somebody is filling in is a
+    // rearrangement, not a head start.
+    const started = carryOverFrom(serviceReport, twoLastTime, {
+      treatments: [
+        { _id: 'today', treatment: ['Ants'], product: ['P1'], quantity: ['Q'], method: ['M'] },
+      ],
+    })
+    expect('treatments' in started.data).toBe(false)
+  })
+
   test('nothing to carry is an empty offer, not an empty report', () => {
     const carried = carryOverFrom(serviceReport, {}, {})
     expect(carried.labels).toEqual([])

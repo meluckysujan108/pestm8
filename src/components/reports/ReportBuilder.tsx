@@ -502,16 +502,32 @@ export function ReportBuilder({
   }, [issues, progress, template])
 
   async function onFinaliseClick() {
+    // Pressing Finalise from a section screen confirms that screen's
+    // suggestions, exactly as pressing Next or Back does. Otherwise the last
+    // section's suggestions have no way to be confirmed at all — its footer
+    // button IS Finalise — and the technician is told to fix two answers that
+    // are on the screen in front of them.
+    const justConfirmed = current?.toConfirm ?? []
+    confirmKeys(justConfirmed)
+
     // Finalise sends its own payload, but flushing first means a failed
     // finalise still leaves the latest draft on the server.
     await autosave.flush()
+
+    // `pending` is this render's answer and does not know about the line
+    // above; validating against it would refuse the report for suggestions
+    // just confirmed. The server sees them confirmed because mutations from
+    // one client are sent in order, and `confirmPrefill` went first.
+    const stillPending = Object.fromEntries(
+      Object.entries(pending).filter(([key]) => !justConfirmed.includes(key)),
+    )
 
     const result = validateReport({
       template,
       data,
       signedSlots,
       photoCounts,
-      prefill: pending,
+      prefill: stillPending,
     })
     if (!result.ok) {
       setErrors(Object.fromEntries(result.issues.map((issue) => [issue.key, issue.message])))

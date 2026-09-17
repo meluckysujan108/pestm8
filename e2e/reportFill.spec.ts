@@ -69,7 +69,7 @@ async function startJobReport(label: string) {
     durationMinutes: 60,
   })
   const reportId = await createReport(owner.client, { businessId, propertyId, jobId }, 'serviceReport')
-  return { email, owner, businessId, slug, propertyId, reportId }
+  return { email, owner, businessId, slug, propertyId, jobId, reportId }
 }
 
 test('a report opens on its sections, and is filled one at a time', async ({ page }) => {
@@ -760,6 +760,133 @@ test.describe('reports where the work is', () => {
     // no reports had no heading and no hint that reports exist.
     await expect(sheet.getByText(/No reports yet/)).toBeVisible()
   })
+})
+
+test('the second visit to the same address costs a fraction of the first', async ({
+  page,
+}) => {
+  // The measurement that matters for the whole carry-over idea. The first
+  // visit's budget is pinned by "a service report from a job reaches Finalise
+  // in well under 30 taps" above, against the same form, the same job type and
+  // the same fixture; this counts the second one against it.
+  const s = await startJobReport('fill-return-taps')
+
+  // The first visit, paid in full — through the API, because what it costs is
+  // already measured up there and paying it twice here only makes this test
+  // slow.
+  const first = await s.owner.client.query(api.reports.get, {
+    businessId: s.businessId,
+    reportId: s.reportId,
+  })
+  const suggested = Object.keys(first!.prefill ?? {})
+  if (suggested.length > 0) {
+    await s.owner.client.mutation(api.reports.confirmPrefill, {
+      businessId: s.businessId,
+      reportId: s.reportId,
+      keys: suggested,
+    })
+  }
+  await finaliseReport(
+    s.owner.client,
+    { businessId: s.businessId },
+    s.reportId,
+    'serviceReport',
+    {
+      ...(first!.data as Record<string, unknown>),
+      safeToStart: true,
+      treatments: [
+        {
+          _id: 'visit-one',
+          treatment: ['Ants'],
+          product: ['Fipforce HP (100 g/L FIPRONIL)'],
+          quantity: ['100ml/10L'],
+          method: ['Spray'],
+        },
+      ],
+      risks: ['No Risk Safe Access Given'],
+      riskActions: ['Kept the area clear during application'],
+      housekeeping: ['Remove all rubbish from around the house'],
+      nextVisit: '3 Months',
+    },
+  )
+
+  const second = await createReport(
+    s.owner.client,
+    { businessId: s.businessId, propertyId: s.propertyId, jobId: s.jobId },
+    'serviceReport',
+  )
+
+  await page.addInitScript(() => {
+    ;(window as unknown as { __taps: number }).__taps = 0
+    window.addEventListener(
+      'pointerdown',
+      () => {
+        ;(window as unknown as { __taps: number }).__taps++
+      },
+      true,
+    )
+  })
+  const taps = () => page.evaluate(() => (window as unknown as { __taps: number }).__taps)
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/reports/${second}`)
+  await builderReady(page)
+  const start = await taps()
+
+  // One tap takes last visit's treatment, risks, actions, housekeeping and
+  // next-visit interval.
+  await page.getByRole('button', { name: 'Copy', exact: true }).click()
+  await expect(page.getByText(/^Copy from /)).toHaveCount(0)
+
+  // What is left is what only today's technician knows, and passing each
+  // section is what confirms the answers copied into it.
+  await page.getByRole('button', { name: /CLIENT & SITE DETAILS/ }).first().click()
+  // Waited for between taps, not just clicked twice: the footer button keeps
+  // its role and its `Next:` prefix from screen to screen, so a second click
+  // can land on the one the first is still replacing.
+  await page.getByRole('button', { name: /^Next: 2\./ }).click()
+  await expect(
+    page.getByRole('heading', { name: /^2\. TREATMENT/ }),
+  ).toBeVisible()
+  await page.getByRole('button', { name: /^Next: 3\./ }).click()
+  await expect(
+    page.getByRole('heading', { name: /^3\. RISK ASSESSMENT/ }),
+  ).toBeVisible()
+
+  await page.getByRole('button', { name: /Yes to all/ }).click()
+  await page
+    .getByRole('group', { name: 'Is it safe to commence work?' })
+    .getByRole('button', { name: 'Yes', exact: true })
+    .click()
+  await page.getByRole('button', { name: /^Next: 4\./ }).click()
+
+  await page.getByRole('button', { name: "Technician's Signature — sign" }).click()
+  await sign(page, "Technician's Signature")
+  await expect(
+    page.getByRole('button', { name: "Technician's Signature — signed, sign again" }),
+  ).toBeVisible()
+
+  await page.getByRole('button', { name: 'Finalise & lock' }).click()
+  const confirm = page.getByRole('dialog')
+  await expect(confirm.getByText('3 Months')).toBeVisible()
+  await confirm.getByRole('button', { name: 'Finalise & lock' }).click()
+
+  await expect
+    .poll(async () => {
+      const report = await s.owner.client.query(api.reports.get, {
+        businessId: s.businessId,
+        reportId: second,
+      })
+      return report!.status
+    })
+    .toBe('finalised')
+
+  const used = (await taps()) - start
+  console.info(`second-visit taps used: ${used}`)
+  // Twelve at the time of writing, against the first visit's thirty. The
+  // margin is the three pickers — product, quantity, method, three taps each —
+  // and the risks and actions, all of which are now one Copy.
+  expect(used).toBeLessThanOrEqual(16)
 })
 
 test.describe('the second visit to the same address', () => {
