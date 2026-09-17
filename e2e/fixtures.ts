@@ -200,6 +200,8 @@ export type RejectionCode =
   | 'INVALID_OPTION'
   | 'TOO_MANY_SNIPPETS'
   | 'INVALID_SNIPPET'
+  // The business asks for a finalised report before a job is complete.
+  | 'REPORT_REQUIRED'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

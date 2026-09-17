@@ -92,6 +92,14 @@ technician's signed documents.
 - Finalised reports are never touched. They carry their own frozen copy of
   every list inside `templateSnapshotId`.
 
+**One policy** (`businesses.requireReportToComplete`, Settings › Reports) — a
+job whose type has a form cannot be marked complete until its report is
+*finalised*. Off by default, because it is a policy and not a fact: plenty of
+jobs issue no report. A draft does not satisfy it — "there is a half-filled
+draft somewhere" is the state it exists to catch — and a job type
+`suggestTemplate` has no form for is never held up, because a quote visit
+blocked at Complete is how a business learns to switch a policy off.
+
 **Template settings** (`convex/templateSettings.ts`) — cover wording, footer
 name, signing rule, email subject and recipients, without forking the form.
 Anything that would change a question or an answer is on the other side of

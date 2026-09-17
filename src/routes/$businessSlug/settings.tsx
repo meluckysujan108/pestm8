@@ -7,6 +7,7 @@ import { ProfileSection } from '#/components/settings/ProfileSection'
 import { PrefsSection } from '#/components/settings/PrefsSection'
 import { BrandingSection } from '#/components/settings/BrandingSection'
 import { OptionLibrariesSection } from '#/components/settings/OptionLibrariesSection'
+import { ReportPolicySection } from '#/components/settings/ReportPolicySection'
 
 const SEGMENTS = [
   { value: 'profile' as const, label: 'Profile' },
@@ -72,7 +73,12 @@ function SettingsPage() {
           <TeamSection businessId={business._id} />
         )}
         {active === 'reports' && membership.role === 'owner' && (
-          <OptionLibrariesSection businessId={business._id} />
+          <>
+            <OptionLibrariesSection businessId={business._id} />
+            <div className="mt-6">
+              <ReportPolicySection businessId={business._id} />
+            </div>
+          </>
         )}
         {active === 'prefs' && (
           <>

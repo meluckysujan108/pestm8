@@ -200,6 +200,20 @@ export default defineSchema({
      * gone, and the owner is the one who would notice.
      */
     allowTechnicianRecipients: v.optional(v.boolean()),
+    /**
+     * Refuse to mark a job complete until its report is finalised.
+     *
+     * Off by default, because it is a policy and not a fact: plenty of jobs
+     * genuinely issue no report. A business that does issue one every time
+     * turns it on, and the WA requirement to make the record within two
+     * business days stops depending on somebody remembering.
+     *
+     * Applied only to jobs whose TYPE has a form — `suggestTemplate` decides,
+     * the same function that offers one at the start. A quote visit or a
+     * callback is not what this exists for, and blocking it would teach the
+     * business to turn the policy off.
+     */
+    requireReportToComplete: v.optional(v.boolean()),
     // The next value `jobs.create` will hand out as that job's `jobNumber`.
     // Lives here rather than a separate counters table since there is
     // exactly one counter today; read-then-patch inside `jobs.create`'s own

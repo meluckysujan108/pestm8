@@ -253,6 +253,20 @@ function JobDetailBody({
                 </span>
               </div>
 
+              {/* The business asked to be stopped here. Said where the tap
+                  happened, and naming the way out — the report section is
+                  directly below. */}
+              {complete.isError && (
+                <p
+                  role="alert"
+                  className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+                >
+                  {complete.error.message.includes('REPORT_REQUIRED')
+                    ? 'Finalise this job’s report first — your business asks for one before a job is marked complete.'
+                    : 'Could not mark this job complete.'}
+                </p>
+              )}
+
               <Section label="Property">
                 <p className="text-row-title text-ink">
                   {job.property?.client?.name}

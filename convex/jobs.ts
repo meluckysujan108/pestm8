@@ -5,6 +5,7 @@ import { canEditJob, jobVisibility, requireMembership, resolveViewScope } from '
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
 import { clientNameOf, newClientFields, resolvePropertyId, withClient } from './properties'
 import { jobStatus } from './schema'
+import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
@@ -450,10 +451,41 @@ export const update = mutation({
 export const complete = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    await requireEditableJob(ctx, businessId, jobId)
+    const { job } = await requireEditableJob(ctx, businessId, jobId)
+    await assertReportIssued(ctx, job)
     await ctx.db.patch(jobId, { status: 'completed', completedAt: Date.now() })
   },
 })
+
+/**
+ * A business that issues a report on every treatment can say so.
+ *
+ * The record is the job — WA's Pesticides Regulations want it made within two
+ * business days, and a report written next week from memory is a worse record
+ * than one written in the driveway. Off unless an owner turns it on, and even
+ * then only for job types that HAVE a form: blocking a quote visit would
+ * teach the business to switch the policy off.
+ *
+ * A draft does not count. The point of finalising is that the document stops
+ * changing, and "there is a half-filled draft somewhere" is the state this
+ * exists to catch.
+ */
+async function assertReportIssued(ctx: MutationCtx, job: Doc<'jobs'>) {
+  const business = await ctx.db.get(job.businessId)
+  if (business?.requireReportToComplete !== true) return
+  if (suggestTemplate(job.jobType) === null) return
+
+  const reports = await ctx.db
+    .query('reports')
+    .withIndex('by_job', (q) => q.eq('jobId', job._id))
+    // Bounded, and generous: a job with this many reports has one finalised.
+    .take(10)
+
+  const issued = reports.some(
+    (report) => report.status === 'finalised' && report.deletedAt === undefined,
+  )
+  if (!issued) throw new ConvexError('REPORT_REQUIRED')
+}
 
 export const cancel = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
