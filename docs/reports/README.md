@@ -183,7 +183,35 @@ prompt.
 5. Schedules `reportPipeline.afterFinalise`.
 
 Afterwards the report renders **only** from its own snapshots. A finalised
-report is never edited; a correction is a new version (reserved, not built).
+report is never edited.
+
+## Correcting one
+
+`reports.amend` is how a mistake on a signed document gets fixed: it issues a
+NEW report carrying the **same `reportNumber` at the next `version`**, and
+marks the original `supersededByReportId`. Both ends say so on screen — the
+replaced one so nobody works from it, the replacement so its reason travels
+with it rather than sitting in an audit log nobody reads. The footer's
+`Version:` line is what tells the two apart on paper.
+
+The answers come forward so the correction is the edit rather than the whole
+form again. Three things deliberately do not:
+
+- **The signature.** It was applied to a specific document, and moving it to a
+  different one is forgery with extra steps. The amendment is signed again —
+  which also means it cannot be locked until somebody does.
+- **The lock.** An amendment starts as a draft and is finalised like anything
+  else. Amending never unlocks the original.
+- **The deliveries.** What the client was sent stays sent; re-sending is a
+  decision about the new document.
+
+Photographs *are* carried: they are evidence of what was on site that day, and
+the day has not changed. The rows are new and point at the same stored files,
+which the purge's `by_storage` check already understands.
+
+A report that has already been superseded cannot be amended again
+(`ALREADY_SUPERSEDED`) — that would fork one number into two live documents.
+Amend the current version instead.
 
 ## Drawing the PDF
 

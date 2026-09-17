@@ -40,6 +40,8 @@ type ReportDoc = {
   status: string
   finalisedAt?: number
   reportNumber?: number
+  /** Which issue of that number this is — amendments, not resubmissions. */
+  version?: number
   data: unknown
   businessName: string
   business?: {
@@ -119,6 +121,7 @@ export function ReportDocument({
     submittedBy: report.author?.name,
     finalisedAt: report.finalisedAt,
     reportNumber: report.reportNumber,
+    version: report.version,
     finalised,
     licenceNumber: report.author?.licenceNumber,
   })

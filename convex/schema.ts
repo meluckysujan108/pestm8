@@ -424,6 +424,29 @@ export default defineSchema({
      */
     reportNumber: v.optional(v.number()),
     /**
+     * Which issue of this report number this document is.
+     *
+     * A finalised report is never edited — that is the whole point of
+     * finalising — so a correction is a NEW report that supersedes the old
+     * one and carries the same `reportNumber` at a higher version. The client
+     * keeps whatever they were sent; the footer says which issue it is, and
+     * the superseded document says on its face that it was replaced.
+     *
+     * Absent means 1, which is what every report issued before amendments
+     * existed was.
+     */
+    version: v.optional(v.number()),
+    /** The report this one corrects. Set on the amendment. */
+    supersedesReportId: v.optional(v.id('reports')),
+    /** The amendment that replaced this one. Set on the original. */
+    supersededByReportId: v.optional(v.id('reports')),
+    /**
+     * Why it was reissued, in the owner's words. Printed on the amendment,
+     * because a client holding two documents with the same number is owed an
+     * explanation of the difference.
+     */
+    amendmentReason: v.optional(v.string()),
+    /**
      * Which answers the app worked out rather than read off a record — the
      * forecast, the booked start time — and when the technician confirmed
      * each. Its own column, never inside `data`: the client replaces that

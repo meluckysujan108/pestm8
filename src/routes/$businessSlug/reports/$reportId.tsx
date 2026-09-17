@@ -6,6 +6,10 @@ import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../../convex/_generated/api'
 import { ReportBuilder } from '#/components/reports/ReportBuilder'
 import { ReportDocument } from '#/components/reports/ReportDocument'
+import {
+  AmendButton,
+  AmendmentNotice,
+} from '#/components/reports/AmendmentNotice'
 import { documentIdentity } from '#/lib/reportTemplates/documentModel'
 import { ReportActionBar } from '#/components/reports/ReportActionBar'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
@@ -80,7 +84,27 @@ function ReportPage() {
           }).fileName
         }
       >
+        <AmendmentNotice
+          businessSlug={business.slug}
+          supersededBy={report.supersededByReportId}
+          supersedes={report.supersedesReportId}
+          reason={report.amendmentReason}
+          reportNumber={report.reportNumber}
+          version={report.version}
+        />
         <ReportDocument report={report} businessId={business._id} />
+        {/* Offered only on the current version: correcting a document that has
+            already been replaced would fork its number into two live
+            documents, and the server refuses it. */}
+        {!report.supersededByReportId && (
+          <div className="px-4 pb-6 pt-2">
+            <AmendButton
+              businessId={business._id}
+              businessSlug={business.slug}
+              reportId={report._id}
+            />
+          </div>
+        )}
       </ReportActionBar>
     )
   }
@@ -90,46 +114,58 @@ function ReportPage() {
   }
 
   return (
-    <ReportBuilder
-      // Keyed by revision: the builder seeds its answers once, so switching a
-      // draft to a newer form must remount it rather than let the old
-      // revision's in-memory answers autosave back over the migrated ones.
-      key={`${report._id}:${report.templateVersion ?? 1}`}
-      businessId={business._id}
-      reportId={report._id}
-      template={report.template}
-      templateVersion={report.templateVersion}
-      optionSets={report.optionSets}
-      settings={report.settings}
-      prefill={report.prefill}
-      section={section}
-      onSection={(next) =>
-        navigate({
-          to: '/$businessSlug/reports/$reportId',
-          params: { businessSlug: business.slug, reportId: report._id },
-          search: (prev) => ({ ...prev, s: next }),
-        })
-      }
-      roster={report.roster}
-      context={report.context}
-      upgrade={report.upgrade}
-      onRestarted={(newReportId) =>
-        navigate({
-          to: '/$businessSlug/reports/$reportId',
-          params: { businessSlug: business.slug, reportId: newReportId },
-        })
-      }
-      customTemplate={report.customTemplate}
-      initialData={(report.data ?? {}) as Record<string, unknown>}
-      property={report.property}
-      businessName={report.businessName}
-      authorLicence={report.author?.licenceNumber}
-      onFinalised={() =>
-        navigate({
-          to: '/$businessSlug/reports/$reportId',
-          params: { businessSlug: business.slug, reportId },
-        })
-      }
-    />
+    <>
+      {/* A correction is filled in as a draft like any other report, so the
+          reason it exists has to be on the screen where the work happens —
+          not only on the document once it is locked. */}
+      <AmendmentNotice
+        businessSlug={business.slug}
+        supersedes={report.supersedesReportId}
+        reason={report.amendmentReason}
+        reportNumber={report.reportNumber}
+        version={report.version}
+      />
+      <ReportBuilder
+        // Keyed by revision: the builder seeds its answers once, so switching a
+        // draft to a newer form must remount it rather than let the old
+        // revision's in-memory answers autosave back over the migrated ones.
+        key={`${report._id}:${report.templateVersion ?? 1}`}
+        businessId={business._id}
+        reportId={report._id}
+        template={report.template}
+        templateVersion={report.templateVersion}
+        optionSets={report.optionSets}
+        settings={report.settings}
+        prefill={report.prefill}
+        section={section}
+        onSection={(next) =>
+          navigate({
+            to: '/$businessSlug/reports/$reportId',
+            params: { businessSlug: business.slug, reportId: report._id },
+            search: (prev) => ({ ...prev, s: next }),
+          })
+        }
+        roster={report.roster}
+        context={report.context}
+        upgrade={report.upgrade}
+        onRestarted={(newReportId) =>
+          navigate({
+            to: '/$businessSlug/reports/$reportId',
+            params: { businessSlug: business.slug, reportId: newReportId },
+          })
+        }
+        customTemplate={report.customTemplate}
+        initialData={(report.data ?? {}) as Record<string, unknown>}
+        property={report.property}
+        businessName={report.businessName}
+        authorLicence={report.author?.licenceNumber}
+        onFinalised={() =>
+          navigate({
+            to: '/$businessSlug/reports/$reportId',
+            params: { businessSlug: business.slug, reportId },
+          })
+        }
+      />
+    </>
   )
 }

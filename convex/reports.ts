@@ -1806,6 +1806,9 @@ export const finalise = mutation({
       updatedAt: now,
       pdfStatus: 'pending',
       reportNumber,
+      // Which issue of that number this document is. 1 unless `amend` made
+      // this report to correct an earlier one.
+      version: report.version ?? 1,
       ...(templateSnapshotId ? { templateSnapshotId } : {}),
       ...(contextSnapshot ? { contextSnapshot } : {}),
       ...(customTemplateSnapshot ? { customTemplateSnapshot } : {}),
@@ -1917,6 +1920,130 @@ async function queueFormDeliveries(
  * Soft, because the photos attached to a draft are evidence somebody stood
  * somewhere and took them. Thirty days, then the nightly purge.
  */
+/**
+ * Corrects a finalised report by issuing a new one that supersedes it.
+ *
+ * A finalised report is never edited — that is the whole point of finalising,
+ * and a compliance record that can be changed afterwards is worth nothing. So
+ * a correction is a new document: same report number, next version, carrying
+ * the answers forward so the correction is the edit rather than the whole
+ * form again.
+ *
+ * Three things are deliberately NOT carried:
+ *
+ * - **Signatures.** A signature was applied to a specific document. Moving it
+ *   to a different one is forgery with extra steps, however convenient, so the
+ *   amendment is signed again. This is the same rule that stops a saved
+ *   signature being applied by anyone but its owner.
+ * - **The lock.** The amendment starts as a draft, so the correction is read,
+ *   signed and finalised like any other report.
+ * - **The deliveries.** What the client was sent stays sent; re-sending is a
+ *   decision somebody makes about the new document.
+ *
+ * Photographs ARE carried: they are evidence of what was on site that day, and
+ * the day has not changed. The rows are new, pointing at the same stored
+ * files, which the purge's `by_storage` check already understands.
+ */
+export const amend = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    reason: v.string(),
+  },
+  handler: async (ctx, { businessId, reportId, reason }) => {
+    const membership = await requireMembership(ctx, businessId)
+
+    const original = await ctx.db.get(reportId)
+    if (!original || original.businessId !== businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    if (original.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
+    if (original.status !== 'finalised') {
+      throw new ConvexError('REPORT_NOT_FINALISED')
+    }
+    if (!canSeeReport(membership, original)) throw new ConvexError('NO_ACCESS')
+    // Amending an amendment is fine; amending something already superseded
+    // would fork the number into two live documents.
+    if (original.supersededByReportId !== undefined) {
+      throw new ConvexError('ALREADY_SUPERSEDED')
+    }
+
+    const explanation = reason.trim()
+    if (explanation.length === 0 || explanation.length > 500) {
+      throw new ConvexError('AMENDMENT_REASON_REQUIRED')
+    }
+
+    const now = Date.now()
+    const amendmentId = await ctx.db.insert('reports', {
+      businessId,
+      propertyId: original.propertyId,
+      ...(original.jobId ? { jobId: original.jobId } : {}),
+      authorMembershipId: membership._id,
+      template: original.template,
+      ...(original.customTemplateId
+        ? { customTemplateId: original.customTemplateId }
+        : {}),
+      // The revision it was WRITTEN against, not today's: a correction to a
+      // document says the same things in the same words, minus the mistake.
+      ...(original.templateVersion !== undefined
+        ? { templateVersion: original.templateVersion }
+        : {}),
+      legalBasis: original.legalBasis,
+      status: 'draft',
+      data: original.data,
+      photoIds: [],
+      // Same number, next issue.
+      ...(original.reportNumber !== undefined
+        ? { reportNumber: original.reportNumber }
+        : {}),
+      version: (original.version ?? 1) + 1,
+      supersedesReportId: original._id,
+      amendmentReason: explanation,
+      // Everything the app guessed was already confirmed on the document being
+      // corrected, so the technician is not asked to agree to it twice.
+      ...(original.prefill
+        ? {
+            prefill: Object.fromEntries(
+              Object.entries(original.prefill).map(([key, entry]) => [
+                key,
+                { ...entry, confirmedAt: entry.confirmedAt ?? now },
+              ]),
+            ),
+          }
+        : {}),
+      createdAt: now,
+      updatedAt: now,
+    })
+
+    for (const photo of await ctx.db
+      .query('reportPhotos')
+      .withIndex('by_report_field', (q) => q.eq('reportId', original._id))
+      // Bounded like every other photo read in this file.
+      .take(200)) {
+      const { _id, _creationTime, reportId: _was, ...rest } = photo
+      await ctx.db.insert('reportPhotos', { ...rest, reportId: amendmentId })
+    }
+
+    await ctx.db.patch(original._id, {
+      supersededByReportId: amendmentId,
+      updatedAt: now,
+    })
+
+    await ctx.db.insert('auditLog', {
+      businessId,
+      actorMembershipId: membership._id,
+      action: 'report.amend',
+      entityType: 'reports',
+      entityId: amendmentId,
+      meta: { supersedes: original._id, reportNumber: original.reportNumber, reason: explanation },
+      at: now,
+    })
+
+    await refreshSearchText(ctx, amendmentId)
+    return amendmentId
+  },
+})
+
 export const softDelete = mutation({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {

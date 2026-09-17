@@ -396,6 +396,12 @@ not a valid form, and refusing to save it is what made the old editor report
 "check your connection" about a connection that was fine. `publish` is where
 the shape is checked.
 
+`reports` also gains `version`, `supersedesReportId`, `supersededByReportId`
+and `amendmentReason`, all optional. `version` absent means 1, which is what
+every report issued before amendments existed was; `finalise` stamps it from
+now on. No backfill: a report with no `version` and no supersede links is a
+first issue that was never corrected, which is the truth about all of them.
+
 ### Contract, later
 
 Once no deployment holds a pre-Phase-7 row that was written by the old editor:

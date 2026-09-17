@@ -204,6 +204,9 @@ export type RejectionCode =
   | 'REPORT_REQUIRED'
   // Publishing a form when nothing has changed since it was last issued.
   | 'NOTHING_TO_PUBLISH'
+  // Amending a report that has already been superseded would fork its number.
+  | 'ALREADY_SUPERSEDED'
+  | 'AMENDMENT_REASON_REQUIRED'
 
 export async function expectRejected(
   call: () => Promise<unknown>,
