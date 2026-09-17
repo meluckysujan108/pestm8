@@ -1828,3 +1828,154 @@ describe('a contractor and their team', () => {
     ).rejects.toThrow('NOT_A_TEAM_MEMBER')
   })
 })
+
+describe('someone who cannot see the whole client book', () => {
+  /** Two clients: one Priya has a job at, one she has never been near. */
+  async function book() {
+    const f = await scenario()
+    const make = (name: string) =>
+      f.t.run(async (ctx) => {
+        const clientId = await ctx.db.insert('clients', {
+          businessId: f.businessId,
+          kind: 'person',
+          name,
+          createdAt: 0,
+          updatedAt: 0,
+        })
+        const propertyId = await ctx.db.insert('properties', {
+          businessId: f.businessId,
+          clientId,
+          addressLine: `${name} Street`,
+          suburb: 'Bayswater',
+          state: 'WA',
+          postcode: '6053',
+          createdAt: 0,
+        })
+        return { clientId, propertyId }
+      })
+
+    const mine = await make('Mine')
+    const theirs = await make('Theirs')
+
+    await f.t.run((ctx) =>
+      ctx.db.insert('jobs', {
+        businessId: f.businessId,
+        propertyId: mine.propertyId,
+        assignedMembershipId: f.priyaId,
+        jobType: 'General Pest',
+        price: 19500,
+        scheduledAt: Date.now(),
+        durationMinutes: 60,
+        status: 'booked',
+        createdAt: 0,
+      }),
+    )
+
+    const grants = (prices: boolean, directory: boolean, others: boolean) => ({
+      switchInto: null,
+      clientDirectory: directory,
+      prices,
+      otherSchedules: others,
+    })
+    return { ...f, mine, theirs, grants }
+  }
+
+  test('sees the clients they have worked for, and no others', async () => {
+    const f = await book()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, { grants: f.grants(true, false, false) }),
+    )
+
+    const clients = await f.priya.as.query(api.clients.list, {
+      businessId: f.businessId,
+    })
+    expect(clients.map((c) => c.name)).toEqual(['Mine'])
+  })
+
+  /**
+   * The trap this was built around. `env.scope` is widened by "can see
+   * everyone's schedule", so anyone holding that has RowScope 'business' — and
+   * "the clients behind every job you can see" is the whole book. Built on it,
+   * this toggle would compute, cost reads, and hide nothing from exactly the
+   * people it is aimed at.
+   */
+  test('even when they can see everyone’s schedule', async () => {
+    const f = await book()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, { grants: f.grants(true, false, true) }),
+    )
+
+    const clients = await f.priya.as.query(api.clients.list, {
+      businessId: f.businessId,
+    })
+    expect(clients.map((c) => c.name)).toEqual(['Mine'])
+  })
+
+  test('and the toggle on gives them the book back', async () => {
+    const f = await book()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, { grants: f.grants(true, true, false) }),
+    )
+
+    const clients = await f.priya.as.query(api.clients.list, {
+      businessId: f.businessId,
+    })
+    expect(clients.map((c) => c.name).sort()).toEqual(['Mine', 'Theirs'])
+  })
+
+  /** A client they may not see reads as absent, not as refused. */
+  test('a client they may not see is indistinguishable from one that is gone', async () => {
+    const f = await book()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, { grants: f.grants(true, false, false) }),
+    )
+
+    expect(
+      await f.priya.as.query(api.clients.get, {
+        businessId: f.businessId,
+        clientId: f.theirs.clientId,
+      }),
+    ).toBeNull()
+    expect(
+      await f.priya.as.query(api.clientContacts.list, {
+        businessId: f.businessId,
+        clientId: f.theirs.clientId,
+      }),
+    ).toEqual([])
+  })
+
+  /**
+   * `properties.list` embeds the whole client document on every row, so an
+   * unscoped one hands back the same directory plus every service address.
+   */
+  test('nor through the property list, which carries clients inside it', async () => {
+    const f = await book()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, { grants: f.grants(true, false, false) }),
+    )
+
+    const properties = await f.priya.as.query(api.properties.list, {
+      businessId: f.businessId,
+    })
+    expect(properties.map((p) => p.client?.name)).toEqual(['Mine'])
+  })
+
+  /**
+   * Deliberately still open. Hiding an address does not stop someone booking
+   * there — it stops them finding it, so they type it again and the business
+   * gets a second property record for the same house, with its own job history
+   * and its own reports.
+   */
+  test('but can still find an address to book at', async () => {
+    const f = await book()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.priyaId, { grants: f.grants(true, false, false) }),
+    )
+
+    const found = await f.priya.as.query(api.properties.search, {
+      businessId: f.businessId,
+      q: 'Theirs',
+    })
+    expect(found.map((p) => p.addressLine)).toContain('Theirs Street')
+  })
+})

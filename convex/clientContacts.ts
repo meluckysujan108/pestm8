@@ -1,14 +1,20 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
+import { requireActor } from './lib/actor'
+import { inClientScope, visibleClientIds } from './lib/clientScope'
 
 export const list = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
     const client = await ctx.db.get(clientId)
     if (!client || client.businessId !== businessId) return []
+    // Names, numbers and email addresses for a client they may not see are
+    // the most sensitive part of the directory, not an afterthought to it.
+    const visible = await visibleClientIds(ctx, env)
+    if (!inClientScope(visible, client._id)) return []
 
     return ctx.db
       .query('clientContacts')
@@ -60,8 +66,13 @@ export const update = mutation({
       throw new ConvexError('NOT_FOUND')
     }
 
+    // Typed explicitly, as in clients.update and properties.update: the
+    // optional args really can arrive absent, but `Object.entries` infers them
+    // away, which makes a necessary runtime filter read as dead code.
     const fields = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
+      Object.entries<string | undefined>(patch).filter(
+        ([, value]) => value !== undefined,
+      ),
     )
     if (Object.keys(fields).length > 0) await ctx.db.patch(contactId, fields)
   },
