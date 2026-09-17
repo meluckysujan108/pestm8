@@ -4,6 +4,7 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import { describe, expect, test } from 'vitest'
 import { getTemplate } from '../../../lib/reportTemplates'
 import { ReportPdf } from './ReportPdf'
+import { SIZES } from './theme'
 import type { PdfReport } from './ReportPdf'
 
 /**
@@ -353,6 +354,65 @@ describe('evidence', () => {
     // Twelve photos, and nothing else: this report has no cover photo and its
     // signature is a timestamp rather than an image.
     expect(drawn).toBe(12)
+  })
+
+  test('every photo is drawn at its own shape, never cropped to a box', async () => {
+    // The failure this exists to stop: `objectFit: 'contain'` becoming
+    // `'cover'`, or a fixed tile height returning. On evidence a centre-crop
+    // can remove the very thing the photo was taken to show — the termite
+    // damage at the edge of the frame — and it does it silently, so nothing
+    // in the text layer or the image count would notice.
+    const { buffer } = await render(
+      serviceReport({
+        data: { ...serviceReport().data, addPhotos: true },
+        galleryPhotos: photos('portrait', 14),
+      }),
+    )
+
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise
+
+    // An image's drawn box is the CTM in force when it is painted: react-pdf
+    // emits `transform(w, 0, 0, h, x, y)` immediately before each
+    // paintImageXObject, so the matrix's a and d ARE the width and height on
+    // the page, in points.
+    const boxes: Array<{ w: number; h: number }> = []
+    for (let page = 1; page <= doc.numPages; page++) {
+      const ops = await (await doc.getPage(page)).getOperatorList()
+      let last: number[] | null = null
+      ops.fnArray.forEach((op, i) => {
+        if (op === pdfjs.OPS.transform) last = ops.argsArray[i] as number[]
+        if (op === pdfjs.OPS.paintImageXObject && last) {
+          boxes.push({ w: Math.abs(last[0]), h: Math.abs(last[3]) })
+        }
+      })
+    }
+
+    expect(boxes).toHaveLength(14)
+
+    // The arithmetic, because the numbers are what make this a real test.
+    //
+    // Fourteen photos declaring 1200x1600 are portrait-heavy, so the grid is
+    // 3-up: each tile is (595.28 - 40*2)/3 - 8 = 163.76pt wide, and
+    // `tileHeight` gives it (1600/1200) * 163.76 = 218.35pt of height, under
+    // the 240pt cap.
+    //
+    // The fixture's actual pixels are a 1x1 PNG, and that is what makes the
+    // check sharp rather than incidental. Fitting a square source into a
+    // 163.76 x 218.35 tile draws it at 163.76 square under `contain` — bounded
+    // by the SHORTER side — and at 218.35 square under `cover`, overflowing
+    // the tile and cropping. So the drawn width alone separates the two.
+    const TILE_WIDTH = (595.28 - SIZES.pageX * 2) / 3 - 8
+    const TILE_HEIGHT = (1600 / 1200) * TILE_WIDTH
+    expect(TILE_HEIGHT).toBeLessThan(240)
+
+    for (const box of boxes) {
+      expect(box.w).toBeCloseTo(TILE_WIDTH, 1)
+      // Square, because the source is. Were this the tile's height instead,
+      // the image would be filling the box and losing its edges.
+      expect(box.h).toBeCloseTo(TILE_WIDTH, 1)
+      expect(box.h).not.toBeCloseTo(TILE_HEIGHT, 1)
+    }
   })
 })
 

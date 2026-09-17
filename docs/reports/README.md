@@ -278,6 +278,19 @@ row for portrait sets and two for landscape, chunked in JS so a twelve-photo
 set cannot be clipped off the page. Signatures print the drawn image with the
 signer named beneath.
 
+The plan had those column counts the other way round; the arithmetic decides
+it. A 4:3 portrait at 3-up is 163.76 x 218.35pt and fits under the cap; at
+2-up it would want 250 x 333, hit the 240 cap, and letterbox inside a box
+taller than the picture.
+
+**"Uncropped" is asserted, not assumed.** A centre-crop removes the very thing
+a photo was taken to show, and it does it silently — nothing in the text layer
+or the image count would notice. `ReportPdf.test.tsx` reads each drawn image's
+CTM back out of the rendered PDF: a square source in a 163.76 x 218.35pt tile
+is drawn at 163.76 under `objectFit: 'contain'` and at 218.35 under `'cover'`,
+so the drawn width alone separates them. Flipping the property fails the test
+at exactly that number.
+
 **Rule 8** — a signed document omits what was never answered, and now also the
 sub-heading left standing over nothing and the section left with nothing at
 all. A draft still shows the em dash, because the technician needs to see what
