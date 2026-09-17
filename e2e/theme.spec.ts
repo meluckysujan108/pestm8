@@ -89,9 +89,7 @@ test('choosing Dark repaints immediately and survives a reload', async ({
   await group.getByRole('radio', { name: 'Dark' }).click()
 
   // No navigation: the handler writes the attribute itself.
-  await expect
-    .poll(async () => (await themeState(page)).theme)
-    .toBe('dark')
+  await expect.poll(async () => (await themeState(page)).theme).toBe('dark')
   expect(await themeState(page)).toMatchObject({
     theme: 'dark',
     pref: 'dark',
@@ -127,8 +125,14 @@ test('the theme is applied from <head>, and never baked into the HTML', async ({
 
   const script = html.indexOf('dataset.themePref')
   const body = html.indexOf('<body')
-  expect(script, 'the init script is missing from the document').toBeGreaterThan(-1)
-  expect(script, 'the init script must run before <body> is parsed').toBeLessThan(body)
+  expect(
+    script,
+    'the init script is missing from the document',
+  ).toBeGreaterThan(-1)
+  expect(
+    script,
+    'the init script must run before <body> is parsed',
+  ).toBeLessThan(body)
 
   const openingTag = html.slice(0, html.indexOf('>', html.indexOf('<html')) + 1)
   expect(openingTag).not.toContain('data-theme')
@@ -168,7 +172,10 @@ test('an explicit choice beats the OS', async ({ page }) => {
   await page.reload()
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
 
-  expect(await themeState(page)).toMatchObject({ theme: 'light', pref: 'light' })
+  expect(await themeState(page)).toMatchObject({
+    theme: 'light',
+    pref: 'light',
+  })
 })
 
 /**
@@ -186,9 +193,11 @@ test('the report preview stays on white paper in dark mode', async ({
   // Signed in first so the context has an origin to hang the cookie on, and so
   // the report page is reached with dark already set rather than toggled after.
   await signInViaUi(page, s.owner.email)
-  await page.context().addCookies([
-    { name: COOKIE, value: 'dark', url: new URL(page.url()).origin },
-  ])
+  await page
+    .context()
+    .addCookies([
+      { name: COOKIE, value: 'dark', url: new URL(page.url()).origin },
+    ])
 
   await page.goto(`/${s.slug}/reports/${reportId}`)
 
