@@ -300,7 +300,7 @@ export function ReportBuilder({
           role="alert"
           className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
-          Could not finalise this report. It may already be locked.
+          {finaliseError(finalise.error)}
         </p>
       )}
       {Object.keys(errors).length > 0 && (
@@ -340,4 +340,45 @@ export function ReportBuilder({
 function sameWords(a: string, b: string) {
   const words = (s: string) => s.replace(/\s+/g, ' ').trim().toLowerCase()
   return words(a) === words(b)
+}
+
+/**
+ * Why a finalise was refused, in terms of what the person can do about it.
+ *
+ * This used to say "it may already be locked" for every failure, which was a
+ * guess — and once the licence rules landed it became the wrong guess most of
+ * the time. A technician standing in a roof cavity was told the report was
+ * locked, went looking for a lock that does not exist, and rang the owner.
+ *
+ * The licence cases name the fix, because the fix is not something they can do
+ * from this screen and they need to know who to ask.
+ */
+function finaliseError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+
+  if (message.includes('HOLDER_LICENCE_MISSING')) {
+    return 'This report needs a licence number on the account it belongs to. Ask the owner to add it in Settings → Team, then finalise again.'
+  }
+  if (message.includes('HOLDER_LICENCE_EXPIRED')) {
+    return 'The licence on this account has expired. Ask the owner to update it in Settings → Team, then finalise again.'
+  }
+  if (message.includes('TECHNICIAN_LICENCE_MISSING')) {
+    return 'The technician named on this report has no licence number on file. Ask the owner to add it in Settings → Team.'
+  }
+  if (message.includes('TECHNICIAN_LICENCE_EXPIRED')) {
+    return 'The technician named on this report has an expired licence. Ask the owner to update it in Settings → Team.'
+  }
+  if (message.includes('SWITCHED_REGULATED')) {
+    return 'This is a regulated document, so it has to be finalised by the licence holder themselves. Switch back to your own account and ask them to sign it.'
+  }
+  if (message.includes('REPORT_FINALISED')) {
+    return 'This report has already been finalised.'
+  }
+  if (message.includes('TEMPLATE_VERSION_MISMATCH')) {
+    return 'This form has been updated since you opened it. Reload the page and check your answers before finalising.'
+  }
+  if (message.includes('NO_ACCESS') || message.includes('NOT_EDITABLE')) {
+    return 'This report belongs to someone else, so you cannot finalise it.'
+  }
+  return 'Could not finalise this report. Your answers are still saved — try again in a moment.'
 }

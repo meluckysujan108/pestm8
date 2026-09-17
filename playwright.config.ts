@@ -51,10 +51,21 @@ export default defineConfig({
       testMatch: /(shell|schedule)\.spec\.ts/,
     },
   ],
+  /**
+   * A PRODUCTION build, not `pnpm dev`. The service worker and `__Secure-`
+   * cookies only exist in one, and `e2e/globalSetup.ts` refuses to run the
+   * suite against the other — so starting a dev server here made the config
+   * contradict its own guard, and the suite only ever passed because somebody
+   * had a preview running by hand on the same port.
+   *
+   * `--strictPort` is the load-bearing flag. Without it `vite preview` prints
+   * "Port 3000 is in use, trying another one", binds 3001, and leaves whatever
+   * was already on 3000 to answer the suite. Fail on a taken port instead.
+   */
   webServer: {
-    command: 'pnpm dev',
+    command: 'pnpm build && npx vite preview --port 3000 --strictPort',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 240_000,
   },
 })
