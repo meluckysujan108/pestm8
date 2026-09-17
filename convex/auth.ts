@@ -75,7 +75,8 @@ const breachCheckEnabled = process.env.AUTH_BREACH_CHECK !== 'off'
 export function isBreachVerdict(error: unknown): boolean {
   return (
     isAPIError(error) &&
-    (error as { body?: { code?: string } }).body?.code === 'PASSWORD_COMPROMISED'
+    (error as { body?: { code?: string } }).body?.code ===
+      'PASSWORD_COMPROMISED'
   )
 }
 

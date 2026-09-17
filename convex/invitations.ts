@@ -341,7 +341,7 @@ export const redeemByHash = internalMutation({
         grants: NO_GRANTS,
         // Frozen now so that leaving and renaming the login later cannot
         // rewrite their name on reports they are about to sign.
-        displayName: user.name?.trim() || undefined,
+        displayName: user.name.trim() || undefined,
         colour: nextColour(
           members.filter((m) => m.status !== 'removed').map((m) => m.colour),
         ),
