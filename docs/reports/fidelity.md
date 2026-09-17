@@ -21,6 +21,23 @@ show a real client's house, signature and contact details, and the text layer pl
 the page anatomy in `docs/reports/README.md` carry everything the build needs. The
 original PDF stays with the owner.
 
+### Redacting once was not enough
+
+`node scripts/check-pii.mjs` runs the same pattern list over every tracked file,
+and it exists because stripping the sources did not keep the details out.
+
+The client's real name sat in two committed test files for weeks — typed in by
+hand while their report was open on the next screen, never copied from a source
+file, so the extraction step never saw it. That is the ordinary way this leaks:
+not through the document you remembered to redact, through the fixture you wrote
+while looking at it.
+
+The check reports `file:line` and the index of the pattern that matched, never
+the matched text, because its output goes to terminals and CI logs. With no
+`scripts/form-redactions.local` present it exits 0 and says so: a machine that
+never had the source cannot leak it, and failing on a missing gitignored file
+would only teach people to skip the check.
+
 ## The corpus is extracted, not transcribed
 
 `scripts/extract-form-strings.mjs` reads the sources and emits
