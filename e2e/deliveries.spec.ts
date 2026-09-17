@@ -258,7 +258,7 @@ test.describe('the send sheet', () => {
     const sheet = page.getByRole('dialog')
     // The address the form asked for, already chosen — nobody retypes what
     // they have just answered a question about.
-    const client = sheet.getByRole('button', { name: /jared@example\.com/ })
+    const client = sheet.getByRole('button', { name: /client@example\.com/ })
     await expect(client).toHaveAttribute('aria-pressed', 'true')
     await expect(sheet.getByRole('button', { name: /Send to 1 person/ })).toBeVisible()
 
@@ -295,7 +295,7 @@ test.describe('the send sheet', () => {
 
     // Queued rather than sent: no Resend key on this deployment. The record
     // exists either way, which is the point of writing it before the call.
-    await expect(page.getByText(/jared@example\.com/)).toBeVisible()
+    await expect(page.getByText(/client@example\.com/)).toBeVisible()
     await expect(page.getByText(/asked for by the form/)).toBeVisible()
   })
 
@@ -334,7 +334,7 @@ test.describe('the send sheet', () => {
     // strata office's waits for the owner, and a single verdict for the tap
     // would misreport one of them.
     const results = sheet.getByRole('status')
-    await expect(results.getByText(/^jared@example\.com —/)).toBeVisible()
+    await expect(results.getByText(/^client@example\.com —/)).toBeVisible()
     await expect(results.getByText(/^stranger@elsewhere\.example —/)).toBeVisible()
   })
 })

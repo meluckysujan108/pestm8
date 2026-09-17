@@ -1,6 +1,8 @@
 import { v } from 'convex/values'
 import { internalMutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
+import { canSeeReport } from './reports'
+import type { Id } from './_generated/dataModel'
 import { memberName } from './lib/reportContext'
 
 /**
@@ -34,7 +36,27 @@ export const forEntity = query({
     entityId: v.string(),
   },
   handler: async (ctx, { businessId, entityType, entityId }) => {
-    await requireMembership(ctx, businessId)
+    const membership = await requireMembership(ctx, businessId)
+
+    // Membership alone is not enough for a report. A subcontractor without
+    // `canViewAllJobs` cannot open somebody else's report, and its history
+    // says who the client is, where the document went and when — so answering
+    // it would hand over by the side door exactly what the front door
+    // refuses. Whether they may see the report is the report's own rule, so
+    // it is asked rather than re-implemented here.
+    if (entityType === 'reports') {
+      const report = await ctx.db.get(entityId as Id<'reports'>)
+      if (
+        !report ||
+        report.businessId !== businessId ||
+        report.deletedAt !== undefined ||
+        !canSeeReport(membership, report)
+      ) {
+        // Empty rather than an error: a history nobody may read and a history
+        // with nothing in it look the same from outside, which is the point.
+        return []
+      }
+    }
 
     const entries = await ctx.db
       .query('auditLog')
@@ -52,16 +74,16 @@ export const forEntity = query({
     const actors = new Map(
       await Promise.all(
         actorIds.map(async (id) => {
-          const membership = await ctx.db.get(id)
+          const actor = await ctx.db.get(id)
           return [
             id,
-            membership
+            actor
               ? {
                   // A history that reads "Emailed" with a colour dot beside it
                   // tells an owner nothing about who did it, and "who sent
                   // this" is the question the history exists to answer.
-                  name: await memberName(ctx, membership.userId),
-                  colour: membership.colour,
+                  name: await memberName(ctx, actor.userId),
+                  colour: actor.colour,
                 }
               : null,
           ] as const

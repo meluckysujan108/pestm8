@@ -351,6 +351,49 @@ cron (`0 19 * * *` for notes, `20 19 * * *` for reports) deletes a draft's
 photo blobs only after a `by_storage` reference check, and never a member's
 saved signature.
 
+## The v2 templates changed after v2 shipped, and were not bumped to v3
+
+Production deployed Phases 1 and 2 together on 2026-09-16, so the v2 verbatim
+templates have been live there since. Phases 3-7 then changed all three
+template modules **without bumping `version`**, which is exactly the thing
+`types.ts` warns about: "a wording change that forgets to bump this is
+indistinguishable from no change at all."
+
+This was checked rather than assumed, and the decision is to leave them at 2.
+
+**What actually changed in the three modules after v2 shipped.** Filtering the
+branch diff to things that reach a document: `semantic` markers
+(`sendCopyToClient`, `startTime`, `finishTime`, `weather`, `safetyGate`,
+`emailTo`), `quick: 'allYes'`, `summary`, `width`, `carryOver`, `auto`, and
+`print.termsBreak`. None of those is wording — they are what a question MEANS
+to the app, which answers it reads back on the finalise sheet, and how it
+prints. Two signature `statement` strings were added (the Certificate's
+installer certification and client acknowledgment, and the Timber report's
+client acceptance). Those ARE printed wording.
+
+**Who it could reach.** Only a draft written against v2 and not yet signed —
+a finalised report renders from its own frozen snapshot and cannot move.
+Production, read on 2026-09-17:
+
+```
+v1-draft 18 · v1-finalised 12 · v2-draft 2 · total 32
+```
+
+Both v2 drafts are `timberPestInspection`, zero signatures between them, zero
+and one day old. The only wording they gain is the client acceptance statement
+above a pad nobody has signed yet — a statement the source form has and the
+app was missing.
+
+**So: no bump.** Going to v3 would push those two drafts through the
+"switch or start again" path, and keep a v2 legacy module alive forever, in
+order to protect two unsigned drafts from a correction that improves them. The
+rule the bump exists for — never retroactively change what somebody signed —
+is not engaged, because nobody has signed.
+
+Re-check this before the NEXT deploy rather than trusting it: the query above
+is one line, and the answer changes as soon as a v2 report is finalised on
+production.
+
 ## Phase 6 — what the business owns
 
 Five schema changes, **all expand-only**: new optional columns and two new

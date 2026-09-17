@@ -305,12 +305,35 @@ test('a subcontractor sees their own reports even when newer ones are not theirs
     page.getByRole('link', { name: new RegExp(SERVICE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }),
   ).toHaveCount(1, { timeout: 25_000 })
 
-  const visible = await s.sub.client.query(api.reports.list, {
-    businessId: s.businessId,
-    filter: 'all',
-    paginationOpts: { numItems: 25, cursor: null },
-  })
-  expect(visible.page.every((r) => r._id === theirs || false)).toBe(true)
+  // Walked to the end rather than read off page one, because page one is
+  // legitimately empty: visibility is applied AFTER the page is drawn, so the
+  // sub's first 25 rows are all the owner's and all filtered away. That is
+  // the whole reason the list advances until a row survives.
+  //
+  // The old assertion here read `page.every(...)` on page one alone, which
+  // `[].every()` makes `true` — so a regression that showed the sub nothing
+  // at all passed as brightly as one that worked.
+  const seen: Array<string> = []
+  // Annotated because the loop assigns the cursor from its own result, and
+  // TypeScript cannot infer a type that refers to itself.
+  let cursor: string | null = null
+  for (let hop = 0; hop < 10; hop += 1) {
+    const chunk: {
+      page: Array<{ _id: string }>
+      isDone: boolean
+      continueCursor: string
+    } = await s.sub.client.query(api.reports.list, {
+      businessId: s.businessId,
+      filter: 'all',
+      paginationOpts: { numItems: 25, cursor },
+    })
+    seen.push(...chunk.page.map((r) => r._id))
+    if (chunk.isDone) break
+    cursor = chunk.continueCursor
+  }
+
+  // Exactly theirs, and nothing of the twenty-six that are not.
+  expect(seen).toEqual([theirs])
 })
 
 test('a report left unfinished is said so, where somebody is looking', async ({
@@ -342,4 +365,39 @@ test('a report left unfinished is said so, where somebody is looking', async ({
   await page.goto(`/${s.slug}/reports`)
   await expect(page.getByRole('tab', { name: 'All' })).toBeEnabled()
   await expect(page.getByText(/left unfinished/)).toHaveCount(0)
+})
+
+test('a report history is only readable by someone who may read the report', async () => {
+  const s = await setupBusinessWithSub('audit-visibility')
+
+  // The owner's own report. A subcontractor without `canViewAllJobs` cannot
+  // open it — `reports.get` returns null — and its history says who the
+  // client is, where the document went and when.
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, { businessId: s.businessId }, reportId, 'serviceReport')
+
+  expect(
+    await s.sub.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    }),
+  ).toBeNull()
+
+  // So the side door has to be shut too: answering the history would hand
+  // over exactly what the front door refuses.
+  expect(
+    await s.sub.client.query(api.auditLog.forEntity, {
+      businessId: s.businessId,
+      entityType: 'reports',
+      entityId: reportId,
+    }),
+  ).toEqual([])
+
+  // The owner, who may read the report, gets its history.
+  const theirs = await s.owner.client.query(api.auditLog.forEntity, {
+    businessId: s.businessId,
+    entityType: 'reports',
+    entityId: reportId,
+  })
+  expect(theirs.some((row) => row.action === 'report.finalise')).toBe(true)
 })
