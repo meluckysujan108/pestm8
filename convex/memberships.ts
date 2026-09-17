@@ -16,6 +16,7 @@ import {
   canManageMember,
   clampGrants,
   isVisiblePerson,
+  recomputeGrants,
 } from './lib/capabilities'
 import { factsFromMembership } from './lib/membershipFacts'
 
@@ -392,7 +393,37 @@ export const setRole = mutation({
       if (activeOwners.length <= 1) throw new ConvexError('LAST_OWNER')
     }
 
-    await ctx.db.patch(args.membershipId, { role: args.role })
+    /**
+     * A change of role is a change of what someone may hold, so the grants are
+     * re-derived rather than carried across.
+     *
+     * Promoting a subcontractor to contractor takes their `switchInto` with it:
+     * it named the contractor they worked under, and they no longer work under
+     * anyone. Leaving it would point a contractor at an account they have no
+     * standing in — `canSwitchInto` refuses it on every request, but a grant
+     * that reads as live and is not is a worse record than no grant.
+     */
+    const becoming = {
+      ...factsFromMembership(target),
+      role: args.role,
+      // A contractor answers to the owner, not to another contractor.
+      parentMembershipId:
+        args.role === 'subcontractor' ? target.parentMembershipId ?? null : null,
+    }
+    const parentDoc = becoming.parentMembershipId
+      ? await ctx.db.get(becoming.parentMembershipId)
+      : null
+    const grants = recomputeGrants(
+      becoming,
+      parentDoc ? factsFromMembership(parentDoc) : null,
+    )
+
+    await ctx.db.patch(args.membershipId, {
+      role: args.role,
+      parentMembershipId: becoming.parentMembershipId ?? undefined,
+      grants,
+      canViewAllJobs: grants.otherSchedules,
+    })
 
     await recordAudit(ctx, forSelf(actor._id), {
       businessId: args.businessId,

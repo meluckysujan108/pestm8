@@ -5,11 +5,11 @@ import { authComponent } from './auth'
 import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
-import { canManageMember, NO_GRANTS } from './lib/capabilities'
+import { canManageMember, NO_GRANTS, recomputeGrants } from './lib/capabilities'
 import { factsFromMembership } from './lib/membershipFacts'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
-import { requireActor, requireCapability } from './lib/actor'
+import { requireActor, requireCapability, requireWriteActor } from './lib/actor'
 
 /**
  * Offboarding.
@@ -371,6 +371,7 @@ export const roster = query({
              * that first write cannot silently zero the others.
              */
             grants: facts.grants,
+            parentMembershipId: m.parentMembershipId ?? null,
             /** The legacy read-only view-as, which is a different thing from
              * `grants.switchInto` and still has its own column. */
             canViewOtherAccounts: m.canViewOtherAccounts ?? false,
@@ -380,5 +381,86 @@ export const roster = query({
           }
         }),
     )
+  },
+})
+
+/**
+ * Puts a subcontractor on a contractor's team, or takes them off one.
+ *
+ * "A contractor has a team" has no representation other than this column, so
+ * this is the whole of it. `null` means they answer to the owner directly,
+ * which is what every member is today.
+ *
+ * The grants are re-derived rather than left alone, and that is the point of
+ * the mutation rather than a tidy-up afterwards. A subcontractor's toggles are
+ * ceilinged by their contractor's — a contractor cannot let someone see prices
+ * they cannot see themselves — so the ceiling changes the instant the team
+ * does. `switchInto` goes further and dies outright: it names the contractor
+ * who granted it, so moving to a different team makes it inert by
+ * construction, whether or not this code remembers to clear it.
+ */
+export const assignTo = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    membershipId: v.id('memberships'),
+    /** The contractor to work under, or null to answer to the owner. */
+    parentMembershipId: v.union(v.null(), v.id('memberships')),
+  },
+  handler: async (ctx, { businessId, membershipId, parentMembershipId }) => {
+    const env = await requireWriteActor(ctx, businessId)
+    requireCapability(env, 'team.manage')
+
+    const target = await ctx.db.get(membershipId)
+    if (!target || target.businessId !== businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    if (!canManageMember(env.actor, factsFromMembership(target))) {
+      throw new ConvexError('NO_ACCESS')
+    }
+    // Only a subcontractor belongs to a team. A contractor's own place in the
+    // business is beside the owner, not under another contractor — the model
+    // is one level deep, and `switchDecision` assumes it.
+    if (target.role !== 'subcontractor') {
+      throw new ConvexError('NOT_A_TEAM_MEMBER')
+    }
+
+    let parent = null
+    if (parentMembershipId !== null) {
+      const row = await ctx.db.get(parentMembershipId)
+      // Opaque, like every other target lookup: which ids exist and what role
+      // they hold is not something a caller gets to enumerate.
+      if (
+        !row ||
+        row.businessId !== businessId ||
+        row.status !== 'active' ||
+        row.role !== 'contractor' ||
+        row._id === target._id
+      ) {
+        throw new ConvexError('NOT_FOUND')
+      }
+      parent = row
+    }
+
+    const moved = {
+      ...factsFromMembership(target),
+      parentMembershipId: parent?._id ?? null,
+    }
+    const nextGrants = recomputeGrants(moved, parent && factsFromMembership(parent))
+
+    await ctx.db.patch(membershipId, {
+      parentMembershipId: parent?._id ?? undefined,
+      grants: nextGrants,
+      canViewAllJobs: nextGrants.otherSchedules,
+    })
+
+    await recordAudit(ctx, forSelf(env.actor.real._id), {
+      businessId,
+      action: 'membership.assignTo',
+      entityType: 'memberships',
+      entityId: membershipId,
+      meta: { parentMembershipId: parent?._id ?? null, grants: nextGrants },
+    })
+
+    return nextGrants
   },
 })

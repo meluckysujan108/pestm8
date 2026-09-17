@@ -572,13 +572,12 @@ export function clampGrants(
 /**
  * The roles that may actually be handed out today.
  *
- * `contractor` is in the schema because the column has to exist before the code
- * that fills it — expand before migrate — but nothing yet supports a team:
- * nobody assigns a `parentMembershipId`, and `canManageMember` is not wired
- * into the team mutations. Minting one now would produce a member holding
- * business-wide `team.manage` with no team to scope it to: more reach than a
- * subcontractor, and less structure than an owner. The role becomes assignable
- * in the same change that gives it a team.
+ * `contractor` was held back until there was a team to scope one to. A
+ * contractor holds `team.manage` business-wide and is narrowed to their own
+ * people by `canManageMember`, so minting one before anything assigned a
+ * `parentMembershipId` would have produced a member with more reach than a
+ * subcontractor and less structure than an owner. `team.assignTo` exists now,
+ * so the role does too.
  *
  * `owner` is absent for a different and permanent reason. There is exactly one
  * owner account, it is the key to the business, and it is not handed out from
@@ -588,6 +587,7 @@ export function clampGrants(
  */
 export const ASSIGNABLE_ROLES = [
   'subcontractor',
+  'contractor',
 ] as const satisfies ReadonlyArray<Role>
 
 export function isAssignableRole(role: Role): boolean {
@@ -635,22 +635,41 @@ export function recomputeGrants(
     return { ...member.grants, switchInto: null }
   }
 
+  /**
+   * A ceiling only where there is someone to be ceilinged by.
+   *
+   * No parent means no contractor, and a subcontractor with no contractor was
+   * given their toggles by the owner. Treating an absent parent as a parent
+   * who grants nothing revokes the owner's own decision — and since nobody has
+   * a parent until somebody assigns one, the first team move would have wiped
+   * the toggles of every person in the business.
+   *
+   * `capabilitiesOf` already reads it this way (it skips the clamp entirely
+   * when `parent` is null); this used to disagree with it, and the two being
+   * the same rule is the point of them being separate functions.
+   */
   const parentCaps = parent ? capabilitiesOf(parent) : null
+  const ceiling = (capability: Capability, held: boolean) =>
+    parentCaps === null ? held : held && parentCaps[capability]
+
   return {
     // Only ever the current contractor, and only if it is still a real one.
+    // This one does require a parent: there is no account to work in without.
     switchInto:
       parent && member.parentMembershipId === parent._id
         ? member.grants.switchInto === parent._id
           ? parent._id
           : null
         : null,
-    clientDirectory:
-      member.grants.clientDirectory &&
-      (parentCaps?.['clients.directory'] ?? false),
-    prices: member.grants.prices && (parentCaps?.['prices.see'] ?? false),
-    otherSchedules:
-      member.grants.otherSchedules &&
-      (parentCaps?.['schedules.seeOthers'] ?? false),
+    clientDirectory: ceiling(
+      'clients.directory',
+      member.grants.clientDirectory,
+    ),
+    prices: ceiling('prices.see', member.grants.prices),
+    otherSchedules: ceiling(
+      'schedules.seeOthers',
+      member.grants.otherSchedules,
+    ),
   }
 }
 
