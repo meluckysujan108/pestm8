@@ -9,6 +9,7 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
+import { useCan } from '#/lib/access'
 
 const SEGMENTS = [
   { value: 'all' as const, label: 'All' },
@@ -27,7 +28,8 @@ export const Route = createFileRoute('/$businessSlug/reports/')({
 })
 
 function ReportsPage() {
-  const { business, membership } = Route.useRouteContext()
+  const { business } = Route.useRouteContext()
+  const canManageTemplates = useCan('templates.manage')
   const { q, seg } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const active = seg ?? 'all'
@@ -74,7 +76,7 @@ function ReportsPage() {
         title="Reports"
         action={
           <>
-            {membership.role === 'owner' && (
+            {canManageTemplates && (
               <Link
                 to="/$businessSlug/reports/templates"
                 params={{ businessSlug: business.slug }}

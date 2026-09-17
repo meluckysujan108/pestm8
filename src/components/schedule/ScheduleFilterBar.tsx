@@ -23,7 +23,7 @@ export function ScheduleFilterBar({
   staffId: string
   setStaffId: (value: string) => void
 }) {
-  const staffLoad = computeStaffLoad(jobs, members)
+  const staffLoad = computeStaffLoad(jobs)
   // The default selection is the viewer's own membership, which may have
   // zero jobs today even though someone else does — make sure it's still a
   // real option (not a raw id string in the trigger) rather than only ever

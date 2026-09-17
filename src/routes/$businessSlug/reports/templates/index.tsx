@@ -11,19 +11,21 @@ import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
+import { useCan } from '#/lib/access'
 
 export const Route = createFileRoute('/$businessSlug/reports/templates/')({
   component: TemplatesPage,
 })
 
 function TemplatesPage() {
-  const { business, membership } = Route.useRouteContext()
+  const { business } = Route.useRouteContext()
+  const canManageTemplates = useCan('templates.manage')
 
   const { data: custom } = useSuspenseQuery(
     convexQuery(api.customTemplates.list, { businessId: business._id }),
   )
 
-  if (membership.role !== 'owner') {
+  if (!canManageTemplates) {
     return (
       <>
         <PageHeader

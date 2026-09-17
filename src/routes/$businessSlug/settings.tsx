@@ -6,6 +6,7 @@ import { TeamSection } from '#/components/settings/TeamSection'
 import { ProfileSection } from '#/components/settings/ProfileSection'
 import { PrefsSection } from '#/components/settings/PrefsSection'
 import { BrandingSection } from '#/components/settings/BrandingSection'
+import { useCan } from '#/lib/access'
 
 const SEGMENTS = [
   { value: 'profile' as const, label: 'Profile' },
@@ -22,6 +23,8 @@ export const Route = createFileRoute('/$businessSlug/settings')({
 
 function SettingsPage() {
   const { business, membership } = Route.useRouteContext()
+  const canManageTeam = useCan('team.manage')
+  const canManageBusiness = useCan('business.manage')
   const { seg } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const active = seg ?? 'profile'
@@ -42,7 +45,7 @@ function SettingsPage() {
           options={
             // Team management is an owner concern; a subcontractor has no
             // roster to manage and shouldn't see a tab that rejects them.
-            membership.role === 'owner'
+            canManageTeam
               ? SEGMENTS
               : SEGMENTS.filter((s) => s.value !== 'team')
           }
@@ -62,7 +65,7 @@ function SettingsPage() {
             state={business.state}
           />
         )}
-        {active === 'team' && membership.role === 'owner' && (
+        {active === 'team' && canManageTeam && (
           <TeamSection businessId={business._id} />
         )}
         {active === 'prefs' && (
@@ -70,9 +73,9 @@ function SettingsPage() {
             <PrefsSection
               businessId={business._id}
               business={business}
-              canEdit={membership.role === 'owner'}
+              canEdit={canManageBusiness}
             />
-            {membership.role === 'owner' && (
+            {canManageBusiness && (
               <div className="mt-6">
                 <BrandingSection businessId={business._id} business={business} />
               </div>
