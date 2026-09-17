@@ -25,4 +25,19 @@ crons.cron(
   {},
 )
 
+/**
+ * The same thirty days for a retired report DRAFT. A finalised report is
+ * never deleted and never purged — the business is required to keep it — so
+ * this only ever reaches work in progress.
+ *
+ * Twenty minutes after the notes purge, so two self-rescheduling batch jobs
+ * are not competing for the same scheduler slot.
+ */
+crons.cron(
+  'purge deleted report drafts',
+  '20 19 * * *', // ~03:20 Australia/Perth
+  internal.reports.purgeExpired,
+  {},
+)
+
 export default crons

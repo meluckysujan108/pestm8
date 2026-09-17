@@ -1,4 +1,6 @@
 import { ConvexError, v } from 'convex/values'
+import { paginationOptsValidator } from 'convex/server'
+import type { FilterBuilder } from 'convex/server'
 import {
   internalMutation,
   internalQuery,
@@ -24,11 +26,12 @@ import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { deliveryRecipients } from '../src/lib/reportTemplates/delivery'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import { knownRecipients } from './lib/recipients'
+import { reportSearchText } from './lib/reportSearch'
 import { buildReportContext, toPresentContext } from './lib/reportContext'
 import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
 import { migrateServiceReportV1 } from '../src/lib/reportTemplates/legacy/serviceReport.migrate'
-import type { Doc, Id } from './_generated/dataModel'
+import type { DataModel, Doc, Id } from './_generated/dataModel'
 import type { TemplateId } from '../src/lib/reportTemplates'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
@@ -166,6 +169,213 @@ export const listForBusiness = query({
     )
   },
 })
+
+/**
+ * Rewrites a report's denormalised search string from the records it points
+ * at. Cheap — three reads — and called only where a report's identity can
+ * actually change: when it is created, when it gains a job, and when it locks.
+ */
+export async function refreshSearchText(ctx: MutationCtx, reportId: Id<'reports'>) {
+  const report = await ctx.db.get(reportId)
+  if (!report) return
+  const { templateName } = await templateDisplay(ctx, report)
+  await ctx.db.patch(reportId, {
+    searchText: await reportSearchText(ctx, report, templateName),
+  })
+}
+
+/**
+ * The library, a page at a time.
+ *
+ * `listForBusiness` collects every report a business has ever made and does
+ * two document reads per row — fine at thirty reports, not at three thousand,
+ * and there is no point building a rail and a search box on top of a query
+ * that has to read everything before it can show anything.
+ *
+ * Ordered by `updatedAt`, because "the one I was filling in" means the one
+ * last touched rather than the one started first.
+ */
+export const list = query({
+  args: {
+    businessId: v.id('businesses'),
+    filter: v.union(
+      v.literal('all'),
+      v.literal('draft'),
+      v.literal('finalised'),
+      v.literal('sent'),
+      v.literal('trash'),
+    ),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, { businessId, filter, paginationOpts }) => {
+    const membership = await resolveViewScope(ctx, businessId)
+
+    const page = await ctx.db
+      .query('reports')
+      .withIndex('by_business_updated', (q) => q.eq('businessId', businessId))
+      .order('desc')
+      .filter((q) =>
+        filter === 'trash'
+          ? q.neq(q.field('deletedAt'), undefined)
+          : q.eq(q.field('deletedAt'), undefined),
+      )
+      .filter((q) => segmentPredicate(q, filter))
+      .paginate(paginationOpts)
+
+    // Visibility is applied after the page is drawn, as it is for notes: a
+    // subcontractor's page can come back short, which the paginator handles,
+    // and the alternative is an index per membership.
+    const visible = page.page.filter((r) => canSeeReport(membership, r))
+
+    return { ...page, page: await decorate(ctx, visible) }
+  },
+})
+
+/**
+ * Finding a report by the only things anyone remembers about it: the client,
+ * the street, the form, or the number they were given on the phone.
+ *
+ * Matches `reports.searchText`, which is denormalised precisely because none
+ * of those live on the report itself.
+ */
+export const search = query({
+  args: {
+    businessId: v.id('businesses'),
+    term: v.string(),
+    /** The same segments as `list`: searching inside Drafts means drafts. */
+    filter: v.union(
+      v.literal('all'),
+      v.literal('draft'),
+      v.literal('finalised'),
+      v.literal('sent'),
+      v.literal('trash'),
+    ),
+  },
+  handler: async (ctx, { businessId, term, filter }) => {
+    if (term.trim() === '') return []
+    const membership = await resolveViewScope(ctx, businessId)
+
+    const rows = await ctx.db
+      .query('reports')
+      .withSearchIndex('search', (q) =>
+        q.search('searchText', term).eq('businessId', businessId),
+      )
+      // Filtered before the take, so rows the segment excludes cannot crowd
+      // real matches out of the results.
+      .filter((q) =>
+        filter === 'trash'
+          ? q.neq(q.field('deletedAt'), undefined)
+          : q.eq(q.field('deletedAt'), undefined),
+      )
+      .filter((q) => segmentPredicate(q, filter))
+      .take(SEARCH_LIMIT)
+
+    return decorate(ctx, rows.filter((r) => canSeeReport(membership, r)))
+  },
+})
+
+/** More than fits a phone screen, far less than a scan of the business. */
+const SEARCH_LIMIT = 40
+
+/**
+ * What each segment means, in one place so the paginated list and the search
+ * cannot disagree — searching inside Drafts has to mean drafts, or a search
+ * silently changes which tab you are on.
+ *
+ * "Sent" is finalised-and-emailed and "Finalised" is finalised-and-not-yet:
+ * mutually exclusive buckets rather than a third status value, because a
+ * finalised report can be emailed zero, one or many times.
+ */
+function segmentPredicate(
+  q: FilterBuilder<DataModel['reports']>,
+  filter: 'all' | 'draft' | 'finalised' | 'sent' | 'trash',
+) {
+  if (filter === 'draft') return q.eq(q.field('status'), 'draft')
+  if (filter === 'finalised') {
+    return q.and(
+      q.eq(q.field('status'), 'finalised'),
+      q.eq(q.field('emailedAt'), undefined),
+    )
+  }
+  if (filter === 'sent') return q.neq(q.field('emailedAt'), undefined)
+  return true
+}
+
+/**
+ * Turns report rows into list rows: the client, the suburb and the form's
+ * name, each read from the freeze once the report is signed so the list says
+ * what the document says.
+ */
+async function decorate(ctx: QueryCtx, rows: Array<Doc<'reports'>>) {
+  // Resolved BEFORE the fan-out, not lazily inside it. Snapshots dedupe by
+  // content hash, so many finalised reports share a handful of rows — but
+  // `Promise.all` starts every handler before any of them can populate a
+  // shared cache, so a check-then-read inside the map would miss on almost
+  // every row and reintroduce the read-per-report it was meant to avoid.
+  const snapshotIds = [
+    ...new Set(
+      rows
+        .filter((r) => r.status === 'finalised' && r.templateSnapshotId)
+        .map((r) => r.templateSnapshotId!),
+    ),
+  ]
+  const snapshotNames = new Map(
+    (await Promise.all(snapshotIds.map((id) => ctx.db.get(id))))
+      .filter((row) => row !== null)
+      .map((row) => [row._id, row.name] as const),
+  )
+
+  return Promise.all(
+    rows.map(async (r) => {
+      const property = await ctx.db.get(r.propertyId)
+      const { templateName } = await templateDisplay(ctx, r, snapshotNames)
+      // A signed report is listed as it was signed, matching the document it
+      // opens — not under a client's later name.
+      const frozen = r.status === 'finalised' ? r.contextSnapshot : undefined
+      return {
+        ...summarise(r),
+        clientName: frozen?.client?.name ?? (await clientNameOf(ctx, property)),
+        suburb: frozen?.property?.suburb ?? property?.suburb ?? '',
+        templateName,
+      }
+    }),
+  )
+}
+
+/**
+ * How many of each there are, for the rail.
+ *
+ * Counted rather than paginated, because a badge that says "12" has to have
+ * looked at all twelve. Bounded by `COUNT_LIMIT`: past that the rail says
+ * "99+" rather than reading a business's whole history to draw a number.
+ */
+export const counts = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const membership = await resolveViewScope(ctx, businessId)
+    const rows = await ctx.db
+      .query('reports')
+      .withIndex('by_business_updated', (q) => q.eq('businessId', businessId))
+      .order('desc')
+      .take(COUNT_LIMIT)
+
+    const counted = { all: 0, draft: 0, finalised: 0, sent: 0, trash: 0 }
+    for (const r of rows) {
+      if (!canSeeReport(membership, r)) continue
+      if (r.deletedAt !== undefined) {
+        counted.trash += 1
+        continue
+      }
+      counted.all += 1
+      if (r.status === 'draft') counted.draft += 1
+      else if (r.emailedAt !== undefined) counted.sent += 1
+      else counted.finalised += 1
+    }
+    return { ...counted, capped: rows.length === COUNT_LIMIT }
+  },
+})
+
+const COUNT_LIMIT = 200
 
 export function summarise(r: Doc<'reports'>) {
   return {
@@ -1078,7 +1288,13 @@ export const create = mutation({
       templateVersion:
         args.template === 'custom' ? 1 : getTemplate(args.template).version,
       createdAt: Date.now(),
+      updatedAt: Date.now(),
     })
+
+    // Written after the insert, because it reads the row it describes. A
+    // report is findable by client, address and form from the moment it
+    // exists, not from the moment it is first saved.
+    await refreshSearchText(ctx, reportId)
 
     if (seeded.fetchWeather) {
       await ctx.scheduler.runAfter(0, internal.weather.fillForReport, {
@@ -1186,7 +1402,9 @@ export const saveDraft = mutation({
     const { report } = await requireEditableReport(ctx, businessId, reportId)
     requireSameVersion(report, templateVersion)
 
-    await ctx.db.patch(reportId, { data })
+    // The library orders by this: "the one I was filling in" means the one
+    // they last touched, not the one they started first.
+    await ctx.db.patch(reportId, { data, updatedAt: Date.now() })
   },
 })
 
@@ -1337,6 +1555,7 @@ export const finalise = mutation({
       data,
       status: 'finalised',
       finalisedAt: now,
+      updatedAt: now,
       pdfStatus: 'pending',
       reportNumber,
       ...(templateSnapshotId ? { templateSnapshotId } : {}),
@@ -1360,6 +1579,10 @@ export const finalise = mutation({
       await ctx.storage.delete(report.previewStorageId)
       await ctx.db.patch(reportId, { previewStorageId: undefined })
     }
+
+    // The freeze changed what this report is called and gave it a number,
+    // both of which someone will search for.
+    await refreshSearchText(ctx, reportId)
 
     // What the form itself asked for. Opened as a delivery row here, in the
     // same transaction that locks the report, so "the form said send it" is
@@ -1433,6 +1656,141 @@ async function queueFormDeliveries(
     createdAt: Date.now(),
   })
 }
+
+/**
+ * Deleting a draft, and only a draft.
+ *
+ * A finalised report is a record the business is required to keep — WA's
+ * pesticide regulations say three years, ten where a termite certificate is
+ * involved — so there is deliberately no way to delete one, from here or
+ * anywhere. What lands in Recently Deleted is work in progress: a report
+ * started on the wrong property, a duplicate, a test.
+ *
+ * Soft, because the photos attached to a draft are evidence somebody stood
+ * somewhere and took them. Thirty days, then the nightly purge.
+ */
+export const softDelete = mutation({
+  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
+  handler: async (ctx, { businessId, reportId }) => {
+    const report = await requireDeletable(ctx, businessId, reportId)
+    if (report.deletedAt !== undefined) return
+    await ctx.db.patch(reportId, { deletedAt: Date.now(), updatedAt: Date.now() })
+  },
+})
+
+export const restore = mutation({
+  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
+  handler: async (ctx, { businessId, reportId }) => {
+    const report = await requireDeletable(ctx, businessId, reportId)
+    if (report.deletedAt === undefined) return
+    await ctx.db.patch(reportId, { deletedAt: undefined, updatedAt: Date.now() })
+  },
+})
+
+/**
+ * Gone for good, with its photos and its signatures. Only from Recently
+ * Deleted — the thirty-day safety net is not optional.
+ */
+export const remove = mutation({
+  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
+  handler: async (ctx, { businessId, reportId }) => {
+    const report = await requireDeletable(ctx, businessId, reportId)
+    if (report.deletedAt === undefined) throw new ConvexError('NOT_IN_TRASH')
+    await purgeReport(ctx, report)
+  },
+})
+
+/**
+ * Who may retire a draft: its author, or an owner.
+ *
+ * Deliberately NOT `requireEditableReport`, which is author-only — an owner
+ * has to be able to clear a subcontractor's abandoned draft off the list. And
+ * deliberately the REAL membership, not the view-as scope: looking through
+ * someone else's eyes is a way to read, never a way to delete.
+ */
+async function requireDeletable(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  reportId: Id<'reports'>,
+): Promise<Doc<'reports'>> {
+  const membership = await requireMembership(ctx, businessId)
+  const report = await ctx.db.get(reportId)
+  if (!report || report.businessId !== businessId) throw new ConvexError('NOT_FOUND')
+  if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
+  if (
+    membership.role !== 'owner' &&
+    report.authorMembershipId !== membership._id
+  ) {
+    throw new ConvexError('NO_ACCESS')
+  }
+  return report
+}
+
+/**
+ * Everything a draft owns. The storage blobs go only after a reference check,
+ * because an image can be shared — a saved signature belongs to the member,
+ * not to this report, and deleting it here would blank it on every other.
+ */
+async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
+  const photos = await ctx.db
+    .query('reportPhotos')
+    .withIndex('by_report_field', (q) => q.eq('reportId', report._id))
+    .collect()
+  for (const photo of photos) {
+    await ctx.db.delete(photo._id)
+    const stillUsed = await ctx.db
+      .query('reportPhotos')
+      .withIndex('by_storage', (q) => q.eq('storageId', photo.storageId))
+      .first()
+    if (!stillUsed) await ctx.storage.delete(photo.storageId)
+  }
+
+  for (const held of Object.values(report.signatureSlots ?? {})) {
+    const storageId = storageIdOf(held)
+    const savedBy = await ctx.db
+      .query('memberships')
+      .withIndex('by_business', (q) => q.eq('businessId', report.businessId))
+      .filter((q) => q.eq(q.field('savedSignatureStorageId'), storageId))
+      .first()
+    // A member's saved signature is theirs, not this report's.
+    if (!savedBy) await ctx.storage.delete(storageId)
+  }
+
+  for (const slot of Object.values(report.photoSlots ?? {})) {
+    await ctx.storage.delete(slot)
+  }
+  if (report.previewStorageId) await ctx.storage.delete(report.previewStorageId)
+
+  await ctx.db.delete(report._id)
+}
+
+/** Long enough to notice a mistake, short enough not to be a second archive. */
+const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
+
+export const purgeExpired = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - TRASH_RETENTION_MS
+    const batch = await ctx.db
+      .query('reports')
+      .withIndex('by_deletedAt', (q) => q.gt('deletedAt', 0).lt('deletedAt', cutoff))
+      .take(PURGE_BATCH)
+    for (const report of batch) {
+      // A report that was finalised while in the trash is a record now, and
+      // records are not purged. Restoring it to the list is the honest move.
+      if (report.status === 'finalised') {
+        await ctx.db.patch(report._id, { deletedAt: undefined })
+        continue
+      }
+      await purgeReport(ctx, report)
+    }
+    if (batch.length === PURGE_BATCH) {
+      await ctx.scheduler.runAfter(0, internal.reports.purgeExpired, {})
+    }
+  },
+})
+
+const PURGE_BATCH = 25
 
 /**
  * The version of the painter. Bumping it makes every report re-render on its

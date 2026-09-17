@@ -312,3 +312,36 @@ and the newly drawn one becomes the report's current pointer plus its first
 Worth knowing before the prod deploy: a client who asks for "the same PDF you
 sent me in August" will be handed the same content in the new layout until
 deliveries record which `reportPdfs` row they attached (Phase 5).
+
+## Phase 5 — a library that can be paged, searched and emptied
+
+Expand-only in the schema, but **this one has a backfill that must run**.
+
+`reports` gains `updatedAt` and `searchText`, three indexes
+(`by_business_updated`, `by_deletedAt`, and a `search` index over
+`searchText`), and `reportDeliveries` arrives as a new table. `businesses`
+gains `reportCopyEmail` and `allowTechnicianRecipients`.
+
+Both new report columns are optional, and absent values are NOT harmless:
+`undefined` sorts below every number on `by_business_updated`, so an
+unbackfilled report sits at the bottom of a descending list forever, and one
+with no `searchText` cannot be found at all.
+`migrations/reportsLibrary.ts` carries the runbook — snapshot production
+first, run `backfill`, then `invariant` must report `withoutUpdatedAt: 0` and
+`withoutSearchText: 0`. Run on dev 2026-09-17: 3725 reports, both zero.
+
+`updatedAt` is backfilled to `finalisedAt ?? createdAt`, the closest true
+thing available — nothing recorded when a draft was last edited, and stamping
+"now" would shuffle a business's entire history to the top of its own list on
+the day the migration ran.
+
+### Deleting a report
+
+Only a draft can be deleted, and only into Recently Deleted. A finalised
+report is a record the business is required to keep — three years under WA's
+pesticide regulations, ten where a termite certificate is involved — so
+`softDelete` refuses one outright, and the nightly purge restores rather than
+destroys anything that was finalised while sitting in the trash. The purge
+cron (`0 19 * * *` for notes, `20 19 * * *` for reports) deletes a draft's
+photo blobs only after a `by_storage` reference check, and never a member's
+saved signature.

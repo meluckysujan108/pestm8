@@ -188,6 +188,9 @@ export type RejectionCode =
   | 'INVALID_TEMPLATE'
   | 'TEMPLATE_RETIRED'
   | 'TEMPLATE_VERSION_MISMATCH'
+  // A permanent delete that skipped Recently Deleted — the 30-day safety net
+  // is not optional.
+  | 'NOT_IN_TRASH'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

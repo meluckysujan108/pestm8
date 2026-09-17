@@ -548,6 +548,29 @@ export default defineSchema({
      * the evidence photos attached to it.
      */
     deletedAt: v.optional(v.number()),
+    /**
+     * Last touched — an answer typed, a photo added, a lock closed.
+     *
+     * The library orders by this, because a technician looking for "the one I
+     * was filling in" means the one they last touched, not the one they
+     * started first. Optional only because rows written before it exist;
+     * `migrations/reportsLibrary.ts` backfills them to `finalisedAt ??
+     * createdAt` so nothing sorts below everything forever.
+     */
+    updatedAt: v.optional(v.number()),
+    /**
+     * What the search box matches: the client, the suburb, the form's name and
+     * the report number, in one string.
+     *
+     * Denormalised because none of those live on this row — they are resolved
+     * at read time from the property, the client and the template — and a
+     * search index can only see fields it holds. Written at create, refreshed
+     * whenever the report is attached to a job or locked. A client renamed
+     * mid-draft therefore stays findable under the name it had until the
+     * report is finalised, which is the trade for not rewriting every draft
+     * of a client whenever their name changes.
+     */
+    searchText: v.optional(v.string()),
   })
     .index('by_business', ['businessId'])
     // "find the 2024 report for this address" — the reason properties are a
@@ -558,7 +581,15 @@ export default defineSchema({
     .index('by_custom_template', ['customTemplateId'])
     // "which of this business's drafts might hold an answer being renamed?" —
     // the option-library rename walks only these, never a finalised report.
-    .index('by_business_status_template', ['businessId', 'status', 'template']),
+    .index('by_business_status_template', ['businessId', 'status', 'template'])
+    // The library's own order, paginated.
+    .index('by_business_updated', ['businessId', 'updatedAt'])
+    // The nightly purge's range scan; undefined sorts below every number.
+    .index('by_deletedAt', ['deletedAt'])
+    .searchIndex('search', {
+      searchField: 'searchText',
+      filterFields: ['businessId'],
+    }),
 
   /**
    * The team's shared field knowledge. The note BODY lives in the
