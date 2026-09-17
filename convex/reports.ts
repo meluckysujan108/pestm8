@@ -259,9 +259,20 @@ async function projectReport(ctx: QueryCtx, report: Doc<'reports'>) {
     const liveProperty = rawProperty && (await withClient(ctx, rawProperty))
     const author = await ctx.db.get(report.authorMembershipId)
     const business = await ctx.db.get(businessId)
-    const pdfUrl = report.pdfStorageId
-      ? await ctx.storage.getUrl(report.pdfStorageId)
-      : null
+    // Only a file the CURRENT painter drew.
+    //
+    // Every caller treats a non-null `pdfUrl` as "no render needed" and skips
+    // the pipeline entirely, so returning a stale one here made
+    // `RENDER_VERSION` dead on arrival: a report that already had a file could
+    // never be redrawn, and a report finalised before the document was
+    // rewritten would show the new document on screen while its PDF tab,
+    // download and email attachment all served the old one — permanently.
+    // Withholding the URL is what sends the caller through `claimPdf`.
+    const pdfUrl =
+      report.pdfStorageId !== undefined &&
+      (report.pdfRenderVersion ?? 0) >= RENDER_VERSION
+        ? await ctx.storage.getUrl(report.pdfStorageId)
+        : null
 
     const finalised = report.status === 'finalised'
 
@@ -360,8 +371,9 @@ async function projectReport(ctx: QueryCtx, report: Doc<'reports'>) {
        * where the questions no longer correspond.
        */
       upgrade: finalised ? null : upgradeFor(report),
-      // A finalised report's data never changes, so once generated this is
-      // permanently valid — `reportPdf.generate` is the cache-fill path.
+      // Present only while the stored file is one the current painter drew;
+      // null sends the caller to `reportPdf.generate`, which claims the work
+      // and redraws it. See `RENDER_VERSION`.
       pdfUrl,
       author: author && {
         _id: author._id,
