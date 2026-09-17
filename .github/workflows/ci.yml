@@ -44,20 +44,21 @@ jobs:
       # prettier disagrees with most files), and reformatting all of them in a
       # security change would bury the diff and wreck git blame. New and
       # edited code is still held to the standard.
+      # The list goes to a FILE, never through a shell variable or a step
+      # output. Route paths in this app contain `$businessSlug`, and echoing
+      # them inside double quotes lets bash expand it — the check then looks
+      # for `src/routes//analytics.tsx`, finds nothing, and fails with a
+      # message about a typo in a pattern nobody typed.
       - name: Changed files
         id: changed
         run: |
           base="${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^' }}"
-          files=$(git diff --name-only --diff-filter=ACMR "$base"...HEAD \
+          git diff --name-only --diff-filter=ACMR "$base"...HEAD \
             | grep -E '\.(ts|tsx|js|jsx|mjs|json|css|md)$' \
             | grep -v '^convex/_generated/' \
-            | grep -v 'routeTree\.gen\.ts$' || true)
-          {
-            echo 'files<<EOF'
-            echo "$files"
-            echo 'EOF'
-            echo "base=$base"
-          } >> "$GITHUB_OUTPUT"
+            | grep -v 'routeTree\.gen\.ts$' > "$RUNNER_TEMP/changed.txt" || true
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "count=$(wc -l < "$RUNNER_TEMP/changed.txt")" >> "$GITHUB_OUTPUT"
 
       # Only files that were ALREADY prettier-clean have to stay clean. Held to
       # the whole set instead, touching one line of a long-unformatted file
@@ -66,7 +67,7 @@ jobs:
       # git blame. This lets the repo converge as files are cleaned up, without
       # forcing it inside someone else's diff.
       - name: Prettier (changed files that were already clean)
-        if: steps.changed.outputs.files != ''
+        if: steps.changed.outputs.count != '0'
         run: |
           base='${{ steps.changed.outputs.base }}'
           dirty=0
@@ -80,12 +81,17 @@ jobs:
             else
               echo "skipping $f — it was not prettier-clean before this change"
             fi
-          done <<< '${{ steps.changed.outputs.files }}'
+          done < "$RUNNER_TEMP/changed.txt"
           exit $dirty
 
       - name: ESLint (changed files)
-        if: steps.changed.outputs.files != ''
+        if: steps.changed.outputs.count != '0'
         run: |
-          echo "${{ steps.changed.outputs.files }}" \
-            | grep -E '\.(ts|tsx|js|jsx|mjs)$' \
-            | xargs --no-run-if-empty pnpm eslint --max-warnings 0
+          # Read into an array rather than piping to xargs: a path is data
+          # here, and quoting "${files[@]}" keeps it that way. Also avoids
+          # xargs' word-splitting, which would break on any path with a space.
+          files=()
+          while IFS= read -r f; do
+            [ -n "$f" ] && files+=("$f")
+          done < <(grep -E '\.(ts|tsx|js|jsx|mjs)$' "$RUNNER_TEMP/changed.txt")
+          [ ${#files[@]} -eq 0 ] || pnpm eslint --max-warnings 0 "${files[@]}"
