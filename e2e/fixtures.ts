@@ -158,11 +158,14 @@ export async function setupBusinessWithSub(label: string) {
     'Kevin',
   )
 
-  const { businessId } = await owner.client.mutation(api.businesses.create, {
-    name: `${label} ${Date.now()}`,
-    state: 'WA',
-    timezone: 'Australia/Perth',
-  })
+  const { businessId, slug } = await owner.client.mutation(
+    api.businesses.create,
+    {
+      name: `${label} ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
+  )
 
   // Through the real link flow, so every spec that builds on this fixture is
   // standing on the path production actually uses.
@@ -212,6 +215,9 @@ export async function setupBusinessWithSub(label: string) {
     owner,
     sub,
     businessId,
+    // Every URL in the app is slug-addressed, so a fixture that omits it makes
+    // each caller re-derive it — or, quietly, navigate to /undefined.
+    slug,
     propertyId,
     ownerMembershipId,
     subMembershipId,
