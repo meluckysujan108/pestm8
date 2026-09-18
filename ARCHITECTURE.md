@@ -480,7 +480,7 @@ type FieldDef =
 - Convex caches last-known query results client-side, so **today's schedule renders offline** — the realistic field case (someone's backyard, no signal).
 - **Mutations require connectivity.** There is no offline mutation queue in v1. A tech can read the schedule offline and submit the report when back in range. Do not market this as fully offline-capable.
 - Install prompt: `manifest.webmanifest`, maskable icons, `display: standalone`, `theme-color: #FF3B30`.
-- **Build gate:** CI must assert `sw.js` exists in the client output. This plugin combination has a known failure mode where it silently produces no service worker.
+- **Build gate:** `pnpm build` fails if `sw.js` is missing or empty (`scripts/build-sw.ts`), and then fails again unless the built server actually *serves* it (`scripts/check-sw.mjs` boots `.output/server` and requests `/sw.js`). Both halves are needed: a worker written after Nitro baked its static-asset manifest existed on disk while every local production run answered `/sw.js` with a redirect to /login, so nothing about the worker could be tested before it reached Vercel.
 
 ---
 

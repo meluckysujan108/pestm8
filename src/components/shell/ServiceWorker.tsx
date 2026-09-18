@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 
 /**
- * Registers the worker built by scripts/build-sw.mjs.
+ * Registers the worker built by scripts/build-sw.ts.
  *
  * Dev is deliberately excluded: a stale precache during development produces
  * confusing "why is my change not showing" failures, and there is no offline

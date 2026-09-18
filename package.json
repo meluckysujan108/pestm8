@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "vite dev",
     "generate-routes": "tsr generate",
-    "build": "vite build && node scripts/build-sw.mjs",
+    "build": "vite build && node scripts/check-sw.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
