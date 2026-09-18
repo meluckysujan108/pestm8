@@ -5,6 +5,7 @@ import {
   ROLE_POLICY,
   beginSwitch,
   canBookOnto,
+  canChooseView,
   canDispatchTo,
   canEditJob,
   canFinaliseReport,
@@ -167,6 +168,14 @@ describe('who a booking may go onto', () => {
     expect(canDispatchTo(self(contractor()), priya)).toBe(true)
     expect(canBookOnto(contractor(), PRIYA)).toBe(false)
     expect(canBookOnto(contractor(), CONTRACTOR)).toBe(true)
+  })
+})
+
+describe('who chooses a view', () => {
+  test('the owner, and nobody else yet', () => {
+    expect(canChooseView(owner())).toBe(true)
+    expect(canChooseView(contractor())).toBe(false)
+    expect(canChooseView(sub())).toBe(false)
   })
 })
 

@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router'
 import { DropdownMenu } from 'radix-ui'
 import { BadgeCheck, Check, ChevronDown, Users } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { useActing, useViewMode } from '#/lib/access'
+import { useAccess, useActing, useViewMode } from '#/lib/access'
 import { roleLabel } from '#/lib/assignees'
 import { useHydrated } from '#/lib/useHydrated'
 import { useSetView } from '#/lib/useSetView'
@@ -38,13 +38,17 @@ export function ViewMenu({
 }) {
   const mode = useViewMode()
   const acting = useActing()
+  const access = useAccess()
   // Per src/lib/useHydrated.ts: before hydration this would open nothing.
   const hydrated = useHydrated()
   // Not suspense: the header must never wait on a list of names. The trigger's
   // shape comes from `access.me`, already loaded; details fill in after.
-  const { data: options } = useQuery(
-    convexQuery(api.views.options, { businessId }),
-  )
+  // And only for someone who gets the menu: everyone else would be holding a
+  // subscription open on every page to be told `null`.
+  const { data: options } = useQuery({
+    ...convexQuery(api.views.options, { businessId }),
+    enabled: mode !== null,
+  })
   const setView = useSetView(businessId)
 
   if (mode === null) return null
@@ -64,8 +68,11 @@ export function ViewMenu({
         : inside?.name || acting.name || 'Their account'
 
   // One value across all the radio items: a view's own name, or the id of the
-  // account being worked in.
-  const current = mode === 'account' ? acting.membershipId : mode
+  // account being worked in. None of them while an old read-only "view as" is
+  // still on: he is not in God view then, and picking it must be able to take
+  // him there (`views.set` clears the old selection).
+  const current =
+    mode === 'account' ? acting.membershipId : access.viewingAs ? '' : mode
 
   const choose = (next: string) => {
     if (next === current || setView.isPending) return
@@ -83,7 +90,9 @@ export function ViewMenu({
     <DropdownMenu.Root>
       <DropdownMenu.Trigger
         type="button"
-        disabled={!hydrated}
+        // Also while a choice is saving, so a second tap cannot land in the
+        // middle of the first and be silently dropped.
+        disabled={!hydrated || setView.isPending}
         aria-label="Whose jobs to show"
         className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50 md:pr-3"
       >

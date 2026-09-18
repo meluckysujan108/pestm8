@@ -164,6 +164,22 @@ export const set = mutation({
 })
 
 /**
+ * Forget every chosen view — the runbook's step for rolling the FRONTEND back
+ * on its own. A view narrows lists server-side, so a phone left in "Just my
+ * jobs" by the newer build would stay narrowed under an older one that has no
+ * menu to undo it. Everyone returns to God view, the default; nothing else is
+ * touched.
+ */
+export const clearAll = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query('sessionViews').collect()
+    for (const row of rows) await ctx.db.delete(row._id)
+    return { deleted: rows.length }
+  },
+})
+
+/**
  * Delete views whose sign-in has ended.
  *
  * Hygiene rather than enforcement: a row for a dead session is never read,

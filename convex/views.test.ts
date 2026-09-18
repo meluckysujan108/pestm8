@@ -212,6 +212,95 @@ describe('the owner chooses what his lists show', () => {
   })
 })
 
+describe('the reports library and notes follow the same line', () => {
+  async function withReports(f: Fixture) {
+    const now = Date.now()
+    return f.t.run(async (ctx) => {
+      const report = (authorMembershipId: Id<'memberships'>) =>
+        ctx.db.insert('reports', {
+          businessId: f.businessId,
+          propertyId: f.propertyId,
+          authorMembershipId,
+          template: 'serviceReport',
+          legalBasis: 'APVMA',
+          status: 'draft',
+          data: {},
+          photoIds: [],
+          createdAt: now,
+          updatedAt: now,
+        })
+      return {
+        ownerReport: await report(f.ownerMembershipId),
+        kevinReport: await report(f.kevinId),
+      }
+    })
+  }
+
+  /** The list, its search and its counts must agree, or the rail says 2
+   * over a list of 1. */
+  test('"Just my jobs" narrows the library to what he wrote, counts included', async () => {
+    const f = await business()
+    const { ownerReport, kevinReport } = await withReports(f)
+    await setView(f, f.terence, { kind: 'mine' })
+
+    const page = await f.terence.as.query(api.reports.list, {
+      businessId: f.businessId,
+      filter: 'all',
+      paginationOpts: { numItems: 20, cursor: null },
+    })
+    expect(page.page.map((r) => r._id)).toEqual([ownerReport])
+
+    const counts = await f.terence.as.query(api.reports.counts, {
+      businessId: f.businessId,
+    })
+    expect(counts.all).toBe(1)
+
+    // But the report he opens is whole, whoever wrote it.
+    const opened = await f.terence.as.query(api.reports.get, {
+      businessId: f.businessId,
+      reportId: kevinReport,
+    })
+    expect(opened?._id).toBe(kevinReport)
+  })
+
+  /**
+   * A view is what he is shown, not what he may do: a note on Kevin's job,
+   * opened in "Just my jobs", is exactly as editable as in God view. Only the
+   * attach-to-job picker — a list — narrows.
+   */
+  test('a note on someone else’s job stays editable; only the job picker narrows', async () => {
+    const f = await business()
+    // Inserted directly, as noteAccess.test.ts does: `notes.create` needs the
+    // prosemirror component, and what is under test is who may edit it.
+    const noteId = await f.t.run((ctx) =>
+      ctx.db.insert('notes', {
+        businessId: f.businessId,
+        authorMembershipId: f.kevinId,
+        lastEditedByMembershipId: f.kevinId,
+        jobId: f.kevinJobId,
+        title: 'Gate code',
+        preview: '',
+        plainText: 'Gate code 4421',
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      }),
+    )
+    await setView(f, f.terence, { kind: 'mine' })
+
+    const note = await f.terence.as.query(api.notes.get, {
+      businessId: f.businessId,
+      noteId,
+    })
+    expect(note?.canEdit).toBe(true)
+
+    const offered = await f.terence.as.query(api.notes.jobOptions, {
+      businessId: f.businessId,
+      now: Date.now(),
+    })
+    expect(offered.map((j) => j._id)).toEqual([f.ownerJobId])
+  })
+})
+
 describe('a view belongs to one sign-in', () => {
   test('his phone can sit on his own jobs while the office machine shows everyone', async () => {
     const f = await business()
@@ -394,6 +483,16 @@ describe('someone else’s account, from the same dropdown', () => {
       propertyId: f.propertyId,
     })
     expect(atProperty.map((r) => r._id)).toContain(reportId)
+  })
+})
+
+describe('rolling the frontend back', () => {
+  test('clearAll returns every device to God view', async () => {
+    const f = await business()
+    await setView(f, f.terence, { kind: 'mine' })
+    const { deleted } = await f.t.mutation(internal.views.clearAll, {})
+    expect(deleted).toBe(1)
+    expect(await day(f, f.terence)).toEqual(['Kevin visit', 'Owner visit'])
   })
 })
 
