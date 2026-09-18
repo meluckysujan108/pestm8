@@ -950,18 +950,23 @@ export type FinaliseDecision =
  * holder attested to work another person did, under that holder's licence
  * number. That is what licence-lending looks like to an insurer.
  *
- * The same holds for the technician the form NAMES, which is the name and
- * licence the PDF prints. It used to be allowed to name anyone, provided their
- * licence was current — so once the owner's licence was on file, anyone could
- * finalise a certificate in his name over a signature they drew themselves.
- * Now a regulated certificate is finalised by the person it names: name
- * yourself, or leave it to them to write. Their licence is then the holder's,
- * which the checks below already cover.
+ * The same holds for everyone the form NAMES — the inspector, the installer,
+ * the certifying installer — each of whom the PDF prints beside their own
+ * licence. It used to be allowed to name anyone, provided their licence was
+ * current — so once the owner's licence was on file, anyone could finalise a
+ * certificate in his name over a signature they drew themselves. Now a
+ * regulated certificate is finalised by the person it names: name yourself,
+ * or leave it to them to write. Their licence is then the holder's, which the
+ * checks below already cover.
  */
 export function canFinaliseReport(
   actor: ReadActor,
   report: ReportFacts,
-  people: { holder: MembershipFacts; technician?: MembershipFacts | null },
+  people: {
+    holder: MembershipFacts
+    /** Everyone the form's member fields name (`namedMembers`). */
+    named?: ReadonlyArray<MembershipFacts>
+  },
   now: number,
 ): FinaliseDecision {
   if (!canEditReport(actor, report))
@@ -971,7 +976,7 @@ export function canFinaliseReport(
   }
   if (!report.regulated) return { ok: true }
 
-  if (people.technician && people.technician._id !== people.holder._id) {
+  if ((people.named ?? []).some((person) => person._id !== people.holder._id)) {
     return { ok: false, reason: 'TECHNICIAN_NOT_SIGNER' }
   }
 

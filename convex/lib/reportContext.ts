@@ -100,6 +100,37 @@ export async function namedTechnician(
 }
 
 /**
+ * Everyone the form names, across ALL its member fields — distinct, and only
+ * members of this business.
+ *
+ * `namedTechnician` answers "who is the technician" for the printed context,
+ * and that is the first member field. This answers a different question for
+ * `reports.finalise`: whose name and licence will this document print at all.
+ * A termite certificate names two people — the installer and the certifying
+ * installer — each beside their own licence, so checking only the first would
+ * let the second name anyone.
+ */
+export async function namedMembers(
+  ctx: QueryCtx | MutationCtx,
+  report: Doc<'reports'>,
+  data: Record<string, unknown>,
+  memberKeys: ReadonlyArray<string>,
+): Promise<Array<Doc<'memberships'>>> {
+  const named = new Map<Id<'memberships'>, Doc<'memberships'>>()
+  for (const key of memberKeys) {
+    const value = data[key]
+    if (typeof value !== 'string') continue
+    const id = ctx.db.normalizeId('memberships', value)
+    if (!id || named.has(id)) continue
+    const member = await ctx.db.get(id)
+    if (member && member.businessId === report.businessId) {
+      named.set(id, member)
+    }
+  }
+  return [...named.values()]
+}
+
+/**
  * Everything a report prints from a record rather than a typed answer, read
  * live: the client, the site, the business, the technician and the names of
  * the team members the form can name.

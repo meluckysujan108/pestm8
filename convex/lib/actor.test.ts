@@ -10,6 +10,7 @@ import {
   teamOf,
 } from './actor'
 import { DEFAULT_GRANTS, NO_GRANTS, SWITCH_TTL_MS } from './capabilities'
+import { getTemplate } from '../../src/lib/reportTemplates'
 import {
   addSession,
   createActor,
@@ -938,11 +939,15 @@ describe('a certificate is finalised by the person it names', () => {
   /**
    * Once the owner's licence is on file, naming him as the inspector on a
    * certificate someone else wrote would print his name and licence over a
-   * signature he never drew. `reports.finalise` now resolves the technician
-   * from the answers being signed — the same function the printed context
+   * signature he never drew. `reports.finalise` now resolves everyone the form
+   * names from the answers being signed — through the same lookup the printed
+   * context
    * uses — and refuses when that is not the writer.
    */
-  async function certificate() {
+  async function certificate(
+    template:
+      'timberPestInspection' | 'termiteManagementCert' = 'timberPestInspection',
+  ) {
     const f = await scenario()
     const reportId = await f.t.run(async (ctx) => {
       await ctx.db.patch(f.ownerMembershipId, { licenceNumber: 'PMT-OWNER' })
@@ -967,9 +972,10 @@ describe('a certificate is finalised by the person it names', () => {
         businessId: f.businessId,
         propertyId,
         authorMembershipId: f.kevinId,
-        template: 'timberPestInspection',
-        // v2: v1 of this form had no inspector field and credits its writer.
-        templateVersion: 2,
+        template,
+        // Current: v1 of the inspection had no inspector field and credits
+        // its writer.
+        templateVersion: getTemplate(template).version,
         legalBasis: 'AS 4349.3-2010',
         status: 'draft',
         data: {},
@@ -987,9 +993,74 @@ describe('a certificate is finalised by the person it names', () => {
         businessId: f.businessId,
         reportId: f.reportId,
         data: { inspectorName: f.ownerMembershipId },
-        templateVersion: 2,
+        templateVersion: getTemplate('timberPestInspection').version,
       }),
     ).rejects.toThrow('TECHNICIAN_NOT_SIGNER')
+  })
+
+  /** Two people on one termite certificate, each beside their own licence:
+   * naming yourself as installer does not license naming the owner as the
+   * certifying installer. */
+  test('the second person a certificate names counts too', async () => {
+    const f = await certificate('termiteManagementCert')
+    await expect(
+      f.kevin.as.mutation(api.reports.finalise, {
+        businessId: f.businessId,
+        reportId: f.reportId,
+        data: {
+          installer: f.kevinId,
+          certifyingInstaller: f.ownerMembershipId,
+        },
+        templateVersion: getTemplate('termiteManagementCert').version,
+      }),
+    ).rejects.toThrow('TECHNICIAN_NOT_SIGNER')
+  })
+
+  /**
+   * The draft carries the team for its picker, and with it each member's
+   * licence and phone — the details the roster keeps to managers. A
+   * subcontractor's draft names them, and no more, unless the report already
+   * names them: then they print, and are no secret from its writer.
+   */
+  test('a subcontractor’s draft tells them teammates’ names, not their licences', async () => {
+    const f = await certificate()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.ownerMembershipId, { phone: '0400 111 222' }),
+    )
+
+    const asKevin = await f.kevin.as.query(api.reports.get, {
+      businessId: f.businessId,
+      reportId: f.reportId,
+    })
+    const members = asKevin?.context.members ?? {}
+    expect(members[f.ownerMembershipId]).not.toHaveProperty('licence')
+    expect(members[f.ownerMembershipId]).not.toHaveProperty('phone')
+    expect(members[f.kevinId]).toMatchObject({ licence: 'PMT-KEVIN' })
+    expect(
+      asKevin?.roster.find((m) => m.id === f.ownerMembershipId)?.name,
+    ).toBe('Terence')
+
+    const asOwner = await f.terence.as.query(api.reports.get, {
+      businessId: f.businessId,
+      reportId: f.reportId,
+    })
+    expect(asOwner?.context.members?.[f.ownerMembershipId]?.licence).toBe(
+      'PMT-OWNER',
+    )
+
+    // Named on the report, the owner's details print — so the writer sees them.
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.reportId, {
+        data: { inspectorName: f.ownerMembershipId },
+      }),
+    )
+    const named = await f.kevin.as.query(api.reports.get, {
+      businessId: f.businessId,
+      reportId: f.reportId,
+    })
+    expect(named?.context.members?.[f.ownerMembershipId]?.licence).toBe(
+      'PMT-OWNER',
+    )
   })
 
   /**
@@ -1004,7 +1075,7 @@ describe('a certificate is finalised by the person it names', () => {
         businessId: f.businessId,
         reportId: f.reportId,
         data: { inspectorName: f.kevinId },
-        templateVersion: 2,
+        templateVersion: getTemplate('timberPestInspection').version,
       }),
     ).rejects.toThrow('REPORT_INCOMPLETE')
   })

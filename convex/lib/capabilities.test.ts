@@ -538,10 +538,24 @@ describe('finalising a compliance document', () => {
     const decision = canFinaliseReport(
       self(sub()),
       regulated,
-      { holder: sub(), technician: owner() },
+      { holder: sub(), named: [owner()] },
       1_000,
     )
     expect(decision).toEqual({ ok: false, reason: 'TECHNICIAN_NOT_SIGNER' })
+  })
+
+  test('every person the certificate names counts, not only the first', () => {
+    // A termite certificate names its installer AND its certifying installer,
+    // each beside their own licence. Naming yourself once and the owner the
+    // second time is still his licence on your signature.
+    expect(
+      canFinaliseReport(
+        self(sub()),
+        regulated,
+        { holder: sub(), named: [sub(), owner()] },
+        1_000,
+      ),
+    ).toEqual({ ok: false, reason: 'TECHNICIAN_NOT_SIGNER' })
   })
 
   test('naming yourself is the way through, for the owner as much as anyone', () => {
@@ -550,7 +564,7 @@ describe('finalising a compliance document', () => {
       canFinaliseReport(
         self(owner()),
         ownerReport,
-        { holder: owner(), technician: owner() },
+        { holder: owner(), named: [owner()] },
         1_000,
       ),
     ).toEqual({ ok: true })
@@ -561,7 +575,7 @@ describe('finalising a compliance document', () => {
       canFinaliseReport(
         self(sub()),
         internal,
-        { holder: sub(), technician: owner() },
+        { holder: sub(), named: [owner()] },
         1_000,
       ),
     ).toEqual({ ok: true })
