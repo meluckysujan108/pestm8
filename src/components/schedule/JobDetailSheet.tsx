@@ -35,6 +35,7 @@ import {
 } from '#/components/reports/InlineReports'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
+import { OffViewNote } from './OffViewNote'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { RepeatValue } from '#/lib/format'
@@ -632,6 +633,11 @@ function JobEditForm({
               return current ? personLabel(current) : 'Assigned technician'
             })()}
           </p>
+        )}
+        {/* Only once it is actually changing: an existing job that is
+            already someone else's is not news. */}
+        {assignee !== job.assignedMembershipId && (
+          <OffViewNote assignee={assignee} people={assignees} />
         )}
       </EditField>
 

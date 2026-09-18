@@ -6,6 +6,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { formatDayLabel } from '#/lib/format'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
+import { useActing, useViewMode } from '#/lib/access'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { travelHintsFor } from '#/lib/travel'
 import type { JobRow } from './JobCard'
@@ -52,7 +53,15 @@ export function DayAgendaPanel({
   onViewChange: (view: View) => void
   onOpenJob: (jobId: string) => void
 }) {
-  const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(jobs)
+  const mode = useViewMode()
+  const acting = useActing()
+  // Desktop opens on everyone, as it always has; a change of view starts the
+  // filters over (see useScheduleFilters).
+  const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(
+    jobs,
+    'all',
+    `${mode ?? ''}:${acting.membershipId}`,
+  )
 
   const weather = useWeather(
     businessId,
@@ -91,6 +100,7 @@ export function DayAgendaPanel({
         setStatus={setStatus}
         staffId={staffId}
         setStaffId={setStaffId}
+        hideStaff={mode === 'mine'}
       />
 
       {jobs.length > 0 && jobs[0].suburb && (
@@ -105,7 +115,13 @@ export function DayAgendaPanel({
 
       {filteredJobs.length === 0 ? (
         <EmptyState
-          title={jobs.length === 0 ? 'Nothing booked' : 'No matching jobs'}
+          title={
+            jobs.length === 0
+              ? mode === 'mine'
+                ? 'Nothing booked for you'
+                : 'Nothing booked'
+              : 'No matching jobs'
+          }
           body={
             jobs.length === 0
               ? 'This day is clear.'
@@ -129,6 +145,7 @@ export function DayAgendaPanel({
               weather={weather.cell(job.suburb, job.postcode ?? '', selectedKey)}
               timezone={timezone}
               onOpen={onOpenJob}
+              hideTechnician={mode === 'mine'}
             />
           ))}
         </div>

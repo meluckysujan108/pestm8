@@ -62,6 +62,7 @@ export function JobCard({
   variant = 'list',
   travel,
   onOpen,
+  hideTechnician = false,
 }: {
   job: JobRow
   weather: WeatherCell
@@ -70,6 +71,9 @@ export function JobCard({
   /** Hop from the previous job in the day, e.g. "≈ 8 km → Morley". */
   travel?: string | null
   onOpen: (jobId: string) => void
+  /** "Just my jobs": every card is the viewer's, so naming him on each one is
+   * noise rather than information. */
+  hideTechnician?: boolean
 }) {
   const shell =
     'flex w-full items-stretch gap-3.5 rounded-2xl border border-hairline bg-surface text-left shadow-elevation transition active:scale-[.99]'
@@ -192,7 +196,7 @@ export function JobCard({
         <span className="block border-t border-hairline-2 pt-1.5">
           <Row label="Service">{job.jobType}</Row>
           <Row label="Time">{timeRange(job, timezone)}</Row>
-          {job.assigneeName && (
+          {job.assigneeName && !hideTechnician && (
             <Row label="Technician">
               <span className="inline-flex items-center gap-1.5">
                 <span

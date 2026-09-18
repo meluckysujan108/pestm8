@@ -15,6 +15,7 @@ export function ScheduleFilterBar({
   setStatus,
   staffId,
   setStaffId,
+  hideStaff = false,
 }: {
   jobs: Array<JobRow>
   members: Array<{ _id: string; name: string; colour: string }>
@@ -22,6 +23,9 @@ export function ScheduleFilterBar({
   setStatus: (value: StatusFilter) => void
   staffId: string
   setStaffId: (value: string) => void
+  /** "Just my jobs": every job on screen is the viewer's, so choosing whose
+   * is no choice at all. Status still filters, and Clear still clears it. */
+  hideStaff?: boolean
 }) {
   const staffLoad = computeStaffLoad(jobs)
   // The default selection is the viewer's own membership, which may have
@@ -36,7 +40,7 @@ export function ScheduleFilterBar({
   // A subcontractor without canViewAllJobs only ever sees their own jobs, and
   // a single-tech day is the same case — a dropdown with one real choice is
   // just clutter, so it's hidden rather than shown disabled.
-  const showStaffFilter = staffOptions.length >= 2
+  const showStaffFilter = !hideStaff && staffOptions.length >= 2
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -64,7 +68,7 @@ export function ScheduleFilterBar({
           ]}
         />
       )}
-      {(status !== 'all' || staffId !== 'all') && (
+      {(status !== 'all' || (!hideStaff && staffId !== 'all')) && (
         <button
           type="button"
           onClick={() => {

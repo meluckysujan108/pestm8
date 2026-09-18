@@ -1,4 +1,5 @@
 import { WEEKDAY_INITIALS, addDaysToKey, dayKeyToDate } from '#/lib/format'
+import { dayDots } from '#/lib/scheduleFilters'
 
 export type DayLoad = { offset: number; count: number; colours: Array<string> }
 
@@ -12,12 +13,15 @@ export function WeekStrip({
   todayKey,
   load,
   onSelect,
+  monochrome = false,
 }: {
   startKey: string
   selectedKey: string
   todayKey: string
   load: Array<DayLoad>
   onSelect: (dayKey: string) => void
+  /** One neutral dot per busy day rather than one per person (`dayDots`). */
+  monochrome?: boolean
 }) {
   return (
     <div className="flex gap-1 px-2 pb-2">
@@ -52,14 +56,16 @@ export function WeekStrip({
               {dayKeyToDate(dayKey).getUTCDate()}
             </span>
             <span className="flex h-1.5 items-center gap-0.5">
-              {(day?.colours ?? []).slice(0, 4).map((colour) => (
-                <span
-                  key={colour}
-                  aria-hidden
-                  className="size-1.5 rounded-full"
-                  style={{ backgroundColor: colour }}
-                />
-              ))}
+              {dayDots(day?.colours ?? [], monochrome)
+                .slice(0, 4)
+                .map((colour) => (
+                  <span
+                    key={colour}
+                    aria-hidden
+                    className="size-1.5 rounded-full"
+                    style={{ backgroundColor: colour }}
+                  />
+                ))}
             </span>
             {/* Below the assignee dots so the two never compete: whose day it
                 is, then how loaded it is. */}

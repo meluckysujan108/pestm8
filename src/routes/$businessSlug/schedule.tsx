@@ -29,7 +29,7 @@ import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { travelHintsFor } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
-import { useActing, useCan } from '#/lib/access'
+import { useActing, useCan, useViewMode } from '#/lib/access'
 
 const VIEW_OPTIONS: Array<{ value: 'list' | 'board' | 'table'; label: string }> = [
   { value: 'list', label: 'List' },
@@ -62,6 +62,7 @@ function SchedulePage() {
   const canDispatch = useCan('jobs.dispatch')
   // The account being worked in, so the day opens on the right person's round.
   const acting = useActing()
+  const mode = useViewMode()
   const { date, jobId, view } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const openJobId = jobId ?? null
@@ -100,9 +101,16 @@ function SchedulePage() {
   const { data: members } = useSuspenseQuery(
     convexQuery(api.memberships.listForBusiness, { businessId: business._id }),
   )
+  /**
+   * The phone opens on your own jobs — for everyone but the owner looking at
+   * his business, whose God view means everyone on the phone as on the
+   * desktop, and whose "Just my jobs" has nothing left to narrow. Inside
+   * somebody's account it opens on theirs, as it would on their phone.
+   */
   const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(
     jobs,
-    acting.membershipId,
+    mode === 'everyone' || mode === 'mine' ? 'all' : acting.membershipId,
+    `${mode ?? ''}:${acting.membershipId}`,
   )
   // No desktop/mobile special-case any more. The query is cached and keyed by
   // its (canonicalised) day set, so the desktop panel asking for the same day
@@ -137,7 +145,8 @@ function SchedulePage() {
         businessSlug={business.slug}
         kicker={formatMonthLabel(selectedKey)}
         onKickerClick={hydrated ? () => setMonthOpen(true) : undefined}
-        title="Schedule"
+        // Says which view this is at a glance, on the screen he opens most.
+        title={mode === 'mine' ? 'My jobs' : 'Schedule'}
         action={
           <button
             type="button"
@@ -212,6 +221,7 @@ function SchedulePage() {
               todayKey={today}
               load={week}
               onSelect={setDay}
+              monochrome={mode === 'mine'}
             />
           </div>
 
@@ -234,13 +244,20 @@ function SchedulePage() {
                   setStatus={setStatus}
                   staffId={staffId}
                   setStaffId={setStaffId}
+                  hideStaff={mode === 'mine'}
                 />
               </div>
             </div>
 
             {filteredJobs.length === 0 ? (
               <EmptyState
-                title={jobs.length === 0 ? 'Nothing booked' : 'No matching jobs'}
+                title={
+                  jobs.length === 0
+                    ? mode === 'mine'
+                      ? 'Nothing booked for you'
+                      : 'Nothing booked'
+                    : 'No matching jobs'
+                }
                 body={
                   jobs.length === 0
                     ? 'This day is clear. Tap + to book a job.'
@@ -269,6 +286,7 @@ function SchedulePage() {
                     weather={weather.cell(job.suburb, job.postcode, selectedKey)}
                     timezone={business.timezone}
                     onOpen={setOpenJobId}
+                    hideTechnician={mode === 'mine'}
                   />
                 ))}
               </div>

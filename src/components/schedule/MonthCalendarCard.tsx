@@ -3,6 +3,8 @@ import { convexQuery } from '@convex-dev/react-query'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { WEEKDAY_INITIALS, dayKeyToDate, formatMonthLabel } from '#/lib/format'
+import { useViewMode } from '#/lib/access'
+import { dayDots } from '#/lib/scheduleFilters'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 function shiftMonth(monthKey: string, delta: number) {
@@ -53,6 +55,9 @@ export function MonthCalendarCard({
   )
 
   const byDay = new Map(days.map((d) => [d.dayKey, d]))
+  // "Just my jobs": the legend would list one person, him, and the dots would
+  // all be his colour — so neither is per-person there.
+  const mine = useViewMode() === 'mine'
 
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-4 shadow-elevation">
@@ -119,14 +124,16 @@ export function MonthCalendarCard({
               </span>
 
               <span className="flex h-1.5 items-center gap-0.5">
-                {(day?.colours ?? []).slice(0, 3).map((colour) => (
-                  <span
-                    key={colour}
-                    aria-hidden
-                    className="size-1.5 rounded-full"
-                    style={{ backgroundColor: colour }}
-                  />
-                ))}
+                {dayDots(day?.colours ?? [], mine)
+                  .slice(0, 3)
+                  .map((colour) => (
+                    <span
+                      key={colour}
+                      aria-hidden
+                      className="size-1.5 rounded-full"
+                      style={{ backgroundColor: colour }}
+                    />
+                  ))}
               </span>
 
               <span className="flex h-3.5 items-center text-[11px] font-semibold tabular-nums text-muted">
@@ -150,7 +157,7 @@ export function MonthCalendarCard({
         </button>
       </div>
 
-      {team.length > 0 && (
+      {team.length > 0 && !mine && (
         <div className="mt-4 border-t border-hairline pt-3.5">
           <p className="section-label mb-2.5">Team this month</p>
           <ul className="flex flex-col gap-2">
