@@ -53,6 +53,10 @@ function Slider({
         <SliderPrimitive.Thumb
           data-slot="slider-thumb"
           key={index}
+          // Literally white in both themes, as iOS does — against
+          // --fill-track at 28% in dark a white knob reads better than a
+          // themed one would. Same for the switch thumbs in
+          // settings/MemberAccessRow.tsx. Not an oversight.
           className="block size-4 shrink-0 rounded-full border border-primary bg-white shadow-sm ring-ring/50 transition-[color,box-shadow] hover:ring-4 focus-visible:ring-4 focus-visible:outline-hidden disabled:pointer-events-none disabled:opacity-50"
         />
       ))}

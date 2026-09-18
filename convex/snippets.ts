@@ -1,6 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
+import { hasCapability, requireActor } from './lib/actor'
 import {
   MAX_SNIPPETS,
   MAX_SNIPPETS_PER_FIELD,
@@ -31,6 +32,9 @@ export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
     const membership = await requireMembership(ctx, businessId)
+    // Removing a phrase somebody else wrote is authority over the wording the
+    // business issues — `templates.manage`, which a switch drops.
+    const canManage = hasCapability(await requireActor(ctx, businessId), 'templates.manage')
 
     const rows = await ctx.db
       .query('reportSnippets')
@@ -52,7 +56,7 @@ export const list = query({
          * that the app is broken.
          */
         canRemove:
-          membership.role === 'owner' ||
+          canManage ||
           row.createdByMembershipId === membership._id,
       })),
     )
@@ -157,7 +161,7 @@ export const remove = mutation({
     const row = await ctx.db.get(snippetId)
     if (!row || row.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     if (
-      membership.role !== 'owner' &&
+      !hasCapability(await requireActor(ctx, businessId), 'templates.manage') &&
       row.createdByMembershipId !== membership._id
     ) {
       throw new ConvexError('NO_ACCESS')

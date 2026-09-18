@@ -1,7 +1,9 @@
 import { ConvexError } from 'convex/values'
-import { jobVisibility, requireMembership, resolveViewScope } from './access'
+import { requireActor } from './actor'
+import { isInScope } from './capabilities'
+import type { MembershipFacts, RowScope } from './capabilities'
 import type { Doc, Id } from '../_generated/dataModel'
-import type { Ctx, Membership } from './access'
+import type { Ctx } from './access'
 
 export type Note = Doc<'notes'>
 export type NoteKind = 'job' | 'site' | 'client' | 'team'
@@ -24,15 +26,30 @@ export function noteKind(note: {
  * authorship, mentions, deletion); `scope` honours "view as" for job
  * visibility only, exactly as `jobs.get` does.
  */
-export type NoteViewer = { real: Membership; scope: Membership }
+export type NoteViewer = {
+  real: MembershipFacts
+  scope: MembershipFacts
+  /** Rows the lens they are looking through may read — job-note visibility. */
+  readRows: RowScope
+  /** Rows the real person may read, for pickers: a note is attached as
+   * yourself, never as whoever you are looking at. */
+  ownRows: RowScope
+}
 
 export async function noteViewer(
   ctx: Ctx,
   businessId: Id<'businesses'>,
 ): Promise<NoteViewer> {
-  const real = await requireMembership(ctx, businessId)
-  const scope = await resolveViewScope(ctx, businessId)
-  return { real, scope }
+  // One resolution, not two: this used to call requireMembership and then
+  // resolveViewScope, which called it again — two round trips to answer one
+  // question, and two answers that could disagree.
+  const env = await requireActor(ctx, businessId)
+  return {
+    real: env.actor.real,
+    scope: env.readScope,
+    readRows: env.scope,
+    ownRows: env.realScope,
+  }
 }
 
 /**
@@ -55,11 +72,8 @@ export async function canReadNote(
   if (noteKind(note) !== 'job') return true
   if (mine) return true
 
-  const visibility = jobVisibility(viewer.scope)
-  if (visibility.scope === 'business') return true
-
   const job = note.jobId ? await ctx.db.get(note.jobId) : null
-  if (job?.assignedMembershipId === visibility.membershipId) return true
+  if (job && isInScope(viewer.readRows, job)) return true
 
   return isMentioned(ctx, note._id, viewer.real._id)
 }
@@ -75,11 +89,22 @@ export async function canWriteNote(
   note: Note,
 ): Promise<boolean> {
   if (note.deletedAt !== undefined) return false
-  return canReadNote(ctx, { real: viewer.real, scope: viewer.real }, note)
+  // Re-asked as the real person, looking through nobody: "view as" is a lens,
+  // and a lens has never granted the right to write what it shows you.
+  return canReadNote(
+    ctx,
+    {
+      real: viewer.real,
+      scope: viewer.real,
+      readRows: viewer.ownRows,
+      ownRows: viewer.ownRows,
+    },
+    note,
+  )
 }
 
 /** Deletion keeps today's rule: what you wrote, or anything if you own the business. */
-export function canDeleteNote(real: Membership, note: Note): boolean {
+export function canDeleteNote(real: MembershipFacts, note: Note): boolean {
   return real.role === 'owner' || note.authorMembershipId === real._id
 }
 
@@ -102,7 +127,8 @@ export async function requireNote(
   noteId: Id<'notes'>,
 ): Promise<Note> {
   const note = await ctx.db.get(noteId)
-  if (!note || note.businessId !== businessId) throw new ConvexError('NOT_FOUND')
+  if (!note || note.businessId !== businessId)
+    throw new ConvexError('NOT_FOUND')
   return note
 }
 
@@ -114,6 +140,7 @@ export async function requireReadableNote(
 ): Promise<{ note: Note; viewer: NoteViewer }> {
   const viewer = await noteViewer(ctx, businessId)
   const note = await requireNote(ctx, businessId, noteId)
-  if (!(await canReadNote(ctx, viewer, note))) throw new ConvexError('NOT_FOUND')
+  if (!(await canReadNote(ctx, viewer, note)))
+    throw new ConvexError('NOT_FOUND')
   return { note, viewer }
 }

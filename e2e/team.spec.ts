@@ -3,6 +3,7 @@ import {
   FIXTURE_PASSWORD,
   api,
   expectRejected,
+  inviteAndJoin,
   signInViaUi,
   signUpActor,
   uniqueEmail,
@@ -10,10 +11,16 @@ import {
 
 /**
  * The design partner's actual setup: Terence invites Kevin, Kevin joins, and
- * Terence later grants read visibility of the whole schedule. Without this
- * flow there is no way to get a second person into a business at all.
+ * Terence later grants read visibility of the whole schedule.
+ *
+ * Joining is a link, not an email address. This used to assert the opposite —
+ * that signing up with an invited address was enough — which is precisely the
+ * behaviour that let anyone who registered that address first into the
+ * business.
  */
-test('an owner invites a subcontractor who then joins', async ({ page }) => {
+test('an owner invites a subcontractor, who joins with the link', async ({
+  page,
+}) => {
   const ownerEmail = uniqueEmail('team-owner')
   const subEmail = uniqueEmail('team-sub')
 
@@ -28,26 +35,33 @@ test('an owner invites a subcontractor who then joins', async ({ page }) => {
 
   await expect(page.getByRole('heading', { name: 'Team' })).toBeVisible()
 
-  const inviteButton = page.getByRole('button', { name: 'Invite' })
-  await expect(inviteButton).toBeEnabled()
+  const createLink = page.getByRole('button', { name: 'Create link' })
+  await expect(createLink).toBeEnabled()
   await page.getByLabel('Email address').fill(subEmail)
-  await inviteButton.click()
+  await createLink.click()
 
-  await expect(page.getByText(subEmail)).toBeVisible()
+  // The link is shown exactly once, because only its hash is stored.
+  const linkText = page.getByText(/\/join\//)
+  await expect(linkText).toBeVisible()
+  const url = (await linkText.innerText()).trim()
+  const token = url.split('/join/')[1]
+  expect(token).toBeTruthy()
 
-  // Kevin signs up with the invited address and lands inside the business
-  // rather than being asked to create one of his own.
+  // And the invite shows as outstanding until it is used. The address appears
+  // twice on this screen — in the link card and in the waiting list — so this
+  // asks for the exact-match one, which is the list row.
+  await expect(page.getByText(subEmail, { exact: true })).toBeVisible()
+
+  // Kevin signs up and redeems the link he was sent.
   const sub = await signUpActor(subEmail, FIXTURE_PASSWORD, 'Kevin')
-  await sub.client.mutation(api.memberships.claimInvitations, {})
+  await sub.client.action(api.invitations.redeem, { token })
 
   const subBusinesses = await sub.client.query(api.businesses.listForUser, {})
   expect(subBusinesses.map((b) => b.slug)).toContain(slug)
   expect(subBusinesses.find((b) => b.slug === slug)!.role).toBe('subcontractor')
 
   // Joining does not confer visibility of anyone else's work.
-  expect(
-    subBusinesses.find((b) => b.slug === slug)!.canViewAllJobs,
-  ).toBe(false)
+  expect(subBusinesses.find((b) => b.slug === slug)!.canViewAllJobs).toBe(false)
 
   const members = await owner.client.query(api.memberships.listForBusiness, {
     businessId,
@@ -55,6 +69,50 @@ test('an owner invites a subcontractor who then joins', async ({ page }) => {
   // The roster shows people, not user ids.
   expect(members.map((m) => m.email)).toContain(subEmail)
   expect(members.find((m) => m.email === subEmail)!.name).toBe('Kevin')
+
+  // The link is spent: a second person with the same address cannot reuse it.
+  const impostor = await signUpActor(
+    uniqueEmail('team-impostor'),
+    FIXTURE_PASSWORD,
+    'Impostor',
+  )
+  await expectRejected(
+    () => impostor.client.action(api.invitations.redeem, { token }),
+    'INVITE_ALREADY_USED',
+  )
+})
+
+test('signing up with an invited address is not enough to get in', async () => {
+  const ownerEmail = uniqueEmail('squat-owner')
+  const subEmail = uniqueEmail('squat-sub')
+
+  const owner = await signUpActor(ownerEmail, FIXTURE_PASSWORD, 'Terence')
+  const { businessId } = await owner.client.mutation(api.businesses.create, {
+    name: `Squat ${Date.now()}`,
+    state: 'WA',
+    timezone: 'Australia/Perth',
+  })
+
+  await owner.client.action(api.invitations.create, {
+    businessId,
+    email: subEmail,
+    role: 'subcontractor',
+  })
+
+  // The old attack: register the invited address and wait to be let in.
+  const squatter = await signUpActor(subEmail, FIXTURE_PASSWORD, 'Not Kevin')
+  await expect(
+    squatter.client.mutation(api.memberships.claimInvitations, {}),
+  ).resolves.toEqual([])
+
+  const businesses = await squatter.client.query(api.businesses.listForUser, {})
+  expect(businesses).toHaveLength(0)
+
+  await expectRejected(
+    () =>
+      squatter.client.query(api.memberships.listForBusiness, { businessId }),
+    'NO_ACCESS',
+  )
 })
 
 test('an owner grants view-all access from settings', async ({ page }) => {
@@ -66,14 +124,8 @@ test('an owner grants view-all access from settings', async ({ page }) => {
     api.businesses.create,
     { name: `Grant ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
   )
-  await owner.client.mutation(api.memberships.inviteByEmail, {
-    businessId,
-    email: subEmail,
-    role: 'subcontractor',
-  })
-
   const sub = await signUpActor(subEmail, FIXTURE_PASSWORD, 'Kevin')
-  await sub.client.mutation(api.memberships.claimInvitations, {})
+  await inviteAndJoin(owner, sub, businessId)
 
   await signInViaUi(page, ownerEmail)
   await page.goto(`/${slug}/settings?seg=team`)
@@ -100,21 +152,19 @@ test('a subcontractor cannot invite or see the team roster controls', async ({
   const owner = await signUpActor(ownerEmail, FIXTURE_PASSWORD, 'Terence')
   const { businessId, slug } = await owner.client.mutation(
     api.businesses.create,
-    { name: `NoInvite ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    {
+      name: `NoInvite ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
   )
-  await owner.client.mutation(api.memberships.inviteByEmail, {
-    businessId,
-    email: subEmail,
-    role: 'subcontractor',
-  })
-
   const sub = await signUpActor(subEmail, FIXTURE_PASSWORD, 'Kevin')
-  await sub.client.mutation(api.memberships.claimInvitations, {})
+  await inviteAndJoin(owner, sub, businessId)
 
   // Rejected at the function, not merely hidden from the segmented control.
   await expectRejected(
     () =>
-      sub.client.mutation(api.memberships.inviteByEmail, {
+      sub.client.action(api.invitations.create, {
         businessId,
         email: 'someone@example.com',
         role: 'subcontractor',
@@ -127,4 +177,27 @@ test('a subcontractor cannot invite or see the team roster controls', async ({
 
   await expect(page.getByRole('tab', { name: 'Profile' })).toBeVisible()
   await expect(page.getByRole('tab', { name: 'Team' })).toHaveCount(0)
+})
+
+test('nobody can be invited as an owner', async () => {
+  const owner = await signUpActor(
+    uniqueEmail('ownerinvite-owner'),
+    FIXTURE_PASSWORD,
+    'Terence',
+  )
+  const { businessId } = await owner.client.mutation(api.businesses.create, {
+    name: `OwnerInvite ${Date.now()}`,
+    state: 'WA',
+    timezone: 'Australia/Perth',
+  })
+
+  await expectRejected(
+    () =>
+      owner.client.action(api.invitations.create, {
+        businessId,
+        email: uniqueEmail('would-be-owner'),
+        role: 'owner',
+      }),
+    'OWNER_INVITE_FORBIDDEN',
+  )
 })

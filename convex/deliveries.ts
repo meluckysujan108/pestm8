@@ -1,10 +1,12 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, internalQuery, mutation, query } from './_generated/server'
 import { internal } from './_generated/api'
-import { requireMembership, requireOwner, resolveViewScope } from './lib/access'
+import { requireMembership } from './lib/access'
+import { hasCapability, requireActor, requireCapability } from './lib/actor'
+import { forSelf, recordAudit } from './lib/audit'
+import { reportScope } from './lib/capabilities'
 import { memberName } from './lib/reportContext'
 import { knownRecipients as knownFor, normaliseAddresses } from './lib/recipients'
-import { canSeeReport } from './reports'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import type { Doc, Id } from './_generated/dataModel'
@@ -184,16 +186,16 @@ async function subjectFor(
 export const known = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return { addresses: [], unrestricted: false }
-    if (!canSeeReport(membership, report)) return { addresses: [], unrestricted: false }
+    if (!reportScope(env.scope, report)) return { addresses: [], unrestricted: false }
 
     const business = await ctx.db.get(businessId)
     return {
       addresses: await knownFor(ctx, report),
       unrestricted:
-        membership.role === 'owner' ||
+        hasCapability(env, 'business.manage') ||
         business?.allowTechnicianRecipients === true,
     }
   },
@@ -259,9 +261,8 @@ export const recordProviderEvent = internalMutation({
       if (!stillSent) await ctx.db.patch(delivery.reportId, { emailedAt: undefined })
     }
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(delivery.sentByMembershipId ?? delivery.approvedByMembershipId ?? (await anyOwner(ctx, delivery.businessId))), {
       businessId: delivery.businessId,
-      actorMembershipId: delivery.sentByMembershipId ?? delivery.approvedByMembershipId ?? (await anyOwner(ctx, delivery.businessId)),
       action: 'report.email.bounced',
       entityType: 'reports',
       entityId: delivery.reportId,
@@ -290,10 +291,10 @@ async function anyOwner(ctx: MutationCtx, businessId: Id<'businesses'>) {
 export const forReport = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const scope = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return []
-    if (!canSeeReport(scope, report)) return []
+    if (!reportScope(scope, report)) return []
 
     const rows = await ctx.db
       .query('reportDeliveries')
@@ -311,10 +312,11 @@ export const forReport = query({
 export const pendingApproval = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = await requireMembership(ctx, businessId)
-    // Deliberately not `requireOwner`: a non-owner gets an empty list rather
-    // than an error, because the badge that reads this renders for everyone.
-    if (membership.role !== 'owner') return []
+    const env = await requireActor(ctx, businessId)
+    // An empty list rather than an error, because the badge that reads this
+    // renders for everyone. `business.manage` rather than a role: approving a
+    // send is the owner's call, and not from inside somebody else's account.
+    if (!hasCapability(env, 'business.manage')) return []
 
     const rows = await ctx.db
       .query('reportDeliveries')
@@ -347,10 +349,14 @@ export const request = mutation({
   },
   handler: async (ctx, { businessId, reportId, to, cc }) => {
     const membership = await requireMembership(ctx, businessId)
+    // Who is sending is the membership, which is what the rate limit counts
+    // and the row records. Whether they may read this report, and whether
+    // they may send it anywhere at all, are the actor's scope and capability.
+    const env = await requireActor(ctx, businessId)
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
-    if (!canSeeReport(membership, report)) throw new ConvexError('NO_ACCESS')
+    if (!reportScope(env.scope, report)) throw new ConvexError('NO_ACCESS')
     if (report.status !== 'finalised') throw new ConvexError('REPORT_NOT_FINALISED')
 
     const addresses = normaliseAddresses(to)
@@ -362,7 +368,7 @@ export const request = mutation({
     const onFile = await knownFor(ctx, report)
     // An owner may send where they like; it is their client relationship.
     const unrestricted =
-      membership.role === 'owner' || business?.allowTechnicianRecipients === true
+      hasCapability(env, 'business.manage') || business?.allowTechnicianRecipients === true
     const novel = addresses.filter((address) => !onFile.includes(address))
     const status = unrestricted || novel.length === 0 ? 'queued' : 'pendingApproval'
 
@@ -379,9 +385,8 @@ export const request = mutation({
     })
 
     if (status === 'pendingApproval') {
-      await ctx.db.insert('auditLog', {
+      await recordAudit(ctx, forSelf(membership._id), {
         businessId,
-        actorMembershipId: membership._id,
         action: 'report.email.pending_approval',
         entityType: 'reports',
         entityId: reportId,
@@ -434,7 +439,9 @@ async function assertWithinSendLimit(
 export const approve = mutation({
   args: { businessId: v.id('businesses'), deliveryId: v.id('reportDeliveries') },
   handler: async (ctx, { businessId, deliveryId }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'business.manage')
+    const owner = env.actor.real
     const delivery = await ctx.db.get(deliveryId)
     if (!delivery || delivery.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
@@ -445,9 +452,8 @@ export const approve = mutation({
       status: 'queued',
       approvedByMembershipId: owner._id,
     })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(owner._id), {
       businessId,
-      actorMembershipId: owner._id,
       action: 'report.email.approved',
       entityType: 'reports',
       entityId: delivery.reportId,
@@ -462,7 +468,9 @@ export const approve = mutation({
 export const reject = mutation({
   args: { businessId: v.id('businesses'), deliveryId: v.id('reportDeliveries') },
   handler: async (ctx, { businessId, deliveryId }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'business.manage')
+    const owner = env.actor.real
     const delivery = await ctx.db.get(deliveryId)
     if (!delivery || delivery.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
@@ -474,9 +482,8 @@ export const reject = mutation({
       error: 'Not approved',
       approvedByMembershipId: owner._id,
     })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(owner._id), {
       businessId,
-      actorMembershipId: owner._id,
       action: 'report.email.rejected',
       entityType: 'reports',
       entityId: delivery.reportId,

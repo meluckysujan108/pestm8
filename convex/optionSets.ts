@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { requireMembership, requireOwner } from './lib/access'
+import { requireMembership } from './lib/access'
 import {
   MAX_TEMPLATES_SCANNED,
   ensureRow,
@@ -23,6 +23,8 @@ import { pinnedValues } from '../src/lib/reportTemplates/optionSets'
 import type { SectionDef } from '../src/lib/reportTemplates'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
+import { forSelf, recordAudit } from './lib/audit'
+import { requireActor, requireCapability } from './lib/actor'
 
 /**
  * Per-business option libraries: the vocabularies a business owns and its
@@ -60,7 +62,9 @@ export const editable = query({
     // template to work out what is pinned, and returns `archived` — the list
     // of products the business has deliberately stopped offering, which
     // appears on no technician's screen.
-    await requireOwner(ctx, businessId)
+    // The editor's payload is template administration: `archived` is the list
+    // of products the business has deliberately stopped offering.
+    requireCapability(await requireActor(ctx, businessId), 'templates.manage')
 
     const rows = await ctx.db
       .query('optionSets')
@@ -209,7 +213,9 @@ export const renameOption = mutation({
     to: v.string(),
   },
   handler: async (ctx, { businessId, key, from, to }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const target = to.trim()
     if (target === from) return { rewritten: 0 }
     if (target.length === 0 || target.length > MAX_OPTION_LENGTH) {
@@ -262,9 +268,8 @@ export const renameOption = mutation({
       updatedAt: now,
       updatedByMembershipId: owner._id,
     })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(owner._id), {
       businessId,
-      actorMembershipId: owner._id,
       action: 'optionSet.rename',
       entityType: 'optionSets',
       entityId: row._id,
@@ -296,7 +301,9 @@ export const addOption = mutation({
     label: v.string(),
   },
   handler: async (ctx, { businessId, key, label }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const value = label.trim()
     if (value.length === 0 || value.length > MAX_OPTION_LENGTH) {
       throw new ConvexError('INVALID_OPTION')
@@ -337,7 +344,9 @@ export const archiveOption = mutation({
     value: v.string(),
   },
   handler: async (ctx, { businessId, key, value }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
 
     // A string a template matches on: a locked item, an answer that decides
     // whether guidance prints, a condition. Removing it would quietly change
@@ -369,7 +378,9 @@ export const restoreOption = mutation({
     value: v.string(),
   },
   handler: async (ctx, { businessId, key, value }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const row = await ensureRow(ctx, businessId, key, owner._id)
     const option = (row.archived ?? []).find((o) => o.value === value)
     if (!option) throw new ConvexError('NOT_FOUND')
@@ -403,7 +414,9 @@ export const setUsual = mutation({
     usual: v.boolean(),
   },
   handler: async (ctx, { businessId, key, value, usual: isUsual }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const row = await ensureRow(ctx, businessId, key, owner._id)
     if (!row.options.some((o) => o.value === value)) {
       throw new ConvexError('NOT_FOUND')
@@ -432,7 +445,9 @@ export const reorder = mutation({
     values: v.array(v.string()),
   },
   handler: async (ctx, { businessId, key, values }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const row = await ensureRow(ctx, businessId, key, owner._id)
 
     const before = row.options.map((o) => o.value)
@@ -456,7 +471,9 @@ export const reorder = mutation({
 export const resetToDefaults = mutation({
   args: { businessId: v.id('businesses'), key: optionSetKey },
   handler: async (ctx, { businessId, key }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const row = await ctx.db
       .query('optionSets')
       .withIndex('by_business_key', (q) =>
@@ -495,14 +512,12 @@ async function record(
   action: string,
   meta: unknown,
 ) {
-  await ctx.db.insert('auditLog', {
+  await recordAudit(ctx, forSelf(actorMembershipId), {
     businessId,
-    actorMembershipId,
     action,
     entityType: 'optionSets',
     entityId: rowId,
     meta,
-    at: Date.now(),
   })
 }
 

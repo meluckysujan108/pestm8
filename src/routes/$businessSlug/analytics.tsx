@@ -45,9 +45,9 @@ function AnalyticsPage() {
             {formatMoney(summary.awaitingInvoiceValue)}
           </p>
           <p className="mt-1 text-body text-muted">
-            {summary.awaitingInvoice}{' '}
-            {summary.awaitingInvoice === 1 ? 'job' : 'jobs'} completed and not
-            yet billed
+            {summary.awaitingInvoice === null
+              ? 'Completed and not yet billed'
+              : `${summary.awaitingInvoice} ${summary.awaitingInvoice === 1 ? 'job' : 'jobs'} completed and not yet billed`}
           </p>
         </Card>
 

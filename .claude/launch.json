@@ -3,24 +3,21 @@
   "configurations": [
     {
       "name": "pestm8",
-      "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev"
-      ],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["dev"],
       "port": 3000,
       "autoPort": true
     },
     {
+      "name": "pestm8-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["vite", "preview", "--port", "3000"],
+      "port": 3000
+    },
+    {
       "name": "pestm8-3100",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--",
-        "--port",
-        "3100"
-      ],
+      "runtimeArgs": ["run", "dev", "--", "--port", "3100"],
       "port": 3100
     }
   ]

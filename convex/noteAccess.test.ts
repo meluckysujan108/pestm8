@@ -3,8 +3,12 @@ import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
 import { canDeleteNote, canReadNote, canWriteNote, noteKind } from './lib/noteAccess'
+import { factsFromMembership } from './lib/membershipFacts'
+import { capabilitiesOf, jobScope } from './lib/capabilities'
+import type { NoteViewer } from './lib/noteAccess'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
+import type { MembershipFacts, Role } from './lib/capabilities'
 
 const modules = import.meta.glob('./**/*.ts')
 
@@ -22,7 +26,7 @@ async function seed(ctx: MutationCtx) {
     timezone: 'Australia/Perth',
     createdAt: now,
   })
-  const insertMember = (userId: string, role: 'owner' | 'subcontractor', canViewAllJobs = false) =>
+  const insertMember = (userId: string, role: Role, canViewAllJobs = false) =>
     ctx.db.insert('memberships', {
       userId,
       businessId,
@@ -103,16 +107,30 @@ async function seed(ctx: MutationCtx) {
   }
 }
 
+/** The shape `noteViewer` returns: two membership facts plus the row scopes
+ * derived from each. Built here so a test can pin the real/scope asymmetry
+ * without a request. */
+function viewer(real: MembershipFacts, scope: MembershipFacts): NoteViewer {
+  return {
+    real,
+    scope,
+    readRows: jobScope(capabilitiesOf(scope), scope, []),
+    ownRows: jobScope(capabilitiesOf(real), real, []),
+  }
+}
+
 async function member(ctx: MutationCtx, id: Id<'memberships'>) {
   const m = await ctx.db.get(id)
   if (!m) throw new Error('missing membership')
-  return m
+  // The note gates take resolved facts, not the stored row — the same shape
+  // `requireActor` hands them in production.
+  return factsFromMembership(m)
 }
 
 async function read(ctx: MutationCtx, real: Id<'memberships'>, noteId: Id<'notes'>, scope = real) {
   const note = await ctx.db.get(noteId)
   if (!note) throw new Error('missing note')
-  return canReadNote(ctx, { real: await member(ctx, real), scope: await member(ctx, scope) }, note)
+  return canReadNote(ctx, viewer(await member(ctx, real), await member(ctx, scope)), note)
 }
 
 describe('canReadNote', () => {
@@ -199,9 +217,9 @@ describe('canWriteNote', () => {
       const sub = await member(ctx, s.subId)
       const trashed = (await ctx.db.get(s.subsOwnDeletedNote))!
       const site = (await ctx.db.get(s.siteNote))!
-      expect(await canReadNote(ctx, { real: sub, scope: sub }, trashed)).toBe(true)
-      expect(await canWriteNote(ctx, { real: sub, scope: sub }, trashed)).toBe(false)
-      expect(await canWriteNote(ctx, { real: sub, scope: sub }, site)).toBe(true)
+      expect(await canReadNote(ctx, viewer(sub, sub), trashed)).toBe(true)
+      expect(await canWriteNote(ctx, viewer(sub, sub), trashed)).toBe(false)
+      expect(await canWriteNote(ctx, viewer(sub, sub), site)).toBe(true)
     })
   })
 
@@ -214,10 +232,10 @@ describe('canWriteNote', () => {
       const note = (await ctx.db.get(s.noteOnOwnersJob))!
       // The senior can see the whole business; viewing as the junior hides
       // this note from them but must not stop them editing it as themselves.
-      expect(await canReadNote(ctx, { real: senior, scope: sub }, note)).toBe(false)
-      expect(await canWriteNote(ctx, { real: senior, scope: sub }, note)).toBe(true)
+      expect(await canReadNote(ctx, viewer(senior, sub), note)).toBe(false)
+      expect(await canWriteNote(ctx, viewer(senior, sub), note)).toBe(true)
       // And the junior viewing as the senior gains nothing.
-      expect(await canWriteNote(ctx, { real: sub, scope: senior }, note)).toBe(false)
+      expect(await canWriteNote(ctx, viewer(sub, senior), note)).toBe(false)
     })
   })
 })

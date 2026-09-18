@@ -644,9 +644,7 @@ export const termiteManagementCert: ReportTemplate = {
           key: 'acknowledgmentStatement',
           label: 'Client acknowledgment statement',
           tone: 'statement',
-          body: paragraph(
-            CLIENT_ACKNOWLEDGMENT,
-          ),
+          body: paragraph(CLIENT_ACKNOWLEDGMENT),
         },
         // src: termite-certificate.md:140 — "Single-line text input"
         {

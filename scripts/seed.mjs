@@ -125,10 +125,19 @@ await owner.mutation(api.businesses.update, {
 })
 
 console.log('Inviting the team…')
-await owner.mutation(api.memberships.inviteByEmail, { businessId, email: kevinEmail, role: 'subcontractor' })
-await owner.mutation(api.memberships.inviteByEmail, { businessId, email: priyaEmail, role: 'subcontractor' })
-await kevin.mutation(api.memberships.claimInvitations, {})
-await priya.mutation(api.memberships.claimInvitations, {})
+// The same path a real invitation takes: a single-use link, redeemed by the
+// person it was issued to. Seeding through anything else would mean the seed
+// exercises a flow production no longer has.
+async function inviteAndJoin(invitee, email) {
+  const { url } = await owner.action(api.invitations.create, {
+    businessId,
+    email,
+    role: 'subcontractor',
+  })
+  await invitee.action(api.invitations.redeem, { token: url.split('/join/')[1] })
+}
+await inviteAndJoin(kevin, kevinEmail)
+await inviteAndJoin(priya, priyaEmail)
 
 const members = await owner.query(api.memberships.listForBusiness, { businessId })
 const ownerMembershipId = members.find((m) => m.role === 'owner')._id

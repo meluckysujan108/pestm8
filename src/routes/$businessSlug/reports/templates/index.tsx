@@ -12,19 +12,21 @@ import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsShee
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
+import { useCan } from '#/lib/access'
 
 export const Route = createFileRoute('/$businessSlug/reports/templates/')({
   component: TemplatesPage,
 })
 
 function TemplatesPage() {
-  const { business, membership } = Route.useRouteContext()
+  const { business } = Route.useRouteContext()
+  const canManageTemplates = useCan('templates.manage')
 
   const { data: custom } = useSuspenseQuery(
     convexQuery(api.customTemplates.list, { businessId: business._id }),
   )
 
-  if (membership.role !== 'owner') {
+  if (!canManageTemplates) {
     return (
       <>
         <PageHeader
@@ -186,7 +188,7 @@ function CloneBuiltinSheet({
   return (
     <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-black/30" />
+        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
           <form
@@ -379,7 +381,7 @@ function DuplicateSheet({
   return (
     <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-black/30" />
+        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
           <form

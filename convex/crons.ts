@@ -40,4 +40,19 @@ crons.cron(
   {},
 )
 
+/**
+ * Ends switches that have run past their twelve hours, for readers.
+ *
+ * Hourly rather than daily because this is what a read sees: writes enforce the
+ * expiry themselves and refuse, but a query deliberately does not read the
+ * clock (it would make every gated query uncacheable), so the row's removal is
+ * what ends a switch on screen.
+ */
+crons.cron(
+  'sweep expired account switches',
+  '0 * * * *',
+  internal.accountSwitches.sweepExpired,
+  {},
+)
+
 export default crons

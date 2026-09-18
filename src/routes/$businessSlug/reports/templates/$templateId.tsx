@@ -8,13 +8,15 @@ import { EmptyState } from '#/components/primitives/EmptyState'
 import { TemplateEditor } from '#/components/reportTemplates/TemplateEditor'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import type { SectionDef } from '#/lib/reportTemplates'
+import { useCan } from '#/lib/access'
 
 export const Route = createFileRoute('/$businessSlug/reports/templates/$templateId')({
   component: TemplateDetailPage,
 })
 
 function TemplateDetailPage() {
-  const { business, membership } = Route.useRouteContext()
+  const { business } = Route.useRouteContext()
+  const canManageTemplates = useCan('templates.manage')
   const { templateId } = Route.useParams()
 
   // Bumped when a draft is discarded, to remount the editor on what is now
@@ -28,7 +30,7 @@ function TemplateDetailPage() {
     }),
   )
 
-  if (membership.role !== 'owner') {
+  if (!canManageTemplates) {
     return (
       <>
         <PageHeader

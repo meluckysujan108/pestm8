@@ -58,7 +58,9 @@ http.route({
     await ctx.runMutation(internal.deliveries.recordProviderEvent, {
       providerMessageId: messageId,
       event: kind,
-      ...(event.data?.reason ? { detail: event.data.reason.slice(0, 500) } : {}),
+      ...(event.data?.reason
+        ? { detail: event.data.reason.slice(0, 500) }
+        : {}),
     })
 
     return new Response('OK', { status: 200 })

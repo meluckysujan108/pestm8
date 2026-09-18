@@ -8,6 +8,7 @@ import { PrefsSection } from '#/components/settings/PrefsSection'
 import { BrandingSection } from '#/components/settings/BrandingSection'
 import { OptionLibrariesSection } from '#/components/settings/OptionLibrariesSection'
 import { ReportPolicySection } from '#/components/settings/ReportPolicySection'
+import { useCan } from '#/lib/access'
 
 const SEGMENTS = [
   { value: 'profile' as const, label: 'Profile' },
@@ -25,6 +26,9 @@ export const Route = createFileRoute('/$businessSlug/settings')({
 
 function SettingsPage() {
   const { business, membership } = Route.useRouteContext()
+  const canManageTeam = useCan('team.manage')
+  const canManageBusiness = useCan('business.manage')
+  const canManageTemplates = useCan('templates.manage')
   const { seg } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const active = seg ?? 'profile'
@@ -43,15 +47,15 @@ function SettingsPage() {
           label="Settings section"
           value={active}
           options={
-            // Team management is an owner concern; a subcontractor has no
-            // roster to manage and shouldn't see a tab that rejects them.
-            // Team management and the business's own vocabularies are both
-            // owner concerns; a subcontractor has no roster to manage and no
-            // say in what every technician's reports offer, and a tab that
-            // rejects them is worse than no tab.
-            membership.role === 'owner'
-              ? SEGMENTS
-              : SEGMENTS.filter((s) => s.value !== 'team' && s.value !== 'reports')
+            // Each tab on the capability its contents need, not on a role: a
+            // contractor manages their own team but not the business's forms
+            // or policy, so they get Team and not Reports. A tab whose every
+            // section refuses the person looking at it is worse than no tab.
+            SEGMENTS.filter(
+              (s) =>
+                (s.value !== 'team' || canManageTeam) &&
+                (s.value !== 'reports' || canManageTemplates || canManageBusiness),
+            )
           }
           onChange={(value) =>
             navigate({ search: { seg: value }, replace: true })
@@ -69,15 +73,21 @@ function SettingsPage() {
             state={business.state}
           />
         )}
-        {active === 'team' && membership.role === 'owner' && (
+        {active === 'team' && canManageTeam && (
           <TeamSection businessId={business._id} />
         )}
-        {active === 'reports' && membership.role === 'owner' && (
+        {active === 'reports' && (
           <>
-            <OptionLibrariesSection businessId={business._id} />
-            <div className="mt-6">
-              <ReportPolicySection businessId={business._id} />
-            </div>
+            {/* The lists of answers the forms offer are form content. */}
+            {canManageTemplates && (
+              <OptionLibrariesSection businessId={business._id} />
+            )}
+            {/* Whether a job may close without a report is business policy. */}
+            {canManageBusiness && (
+              <div className={canManageTemplates ? 'mt-6' : undefined}>
+                <ReportPolicySection businessId={business._id} />
+              </div>
+            )}
           </>
         )}
         {active === 'prefs' && (
@@ -85,9 +95,9 @@ function SettingsPage() {
             <PrefsSection
               businessId={business._id}
               business={business}
-              canEdit={membership.role === 'owner'}
+              canEdit={canManageBusiness}
             />
-            {membership.role === 'owner' && (
+            {canManageBusiness && (
               <div className="mt-6">
                 <BrandingSection businessId={business._id} business={business} />
               </div>

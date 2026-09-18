@@ -148,8 +148,12 @@ export function useWeather(
       // Annotated because indexing a Record is typed as a hit: a suburb the
       // server could not geocode is simply absent from the map, which is the
       // case the `absent` state exists for.
-      const weather: DayWeather | undefined =
-        byKey[weatherKeyOf(suburb, postcode, dayKey)]
+      // Widened with `as`, not annotated: TypeScript narrows an annotated
+      // `const` straight back to its initializer's type, so the annotation
+      // alone left `undefined` impossible and the check below always true.
+      const weather = byKey[weatherKeyOf(suburb, postcode, dayKey)] as
+        | DayWeather
+        | undefined
       if (weather) return { status: 'ready', weather }
       // `isPending` rather than `isFetching`: the latter is also true while a
       // stale-but-present forecast refetches in the background, which would

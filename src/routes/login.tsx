@@ -5,14 +5,24 @@ import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/login')({ component: LoginPage })
 
-type Mode = 'signIn' | 'signUp'
-
+/**
+ * Sign in only. There is deliberately no "create an account" here.
+ *
+ * PestM8 serves one business and is invite-only: accounts are created by
+ * opening an invitation link, which is what `/join/$token` is for — it carries
+ * the token the server requires. This page offered a sign-up toggle that called
+ * `authClient.signUp.email` with no token, so with `AUTH_INVITE_ONLY=on` every
+ * attempt came back "You need an invitation link to create an account." It was
+ * an invitation to fail, sitting on the first screen anyone sees.
+ *
+ * Removing it changes no behaviour — the door it knocked on was already shut,
+ * server-side, in `convex/auth.ts`. If a sign-up path ever belongs on this page
+ * again, it needs a token to send, not just a form.
+ */
 function LoginPage() {
   const hydrated = useHydrated()
 
   const router = useRouter()
-  const [mode, setMode] = useState<Mode>('signIn')
-  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -23,10 +33,7 @@ function LoginPage() {
     setError(null)
     setPending(true)
 
-    const result =
-      mode === 'signUp'
-        ? await authClient.signUp.email({ name, email, password })
-        : await authClient.signIn.email({ email, password })
+    const result = await authClient.signIn.email({ email, password })
 
     setPending(false)
 
@@ -43,23 +50,13 @@ function LoginPage() {
     <main className="mx-auto flex min-h-dvh w-full max-w-[460px] flex-col justify-center px-6">
       <div className="mb-8">
         <p className="section-label mb-2">PestM8</p>
-        <h1 className="text-page-title text-ink">
-          {mode === 'signIn' ? 'Sign in' : 'Create your account'}
-        </h1>
+        <h1 className="text-page-title text-ink">Sign in</h1>
         <p className="mt-2 text-body text-muted">
           Scheduling and compliance reporting for Australian pest control.
         </p>
       </div>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-3">
-        {mode === 'signUp' && (
-          <Field
-            label="Full name"
-            value={name}
-            onChange={setName}
-            autoComplete="name"
-          />
-        )}
         <Field
           label="Email"
           type="email"
@@ -72,7 +69,7 @@ function LoginPage() {
           type="password"
           value={password}
           onChange={setPassword}
-          autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
+          autoComplete="current-password"
         />
 
         {error && (
@@ -89,26 +86,9 @@ function LoginPage() {
           disabled={pending || !hydrated}
           className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
         >
-          {pending
-            ? 'Just a moment…'
-            : mode === 'signIn'
-              ? 'Sign in'
-              : 'Create account'}
+          {pending ? 'Just a moment…' : 'Sign in'}
         </button>
       </form>
-
-      <button
-        type="button"
-        onClick={() => {
-          setMode(mode === 'signIn' ? 'signUp' : 'signIn')
-          setError(null)
-        }}
-        className="mt-5 text-body text-blue"
-      >
-        {mode === 'signIn'
-          ? 'No account yet? Create one'
-          : 'Already have an account? Sign in'}
-      </button>
     </main>
   )
 }

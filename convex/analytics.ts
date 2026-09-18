@@ -1,10 +1,13 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { authComponent } from './auth'
-import { jobVisibility, resolveViewScope } from './lib/access'
 import { dayKeyOf, startOfDayInZone, todayKeyInZone } from './lib/dates'
 import { jobsInRange } from './jobs'
 import type { Id } from './_generated/dataModel'
+import { requireActor } from './lib/actor'
+import { displayPerson } from './lib/capabilities'
+import { wireScope } from './lib/jobScope'
+import { hidePrices, redactTotal } from './lib/prices'
 
 /** Shifts a `"YYYY-MM"` key by `offset` months (either direction). */
 function monthKeyOffset(monthKey: string, offset: number): string {
@@ -25,8 +28,18 @@ function monthKeyOffset(monthKey: string, offset: number): string {
  */
 export const overview = query({
   args: { businessId: v.id('businesses'), months: v.optional(v.number()) },
-  handler: async (ctx, { businessId, months = 6 }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+  handler: async (ctx, { businessId, months: requested = 6 }) => {
+    /**
+     * Clamped to the three windows the UI offers, for every caller.
+     *
+     * It was free text. `months: 1` collapses the window to the current month,
+     * and a month with one completed job makes `revenueByMonth` that job's
+     * price to the cent — an aggregate that reconstructs the row it was
+     * aggregating. Narrowing the window is the attack, so the window stops
+     * being arbitrary.
+     */
+    const months = [3, 6, 12].includes(requested) ? requested : 6
+    const env = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return null
 
@@ -43,7 +56,7 @@ export const overview = query({
     // rate would need a second, unfiltered scan — not worth it for a first
     // cut. `statusBreakdown` below can therefore only ever show
     // booked/inProgress/completed/invoiced.
-    const jobs = await jobsInRange(ctx, membership, from, to)
+    const jobs = await jobsInRange(ctx, env.scope, businessId, from, to)
 
     const revenueByMonth = new Map(monthKeys.map((k) => [k, 0]))
     const volumeByMonth = new Map(monthKeys.map((k) => [k, 0]))
@@ -81,9 +94,22 @@ export const overview = query({
         const user = assignee
           ? await authComponent.getAnyUserById(ctx, assignee.userId)
           : null
+        // Keeps the owner's work in the chart's totals, against the business's
+        // name. Dropping the row would quietly make the numbers disagree with
+        // the revenue above them.
+        const shown = assignee
+          ? displayPerson(
+              env.actor,
+              { _id: assignee._id, role: assignee.role },
+              {
+                personName: user?.name ?? 'Unassigned',
+                businessName: business.name,
+              },
+            )
+          : { name: 'Unassigned' }
         return {
           membershipId,
-          name: user?.name ?? 'Unassigned',
+          name: shown.name,
           colour: assignee?.colour ?? '#8E8E93',
           count,
         }
@@ -96,12 +122,15 @@ export const overview = query({
       // subcontractor's technicianLoad always degenerates to one row
       // (themselves), so that chart is skipped entirely rather than shown
       // as a meaningless single bar.
-      scope: jobVisibility(membership).scope,
+      scope: wireScope(env.scope),
       months: monthKeys,
+      // Null rather than zero: a total of zero is a claim about the business,
+      // and this is the absence of one.
       revenueByMonth: monthKeys.map((k) => ({
         month: k,
-        value: revenueByMonth.get(k) ?? 0,
+        value: redactTotal(env.caps, revenueByMonth.get(k) ?? 0),
       })),
+      pricesHidden: hidePrices(env.caps),
       volumeByMonth: monthKeys.map((k) => ({
         month: k,
         value: volumeByMonth.get(k) ?? 0,

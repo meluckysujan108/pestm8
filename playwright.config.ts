@@ -10,6 +10,8 @@ try {
 
 export default defineConfig({
   testDir: './e2e',
+  // Fails fast when the baseURL is not serving the build — see the file.
+  globalSetup: './e2e/globalSetup.ts',
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,
@@ -28,6 +30,14 @@ export default defineConfig({
     trace: 'on-first-retry',
     actionTimeout: 15_000,
     navigationTimeout: 30_000,
+    /**
+     * The suite asserts the light palette — `design-tokens.spec.ts` reads a
+     * rendered colour and checks it is dark enough to be text. With no cookie
+     * the app follows the OS, so that assertion was only passing because
+     * Playwright happens to default to light. Pin it, and keep the dark-mode
+     * assertions in `theme.spec.ts`, which opts in per test.
+     */
+    colorScheme: 'light',
   },
   timeout: 60_000,
   projects: [
@@ -49,10 +59,21 @@ export default defineConfig({
       testMatch: /(shell|schedule)\.spec\.ts/,
     },
   ],
+  /**
+   * A PRODUCTION build, not `pnpm dev`. The service worker and `__Secure-`
+   * cookies only exist in one, and `e2e/globalSetup.ts` refuses to run the
+   * suite against the other — so starting a dev server here made the config
+   * contradict its own guard, and the suite only ever passed because somebody
+   * had a preview running by hand on the same port.
+   *
+   * `--strictPort` is the load-bearing flag. Without it `vite preview` prints
+   * "Port 3000 is in use, trying another one", binds 3001, and leaves whatever
+   * was already on 3000 to answer the suite. Fail on a taken port instead.
+   */
   webServer: {
-    command: 'npm run dev',
+    command: 'pnpm build && npx vite preview --port 3000 --strictPort',
     url: 'http://localhost:3000',
     reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
+    timeout: 240_000,
   },
 })

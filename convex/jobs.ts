@@ -1,14 +1,28 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { canEditJob, jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import {
+  canEditJob,
+  requireAssignableMember,
+  requireMembership,
+} from './lib/access'
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
-import { clientNameOf, newClientFields, resolvePropertyId, withClient } from './properties'
-import { jobStatus } from './schema'
+import {
+  clientNameOf,
+  newClientFields,
+  resolvePropertyId,
+  withClient,
+} from './properties'
 import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
 import type { Doc, Id } from './_generated/dataModel'
+import { displayPerson, isInScope } from './lib/capabilities'
+import { jobsInScope } from './lib/jobScope'
+import { hidePrices, redactJob } from './lib/prices'
+import type { RowScope } from './lib/capabilities'
+import type { ActorEnvelope } from './lib/actor'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
+import { requireActor } from './lib/actor'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -36,37 +50,24 @@ export async function allocateJobNumber(
  */
 export async function jobsInRange(
   ctx: QueryCtx,
-  membership: Membership,
+  scope: RowScope,
+  businessId: Id<'businesses'>,
   from: number,
   to: number,
 ): Promise<Array<Doc<'jobs'>>> {
-  const visibility = jobVisibility(membership)
-
-  const jobs =
-    visibility.scope === 'business'
-      ? await ctx.db
-          .query('jobs')
-          .withIndex('by_business_date', (q) =>
-            q
-              .eq('businessId', visibility.businessId)
-              .gte('scheduledAt', from)
-              .lt('scheduledAt', to),
-          )
-          .collect()
-      : await ctx.db
-          .query('jobs')
-          .withIndex('by_assignee_date', (q) =>
-            q
-              .eq('assignedMembershipId', visibility.membershipId)
-              .gte('scheduledAt', from)
-              .lt('scheduledAt', to),
-          )
-          .collect()
-
+  const jobs = await jobsInScope(ctx, scope, { businessId, from, to })
   return jobs.filter((j) => j.status !== 'cancelled')
 }
 
-async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
+async function decorate(
+  ctx: QueryCtx,
+  env: ActorEnvelope,
+  businessId: Id<'businesses'>,
+  jobs: Array<Doc<'jobs'>>,
+) {
+  // The business's own name stands in for anyone the caller may not see.
+  const businessName = (await ctx.db.get(businessId))?.name ?? ''
+
   // Resolving a name means a call into the auth component, so each assignee is
   // looked up once per query rather than once per job — the same memoisation
   // `listWeek` already does for colours. The map holds the in-flight promise,
@@ -79,7 +80,9 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
     if (inFlight) return inFlight
 
     const pending = (async () => {
-      const user = userId ? await authComponent.getAnyUserById(ctx, userId) : null
+      const user = userId
+        ? await authComponent.getAnyUserById(ctx, userId)
+        : null
       return user?.name ?? ''
     })()
     names.set(membershipId, pending)
@@ -92,8 +95,24 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
       .map(async (job) => {
         const property = await ctx.db.get(job.propertyId)
         const assignee = await ctx.db.get(job.assignedMembershipId)
+        // Hides the person, not the job: an owner-assigned visit stays on the
+        // calendar, shown against the business rather than against a name
+        // nobody else is supposed to know.
+        const shown = assignee
+          ? displayPerson(
+              env.actor,
+              { _id: assignee._id, role: assignee.role },
+              {
+                personName: await nameOf(
+                  job.assignedMembershipId,
+                  assignee.userId,
+                ),
+                businessName,
+              },
+            )
+          : { membershipId: null, name: '', anonymised: false }
         return {
-          ...job,
+          ...redactJob(env.caps, job),
           // The board-variant card shows the full street address; the compact
           // list variant still shows suburb alone, per §2.3's reasoning that
           // scanning a day wants the suburb.
@@ -102,7 +121,7 @@ async function decorate(ctx: QueryCtx, jobs: Array<Doc<'jobs'>>) {
           postcode: property?.postcode ?? '',
           clientName: await clientNameOf(ctx, property),
           assigneeColour: assignee?.colour ?? '#8E8E93',
-          assigneeName: await nameOf(job.assignedMembershipId, assignee?.userId),
+          assigneeName: shown.name,
         }
       }),
   )
@@ -114,14 +133,19 @@ export const listDay = query({
     dayKey: v.string(), // "YYYY-MM-DD" in the tenant's timezone
   },
   handler: async (ctx, { businessId, dayKey }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
     const from = startOfDayInZone(dayKey, business.timezone)
     const to = endOfDayInZone(dayKey, business.timezone)
 
-    return decorate(ctx, await jobsInRange(ctx, membership, from, to))
+    return decorate(
+      ctx,
+      env,
+      businessId,
+      await jobsInRange(ctx, env.scope, businessId, from, to),
+    )
   },
 })
 
@@ -132,14 +156,14 @@ export const listDay = query({
 export const listWeek = query({
   args: { businessId: v.id('businesses'), startKey: v.string() },
   handler: async (ctx, { businessId, startKey }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
     const from = startOfDayInZone(startKey, business.timezone)
     const to = from + 7 * 24 * 60 * 60 * 1000
 
-    const jobs = await jobsInRange(ctx, membership, from, to)
+    const jobs = await jobsInRange(ctx, scope, businessId, from, to)
     const assignees = new Map<Id<'memberships'>, string>()
     for (const job of jobs) {
       if (!assignees.has(job.assignedMembershipId)) {
@@ -153,7 +177,9 @@ export const listWeek = query({
       Array.from({ length: 7 }, async (_, i) => {
         const dayFrom = from + i * dayMs
         const inDay = jobs
-          .filter((j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs)
+          .filter(
+            (j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs,
+          )
           .sort((a, b) => a.scheduledAt - b.scheduledAt)
 
         // The first job's suburb stands for the day's weather. A day spanning
@@ -189,17 +215,19 @@ export const listMonth = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
     const from = startOfDayInZone(`${monthKey}-01`, business.timezone)
     const [year, month] = monthKey.split('-').map(Number)
     const nextMonth =
-      month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
-    const jobs = await jobsInRange(ctx, membership, from, to)
+    const jobs = await jobsInRange(ctx, env.scope, businessId, from, to)
 
     const byDay = new Map<
       string,
@@ -243,17 +271,19 @@ export const monthTeamLoad = query({
     monthKey: v.string(), // "YYYY-MM"
   },
   handler: async (ctx, { businessId, monthKey }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
     const from = startOfDayInZone(`${monthKey}-01`, business.timezone)
     const [year, month] = monthKey.split('-').map(Number)
     const nextMonth =
-      month === 12 ? `${year + 1}-01-01` : `${year}-${String(month + 1).padStart(2, '0')}-01`
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
-    const jobs = await jobsInRange(ctx, membership, from, to)
+    const jobs = await jobsInRange(ctx, env.scope, businessId, from, to)
 
     const counts = new Map<Id<'memberships'>, number>()
     for (const job of jobs) {
@@ -269,9 +299,21 @@ export const monthTeamLoad = query({
         const user = assignee
           ? await authComponent.getAnyUserById(ctx, assignee.userId)
           : null
+        // The owner's row stays — dropping it would change what the month's
+        // totals mean — but carries the business's name rather than theirs.
+        const shown = assignee
+          ? displayPerson(
+              env.actor,
+              { _id: assignee._id, role: assignee.role },
+              {
+                personName: user?.name ?? 'Unassigned',
+                businessName: business.name,
+              },
+            )
+          : { name: 'Unassigned', anonymised: false }
         return {
           membershipId,
-          name: user?.name ?? 'Unassigned',
+          name: shown.name,
           colour: assignee?.colour ?? '#8E8E93',
           count,
         }
@@ -289,16 +331,12 @@ export const get = query({
     // Visibility (can this job be seen at all) follows "view as" when active;
     // canEdit below always reflects the REAL caller, never the viewed-as
     // person — read access granted by view-as never implies write access.
-    const viewScope = await resolveViewScope(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
     const job = await ctx.db.get(jobId)
     if (!job || job.businessId !== businessId) return null
 
-    const visibility = jobVisibility(viewScope)
-    if (
-      visibility.scope === 'assignee' &&
-      job.assignedMembershipId !== visibility.membershipId
-    ) {
+    if (!isInScope(env.scope, job)) {
       // Null rather than an error: a subcontractor must not be able to tell a
       // colleague's job apart from one that does not exist.
       return null
@@ -312,7 +350,7 @@ export const get = query({
       : null
 
     return {
-      ...job,
+      ...redactJob(env.caps, job),
       property,
       recurrence: recurrence && {
         _id: recurrence._id,
@@ -346,7 +384,10 @@ export const create = mutation({
     scheduledAt: v.number(),
     durationMinutes: v.number(),
   },
-  handler: async (ctx, { propertyId: existingPropertyId, newClient, ...args }) => {
+  handler: async (
+    ctx,
+    { propertyId: existingPropertyId, newClient, ...args },
+  ) => {
     const membership = await requireMembership(ctx, args.businessId)
 
     // Only an owner may put work on someone else's calendar.
@@ -357,18 +398,25 @@ export const create = mutation({
       throw new ConvexError('NO_ACCESS')
     }
 
+    // A price from someone who cannot see prices is a placeholder, not a
+    // figure. Stored as nothing rather than as whatever the form defaulted to.
+    const env = await requireActor(ctx, args.businessId)
+    const price = hidePrices(env.caps) ? 0 : args.price
+
     const propertyId = await resolvePropertyId(ctx, args.businessId, {
       propertyId: existingPropertyId,
       newClient,
     })
 
-    const assignee = await ctx.db.get(args.assignedMembershipId)
-    if (!assignee || assignee.businessId !== args.businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
+    await requireAssignableMember(
+      ctx,
+      args.businessId,
+      args.assignedMembershipId,
+    )
 
     return ctx.db.insert('jobs', {
       ...args,
+      price,
       propertyId,
       status: 'booked',
       createdAt: Date.now(),
@@ -409,7 +457,17 @@ export const update = mutation({
     scheduledAt: v.optional(v.number()),
     durationMinutes: v.optional(v.number()),
     assignedMembershipId: v.optional(v.id('memberships')),
-    status: v.optional(jobStatus),
+    // Deliberately not `jobStatus`: 'invoiced' is set by the invoicing flow
+    // (ARCHITECTURE.md §4.5), never by an edit. Any assignee could previously
+    // mark their own job invoiced and move the owner's revenue figures.
+    status: v.optional(
+      v.union(
+        v.literal('booked'),
+        v.literal('inProgress'),
+        v.literal('completed'),
+        v.literal('cancelled'),
+      ),
+    ),
   },
   handler: async (ctx, { businessId, jobId, ...patch }) => {
     const { membership, job } = await requireEditableJob(ctx, businessId, jobId)
@@ -417,11 +475,16 @@ export const update = mutation({
     // Reassignment is an owner action even on your own job.
     if (
       patch.assignedMembershipId !== undefined &&
-      patch.assignedMembershipId !== job.assignedMembershipId &&
-      membership.role !== 'owner'
+      patch.assignedMembershipId !== job.assignedMembershipId
     ) {
-      throw new ConvexError('NO_ACCESS')
+      if (membership.role !== 'owner') throw new ConvexError('NO_ACCESS')
+      await requireAssignableMember(ctx, businessId, patch.assignedMembershipId)
     }
+
+    // An invoiced job is a billed job. Letting anyone with write access move it
+    // back to booked, re-price it or reschedule it silently contradicts an
+    // invoice that has already gone out.
+    if (job.status === 'invoiced') throw new ConvexError('JOB_INVOICED')
 
     // Same tenant check `create` already performs — a job can be corrected
     // to a different address, never moved to another business's property.
@@ -432,9 +495,23 @@ export const update = mutation({
       }
     }
 
-    const fields: Record<string, unknown> = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
+    const fields = Object.fromEntries(
+      Object.entries(patch as Record<string, unknown>).filter(
+        ([, value]) => value !== undefined,
+      ),
     )
+
+    /**
+     * Someone who cannot see a price cannot change one — and this is the half
+     * that protects the data rather than the secret.
+     *
+     * Their edit form has no price box, so whatever it sends is a placeholder
+     * standing in for a figure they were never shown. Writing it back would
+     * destroy the real one silently, and every total downstream of it with it.
+     * Dropped rather than refused, so editing the date on a job still works.
+     */
+    const env = await requireActor(ctx, businessId)
+    if (hidePrices(env.caps)) delete fields.price
 
     // The first time a job says work has begun, record when. A report started
     // from this job prints that as its start time, instead of the technician
@@ -553,17 +630,11 @@ export const removePhoto = mutation({
 export const photos = query({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const job = await ctx.db.get(jobId)
     if (!job || job.businessId !== businessId) return []
-    const visibility = jobVisibility(membership)
-    if (
-      visibility.scope === 'assignee' &&
-      job.assignedMembershipId !== visibility.membershipId
-    ) {
-      return []
-    }
+    if (!isInScope(scope, job)) return []
 
     const rows = await ctx.db
       .query('jobPhotos')

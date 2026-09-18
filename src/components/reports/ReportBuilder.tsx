@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { convexQuery, useConvexAction, useConvexMutation } from '@convex-dev/react-query'
+import {
+  convexQuery,
+  useConvexAction,
+  useConvexMutation,
+} from '@convex-dev/react-query'
 import { ArrowLeft, ArrowRight, CheckCheck, Lock, Save } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { FieldRenderer } from './fields/FieldRenderer'
@@ -16,9 +20,16 @@ import {
   sectionsOf,
 } from '#/lib/reportTemplates'
 import { visibleSections } from '#/lib/reportTemplates/visibility'
-import { submittablePayload, validateReport } from '#/lib/reportTemplates/validate'
+import {
+  submittablePayload,
+  validateReport,
+} from '#/lib/reportTemplates/validate'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
-import { reportProgress, sectionByKey, sectionKey } from '#/lib/reportTemplates/progress'
+import {
+  reportProgress,
+  sectionByKey,
+  sectionKey,
+} from '#/lib/reportTemplates/progress'
 import { quickAnswersFor } from '#/lib/reportTemplates/quickAnswers'
 import type { QuickMode } from '#/lib/reportTemplates/quickAnswers'
 import { ReportOverview, SectionNav } from './ReportOverview'
@@ -246,12 +257,14 @@ export function ReportBuilder({
    * to do again what they have already done. So the lock waits for them, the
    * same way it waits for hydration.
    */
-  const ready = hydrated && signatures !== undefined && galleryPhotos !== undefined
+  const ready =
+    hydrated && signatures !== undefined && galleryPhotos !== undefined
 
   const pending = useMemo(() => {
     const out: PrefillMap = {}
     for (const [key, entry] of Object.entries(prefill ?? {})) {
-      if (entry.confirmedAt === undefined && !confirmed.includes(key)) out[key] = entry
+      if (entry.confirmedAt === undefined && !confirmed.includes(key))
+        out[key] = entry
     }
     return out
   }, [prefill, confirmed])
@@ -276,7 +289,8 @@ export function ReportBuilder({
   // The list of what is missing answers a tap, so it must be where the eye
   // already is rather than below the terms at the foot of the page.
   useEffect(() => {
-    if (issues.length > 0) blockedRef.current?.scrollIntoView({ block: 'center' })
+    if (issues.length > 0)
+      blockedRef.current?.scrollIntoView({ block: 'center' })
   }, [issues])
 
   // A section can disappear while it is open — answering one question hides
@@ -315,7 +329,11 @@ export function ReportBuilder({
       const refused = incompleteIssues(error)
       if (refused) {
         setIssues(refused)
-        setErrors(Object.fromEntries(refused.map((issue) => [issue.key, issue.message])))
+        setErrors(
+          Object.fromEntries(
+            refused.map((issue) => [issue.key, issue.message]),
+          ),
+        )
       }
     },
   })
@@ -430,11 +448,12 @@ export function ReportBuilder({
     },
   })
 
-
   const convexPreview = useConvexAction(api.reportPdf.preview)
   const preview = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; reportId: Id<'reports'> }) =>
-      convexPreview(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      reportId: Id<'reports'>
+    }) => convexPreview(args),
   })
 
   /**
@@ -465,8 +484,11 @@ export function ReportBuilder({
 
   const convexConfirm = useConvexMutation(api.reports.confirmPrefill)
   const confirmSuggestions = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; reportId: Id<'reports'>; keys: Array<string> }) =>
-      convexConfirm(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      reportId: Id<'reports'>
+      keys: Array<string>
+    }) => convexConfirm(args),
   })
 
   /**
@@ -482,8 +504,12 @@ export function ReportBuilder({
     confirmSuggestions.mutate({ businessId, reportId, keys })
   }
 
-  const previousSection = current ? (progress.sections[current.index - 1] ?? null) : null
-  const nextSection = current ? (progress.sections[current.index + 1] ?? null) : null
+  const previousSection = current
+    ? (progress.sections[current.index - 1] ?? null)
+    : null
+  const nextSection = current
+    ? (progress.sections[current.index + 1] ?? null)
+    : null
 
   function goToSection(next: SectionProgress | null | undefined) {
     if (current) confirmKeys(current.toConfirm)
@@ -492,7 +518,6 @@ export function ReportBuilder({
     // A new screen starts at its own top, not halfway down the last one.
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 })
   }
-
 
   /**
    * What is standing between this report and being locked, named rather than
@@ -504,7 +529,8 @@ export function ReportBuilder({
     if (issues.length === 0) return null
     const sectionOf = (key: string) =>
       progress.sections.find(
-        (section) => section.missing.includes(key) || section.toConfirm.includes(key),
+        (section) =>
+          section.missing.includes(key) || section.toConfirm.includes(key),
       ) ??
       progress.sections.find((section) =>
         sectionsOf(template)
@@ -544,7 +570,11 @@ export function ReportBuilder({
       prefill: stillPending,
     })
     if (!result.ok) {
-      setErrors(Object.fromEntries(result.issues.map((issue) => [issue.key, issue.message])))
+      setErrors(
+        Object.fromEntries(
+          result.issues.map((issue) => [issue.key, issue.message]),
+        ),
+      )
       setIssues(result.issues)
       return
     }
@@ -570,7 +600,11 @@ export function ReportBuilder({
     })
     if (!result.ok) {
       setConfirming(false)
-      setErrors(Object.fromEntries(result.issues.map((issue) => [issue.key, issue.message])))
+      setErrors(
+        Object.fromEntries(
+          result.issues.map((issue) => [issue.key, issue.message]),
+        ),
+      )
       setIssues(result.issues)
       return
     }
@@ -597,335 +631,366 @@ export function ReportBuilder({
       </div>
 
       <div className="lg:max-w-[720px]">
-      <p className="section-label">{template.legalBasis}</p>
-      <h1 className="mt-1 text-page-title text-ink">{template.name}</h1>
-      {property && (
-        <p className="mt-1 text-body text-muted">
-          {property.addressLine}, {property.suburb}
-        </p>
-      )}
+        <p className="section-label">{template.legalBasis}</p>
+        <h1 className="mt-1 text-page-title text-ink">{template.name}</h1>
+        {property && (
+          <p className="mt-1 text-body text-muted">
+            {property.addressLine}, {property.suburb}
+          </p>
+        )}
 
-      {upgrade && (
-        <UpgradeBanner
-          businessId={businessId}
-          reportId={reportId}
-          upgrade={upgrade}
-          beforeSwitch={() => autosave.flush()}
-          onRestarted={(id) => onRestarted?.(id)}
-        />
-      )}
+        {upgrade && (
+          <UpgradeBanner
+            businessId={businessId}
+            reportId={reportId}
+            upgrade={upgrade}
+            beforeSwitch={() => autosave.flush()}
+            onRestarted={(id) => onRestarted?.(id)}
+          />
+        )}
 
-      {!current && (
-        <ReportOverview
-          progress={progress}
-          onOpen={(section) => goToSection(section)}
-          onFinalise={() => void onFinaliseClick()}
-          disabled={finalise.isPending || !ready}
-          lastVisit={
-            lastVisit
-              ? {
-                  finalisedAt: lastVisit.finalisedAt,
-                  labels: lastVisit.labels,
-                  onCopy: () => copyLast.mutate(lastVisit.reportId),
-                  pending: copyLast.isPending,
-                }
-              : undefined
-          }
-        />
-      )}
+        {!current && (
+          <ReportOverview
+            progress={progress}
+            onOpen={(section) => goToSection(section)}
+            onFinalise={() => void onFinaliseClick()}
+            disabled={finalise.isPending || !ready}
+            lastVisit={
+              lastVisit
+                ? {
+                    finalisedAt: lastVisit.finalisedAt,
+                    labels: lastVisit.labels,
+                    onCopy: () => copyLast.mutate(lastVisit.reportId),
+                    pending: copyLast.isPending,
+                  }
+                : undefined
+            }
+          />
+        )}
 
-      {/* The overview lists the sections; a section screen shows exactly one.
+        {/* The overview lists the sections; a section screen shows exactly one.
           Rendering every field on both would make the overview the long scroll
           this flow exists to replace. */}
-      {visibleSections(sectionsOf(template), data)
-        .filter((section, index) => current && sectionKey(section, index) === current.id)
-        .map((section) => (
-        <section key={section.title}>
-          {/* An implicit section is this file's own wrapper around a legacy
+        {visibleSections(sectionsOf(template), data)
+          .filter(
+            (section, index) =>
+              current && sectionKey(section, index) === current.id,
+          )
+          .map((section) => (
+            <section key={section.title}>
+              {/* An implicit section is this file's own wrapper around a legacy
               flat field list, not something the template asked for — printing
               a heading for it would invent UI the builder never had. */}
-          {current && (
-            <p className="mt-6 section-label">
-              Section {current.index + 1} of {progress.sections.length}
-            </p>
-          )}
-          {!section.implicit && (
-            <>
-              <h2 className="mt-7 text-row-title text-ink">
-                {section.number ? `${section.number}. ` : ''}
-                {section.title}
-              </h2>
-              {section.preamble && (
-                <p className="mt-1 text-caption text-muted">
-                  {section.preamble}
+              {current && (
+                <p className="mt-6 section-label">
+                  Section {current.index + 1} of {progress.sections.length}
                 </p>
+              )}
+              {!section.implicit && (
+                <>
+                  <h2 className="mt-7 text-row-title text-ink">
+                    {section.number ? `${section.number}. ` : ''}
+                    {section.title}
+                  </h2>
+                  {section.preamble && (
+                    <p className="mt-1 text-caption text-muted">
+                      {section.preamble}
+                    </p>
+                  )}
+                </>
+              )}
+
+              {section.quick && (
+                <QuickAnswer
+                  mode={section.quick}
+                  fields={section.fields}
+                  data={data}
+                  onAnswer={(patch) =>
+                    setData((prev) => ({ ...prev, ...patch }))
+                  }
+                />
+              )}
+
+              {section.fields.map((field, index) => (
+                <FieldRenderer
+                  key={field.key}
+                  field={field}
+                  value={data[field.key]}
+                  error={errors[field.key]}
+                  onChange={(next) =>
+                    setData((prev) => ({
+                      ...prev,
+                      [field.key]: applyUpdate(next, prev[field.key]),
+                    }))
+                  }
+                  suggestion={
+                    (pending as Partial<PrefillMap>)[field.key]?.source
+                  }
+                  captionHidden={
+                    // Only where the heading really is directly above: a rendered
+                    // heading, nothing between it and the grid, and no required
+                    // marker that would vanish with the caption.
+                    field.kind === 'repeater' &&
+                    !section.implicit &&
+                    !section.preamble &&
+                    index === 0 &&
+                    !field.required &&
+                    sameWords(field.label, section.title)
+                  }
+                  after={
+                    field.kind === 'heading' && field.quick ? (
+                      <QuickAnswer
+                        mode={field.quick}
+                        fields={groupAfter(section.fields, index)}
+                        data={data}
+                        onAnswer={(patch) =>
+                          setData((prev) => ({ ...prev, ...patch }))
+                        }
+                      />
+                    ) : undefined
+                  }
+                  photoContext={{
+                    businessId,
+                    reportId,
+                    roster,
+                    usual,
+                    remember,
+                    phrases,
+                    // Live answers, so a licence row follows the technician picked
+                    // a moment ago rather than the one last saved.
+                    context: context
+                      ? { ...context, answers: data }
+                      : undefined,
+                  }}
+                />
+              ))}
+            </section>
+          ))}
+
+        {blocked && (
+          <div
+            ref={blockedRef}
+            role="alert"
+            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-3 text-caption text-amber-ink"
+          >
+            <p className="font-semibold">
+              {blocked.length === 1
+                ? '1 thing to finish'
+                : `${blocked.length} things to finish`}
+            </p>
+            <ul className="mt-1.5 flex flex-col gap-1">
+              {blocked.map((item) => (
+                <li key={item.key}>
+                  <button
+                    type="button"
+                    onClick={() => goToSection(item.section)}
+                    className="text-left underline underline-offset-2"
+                  >
+                    {item.message}
+                    {item.section && (
+                      <span className="text-muted">
+                        {' '}
+                        — {item.section.title}
+                      </span>
+                    )}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {!current && noticeText && <DurableNoticePreview text={noticeText} />}
+
+        {!current && (
+          <BoilerplateBlock
+            text={template.boilerplate}
+            terms={template.terms}
+            heading={template.print?.termsHeading}
+          />
+        )}
+
+        {autosave.status === 'error' && (
+          <p
+            role="alert"
+            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+          >
+            Not saved — check your connection, then tap Retry. Your answers are
+            still on this device until you leave the page.
+          </p>
+        )}
+
+        {/* Not for an incomplete report: that refusal names its questions, and
+          `onError` has already turned them into the list of things to finish.
+          A generic "could not finalise" above a precise list of why is the
+          same news twice, the vaguer one first. */}
+        {finalise.isError && !incompleteIssues(finalise.error) && (
+          <p
+            role="alert"
+            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+          >
+            {finaliseError(finalise.error)}
+          </p>
+        )}
+        {Object.keys(errors).length > 0 && !blocked && (
+          <p
+            role="alert"
+            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+          >
+            Some required details are missing. Check the fields marked above.
+          </p>
+        )}
+
+        {/* Offered, never applied on its own: these answers may be older than
+          what another device has since saved, and only the person who typed
+          them can tell. */}
+        <Sheet
+          open={stranded !== null}
+          onClose={() => setStranded(null)}
+          title="Unsaved answers on this phone"
+          description={
+            stranded
+              ? `Typed here ${whenRoughly(stranded.savedAt)}, and never saved to the server.`
+              : undefined
+          }
+          footer={
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  void forgetDraft(reportId)
+                  setStranded(null)
+                }}
+                className="h-12 flex-1 rounded-xl bg-surface-2 text-[16px] font-semibold text-ink"
+              >
+                Discard
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (stranded) {
+                    setData((prev) => ({ ...prev, ...stranded.data }))
+                  }
+                  setStranded(null)
+                }}
+                className="h-12 flex-1 rounded-xl bg-ink text-[16px] font-semibold text-surface"
+              >
+                Restore them
+              </button>
+            </div>
+          }
+        >
+          <p className="text-body text-ink-2">
+            This phone still holds answers from a session that ended before they
+            reached the server — a tab closed, or a connection that dropped.
+            Restoring them puts them back on top of what is here now.
+          </p>
+        </Sheet>
+
+        <FinaliseSheet
+          open={confirming}
+          onClose={() => setConfirming(false)}
+          onConfirm={onConfirmFinalise}
+          pending={finalise.isPending}
+          template={template}
+          data={data}
+          context={context}
+          signedSlots={signedSlots ?? []}
+          photoCount={Object.values(photoCounts ?? {}).reduce(
+            (total, n) => total + n,
+            0,
+          )}
+          onAnswer={(key, value) =>
+            setData((prev) => ({ ...prev, [key]: value }))
+          }
+          onPreview={openPreview}
+          previewing={preview.isPending}
+        />
+
+        {/* `data-ready` is the readiness signal the e2e suite waits on: the
+          footer's buttons change label per screen, so waiting on any one of
+          them by name was a wait on the layout rather than on hydration. */}
+        <div
+          data-report-footer
+          data-ready={ready ? 'true' : 'false'}
+          /* Typing a comment must not hide the way to the next section: iOS does
+           not shrink the layout viewport for the keyboard, so a fixed bar sits
+           under it unless it is offset by what the keyboard actually covers. */
+          style={keyboardInset > 0 ? { bottom: keyboardInset } : undefined}
+          // Fixed above the dock on a phone, where it must stay under the thumb;
+          // on a desktop it belongs at the end of the form it acts on, rather
+          // than floating across the middle of the screen.
+          className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:static lg:mt-8 lg:max-w-none lg:rounded-2xl lg:border lg:border-hairline lg:p-3"
+        >
+          {current ? (
+            <>
+              <button
+                type="button"
+                disabled={!hydrated}
+                onClick={() => goToSection(previousSection)}
+                className="flex h-12 items-center justify-center gap-2 rounded-xl bg-surface-2 px-4 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+              >
+                <ArrowLeft size={17} strokeWidth={1.8} />
+                {previousSection ? 'Back' : 'Overview'}
+              </button>
+              {nextSection ? (
+                <button
+                  type="button"
+                  disabled={!hydrated}
+                  onClick={() => goToSection(nextSection)}
+                  className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
+                >
+                  <span className="truncate">
+                    Next: {nextSection.number ? `${nextSection.number}. ` : ''}
+                    {nextSection.title}
+                  </span>
+                  <ArrowRight
+                    size={17}
+                    strokeWidth={1.8}
+                    className="shrink-0"
+                  />
+                </button>
+              ) : (
+                <FinaliseButton
+                  disabled={finalise.isPending || !ready}
+                  pending={finalise.isPending}
+                  onClick={() => void onFinaliseClick()}
+                />
+              )}
+            </>
+          ) : (
+            <>
+              <button
+                type="button"
+                disabled={!hydrated || autosave.status === 'saving'}
+                onClick={() => void autosave.flush()}
+                className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+              >
+                <Save size={17} strokeWidth={1.7} />
+                {SAVE_LABELS[autosave.status]}
+              </button>
+              {/* Never greyed out: a technician who believes they are finished
+                must be able to press it and be told what is missing, rather
+                than left guessing at a dead button. */}
+              {progress.complete || !progress.firstIncomplete ? (
+                <FinaliseButton
+                  disabled={finalise.isPending || !ready}
+                  pending={finalise.isPending}
+                  onClick={() => void onFinaliseClick()}
+                />
+              ) : (
+                <button
+                  type="button"
+                  disabled={!hydrated}
+                  onClick={() => goToSection(progress.firstIncomplete)}
+                  className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
+                >
+                  Continue
+                  <ArrowRight size={17} strokeWidth={1.8} />
+                </button>
               )}
             </>
           )}
-
-          {section.quick && (
-            <QuickAnswer
-              mode={section.quick}
-              fields={section.fields}
-              data={data}
-              onAnswer={(patch) => setData((prev) => ({ ...prev, ...patch }))}
-            />
-          )}
-
-          {section.fields.map((field, index) => (
-            <FieldRenderer
-              key={field.key}
-              field={field}
-              value={data[field.key]}
-              error={errors[field.key]}
-              onChange={(next) =>
-                setData((prev) => ({
-                  ...prev,
-                  [field.key]: applyUpdate(next, prev[field.key]),
-                }))
-              }
-              suggestion={(pending as Partial<PrefillMap>)[field.key]?.source}
-              captionHidden={
-                // Only where the heading really is directly above: a rendered
-                // heading, nothing between it and the grid, and no required
-                // marker that would vanish with the caption.
-                field.kind === 'repeater' &&
-                !section.implicit &&
-                !section.preamble &&
-                index === 0 &&
-                !field.required &&
-                sameWords(field.label, section.title)
-              }
-              after={
-                field.kind === 'heading' && field.quick ? (
-                  <QuickAnswer
-                    mode={field.quick}
-                    fields={groupAfter(section.fields, index)}
-                    data={data}
-                    onAnswer={(patch) => setData((prev) => ({ ...prev, ...patch }))}
-                  />
-                ) : undefined
-              }
-              photoContext={{
-                businessId,
-                reportId,
-                roster,
-                usual,
-                remember,
-                phrases,
-                // Live answers, so a licence row follows the technician picked
-                // a moment ago rather than the one last saved.
-                context: context ? { ...context, answers: data } : undefined,
-              }}
-            />
-          ))}
-        </section>
-      ))}
-
-      {blocked && (
-        <div
-          ref={blockedRef}
-          role="alert"
-          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-3 text-caption text-amber-ink"
-        >
-          <p className="font-semibold">
-            {blocked.length === 1 ? '1 thing to finish' : `${blocked.length} things to finish`}
-          </p>
-          <ul className="mt-1.5 flex flex-col gap-1">
-            {blocked.map((item) => (
-              <li key={item.key}>
-                <button
-                  type="button"
-                  onClick={() => goToSection(item.section)}
-                  className="text-left underline underline-offset-2"
-                >
-                  {item.message}
-                  {item.section && <span className="text-muted"> — {item.section.title}</span>}
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {!current && noticeText && <DurableNoticePreview text={noticeText} />}
-
-      {!current && (
-        <BoilerplateBlock
-          text={template.boilerplate}
-          terms={template.terms}
-          heading={template.print?.termsHeading}
-        />
-      )}
-
-      {autosave.status === 'error' && (
-        <p
-          role="alert"
-          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          Not saved — check your connection, then tap Retry. Your answers are
-          still on this device until you leave the page.
-        </p>
-      )}
-
-      {finalise.isError && (
-        <p
-          role="alert"
-          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          Could not finalise this report. It may already be locked.
-        </p>
-      )}
-      {Object.keys(errors).length > 0 && !blocked && (
-        <p
-          role="alert"
-          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          Some required details are missing. Check the fields marked above.
-        </p>
-      )}
-
-      {/* Offered, never applied on its own: these answers may be older than
-          what another device has since saved, and only the person who typed
-          them can tell. */}
-      <Sheet
-        open={stranded !== null}
-        onClose={() => setStranded(null)}
-        title="Unsaved answers on this phone"
-        description={
-          stranded
-            ? `Typed here ${whenRoughly(stranded.savedAt)}, and never saved to the server.`
-            : undefined
-        }
-        footer={
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                void forgetDraft(reportId)
-                setStranded(null)
-              }}
-              className="h-12 flex-1 rounded-xl bg-surface-2 text-[16px] font-semibold text-ink"
-            >
-              Discard
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (stranded) {
-                  setData((prev) => ({ ...prev, ...stranded.data }))
-                }
-                setStranded(null)
-              }}
-              className="h-12 flex-1 rounded-xl bg-ink text-[16px] font-semibold text-surface"
-            >
-              Restore them
-            </button>
-          </div>
-        }
-      >
-        <p className="text-body text-ink-2">
-          This phone still holds answers from a session that ended before they
-          reached the server — a tab closed, or a connection that dropped.
-          Restoring them puts them back on top of what is here now.
-        </p>
-      </Sheet>
-
-      <FinaliseSheet
-        open={confirming}
-        onClose={() => setConfirming(false)}
-        onConfirm={onConfirmFinalise}
-        pending={finalise.isPending}
-        template={template}
-        data={data}
-        context={context}
-        signedSlots={signedSlots ?? []}
-        photoCount={Object.values(photoCounts ?? {}).reduce((total, n) => total + n, 0)}
-        onAnswer={(key, value) => setData((prev) => ({ ...prev, [key]: value }))}
-        onPreview={openPreview}
-        previewing={preview.isPending}
-      />
-
-      {/* `data-ready` is the readiness signal the e2e suite waits on: the
-          footer's buttons change label per screen, so waiting on any one of
-          them by name was a wait on the layout rather than on hydration. */}
-      <div
-        data-report-footer
-        data-ready={ready ? 'true' : 'false'}
-        /* Typing a comment must not hide the way to the next section: iOS does
-           not shrink the layout viewport for the keyboard, so a fixed bar sits
-           under it unless it is offset by what the keyboard actually covers. */
-        style={keyboardInset > 0 ? { bottom: keyboardInset } : undefined}
-        // Fixed above the dock on a phone, where it must stay under the thumb;
-        // on a desktop it belongs at the end of the form it acts on, rather
-        // than floating across the middle of the screen.
-        className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:static lg:mt-8 lg:max-w-none lg:rounded-2xl lg:border lg:border-hairline lg:p-3"
-      >
-        {current ? (
-          <>
-            <button
-              type="button"
-              disabled={!hydrated}
-              onClick={() => goToSection(previousSection)}
-              className="flex h-12 items-center justify-center gap-2 rounded-xl bg-surface-2 px-4 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
-            >
-              <ArrowLeft size={17} strokeWidth={1.8} />
-              {previousSection ? 'Back' : 'Overview'}
-            </button>
-            {nextSection ? (
-              <button
-                type="button"
-                disabled={!hydrated}
-                onClick={() => goToSection(nextSection)}
-                className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
-              >
-                <span className="truncate">
-                  Next: {nextSection.number ? `${nextSection.number}. ` : ''}
-                  {nextSection.title}
-                </span>
-                <ArrowRight size={17} strokeWidth={1.8} className="shrink-0" />
-              </button>
-            ) : (
-              <FinaliseButton
-                disabled={finalise.isPending || !ready}
-                pending={finalise.isPending}
-                onClick={() => void onFinaliseClick()}
-              />
-            )}
-          </>
-        ) : (
-          <>
-            <button
-              type="button"
-              disabled={!hydrated || autosave.status === 'saving'}
-              onClick={() => void autosave.flush()}
-              className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
-            >
-              <Save size={17} strokeWidth={1.7} />
-              {SAVE_LABELS[autosave.status]}
-            </button>
-            {/* Never greyed out: a technician who believes they are finished
-                must be able to press it and be told what is missing, rather
-                than left guessing at a dead button. */}
-            {progress.complete || !progress.firstIncomplete ? (
-              <FinaliseButton
-                disabled={finalise.isPending || !ready}
-                pending={finalise.isPending}
-                onClick={() => void onFinaliseClick()}
-              />
-            ) : (
-              <button
-                type="button"
-                disabled={!hydrated}
-                onClick={() => goToSection(progress.firstIncomplete)}
-                className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
-              >
-                Continue
-                <ArrowRight size={17} strokeWidth={1.8} />
-              </button>
-            )}
-          </>
-        )}
         </div>
       </div>
     </div>
@@ -983,7 +1048,8 @@ function incompleteIssues(error: unknown): Array<ReportIssue> | null {
   const data: unknown = (error as { data?: unknown } | null)?.data
   if (!data || typeof data !== 'object') return null
   const payload = data as { code?: unknown; issues?: unknown }
-  if (payload.code !== 'REPORT_INCOMPLETE' || !Array.isArray(payload.issues)) return null
+  if (payload.code !== 'REPORT_INCOMPLETE' || !Array.isArray(payload.issues))
+    return null
   return payload.issues.filter(
     (issue): issue is ReportIssue =>
       typeof issue === 'object' &&
@@ -998,7 +1064,10 @@ function incompleteIssues(error: unknown): Array<ReportIssue> | null {
  * next heading. A group is what the technician sees as one card, not the whole
  * section it happens to sit in.
  */
-function groupAfter(fields: Array<FieldDef>, headingIndex: number): Array<FieldDef> {
+function groupAfter(
+  fields: Array<FieldDef>,
+  headingIndex: number,
+): Array<FieldDef> {
   const rest = fields.slice(headingIndex + 1)
   const nextHeading = rest.findIndex((field) => field.kind === 'heading')
   return nextHeading === -1 ? rest : rest.slice(0, nextHeading)
@@ -1035,7 +1104,50 @@ function QuickAnswer({
       className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-hairline bg-surface text-[15px] font-semibold text-ink transition active:scale-[.99] disabled:opacity-50"
     >
       <CheckCheck size={16} strokeWidth={2} />
-      {mode === 'allYes' ? `Yes to all ${count}` : `Nothing found — answer all ${count}`}
+      {mode === 'allYes'
+        ? `Yes to all ${count}`
+        : `Nothing found — answer all ${count}`}
     </button>
   )
+}
+
+/**
+ * Why a finalise was refused, in terms of what the person can do about it.
+ *
+ * This used to say "it may already be locked" for every failure, which was a
+ * guess — and once the licence rules landed it became the wrong guess most of
+ * the time. A technician standing in a roof cavity was told the report was
+ * locked, went looking for a lock that does not exist, and rang the owner.
+ *
+ * The licence cases name the fix, because the fix is not something they can do
+ * from this screen and they need to know who to ask.
+ */
+function finaliseError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error)
+
+  if (message.includes('HOLDER_LICENCE_MISSING')) {
+    return 'This report needs a licence number on the account it belongs to. Ask the owner to add it in Settings → Team, then finalise again.'
+  }
+  if (message.includes('HOLDER_LICENCE_EXPIRED')) {
+    return 'The licence on this account has expired. Ask the owner to update it in Settings → Team, then finalise again.'
+  }
+  if (message.includes('TECHNICIAN_LICENCE_MISSING')) {
+    return 'The technician named on this report has no licence number on file. Ask the owner to add it in Settings → Team.'
+  }
+  if (message.includes('TECHNICIAN_LICENCE_EXPIRED')) {
+    return 'The technician named on this report has an expired licence. Ask the owner to update it in Settings → Team.'
+  }
+  if (message.includes('SWITCHED_REGULATED')) {
+    return 'This is a regulated document, so it has to be finalised by the licence holder themselves. Switch back to your own account and ask them to sign it.'
+  }
+  if (message.includes('REPORT_FINALISED')) {
+    return 'This report has already been finalised.'
+  }
+  if (message.includes('TEMPLATE_VERSION_MISMATCH')) {
+    return 'This form has been updated since you opened it. Reload the page and check your answers before finalising.'
+  }
+  if (message.includes('NO_ACCESS') || message.includes('NOT_EDITABLE')) {
+    return 'This report belongs to someone else, so you cannot finalise it.'
+  }
+  return 'Could not finalise this report. Your answers are still saved — try again in a moment.'
 }

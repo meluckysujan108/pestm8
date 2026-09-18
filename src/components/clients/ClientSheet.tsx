@@ -15,7 +15,7 @@ import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { Segmented } from '#/components/primitives/Segmented'
 import { AU_STATES } from '#/lib/au'
-import { formatMoney } from '#/lib/format'
+import { formatJobMoney } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
 import { dayKeyOf } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -43,7 +43,7 @@ export function ClientSheet({
       onOpenChange={(o) => !o && onClose()}
     >
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-black/30" />
+        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
           {clientId !== null && (
@@ -211,7 +211,7 @@ function ClientBody({
 
       <AlertDialog.Root open={confirmArchiveOpen} onOpenChange={setConfirmArchiveOpen}>
         <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-black/30" />
+          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
           <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
             <AlertDialog.Title className="text-row-title text-ink">
               Archive {client.name}?
@@ -933,7 +933,7 @@ function ClientJobHistory({
                 </span>
               </span>
               <span className="flex shrink-0 items-center gap-2">
-                <span className="text-body text-ink">{formatMoney(job.price)}</span>
+                <span className="text-body text-ink">{formatJobMoney(job)}</span>
                 <StatusPill status={job.status} />
               </span>
             </Link>

@@ -7,6 +7,7 @@ import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
 import type { Segment } from '#/components/reports/ReportsLibrary'
+import { useCan } from '#/lib/access'
 
 const SEGMENTS = ['all', 'draft', 'finalised', 'sent', 'trash'] as const
 
@@ -19,7 +20,8 @@ export const Route = createFileRoute('/$businessSlug/reports/')({
 })
 
 function ReportsPage() {
-  const { business, membership } = Route.useRouteContext()
+  const { business } = Route.useRouteContext()
+  const canManageTemplates = useCan('templates.manage')
   const { q, seg } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const segment: Segment = seg ?? 'all'
@@ -39,7 +41,7 @@ function ReportsPage() {
         title="Reports"
         action={
           <>
-            {membership.role === 'owner' && (
+            {canManageTemplates && (
               <Link
                 to="/$businessSlug/reports/templates"
                 params={{ businessSlug: business.slug }}
@@ -74,7 +76,10 @@ function ReportsPage() {
         query={q ?? ''}
         onSegment={(value) =>
           navigate({
-            search: (prev) => ({ ...prev, seg: value === 'all' ? undefined : value }),
+            search: (prev) => ({
+              ...prev,
+              seg: value === 'all' ? undefined : value,
+            }),
             replace: true,
           })
         }

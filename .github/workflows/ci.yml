@@ -1,0 +1,97 @@
+name: CI
+
+# Nothing gated either deploy before this existed: `npx convex deploy`
+# typechecks convex/ only, `vite build` typechecks nothing, and the Playwright
+# suite ran only when someone remembered. So a permissions refactor could reach
+# prod without a single check running.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Needed to diff against the base branch for the changed-files checks.
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      # --frozen-lockfile is what Vercel runs. Failing here is the whole point:
+      # a lockfile that lags package.json fails the Vercel build outright, and
+      # Vercel then keeps serving the previous build while main looks correct
+      # and git status is clean (see CLAUDE.md).
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      # Lint and formatting are scoped to the files this change touches.
+      # The repository has pre-existing violations (25 lint errors, and
+      # prettier disagrees with most files), and reformatting all of them in a
+      # security change would bury the diff and wreck git blame. New and
+      # edited code is still held to the standard.
+      # The list goes to a FILE, never through a shell variable or a step
+      # output. Route paths in this app contain `$businessSlug`, and echoing
+      # them inside double quotes lets bash expand it — the check then looks
+      # for `src/routes//analytics.tsx`, finds nothing, and fails with a
+      # message about a typo in a pattern nobody typed.
+      - name: Changed files
+        id: changed
+        run: |
+          base="${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || 'HEAD^' }}"
+          git diff --name-only --diff-filter=ACMR "$base"...HEAD \
+            | grep -E '\.(ts|tsx|js|jsx|mjs|json|css|md)$' \
+            | grep -v '^convex/_generated/' \
+            | grep -v 'routeTree\.gen\.ts$' > "$RUNNER_TEMP/changed.txt" || true
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "count=$(wc -l < "$RUNNER_TEMP/changed.txt")" >> "$GITHUB_OUTPUT"
+
+      # Only files that were ALREADY prettier-clean have to stay clean. Held to
+      # the whole set instead, touching one line of a long-unformatted file
+      # (scripts/seed.mjs, say) would demand reformatting the entire thing — a
+      # few hundred lines of churn buried in an unrelated change, and a ruined
+      # git blame. This lets the repo converge as files are cleaned up, without
+      # forcing it inside someone else's diff.
+      - name: Prettier (changed files that were already clean)
+        if: steps.changed.outputs.count != '0'
+        run: |
+          base='${{ steps.changed.outputs.base }}'
+          dirty=0
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            [ -f "$f" ] || continue
+            if git show "$base:$f" 2>/dev/null \
+              | pnpm exec prettier --check --stdin-filepath "$f" >/dev/null 2>&1
+            then
+              pnpm exec prettier --check "$f" || dirty=1
+            else
+              echo "skipping $f — it was not prettier-clean before this change"
+            fi
+          done < "$RUNNER_TEMP/changed.txt"
+          exit $dirty
+
+      - name: ESLint (changed files)
+        if: steps.changed.outputs.count != '0'
+        run: |
+          # Read into an array rather than piping to xargs: a path is data
+          # here, and quoting "${files[@]}" keeps it that way. Also avoids
+          # xargs' word-splitting, which would break on any path with a space.
+          files=()
+          while IFS= read -r f; do
+            [ -n "$f" ] && files+=("$f")
+          done < <(grep -E '\.(ts|tsx|js|jsx|mjs)$' "$RUNNER_TEMP/changed.txt")
+          [ ${#files[@]} -eq 0 ] || pnpm eslint --max-warnings 0 "${files[@]}"

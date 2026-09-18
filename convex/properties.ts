@@ -1,9 +1,12 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import { requireMembership } from './lib/access'
+import { isInScope } from './lib/capabilities'
+import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { clientKind } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
+import { requireActor } from './lib/actor'
 
 /** Embeds the owning client alongside a property — the detail-view shape
  * (mirrors how `jobs.get` embeds `assignee`/`property` wholesale). */
@@ -27,16 +30,39 @@ export async function clientNameOf(
 export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    const visible = await visibleClientIds(ctx, env)
 
     const properties = await ctx.db
       .query('properties')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .collect()
-    return Promise.all(properties.map((p) => withClient(ctx, p)))
+    // Wider than `clients.list`, and easy to miss: this embeds the whole
+    // client document on every row, so leaving it unscoped would hand back
+    // the same directory plus every service address.
+    return Promise.all(
+      properties
+        .filter((p) => inClientScope(visible, p.clientId))
+        .map((p) => withClient(ctx, p)),
+    )
   },
 })
 
+/**
+ * DELIBERATELY NOT SCOPED by the client directory toggle.
+ *
+ * This is how a technician finds an address when booking, and how
+ * `resolvePropertyId` links a job to a site that already exists. Hiding an
+ * address they cannot "see" does not stop them booking there — it stops them
+ * FINDING it, so they type it again and the business acquires a second
+ * property record for the same house, with its own job history and its own
+ * reports. A duplicate site in a compliance record is worse than a
+ * subcontractor reading a street address they were going to be sent to
+ * anyway.
+ *
+ * The directory is about the client — who they are, their contacts, their
+ * portfolio. This is about where the work is.
+ */
 export const search = query({
   args: { businessId: v.id('businesses'), q: v.string() },
   handler: async (ctx, { businessId, q }) => {
@@ -77,10 +103,12 @@ export const get = query({
 export const listByClient = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
     const client = await ctx.db.get(clientId)
     if (!client || client.businessId !== businessId) return []
+    const visible = await visibleClientIds(ctx, env)
+    if (!inClientScope(visible, client._id)) return []
 
     return ctx.db
       .query('properties')
@@ -241,8 +269,13 @@ export const update = mutation({
       throw new ConvexError('NOT_FOUND')
     }
 
+    // Typed explicitly for the same reason as `clients.update`: the optional
+    // args really can arrive absent, but `Object.entries` infers them away,
+    // which makes a necessary runtime filter read as dead code.
     const fields = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
+      Object.entries<string | undefined>(patch).filter(
+        ([, value]) => value !== undefined,
+      ),
     )
     if (Object.keys(fields).length > 0) await ctx.db.patch(propertyId, fields)
   },
@@ -255,7 +288,7 @@ export const update = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const property = await ctx.db.get(propertyId)
     if (!property || property.businessId !== businessId) return []
@@ -266,9 +299,6 @@ export const jobHistory = query({
       .order('desc')
       .collect()
 
-    const visibility = jobVisibility(membership)
-    return visibility.scope === 'business'
-      ? jobs
-      : jobs.filter((j) => j.assignedMembershipId === visibility.membershipId)
+    return jobs.filter((j) => isInScope(scope, j))
   },
 })

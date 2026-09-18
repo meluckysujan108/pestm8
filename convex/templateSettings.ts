@@ -1,6 +1,7 @@
 import { v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { requireMembership, requireOwner } from './lib/access'
+import { requireMembership } from './lib/access'
+import { requireActor, requireCapability } from './lib/actor'
 import type { TemplateSettings } from '../src/lib/reportTemplates/settings'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -73,7 +74,9 @@ export const set = mutation({
     requiredSigners: v.optional(v.array(v.string())),
   },
   handler: async (ctx, { businessId, templateRef, ...fields }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
 
     const print = {
       ...(trimmed(fields.formName) ? { formName: trimmed(fields.formName) } : {}),

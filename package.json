@@ -2,6 +2,7 @@
   "name": "pestm8",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@10.33.0",
   "imports": {
     "#/*": "./src/*"
   },
@@ -12,6 +13,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p convex/tsconfig.json",
     "check:dates": "node scripts/check-dst-boundaries.mjs",
     "check:travel": "node --experimental-strip-types scripts/check-travel.mjs",
     "lint": "eslint",

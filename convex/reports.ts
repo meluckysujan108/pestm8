@@ -8,7 +8,7 @@ import {
   query,
 } from './_generated/server'
 import { internal } from './_generated/api'
-import { jobVisibility, requireMembership, resolveViewScope } from './lib/access'
+import { requireMembership } from './lib/access'
 import { clientNameOf, withClient } from './properties'
 import { reportTemplate } from './schema'
 import {
@@ -34,21 +34,19 @@ import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
 import { canCarryFrom, carryOverFrom } from '../src/lib/reportTemplates/lastVisit'
 import { migrateServiceReportV1 } from '../src/lib/reportTemplates/legacy/serviceReport.migrate'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
+import {
+  canFinaliseReport,
+  mergeDraft,
+  reportScope,
+} from './lib/capabilities'
+import type { RowScope } from './lib/capabilities'
+import { reportFactsFrom } from './lib/reportFacts'
+import { factsFromMembership } from './lib/membershipFacts'
 import type { TemplateId } from '../src/lib/reportTemplates'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
-
-/**
- * Reports inherit job scoping: a subcontractor without canViewAllJobs sees the
- * reports they authored, not the whole business's compliance history.
- */
-export function canSeeReport(m: Membership, report: Doc<'reports'>): boolean {
-  const visibility = jobVisibility(m)
-  return (
-    visibility.scope === 'business' ||
-    report.authorMembershipId === visibility.membershipId
-  )
-}
+import { forSelf, recordAudit } from './lib/audit'
+import { hasCapability, requireActor } from './lib/actor'
 
 /**
  * The guard every report-mutating mutation repeats: resolve membership, load
@@ -102,7 +100,7 @@ function requireSameVersion(
 export const listByProperty = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const reports = await ctx.db
       .query('reports')
@@ -119,7 +117,7 @@ export const listByProperty = query({
         (r) =>
           r.businessId === businessId &&
           r.deletedAt === undefined &&
-          canSeeReport(membership, r),
+          reportScope(scope, r),
       ),
     )
   },
@@ -131,7 +129,7 @@ export const INLINE_LIMIT = 20
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const reports = await ctx.db
       .query('reports')
@@ -140,7 +138,7 @@ export const listForBusiness = query({
       .collect()
 
     const visible = reports.filter(
-      (r) => r.deletedAt === undefined && canSeeReport(membership, r),
+      (r) => r.deletedAt === undefined && reportScope(scope, r),
     )
 
     // Resolved BEFORE the fan-out, not lazily inside it. Snapshots dedupe by
@@ -217,7 +215,7 @@ export const list = query({
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, { businessId, filter, paginationOpts }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const page = await ctx.db
       .query('reports')
@@ -234,7 +232,7 @@ export const list = query({
     // Visibility is applied after the page is drawn, as it is for notes: a
     // subcontractor's page can come back short, which the paginator handles,
     // and the alternative is an index per membership.
-    const visible = page.page.filter((r) => canSeeReport(membership, r))
+    const visible = page.page.filter((r) => reportScope(scope, r))
 
     return { ...page, page: await decorate(ctx, visible) }
   },
@@ -262,7 +260,7 @@ export const search = query({
   },
   handler: async (ctx, { businessId, term, filter }) => {
     if (term.trim() === '') return []
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const rows = await ctx.db
       .query('reports')
@@ -279,7 +277,7 @@ export const search = query({
       .filter((q) => segmentPredicate(q, filter))
       .take(SEARCH_LIMIT)
 
-    return decorate(ctx, rows.filter((r) => canSeeReport(membership, r)))
+    return decorate(ctx, rows.filter((r) => reportScope(scope, r)))
   },
 })
 
@@ -361,7 +359,7 @@ export async function decorate(ctx: QueryCtx, rows: Array<Doc<'reports'>>) {
 export const counts = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
     const rows = await ctx.db
       .query('reports')
       .withIndex('by_business_updated', (q) => q.eq('businessId', businessId))
@@ -370,7 +368,7 @@ export const counts = query({
 
     const counted = { all: 0, draft: 0, finalised: 0, sent: 0, trash: 0 }
     for (const r of rows) {
-      if (!canSeeReport(membership, r)) continue
+      if (!reportScope(scope, r)) continue
       if (r.deletedAt !== undefined) {
         counted.trash += 1
         continue
@@ -406,7 +404,7 @@ export const staleDrafts = query({
     olderThanMs: v.optional(v.number()),
   },
   handler: async (ctx, { businessId, olderThanMs }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
     const cutoff = Date.now() - (olderThanMs ?? STALE_AFTER_MS)
 
     const rows = await ctx.db
@@ -422,7 +420,7 @@ export const staleDrafts = query({
       )
       .take(COUNT_LIMIT)
 
-    const mine = rows.filter((r) => canSeeReport(membership, r))
+    const mine = rows.filter((r) => reportScope(scope, r))
     return {
       count: mine.length,
       /** The one to open, which is the oldest — it is the most forgotten. */
@@ -504,11 +502,11 @@ export const get = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const membership = await requireMembership(ctx, businessId)
-    const viewScope = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return null
-    if (!canSeeReport(viewScope, report)) return null
+    if (!reportScope(scope, report)) return null
     // Soft-deleted: gone from every list, and not openable by a stale link.
     if (report.deletedAt !== undefined) return null
 
@@ -911,12 +909,12 @@ function storageIdOf(
 export const signatureUrls = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}
     if (report.deletedAt !== undefined) return {}
-    if (!canSeeReport(membership, report)) return {}
+    if (!reportScope(scope, report)) return {}
 
     return resolveSignatureUrls(ctx, report)
   },
@@ -1126,12 +1124,12 @@ export const removeGalleryPhoto = mutation({
 export const galleryPhotos = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return []
     if (report.deletedAt !== undefined) return []
-    if (!canSeeReport(membership, report)) return []
+    if (!reportScope(scope, report)) return []
 
     const photos = await ctx.db
       .query('reportPhotos')
@@ -1163,12 +1161,12 @@ export const galleryPhotos = query({
 export const photoUrls = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}
     if (report.deletedAt !== undefined) return {}
-    if (!canSeeReport(membership, report)) return {}
+    if (!reportScope(scope, report)) return {}
 
     const entries = await Promise.all(
       Object.entries(report.photoSlots ?? {}).map(async ([slot, storageId]) => {
@@ -1499,7 +1497,7 @@ function carryFrom(draft: Doc<'reports'>, candidate: Doc<'reports'>): boolean {
 
 async function lastVisitSource(
   ctx: QueryCtx,
-  membership: Membership,
+  scope: RowScope,
   draft: Doc<'reports'>,
 ) {
   const rows = await ctx.db
@@ -1512,7 +1510,7 @@ async function lastVisitSource(
     (row) =>
       row.businessId === draft.businessId &&
       carryFrom(draft, row) &&
-      canSeeReport(membership, row),
+      reportScope(scope, row),
   )
 
   // Ranked by when each was SIGNED, not when it was started. A draft left in
@@ -1562,14 +1560,14 @@ async function carryOverFor(
 export const lastAtProperty = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
 
     const draft = await ctx.db.get(reportId)
     if (!draft || draft.businessId !== businessId) return null
     if (draft.status !== 'draft' || draft.deletedAt !== undefined) return null
-    if (!canSeeReport(membership, draft)) return null
+    if (!reportScope(scope, draft)) return null
 
-    const previous = await lastVisitSource(ctx, membership, draft)
+    const previous = await lastVisitSource(ctx, scope, draft)
     if (!previous) return null
 
     const carried = await carryOverFor(ctx, draft, previous)
@@ -1598,11 +1596,11 @@ export const copyFromLastVisit = mutation({
     fromReportId: v.id('reports'),
   },
   handler: async (ctx, { businessId, reportId, fromReportId }) => {
-    const { report, membership } = await requireEditableReport(
-      ctx,
-      businessId,
-      reportId,
-    )
+    const { report } = await requireEditableReport(ctx, businessId, reportId)
+    // Whether the caller may READ the report being copied from is a question
+    // for the scope, which knows about teams and switching; authorship of the
+    // draft being written to is `requireEditableReport`'s.
+    const { scope } = await requireActor(ctx, businessId)
 
     const previous = await ctx.db.get(fromReportId)
     // Re-checked rather than trusted: the id came from the client, and this
@@ -1613,7 +1611,7 @@ export const copyFromLastVisit = mutation({
       previous._id === report._id ||
       previous.propertyId !== report.propertyId ||
       !carryFrom(report, previous) ||
-      !canSeeReport(membership, previous)
+      !reportScope(scope, previous)
     ) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -1640,16 +1638,59 @@ export const saveDraft = mutation({
     reportId: v.id('reports'),
     data: v.any(),
     templateVersion: v.optional(v.number()),
+    /**
+     * The answers as they stood when this editor loaded them.
+     *
+     * Optional, and that is what keeps the currently-deployed client working:
+     * without it this mutation behaves exactly as it always has, replacing the
+     * stored answers with whatever arrived. A client that sends it gets a
+     * three-way merge instead, which is the only way two people editing one
+     * report can both keep their work.
+     *
+     * The alternative — a version number and a refusal — is worse here. An
+     * autosave fires every couple of seconds while someone types, so a stale
+     * version is the normal state of affairs rather than an exceptional one,
+     * and refusing would throw away a field someone had just filled in.
+     */
+    base: v.optional(v.any()),
   },
-  handler: async (ctx, { businessId, reportId, data, templateVersion }) => {
+  handler: async (
+    ctx,
+    { businessId, reportId, data, templateVersion, base },
+  ) => {
     // The whole point of finalising is that the document stops changing. A
     // signed compliance record that can be edited afterwards is worthless.
     const { report } = await requireEditableReport(ctx, businessId, reportId)
     requireSameVersion(report, templateVersion)
 
-    // The library orders by this: "the one I was filling in" means the one
-    // they last touched, not the one they started first.
-    await ctx.db.patch(reportId, { data, updatedAt: Date.now() })
+    /**
+     * Two people on one draft stops being a freak event the day someone can
+     * work inside another person's account: a helper fills in section 3 on the
+     * office laptop while the licence holder answers section 5 on their phone,
+     * and until now whichever autosave landed second silently erased the
+     * other's answers. There is no error to notice, and no way back — the
+     * overwritten text was never anywhere but that form.
+     *
+     * Merged per answer, so both survive. Only the same answer edited two
+     * different ways is a conflict, and that one genuinely needs a person.
+     *
+     * `updatedAt` on both paths: the library orders by it, and "the one I was
+     * filling in" means the one they last touched, not the one they started
+     * first.
+     */
+    if (base === undefined) {
+      await ctx.db.patch(reportId, { data, updatedAt: Date.now() })
+      return
+    }
+
+    const merge = mergeDraft(
+      base as Record<string, unknown>,
+      (report.data ?? {}) as Record<string, unknown>,
+      data as Record<string, unknown>,
+    )
+    if (!merge.ok) throw new ConvexError('DRAFT_CONFLICT')
+
+    await ctx.db.patch(reportId, { data: merge.data, updatedAt: Date.now() })
   },
 })
 
@@ -1723,6 +1764,35 @@ export const finalise = mutation({
     )
     requireSameVersion(report, templateVersion)
 
+    /**
+     * Whether this document may be signed, as opposed to merely edited.
+     *
+     * `canFinaliseReport` has existed since the access model was written down
+     * and has never been called, which meant the protection it describes did
+     * not exist: a regulated certificate could be signed with no licence on
+     * file at all, and — once switching is reachable — from inside the licence
+     * holder's account by someone who is not them.
+     *
+     * It runs after `requireEditableReport`, which is the stricter gate of the
+     * two (author only, no owner escape), so this can only ever add a refusal.
+     * The holder is the report's author: their name and licence are what the
+     * certificate prints, whoever filled the form in.
+     */
+    const holder = await ctx.db.get(report.authorMembershipId)
+    if (!holder) throw new ConvexError('NOT_FOUND')
+
+    const env = await requireActor(ctx, businessId)
+    const decision = canFinaliseReport(
+      env.actor,
+      reportFactsFrom(report),
+      { holder: factsFromMembership(holder) },
+      Date.now(),
+    )
+    if (!decision.ok) throw new ConvexError(decision.reason)
+
+    // Then whether it is finished. Second, because a technician can do
+    // something about this one — and there is no point walking them through
+    // twelve missing answers on a certificate their account cannot sign.
     // The same rules the builder applies, applied again where they are true.
     // Until now they lived only in the browser, so a stale tab or a direct API
     // call could lock an unsigned, undated document — and a compliance record
@@ -1809,14 +1879,17 @@ export const finalise = mutation({
       // Which issue of that number this document is. 1 unless `amend` made
       // this report to correct an earlier one.
       version: report.version ?? 1,
+      // Who pressed the button, which is not always whose licence prints.
+      // Written on every finalise, so absent can only mean "before this
+      // existed" and never "nobody knows".
+      finalisedByMembershipId: env.actor.real._id,
       ...(templateSnapshotId ? { templateSnapshotId } : {}),
       ...(contextSnapshot ? { contextSnapshot } : {}),
       ...(customTemplateSnapshot ? { customTemplateSnapshot } : {}),
     })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(membership._id), {
       businessId,
-      actorMembershipId: membership._id,
       action: 'report.finalise',
       entityType: 'reports',
       entityId: reportId,
@@ -1886,8 +1959,12 @@ async function queueFormDeliveries(
   if (to.length === 0) return
 
   const known = await knownRecipients(ctx, report)
+  // The same rule as `deliveries.request`, which this mirrors for the sends
+  // the form itself asked for: sending anywhere is the owner's authority, and
+  // not from inside somebody else's account.
   const unrestricted =
-    membership.role === 'owner' || business?.allowTechnicianRecipients === true
+    hasCapability(await requireActor(ctx, report.businessId), 'business.manage') ||
+    business?.allowTechnicianRecipients === true
   const novel = to.filter((address) => !known.includes(address))
 
   await ctx.db.insert('reportDeliveries', {
@@ -1961,7 +2038,8 @@ export const amend = mutation({
     if (original.status !== 'finalised') {
       throw new ConvexError('REPORT_NOT_FINALISED')
     }
-    if (!canSeeReport(membership, original)) throw new ConvexError('NO_ACCESS')
+    const { scope } = await requireActor(ctx, businessId)
+    if (!reportScope(scope, original)) throw new ConvexError('NO_ACCESS')
     // Amending an amendment is fine; amending something already superseded
     // would fork the number into two live documents.
     if (original.supersededByReportId !== undefined) {
@@ -2029,9 +2107,8 @@ export const amend = mutation({
       updatedAt: now,
     })
 
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(membership._id), {
       businessId,
-      actorMembershipId: membership._id,
       action: 'report.amend',
       entityType: 'reports',
       entityId: amendmentId,
@@ -2092,9 +2169,12 @@ async function requireDeletable(
   const report = await ctx.db.get(reportId)
   if (!report || report.businessId !== businessId) throw new ConvexError('NOT_FOUND')
   if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
+  // Your own draft, or anybody's with `business.manage` — owner authority,
+  // which a switch drops. A role check here let an owner working inside a
+  // technician's account bin that technician's other drafts.
   if (
-    membership.role !== 'owner' &&
-    report.authorMembershipId !== membership._id
+    report.authorMembershipId !== membership._id &&
+    !hasCapability(await requireActor(ctx, businessId), 'business.manage')
   ) {
     throw new ConvexError('NO_ACCESS')
   }
@@ -2355,9 +2435,8 @@ export const switchTemplateVersion = mutation({
       // signed is withdrawn.
       signatureSlots: undefined,
     })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(membership._id), {
       businessId,
-      actorMembershipId: membership._id,
       action: 'report.switchVersion',
       entityType: 'reports',
       entityId: reportId,
@@ -2404,9 +2483,8 @@ export const restartDraft = mutation({
       createdAt: now,
     })
     await ctx.db.patch(reportId, { deletedAt: now })
-    await ctx.db.insert('auditLog', {
+    await recordAudit(ctx, forSelf(membership._id), {
       businessId,
-      actorMembershipId: membership._id,
       action: 'report.restart',
       entityType: 'reports',
       entityId: reportId,

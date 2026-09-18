@@ -2,6 +2,7 @@ import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
+import type { Role } from '../../../convex/lib/capabilities'
 import {
   Sidebar,
   SidebarContent,
@@ -34,7 +35,7 @@ export function useUnreadMentions(businessId: Id<'businesses'>): number {
 }
 
 export type ShellMembership = {
-  role: 'owner' | 'subcontractor'
+  role: Role
   colour: string
 }
 
@@ -48,10 +49,20 @@ export type ShellMembership = {
 export function AppShell({
   business,
   membership,
+  banner,
   children,
 }: {
   business: ShellBusiness
   membership: ShellMembership
+  /**
+   * Rendered inside the inset, above the content.
+   *
+   * It used to sit outside the shell entirely, as a sibling of this component —
+   * which put it underneath the sidebar's own fixed, z-10 panel on any screen
+   * wide enough to show one. The warning that you are writing in someone
+   * else's account was invisible on exactly the screens an owner uses.
+   */
+  banner?: ReactNode
   children: ReactNode
 }) {
   const unread = useUnreadMentions(business._id)
@@ -119,6 +130,7 @@ export function AppShell({
         {/* The clamp goes on an inner wrapper, not the inset: the inset is the
             white panel and should reach the window edge, while the content
             column inside it stays readable (§2.4). */}
+        {banner}
         <div className="mx-auto w-full max-w-[460px] md:max-w-[760px] lg:max-w-[1280px]">
           <main className="pb-[calc(68px+env(safe-area-inset-bottom))] lg:pb-0">
             {children}

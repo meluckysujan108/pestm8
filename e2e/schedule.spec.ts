@@ -2,6 +2,8 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  clickUntil,
+  inviteAndJoin,
   signInViaUi,
   signUpActor,
   uniqueEmail,
@@ -62,7 +64,9 @@ test('an owner can add a property, book a job, and complete it', async ({
   await expect(jobSheet.getByText('New job')).toBeVisible()
 
   await jobSheet.getByLabel('Job type').click()
-  await page.getByRole('button', { name: 'Termite Inspection', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'Termite Inspection', exact: true })
+    .click()
   await jobSheet.getByLabel('Start').fill('09:30')
   await jobSheet.getByLabel('Price (AUD)').fill('380')
   await jobSheet.getByRole('button', { name: 'Book job' }).click()
@@ -111,13 +115,7 @@ test('a subcontractor sees only their own day', async ({ page }) => {
     { name: `Scope ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
   )
 
-  const subUser = await sub.client.query(api.auth.getCurrentUser, {})
-  await owner.client.mutation(api.memberships.invite, {
-    businessId,
-    userId: subUser!._id,
-    role: 'subcontractor',
-  })
-  await sub.client.mutation(api.memberships.accept, { businessId })
+  await inviteAndJoin(owner, sub, businessId)
 
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
@@ -158,7 +156,11 @@ async function seedOneJob(prefix: string) {
 
   const { businessId, slug } = await owner.client.mutation(
     api.businesses.create,
-    { name: `${prefix} ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    {
+      name: `${prefix} ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
   )
 
   const propertyId = await owner.client.mutation(api.properties.create, {
@@ -231,17 +233,25 @@ test('the chosen card view is kept in the URL and survives a reload', async ({
   await signInViaUi(page, email)
   await page.goto(`/${slug}/schedule`)
 
-  await page.getByRole('tablist', { name: 'View' }).getByRole('tab', { name: 'List' }).click()
-  await expect(page).toHaveURL(/view=list/)
+  await clickUntil(
+    page
+      .getByRole('tablist', { name: 'View' })
+      .getByRole('tab', { name: 'List' }),
+    () => expect(page).toHaveURL(/view=list/, { timeout: 2_000 }),
+  )
 
   await page.reload()
-  await expect(page.getByRole('button', { name: /Termite Inspection/ })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: /Termite Inspection/ }),
+  ).toBeVisible()
   await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
 
   // A view the mobile layout cannot render must not leave the page blank; it
   // falls back to board rather than showing a data grid on a phone.
   await page.goto(`/${slug}/schedule?view=table`)
-  await expect(page.getByRole('button', { name: /Termite Inspection/ })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: /Termite Inspection/ }),
+  ).toBeVisible()
 })
 
 /**

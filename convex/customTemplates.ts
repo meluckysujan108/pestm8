@@ -2,13 +2,14 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
-import { requireMembership, requireOwner } from './lib/access'
+import { requireMembership } from './lib/access'
 import { customTemplateSectionsSchema } from '../src/lib/reportTemplates/customTemplateSchema'
 import {
   RETIRED_TEMPLATES,
   getTemplate,
   sectionsOf,
 } from '../src/lib/reportTemplates'
+import { hasCapability, requireActor, requireCapability } from './lib/actor'
 
 /** The 4 built-in ids — never `'custom'`, which only ever names a *resolved*
  * template, not a source one to clone from. */
@@ -37,7 +38,9 @@ export const create = mutation({
     boilerplate: v.string(),
   },
   handler: async (ctx, args) => {
-    const membership = await requireOwner(ctx, args.businessId)
+    const env = await requireActor(ctx, args.businessId)
+    requireCapability(env, 'templates.manage')
+    const membership = env.actor.real
 
     // `sections` is `v.any()` on the wire (see `customReportTemplates`'s own
     // schema comment) — this is the edge that actually enforces its shape.
@@ -87,7 +90,9 @@ export const saveDraft = mutation({
     boilerplate: v.string(),
   },
   handler: async (ctx, { businessId, templateId, ...draft }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const existing = await requireOwn(ctx, businessId, templateId)
 
     await ctx.db.patch(existing._id, {
@@ -111,7 +116,9 @@ export const publish = mutation({
     templateId: v.id('customReportTemplates'),
   },
   handler: async (ctx, { businessId, templateId }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const existing = await requireOwn(ctx, businessId, templateId)
 
     const draft = existing.draft
@@ -168,7 +175,9 @@ export const discardDraft = mutation({
     templateId: v.id('customReportTemplates'),
   },
   handler: async (ctx, { businessId, templateId }) => {
-    const owner = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const owner = env.actor.real
     const existing = await requireOwn(ctx, businessId, templateId)
     if (!existing.draft) return
 
@@ -264,7 +273,10 @@ export const get = query({
     templateId: v.id('customReportTemplates'),
   },
   handler: async (ctx, { businessId, templateId }) => {
-    const membership = await requireMembership(ctx, businessId)
+    // The draft is template administration: `templates.manage`, which a
+    // switch drops, so an owner working inside a technician's account is
+    // handed what that technician would be — the issued form.
+    const canEdit = hasCapability(await requireActor(ctx, businessId), 'templates.manage')
     const doc = await ctx.db.get(templateId)
     if (!doc || doc.businessId !== businessId) return null
 
@@ -274,7 +286,7 @@ export const get = query({
     const { draft, ...published } = doc
     return {
       ...published,
-      draft: membership.role === 'owner' ? draft : undefined,
+      draft: canEdit ? draft : undefined,
       hasUnpublishedChanges: draft !== undefined,
       publishedVersion: doc.publishedVersion ?? 1,
     }
@@ -309,7 +321,9 @@ export const cloneBuiltin = mutation({
     name: v.string(),
   },
   handler: async (ctx, { businessId, sourceTemplateId, name }) => {
-    const membership = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const membership = env.actor.real
     if (RETIRED_TEMPLATES.has(sourceTemplateId)) {
       throw new ConvexError('TEMPLATE_RETIRED')
     }
@@ -347,7 +361,9 @@ export const duplicate = mutation({
     name: v.string(),
   },
   handler: async (ctx, { businessId, templateId, name }) => {
-    const membership = await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    const membership = env.actor.real
 
     const source = await ctx.db.get(templateId)
     if (!source || source.businessId !== businessId) {
@@ -377,7 +393,7 @@ export const duplicate = mutation({
 export const archive = mutation({
   args: { businessId: v.id('businesses'), templateId: v.id('customReportTemplates') },
   handler: async (ctx, { businessId, templateId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'templates.manage')
     const existing = await ctx.db.get(templateId)
     if (!existing || existing.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
@@ -389,7 +405,7 @@ export const archive = mutation({
 export const unarchive = mutation({
   args: { businessId: v.id('businesses'), templateId: v.id('customReportTemplates') },
   handler: async (ctx, { businessId, templateId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'templates.manage')
     const existing = await ctx.db.get(templateId)
     if (!existing || existing.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
@@ -410,7 +426,7 @@ export const unarchive = mutation({
 export const remove = mutation({
   args: { businessId: v.id('businesses'), templateId: v.id('customReportTemplates') },
   handler: async (ctx, { businessId, templateId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'templates.manage')
     const existing = await ctx.db.get(templateId)
     if (!existing || existing.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
@@ -449,7 +465,10 @@ export const update = mutation({
     boilerplate: v.optional(v.string()),
   },
   handler: async (ctx, { businessId, templateId, sections, ...rest }) => {
-    await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'templates.manage')
+    // The capability is dropped while switched, so this is the person.
+    const owner = env.actor.real
 
     const existing = await ctx.db.get(templateId)
     if (!existing || existing.businessId !== businessId) {
@@ -458,7 +477,6 @@ export const update = mutation({
 
     const now = Date.now()
     const version = (existing.publishedVersion ?? 1) + 1
-    const owner = await requireOwner(ctx, businessId)
 
     const patch: Record<string, unknown> = {
       ...rest,

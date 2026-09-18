@@ -15,8 +15,9 @@ export async function requireMembership(
   ctx: Ctx,
   businessId: Id<'businesses'>,
 ): Promise<Membership> {
+  // getAuthUser throws ConvexError('Unauthenticated') when there is no live
+  // session, so there is no null case to handle here.
   const user = await authComponent.getAuthUser(ctx)
-  if (!user) throw new ConvexError('UNAUTHENTICATED')
 
   const membership = await ctx.db
     .query('memberships')
@@ -82,16 +83,6 @@ export async function resolveViewScope(
   return target
 }
 
-export type JobVisibility =
-  | { scope: 'business'; businessId: Id<'businesses'> }
-  | { scope: 'assignee'; membershipId: Id<'memberships'> }
-
-export function jobVisibility(m: Membership): JobVisibility {
-  return m.role === 'owner' || m.canViewAllJobs
-    ? { scope: 'business', businessId: m.businessId }
-    : { scope: 'assignee', membershipId: m._id }
-}
-
 /**
  * Write access is deliberately stricter than read: canViewAllJobs grants
  * visibility of another person's booking, never the right to edit it.
@@ -103,8 +94,36 @@ export function canEditJob(
   return m.role === 'owner' || job.assignedMembershipId === m._id
 }
 
+/**
+ * The person a job or series may be booked onto.
+ *
+ * `jobs.update` used to patch `assignedMembershipId` without loading it at all,
+ * so a member of any business could push jobs onto someone else's calendar in a
+ * business they had never joined — the victim saw attacker-chosen addresses on
+ * their schedule and could not open or cancel them. `recurrences.create` had
+ * the same gap, and the daily cron kept materialising more.
+ *
+ * Status matters as well as tenancy: booking work for someone who was invited
+ * but never joined, or who has been removed, puts jobs on a calendar nobody is
+ * reading.
+ */
+export async function requireAssignableMember(
+  ctx: Ctx,
+  businessId: Id<'businesses'>,
+  membershipId: Id<'memberships'>,
+): Promise<Membership> {
+  const assignee = await ctx.db.get(membershipId)
+  if (
+    !assignee ||
+    assignee.businessId !== businessId ||
+    assignee.status !== 'active'
+  ) {
+    throw new ConvexError('INVALID_ASSIGNEE')
+  }
+  return assignee
+}
+
 export async function getAuthUserId(ctx: Ctx): Promise<string> {
   const user = await authComponent.getAuthUser(ctx)
-  if (!user) throw new ConvexError('UNAUTHENTICATED')
   return user._id
 }

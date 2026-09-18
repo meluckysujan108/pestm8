@@ -677,7 +677,7 @@ test.describe('the one question the phone answers better', () => {
       .poll(async () => {
         const report = await owner.client.query(api.reports.get, { businessId, reportId })
         const gps = (report!.data as Record<string, { lat?: number }>).location
-        return gps?.lat
+        return gps.lat
       })
       .toBeCloseTo(-31.9187, 3)
   })
@@ -964,7 +964,7 @@ test.describe('the second visit to the same address', () => {
     // A row of its own, not a shared one: two reports whose rows answer to the
     // same name is how an edit to one lands in the other.
     expect(rows[0]._id).not.toBe('first-row')
-    expect(copied!.prefill?.treatments?.source).toBe('lastVisit')
+    expect(copied!.prefill!.treatments.source).toBe('lastVisit')
   })
 
   test('a first visit is offered nothing', async ({ page }) => {

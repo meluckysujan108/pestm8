@@ -1,28 +1,97 @@
 import { v } from 'convex/values'
 import { internalMutation, query } from './_generated/server'
-import { requireMembership } from './lib/access'
-import { canSeeReport } from './reports'
-import type { Id } from './_generated/dataModel'
+import { recordAudit } from './lib/audit'
+import { hasCapability, requireActor } from './lib/actor'
+import { displayPerson, isInScope, reportScope } from './lib/capabilities'
+import { factsFromMembership } from './lib/membershipFacts'
 import { memberName } from './lib/reportContext'
+import type { ActorEnvelope } from './lib/actor'
+import type { Id } from './_generated/dataModel'
+import type { QueryCtx } from './_generated/server'
 
 /**
- * The one place anything writes an audit-log row — kept separate from the
- * mutations that trigger these events (`reports.finalise`, `email.send`)
- * because `email.send` is a Node action and can't touch `ctx.db` itself.
+ * The way in from an action.
+ *
+ * This used to claim it was the one place anything wrote an audit row. It was
+ * not — eighteen mutations inserted the row by hand and only `email.send` came
+ * through here — which is why the claim is gone and the actual single writer is
+ * `lib/audit.ts`. This is now just the door for callers with no `ctx.db` of
+ * their own: `email.send` is a Node action.
  */
 export const log = internalMutation({
   args: {
     businessId: v.id('businesses'),
     actorMembershipId: v.id('memberships'),
+    /** The account the change was made in, when that is not the actor. See
+     * `schema.ts` — absent means they were working as themselves. */
+    onBehalfOfMembershipId: v.optional(v.id('memberships')),
     action: v.string(),
     entityType: v.string(),
     entityId: v.string(),
     meta: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
-    await ctx.db.insert('auditLog', { ...args, at: Date.now() })
+    await recordAudit(
+      ctx,
+      {
+        actorMembershipId: args.actorMembershipId,
+        onBehalfOfMembershipId: args.onBehalfOfMembershipId,
+      },
+      {
+        businessId: args.businessId,
+        action: args.action,
+        entityType: args.entityType,
+        entityId: args.entityId,
+        meta: args.meta,
+      },
+    )
   },
 })
+
+/**
+ * Can this caller see the history of this particular thing?
+ *
+ * Membership alone used to be enough, so a subcontractor who learned a report
+ * id — from a link, a note, a colleague — could read who that report was
+ * emailed to, and a membership id got them somebody's permission history.
+ * History is as sensitive as the thing it describes.
+ *
+ * So the question for a report or a job is exactly the one reading the thing
+ * itself asks: whether the caller's SCOPE covers it. Not a role, and not the
+ * old two-valued `canViewAllJobs` flag — the scope is what knows about a
+ * contractor's team and about someone working inside another account, and a
+ * history rule that disagreed with the thing's own rule would let one be read
+ * without the other.
+ */
+async function canSeeEntityHistory(
+  ctx: QueryCtx,
+  env: ActorEnvelope,
+  businessId: Id<'businesses'>,
+  entityType: string,
+  entityId: string,
+): Promise<boolean> {
+  switch (entityType) {
+    case 'reports': {
+      const report = await ctx.db.get(entityId as Id<'reports'>)
+      if (!report || report.businessId !== businessId) return false
+      if (report.deletedAt !== undefined) return false
+      return reportScope(env.scope, report)
+    }
+    case 'jobs': {
+      const job = await ctx.db.get(entityId as Id<'jobs'>)
+      if (!job || job.businessId !== businessId) return false
+      return isInScope(env.scope, job)
+    }
+    // Team and invitation history is management information: the owner's,
+    // and not while they are working inside somebody else's account —
+    // `business.manage` is dropped for the length of a switch.
+    case 'memberships':
+    case 'invitations':
+      return hasCapability(env, 'business.manage')
+    default:
+      return false
+  }
+}
 
 /**
  * History for one entity (a report, most often) — the action bar's "Email
@@ -36,26 +105,13 @@ export const forEntity = query({
     entityId: v.string(),
   },
   handler: async (ctx, { businessId, entityType, entityId }) => {
-    const membership = await requireMembership(ctx, businessId)
-
-    // Membership alone is not enough for a report. A subcontractor without
-    // `canViewAllJobs` cannot open somebody else's report, and its history
-    // says who the client is, where the document went and when — so answering
-    // it would hand over by the side door exactly what the front door
-    // refuses. Whether they may see the report is the report's own rule, so
-    // it is asked rather than re-implemented here.
-    if (entityType === 'reports') {
-      const report = await ctx.db.get(entityId as Id<'reports'>)
-      if (
-        !report ||
-        report.businessId !== businessId ||
-        report.deletedAt !== undefined ||
-        !canSeeReport(membership, report)
-      ) {
-        // Empty rather than an error: a history nobody may read and a history
-        // with nothing in it look the same from outside, which is the point.
-        return []
-      }
+    const env = await requireActor(ctx, businessId)
+    if (
+      !(await canSeeEntityHistory(ctx, env, businessId, entityType, entityId))
+    ) {
+      // Empty rather than an error: the caller may legitimately be looking at
+      // something with no history, and the two should be indistinguishable.
+      return []
     }
 
     const entries = await ctx.db
@@ -70,23 +126,28 @@ export const forEntity = query({
     // the guarantee obvious rather than implicit.
     const scoped = entries.filter((entry) => entry.businessId === businessId)
 
-    const actorIds = [...new Set(scoped.map((entry) => entry.actorMembershipId))]
+    const business = await ctx.db.get(businessId)
+    const businessName =
+      business?.tradingName ?? business?.name ?? 'The business'
+
+    const actorIds = [
+      ...new Set(scoped.map((entry) => entry.actorMembershipId)),
+    ]
     const actors = new Map(
       await Promise.all(
         actorIds.map(async (id) => {
           const actor = await ctx.db.get(id)
-          return [
-            id,
-            actor
-              ? {
-                  // A history that reads "Emailed" with a colour dot beside it
-                  // tells an owner nothing about who did it, and "who sent
-                  // this" is the question the history exists to answer.
-                  name: await memberName(ctx, actor.userId),
-                  colour: actor.colour,
-                }
-              : null,
-          ] as const
+          if (!actor) return [id, null] as const
+          // A history that reads "Emailed" with a colour dot beside it tells an
+          // owner nothing about who did it, and "who sent this" is the question
+          // the history exists to answer. Named through `displayPerson`, so the
+          // owner — invisible as a person on every trail — reads as the
+          // business rather than by name.
+          const shown = displayPerson(env.actor, factsFromMembership(actor), {
+            personName: await memberName(ctx, actor.userId),
+            businessName,
+          })
+          return [id, { name: shown.name, colour: actor.colour }] as const
         }),
       ),
     )
@@ -98,8 +159,8 @@ export const forEntity = query({
         action: entry.action,
         meta: entry.meta,
         at: entry.at,
-        actorColour: actors.get(entry.actorMembershipId)?.colour,
         actorName: actors.get(entry.actorMembershipId)?.name,
+        actorColour: actors.get(entry.actorMembershipId)?.colour,
       }))
   },
 })

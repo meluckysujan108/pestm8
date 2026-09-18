@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import {
+  licenceSelf,
   FIXTURE_PASSWORD,
   api,
   expectRejected,
@@ -24,6 +25,7 @@ test('the front-page photo becomes its own landscape first page', async () => {
     state: 'WA',
     timezone: 'Australia/Perth',
   })
+  await licenceSelf(owner, businessId)
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
     clientName: 'J. Nguyen',

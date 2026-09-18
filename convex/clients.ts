@@ -1,10 +1,13 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { jobVisibility, requireMembership, requireOwner, resolveViewScope } from './lib/access'
-import { INLINE_LIMIT, canSeeReport, decorate as decorateReports } from './reports'
+import { requireMembership } from './lib/access'
+import { INLINE_LIMIT, decorate as decorateReports } from './reports'
+import { isInScope, reportScope } from './lib/capabilities'
 import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
+import { requireActor, requireCapability } from './lib/actor'
+import { inClientScope, visibleClientIds } from './lib/clientScope'
 
 async function requireClient(
   ctx: QueryCtx,
@@ -21,24 +24,30 @@ async function requireClient(
 export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    const visible = await visibleClientIds(ctx, env)
 
     const clients = await ctx.db
       .query('clients')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .collect()
-    return clients.filter((c) => c.archivedAt === undefined)
+    return clients
+      .filter((c) => c.archivedAt === undefined)
+      .filter((c) => inClientScope(visible, c._id))
   },
 })
 
 export const get = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    await requireMembership(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
     const client = await ctx.db.get(clientId)
     if (!client || client.businessId !== businessId) return null
-    return client
+    // Null, not an error: a client they may not see must be indistinguishable
+    // from one that is not there.
+    const visible = await visibleClientIds(ctx, env)
+    return inClientScope(visible, client._id) ? client : null
   },
 })
 
@@ -59,8 +68,13 @@ export const update = mutation({
     await requireMembership(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
+    // Typed explicitly: the optional args really can arrive absent, but
+    // `Object.entries` infers them away, which made the filter below read as
+    // dead code to the linter while doing necessary work at runtime.
     const fields = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
+      Object.entries<string | undefined>(patch).filter(
+        ([, value]) => value !== undefined,
+      ),
     )
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(clientId, { ...fields, updatedAt: Date.now() })
@@ -76,7 +90,7 @@ export const update = mutation({
 export const archive = mutation({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'clients.manage')
     await requireClient(ctx, businessId, clientId)
     await ctx.db.patch(clientId, { archivedAt: Date.now() })
   },
@@ -85,7 +99,7 @@ export const archive = mutation({
 export const unarchive = mutation({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'clients.manage')
     await requireClient(ctx, businessId, clientId)
     await ctx.db.patch(clientId, { archivedAt: undefined })
   },
@@ -100,7 +114,7 @@ export const unarchive = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -118,25 +132,22 @@ export const jobHistory = query({
     )
     const jobs = jobsByProperty.flat()
 
-    const visibility = jobVisibility(membership)
-    const visible =
-      visibility.scope === 'business'
-        ? jobs
-        : jobs.filter((j) => j.assignedMembershipId === visibility.membershipId)
-
-    return visible.sort((a, b) => b.scheduledAt - a.scheduledAt)
+    return jobs
+      .filter((j) => isInScope(scope, j))
+      .sort((a, b) => b.scheduledAt - a.scheduledAt)
   },
 })
 
 /**
- * Reports across every property this client owns, reusing the exact
- * `canSeeReport` gate and `summarise()` shape `reports.listByProperty`
- * already uses for one property.
+ * Reports across every property this client owns, through the same
+ * `reportScope` gate and `decorate()` row shape `reports.listByProperty` uses
+ * for one property — so the client sheet and the property sheet can never
+ * disagree about which reports someone may see.
  */
 export const reports = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const membership = await resolveViewScope(ctx, businessId)
+    const { scope } = await requireActor(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -159,7 +170,7 @@ export const reports = query({
         (r) =>
           r.businessId === businessId &&
           r.deletedAt === undefined &&
-          canSeeReport(membership, r),
+          reportScope(scope, r),
       )
       .sort((a, b) => (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt))
       // Bounded: this is a section inside a sheet. The library holds the rest.

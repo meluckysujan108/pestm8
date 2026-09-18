@@ -3,7 +3,9 @@ import { ConvexError, v } from 'convex/values'
 import { components, internal } from './_generated/api'
 import { internalMutation, mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { jobVisibility, requireMembership } from './lib/access'
+import { requireMembership } from './lib/access'
+import { isInScope } from './lib/capabilities'
+import { jobsInScope } from './lib/jobScope'
 import {
   canDeleteNote,
   canReadNote,
@@ -20,6 +22,7 @@ import { clientNameOf } from './properties'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Note, NoteViewer } from './lib/noteAccess'
+import { requireActor } from './lib/actor'
 
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 // A photo may only be attached within this long of being uploaded. Convex
@@ -431,46 +434,16 @@ export const jobOptions = query({
     const day = 24 * 60 * 60 * 1000
     const from = now - 90 * day
     const to = now + 60 * day
-    const visibility = jobVisibility(viewer.real)
-
-    const [past, future] =
-      visibility.scope === 'business'
-        ? await Promise.all([
-            ctx.db
-              .query('jobs')
-              .withIndex('by_business_date', (q) =>
-                q.eq('businessId', visibility.businessId).gte('scheduledAt', from).lt('scheduledAt', now),
-              )
-              .order('desc')
-              .take(120),
-            ctx.db
-              .query('jobs')
-              .withIndex('by_business_date', (q) =>
-                q.eq('businessId', visibility.businessId).gte('scheduledAt', now).lt('scheduledAt', to),
-              )
-              .take(120),
-          ])
-        : await Promise.all([
-            ctx.db
-              .query('jobs')
-              .withIndex('by_assignee_date', (q) =>
-                q
-                  .eq('assignedMembershipId', visibility.membershipId)
-                  .gte('scheduledAt', from)
-                  .lt('scheduledAt', now),
-              )
-              .order('desc')
-              .take(120),
-            ctx.db
-              .query('jobs')
-              .withIndex('by_assignee_date', (q) =>
-                q
-                  .eq('assignedMembershipId', visibility.membershipId)
-                  .gte('scheduledAt', now)
-                  .lt('scheduledAt', to),
-              )
-              .take(120),
-          ])
+    const [past, future] = await Promise.all([
+      jobsInScope(ctx, viewer.ownRows, {
+        businessId,
+        from,
+        to: now,
+        order: 'desc',
+        limit: 120,
+      }),
+      jobsInScope(ctx, viewer.ownRows, { businessId, from: now, to, limit: 120 }),
+    ])
 
     const kept = [...past, ...future]
       .filter((j) => j.status !== 'cancelled')
@@ -549,13 +522,7 @@ async function resolveLinks(
     const job = await ctx.db.get(args.jobId)
     if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     // Linking is a write: judged as the real caller, not the viewed-as one.
-    const visibility = jobVisibility(viewer.real)
-    if (
-      visibility.scope === 'assignee' &&
-      job.assignedMembershipId !== visibility.membershipId
-    ) {
-      throw new ConvexError('NOT_FOUND')
-    }
+    if (!isInScope(viewer.ownRows, job)) throw new ConvexError('NOT_FOUND')
     const property = await ctx.db.get(job.propertyId)
     return { jobId: job._id, propertyId: job.propertyId, clientId: property?.clientId }
   }
@@ -675,7 +642,9 @@ async function requireDeletable(
   businessId: Id<'businesses'>,
   noteId: Id<'notes'>,
 ) {
-  const me = await requireMembership(ctx, businessId)
+  // The real caller: deleting is authorship-bearing, and the read-only
+  // view-as has never granted it.
+  const me = (await requireActor(ctx, businessId)).actor.real
   const note = await requireNote(ctx, businessId, noteId)
   if (!canDeleteNote(me, note)) throw new ConvexError('NO_ACCESS')
   return note

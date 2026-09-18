@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import {
+  licenceSelf,
   api,
   expectRejected,
   setupBusinessWithSub,
@@ -175,6 +176,7 @@ test.describe('report document', () => {
       api.businesses.create,
       { name: `Doc ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
     )
+    await licenceSelf(owner, businessId)
     const propertyId = await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'J. Nguyen',
@@ -242,6 +244,7 @@ test.describe('report document', () => {
       api.businesses.create,
       { name: `Draft ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
     )
+    await licenceSelf(owner, businessId)
     const propertyId = await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'J. Nguyen',
@@ -398,6 +401,7 @@ test.describe('report builder', () => {
       api.businesses.create,
       { name: `Builder ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
     )
+    await licenceSelf(owner, businessId)
     await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'J. Nguyen',
@@ -446,6 +450,7 @@ test.describe('report builder', () => {
       api.businesses.create,
       { name: `Areas ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
     )
+    await licenceSelf(owner, businessId)
     const propertyId = await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'J. Nguyen',

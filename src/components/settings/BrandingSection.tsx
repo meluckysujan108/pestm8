@@ -95,7 +95,13 @@ export function BrandingSection({
 
       <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
         <span className="flex items-center gap-3">
-          <span className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-3">
+          {/* Pinned light: this previews artwork bound for a white PDF
+              page, and business logos are overwhelmingly dark-on-transparent
+              PNGs that would vanish against a dark tile. */}
+          <span
+            data-theme="light"
+            className="flex size-16 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-3"
+          >
             {logoUrl ? (
               <img
                 src={logoUrl}

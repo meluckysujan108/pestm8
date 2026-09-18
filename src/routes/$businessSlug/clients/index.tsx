@@ -15,6 +15,7 @@ import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
 import { useClientFilters } from '#/lib/clientFilters'
+import { useCan } from '#/lib/access'
 
 const VIEW_OPTIONS: Array<{ value: 'list' | 'board' | 'table'; label: string }> = [
   { value: 'list', label: 'List' },
@@ -34,7 +35,8 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
 })
 
 function ClientsPage() {
-  const { business, membership } = Route.useRouteContext()
+  const { business } = Route.useRouteContext()
+  const canManageClients = useCan('clients.manage')
   const { q, view } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const activeView = view ?? 'board'
@@ -176,7 +178,7 @@ function ClientsPage() {
         businessId={business._id}
         timezone={business.timezone}
         businessSlug={business.slug}
-        isOwner={membership.role === 'owner'}
+        isOwner={canManageClients}
         clientId={openId}
         onClose={() => setOpenId(null)}
       />

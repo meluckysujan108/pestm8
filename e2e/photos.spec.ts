@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import {
+  licenceSelf,
   FIXTURE_PASSWORD,
   api,
   expectRejected,
@@ -30,6 +31,7 @@ test('a photo uploaded in the builder survives onto the finalised document', asy
     api.businesses.create,
     { name: `Photos ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
   )
+  await licenceSelf(owner, businessId)
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
     clientName: 'J. Nguyen',

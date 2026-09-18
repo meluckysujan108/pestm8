@@ -54,7 +54,8 @@ export function FormatBar({
       onMouseDown={(e) => e.preventDefault()}
       onClick={run}
       className={`hold-target flex size-9 items-center justify-center rounded-lg transition active:scale-[.95] disabled:opacity-40 ${
-        on ? 'bg-ink text-white' : 'text-ink-2 hover:bg-surface-2'
+        // text-canvas rather than text-white — see ui/tooltip.tsx.
+        on ? 'bg-ink text-canvas' : 'text-ink-2 hover:bg-surface-2'
       }`}
     >
       {icon}

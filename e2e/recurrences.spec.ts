@@ -19,7 +19,11 @@ async function setup(label: string) {
   )
   const { businessId, slug } = await owner.client.mutation(
     api.businesses.create,
-    { name: `${label} ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    {
+      name: `${label} ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
   )
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
@@ -197,7 +201,9 @@ test('converting a one-off job to recurring anchors on the converted job itself'
   })
   expect(jobs.every((j) => j.recurrenceId === recurrenceId)).toBe(true)
   // No duplicate booked at the anchor instant itself.
-  expect(jobs.filter((j) => j.scheduledAt === converted!.scheduledAt)).toHaveLength(1)
+  expect(
+    jobs.filter((j) => j.scheduledAt === converted!.scheduledAt),
+  ).toHaveLength(1)
   // Future occurrences beyond the anchor were actually generated.
   expect(jobs.length).toBeGreaterThan(1)
 })
@@ -237,9 +243,12 @@ test('stopping a series from one job preserves that job but cancels its still-bo
     jobId: viewedJobId,
   })
 
-  const recurrence = await s.owner.client.query(api.recurrences.listForBusiness, {
-    businessId: s.businessId,
-  })
+  const recurrence = await s.owner.client.query(
+    api.recurrences.listForBusiness,
+    {
+      businessId: s.businessId,
+    },
+  )
   expect(recurrence.find((r) => r._id === recurrenceId)?.active).toBe(false)
 
   const remaining = await s.owner.client.query(api.properties.jobHistory, {
@@ -249,7 +258,12 @@ test('stopping a series from one job preserves that job but cancels its still-bo
   const remainingIds = remaining.map((j) => j._id)
   expect(remainingIds).toContain(sorted[0]._id) // completed history, untouched
   expect(remainingIds).toContain(viewedJobId) // the one being viewed, preserved
-  expect(remainingIds).not.toContain(sorted[2]._id) // a future sibling, deleted
+
+  // A future sibling is cancelled, not deleted. These were real bookings —
+  // someone may have been told about them — so ending the series must leave
+  // the owner able to see what was dropped rather than silently erasing rows.
+  const futureSibling = remaining.find((j) => j._id === sorted[2]._id)
+  expect(futureSibling?.status).toBe('cancelled')
 
   const viewedJob = remaining.find((j) => j._id === viewedJobId)
   expect(viewedJob?.recurrenceId).toBeUndefined()
@@ -319,7 +333,9 @@ test('booking a repeating job from the schedule shows it as recurring', async ({
 
   const sheet = page.getByRole('dialog')
   await sheet.getByLabel('Job type').click()
-  await page.getByRole('button', { name: 'General Pest Control', exact: true }).click()
+  await page
+    .getByRole('button', { name: 'General Pest Control', exact: true })
+    .click()
   await sheet.getByLabel('Repeat').selectOption('quarterly')
   await sheet.getByLabel('Start').fill('09:30')
   await sheet.getByLabel('Price (AUD)').fill('220')
@@ -339,7 +355,11 @@ test('editing a one-off job into a recurring one, then stopping it, from its own
   const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
   const { businessId, slug } = await owner.client.mutation(
     api.businesses.create,
-    { name: `RecurEditUI ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    {
+      name: `RecurEditUI ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
   )
   await owner.client.mutation(api.properties.create, {
     businessId,

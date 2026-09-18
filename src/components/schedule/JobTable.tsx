@@ -1,5 +1,9 @@
 import { Repeat } from 'lucide-react'
-import { formatDuration, formatMoney, formatTime } from '#/lib/format'
+import {
+  formatDuration,
+  formatJobMoney,
+  formatTime,
+} from '#/lib/format'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { WeatherGlyph } from './WeatherGlyph'
 import type { JobRow } from './JobCard'
@@ -94,7 +98,7 @@ export function JobTable({
                   <StatusPill status={job.status} />
                 </td>
                 <td className="px-4 py-2.5 text-right text-row-title tabular-nums text-ink">
-                  {formatMoney(job.price)}
+                  {formatJobMoney(job)}
                 </td>
               </tr>
             )

@@ -1,6 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { expect, test } from '@playwright/test'
 import {
+  licenceSelf,
   FIXTURE_PASSWORD,
   api,
   setupBusinessWithSub,
@@ -59,6 +60,7 @@ test('an exported inspection PDF carries its findings and scope limits', async (
       timezone: 'Australia/Perth',
     },
   )
+  await licenceSelf(owner, businessId)
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
     clientName: 'J. Nguyen',

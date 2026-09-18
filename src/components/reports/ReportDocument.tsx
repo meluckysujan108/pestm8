@@ -94,7 +94,10 @@ export function ReportDocument({
   // has to ask for them. One subscription each, shared by every set on the
   // page: a Timber report has seven.
   const { data: galleryPhotos } = useQuery(
-    convexQuery(api.reports.galleryPhotos, { businessId, reportId: report._id }),
+    convexQuery(api.reports.galleryPhotos, {
+      businessId,
+      reportId: report._id,
+    }),
   )
   const { data: slotPhotos } = useQuery(
     convexQuery(api.reports.photoUrls, { businessId, reportId: report._id }),
@@ -127,7 +130,11 @@ export function ReportDocument({
   })
 
   return (
-    <article className="px-4 pb-8 pt-4">
+    // Pinned light in both themes. What this shows must match what
+    // reports/pdf/* prints on white paper, so it does not follow the app.
+    // data-theme re-declares the light palette for this subtree — the same
+    // rule that themes the document root; see src/styles.css.
+    <article data-theme="light" className="bg-canvas px-4 pb-8 pt-4 text-ink">
       <p className="section-label">{report.legalBasis}</p>
 
       {model.cover?.photo && (
@@ -200,7 +207,10 @@ export function ReportDocument({
             {model.terms.heading ?? 'Standard terms — not editable'}
           </h2>
           <div className="rounded-2xl border border-hairline bg-surface-2 px-3.5 py-3">
-            <RichTextView doc={model.terms.doc} className="text-body text-ink-2" />
+            <RichTextView
+              doc={model.terms.doc}
+              className="text-body text-ink-2"
+            />
           </div>
         </section>
       )}
@@ -299,7 +309,9 @@ function Block({ block }: { block: DocBlock }) {
         >
           {block.heading && (
             <p className="text-subhead font-semibold text-ink">
-              {tone === 'important' ? `IMPORTANT: ${block.heading}` : block.heading}
+              {tone === 'important'
+                ? `IMPORTANT: ${block.heading}`
+                : block.heading}
             </p>
           )}
           <RichTextView
@@ -330,9 +342,15 @@ function Block({ block }: { block: DocBlock }) {
               </thead>
               <tbody>
                 {block.rows.map((row, index) => (
-                  <tr key={index} className="border-b border-hairline-2 last:border-0">
+                  <tr
+                    key={index}
+                    className="border-b border-hairline-2 last:border-0"
+                  >
                     {row.map((cell, cellIndex) => (
-                      <td key={cellIndex} className="px-2.5 py-2 align-top text-ink-2">
+                      <td
+                        key={cellIndex}
+                        className="px-2.5 py-2 align-top text-ink-2"
+                      >
                         {cell}
                       </td>
                     ))}
@@ -389,7 +407,13 @@ function aspectOf(photo: DocPhoto) {
     : undefined
 }
 
-function PhotoGrid({ photos, label }: { photos: Array<DocPhoto>; label: string }) {
+function PhotoGrid({
+  photos,
+  label,
+}: {
+  photos: Array<DocPhoto>
+  label: string
+}) {
   if (photos.length === 0) return null
   return (
     <div className="grid grid-cols-2 gap-2">
@@ -444,7 +468,9 @@ function FieldValue({ shown }: { shown: Presented }) {
             <span key={pair.label} className="flex justify-between gap-3">
               <span>{pair.label}</span>
               <span
-                className={pair.tone === 'warn' ? 'text-amber-ink' : 'text-ink-2'}
+                className={
+                  pair.tone === 'warn' ? 'text-amber-ink' : 'text-ink-2'
+                }
               >
                 {pair.value}
               </span>

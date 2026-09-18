@@ -27,7 +27,11 @@ const styles = StyleSheet.create({
     fontFamily: FONT.bold,
     color: COLOURS.ink,
   },
-  businessLine: { fontSize: SIZES.caption, color: COLOURS.ink2, marginTop: 1.5 },
+  businessLine: {
+    fontSize: SIZES.caption,
+    color: COLOURS.ink2,
+    marginTop: 1.5,
+  },
 
   band: {
     flexDirection: 'row',
@@ -45,7 +49,11 @@ const styles = StyleSheet.create({
   },
   // A white hairline, not a gap: the source band is one solid bar with the
   // date fenced off at its right end.
-  bandDivider: { width: 1.5, alignSelf: 'stretch', backgroundColor: COLOURS.white },
+  bandDivider: {
+    width: 1.5,
+    alignSelf: 'stretch',
+    backgroundColor: COLOURS.white,
+  },
   bandDate: {
     paddingVertical: 6,
     paddingHorizontal: 10,
@@ -167,7 +175,9 @@ export function PdfFooter({
         <Text>{`Version: ${version}`}</Text>
       </View>
       {submissionId !== undefined && (
-        <Text style={styles.footerMeta}>{`Submission ID: ${submissionId}`}</Text>
+        <Text
+          style={styles.footerMeta}
+        >{`Submission ID: ${submissionId}`}</Text>
       )}
     </View>
   )

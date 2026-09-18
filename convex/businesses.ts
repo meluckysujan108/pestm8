@@ -1,7 +1,10 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { getAuthUserId, requireMembership, requireOwner } from './lib/access'
+import { getAuthUserId, requireMembership } from './lib/access'
+import { DEFAULT_GRANTS } from './lib/capabilities'
 import { MEMBER_COLOURS } from './lib/colours'
+import { forSelf, recordAudit } from './lib/audit'
+import { requireActor, requireCapability } from './lib/actor'
 
 function slugify(name: string) {
   return name
@@ -125,6 +128,12 @@ export const create = mutation({
       businessId,
       role: 'owner',
       canViewAllJobs: true,
+      // Written rather than left to be derived. `grantsFromMembership` would
+      // fill these in from `canViewAllJobs`, which is the fallback the
+      // migration exists to stop needing — a row created after it ran would
+      // otherwise put the deployment straight back into the state it just
+      // left, and the legacy column could never be dropped.
+      grants: DEFAULT_GRANTS.owner,
       colour: MEMBER_COLOURS[0],
       status: 'active',
       createdAt: now,
@@ -145,7 +154,7 @@ export const create = mutation({
 export const reportSettings = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'business.manage')
 
     const business = await ctx.db.get(businessId)
     if (!business) return null
@@ -185,13 +194,28 @@ export const update = mutation({
     requireReportToComplete: v.optional(v.boolean()),
   },
   handler: async (ctx, { businessId, ...patch }) => {
-    await requireOwner(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'business.manage')
+    const actor = env.actor.real
 
     const fields = Object.fromEntries(
-      Object.entries(patch).filter(([, value]) => value !== undefined),
+      Object.entries(patch as Record<string, unknown>).filter(
+        ([, value]) => value !== undefined,
+      ),
     )
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(businessId, fields)
+
+      // ABN, licence number and trading name are printed on compliance
+      // documents. Who changed them, and when, is part of the record.
+      await recordAudit(ctx, forSelf(actor._id), {
+        businessId,
+        action: 'business.update',
+        entityType: 'businesses',
+        entityId: businessId,
+        meta: { fields: Object.keys(fields) },
+        at: Date.now(),
+      })
     }
   },
 })
@@ -201,7 +225,7 @@ export const update = mutation({
 export const generateUploadUrl = mutation({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireOwner(ctx, businessId)
+    requireCapability(await requireActor(ctx, businessId), 'business.manage')
     return ctx.storage.generateUploadUrl()
   },
 })
