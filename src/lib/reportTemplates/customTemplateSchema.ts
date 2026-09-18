@@ -41,6 +41,17 @@ const base = {
   visibleWhen: conditionSchema.optional(),
   printed: z.union([z.literal(false), z.literal('whenFlagged')]).optional(),
   attachedTo: z.string().optional(),
+  // Mirrors `summary` in types.ts: read back on the finalise sheet.
+  summary: z.boolean().optional(),
+  // Mirrors `carryOver` in types.ts: offered from the last report at this site.
+  carryOver: z.boolean().optional(),
+  // Mirrors `width` in types.ts: a printed column's share of its table.
+  width: z.number().optional(),
+  // Mirrors `FieldSemantic` in types.ts: what a question means to the app,
+  // separate from the wording the form uses to ask it.
+  semantic: z
+    .enum(['sendCopyToClient', 'safetyGate', 'weather', 'startTime', 'finishTime', 'emailTo'])
+    .optional(),
 }
 
 const textField = z.object({ ...base, kind: z.literal('text'), placeholder: z.string().optional() })
@@ -50,8 +61,14 @@ const areaField = z.object({
   placeholder: z.string().optional(),
   rows: z.number().optional(),
 })
-/** Mirrors `Choice` in types.ts — shared by every kind with a fixed answer list. */
-const optionSetKeySchema = z.enum([
+/**
+ * Mirrors `Choice` in types.ts — shared by every kind with a fixed answer list.
+ *
+ * Exported only so the three hand-written copies of this union — here, the
+ * Convex validator, and the settings screen's own list — can be checked
+ * against each other, which nothing else does.
+ */
+export const optionSetKeySchema = z.enum([
   'treatments',
   'products',
   'quantities',
@@ -139,10 +156,13 @@ const gpsField = z.object({
   ...base,
   kind: z.literal('gps'),
   format: z.literal('lines').optional(),
+  auto: z.boolean().optional(),
 })
 const signatureField = z.object({
   ...base,
   kind: z.literal('signature'),
+  statement: z.string().optional(),
+  askName: z.boolean().optional(),
   slot: z.string(),
   role: z.enum(['technician', 'client']),
 })
@@ -290,7 +310,6 @@ const coverField = z.object({
 const emailsField = z.object({
   ...base,
   kind: z.literal('emails'),
-  semantic: z.literal('emailTo').optional(),
   placeholder: z.string().optional(),
 })
 
@@ -326,6 +345,7 @@ const sectionDefSchema = z.object({
   fields: z.array(fieldDefSchema),
   visibleWhen: conditionSchema.optional(),
   implicit: z.boolean().optional(),
+  quick: z.enum(['allYes', 'allClear']).optional(),
   // `heading: null` means print no heading, and is meaningfully different from
   // the key being absent — `.nullable().optional()` keeps both readings.
   print: z

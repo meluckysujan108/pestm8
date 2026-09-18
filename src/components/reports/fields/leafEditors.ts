@@ -16,8 +16,9 @@ import {
 } from './controls'
 import { GalleryControl } from './PhotoGallery'
 import { emptyAreas } from '#/lib/reportTemplates'
-import type { CellDef, FieldDef } from '#/lib/reportTemplates'
+import type { CellDef, FieldDef, OptionSetKey } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
+import type { Snippet } from '#/lib/reportTemplates/snippets'
 import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { ComponentType } from 'react'
 
@@ -39,6 +40,38 @@ export type EditorCtx = {
    * actual name rather than a description of where it will come from.
    */
   context?: PresentContext
+  /**
+   * Set for a cell inside a repeating row. Four answer lists stacked inside one
+   * card is what made a single treatment row 42 checkbox rows on a phone, so a
+   * cell always chooses through a sheet however short its list is.
+   */
+  inRow?: boolean
+  /**
+   * The handful of answers this business reaches for, by option-set key —
+   * `optionSets.editable`'s `usual` flags, which a picker puts at the top.
+   * Absent means no preference, which is where every business starts.
+   */
+  usual?: Partial<Record<OptionSetKey, Array<string>>>
+  /**
+   * Say that this member just reached for these answers, so the next picker on
+   * the same list offers them first. Absent where nothing is listening — a
+   * preview, a test — and a control must work without it.
+   */
+  remember?: (key: OptionSetKey, values: Array<string>) => void
+  /**
+   * The wording this business reuses in the long-answer boxes, and what a
+   * phrases sheet does with it. Absent where nothing is listening — a preview,
+   * a test — and the box still works as a plain textarea.
+   */
+  phrases?: {
+    /** This question's saved phrases, in the order they should be offered. */
+    forField: (fieldKey: string) => Array<Snippet>
+    /** Rejects when the server refuses, so the sheet can say so. */
+    save: (fieldKey: string, text: string) => Promise<unknown>
+    /** Fire and forget: this orders a list, and nothing depends on it. */
+    used: (id: string) => void
+    remove: (id: string) => Promise<unknown>
+  }
 }
 
 export type EditorProps<TField extends FieldDef = FieldDef> = {

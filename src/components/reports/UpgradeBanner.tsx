@@ -57,7 +57,7 @@ export function UpgradeBanner({
       } else {
         restartingReports.add(reportId)
         try {
-          onRestarted(await restart({ businessId, reportId }))
+          onRestarted(await restart({ businessId, reportId, suggestions: true }))
         } finally {
           // Cleared once the page has moved on; a failed restart leaves the
           // draft exactly where it was.

@@ -5,6 +5,7 @@ import { useConvexMutation } from '@convex-dev/react-query'
 import { Camera } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { useHydrated } from '#/lib/useHydrated'
+import { prepareUpload } from '#/lib/images/prepareUpload'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -65,17 +66,14 @@ export function BrandingSection({
     setLogoBusy(true)
     setLogoFailed(false)
     try {
-      const { default: compress } = await import('browser-image-compression')
-      const compressed = await compress(file, {
-        maxSizeMB: 0.5,
-        maxWidthOrHeight: 800,
-        useWebWorker: true,
-      })
+      // A logo prints a few centimetres wide on a letterhead, so it keeps its
+      // own smaller budget rather than a report photo's.
+      const image = await prepareUpload(file, { maxEdge: 800 })
       const uploadUrl = await getUploadUrl({ businessId })
       const res = await fetch(uploadUrl, {
         method: 'POST',
-        headers: { 'Content-Type': compressed.type },
-        body: compressed,
+        headers: { 'Content-Type': image.blob.type },
+        body: image.blob,
       })
       if (!res.ok) throw new Error('upload failed')
       const { storageId } = (await res.json()) as { storageId: string }
@@ -83,7 +81,7 @@ export function BrandingSection({
         businessId,
         logoStorageId: storageId as Id<'_storage'>,
       })
-      setLogoPreview(URL.createObjectURL(compressed))
+      setLogoPreview(URL.createObjectURL(image.blob))
     } catch {
       setLogoFailed(true)
     } finally {

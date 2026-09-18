@@ -1,7 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { convexAction } from '@convex-dev/react-query'
 import { api } from '../../convex/_generated/api'
-import { weatherKeyOf, withinForecastWindow } from '../../convex/lib/forecastWindow'
+import {
+  RAIN_WARN_MM,
+  WIND_WARN_KMH,
+  weatherKeyOf,
+  withinForecastWindow,
+} from '../../convex/lib/forecastWindow'
 import type { Id } from '../../convex/_generated/dataModel'
 
 export { weatherKeyOf }
@@ -28,9 +33,8 @@ export type WeatherDayRequest = {
   postcode: string
 }
 
-/** Thresholds that actually change a technician's decision. */
-export const RAIN_WARN_MM = 2
-export const WIND_WARN_KMH = 25
+/** Defined beside the forecast window, so the server and the report seeding share them. */
+export { RAIN_WARN_MM, WIND_WARN_KMH }
 
 export function isWet(w?: DayWeather | null) {
   return (w?.rainMm ?? 0) >= RAIN_WARN_MM
@@ -144,8 +148,12 @@ export function useWeather(
       // Annotated because indexing a Record is typed as a hit: a suburb the
       // server could not geocode is simply absent from the map, which is the
       // case the `absent` state exists for.
-      const weather: DayWeather | undefined =
-        byKey[weatherKeyOf(suburb, postcode, dayKey)]
+      // Widened with `as`, not annotated: TypeScript narrows an annotated
+      // `const` straight back to its initializer's type, so the annotation
+      // alone left `undefined` impossible and the check below always true.
+      const weather = byKey[weatherKeyOf(suburb, postcode, dayKey)] as
+        | DayWeather
+        | undefined
       if (weather) return { status: 'ready', weather }
       // `isPending` rather than `isFetching`: the latter is also true while a
       // stale-but-present forecast refetches in the background, which would

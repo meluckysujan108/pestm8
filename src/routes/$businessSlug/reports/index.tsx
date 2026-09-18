@@ -1,28 +1,20 @@
-import { useMemo } from 'react'
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
-import { LayoutTemplate, Lock, Plus, Search } from 'lucide-react'
+import { LayoutTemplate, Plus } from 'lucide-react'
 import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
-import { EmptyState } from '#/components/primitives/EmptyState'
-import { Segmented } from '#/components/primitives/Segmented'
-import { useHydrated } from '#/lib/useHydrated'
+import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
+import type { Segment } from '#/components/reports/ReportsLibrary'
 import { useCan } from '#/lib/access'
 
-const SEGMENTS = [
-  { value: 'all' as const, label: 'All' },
-  { value: 'draft' as const, label: 'Draft' },
-  { value: 'finalised' as const, label: 'Finalised' },
-  { value: 'sent' as const, label: 'Sent' },
-]
-type Seg = (typeof SEGMENTS)[number]['value']
+const SEGMENTS = ['all', 'draft', 'finalised', 'sent', 'trash'] as const
 
 export const Route = createFileRoute('/$businessSlug/reports/')({
   validateSearch: z.object({
     q: z.string().optional(),
-    seg: z.enum(['all', 'draft', 'finalised', 'sent']).optional(),
+    seg: z.enum(SEGMENTS).optional(),
   }),
   component: ReportsPage,
 })
@@ -32,47 +24,20 @@ function ReportsPage() {
   const canManageTemplates = useCan('templates.manage')
   const { q, seg } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const active = seg ?? 'all'
-  // The list is server-rendered; a status tab tapped before hydration would
-  // do nothing, so the tabs wait until they work.
-  const hydrated = useHydrated()
+  const segment: Segment = seg ?? 'all'
 
-  const { data: reports } = useSuspenseQuery(
-    convexQuery(api.reports.listForBusiness, { businessId: business._id }),
+  // Counted rather than paginated: a badge that says twelve has to have looked
+  // at all twelve. Suspense-loaded because the header reads it.
+  const { data: counts } = useSuspenseQuery(
+    convexQuery(api.reports.counts, { businessId: business._id }),
   )
-
-  // "Sent" is finalised-and-emailed, "Finalised" is finalised-and-not-yet —
-  // mutually exclusive buckets, not a third status value (a finalised report
-  // can be emailed zero, one, or many times; `emailedAt` tracks that
-  // independently of `status`).
-  const bucketOf = (r: (typeof reports)[number]): Exclude<Seg, 'all'> =>
-    r.status === 'draft' ? 'draft' : r.emailedAt ? 'sent' : 'finalised'
-
-  const counts = useMemo(() => {
-    const c = { draft: 0, finalised: 0, sent: 0 }
-    for (const r of reports) c[bucketOf(r)]++
-    return c
-  }, [reports])
-
-  const filtered = useMemo(() => {
-    const query = q?.trim().toLowerCase()
-    return reports.filter((r) => {
-      if (active !== 'all' && bucketOf(r) !== active) return false
-      if (!query) return true
-      return (
-        r.clientName.toLowerCase().includes(query) ||
-        r.suburb.toLowerCase().includes(query) ||
-        r.templateName.toLowerCase().includes(query)
-      )
-    })
-  }, [reports, active, q])
 
   return (
     <>
       <PageHeader
         businessId={business._id}
         businessSlug={business.slug}
-        kicker={`${reports.length} ${reports.length === 1 ? 'report' : 'reports'}`}
+        kicker={`${counts.all}${counts.capped ? '+' : ''} ${counts.all === 1 ? 'report' : 'reports'}`}
         title="Reports"
         action={
           <>
@@ -104,95 +69,27 @@ function ReportsPage() {
         <Card label="Sent" value={counts.sent} />
       </div>
 
-      <div className="px-4 pt-3">
-        <label className="flex items-center gap-2 rounded-xl bg-surface-3 px-3">
-          <Search size={17} strokeWidth={1.7} className="text-muted" />
-          <span className="sr-only">Search reports</span>
-          <input
-            value={q ?? ''}
-            onChange={(e) =>
-              navigate({
-                search: (prev) => ({ ...prev, q: e.target.value || undefined }),
-                replace: true,
-              })
-            }
-            placeholder="Search by client, suburb or form"
-            className="h-11 flex-1 bg-transparent text-[16px] text-ink outline-none"
-          />
-        </label>
-      </div>
-
-      <div className="px-4 pt-3">
-        <Segmented
-          label="Report status"
-          disabled={!hydrated}
-          value={active}
-          options={SEGMENTS}
-          onChange={(value) =>
-            navigate({
-              search: (prev) => ({
-                ...prev,
-                seg: value === 'all' ? undefined : value,
-              }),
-              replace: true,
-            })
-          }
-        />
-      </div>
-
-      <section className="px-4 pt-4 pb-6">
-        {filtered.length === 0 ? (
-          <EmptyState
-            title={q || active !== 'all' ? 'No matches' : 'No reports yet'}
-            body={
-              q || active !== 'all'
-                ? 'Try a different search or status.'
-                : 'Create a treatment record, inspection or certificate.'
-            }
-          />
-        ) : (
-          <div className="flex flex-col gap-2.5">
-            {filtered.map((r) => {
-              const bucket = bucketOf(r)
-              return (
-                <Link
-                  key={r._id}
-                  to="/$businessSlug/reports/$reportId"
-                  params={{ businessSlug: business.slug, reportId: r._id }}
-                  className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation transition active:scale-[.99]"
-                >
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-row-title text-ink">
-                      {r.templateName}
-                    </span>
-                    <span className="shrink-0 text-caption text-muted">
-                      {r.legalBasis}
-                    </span>
-                  </div>
-                  <p className="mt-0.5 text-body text-ink-2">{r.clientName}</p>
-                  <p className="mt-0.5 text-caption text-muted">{r.suburb}</p>
-                  <span
-                    className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold ${
-                      bucket === 'sent'
-                        ? 'bg-blue/12 text-blue'
-                        : bucket === 'finalised'
-                          ? 'bg-green/12 text-green'
-                          : 'border border-amber-line bg-amber-bg text-amber-ink'
-                    }`}
-                  >
-                    {bucket !== 'draft' && <Lock size={11} strokeWidth={2.4} />}
-                    {bucket === 'sent'
-                      ? 'Sent'
-                      : bucket === 'finalised'
-                        ? 'Finalised'
-                        : 'Draft'}
-                  </span>
-                </Link>
-              )
-            })}
-          </div>
-        )}
-      </section>
+      <ReportsLibrary
+        businessId={business._id}
+        businessSlug={business.slug}
+        segment={segment}
+        query={q ?? ''}
+        onSegment={(value) =>
+          navigate({
+            search: (prev) => ({
+              ...prev,
+              seg: value === 'all' ? undefined : value,
+            }),
+            replace: true,
+          })
+        }
+        onQuery={(term) =>
+          navigate({
+            search: (prev) => ({ ...prev, q: term || undefined }),
+            replace: true,
+          })
+        }
+      />
     </>
   )
 }

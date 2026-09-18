@@ -1,52 +1,21 @@
 'use node'
 
 import { ConvexError, v } from 'convex/values'
-import { action, internalAction } from './_generated/server'
+import { action } from './_generated/server'
 import { api, internal } from './_generated/api'
-
-/** `toBuffer()` resolves to a Node `ReadableStream`, not a `Buffer` — this
- * collects it, shared by both actions below. */
-async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
-  const chunks: Array<Buffer> = []
-  for await (const chunk of stream) {
-    chunks.push(chunk as Buffer)
-  }
-  return Buffer.concat(chunks)
-}
+import { renderIfNeeded, streamToBuffer } from './reportPipeline'
 
 /**
- * Proves `@react-pdf/renderer` actually bundles and runs inside a Convex Node
- * action before the real template is ported onto it — see the plan's Phase 5
- * risk note. `toBuffer()` (not `toBlob()`) is the Node-only half of this
- * library's API, unavailable in the browser build `DownloadPdfButton` used to
- * use.
- */
-export const ping = internalAction({
-  args: {},
-  handler: async () => {
-    const { pdf, Document, Page, Text } = await import('@react-pdf/renderer')
-    const stream = await pdf(
-      <Document>
-        <Page size="A4">
-          <Text>ping</Text>
-        </Page>
-      </Document>,
-    ).toBuffer()
-    const buffer = await streamToBuffer(stream)
-    return buffer.length
-  },
-})
-
-/**
- * Renders a finalised report to PDF and stores it. Only runs once per report
- * in practice — a finalised report's data never changes, so `reports.get`'s
- * `pdfUrl` is a cache the caller checks before ever invoking this.
+ * Renders a finalised report to PDF, or hands back the one already rendered.
  *
- * Every fetch below goes through the existing public queries (`reports.get`,
- * `galleryPhotos`, `photoUrls`) rather than `ctx.db` directly — actions don't
- * have database access, and reusing them means this action inherits the same
- * membership/visibility checks as the on-screen document for free, instead of
- * re-deriving them.
+ * The work itself lives in `reportPipeline`, behind a claim, so this and the
+ * pipeline scheduled at finalise cannot both render the same report. What
+ * stays here is the caller-facing contract: the access check, and a URL.
+ *
+ * The check goes through the public `reports.get` rather than `ctx.db` —
+ * actions have no database access, and reusing that query means this inherits
+ * the same membership and visibility rules as the on-screen document instead
+ * of re-deriving them.
  */
 export const generate = action({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
@@ -57,10 +26,38 @@ export const generate = action({
       throw new ConvexError('REPORT_NOT_FINALISED')
     }
 
-    const [galleryPhotos, photoUrls] = await Promise.all([
-      ctx.runQuery(api.reports.galleryPhotos, { businessId, reportId }),
-      ctx.runQuery(api.reports.photoUrls, { businessId, reportId }),
-    ])
+    const storageId = await renderIfNeeded(ctx, reportId)
+    if (!storageId) throw new ConvexError('PDF_UNAVAILABLE')
+
+    return { storageId, url: await ctx.storage.getUrl(storageId) }
+  },
+})
+
+/**
+ * A watermarked PDF of a draft, so a technician can read the document before
+ * they lock it.
+ *
+ * Every other render is of a finalised report, and deliberately so — a PDF is
+ * a thing people forward. This one is stamped DRAFT across every page, kept
+ * one-per-report, and deleted the moment the real document exists.
+ *
+ * Gated through `reports.get`, so whoever can open the report can preview it:
+ * an owner checking a subcontractor's work has the same need as its author.
+ */
+export const preview = action({
+  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
+  handler: async (ctx, { businessId, reportId }) => {
+    const report = await ctx.runQuery(api.reports.get, { businessId, reportId })
+    if (!report) throw new ConvexError('NOT_FOUND')
+    if (report.status === 'finalised') {
+      // The real thing exists; a watermarked copy of it would be a worse
+      // version of a document someone might forward.
+      throw new ConvexError('REPORT_FINALISED')
+    }
+
+    const photos = await ctx.runQuery(internal.reports.photosForRender, {
+      reportId,
+    })
 
     const { pdf } = await import('@react-pdf/renderer')
     const { ReportPdf } =
@@ -71,33 +68,34 @@ export const generate = action({
         report={{
           template: report.template,
           customTemplate: report.customTemplate,
-          // This action only ever runs on a finalised report, so it is the
-          // surface that most needs the frozen wording rather than today's.
           templateSnapshot: report.templateSnapshot,
           templateVersion: report.templateVersion,
+          settings: report.settings,
           context: report.context,
           legalBasis: report.legalBasis,
-          finalisedAt: report.finalisedAt,
+          finalised: false,
+          // A correction's draft already carries its number and next issue;
+          // the preview prints them as the finished document will.
+          reportNumber: report.reportNumber,
+          version: report.version ?? 1,
           data: (report.data ?? {}) as Record<string, unknown>,
           businessName: report.businessName,
           business: report.business,
           property: report.property,
           licenceNumber: report.author?.licenceNumber,
-          photos: photoUrls as Record<string, string>,
-          galleryPhotos,
+          photos: photos.slots,
+          galleryPhotos: photos.gallery,
+          watermark: 'DRAFT',
         }}
       />,
     ).toBuffer()
-    const buffer = await streamToBuffer(stream)
 
+    const buffer = await streamToBuffer(stream)
     const storageId = await ctx.storage.store(
       new Blob([new Uint8Array(buffer)], { type: 'application/pdf' }),
     )
-    await ctx.runMutation(internal.reports.setPdfStorageId, {
-      reportId,
-      storageId,
-    })
+    await ctx.runMutation(internal.reports.setPreview, { reportId, storageId })
 
-    return { storageId, url: await ctx.storage.getUrl(storageId) }
+    return { url: await ctx.storage.getUrl(storageId) }
   },
 })

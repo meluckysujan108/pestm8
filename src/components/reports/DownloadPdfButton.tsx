@@ -11,8 +11,10 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * and real `Page X of Y` numbers possible at all (see `layout.tsx`; both
  * silently render as nothing in the browser build this button used to import
  * on click). A finalised report's data never changes, so the action's output
- * is cached on `reports.pdfStorageId` — `pdfUrl` is null only the first time
- * anyone downloads a given report.
+ * is cached — but the PAINTER does change, so `reports.get` hands back a URL
+ * only while the stored file is one the current renderer drew. A null there
+ * is the signal to go and draw it: usually the first download of a report,
+ * and also the first after `RENDER_VERSION` is bumped to fix the document.
  */
 export function DownloadPdfButton({
   businessId,

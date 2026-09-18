@@ -99,6 +99,7 @@ export const printSpec = v.object({
     v.object({ title: v.string(), subtitle: v.optional(v.string()) }),
   ),
   termsHeading: v.optional(v.string()),
+  termsBreak: v.optional(v.boolean()),
   omitEmpty: v.optional(v.boolean()),
 })
 
@@ -132,6 +133,8 @@ export const reportContextSnapshot = v.object({
     v.object({
       name: v.string(),
       tradingName: v.optional(v.string()),
+      brandName: v.optional(v.string()),
+      website: v.optional(v.string()),
       address: v.optional(v.string()),
       addressLine: v.optional(v.string()),
       suburb: v.optional(v.string()),
@@ -155,6 +158,10 @@ export const reportContextSnapshot = v.object({
   ),
   author: v.object({
     membershipId: v.id('memberships'),
+    // Who submitted it, for the footer. Optional: reports finalised before
+    // the footer printed a name have no record of it, and inventing one from
+    // today's membership would credit whoever holds that row now.
+    name: v.optional(v.string()),
     licenceNumber: v.optional(v.string()),
   }),
   // Membership id -> the name as printed, e.g. "K. Edgar (Licence 4132)".
@@ -208,11 +215,58 @@ export default defineSchema({
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
     licenceNumber: v.optional(v.string()),
+    /**
+     * The three names one business prints under, which are not the same name.
+     *
+     * `name` is the entity. `tradingName` is what the document's header says
+     * issued it ("Pest M8 South"), and `reportBrandName` is what its title
+     * band calls the product ("Pest M8 Service Report for 2026"). The source
+     * documents carry all three, and each falls back to the one above it, so
+     * a business that never sets them still prints a coherent page.
+     */
+    tradingName: v.optional(v.string()),
+    reportBrandName: v.optional(v.string()),
+    website: v.optional(v.string()),
+    /**
+     * Where the business keeps its own copy of every report it sends. Falls
+     * back to `email`; a business that wants no copy sets neither.
+     */
+    reportCopyEmail: v.optional(v.string()),
+    /**
+     * Let a technician send a report to an address that is on nobody's
+     * record. Off by default: a compliance document emailed to a typo is
+     * gone, and the owner is the one who would notice.
+     */
+    allowTechnicianRecipients: v.optional(v.boolean()),
+    /**
+     * Refuse to mark a job complete until its report is finalised.
+     *
+     * Off by default, because it is a policy and not a fact: plenty of jobs
+     * genuinely issue no report. A business that does issue one every time
+     * turns it on, and the WA requirement to make the record within two
+     * business days stops depending on somebody remembering.
+     *
+     * Applied only to jobs whose TYPE has a form — `suggestTemplate` decides,
+     * the same function that offers one at the start. A quote visit or a
+     * callback is not what this exists for, and blocking it would teach the
+     * business to turn the policy off.
+     */
+    requireReportToComplete: v.optional(v.boolean()),
     // The next value `jobs.create` will hand out as that job's `jobNumber`.
     // Lives here rather than a separate counters table since there is
     // exactly one counter today; read-then-patch inside `jobs.create`'s own
     // mutation is race-safe under Convex's transactional guarantees.
     nextJobNumber: v.optional(v.number()),
+    /**
+     * The next value `reports.finalise` will stamp as a report's
+     * `reportNumber` — the number the finished document prints beside
+     * "Submission ID:", and the one a client quotes on the phone.
+     *
+     * Allocated at finalise rather than at create, because a draft that is
+     * never finished should not consume a number from a sequence a client may
+     * later ask about.
+     */
+    nextReportNumber: v.optional(v.number()),
   }).index('by_slug', ['slug']),
 
   memberships: defineTable({
@@ -267,6 +321,28 @@ export default defineSchema({
      */
     licenceExpiresOn: v.optional(v.number()),
     phone: v.optional(v.string()),
+    /**
+     * This member's own signature, saved once and reused on their own reports.
+     *
+     * Only ever applied by its owner: `reports.attachSignature` checks that the
+     * caller is the membership this belongs to. A saved signature applied by
+     * anyone else is forgery with extra steps, however convenient.
+     */
+    savedSignatureStorageId: v.optional(v.id('_storage')),
+    /**
+     * What this member last reached for in each option library, most recent
+     * first — the other half of a picker's "Usually" group, alongside the
+     * business's own `usual` flags.
+     *
+     * Per member and not per business, because the list a rodent technician
+     * uses every day is not the one the termite crew uses, and neither of them
+     * should have to say so in Settings. Bounded hard: at most five values per
+     * key over the nineteen keys, written only when a picker closes on a
+     * changed answer, so it never grows and rarely churns.
+     */
+    reportPrefs: v.optional(
+      v.object({ recent: v.record(v.string(), v.array(v.string())) }),
+    ),
     colour: v.string(),
     status: membershipStatus,
     createdAt: v.number(),
@@ -392,6 +468,14 @@ export default defineSchema({
     durationMinutes: v.number(),
     status: jobStatus,
     recurrenceId: v.optional(v.id('recurrences')),
+    /**
+     * When work actually began, stamped the moment the job moves to
+     * `inProgress`. A report started from the job seeds its "Start Time:" from
+     * this — a fact, unlike `scheduledAt`, which is only when it was booked to
+     * begin. Optional: jobs that reached `inProgress` before this existed, and
+     * jobs that go straight to `completed`, have none.
+     */
+    startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),
     createdAt: v.number(),
     // A short, human-sayable number ("Job #142") — the Convex `_id` is
@@ -434,13 +518,100 @@ export default defineSchema({
     // server-managed may live inside it.
     data: v.any(),
     photoIds: v.array(v.id('_storage')),
+    /**
+     * A short, human-sayable number for the finished document, allocated from
+     * the business's own sequence when it is locked. Optional because a draft
+     * has none, and because reports finalised before this existed were never
+     * given one — a fabricated number would misrepresent the order documents
+     * were actually issued in.
+     */
+    reportNumber: v.optional(v.number()),
+    /**
+     * Which issue of this report number this document is.
+     *
+     * A finalised report is never edited — that is the whole point of
+     * finalising — so a correction is a NEW report that supersedes the old
+     * one and carries the same `reportNumber` at a higher version. The client
+     * keeps whatever they were sent; the footer says which issue it is, and
+     * the superseded document says on its face that it was replaced.
+     *
+     * Absent means 1, which is what every report issued before amendments
+     * existed was.
+     */
+    version: v.optional(v.number()),
+    /** The report this one corrects. Set on the amendment. */
+    supersedesReportId: v.optional(v.id('reports')),
+    /** The amendment that replaced this one. Set on the original. */
+    supersededByReportId: v.optional(v.id('reports')),
+    /**
+     * Why it was reissued, in the owner's words. Printed on the amendment,
+     * because a client holding two documents with the same number is owed an
+     * explanation of the difference.
+     */
+    amendmentReason: v.optional(v.string()),
+    /**
+     * Which answers the app worked out rather than read off a record — the
+     * forecast, the booked start time — and when the technician confirmed
+     * each. Its own column, never inside `data`: the client replaces that
+     * blob wholesale every couple of seconds, so provenance stored there
+     * would be destroyed by the next keystroke.
+     *
+     * An answer listed here and not yet confirmed blocks finalise. That is
+     * the whole point: a guess must never print under a signature unseen.
+     */
+    prefill: v.optional(
+      v.record(
+        v.string(),
+        v.object({
+          source: v.union(
+            v.literal('forecast'),
+            v.literal('scheduled'),
+            v.literal('lastVisit'),
+            v.literal('history'),
+          ),
+          confirmedAt: v.optional(v.number()),
+        }),
+      ),
+    ),
     // Kept out of `data` deliberately: it lived there once and every finalise
     // silently discarded the photos by overwriting the blob.
     photoSlots: v.optional(v.record(v.string(), v.id('_storage'))),
     // Out of `data` for exactly the reason above, and more urgently: autosave
     // rewrites that blob every couple of seconds, so a signature stored inside
     // it would be destroyed by the next keystroke elsewhere on the form.
-    signatureSlots: v.optional(v.record(v.string(), v.id('_storage'))),
+    /**
+     * What was signed, by whom, and against which words.
+     *
+     * A signature is evidence, so it carries its own provenance: the image in
+     * storage, when it was drawn, the statement printed above it and the
+     * revision of the form that statement belongs to. Under the Electronic
+     * Transactions Act what makes a signature stand up is the link between the
+     * person, the act and the document — a bare storage id records none of it.
+     *
+     * The union is the expand step of a migration: rows written before this
+     * hold a plain storage id. Read both through `signatureOf()`.
+     */
+    signatureSlots: v.optional(
+      v.record(
+        v.string(),
+        v.union(
+          v.id('_storage'),
+          v.object({
+            storageId: v.id('_storage'),
+            signedAt: v.number(),
+            /** Drawn here, or the technician's own saved signature reused. */
+            method: v.union(v.literal('drawn'), v.literal('saved')),
+            /** The name typed by whoever signed, where the form asks for one. */
+            signedBy: v.optional(v.string()),
+            /** The words agreed to, frozen: terms can be edited afterwards. */
+            statement: v.optional(v.string()),
+            templateVersion: v.optional(v.number()),
+            /** Whose device captured it — not necessarily who signed. */
+            capturedByMembershipId: v.optional(v.id('memberships')),
+          }),
+        ),
+      ),
+    ),
     finalisedAt: v.optional(v.number()),
     /**
      * Who pressed Finalise, which is not always whose report it is.
@@ -457,7 +628,37 @@ export default defineSchema({
      * assumed.
      */
     finalisedByMembershipId: v.optional(v.id('memberships')),
+    /**
+     * The current rendered file, denormalised from the newest `reportPdfs`
+     * row so a download is one read. The rows are the record; this is the
+     * pointer.
+     */
     pdfStorageId: v.optional(v.id('_storage')),
+    /**
+     * Where a render is up to. `generating` is a claim, taken before the work
+     * starts, so two tabs opening the PDF tab at once do not both render and
+     * leave one blob orphaned in storage forever.
+     */
+    pdfStatus: v.optional(
+      v.union(
+        v.literal('pending'),
+        v.literal('generating'),
+        v.literal('ready'),
+        v.literal('failed'),
+      ),
+    ),
+    /** Which renderer drew the current file — see `RENDER_VERSION`. */
+    pdfRenderVersion: v.optional(v.number()),
+    pdfGeneratedAt: v.optional(v.number()),
+    /**
+     * A watermarked render of this draft, for looking at before locking.
+     *
+     * At most one per report: each preview deletes the last one, and finalise
+     * deletes it altogether. A preview is a throwaway of a document that does
+     * not exist yet, and keeping every one a technician asked for would fill
+     * storage with files nobody can tell apart.
+     */
+    previewStorageId: v.optional(v.id('_storage')),
     // Set the moment an email actually sends (convex/email.ts). Independent
     // of `status` — a finalised report can be emailed zero, one, or many
     // times, so "sent" is its own axis, not a third status value.
@@ -516,6 +717,29 @@ export default defineSchema({
      * the evidence photos attached to it.
      */
     deletedAt: v.optional(v.number()),
+    /**
+     * Last touched — an answer typed, a photo added, a lock closed.
+     *
+     * The library orders by this, because a technician looking for "the one I
+     * was filling in" means the one they last touched, not the one they
+     * started first. Optional only because rows written before it exist;
+     * `migrations/reportsLibrary.ts` backfills them to `finalisedAt ??
+     * createdAt` so nothing sorts below everything forever.
+     */
+    updatedAt: v.optional(v.number()),
+    /**
+     * What the search box matches: the client, the suburb, the form's name and
+     * the report number, in one string.
+     *
+     * Denormalised because none of those live on this row — they are resolved
+     * at read time from the property, the client and the template — and a
+     * search index can only see fields it holds. Written at create, refreshed
+     * whenever the report is attached to a job or locked. A client renamed
+     * mid-draft therefore stays findable under the name it had until the
+     * report is finalised, which is the trade for not rewriting every draft
+     * of a client whenever their name changes.
+     */
+    searchText: v.optional(v.string()),
   })
     .index('by_business', ['businessId'])
     // "find the 2024 report for this address" — the reason properties are a
@@ -526,7 +750,15 @@ export default defineSchema({
     .index('by_custom_template', ['customTemplateId'])
     // "which of this business's drafts might hold an answer being renamed?" —
     // the option-library rename walks only these, never a finalised report.
-    .index('by_business_status_template', ['businessId', 'status', 'template']),
+    .index('by_business_status_template', ['businessId', 'status', 'template'])
+    // The library's own order, paginated.
+    .index('by_business_updated', ['businessId', 'updatedAt'])
+    // The nightly purge's range scan; undefined sorts below every number.
+    .index('by_deletedAt', ['deletedAt'])
+    .searchIndex('search', {
+      searchField: 'searchText',
+      filterFields: ['businessId'],
+    }),
 
   /**
    * The team's shared field knowledge. The note BODY lives in the
@@ -651,6 +883,19 @@ export default defineSchema({
     caption: v.optional(v.string()),
     order: v.number(),
     isCover: v.boolean(),
+    /**
+     * The shape of the image, as uploaded.
+     *
+     * Recorded so a document can print a photo at its own aspect instead of
+     * centre-cropping it into a fixed box — on evidence, a crop can remove the
+     * very thing the photo was taken to show. Optional: rows written before
+     * this, and images this browser could not decode, have no dimensions, and
+     * a reader that cannot tell falls back to the fixed box rather than
+     * guessing a shape.
+     */
+    width: v.optional(v.number()),
+    height: v.optional(v.number()),
+    bytes: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index('by_report_field', ['reportId', 'fieldKey'])
@@ -795,10 +1040,74 @@ export default defineSchema({
     // `memberships.status` never hard-deletes ('removed' instead) and
     // `recurrences.active` stops future work without erasing history.
     archivedAt: v.optional(v.number()),
+    /**
+     * Work in progress, not yet issued to anybody.
+     *
+     * The columns above are the PUBLISHED form — what `reports.create` starts
+     * a report against and what the builder fills in. This is the owner's
+     * uncommitted edit of them, and the split exists for two reasons.
+     *
+     * One: a form being edited is half-built by definition, and a half-built
+     * form must not become the one a technician opens in a driveway. Two:
+     * `sections` is validated on write, so autosaving an edit through it
+     * refused every keystroke that left the draft momentarily invalid — a
+     * dragged field, a half-typed condition — and the refusal surfaced as
+     * "check your connection", about a connection that was fine.
+     *
+     * So this is stored UNVALIDATED (`sections` is `v.any()` here and means
+     * it), and `publish` is where the shape is checked and the issues are
+     * named. Absent means there is nothing unpublished.
+     */
+    draft: v.optional(
+      v.object({
+        name: v.string(),
+        shortName: v.string(),
+        legalBasis: v.string(),
+        blurb: v.string(),
+        sections: v.any(),
+        boilerplate: v.string(),
+        savedAt: v.number(),
+        savedByMembershipId: v.id('memberships'),
+      }),
+    ),
+    /**
+     * Which issue of this form the published columns are. Absent means 1:
+     * every row that existed before publishing was a separate act from saving
+     * had been issued exactly once.
+     */
+    publishedVersion: v.optional(v.number()),
+    publishedAt: v.optional(v.number()),
+    updatedByMembershipId: v.optional(v.id('memberships')),
     createdByMembershipId: v.id('memberships'),
     createdAt: v.number(),
     updatedAt: v.number(),
   }).index('by_business', ['businessId']),
+
+  /**
+   * Every issue of a business-authored form, appended at publish.
+   *
+   * Distinct from `reportTemplateSnapshots`, which is content-addressed and
+   * keyed to what a FINALISED REPORT was signed against. This is the form's
+   * own history: what the business was issuing between one publish and the
+   * next, who published it, and what it said — so "what did this form look
+   * like in March?" is answerable even for a version no report was ever
+   * finalised against.
+   */
+  customReportTemplateVersions: defineTable({
+    businessId: v.id('businesses'),
+    templateId: v.id('customReportTemplates'),
+    version: v.number(),
+    name: v.string(),
+    shortName: v.string(),
+    legalBasis: v.string(),
+    blurb: v.string(),
+    sections: v.any(),
+    boilerplate: v.string(),
+    terms: v.optional(v.any()),
+    print: v.optional(printSpec),
+    publishedByMembershipId: v.id('memberships'),
+    publishedAt: v.number(),
+  }).index('by_template', ['templateId', 'version']),
 
   /**
    * The exact template a finalised report was signed against, stored once per
@@ -845,6 +1154,130 @@ export default defineSchema({
   }).index('by_hash', ['hash']),
 
   /**
+   * A business's own settings for a form it did not write.
+   *
+   * The three Pest M8 forms are reproduced word for word and stay that way —
+   * their wording is the contract. But a few things on the page belong to the
+   * business rather than the form: what its cover says, what its footer calls
+   * it, and who has to sign before it can be locked. Changing those used to
+   * mean cloning the whole template into a custom one, which forks the wording
+   * too and loses every later correction to it.
+   *
+   * Structural changes still go through `cloneBuiltin`. This is only for the
+   * parts a business owns.
+   */
+  templateSettings: defineTable({
+    businessId: v.id('businesses'),
+    /** A built-in's id today; a custom template's id when those want settings. */
+    templateRef: v.string(),
+    /**
+     * Overrides merged over the form's own `PrintSpec`. Only the keys a
+     * business owns — nothing here can change a printed question or answer.
+     */
+    print: v.optional(
+      v.object({
+        cover: v.optional(
+          v.object({
+            title: v.optional(v.string()),
+            subtitle: v.optional(v.string()),
+          }),
+        ),
+        /** What the running footer and the title band call this form. */
+        formName: v.optional(v.string()),
+      }),
+    ),
+    /**
+     * Which signature slots must hold an image before a report can lock.
+     *
+     * The forms barely validate; the app added "the technician must sign",
+     * which is right for most businesses and wrong for the ones where the
+     * office locks reports the next morning. An empty array means the form's
+     * own `required` flags stand.
+     */
+    requiredSigners: v.optional(v.array(v.string())),
+    updatedByMembershipId: v.id('memberships'),
+    updatedAt: v.number(),
+  }).index('by_business_template', ['businessId', 'templateRef']),
+
+  /**
+   * Every attempt to send a report to somebody, and what was attached.
+   *
+   * A row is written BEFORE the provider is called, so a send that dies
+   * mid-flight leaves a record rather than nothing. It names the
+   * `reportPdfs` row it attached, which is what makes "which file did the
+   * client receive on 28 August?" a question with an answer once the
+   * renderer has moved on.
+   *
+   * `pendingApproval` is the recipient rule: a technician may send to the
+   * addresses already on the client's record, and anywhere else waits for an
+   * owner. The row exists either way, so an approval is a decision about a
+   * real request rather than a fresh one typed from memory.
+   */
+  reportDeliveries: defineTable({
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    /** Absent only if the render failed before anything could be attached. */
+    pdfId: v.optional(v.id('reportPdfs')),
+    to: v.array(v.string()),
+    cc: v.array(v.string()),
+    subject: v.string(),
+    /** The form's own send-copy toggle, or someone pressing Send. */
+    trigger: v.union(v.literal('finalise'), v.literal('manual')),
+    status: v.union(
+      v.literal('queued'),
+      v.literal('pendingApproval'),
+      v.literal('sent'),
+      v.literal('failed'),
+      v.literal('bounced'),
+    ),
+    /** Resend's id, for matching a webhook back to this row. */
+    providerMessageId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    /**
+     * Who asked for it: whoever pressed Send, or — when the form asked, at
+     * finalise — whoever finalised it with "Send copy…" ticked, which was
+     * their instruction. It counts toward that person's send limit either way.
+     */
+    sentByMembershipId: v.optional(v.id('memberships')),
+    approvedByMembershipId: v.optional(v.id('memberships')),
+    createdAt: v.number(),
+    /** Set when the provider accepted it, which is what "Sent" means here. */
+    sentAt: v.optional(v.number()),
+  })
+    .index('by_report', ['reportId'])
+    // The owner's approval queue, and nothing else reads by status.
+    .index('by_business_status', ['businessId', 'status'])
+    // "how many has this person sent in the last hour" — the send limit.
+    .index('by_sender', ['sentByMembershipId', 'createdAt'])
+    // A provider webhook arrives knowing only its own message id.
+    .index('by_provider_message', ['providerMessageId']),
+
+  /**
+   * Every PDF this report has ever been rendered as, newest last.
+   *
+   * Append-only, and superseded files are kept rather than deleted. A client
+   * who was emailed a report in August must still be able to be shown the file
+   * they were actually sent, whatever the renderer does afterwards — and once
+   * deliveries record which row they attached (Phase 5), "which file did they
+   * receive?" has an answer instead of an assumption.
+   *
+   * `reports.pdfStorageId` is the denormalised pointer at the newest row.
+   */
+  reportPdfs: defineTable({
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    storageId: v.id('_storage'),
+    /** The painter that drew it. A bump re-renders on next open. */
+    rendererVersion: v.number(),
+    /** The wording it was drawn from, mirroring `reports.templateVersion`. */
+    templateVersion: v.optional(v.number()),
+    /** The report's own amendment version — 1 until amendments exist. */
+    version: v.number(),
+    bytes: v.number(),
+    createdAt: v.number(),
+  }).index('by_report', ['reportId']),
+
+  /**
    * A business's own version of a vocabulary its reports print — its product
    * list, the treatments it offers. No row means the verbatim defaults from
    * the built-in templates, which is where every business starts; a row is
@@ -858,7 +1291,33 @@ export default defineSchema({
     key: optionSetKey,
     // `value === label`, enforced by every writer: an answer stores the words
     // it prints, so a report never needs this row to be read.
-    options: v.array(v.object({ value: v.string(), label: v.string() })),
+    options: v.array(
+      v.object({
+        value: v.string(),
+        label: v.string(),
+        /**
+         * The handful this business reaches for. A picker puts them first,
+         * which is the difference between scrolling thirteen products and
+         * tapping the one used on nine jobs out of ten.
+         *
+         * Never reaches the template: `loadOverrides` maps to `{value,label}`
+         * explicitly, because an extra field would mint a new snapshot row at
+         * finalise for a change that prints nothing.
+         */
+        usual: v.optional(v.boolean()),
+      }),
+    ),
+    /**
+     * Options this business has stopped offering.
+     *
+     * Kept rather than deleted: reports that already chose one still print it
+     * (an answer stores its own words), and a product coming back off the
+     * shelf is common enough that retyping it exactly — including the active
+     * constituent in brackets — is a needless chance to get it wrong.
+     */
+    archived: v.optional(
+      v.array(v.object({ value: v.string(), label: v.string() })),
+    ),
     /**
      * Recent renames, newest last and bounded. The draft rewrites a rename
      * schedules run in no guaranteed order; resolving through this log lets
@@ -872,4 +1331,31 @@ export default defineSchema({
     updatedAt: v.number(),
     updatedByMembershipId: v.id('memberships'),
   }).index('by_business_key', ['businessId', 'key']),
+
+  /**
+   * Wording a business reuses in the long-answer boxes.
+   *
+   * The three forms have twenty-eight of them between them — twenty-three on
+   * the Timber report alone, one per conducive condition — and the sentences that
+   * go in are the same sentences, visit after visit, typed with one thumb in
+   * somebody's back garden. A phrase is offered, never applied: it goes in
+   * when it is tapped and can be edited afterwards like anything typed.
+   *
+   * Shared across the business rather than kept per member, so an owner can
+   * write the wording they want issued once and everyone has it. Any member
+   * may add one — this is text a technician could type anyway, so saving it
+   * grants no authority the form did not already give them. Unlike an option
+   * library, which IS the answer, a phrase is only a head start on one.
+   */
+  reportSnippets: defineTable({
+    businessId: v.id('businesses'),
+    /** The field it was written for — wording belongs to the question. */
+    fieldKey: v.string(),
+    text: v.string(),
+    createdByMembershipId: v.id('memberships'),
+    /** The order they are offered in: what gets used rises. */
+    usedCount: v.number(),
+    lastUsedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index('by_business_field', ['businessId', 'fieldKey']),
 })

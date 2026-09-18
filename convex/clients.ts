@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
-import { summarise } from './reports'
+import { INLINE_LIMIT, decorate as decorateReports } from './reports'
 import { isInScope, reportScope } from './lib/capabilities'
 import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
@@ -139,9 +139,10 @@ export const jobHistory = query({
 })
 
 /**
- * Reports across every property this client owns, reusing the exact
- * `canSeeReport` gate and `summarise()` shape `reports.listByProperty`
- * already uses for one property.
+ * Reports across every property this client owns, through the same
+ * `reportScope` gate and `decorate()` row shape `reports.listByProperty` uses
+ * for one property — so the client sheet and the property sheet can never
+ * disagree about which reports someone may see.
  */
 export const reports = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
@@ -163,7 +164,7 @@ export const reports = query({
       ),
     )
 
-    return reportsByProperty
+    const visible = reportsByProperty
       .flat()
       .filter(
         (r) =>
@@ -171,7 +172,12 @@ export const reports = query({
           r.deletedAt === undefined &&
           reportScope(scope, r),
       )
-      .map(summarise)
       .sort((a, b) => (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt))
+      // Bounded: this is a section inside a sheet. The library holds the rest.
+      .slice(0, INLINE_LIMIT)
+
+    // The same decoration the library gives a row, so a report is named the
+    // same thing wherever it is listed.
+    return decorateReports(ctx, visible)
   },
 })

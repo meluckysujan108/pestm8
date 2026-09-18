@@ -6,6 +6,10 @@ import { Drawer } from 'vaul'
 import { AlertDialog } from 'radix-ui'
 import { Pencil, Plus, Star, Trash2, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
+import {
+  InlineReportsSection,
+  SeeAllReports,
+} from '#/components/reports/InlineReports'
 import { ClientNotesSection } from '#/components/notes/ClientNotesSection'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
@@ -191,6 +195,7 @@ function ClientBody({
         businessId={businessId}
         businessSlug={businessSlug}
         clientId={clientId}
+        clientName={client.name}
         timezone={timezone}
       />
 
@@ -940,58 +945,45 @@ function ClientJobHistory({
 }
 
 /** Reports aggregated across every property this client owns. */
+/**
+ * Everything this client has ever been sent, newest first.
+ *
+ * It used to return `null` when there were none — so a client with no reports
+ * got no heading, no sentence and no hint that reports are a thing that
+ * happens. Now it says so, and says where they come from.
+ */
 function ClientReports({
   businessId,
   businessSlug,
   clientId,
+  clientName,
   timezone,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
   clientId: Id<'clients'>
+  clientName: string
   timezone: string
 }) {
   const { data: reports } = useQuery(
     convexQuery(api.clients.reports, { businessId, clientId }),
   )
-  if (!reports || reports.length === 0) return null
 
   return (
-    <Section label="Reports">
-      <div className="flex flex-col divide-y divide-hairline">
-        {reports.map((report) => (
-          <Link
-            key={report._id}
-            to="/$businessSlug/reports/$reportId"
-            params={{ businessSlug, reportId: report._id }}
-            className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
-          >
-            <span className="min-w-0">
-              <span className="block truncate text-body text-ink">
-                {report.legalBasis}
-              </span>
-              <span className="text-caption text-muted">
-                {new Intl.DateTimeFormat('en-AU', {
-                  timeZone: timezone,
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                }).format(new Date(report.finalisedAt ?? report.createdAt))}
-              </span>
-            </span>
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                report.status === 'finalised'
-                  ? 'bg-green/12 text-green'
-                  : 'border border-amber-line bg-amber-bg text-amber-ink'
-              }`}
-            >
-              {report.status === 'finalised' ? 'Finalised' : 'Draft'}
-            </span>
-          </Link>
-        ))}
-      </div>
-    </Section>
+    <InlineReportsSection
+      businessSlug={businessSlug}
+      timezone={timezone}
+      label="Reports"
+      reports={reports}
+      empty="No reports yet. They are created from a job at one of their properties."
+      // Bounded to the newest twenty, so a long-standing client's sheet does
+      // not become their whole history.
+      action={
+        reports && reports.length > 0 ? (
+          <SeeAllReports businessSlug={businessSlug} term={clientName} />
+        ) : undefined
+      }
+    />
   )
 }
 

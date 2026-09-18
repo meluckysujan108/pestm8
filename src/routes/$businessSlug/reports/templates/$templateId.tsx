@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
@@ -17,6 +18,10 @@ function TemplateDetailPage() {
   const { business } = Route.useRouteContext()
   const canManageTemplates = useCan('templates.manage')
   const { templateId } = Route.useParams()
+
+  // Bumped when a draft is discarded, to remount the editor on what is now
+  // the published form.
+  const [reloads, setReloads] = useState(0)
 
   const { data: template } = useSuspenseQuery(
     convexQuery(api.customTemplates.get, {
@@ -46,6 +51,20 @@ function TemplateDetailPage() {
 
   if (!template) throw notFound()
 
+  // The owner picks up where they left off: an unissued edit if there is one,
+  // otherwise the form the business is currently handing out.
+  const editing = {
+    version: `${template.publishedVersion}:${reloads}`,
+    draft: {
+      name: template.draft?.name ?? template.name,
+      shortName: template.draft?.shortName ?? template.shortName,
+      legalBasis: template.draft?.legalBasis ?? template.legalBasis,
+      blurb: template.draft?.blurb ?? template.blurb,
+      sections: (template.draft?.sections ?? template.sections) as Array<SectionDef>,
+      boilerplate: template.draft?.boilerplate ?? template.boilerplate,
+    },
+  }
+
   return (
     <>
       <PageHeader
@@ -54,6 +73,15 @@ function TemplateDetailPage() {
         kicker="Templates"
         title={template.name}
       />
+
+      {template.hasUnpublishedChanges && (
+        <div className="px-4 pt-4">
+          <p className="rounded-xl border border-hairline bg-surface px-3 py-2 text-caption text-muted">
+            You have changes nobody has been given yet. Your team is still
+            filling in version {template.publishedVersion}.
+          </p>
+        </div>
+      )}
 
       {template.archivedAt && (
         <div className="px-4 pt-4">
@@ -65,17 +93,15 @@ function TemplateDetailPage() {
       )}
 
       <TemplateEditor
-        key={template._id}
+        // Re-keyed on the version so discarding a draft remounts the editor on
+        // the published form rather than leaving the abandoned edit on screen.
+        key={`${template._id}:${editing.version}`}
         businessId={business._id}
         templateId={template._id}
-        initial={{
-          name: template.name,
-          shortName: template.shortName,
-          legalBasis: template.legalBasis,
-          blurb: template.blurb,
-          sections: template.sections as Array<SectionDef>,
-          boilerplate: template.boilerplate,
-        }}
+        initial={editing.draft}
+        publishedVersion={template.publishedVersion}
+        hasUnpublishedChanges={template.hasUnpublishedChanges}
+        onDiscarded={() => setReloads((n) => n + 1)}
       />
     </>
   )

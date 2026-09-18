@@ -148,10 +148,16 @@ test('an exported inspection PDF carries its findings and scope limits', async (
   expect(text).not.toContain('Send a copy of the Report')
 
   // Provenance footer — this went missing silently once already, because the
-  // absolute/`fixed` footer pattern only renders under Node.
-  expect(text).toContain(`Bayside Pest Control · ${timber.name}`)
-  expect(text).toMatch(/Finalised \d{1,2}\/\d{1,2}\/\d{4}/)
+  // absolute/`fixed` footer pattern only renders under Node. The labels are
+  // the source form's own; the values behind them are ours (see
+  // docs/reports/fidelity.md on `Submission ID:` and `Version:`).
+  expect(text).toContain(timber.print!.formName)
+  expect(text).toMatch(/Submitted by: .+ @ \d{2}:\d{2}:\d{2} \d{1,2} \w{3,4} \d{4}/)
+  expect(text).toMatch(/Submission ID: \d+/)
+  expect(text).toContain('Version: 1')
   expect(text).toMatch(/Page \d+ of \d+/)
+  // The vendor's own advertising line is not ours to print.
+  expect(text).not.toContain('formitize')
 })
 
 test('a custom template PDF prints areas in declared order with their reasons', async () => {

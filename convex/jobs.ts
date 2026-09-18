@@ -13,6 +13,7 @@ import {
   resolvePropertyId,
   withClient,
 } from './properties'
+import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
 import type { Doc, Id } from './_generated/dataModel'
 import { displayPerson, isInScope } from './lib/capabilities'
 import { jobsInScope } from './lib/jobScope'
@@ -512,6 +513,21 @@ export const update = mutation({
     const env = await requireActor(ctx, businessId)
     if (hidePrices(env.caps)) delete fields.price
 
+    // The first time a job says work has begun, record when. A report started
+    // from this job prints that as its start time, instead of the technician
+    // remembering it an hour later. Stamped once: a job bounced back to
+    // `inProgress` after a pause still began when it began.
+    if (patch.status === 'inProgress' && job.startedAt === undefined) {
+      fields.startedAt = Date.now()
+    }
+
+    // `update` can set a job complete too, so the business's "not done until
+    // its report is" policy has to be asked here as well as in `complete` —
+    // otherwise the policy is a button the status menu walks straight past.
+    if (patch.status === 'completed' && job.status !== 'completed') {
+      await assertReportIssued(ctx, job)
+    }
+
     if (Object.keys(fields).length > 0) await ctx.db.patch(jobId, fields)
   },
 })
@@ -519,10 +535,45 @@ export const update = mutation({
 export const complete = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    await requireEditableJob(ctx, businessId, jobId)
+    const { job } = await requireEditableJob(ctx, businessId, jobId)
+    await assertReportIssued(ctx, job)
     await ctx.db.patch(jobId, { status: 'completed', completedAt: Date.now() })
   },
 })
+
+/**
+ * A business that issues a report on every treatment can say so.
+ *
+ * The record is the job — WA's Pesticides Regulations want it made within two
+ * business days, and a report written next week from memory is a worse record
+ * than one written in the driveway. Off unless an owner turns it on, and even
+ * then only for job types that HAVE a form: blocking a quote visit would
+ * teach the business to switch the policy off.
+ *
+ * A draft does not count. The point of finalising is that the document stops
+ * changing, and "there is a half-filled draft somewhere" is the state this
+ * exists to catch.
+ */
+async function assertReportIssued(ctx: MutationCtx, job: Doc<'jobs'>) {
+  const business = await ctx.db.get(job.businessId)
+  if (business?.requireReportToComplete !== true) return
+  if (suggestTemplate(job.jobType) === null) return
+
+  const reports = await ctx.db
+    .query('reports')
+    .withIndex('by_job', (q) => q.eq('jobId', job._id))
+    // Bounded, and generous: a job with this many reports has one finalised.
+    .take(10)
+
+  const issued = reports.some(
+    (report) =>
+      // Only this business's own: a report's job id is not proof on its own.
+      report.businessId === job.businessId &&
+      report.status === 'finalised' &&
+      report.deletedAt === undefined,
+  )
+  if (!issued) throw new ConvexError('REPORT_REQUIRED')
+}
 
 export const cancel = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },

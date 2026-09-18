@@ -28,15 +28,17 @@ const styles = StyleSheet.create({
   h3: { fontSize: 9.5, fontFamily: 'Helvetica-Bold', marginTop: 6, marginBottom: 2 },
   // Matches `boilerplate` in ReportPdf so printed terms and a printed note
   // read as the same voice.
-  paragraph: { fontSize: 8.5, color: '#3A3A3C', marginBottom: 4 },
+  // `lineHeight` must be stated next to `fontSize`: a unitless one resolves
+  // against the size on its own style object, and react-pdf's default is 18pt.
+  paragraph: { fontSize: 8.5, lineHeight: 1.35, color: '#3A3A3C', marginBottom: 4 },
   bold: { fontFamily: 'Helvetica-Bold' },
   redText: { fontFamily: 'Helvetica-Bold', color: '#C8102E' },
   caps: { textTransform: 'uppercase' },
   bulletRow: { flexDirection: 'row', marginBottom: 2 },
-  bulletMark: { fontSize: 8.5, color: '#3A3A3C', width: 12 },
+  bulletMark: { fontSize: 8.5, lineHeight: 1.35, color: '#3A3A3C', width: 12 },
   bulletBody: { flex: 1 },
   definition: { marginBottom: 4 },
-  term: { fontSize: 8.5, fontFamily: 'Helvetica-Bold', color: '#1C1C1E' },
+  term: { fontSize: 8.5, lineHeight: 1.35, fontFamily: 'Helvetica-Bold', color: '#1C1C1E' },
 })
 
 const MARK_STYLE = {

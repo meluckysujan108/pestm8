@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test'
-import { FIXTURE_PASSWORD, api, signInViaUi, signUpActor, uniqueEmail } from './fixtures'
+import {
+  FIXTURE_PASSWORD,
+  api,
+  clickUntil,
+  signInViaUi,
+  signUpActor,
+  uniqueEmail,
+} from './fixtures'
 
 /**
  * The shell's structural contract, which is load-bearing for every other spec
@@ -66,14 +73,14 @@ test('collapsing the sidebar to icons keeps every link findable by name', async 
   await expect.poll(widthOf).toBeGreaterThan(0)
   const expandedWidth = await widthOf()
 
-  await page.getByRole('button', { name: 'Toggle sidebar' }).first().click()
-
   // It really collapsed — otherwise the assertions below prove nothing. Both
   // the state attribute (the mechanism) and the width (the result), because
-  // the attribute flipping without the width following would be the bug.
-  await expect(page.locator('[data-slot="sidebar"]')).toHaveAttribute(
-    'data-state',
-    'collapsed',
+  // the attribute flipping without the width following would be the bug. The
+  // tap is retried: one that lands before hydration toggles nothing.
+  await clickUntil(page.getByRole('button', { name: 'Toggle sidebar' }).first(), () =>
+    expect(page.locator('[data-slot="sidebar"]')).toHaveAttribute('data-state', 'collapsed', {
+      timeout: 3_000,
+    }),
   )
   await expect.poll(widthOf).toBeLessThan(expandedWidth)
 

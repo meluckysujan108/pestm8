@@ -12,14 +12,18 @@ import {
 } from './fixtures'
 import {
   FINALISE,
+  builderReady,
   createCustomReport,
   createReport,
+  customSectionUrl,
   customTemplateArgs,
   finaliseReport,
   saveReportDraft,
+  signReport,
   versionOf,
 } from './fixtures/reportPayloads'
 import { getTemplate } from '../src/lib/reportTemplates'
+import type { Id } from '../convex/_generated/dataModel'
 
 /**
  * The compliance layer (§5.3). The property that matters most is immutability:
@@ -264,6 +268,130 @@ test.describe('report document', () => {
   })
 })
 
+test.describe('finalise refuses an unfinished report', () => {
+  test('server-side, not just on the screen', async () => {
+    const s = await setupBusinessWithSub('report-incomplete')
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+
+    // The browser is not the guard: a stale tab, a replayed request or any
+    // future non-browser caller must not be able to lock an undated,
+    // unsigned document.
+    await expectRejected(
+      () =>
+        s.owner.client.mutation(api.reports.finalise, {
+          businessId: s.businessId,
+          reportId,
+          data: { comments: 'all done' },
+          templateVersion: versionOf('serviceReport'),
+        }),
+      'REPORT_INCOMPLETE',
+    )
+
+    const report = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(report!.status).toBe('draft')
+  })
+
+  test('and says which questions, so the form can point at them', async () => {
+    const s = await setupBusinessWithSub('report-incomplete-issues')
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+
+    let data: unknown
+    try {
+      await s.owner.client.mutation(api.reports.finalise, {
+        businessId: s.businessId,
+        reportId,
+        data: {},
+        templateVersion: versionOf('serviceReport'),
+      })
+    } catch (error) {
+      data = (error as { data?: unknown }).data
+    }
+
+    const payload = data as { code?: string; issues?: Array<{ key: string; message: string }> }
+    expect(payload.code).toBe('REPORT_INCOMPLETE')
+    expect(payload.issues?.map((issue) => issue.key)).toContain('safeToStart')
+    expect(payload.issues?.every((issue) => issue.message.length > 0)).toBe(true)
+  })
+
+  test('a signature is an image, not a timestamp in the answers', async () => {
+    const s = await setupBusinessWithSub('report-unsigned')
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+
+    // Everything the form asks for, including a `signedAt` — but nothing was
+    // ever drawn, so there is no signature to print.
+    await expectRejected(
+      () =>
+        s.owner.client.mutation(api.reports.finalise, {
+          businessId: s.businessId,
+          reportId,
+          data: {
+            serviceDate: '2026-08-28',
+            safeToStart: true,
+            treatments: [],
+            technicianSignature: { signedAt: Date.now() },
+          },
+          templateVersion: versionOf('serviceReport'),
+        }),
+      'REPORT_INCOMPLETE',
+    )
+
+    // Signed for real, it locks.
+    await signReport(s.owner.client, s, reportId, 'technician')
+    await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+    const report = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(report!.status).toBe('finalised')
+  })
+})
+
+test.describe('the number a client quotes over the phone', () => {
+  test('is handed out when a report is finished, in the order they were finished', async () => {
+    const s = await setupBusinessWithSub('report-numbers')
+    const first = await createReport(s.owner.client, s, 'serviceReport')
+    const second = await createReport(s.owner.client, s, 'serviceReport')
+
+    // Finished in the opposite order to the one they were started in. A number
+    // allocated at create would leave the first-issued report numbered 2 — and
+    // a draft abandoned in a van would burn a number out of the sequence
+    // entirely, so the business's records would read 1, 3, 4 with no 2 to
+    // produce if anyone ever asked for it.
+    await signReport(s.owner.client, s, second, 'technician')
+    await finaliseReport(s.owner.client, s, second, 'serviceReport')
+    await signReport(s.owner.client, s, first, 'technician')
+    await finaliseReport(s.owner.client, s, first, 'serviceReport')
+
+    const numberOf = async (reportId: Id<'reports'>) =>
+      (await s.owner.client.query(api.reports.get, { businessId: s.businessId, reportId }))!
+        .reportNumber
+
+    expect(await numberOf(second)).toBe(1)
+    expect(await numberOf(first)).toBe(2)
+  })
+
+  test('counts per business, not across the app', async () => {
+    // Two businesses' first reports are both #1: the sequence is the thing a
+    // client is told, and it belongs to whoever issued the document.
+    const a = await setupBusinessWithSub('report-numbers-a')
+    const b = await setupBusinessWithSub('report-numbers-b')
+
+    for (const s of [a, b]) {
+      const reportId = await createReport(s.owner.client, s, 'serviceReport')
+      await signReport(s.owner.client, s, reportId, 'technician')
+      await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+      const report = await s.owner.client.query(api.reports.get, {
+        businessId: s.businessId,
+        reportId,
+      })
+      expect(report!.reportNumber).toBe(1)
+    }
+  })
+})
+
 test.describe('report builder', () => {
   test('the Timber picker opens the verbatim AS 4349.3 form', async ({ page }) => {
     const email = uniqueEmail('builder-owner')
@@ -292,15 +420,21 @@ test.describe('report builder', () => {
     await page.getByRole('button', { name: new RegExp(timber.name) }).click()
 
     await expect(page.getByText(timber.legalBasis, { exact: true }).first()).toBeVisible()
-    // Every numbered section of the source form, in its own words.
+
+    // The overview lists every numbered section of the source form, in its own
+    // words — the form is answered one section at a time, so this is where the
+    // whole of it is visible at once.
     for (const section of timber.sections ?? []) {
       if (section.number === undefined) continue
       await expect(
-        page.getByRole('heading', { name: `${section.number}. ${section.title}`, exact: true }),
+        page.getByRole('button', { name: new RegExp(escapeForRegExp(section.title)) }).first(),
       ).toBeVisible()
     }
-    // The source's own recommendation notice — the paraphrase this replaced
-    // said "seven days" where the form says thirty.
+
+    // And opening one shows that section's own questions and notices. The
+    // source's recommendation notice is the paraphrase this replaced: it said
+    // "seven days" where the form says thirty.
+    await page.getByRole('button', { name: /CLIENT DETAILS/ }).first().click()
     await expect(
       page.getByText('more than thirty days after the Inspection Date', { exact: false }),
     ).toBeVisible()
@@ -338,11 +472,10 @@ test.describe('report builder', () => {
     )
 
     await signInViaUi(page, email)
-    await page.goto(`/${slug}/reports/${reportId}`)
+    await page.goto(customSectionUrl(slug, reportId))
 
     // The builder is server-rendered, and a tap before hydration is dropped.
-    // `Finalise & lock` stays disabled until the builder hydrates.
-    await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeEnabled()
+    await builderReady(page)
 
     // Mark the roof void inaccessible without saying why.
     await page.getByRole('button', { name: 'Roof void: No access' }).click()
@@ -352,12 +485,145 @@ test.describe('report builder', () => {
 
     await page.getByRole('button', { name: 'Finalise & lock' }).click()
 
+    // Said twice on purpose: against the field, and in the list of what is
+    // still outstanding at the foot of the form.
     await expect(
-      page.getByText('A reason is required when an area was not inspected'),
+      page.getByText('A reason is required when an area was not inspected').first(),
     ).toBeVisible()
     // Still a draft: the form is still on screen rather than a locked document.
     await expect(
       page.getByRole('button', { name: 'Finalise & lock' }),
     ).toBeVisible()
   })
+})
+
+/** A section title is prose: brackets and dots in it are not pattern syntax. */
+function escapeForRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+test.describe('a business’s own settings for a form it did not write', () => {
+  test('changes who has to sign, and the server agrees', async () => {
+    const s = await setupBusinessWithSub('settings-signers')
+
+    // By default the technician must sign — the app's own rule, not the
+    // form's, and wrong for a business whose office locks reports the next
+    // morning.
+    const before = await createReport(s.owner.client, s, 'serviceReport')
+    await expectRejected(
+      () =>
+        s.owner.client.mutation(api.reports.finalise, {
+          businessId: s.businessId,
+          reportId: before,
+          data: { ...FINALISE.serviceReport },
+          templateVersion: versionOf('serviceReport'),
+        }),
+      'REPORT_INCOMPLETE',
+    )
+
+    await s.owner.client.mutation(api.templateSettings.set, {
+      businessId: s.businessId,
+      templateRef: 'serviceReport',
+      requiredSigners: [],
+    })
+
+    // Same payload, no signature attached, and now it locks.
+    const after = await createReport(s.owner.client, s, 'serviceReport')
+    await s.owner.client.mutation(api.reports.finalise, {
+      businessId: s.businessId,
+      reportId: after,
+      data: { ...FINALISE.serviceReport },
+      templateVersion: versionOf('serviceReport'),
+    })
+    const report = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId: after,
+    })
+    expect(report!.status).toBe('finalised')
+  })
+
+  test('only an owner may set them', async () => {
+    const s = await setupBusinessWithSub('settings-owner-only')
+    await expectRejected(
+      () =>
+        s.sub.client.mutation(api.templateSettings.set, {
+          businessId: s.businessId,
+          templateRef: 'serviceReport',
+          formName: 'Anything',
+        }),
+      'NO_ACCESS',
+    )
+  })
+
+  test('the cover follows the settings, and a signed report keeps its own', async () => {
+    const s = await setupBusinessWithSub('settings-cover')
+    await s.owner.client.mutation(api.templateSettings.set, {
+      businessId: s.businessId,
+      templateRef: 'serviceReport',
+      coverTitle: 'Pest Control Service Record',
+      formName: 'Service Record',
+    })
+
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+    const draft = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(draft!.settings?.print?.formName).toBe('Service Record')
+
+    await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+    // Frozen with the wording: the settings are baked into the snapshot, and
+    // the report stops reading live ones so a later rename cannot relabel a
+    // document somebody already received.
+    const locked = await s.owner.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(locked!.settings).toBeNull()
+    expect(locked!.templateSnapshot?.print?.formName).toBe('Service Record')
+    expect(locked!.templateSnapshot?.print?.cover?.title).toBe(
+      'Pest Control Service Record',
+    )
+  })
+})
+
+test('a rodent treatment says when the label wants somebody back', async ({ page }) => {
+  const s = await setupBusinessWithSub('sgar-notice')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport', {
+    treatments: [
+      {
+        _id: 'r1',
+        treatment: ['Rodents'],
+        product: ['Ditrac All Weather Blox (0.05 g/kg Bromadiolone)'],
+        quantity: ['Bait Blocks'],
+        method: ['SGARS in compliance with the new 35 day ruling'],
+      },
+    ],
+  })
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/reports/${reportId}`)
+
+  // A suspension with replacement label instructions — the copy must never
+  // call it a ban or new legislation (docs/reports/fidelity.md).
+  const notice = page.getByText(/APVMA label instructions require an evaluation/)
+  await expect(notice).toBeVisible()
+  await expect(page.getByText(/\bban\b/i)).toHaveCount(0)
+  await expect(page.getByText(/new legislation/i)).toHaveCount(0)
+  // It points at the week, and books nothing: a visit has a price and a
+  // person attached, and the report knows neither.
+  await expect(page.getByRole('link', { name: 'Open that week' })).toBeVisible()
+})
+
+test('a report that used no rodenticide says nothing about one', async ({ page }) => {
+  const s = await setupBusinessWithSub('sgar-quiet')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/reports/${reportId}`)
+  await expect(page.getByRole('tab', { name: 'PDF' })).toBeEnabled()
+  await expect(page.getByText(/APVMA label instructions/)).toHaveCount(0)
 })

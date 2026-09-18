@@ -38,6 +38,17 @@ import type { Option, RichDoc, ReportTemplate } from './types'
  */
 
 /** Free text is the value, so it prints as itself on the finished record. */
+/**
+ * What the client agrees to by signing §9.
+ *
+ * One copy, printed above the pad by the form's own note and shown on the pad
+ * itself by the signing sheet, so the sentence somebody agreed to and the
+ * sentence the document prints cannot drift apart.
+ */
+// src: timber-pest-inspection.md:246
+const CLIENT_ACCEPTANCE =
+  'The Client acknowledges and agrees with the contents of this Report. The Client acknowledges and agrees that the Inspection has limitations, that the Property is free of Timber Pests and damage caused by Timber Pests and accepts and relies on the Inspection and Report solely at its own risk.'
+
 const asOptions = (values: Array<string>): Array<Option> =>
   values.map((value) => ({ value, label: value }))
 
@@ -167,6 +178,7 @@ export const timberPestInspection: ReportTemplate = {
           // src: timber-pest-inspection.md:36
           kind: 'toggle',
           key: 'sendCopyToClient',
+          semantic: 'sendCopyToClient',
           // Drives delivery, never printed — as the same vendor's Service Report
           // PDF shows for its identical control.
           printed: false,
@@ -194,6 +206,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'time',
           key: 'inspectionTime',
           label: 'Inspection Time',
+          semantic: 'startTime',
         },
         {
           // src: timber-pest-inspection.md:40
@@ -229,6 +242,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'radio',
           key: 'weatherConditions',
           label: 'Weather Conditions at time of inspection',
+          semantic: 'weather',
           // src: timber-pest-inspection.md:52-58
           options: asOptions([
             'Dry',
@@ -419,6 +433,7 @@ export const timberPestInspection: ReportTemplate = {
           // src: timber-pest-inspection.md:92
           kind: 'radio',
           key: 'summarySusceptibility',
+          summary: true,
           label:
             'In our opinion, the susceptibility of this property to timber pests is considered to be',
           // src: timber-pest-inspection.md:92
@@ -451,6 +466,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'select',
           key: 'facadeFaces',
           label: 'The front facade of the dwelling faces',
+          carryOver: true,
           optionsFrom: 'facade',
           blankOption: '-', // src: timber-pest-inspection.md:99
           // src: timber-pest-inspection.md:99
@@ -470,6 +486,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'select',
           key: 'siteTopography',
           label: 'Site Topography',
+          carryOver: true,
           optionsFrom: 'topography',
           blankOption: '-', // src: timber-pest-inspection.md:100
           // src: timber-pest-inspection.md:100
@@ -489,6 +506,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'select',
           key: 'structureType',
           label: 'Type of Structure',
+          carryOver: true,
           optionsFrom: 'structureType',
           blankOption: '-', // src: timber-pest-inspection.md:101
           // src: timber-pest-inspection.md:101
@@ -509,6 +527,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'select',
           key: 'structureHeight',
           label: 'Height of Structure',
+          carryOver: true,
           optionsFrom: 'structureHeight',
           blankOption: '-', // src: timber-pest-inspection.md:102
           // src: timber-pest-inspection.md:102
@@ -524,6 +543,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'checks',
           key: 'wallConstruction',
           label: 'Wall Construction',
+          carryOver: true,
           optionsFrom: 'wallConstruction',
           // src: timber-pest-inspection.md:103 — the source lists these comma-separated
           options: asOptions([
@@ -541,6 +561,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'checks',
           key: 'floorType',
           label: 'Floor Type',
+          carryOver: true,
           optionsFrom: 'floorType',
           // src: timber-pest-inspection.md:104 — the source lists these comma-separated
           options: asOptions([
@@ -564,6 +585,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'checks',
           key: 'roofType',
           label: 'Roof Type',
+          carryOver: true,
           optionsFrom: 'roofType',
           // src: timber-pest-inspection.md:106 — the source lists these comma-separated
           options: asOptions([
@@ -1047,6 +1069,7 @@ export const timberPestInspection: ReportTemplate = {
           // src: timber-pest-inspection.md:201
           kind: 'radio',
           key: 'susceptibilityRating',
+          summary: true,
           label: 'Susceptibility Rating',
           options: asOptions(['LOW', 'MODERATE', 'HIGH']), // src: timber-pest-inspection.md:201
         },
@@ -1070,6 +1093,10 @@ export const timberPestInspection: ReportTemplate = {
     {
       id: 'conduciveConditions',
       number: 7,
+      // A clean inspection answers twelve of these the same way. One tap says
+      // so; it fills only what is still blank, and only where the form itself
+      // says which answer means a problem was found.
+      quick: 'allClear',
       title: 'CONDUCIVE CONDITIONS TO TIMBER PEST ATTACK',
       // src: timber-pest-inspection.md:208
       preamble:
@@ -1405,6 +1432,7 @@ export const timberPestInspection: ReportTemplate = {
           // src: timber-pest-inspection.md:232
           kind: 'member',
           key: 'inspectorName',
+          summary: true,
           label: 'Inspector Name',
           roleWord: 'Inspector',
           defaultTo: 'jobAssignee',
@@ -1474,6 +1502,7 @@ export const timberPestInspection: ReportTemplate = {
           kind: 'emails',
           key: 'emailReportTo',
           label: 'Email Report To',
+          semantic: 'emailTo',
           // A delivery instruction, not document content.
           printed: false,
         },
@@ -1497,9 +1526,7 @@ export const timberPestInspection: ReportTemplate = {
           // FLAG: the client acknowledges "that the Property is free of Timber Pests and
           // damage caused by Timber Pests". A client cannot agree to that, and the rest of
           // the report says the opposite. Raise before it prints under a signature.
-          body: doc(
-            'The Client acknowledges and agrees with the contents of this Report. The Client acknowledges and agrees that the Inspection has limitations, that the Property is free of Timber Pests and damage caused by Timber Pests and accepts and relies on the Inspection and Report solely at its own risk.',
-          ),
+          body: doc(CLIENT_ACCEPTANCE),
         },
         {
           // src: timber-pest-inspection.md:247
@@ -1515,6 +1542,9 @@ export const timberPestInspection: ReportTemplate = {
           label: 'Signature',
           slot: 'client',
           role: 'client',
+          // Shown on the pad as well as printed above it: a client handed a
+          // phone should see what they are agreeing to on the screen they sign.
+          statement: CLIENT_ACCEPTANCE,
         },
         {
           // src: timber-pest-inspection.md:249
@@ -1647,6 +1677,10 @@ export const timberPestInspection: ReportTemplate = {
   print: {
     // Fidelity rule 8: unanswered fields are omitted from the printed document.
     omitEmpty: true,
+    // The warranty and the conditions are pages of their own on both source
+    // documents, and a page break here stops the last answered row of the
+    // last section from being stranded above them.
+    termsBreak: true,
     // src: timber-pest-inspection.md:12 — the form's own printed name. The Form Title
     // (line 9) is file metadata the extractor drops, so the sub heading names it.
     formName: 'PEST M8 PEST CONTROL TIMBER PEST INSPECTION REPORT',

@@ -96,7 +96,66 @@ type BaseField = {
   printed?: false | 'whenFlagged'
   /** The key of the question this belongs to, for `printed: 'whenFlagged'`. */
   attachedTo?: string
+  /**
+   * The share of a printed repeater table this column takes, relative to its
+   * siblings. Only meaningful on a `CellDef`: a product and its active
+   * ingredient need more room than a quantity, and columns split evenly when
+   * a template says nothing — which is what a business-authored repeater gets.
+   */
+  width?: number
+  /**
+   * Read this answer back on the finalise sheet, before the report locks.
+   *
+   * A handful per form — what was done, whether it was safe, when the next
+   * visit falls due — because a summary that lists everything is the document
+   * again, and nobody re-reads a document to confirm they wrote it. Which
+   * answers matter is a property of the form, so each template names its own.
+   */
+  summary?: boolean
+  /**
+   * What this question MEANS to the app, as opposed to what it says. The forms
+   * word the same job differently — "Send copy of the report to the client
+   * email above…" on the Service Report, "Send a copy of the Report to the
+   * email address above…" on the other two — and the app must not key
+   * behaviour off wording it has promised to reproduce verbatim.
+   *
+   * `sendCopyToClient` a delivery toggle, seeded Yes when the client has an
+   *                    email on file.
+   * `safetyGate`       "Is it safe to commence work?" — never seeded, and a No
+   *                    is recorded rather than blocking.
+   * `weather`          the weather answer, seeded from the forecast as a
+   *                    suggestion the technician confirms.
+   * `startTime`        when work began, seeded from the job.
+   * `finishTime`       when work ended — never seeded, because a duration is
+   *                    not an observation; the finalise sheet offers now.
+   * `emailTo`          extra recipients.
+   */
+  semantic?: FieldSemantic
+  /**
+   * Offer last visit's answer when a report is started at a site that has had
+   * one before.
+   *
+   * A quarterly service is usually the same treatment, the same products and
+   * the same recommendations as three months ago, and re-entering all of it is
+   * the single biggest tax on the second visit. Only where the answer is about
+   * the PLACE and stays true between visits — what gets treated, what was
+   * found, what to do about it. Never dates, times, weather, GPS, signatures,
+   * photos or free-text comments: those are about the DAY, and a stale one
+   * under a signature is worse than a blank.
+   *
+   * Copied values arrive as suggestions, so nothing prints until the
+   * technician has looked at it.
+   */
+  carryOver?: boolean
 }
+
+export type FieldSemantic =
+  | 'sendCopyToClient'
+  | 'safetyGate'
+  | 'weather'
+  | 'startTime'
+  | 'finishTime'
+  | 'emailTo'
 
 /**
  * Field kinds the builder knows how to render. Adding a state-specific variant
@@ -171,6 +230,14 @@ export type FieldDef =
        * finalised before this option was added already prints.
        */
       format?: 'lines'
+      /**
+       * Take the reading when the question is first shown, without asking —
+       * but ONLY where the browser already holds a granted permission, which
+       * is a decision the technician made once, deliberately, on this device.
+       * Never a prompt: a permission dialog that appears because a section
+       * scrolled into view is one people dismiss without reading.
+       */
+      auto?: boolean
     })
   /**
    * A drawn signature. The image goes to storage under `slot`; only the
@@ -180,6 +247,15 @@ export type FieldDef =
       kind: 'signature'
       slot: string
       role: 'technician' | 'client'
+      /**
+       * The words printed above the pad and agreed to by signing — the Timber
+       * report's client acknowledgment, the Certificate's installer
+       * certification. Frozen with the signature, because what a business
+       * prints can be edited afterwards and what someone agreed to cannot.
+       */
+      statement?: string
+      /** Ask whoever signs to type their name: an agent or tenant may sign. */
+      askName?: boolean
     })
   /**
    * Repeating rows of the same columns — the treatment grid, where one visit
@@ -281,7 +357,6 @@ export type FieldDef =
    */
   | (BaseField & {
       kind: 'emails'
-      semantic?: 'emailTo'
       placeholder?: string
     })
 
@@ -415,6 +490,13 @@ export type SectionDef = {
   fields: Array<FieldDef>
   visibleWhen?: Condition
   /**
+   * Offers one explicit tap that answers this whole section's questions with
+   * their "nothing found" values — the twelve conducive conditions of a clean
+   * inspection. The same property on a `heading` answers only the group
+   * beneath it. Never a stored default: see `quickAnswers.ts`.
+   */
+  quick?: 'allYes' | 'allClear'
+  /**
    * Set only by `sectionsOf()` when wrapping a template that still declares a
    * flat `fields` list. The finished document and the PDF have always printed a
    * "Details" heading, so they print this one too — but the builder never did,
@@ -473,6 +555,15 @@ export type PrintSpec = {
   cover?: { title: string; subtitle?: string }
   /** The heading printed above `terms`. */
   termsHeading?: string
+  /**
+   * Start the terms on a fresh page.
+   *
+   * Both source documents do — the Service Report's warranty is pages 6 and 7,
+   * the Certificate's conditions are its own section — and it keeps the last
+   * row of the last section from being stranded alone above ten pages of
+   * standing prose.
+   */
+  termsBreak?: boolean
   /**
    * Leave unanswered questions off the finished document, as the source
    * vendor prints them — a signed report that reads as forty rows of "—" is
@@ -551,6 +642,13 @@ export type GpsValue = {
   lng: number
   /** Metres. Absent when the device does not report it. */
   altitude?: number
+  /**
+   * The device's own estimate of how wrong it might be, in metres. Shown on
+   * screen, never printed: a reading good to ±8 m and one good to ±300 m look
+   * identical on the page, and only the person standing there can decide
+   * whether to take it again.
+   */
+  accuracy?: number
   at: number
 }
 

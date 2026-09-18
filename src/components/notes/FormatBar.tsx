@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
 import { useEditorState } from '@tiptap/react'
+import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { AtSign, Bold, Heading, Italic, List, ListChecks } from 'lucide-react'
 import type { Editor } from '@tiptap/core'
 import type { ReactNode } from 'react'
@@ -104,23 +104,4 @@ export function FormatBar({
       {trailing && <div className="ml-auto flex items-center gap-0.5">{trailing}</div>}
     </div>
   )
-}
-
-/** Pixels the software keyboard currently covers at the bottom of the window. */
-function useKeyboardInset(): number {
-  const [inset, setInset] = useState(0)
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
-    const update = () =>
-      setInset(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)))
-    update()
-    vv.addEventListener('resize', update)
-    vv.addEventListener('scroll', update)
-    return () => {
-      vv.removeEventListener('resize', update)
-      vv.removeEventListener('scroll', update)
-    }
-  }, [])
-  return inset
 }

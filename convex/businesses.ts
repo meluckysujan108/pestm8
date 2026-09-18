@@ -143,6 +143,35 @@ export const create = mutation({
   },
 })
 
+/**
+ * The report-level settings an owner sets, read back.
+ *
+ * Separate from `getBySlug`, which every page load runs and which deliberately
+ * projects only what the shell needs: these are read on one settings screen by
+ * one role, and widening the query the whole app depends on to carry them
+ * would put them in every route's payload forever.
+ */
+export const reportSettings = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    requireCapability(await requireActor(ctx, businessId), 'business.manage')
+
+    const business = await ctx.db.get(businessId)
+    if (!business) return null
+
+    return {
+      tradingName: business.tradingName,
+      reportBrandName: business.reportBrandName,
+      website: business.website,
+      reportCopyEmail: business.reportCopyEmail,
+      allowTechnicianRecipients: business.allowTechnicianRecipients === true,
+      requireReportToComplete: business.requireReportToComplete === true,
+      /** Falls back to the business address, which is what the header prints. */
+      email: business.email,
+    }
+  },
+})
+
 export const update = mutation({
   args: {
     businessId: v.id('businesses'),
@@ -157,6 +186,12 @@ export const update = mutation({
     phone: v.optional(v.string()),
     email: v.optional(v.string()),
     licenceNumber: v.optional(v.string()),
+    tradingName: v.optional(v.string()),
+    reportBrandName: v.optional(v.string()),
+    website: v.optional(v.string()),
+    reportCopyEmail: v.optional(v.string()),
+    allowTechnicianRecipients: v.optional(v.boolean()),
+    requireReportToComplete: v.optional(v.boolean()),
   },
   handler: async (ctx, { businessId, ...patch }) => {
     const env = await requireActor(ctx, businessId)

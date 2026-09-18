@@ -9,7 +9,11 @@ import {
   signUpActor,
   uniqueEmail,
 } from './fixtures'
-import { createCustomReport, customTemplateArgs } from './fixtures/reportPayloads'
+import {
+  createCustomReport,
+  customSectionUrl,
+  customTemplateArgs,
+} from './fixtures/reportPayloads'
 
 /** Smallest valid PNG — enough to exercise compress → upload → attach. */
 const PNG = Buffer.from(
@@ -49,7 +53,7 @@ test('a photo uploaded in the builder survives onto the finalised document', asy
   )
 
   await signInViaUi(page, email)
-  await page.goto(`/${slug}/reports/${reportId}`)
+  await page.goto(customSectionUrl(slug, reportId))
 
   // The slot announces its own state, so this asserts what a screen reader
   // would hear rather than poking at the <img> the button's label hides. It
@@ -60,7 +64,9 @@ test('a photo uploaded in the builder survives onto the finalised document', asy
   ).toBeEnabled()
 
   // The input is hidden behind the tile, so set files on it directly.
-  await page.locator('input[type=file]').first().setInputFiles({
+  // Scoped to the slot rather than positionally: `.first()` silently
+  // retargets the moment another file input is added to the screen.
+  await page.locator('[data-photo-slot="Before"] input[type=file]').setInputFiles({
     name: 'before.png',
     mimeType: 'image/png',
     buffer: PNG,

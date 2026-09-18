@@ -21,6 +21,23 @@ show a real client's house, signature and contact details, and the text layer pl
 the page anatomy in `docs/reports/README.md` carry everything the build needs. The
 original PDF stays with the owner.
 
+### Redacting once was not enough
+
+`node scripts/check-pii.mjs` runs the same pattern list over every tracked file,
+and it exists because stripping the sources did not keep the details out.
+
+The client's real name sat in two committed test files for weeks — typed in by
+hand while their report was open on the next screen, never copied from a source
+file, so the extraction step never saw it. That is the ordinary way this leaks:
+not through the document you remembered to redact, through the fixture you wrote
+while looking at it.
+
+The check reports `file:line` and the index of the pattern that matched, never
+the matched text, because its output goes to terminals and CI logs. With no
+`scripts/form-redactions.local` present it exits 0 and says so: a machine that
+never had the source cannot leak it, and failing on a missing gitignored file
+would only teach people to skip the check.
+
 ## The corpus is extracted, not transcribed
 
 `scripts/extract-form-strings.mjs` reads the sources and emits
@@ -211,7 +228,12 @@ vendor's output is deliberate and reviewable.
 | Treatment table cells | Comma-joined                                                    | One value per line               | Legible in a 30% column                                           |
 | Photos                | 3-up, centre-cropped to portrait tiles                          | Natural aspect, max height       | A cropped photo can remove the thing it was taken to show         |
 | Section pagination    | A hard page break per section, leaving pages two-thirds blank   | Sections flow                    |                                                                   |
-| Cover                 | Title, subtitle, address                                        | Adds the service date            |                                                                   |
+| Cover                 | Title, subtitle, address                                        | Adds the date the form itself records | Not the moment the lock closed: a report is nearly always finalised on the day of the visit, and "nearly always" is not a thing to print on a record |
+| Red                   | `#ff0000` — band, section headings, the treatment table's header row | The app's own `#FF3B30`     | This is PestM8's document now. Pure red is neither what the app uses on screen nor what a laser printer flatters; the `#fff2f2` label tint is kept exactly |
+| Terms                 | Their own pages                                                 | The same, via `print.termsBreak` | It also stops the last answered row of the last section being stranded above ten pages of standing prose |
+| Photo columns         | Three                                                           | Three for portrait sets, two for landscape | Every photo is drawn `contain` inside a height cap: a portrait in a wide column hits the cap and leaves white space either side, a landscape in a narrow one prints postage-stamp small |
+| Signatures            | The drawn mark, in the value cell                               | The same, with the signer named beneath | A client's pad may be signed by an agent or a tenant; a mark nobody is named beside is weaker evidence |
+| Empty sections and sub-headings | Printed                                               | Dropped from the signed document | Rule 8 removes the answers; this removes the heading left standing over them |
 | Footer                | `Environment friendly, paperless solution by www.formitize.com` | Dropped                          | The operator's document carries the operator's name               |
 | `Version:`            | Counts resubmissions                                            | Counts amendments                | We never mutate a finalised report; a correction is a new version |
 | `Submission ID:`      | Formitize's global id                                           | The business's own report number | Same label, our sequence                                          |
@@ -228,6 +250,29 @@ vendor's output is deliberate and reviewable.
 | Durable notice (Certificate) | Not on the form                                          | Not printed                      | The notice was app-invented. v1 certificates keep printing it exactly as before |
 | Typeface              | The vendor's                                                    | Helvetica, until the PDF redesign | Every character the three forms use is in Helvetica's WinAnsi encoding, verified by rendering and reading the text layer back. An embedded font is a design change, not a correctness fix, and belongs with the redesign |
 
+## What a business may change
+
+The three forms are reproduced word for word so that a correction to their
+wording reaches every business that issues them. A business that needed its own
+cover title or its own signing rule used to have to clone the whole template,
+which forks the wording too and cuts them off from every later fix.
+
+`templateSettings` is the narrow way round that. An owner may set, per form:
+
+| Setting | Reaches |
+| --- | --- |
+| Cover title and subtitle | `print.cover`, so the front page |
+| What the form is called | `print.formName`, so the running footer and the title band |
+| Which pads must be signed | Which `signature` fields are `required`, and therefore the gate that refuses to lock an unsigned report |
+
+Nothing here can change a printed question, an answer list or any wording the
+fidelity tests pin — that is still a clone, and the settings sheet says so.
+
+Settings are applied when a template is resolved, which means they are frozen
+into the snapshot at finalise along with the wording. A finalised report stops
+reading live settings entirely: an owner renaming the form next year must not
+relabel a document a client already has.
+
 ## Validation
 
 The forms barely validate — the Service Report's only mandatory gate is
@@ -242,6 +287,22 @@ template's `validationNotes`, and surfaced to the owner as settings where noted.
   from the last visit) must be confirmed before finalising. Pressing Next on the
   section confirms it, so this costs no extra taps — but nothing the app guessed can
   print under a signature unseen.
+
+Every one of these runs in `src/lib/reportTemplates/validate.ts`, which the builder
+and `reports.finalise` both call with the same payload. They were the browser's rules
+alone until Phase 3, which meant a stale tab, a replayed request or any non-browser
+caller could lock an unsigned, undated document; rules a compliance record only
+advises are not rules. Two of them can only be enforced server-side, and are:
+
+- A required signature must exist **as an image in storage**, not merely as the
+  `{ signedAt }` the control writes into the answers.
+- A required photo field must hold a photo, counted from `reportPhotos` — but only
+  where the caller can count them. Unknown never blocks, because refusing a report
+  the app could not measure locks a technician out of their own work.
+
+A refusal names the questions (`REPORT_INCOMPLETE` carries `issues`), so the form
+marks them and offers a way to each rather than saying "something went wrong". A
+report is judged against the revision it was written under, never today's form.
 
 ## What the source does not say, and we do not invent
 
@@ -258,3 +319,10 @@ include "DO NOT use the product continuously for more than 35 days without an
 evaluation of the state of the infestation and of the efficacy of the treatment."
 The option string prints verbatim; our help text calls it a suspension with
 replacement label instructions, never a "ban" or "new legislation".
+
+A finished report that used that method therefore knows a date nobody has
+written down, and says so on the report itself — `src/lib/reportTemplates/sgar.ts`
+counts thirty-five days from the treatment and the finalised report shows when
+the evaluation is due, late included. It does not book the visit: that is a
+decision with a price and a person attached, and neither is anything the report
+can guess.

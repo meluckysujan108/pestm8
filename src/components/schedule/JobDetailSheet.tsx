@@ -9,7 +9,6 @@ import {
   Check,
   ChevronDown,
   Pencil,
-  Plus,
   Repeat,
   Trash2,
   X,
@@ -30,6 +29,11 @@ import {
 import { WeatherGlyph } from './WeatherGlyph'
 import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
+import {
+  InlineReportsSection,
+  StartReportButtons,
+} from '#/components/reports/InlineReports'
+import { prepareUpload } from '#/lib/images/prepareUpload'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { RepeatValue } from '#/lib/format'
@@ -249,6 +253,20 @@ function JobDetailBody({
                 </span>
               </div>
 
+              {/* The business asked to be stopped here. Said where the tap
+                  happened, and naming the way out — the report section is
+                  directly below. */}
+              {complete.isError && (
+                <p
+                  role="alert"
+                  className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+                >
+                  {complete.error.message.includes('REPORT_REQUIRED')
+                    ? 'Finalise this job’s report first — your business asks for one before a job is marked complete.'
+                    : 'Could not mark this job complete.'}
+                </p>
+              )}
+
               <Section label="Property">
                 <p className="text-row-title text-ink">
                   {job.property?.client?.name}
@@ -333,6 +351,7 @@ function JobDetailBody({
             businessSlug={businessSlug}
             propertyId={job.propertyId}
             jobId={job._id}
+            jobType={job.jobType}
             timezone={timezone}
           />
 
@@ -874,104 +893,68 @@ function PropertyHistory({
  * `reports.listByProperty` already carry `jobId` end to end; this is the
  * first UI that actually uses it.
  */
+/**
+ * What this visit produced, and what else exists at the address.
+ *
+ * Two sections rather than one list: the report for THIS job is the thing a
+ * technician is looking for, and the property's history is context. Both are
+ * drawn by the shared `InlineReportsSection`, which the client sheet uses too
+ * — this used to be a second, quietly diverging copy of the same row.
+ */
 function JobReports({
   businessId,
   businessSlug,
   propertyId,
   jobId,
+  jobType,
   timezone,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
   propertyId: Id<'properties'>
   jobId: Id<'jobs'>
+  jobType: string
   timezone: string
 }) {
   const { data } = useQuery(
     convexQuery(api.reports.listByProperty, { businessId, propertyId }),
   )
-  const reports = data ?? []
-  const forThisJob = reports.filter((r) => r.jobId === jobId)
-  const otherReports = reports.filter((r) => r.jobId !== jobId)
+
+  // `undefined` while the query is out, so the section can say "Loading…"
+  // rather than "no reports for this visit yet" about reports it has not
+  // looked for.
+  const forThisJob = data?.filter((r) => r.jobId === jobId)
+  const elsewhere = data?.filter((r) => r.jobId !== jobId)
 
   return (
-    <Section label="Reports">
-      {forThisJob.length > 0 && (
-        <div className="mb-3 flex flex-col divide-y divide-hairline">
-          {forThisJob.map((report) => (
-            <ReportRow key={report._id} businessSlug={businessSlug} report={report} timezone={timezone} />
-          ))}
-        </div>
+    <>
+      <InlineReportsSection
+        businessSlug={businessSlug}
+        timezone={timezone}
+        label="Reports for this visit"
+        reports={forThisJob}
+        empty="Nothing yet for this visit."
+        action={
+          <StartReportButtons
+            businessId={businessId}
+            businessSlug={businessSlug}
+            propertyId={propertyId}
+            jobId={jobId}
+            jobType={jobType}
+          />
+        }
+      />
+
+      {elsewhere && elsewhere.length > 0 && (
+        <InlineReportsSection
+          businessSlug={businessSlug}
+          timezone={timezone}
+          label="Other reports at this property"
+          reports={elsewhere}
+          empty=""
+        />
       )}
-
-      <Link
-        to="/$businessSlug/reports/new"
-        params={{ businessSlug }}
-        search={{ propertyId, jobId }}
-        className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
-      >
-        <Plus size={16} strokeWidth={1.8} />
-        New report
-      </Link>
-
-      {otherReports.length > 0 && (
-        <>
-          <p className="section-label mb-2 mt-4">Other reports at this property</p>
-          <div className="flex flex-col divide-y divide-hairline">
-            {otherReports.map((report) => (
-              <ReportRow key={report._id} businessSlug={businessSlug} report={report} timezone={timezone} />
-            ))}
-          </div>
-        </>
-      )}
-    </Section>
-  )
-}
-
-function ReportRow({
-  businessSlug,
-  report,
-  timezone,
-}: {
-  businessSlug: string
-  report: {
-    _id: Id<'reports'>
-    legalBasis: string
-    status: string
-    finalisedAt?: number
-    createdAt: number
-  }
-  timezone: string
-}) {
-  return (
-    <Link
-      to="/$businessSlug/reports/$reportId"
-      params={{ businessSlug, reportId: report._id }}
-      className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
-    >
-      <span className="min-w-0">
-        <span className="block truncate text-body text-ink">
-          {report.legalBasis}
-        </span>
-        <span className="text-caption text-muted">
-          {new Intl.DateTimeFormat('en-AU', {
-            timeZone: timezone,
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-          }).format(new Date(report.finalisedAt ?? report.createdAt))}
-        </span>
-      </span>
-      <span
-        className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-          report.status === 'finalised'
-            ? 'bg-green/12 text-green'
-            : 'border border-amber-line bg-amber-bg text-amber-ink'
-        }`}
-      >
-        {report.status === 'finalised' ? 'Finalised' : 'Draft'}
-      </span>
-    </Link>
+    </>
   )
 }
 
@@ -1018,18 +1001,13 @@ function JobPhotos({
     setBusy(true)
     setFailed(false)
     try {
-      const { default: compress } = await import('browser-image-compression')
       for (const file of files) {
-        const compressed = await compress(file, {
-          maxSizeMB: 1,
-          maxWidthOrHeight: 2000,
-          useWebWorker: true,
-        })
+        const image = await prepareUpload(file)
         const uploadUrl = await getUploadUrl({ businessId })
         const res = await fetch(uploadUrl, {
           method: 'POST',
-          headers: { 'Content-Type': compressed.type },
-          body: compressed,
+          headers: { 'Content-Type': image.blob.type },
+          body: image.blob,
         })
         if (!res.ok) throw new Error('upload failed')
         const { storageId } = (await res.json()) as { storageId: string }

@@ -590,9 +590,11 @@ test.describe('custom report templates', () => {
     await page.getByText('Handrail Inspection').click()
 
     // Landed on a real draft against the custom template's own sections —
-    // not a dead end or an error page.
+    // not a dead end or an error page. The report opens on its overview, so
+    // the section is what shows first and its questions are one tap in.
     await expect(page.getByText('Handrail Inspection').first()).toBeVisible()
-    await expect(page.getByText('Client reference')).toBeVisible()
     await expect(page.getByText('Finalise & lock')).toBeVisible()
+    await page.getByRole('button', { name: /Inspection/ }).first().click()
+    await expect(page.getByText('Client reference')).toBeVisible()
   })
 })

@@ -1,12 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { DropdownMenu } from 'radix-ui'
-import { ChevronLeft, Plus, Search, X } from 'lucide-react'
+import { ChevronLeft, Plus } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Role } from '../../../convex/lib/capabilities'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { FilterDropdown } from '#/components/primitives/FilterDropdown'
+import { SearchBox } from '#/components/primitives/SearchBox'
 import { NOTE_TEMPLATES, NOTE_TEMPLATE_KEYS } from '../../../convex/lib/noteTemplates'
 import { useHydrated } from '#/lib/useHydrated'
 import { NoteEditor } from './NoteEditor'
@@ -158,7 +159,7 @@ export function NotesLibrary({
                 onChange={(v) => onFilter(v as LibraryFilter)}
               />
             </div>
-            <SearchBox value={query} onChange={onQuery} />
+            <SearchBox value={query} onChange={onQuery} label="Search notes" />
           </div>
           <div className="min-h-0 flex-1 lg:overflow-y-auto">
             <NoteList
@@ -259,43 +260,5 @@ function OpenNote({
         editable={note.canEdit}
       />
     </>
-  )
-}
-
-/** Local state so typing is instant; the URL (and the query) follow after a pause. */
-function SearchBox({ value, onChange }: { value: string; onChange: (q: string) => void }) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  useEffect(() => {
-    if (draft === value) return
-    const t = setTimeout(() => onChange(draft), 250)
-    return () => clearTimeout(t)
-  }, [draft, value, onChange])
-
-  return (
-    <label className="flex h-10 flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
-      <Search size={16} strokeWidth={2} className="shrink-0 text-muted" />
-      <span className="sr-only">Search notes</span>
-      <input
-        type="search"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder="Search"
-        className="min-w-0 flex-1 bg-transparent text-[16px] text-ink outline-none [&::-webkit-search-cancel-button]:hidden"
-      />
-      {draft && (
-        <button
-          type="button"
-          aria-label="Clear search"
-          onClick={() => {
-            setDraft('')
-            onChange('')
-          }}
-          className="flex size-5 items-center justify-center rounded-full bg-muted-2/40 text-white"
-        >
-          <X size={12} strokeWidth={2.6} />
-        </button>
-      )}
-    </label>
   )
 }

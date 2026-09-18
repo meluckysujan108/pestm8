@@ -8,6 +8,7 @@ import { api } from '../../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
+import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -103,6 +104,7 @@ function BuiltinRow({
   blurb: string
 }) {
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
@@ -113,13 +115,31 @@ function BuiltinRow({
         </span>
       </div>
       <p className="mt-1 text-body text-muted">{blurb}</p>
-      <button
-        type="button"
-        onClick={() => setSheetOpen(true)}
-        className="mt-3 h-10 w-full rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
-      >
-        Clone &amp; edit
-      </button>
+      <div className="mt-3 flex gap-2">
+        {/* Settings first: it is the answer to almost every reason an owner
+            opens this page, and cloning forks the wording they are required
+            to reproduce. */}
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="h-10 flex-1 rounded-xl bg-ink text-[15px] font-semibold text-surface transition active:scale-[.98]"
+        >
+          Settings
+        </button>
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          className="h-10 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
+        >
+          Clone &amp; edit
+        </button>
+      </div>
+      <TemplateSettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        businessId={businessId}
+        templateId={templateId}
+      />
       <CloneBuiltinSheet
         businessId={businessId}
         sourceTemplateId={templateId}

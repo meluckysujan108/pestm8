@@ -13,15 +13,20 @@ import type { CellDef, FieldDef, FieldKind } from '#/lib/reportTemplates'
 /**
  * The kinds a business author may add to their own template.
  *
- * Deliberately not every kind. `derived`, `member`, `cover` and `emails` bind
- * to records, rosters, page geometry and delivery — each is a promise the app
- * keeps on the author's behalf, and offering one in a picker before the
- * plumbing behind it exists would let someone build a form that silently
- * prints nothing. `note` and `heading` are pure content and are offered from
- * the start.
+ * All twenty-two. `derived`, `member`, `cover` and `emails` were held back
+ * while they were promises the app had not yet kept: each binds to something
+ * outside the form — a client record, the team roster, the front page, the
+ * delivery — and offering one in a picker before that plumbing existed would
+ * have let somebody build a form that silently printed nothing.
  *
- * An array, so nothing checks it for completeness — which is why the omissions
- * are listed above rather than left to be discovered.
+ * All four now have it. `reports.get` returns the records a `derived` row
+ * prints and the roster a `member` field chooses from, the cover is its own
+ * page, and `emails` recipients reach `deliveries` through the field's
+ * semantic. So they are offered.
+ *
+ * An array, so nothing checks it for completeness — keep it in step with
+ * `FieldKind` by hand, and `FIELD_KIND_LABELS` (a `Record`) is what the
+ * compiler does check.
  */
 export const ALL_FIELD_KINDS: Array<FieldKind> = [
   'text',
@@ -42,6 +47,10 @@ export const ALL_FIELD_KINDS: Array<FieldKind> = [
   'repeater',
   'heading',
   'note',
+  'derived',
+  'member',
+  'cover',
+  'emails',
 ]
 
 /** The leaf subset `CellDef` restricts a repeater column to — no photos,

@@ -54,7 +54,9 @@ import type { CustomSource } from '../lib/templateSnapshot'
  *
  * Re-running any step is safe: each skips rows it has already converted.
  *
- * Run on: dev (acoustic-schnauzer-237) — 2026-09-12. Prod — NOT YET RUN.
+ * Run on: dev (acoustic-schnauzer-237) — 2026-09-12. Prod
+ * (rare-retriever-156) — 2026-09-16, with the verbatim rewrite: 30 reports,
+ * 12 finalised, both counts zero afterwards, 5 snapshot rows.
  */
 
 // Larger than notesV2's 25. A report averages ~500 bytes and this pass only

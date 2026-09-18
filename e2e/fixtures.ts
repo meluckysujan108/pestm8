@@ -296,6 +296,29 @@ export type RejectionCode =
   | 'INVITE_EMAIL_MISMATCH'
   | 'OWNER_INVITE_FORBIDDEN'
   | 'APP_UPDATE_REQUIRED'
+  // A permanent delete that skipped Recently Deleted — the 30-day safety net
+  // is not optional.
+  | 'NOT_IN_TRASH'
+  // Too many sends from one person in an hour.
+  | 'SEND_RATE_LIMITED'
+  // A word the form itself matches on — renaming it would change behaviour,
+  // not wording.
+  | 'OPTION_PINNED'
+  | 'OPTION_EXISTS'
+  | 'INVALID_OPTION'
+  | 'TOO_MANY_SNIPPETS'
+  | 'INVALID_SNIPPET'
+  // The business asks for a finalised report before a job is complete.
+  | 'REPORT_REQUIRED'
+  // Publishing a form when nothing has changed since it was last issued.
+  | 'NOTHING_TO_PUBLISH'
+  // Amending a report that has already been superseded would fork its number.
+  | 'ALREADY_SUPERSEDED'
+  // A second correction of a document while the first is still a draft.
+  | 'AMENDMENT_IN_PROGRESS'
+  | 'AMENDMENT_REASON_REQUIRED'
+  // Applying someone else's saved signature.
+  | 'NOT_YOUR_SIGNATURE'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

@@ -1,6 +1,9 @@
+import { expect } from '@playwright/test'
 import { api } from '../fixtures'
-import { getTemplate } from '../../src/lib/reportTemplates'
+import { getTemplate, sectionsOf } from '../../src/lib/reportTemplates'
+import { sectionKey } from '../../src/lib/reportTemplates/progress'
 import type { SectionDef } from '../../src/lib/reportTemplates'
+import type { Page } from '@playwright/test'
 import type { ConvexHttpClient } from 'convex/browser'
 import type { Id } from '../../convex/_generated/dataModel'
 
@@ -46,6 +49,9 @@ export async function createReport(
     // cannot drift away from what the specs create.
     legalBasis: getTemplate(template).legalBasis,
     data,
+    // As the current app does. `reportFill.spec.ts` covers a caller that
+    // cannot show suggestions.
+    suggestions: true,
   })
 }
 
@@ -64,6 +70,7 @@ export async function createCustomReport(
     customTemplateId,
     legalBasis,
     data,
+    suggestions: true,
   })
 }
 
@@ -91,6 +98,7 @@ export const FINALISE: Record<TemplateId, Record<string, unknown>> = {
     safeToStart: true,
     treatments: [],
     addPhotos: true,
+    technicianSignature: { signedAt: 1789000000000 },
   },
   timberPestInspection: {
     inspectionDate: '2026-08-28',
@@ -99,6 +107,10 @@ export const FINALISE: Record<TemplateId, Record<string, unknown>> = {
       '12 Monthly Timber Pest Visual Inspection to maintain Warranty',
       'Year 1',
     ],
+    inspectorSignature: { signedAt: 1789000000000 },
+    // The AS form prints the date beside the inspector's signature, and asks
+    // for it in its own right.
+    inspectorSignedDate: '2026-08-28',
   },
   termiteManagementCert: {
     installDate: '2026-08-28',
@@ -107,7 +119,60 @@ export const FINALISE: Record<TemplateId, Record<string, unknown>> = {
     activeConstituent: 'Fipronil 100g/L',
     reinspectionInterval: '12 months',
     durableNoticeFitted: 'Yes',
+    installerSignature: { signedAt: 1789000000000 },
   },
+}
+
+/**
+ * The signature slot each form requires before it can be finalised.
+ *
+ * `finalise` checks storage, not just the timestamp in the answers: a
+ * signature is an image, and a report that claims one without holding it is
+ * exactly what the check exists to stop.
+ */
+const REQUIRED_SLOT: Record<TemplateId, string> = {
+  serviceReport: 'technician',
+  timberPestInspection: 'technician',
+  termiteManagementCert: 'installer',
+}
+
+/** A 1x1 PNG — the smallest thing that is genuinely an image. */
+const SIGNATURE_PNG = Buffer.from(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+  'base64',
+)
+
+/**
+ * Signs a draft the way the pad does: upload the image, then attach it.
+ * Returns the stored image, so a spec can put the same one on a second report
+ * the way a reused saved signature does.
+ */
+export async function signReport(
+  client: ConvexHttpClient,
+  ids: Pick<Ids, 'businessId'>,
+  reportId: Id<'reports'>,
+  slot: string,
+  reuse?: Id<'_storage'>,
+) {
+  let storageId = reuse
+  if (!storageId) {
+    const uploadUrl = await client.mutation(api.reports.generateUploadUrl, {
+      businessId: ids.businessId,
+    })
+    const res = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png' },
+      body: SIGNATURE_PNG,
+    })
+    storageId = ((await res.json()) as { storageId: Id<'_storage'> }).storageId
+  }
+  await client.mutation(api.reports.attachSignature, {
+    businessId: ids.businessId,
+    reportId,
+    storageId,
+    slot,
+  })
+  return storageId
 }
 
 export async function finaliseReport(
@@ -116,7 +181,11 @@ export async function finaliseReport(
   reportId: Id<'reports'>,
   template: TemplateId,
   overrides: Record<string, unknown> = {},
+  reuseSignature?: Id<'_storage'>,
 ) {
+  // Signed first, because the server now refuses an unsigned report — as it
+  // should: every one of these forms is signed before it is issued.
+  await signReport(client, ids, reportId, REQUIRED_SLOT[template], reuseSignature)
   return client.mutation(api.reports.finalise, {
     businessId: ids.businessId,
     reportId,
@@ -147,6 +216,47 @@ export async function saveReportDraft(
  * Those kinds still exist for custom templates; the built-ins that used them
  * were paraphrases of forms the business never issued.
  */
+/**
+ * Waits until the builder can actually be used.
+ *
+ * The report page is server-rendered, so a tap before hydration is dropped —
+ * and `setInputFiles` does not even check. The footer marks itself ready, which
+ * is true on every screen of the fill flow, unlike any one button's label.
+ */
+export async function builderReady(page: Page) {
+  await expect(page.locator('[data-report-footer][data-ready="true"]')).toBeVisible()
+}
+
+/**
+ * The URL of the section a field lives in.
+ *
+ * A report is filled a section at a time, so a spec that wants one control has
+ * to open the screen it is on. Derived from the template rather than written
+ * out, so a form reordered tomorrow does not quietly send a spec to the wrong
+ * screen — it sends it to the right one.
+ */
+export function sectionUrl(
+  slug: string,
+  reportId: Id<'reports'>,
+  template: TemplateId,
+  fieldKey: string,
+): string {
+  const sections = sectionsOf(getTemplate(template))
+  const index = sections.findIndex((section) =>
+    section.fields.some((field) => field.key === fieldKey),
+  )
+  if (index === -1) throw new Error(`No section holds the field ${fieldKey}`)
+  return `/${slug}/reports/${reportId}?s=${sectionKey(sections[index], index)}`
+}
+
+/**
+ * The first section of a business-authored template, which has no declared id
+ * and so is addressed positionally.
+ */
+export function customSectionUrl(slug: string, reportId: Id<'reports'>, index = 0): string {
+  return `/${slug}/reports/${reportId}?s=s${index + 1}`
+}
+
 export function customTemplateArgs(
   overrides: Partial<{ name: string; sections: Array<SectionDef> }> = {},
 ) {

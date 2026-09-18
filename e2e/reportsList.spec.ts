@@ -1,5 +1,13 @@
 import { expect, test } from '@playwright/test'
-import { FIXTURE_PASSWORD, api, signInViaUi, signUpActor, uniqueEmail } from './fixtures'
+import {
+  FIXTURE_PASSWORD,
+  api,
+  expectRejected,
+  setupBusinessWithSub,
+  signInViaUi,
+  signUpActor,
+  uniqueEmail,
+} from './fixtures'
 import {
   createCustomReport,
   createReport,
@@ -120,20 +128,276 @@ test('the reports list buckets by status and searches across client, suburb, and
 
   // Back to All, then search narrows across client/suburb/template together.
   await page.getByRole('tab', { name: 'All' }).click()
-  await page.getByPlaceholder('Search by client, suburb or form').fill('Morley')
+  await page.getByPlaceholder('Client, street, form or #number').fill('Morley')
   await expect(page.getByText(WALKTHROUGH, exact)).toBeVisible()
   await expect(page.getByText(TIMBER, exact)).toHaveCount(0)
   await expect(page.getByText(SERVICE, exact)).toHaveCount(0)
 
   // Search + filter compose: Nguyen text search while on the Draft tab
   // excludes Nguyen's *finalised* report and Roberts entirely.
-  await page.getByPlaceholder('Search by client, suburb or form').fill('Nguyen')
+  await page.getByPlaceholder('Client, street, form or #number').fill('Nguyen')
   await page.getByRole('tab', { name: 'Draft' }).click()
   await expect(page.getByText(TIMBER, exact)).toBeVisible()
   await expect(page.getByText(WALKTHROUGH, exact)).toHaveCount(0)
   await expect(page.getByText(SERVICE, exact)).toHaveCount(0)
 
   // No matches — the empty state, not a blank list.
-  await page.getByPlaceholder('Search by client, suburb or form').fill('nobody-lives-here')
+  await page.getByPlaceholder('Client, street, form or #number').fill('nobody-lives-here')
   await expect(page.getByText('No matches')).toBeVisible()
+})
+
+test.describe('retiring a draft', () => {
+  test('a draft goes to Deleted and comes back, and a finalised report cannot', async () => {
+    const s = await setupBusinessWithSub('list-delete')
+    const draftId = await createReport(s.owner.client, s, 'serviceReport')
+    const lockedId = await createReport(s.owner.client, s, 'serviceReport')
+    await finaliseReport(s.owner.client, s, lockedId, 'serviceReport')
+
+    await s.owner.client.mutation(api.reports.softDelete, {
+      businessId: s.businessId,
+      reportId: draftId,
+    })
+
+    // Out of the list, into Deleted — with its photos, which are evidence
+    // that somebody stood somewhere and took them.
+    const drafts = await s.owner.client.query(api.reports.list, {
+      businessId: s.businessId,
+      filter: 'draft',
+      paginationOpts: { numItems: 25, cursor: null },
+    })
+    expect(drafts.page.map((r) => r._id)).not.toContain(draftId)
+
+    const trash = await s.owner.client.query(api.reports.list, {
+      businessId: s.businessId,
+      filter: 'trash',
+      paginationOpts: { numItems: 25, cursor: null },
+    })
+    expect(trash.page.map((r) => r._id)).toContain(draftId)
+
+    await s.owner.client.mutation(api.reports.restore, {
+      businessId: s.businessId,
+      reportId: draftId,
+    })
+    const back = await s.owner.client.query(api.reports.list, {
+      businessId: s.businessId,
+      filter: 'draft',
+      paginationOpts: { numItems: 25, cursor: null },
+    })
+    expect(back.page.map((r) => r._id)).toContain(draftId)
+
+    // A finalised report is a record the business is required to keep — WA's
+    // pesticide regulations say three years, ten with a termite certificate —
+    // so there is deliberately no way to delete one.
+    await expectRejected(
+      () =>
+        s.owner.client.mutation(api.reports.softDelete, {
+          businessId: s.businessId,
+          reportId: lockedId,
+        }),
+      'REPORT_FINALISED',
+    )
+  })
+
+  test('an owner can clear a subcontractor’s abandoned draft; a stranger cannot', async () => {
+    const s = await setupBusinessWithSub('list-delete-access')
+    const draftId = await createReport(s.sub.client, s, 'serviceReport')
+
+    const outsider = await signUpActor(
+      uniqueEmail('list-delete-outsider'),
+      FIXTURE_PASSWORD,
+      'Nadia',
+    )
+    await expectRejected(
+      () =>
+        outsider.client.mutation(api.reports.softDelete, {
+          businessId: s.businessId,
+          reportId: draftId,
+        }),
+      'NO_ACCESS',
+    )
+
+    // The owner can: an abandoned draft on someone else's name still clutters
+    // the business's own list.
+    await s.owner.client.mutation(api.reports.softDelete, {
+      businessId: s.businessId,
+      reportId: draftId,
+    })
+    const trash = await s.owner.client.query(api.reports.list, {
+      businessId: s.businessId,
+      filter: 'trash',
+      paginationOpts: { numItems: 25, cursor: null },
+    })
+    expect(trash.page.map((r) => r._id)).toContain(draftId)
+  })
+
+  test('deleting permanently only works from Deleted', async () => {
+    const s = await setupBusinessWithSub('list-remove')
+    const draftId = await createReport(s.owner.client, s, 'serviceReport')
+
+    await expectRejected(
+      () =>
+        s.owner.client.mutation(api.reports.remove, {
+          businessId: s.businessId,
+          reportId: draftId,
+        }),
+      'NOT_IN_TRASH',
+    )
+
+    await s.owner.client.mutation(api.reports.softDelete, {
+      businessId: s.businessId,
+      reportId: draftId,
+    })
+    await s.owner.client.mutation(api.reports.remove, {
+      businessId: s.businessId,
+      reportId: draftId,
+    })
+    expect(
+      await s.owner.client.query(api.reports.get, {
+        businessId: s.businessId,
+        reportId: draftId,
+      }),
+    ).toBeNull()
+  })
+})
+
+test('a finalised report is findable by the number the client quotes', async () => {
+  const s = await setupBusinessWithSub('list-search-number')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+  const report = await s.owner.client.query(api.reports.get, {
+    businessId: s.businessId,
+    reportId,
+  })
+  expect(typeof report!.reportNumber).toBe('number')
+
+  // The number on the printed footer is the only thing a client is likely to
+  // have in front of them on the phone.
+  const found = await s.owner.client.query(api.reports.search, {
+    businessId: s.businessId,
+    term: `#${report!.reportNumber}`,
+    filter: 'all',
+  })
+  expect(found.map((r) => r._id)).toContain(reportId)
+})
+
+test('a subcontractor sees their own reports even when newer ones are not theirs', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('list-sub-paging')
+
+  // The sub's report first, then enough of the owner's to fill a page on top
+  // of it. Visibility is applied after the page is drawn, so the sub's first
+  // page is entirely other people's reports — and a list that stopped there
+  // would tell them they have none.
+  const theirs = await createReport(s.sub.client, s, 'serviceReport')
+  // In parallel: twenty-six sequential creates is a minute of setup under
+  // worker contention, and this test is about the paging, not the seeding.
+  await Promise.all(
+    Array.from({ length: 26 }, () => createReport(s.owner.client, s, 'serviceReport')),
+  )
+
+  await signInViaUi(page, s.sub.email)
+  await page.goto(`/${s.slug}/reports`)
+
+  await expect(page.getByRole('tab', { name: 'All' })).toBeEnabled()
+  await expect(
+    page.getByRole('link', { name: new RegExp(SERVICE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }),
+  ).toHaveCount(1, { timeout: 25_000 })
+
+  // Walked to the end rather than read off page one, because page one is
+  // legitimately empty: visibility is applied AFTER the page is drawn, so the
+  // sub's first 25 rows are all the owner's and all filtered away. That is
+  // the whole reason the list advances until a row survives.
+  //
+  // The old assertion here read `page.every(...)` on page one alone, which
+  // `[].every()` makes `true` — so a regression that showed the sub nothing
+  // at all passed as brightly as one that worked.
+  const seen: Array<string> = []
+  // Annotated because the loop assigns the cursor from its own result, and
+  // TypeScript cannot infer a type that refers to itself.
+  let cursor: string | null = null
+  for (let hop = 0; hop < 10; hop += 1) {
+    const chunk: {
+      page: Array<{ _id: string }>
+      isDone: boolean
+      continueCursor: string
+    } = await s.sub.client.query(api.reports.list, {
+      businessId: s.businessId,
+      filter: 'all',
+      paginationOpts: { numItems: 25, cursor },
+    })
+    seen.push(...chunk.page.map((r) => r._id))
+    if (chunk.isDone) break
+    cursor = chunk.continueCursor
+  }
+
+  // Exactly theirs, and nothing of the twenty-six that are not.
+  expect(seen).toEqual([theirs])
+})
+
+test('a report left unfinished is said so, where somebody is looking', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('list-stale')
+  const stale = await createReport(s.owner.client, s, 'serviceReport')
+
+  // Asked for with a threshold of nothing, because no test can wait four days
+  // and a backdating mutation would be a production endpoint that exists only
+  // for tests. The threshold is a real argument: "drafts older than a day" is
+  // a question worth being able to ask.
+  const flagged = await s.owner.client.query(api.reports.staleDrafts, {
+    businessId: s.businessId,
+    olderThanMs: 0,
+  })
+  expect(flagged.count).toBe(1)
+  expect(flagged.oldest).toBe(stale)
+
+  // And a draft made this minute is not nagged about: WA's Pesticides
+  // Regulations give an operator two business days, and a banner that fires
+  // immediately is one nobody reads by the end of the week.
+  const quiet = await s.owner.client.query(api.reports.staleDrafts, {
+    businessId: s.businessId,
+  })
+  expect(quiet.count).toBe(0)
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/reports`)
+  await expect(page.getByRole('tab', { name: 'All' })).toBeEnabled()
+  await expect(page.getByText(/left unfinished/)).toHaveCount(0)
+})
+
+test('a report history is only readable by someone who may read the report', async () => {
+  const s = await setupBusinessWithSub('audit-visibility')
+
+  // The owner's own report. A subcontractor without `canViewAllJobs` cannot
+  // open it — `reports.get` returns null — and its history says who the
+  // client is, where the document went and when.
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, { businessId: s.businessId }, reportId, 'serviceReport')
+
+  expect(
+    await s.sub.client.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    }),
+  ).toBeNull()
+
+  // So the side door has to be shut too: answering the history would hand
+  // over exactly what the front door refuses.
+  expect(
+    await s.sub.client.query(api.auditLog.forEntity, {
+      businessId: s.businessId,
+      entityType: 'reports',
+      entityId: reportId,
+    }),
+  ).toEqual([])
+
+  // The owner, who may read the report, gets its history.
+  const theirs = await s.owner.client.query(api.auditLog.forEntity, {
+    businessId: s.businessId,
+    entityType: 'reports',
+    entityId: reportId,
+  })
+  expect(theirs.some((row) => row.action === 'report.finalise')).toBe(true)
 })

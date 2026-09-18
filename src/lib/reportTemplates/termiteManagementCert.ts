@@ -58,6 +58,20 @@ const WEATHER = [
   'Sunny',
 ]
 
+/**
+ * The words each signature agrees to.
+ *
+ * One copy, printed above the pad by the form's own `note` block and shown on
+ * the pad itself by the signing sheet — so the sentence somebody agreed to and
+ * the sentence the document prints cannot drift apart.
+ */
+// src: termite-certificate.md:126
+const INSTALLER_CERTIFICATION =
+  'I hereby certify that the subterranean termite management system described in this Certificate has been installed at the specified property in accordance with Australian Standard AS 3660.2-2017 and manufacturer requirements.'
+// src: termite-certificate.md:134
+const CLIENT_ACKNOWLEDGMENT =
+  'The Client acknowledges receipt of this Certificate of Installation and agrees to maintain the property in accordance with the recommendations to preserve system effectiveness and warranty.'
+
 // src: termite-certificate.md:62 — AS 3660.2 system types, inline
 const SYSTEM_TYPES = [
   'Chemical Soil Barrier',
@@ -185,6 +199,7 @@ export const termiteManagementCert: ReportTemplate = {
         {
           kind: 'toggle',
           key: 'sendCopy',
+          semantic: 'sendCopyToClient',
           // Drives delivery, never printed — as the same vendor's Service Report
           // PDF shows for its identical control.
           printed: false,
@@ -210,11 +225,17 @@ export const termiteManagementCert: ReportTemplate = {
           required: true,
         },
         // src: termite-certificate.md:28
-        { kind: 'time', key: 'installTime', label: 'Time of Installation' },
+        {
+          kind: 'time',
+          key: 'installTime',
+          label: 'Time of Installation',
+          semantic: 'startTime',
+        },
         // src: termite-certificate.md:29-36 — "(Radio buttons)"
         {
           kind: 'radio',
           key: 'weather',
+          semantic: 'weather',
           label: 'Weather Conditions at time of installation',
           options: verbatim(WEATHER),
         },
@@ -322,6 +343,7 @@ export const termiteManagementCert: ReportTemplate = {
         {
           kind: 'radio',
           key: 'systemType',
+          summary: true,
           label: 'System Type Installed',
           options: verbatim(SYSTEM_TYPES),
         },
@@ -524,6 +546,7 @@ export const termiteManagementCert: ReportTemplate = {
         {
           kind: 'date',
           key: 'nextInspectionDue',
+          summary: true,
           label: 'Next Inspection Due Date',
         },
       ],
@@ -544,14 +567,13 @@ export const termiteManagementCert: ReportTemplate = {
           key: 'certificationStatement',
           label: 'Installer certification statement',
           tone: 'statement',
-          body: paragraph(
-            'I hereby certify that the subterranean termite management system described in this Certificate has been installed at the specified property in accordance with Australian Standard AS 3660.2-2017 and manufacturer requirements.',
-          ),
+          body: paragraph(INSTALLER_CERTIFICATION),
         },
         // src: termite-certificate.md:127 — repeats §2's installer, as the form does
         {
           kind: 'member',
           key: 'certifyingInstaller',
+          summary: true,
           label: 'Installer Name',
           roleWord: 'Installer',
           defaultTo: 'jobAssignee',
@@ -587,6 +609,9 @@ export const termiteManagementCert: ReportTemplate = {
           label: 'Installer Signature',
           slot: 'installer',
           role: 'technician',
+          // Shown on the pad as well as printed above it: signing is agreeing
+          // to these words, and the sheet is where the agreeing happens.
+          statement: INSTALLER_CERTIFICATION,
           required: true,
         },
         // src: termite-certificate.md:132
@@ -600,6 +625,7 @@ export const termiteManagementCert: ReportTemplate = {
           kind: 'emails',
           key: 'emailCertificateTo',
           label: 'Email Certificate To',
+          semantic: 'emailTo',
           // A delivery instruction, not document content.
           printed: false,
         },
@@ -618,9 +644,7 @@ export const termiteManagementCert: ReportTemplate = {
           key: 'acknowledgmentStatement',
           label: 'Client acknowledgment statement',
           tone: 'statement',
-          body: paragraph(
-            'The Client acknowledges receipt of this Certificate of Installation and agrees to maintain the property in accordance with the recommendations to preserve system effectiveness and warranty.',
-          ),
+          body: paragraph(CLIENT_ACKNOWLEDGMENT),
         },
         // src: termite-certificate.md:140 — "Single-line text input"
         {
@@ -635,6 +659,7 @@ export const termiteManagementCert: ReportTemplate = {
           label: 'Client Signature',
           slot: 'client',
           role: 'client',
+          statement: CLIENT_ACKNOWLEDGMENT,
         },
         // src: termite-certificate.md:142
         { kind: 'date', key: 'clientDateSigned', label: 'Date Signed' },
@@ -699,6 +724,10 @@ export const termiteManagementCert: ReportTemplate = {
   print: {
     // Fidelity rule 8: unanswered fields are omitted from the printed document.
     omitEmpty: true,
+    // The warranty and the conditions are pages of their own on both source
+    // documents, and a page break here stops the last answered row of the
+    // last section from being stranded above them.
+    termsBreak: true,
     // src: termite-certificate.md:1, :9 — "Form Title" (not extracted: META_DROP_LABEL / H1)
     formName:
       'Pest M8 Pest Control Existing Structure Certificate of Installation - Termite Management (AS 3660.2-2017)',

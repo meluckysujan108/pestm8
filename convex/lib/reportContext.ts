@@ -20,14 +20,14 @@ export type RosterEntry = {
   phone?: string
 }
 
-const MAX_MEMBERS = 100
+export const MAX_MEMBERS = 100
 
 /**
  * A member's name from the auth component, or '' when it cannot be read. A
  * report page must never fail to open because one identity lookup did; the
  * member then prints by licence alone.
  */
-async function memberName(
+export async function memberName(
   ctx: QueryCtx | MutationCtx,
   userId: string,
 ): Promise<string> {
@@ -186,9 +186,13 @@ export async function buildReportContext(
     business: business
       ? {
           name: business.name,
-          // No separate trading-name column yet; the business name is what it
-          // trades as until one exists.
-          tradingName: business.name,
+          // Each falls back to the one above it: a business that has never
+          // opened the branding settings still prints a coherent header and a
+          // coherent title band, both reading its own name.
+          tradingName: business.tradingName ?? business.name,
+          brandName:
+            business.reportBrandName ?? business.tradingName ?? business.name,
+          website: business.website,
           address: businessAddress || undefined,
           addressLine: business.addressLine,
           suburb: business.suburb,
@@ -215,6 +219,10 @@ export async function buildReportContext(
       : null,
     author: {
       membershipId: report.authorMembershipId,
+      // The footer's "Submitted by:" — who pressed Finalise, which on this
+      // form is often not who the document names as the technician. Frozen,
+      // because a person who leaves the business still submitted it.
+      name: author ? await memberName(ctx, author.userId) : undefined,
       licenceNumber: author?.licenceNumber,
     },
     roster: Object.fromEntries(

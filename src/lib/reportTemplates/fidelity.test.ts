@@ -137,6 +137,13 @@ describe.each(CASES)('$id', ({ id, corpus, sources }) => {
   })
 
   test('A — every source string is used, corrected, or accounted for', () => {
+    // The corpus is a generated, re-runnable artefact, and this test's whole
+    // shape is "nothing in it is unaccounted for". An empty or truncated
+    // corpus therefore passes with flying colours while asserting nothing —
+    // so its size is checked first, and the floor is well under today's count
+    // (271 / 231 / 183) but far above an accident.
+    expect(corpus.length).toBeGreaterThan(100)
+
     const correctionSources = new Set(corrections.map((c) => normalise(c.source)))
     const supersededTexts = new Set(superseded.map((s) => normalise(s.text)))
 
