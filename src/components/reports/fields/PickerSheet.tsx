@@ -44,7 +44,9 @@ function OptionRow({
         }`}
       >
         <span className="flex-1 text-body text-ink">{option.label}</span>
-        {on && <Check size={17} strokeWidth={2.4} className="shrink-0 text-red" />}
+        {on && (
+          <Check size={17} strokeWidth={2.4} className="shrink-0 text-red" />
+        )}
       </button>
     </li>
   )
@@ -250,7 +252,11 @@ export function PickerTrigger({
       // Says the answer, not just the control: a screen reader reading the form
       // back should hear "Product & Active Ingredient — Fipforce HP", the same
       // thing the sighted technician sees.
-      aria-label={values.length === 0 ? `${label} — choose` : `${label} — ${values.join(', ')}`}
+      aria-label={
+        values.length === 0
+          ? `${label} — choose`
+          : `${label} — ${values.join(', ')}`
+      }
       className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-hairline bg-surface px-3 py-2.5 text-left transition active:scale-[.995]"
     >
       {values.length === 0 ? (

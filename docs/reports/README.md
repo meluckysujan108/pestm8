@@ -8,12 +8,12 @@ immutable, and the technician's attention is the scarcest thing in the system.
 
 Four companion pages:
 
-| | |
-|---|---|
-| `fidelity.md` | what the three Pest M8 forms say, and why, clause by clause |
-| `templates.md` | authoring a template: the kinds, the contract, publishing |
+|                 |                                                                            |
+| --------------- | -------------------------------------------------------------------------- |
+| `fidelity.md`   | what the three Pest M8 forms say, and why, clause by clause                |
+| `templates.md`  | authoring a template: the kinds, the contract, publishing                  |
 | `compliance.md` | what the law and the standards require, and what is deliberately not built |
-| `migrations.md` | one page per migration, in the order they must run |
+| `migrations.md` | one page per migration, in the order they must run                         |
 
 This file is how the machinery works.
 
@@ -33,12 +33,12 @@ a change to the builder (ARCHITECTURE §5.3).
 
 Four modules carry the rules, and everything else paints:
 
-| Module | Owns |
-| --- | --- |
-| `visibility.ts` | which questions are being asked right now (`visibleWhen`) |
-| `present.ts` | what one stored ANSWER reads as — codes to labels, dates to prose, a signature to its image |
-| `documentModel.ts` | what the DOCUMENT is made of — sections, headings, blocks, cover, footer |
-| `validate.ts` | whether it can be locked, in the same code the server runs |
+| Module             | Owns                                                                                        |
+| ------------------ | ------------------------------------------------------------------------------------------- |
+| `visibility.ts`    | which questions are being asked right now (`visibleWhen`)                                   |
+| `present.ts`       | what one stored ANSWER reads as — codes to labels, dates to prose, a signature to its image |
+| `documentModel.ts` | what the DOCUMENT is made of — sections, headings, blocks, cover, footer                    |
+| `validate.ts`      | whether it can be locked, in the same code the server runs                                  |
 
 `buildReportModel()` is pure and holds no React, so the Convex Node action, the
 browser and a vitest all build the identical model. Both painters — the DOM one
@@ -100,7 +100,7 @@ technician's signed documents.
 - **Pinned values cannot be renamed.** A template that matches an option by
   value — a locked item, an exclusive one, an answer a `visibleWhen` tests —
   would have its behaviour changed, not its wording. `pinnedValues()` collects
-  them from the built-ins *and* the business's own templates; the editor greys
+  them from the built-ins _and_ the business's own templates; the editor greys
   them rather than letting the mutation refuse afterwards. None of the three
   Pest M8 forms pins anything today: they print these lists and nothing more.
 - Finalised reports are never touched. They carry their own frozen copy of
@@ -108,7 +108,7 @@ technician's signed documents.
 
 **One policy** (`businesses.requireReportToComplete`, Settings › Reports) — a
 job whose type has a form cannot be marked complete until its report is
-*finalised*. Off by default, because it is a policy and not a fact: plenty of
+_finalised_. Off by default, because it is a policy and not a fact: plenty of
 jobs issue no report. A draft does not satisfy it — "there is a half-filled
 draft somewhere" is the state it exists to catch — and a job type
 `suggestTemplate` has no form for is never held up, because a quote visit
@@ -145,7 +145,7 @@ should have to say so in Settings.
 **Copy from last visit.** `reports.lastAtProperty` reads the 40 newest reports
 at the address, keeps the ones `canCarryFrom` allows — finalised, not deleted,
 the same form AND the same revision of it — and ranks those by when they were
-*signed* rather than started. The overview then offers what is still worth
+_signed_ rather than started. The overview then offers what is still worth
 taking, by name.
 
 The bound is applied before the filter, so at a site with weekly service
@@ -204,7 +204,7 @@ reason travels with it rather than sitting in an audit log nobody reads. The
 footer's `Version:` line is what tells the two apart on paper.
 
 Who may correct a document is not who may read it: the person who signed it,
-or someone with `business.manage`. Being able to *see* the team's certificates
+or someone with `business.manage`. Being able to _see_ the team's certificates
 is not permission to reissue one under your own name.
 
 The answers come forward so the correction is the edit rather than the whole
@@ -218,7 +218,7 @@ form again. Three things deliberately do not:
 - **The deliveries.** What the client was sent stays sent; re-sending is a
   decision about the new document.
 
-Photographs *are* carried: they are evidence of what was on site that day, and
+Photographs _are_ carried: they are evidence of what was on site that day, and
 the day has not changed. The rows are new and point at the same stored files,
 which is one reason deleting a draft never deletes a stored file (see
 [Deleting a report](migrations.md#deleting-a-report)).
@@ -344,7 +344,7 @@ client receive on 28 August?" answerable once the renderer has moved on.
   `allowTechnicianRecipients`. The held row IS the request, so approving is a
   decision about something real rather than a send retyped from memory, and
   who asked and who allowed are kept as separate facts. The client's
-  *contacts* count as on file only for someone who may see that client —
+  _contacts_ count as on file only for someone who may see that client —
   the report's author, anyone with `clients.directory`, or anyone with a job
   there. Reading a report is not the client-directory gate, so for anyone
   else a contact's address is simply new, and `deliveries.known` does not
@@ -372,11 +372,11 @@ the report is sent again from its send sheet. `lib/emailConfig`
 is the one definition of "configured" that the sender, the pipeline and that
 history all read:
 
-| Variable | What it is |
-| --- | --- |
-| `RESEND_API_KEY` | The business's own Resend key |
-| `RESEND_FROM_EMAIL` | An address on a domain verified with Resend. Required, not optional: Resend rejects a `from` that is a bare display name, and the business's own address goes in `reply-to` |
-| `RESEND_WEBHOOK_SECRET` | The `whsec_…` for the endpoint, registered in Resend against this deployment's `.site` origin |
+| Variable                | What it is                                                                                                                                                                  |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESEND_API_KEY`        | The business's own Resend key                                                                                                                                               |
+| `RESEND_FROM_EMAIL`     | An address on a domain verified with Resend. Required, not optional: Resend rejects a `from` that is a bare display name, and the business's own address goes in `reply-to` |
+| `RESEND_WEBHOOK_SECRET` | The `whsec_…` for the endpoint, registered in Resend against this deployment's `.site` origin                                                                               |
 
 Set them with `npx convex env set`, and confirm the deployment first —
 `.env.local` points at dev.

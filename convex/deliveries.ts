@@ -1,5 +1,10 @@
 import { ConvexError, v } from 'convex/values'
-import { internalMutation, internalQuery, mutation, query } from './_generated/server'
+import {
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+} from './_generated/server'
 import { internal } from './_generated/api'
 import { requireMembership } from './lib/access'
 import {
@@ -15,7 +20,10 @@ import { emailConfigured } from './lib/emailConfig'
 import { factsFromMembership } from './lib/membershipFacts'
 import type { ActorEnvelope } from './lib/actor'
 import { memberName } from './lib/reportContext'
-import { knownRecipients as knownFor, normaliseAddresses } from './lib/recipients'
+import {
+  knownRecipients as knownFor,
+  normaliseAddresses,
+} from './lib/recipients'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import type { Doc, Id } from './_generated/dataModel'
@@ -80,7 +88,10 @@ export const settle = internalMutation({
     providerMessageId: v.optional(v.string()),
     error: v.optional(v.string()),
   },
-  handler: async (ctx, { deliveryId, status, pdfId, providerMessageId, error }) => {
+  handler: async (
+    ctx,
+    { deliveryId, status, pdfId, providerMessageId, error },
+  ) => {
     const delivery = await ctx.db.get(deliveryId)
     if (!delivery) return
     await ctx.db.patch(deliveryId, {
@@ -107,7 +118,11 @@ export const forSending = internalQuery({
     if (!delivery) return null
     const report = await ctx.db.get(delivery.reportId)
     if (!report || report.deletedAt !== undefined) return null
-    return { delivery, reportId: delivery.reportId, businessId: delivery.businessId }
+    return {
+      delivery,
+      reportId: delivery.reportId,
+      businessId: delivery.businessId,
+    }
   },
 })
 
@@ -232,8 +247,10 @@ export const known = query({
   handler: async (ctx, { businessId, reportId }) => {
     const env = await requireActor(ctx, businessId)
     const report = await ctx.db.get(reportId)
-    if (!report || report.businessId !== businessId) return { addresses: [], unrestricted: false }
-    if (!reportScope(env.scope, report)) return { addresses: [], unrestricted: false }
+    if (!report || report.businessId !== businessId)
+      return { addresses: [], unrestricted: false }
+    if (!reportScope(env.scope, report))
+      return { addresses: [], unrestricted: false }
 
     const business = await ctx.db.get(businessId)
     return {
@@ -302,17 +319,26 @@ export const recordProviderEvent = internalMutation({
       const stillSent = others.some(
         (row) => row._id !== delivery._id && row.status === 'sent',
       )
-      if (!stillSent) await ctx.db.patch(delivery.reportId, { emailedAt: undefined })
+      if (!stillSent)
+        await ctx.db.patch(delivery.reportId, { emailedAt: undefined })
     }
 
-    await recordAudit(ctx, forSelf(delivery.sentByMembershipId ?? delivery.approvedByMembershipId ?? (await anyOwner(ctx, delivery.businessId))), {
-      businessId: delivery.businessId,
-      action: 'report.email.bounced',
-      entityType: 'reports',
-      entityId: delivery.reportId,
-      meta: { to: delivery.to, event, detail },
-      at: Date.now(),
-    })
+    await recordAudit(
+      ctx,
+      forSelf(
+        delivery.sentByMembershipId ??
+          delivery.approvedByMembershipId ??
+          (await anyOwner(ctx, delivery.businessId)),
+      ),
+      {
+        businessId: delivery.businessId,
+        action: 'report.email.bounced',
+        entityType: 'reports',
+        entityId: delivery.reportId,
+        meta: { to: delivery.to, event, detail },
+        at: Date.now(),
+      },
+    )
   },
 })
 
@@ -382,7 +408,12 @@ export const pendingApproval = query({
       )
       .take(50)
 
-    return withActors(ctx, env, businessId, rows.sort((a, b) => b.createdAt - a.createdAt))
+    return withActors(
+      ctx,
+      env,
+      businessId,
+      rows.sort((a, b) => b.createdAt - a.createdAt),
+    )
   },
 })
 
@@ -414,10 +445,12 @@ export const request = mutation({
     // only ever allowed to look at.
     const env = await requireWriteActor(ctx, businessId)
     const report = await ctx.db.get(reportId)
-    if (!report || report.businessId !== businessId) throw new ConvexError('NOT_FOUND')
+    if (!report || report.businessId !== businessId)
+      throw new ConvexError('NOT_FOUND')
     if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
     if (!reportScope(env.scope, report)) throw new ConvexError('NO_ACCESS')
-    if (report.status !== 'finalised') throw new ConvexError('REPORT_NOT_FINALISED')
+    if (report.status !== 'finalised')
+      throw new ConvexError('REPORT_NOT_FINALISED')
 
     const addresses = normaliseAddresses(to)
     if (addresses.length === 0) throw new ConvexError('NO_RECIPIENT')
@@ -428,9 +461,11 @@ export const request = mutation({
     const onFile = await knownToCaller(ctx, env, report)
     // An owner may send where they like; it is their client relationship.
     const unrestricted =
-      hasCapability(env, 'business.manage') || business?.allowTechnicianRecipients === true
+      hasCapability(env, 'business.manage') ||
+      business?.allowTechnicianRecipients === true
     const novel = addresses.filter((address) => !onFile.includes(address))
-    const status = unrestricted || novel.length === 0 ? 'queued' : 'pendingApproval'
+    const status =
+      unrestricted || novel.length === 0 ? 'queued' : 'pendingApproval'
 
     const deliveryId = await ctx.db.insert('reportDeliveries', {
       businessId,
@@ -497,7 +532,10 @@ async function assertWithinSendLimit(
  * the technician's, and who approved it is part of the record.
  */
 export const approve = mutation({
-  args: { businessId: v.id('businesses'), deliveryId: v.id('reportDeliveries') },
+  args: {
+    businessId: v.id('businesses'),
+    deliveryId: v.id('reportDeliveries'),
+  },
   handler: async (ctx, { businessId, deliveryId }) => {
     const env = await requireActor(ctx, businessId)
     requireCapability(env, 'business.manage')
@@ -531,7 +569,10 @@ export const approve = mutation({
 
 /** An owner refuses one. Kept, not deleted: a refusal is part of the record. */
 export const reject = mutation({
-  args: { businessId: v.id('businesses'), deliveryId: v.id('reportDeliveries') },
+  args: {
+    businessId: v.id('businesses'),
+    deliveryId: v.id('reportDeliveries'),
+  },
   handler: async (ctx, { businessId, deliveryId }) => {
     const env = await requireActor(ctx, businessId)
     requireCapability(env, 'business.manage')
@@ -607,8 +648,10 @@ async function withActors(
       }),
     ),
   )
-  const who = (id?: Id<'memberships'>) => (id ? (members.get(id) ?? null) : null)
-  const hidden = (id?: Id<'memberships'>) => id !== undefined && who(id)?.anonymised === true
+  const who = (id?: Id<'memberships'>) =>
+    id ? (members.get(id) ?? null) : null
+  const hidden = (id?: Id<'memberships'>) =>
+    id !== undefined && who(id)?.anonymised === true
 
   return rows.map((row) => {
     const { sentByMembershipId, approvedByMembershipId, ...rest } = row

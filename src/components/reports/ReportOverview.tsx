@@ -1,5 +1,8 @@
 import { Check, ChevronRight, FileText, History, Lock } from 'lucide-react'
-import type { ReportProgress, SectionProgress } from '#/lib/reportTemplates/progress'
+import type {
+  ReportProgress,
+  SectionProgress,
+} from '#/lib/reportTemplates/progress'
 
 /**
  * Where a report is up to, and the way into it.
@@ -31,7 +34,10 @@ export function ReportOverview({
 
       <ul className="overflow-hidden rounded-2xl border border-hairline bg-surface">
         {progress.sections.map((section) => (
-          <li key={section.id} className="border-t border-hairline-2 first:border-t-0">
+          <li
+            key={section.id}
+            className="border-t border-hairline-2 first:border-t-0"
+          >
             <button
               type="button"
               onClick={() => onOpen(section)}
@@ -43,10 +49,16 @@ export function ReportOverview({
                 {section.number ?? ''}
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-row-title text-ink">{section.title}</span>
+                <span className="block truncate text-row-title text-ink">
+                  {section.title}
+                </span>
                 <SectionStatus section={section} />
               </span>
-              <ChevronRight size={18} strokeWidth={1.8} className="shrink-0 text-muted" />
+              <ChevronRight
+                size={18}
+                strokeWidth={1.8}
+                className="shrink-0 text-muted"
+              />
             </button>
           </li>
         ))}
@@ -200,7 +212,9 @@ export function SectionNav({
           className="flex flex-col rounded-lg px-3 py-2 text-left transition data-[active=true]:bg-surface"
         >
           <span className="flex gap-2 text-body text-ink">
-            <span className="tabular-nums text-muted">{section.number ?? ''}</span>
+            <span className="tabular-nums text-muted">
+              {section.number ?? ''}
+            </span>
             <span className="min-w-0 flex-1 truncate">{section.title}</span>
           </span>
           <SectionStatus section={section} />

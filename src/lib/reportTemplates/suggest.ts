@@ -30,7 +30,9 @@ const TEMPLATE_BY_JOB_TYPE: Partial<Record<string, TemplateId>> = {
   'Termite Treatment': 'termiteManagementCert',
 }
 
-export function suggestTemplate(jobType: string | undefined): TemplateId | null {
+export function suggestTemplate(
+  jobType: string | undefined,
+): TemplateId | null {
   if (!jobType) return null
   const direct = TEMPLATE_BY_JOB_TYPE[jobType]
   // Never suggest a form that can no longer be started — a retired template
@@ -39,9 +41,11 @@ export function suggestTemplate(jobType: string | undefined): TemplateId | null 
   // A business that renames a job type ("Rodent Bait Top-Up") still gets the
   // obvious answer, without a table entry per wording.
   const lower = jobType.toLowerCase()
-  if (lower.includes('termite') && lower.includes('inspect')) return 'timberPestInspection'
+  if (lower.includes('termite') && lower.includes('inspect'))
+    return 'timberPestInspection'
   if (lower.includes('termite')) return 'termiteManagementCert'
-  if (lower.includes('timber') || lower.includes('borer')) return 'timberPestInspection'
+  if (lower.includes('timber') || lower.includes('borer'))
+    return 'timberPestInspection'
   return null
 }
 
@@ -62,6 +66,8 @@ const TREATMENT_BY_JOB_TYPE: Partial<Record<string, string>> = {
   Wasps: 'Wasps',
 }
 
-export function treatmentForJobType(jobType: string | undefined): string | null {
+export function treatmentForJobType(
+  jobType: string | undefined,
+): string | null {
   return (jobType && TREATMENT_BY_JOB_TYPE[jobType]) || null
 }

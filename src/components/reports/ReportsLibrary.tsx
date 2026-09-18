@@ -193,7 +193,9 @@ function StaleDrafts({
   businessSlug: string
   onShowDrafts: () => void
 }) {
-  const { data } = useQuery(convexQuery(api.reports.staleDrafts, { businessId }))
+  const { data } = useQuery(
+    convexQuery(api.reports.staleDrafts, { businessId }),
+  )
   if (!data || data.count === 0) return null
 
   return (
@@ -233,13 +235,16 @@ function emptyTitle(segment: Segment, searching: boolean): string {
 }
 
 function emptyBody(segment: Segment, searching: boolean): string {
-  if (searching) return 'Try a client, a street, a form name or a report number.'
+  if (searching)
+    return 'Try a client, a street, a form name or a report number.'
   if (segment === 'trash') {
     return 'Deleted drafts wait here for 30 days. Finalised reports are never deleted.'
   }
-  if (segment === 'sent') return 'Reports you have emailed to a client show up here.'
+  if (segment === 'sent')
+    return 'Reports you have emailed to a client show up here.'
   if (segment === 'finalised') return 'Reports you have locked show up here.'
-  if (segment === 'draft') return 'Reports you are still filling in show up here.'
+  if (segment === 'draft')
+    return 'Reports you are still filling in show up here.'
   return 'Start one from a job, or with the + button.'
 }
 
@@ -261,7 +266,9 @@ function ReportRow({
     <>
       <div className="flex items-baseline justify-between gap-2">
         <span className="text-row-title text-ink">{row.templateName}</span>
-        <span className="shrink-0 text-caption text-muted">{row.legalBasis}</span>
+        <span className="shrink-0 text-caption text-muted">
+          {row.legalBasis}
+        </span>
       </div>
       <p className="mt-0.5 text-body text-ink-2">{row.clientName}</p>
       <p className="mt-0.5 text-caption text-muted">{row.suburb}</p>
@@ -275,7 +282,11 @@ function ReportRow({
         }`}
       >
         {bucket !== 'draft' && <Lock size={11} strokeWidth={2.4} />}
-        {bucket === 'sent' ? 'Sent' : bucket === 'finalised' ? 'Finalised' : 'Draft'}
+        {bucket === 'sent'
+          ? 'Sent'
+          : bucket === 'finalised'
+            ? 'Finalised'
+            : 'Draft'}
       </span>
     </>
   )
@@ -302,7 +313,9 @@ function ReportRow({
       </Link>
       {/* Drafts only. A finalised report is a record the business is required
           to keep, so there is deliberately no way to delete one. */}
-      {row.status === 'draft' && <DeleteDraft businessId={businessId} row={row} />}
+      {row.status === 'draft' && (
+        <DeleteDraft businessId={businessId} row={row} />
+      )}
     </div>
   )
 }
@@ -317,8 +330,10 @@ function DeleteDraft({
   const [confirming, setConfirming] = useState(false)
   const convexDelete = useConvexMutation(api.reports.softDelete)
   const remove = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; reportId: Id<'reports'> }) =>
-      convexDelete(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      reportId: Id<'reports'>
+    }) => convexDelete(args),
     onSuccess: () => setConfirming(false),
   })
 
@@ -371,12 +386,16 @@ function TrashActions({
   const convexRestore = useConvexMutation(api.reports.restore)
   const convexRemove = useConvexMutation(api.reports.remove)
   const restore = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; reportId: Id<'reports'> }) =>
-      convexRestore(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      reportId: Id<'reports'>
+    }) => convexRestore(args),
   })
   const forever = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; reportId: Id<'reports'> }) =>
-      convexRemove(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      reportId: Id<'reports'>
+    }) => convexRemove(args),
     onSuccess: () => setConfirming(false),
   })
 

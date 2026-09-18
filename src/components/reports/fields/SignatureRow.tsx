@@ -59,7 +59,9 @@ export function SignatureRow({
         // Named by which signature it is: a form with a technician's and a
         // client's pad has two of these, and "Sign" alone says nothing about
         // whose name is going on the document.
-        aria-label={existing ? `${label} — signed, sign again` : `${label} — sign`}
+        aria-label={
+          existing ? `${label} — signed, sign again` : `${label} — sign`
+        }
         onClick={() => setSigning(true)}
         className="flex h-12 items-center justify-center gap-2 rounded-xl border border-hairline bg-surface text-[15px] font-semibold text-ink transition active:scale-[.99] disabled:opacity-50"
       >

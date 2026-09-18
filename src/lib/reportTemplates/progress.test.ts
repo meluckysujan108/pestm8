@@ -52,7 +52,11 @@ describe('what a section still wants', () => {
 
   test('names the required answers that are missing, in the order asked', () => {
     const progress = reportProgress(service, {})
-    expect(progress.missingRequired).toEqual(['serviceDate', 'safeToStart', 'technicianSignature'])
+    expect(progress.missingRequired).toEqual([
+      'serviceDate',
+      'safeToStart',
+      'technicianSignature',
+    ])
     expect(progress.complete).toBe(false)
   })
 
@@ -72,19 +76,31 @@ describe('what a section still wants', () => {
 
 describe('answers the app guessed', () => {
   test('block completion until they are confirmed', () => {
-    const progress = reportProgress(service, { ...FILLED_SERVICE, weather: ['Wet'] }, {
-      prefill: { weather: { source: 'forecast' } },
-    })
+    const progress = reportProgress(
+      service,
+      { ...FILLED_SERVICE, weather: ['Wet'] },
+      {
+        prefill: { weather: { source: 'forecast' } },
+      },
+    )
     expect(progress.toConfirm).toEqual(['weather'])
     expect(progress.complete).toBe(false)
-    const section = progress.sections.find((s) => s.toConfirm.includes('weather'))
+    const section = progress.sections.find((s) =>
+      s.toConfirm.includes('weather'),
+    )
     expect(section?.done).toBe(false)
   })
 
   test('stop blocking once confirmed', () => {
-    const progress = reportProgress(service, { ...FILLED_SERVICE, weather: ['Wet'] }, {
-      prefill: { weather: { source: 'forecast', confirmedAt: 1789000000000 } },
-    })
+    const progress = reportProgress(
+      service,
+      { ...FILLED_SERVICE, weather: ['Wet'] },
+      {
+        prefill: {
+          weather: { source: 'forecast', confirmedAt: 1789000000000 },
+        },
+      },
+    )
     expect(progress.toConfirm).toEqual([])
     expect(progress.complete).toBe(true)
   })
@@ -97,9 +113,17 @@ describe('questions that come and go', () => {
     const shownSomewhere = reportProgress(cert, { durableNoticeFitted: 'Yes' })
     // Answering "was a durable notice fitted?" reveals where it was put, so
     // the form asks more than it did a moment ago.
-    expect(shownSomewhere.sections.length).toBeGreaterThanOrEqual(hiddenSomewhere.sections.length)
-    const totalBefore = hiddenSomewhere.sections.reduce((n, s) => n + s.questions, 0)
-    const totalAfter = shownSomewhere.sections.reduce((n, s) => n + s.questions, 0)
+    expect(shownSomewhere.sections.length).toBeGreaterThanOrEqual(
+      hiddenSomewhere.sections.length,
+    )
+    const totalBefore = hiddenSomewhere.sections.reduce(
+      (n, s) => n + s.questions,
+      0,
+    )
+    const totalAfter = shownSomewhere.sections.reduce(
+      (n, s) => n + s.questions,
+      0,
+    )
     expect(totalAfter).toBeGreaterThan(totalBefore)
   })
 })
@@ -111,14 +135,27 @@ describe('photos, which live outside the answers', () => {
       {
         id: 'evidence',
         title: 'Evidence',
-        fields: [{ kind: 'gallery', key: 'photos', label: 'Report Photos', required: true }],
+        fields: [
+          {
+            kind: 'gallery',
+            key: 'photos',
+            label: 'Report Photos',
+            required: true,
+          },
+        ],
       },
     ],
   }
 
   test('count when the caller can see them', () => {
-    expect(reportProgress(withRequiredPhoto, {}, { photoCounts: { photos: 0 } }).missingRequired).toEqual(['photos'])
-    expect(reportProgress(withRequiredPhoto, {}, { photoCounts: { photos: 2 } }).missingRequired).toEqual([])
+    expect(
+      reportProgress(withRequiredPhoto, {}, { photoCounts: { photos: 0 } })
+        .missingRequired,
+    ).toEqual(['photos'])
+    expect(
+      reportProgress(withRequiredPhoto, {}, { photoCounts: { photos: 2 } })
+        .missingRequired,
+    ).toEqual([])
   })
 
   test('never block when the caller cannot', () => {

@@ -84,7 +84,9 @@ function repeaterLines(
   const summarised = field.columns.filter((cell) => cell.summary)
   if (summarised.length === 0 || !Array.isArray(value)) return []
 
-  const rows = (value as Array<RepeaterRow>).filter((row) => !isEmptyRow(field.columns, row))
+  const rows = (value as Array<RepeaterRow>).filter(
+    (row) => !isEmptyRow(field.columns, row),
+  )
 
   return summarised.flatMap((cell) => {
     const seen: Array<string> = []

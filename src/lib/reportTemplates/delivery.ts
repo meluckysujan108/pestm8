@@ -48,13 +48,16 @@ export function deliveryRecipients(
     if (field.semantic === 'emailTo') {
       const value = data[field.key]
       for (const entry of Array.isArray(value) ? value : [value]) {
-        if (typeof entry === 'string' && entry.trim() !== '') asked.add(clean(entry))
+        if (typeof entry === 'string' && entry.trim() !== '')
+          asked.add(clean(entry))
       }
     }
   }
 
   const to = [...asked]
-  const copy = records.businessCopyEmail ? clean(records.businessCopyEmail) : null
+  const copy = records.businessCopyEmail
+    ? clean(records.businessCopyEmail)
+    : null
   return {
     to,
     // Never both: a business that is also the client gets one copy, and it

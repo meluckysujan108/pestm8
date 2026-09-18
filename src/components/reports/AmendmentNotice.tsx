@@ -42,7 +42,11 @@ export function AmendmentNotice({
     <div className="px-4 pt-4">
       {supersededBy && (
         <div className="flex items-start gap-2.5 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5">
-          <History size={16} strokeWidth={1.9} className="mt-0.5 shrink-0 text-amber-ink" />
+          <History
+            size={16}
+            strokeWidth={1.9}
+            className="mt-0.5 shrink-0 text-amber-ink"
+          />
           <p className="min-w-0 flex-1 text-caption text-amber-ink">
             <span className="font-semibold">Replaced.</span> A later version of{' '}
             {numbered} has been issued. This document is kept because the client
@@ -65,7 +69,11 @@ export function AmendmentNotice({
 
       {supersedes && (
         <div className="mt-2 flex items-start gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5">
-          <FilePenLine size={16} strokeWidth={1.9} className="mt-0.5 shrink-0 text-blue" />
+          <FilePenLine
+            size={16}
+            strokeWidth={1.9}
+            className="mt-0.5 shrink-0 text-blue"
+          />
           <p className="min-w-0 flex-1 text-caption text-muted">
             <span className="text-ink">
               Version {version ?? 2} of {numbered}.
@@ -107,7 +115,11 @@ export function CorrectionUnderWay({
   const navigate = useNavigate()
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5">
-      <FilePenLine size={16} strokeWidth={1.9} className="mt-0.5 shrink-0 text-blue" />
+      <FilePenLine
+        size={16}
+        strokeWidth={1.9}
+        className="mt-0.5 shrink-0 text-blue"
+      />
       <p className="min-w-0 flex-1 text-caption text-muted">
         <span className="text-ink">A correction is under way.</span> This
         document stays current until it is issued.{' '}

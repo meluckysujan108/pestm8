@@ -20,7 +20,9 @@ const BODY = '{"type":"email.bounced","data":{"email_id":"abc"}}'
 async function sign(body: string, timestamp: number, secret = SECRET) {
   const key = await crypto.subtle.importKey(
     'raw',
-    Uint8Array.from(atob(secret.replace(/^whsec_/, '')), (c) => c.charCodeAt(0)),
+    Uint8Array.from(atob(secret.replace(/^whsec_/, '')), (c) =>
+      c.charCodeAt(0),
+    ),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign'],
@@ -91,7 +93,11 @@ describe('a signed webhook', () => {
     expect(
       await verifySvix({
         secret: SECRET,
-        headers: { id: ID, timestamp: String(old), signature: await sign(BODY, old) },
+        headers: {
+          id: ID,
+          timestamp: String(old),
+          signature: await sign(BODY, old),
+        },
         body: BODY,
         now,
       }),
@@ -119,12 +125,20 @@ describe('a signed webhook', () => {
   test('accepts the second signature during a secret rotation', async () => {
     // Svix sends every currently-valid signature, space separated. Checking
     // only the first would refuse half the messages mid-rotation.
-    const stale = await sign(BODY, stamp, 'whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=')
+    const stale = await sign(
+      BODY,
+      stamp,
+      'whsec_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+    )
     const good = await sign(BODY, stamp)
     expect(
       await verifySvix({
         secret: SECRET,
-        headers: { id: ID, timestamp: String(stamp), signature: `${stale} ${good}` },
+        headers: {
+          id: ID,
+          timestamp: String(stamp),
+          signature: `${stale} ${good}`,
+        },
         body: BODY,
         now,
       }),

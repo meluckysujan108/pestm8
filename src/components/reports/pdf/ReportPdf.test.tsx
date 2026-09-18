@@ -108,7 +108,9 @@ async function textOf(buffer: Buffer): Promise<string> {
   let text = ''
   for (let page = 1; page <= doc.numPages; page++) {
     const content = await (await doc.getPage(page)).getTextContent()
-    text += content.items.map((item) => ('str' in item ? item.str : '')).join(' ')
+    text += content.items
+      .map((item) => ('str' in item ? item.str : ''))
+      .join(' ')
   }
   // react-pdf's letter-spacing splits glyphs, so collapse before matching.
   return text.replace(/\s+/g, ' ')
@@ -185,7 +187,9 @@ describe('the service report a client receives', () => {
 
   test('a question nobody answered is left out, not printed empty', async () => {
     const { text } = await render(
-      serviceReport({ data: { ...serviceReport().data, finishTime: undefined } }),
+      serviceReport({
+        data: { ...serviceReport().data, finishTime: undefined },
+      }),
     )
     expect(text).toContain('Start Time:')
     expect(text).not.toContain('Finish Time:')
@@ -220,7 +224,8 @@ describe('the service report a client receives', () => {
   test('a report with no front-page photo opens on the report itself', async () => {
     const { buffer } = await render(serviceReport())
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) })
+      .promise
     const [, , width, height] = (await doc.getPage(1)).view
     expect(height).toBeGreaterThan(width)
   })
@@ -345,11 +350,14 @@ describe('evidence', () => {
     for (let n = 1; n <= 12; n++) expect(text).toContain(`Photo ${n}`)
 
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) })
+      .promise
     let drawn = 0
     for (let page = 1; page <= doc.numPages; page++) {
       const ops = await (await doc.getPage(page)).getOperatorList()
-      drawn += ops.fnArray.filter((op) => op === pdfjs.OPS.paintImageXObject).length
+      drawn += ops.fnArray.filter(
+        (op) => op === pdfjs.OPS.paintImageXObject,
+      ).length
     }
     // Twelve photos, and nothing else: this report has no cover photo and its
     // signature is a timestamp rather than an image.
@@ -370,7 +378,8 @@ describe('evidence', () => {
     )
 
     const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
-    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise
+    const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) })
+      .promise
 
     // An image's drawn box is the CTM in force when it is painted: react-pdf
     // emits `transform(w, 0, 0, h, x, y)` immediately before each

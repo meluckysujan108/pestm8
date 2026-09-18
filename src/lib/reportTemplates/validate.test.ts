@@ -34,7 +34,9 @@ describe('what may be signed', () => {
     if (!result.ok) {
       expect(result.issues.map((issue) => issue.key)).toContain('serviceDate')
       expect(result.issues.map((issue) => issue.key)).toContain('safeToStart')
-      expect(result.issues.every((issue) => issue.message.length > 0)).toBe(true)
+      expect(result.issues.every((issue) => issue.message.length > 0)).toBe(
+        true,
+      )
     }
   })
 
@@ -50,7 +52,9 @@ describe('signatures, which are images rather than answers', () => {
     const result = run(COMPLETE, { signedSlots: [] })
     expect(result.ok).toBe(false)
     if (!result.ok) {
-      expect(result.issues.map((issue) => issue.key)).toContain('technicianSignature')
+      expect(result.issues.map((issue) => issue.key)).toContain(
+        'technicianSignature',
+      )
     }
   })
 
@@ -78,7 +82,14 @@ describe('answers the app suggested', () => {
     expect(
       run(
         { ...COMPLETE, weather: ['Wet'] },
-        { prefill: { weather: { source: 'forecast' as const, confirmedAt: 1789000000000 } } },
+        {
+          prefill: {
+            weather: {
+              source: 'forecast' as const,
+              confirmedAt: 1789000000000,
+            },
+          },
+        },
       ).ok,
     ).toBe(true)
   })
@@ -124,7 +135,8 @@ describe('the payload that gets stored', () => {
       treatments: [{ _id: 'row-1', treatment: ['General Pest Control'] }],
     })
     expect(result.ok).toBe(false)
-    if (!result.ok) expect(result.issues.map((i) => i.key)).toContain('treatments')
+    if (!result.ok)
+      expect(result.issues.map((i) => i.key)).toContain('treatments')
   })
 
   test('drops answers to questions that are no longer asked', () => {
@@ -169,13 +181,25 @@ describe('a report written against an older revision', () => {
     expect(result.ok).toBe(true)
   })
 
-  test('by rules that differ from today\'s, which is why the revision is kept', () => {
+  test("by rules that differ from today's, which is why the revision is kept", () => {
     // v1 demanded at least one treatment row; v2 lets an inspection-only visit
     // finalise. Judging a v1 report by today's form would apply a rule it was
     // never filled under — in this direction, a laxer one.
     const inspectionOnly = { ...V1_REPORT, treatments: [] }
-    expect(validateReport({ template: templateFor('serviceReport', 1), data: inspectionOnly, signedSlots: ['technician'] }).ok).toBe(false)
-    expect(validateReport({ template: service, data: inspectionOnly, signedSlots: ['technician'] }).ok).toBe(true)
+    expect(
+      validateReport({
+        template: templateFor('serviceReport', 1),
+        data: inspectionOnly,
+        signedSlots: ['technician'],
+      }).ok,
+    ).toBe(false)
+    expect(
+      validateReport({
+        template: service,
+        data: inspectionOnly,
+        signedSlots: ['technician'],
+      }).ok,
+    ).toBe(true)
   })
 
   test('keeps an answer whose option list has since changed', () => {
@@ -187,6 +211,12 @@ describe('a report written against an older revision', () => {
         { ...V1_REPORT.treatments[0], product: ['Biflex Ultra — old name'] },
       ],
     }
-    expect(validateReport({ template: service, data: renamedSince, signedSlots: ['technician'] }).ok).toBe(true)
+    expect(
+      validateReport({
+        template: service,
+        data: renamedSince,
+        signedSlots: ['technician'],
+      }).ok,
+    ).toBe(true)
   })
 })

@@ -22,7 +22,8 @@ export async function reportSearchText(
   report: Doc<'reports'>,
   templateName: string,
 ): Promise<string> {
-  const frozen = report.status === 'finalised' ? report.contextSnapshot : undefined
+  const frozen =
+    report.status === 'finalised' ? report.contextSnapshot : undefined
 
   const property = await ctx.db.get(report.propertyId)
   const client = property ? await ctx.db.get(property.clientId) : null

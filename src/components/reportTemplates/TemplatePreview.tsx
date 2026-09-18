@@ -45,7 +45,14 @@ export function TemplatePreview({ draft }: { draft: TemplateDraft }) {
             },
           })
         : null,
-    [parsed, draft.name, draft.shortName, draft.legalBasis, draft.blurb, draft.boilerplate],
+    [
+      parsed,
+      draft.name,
+      draft.shortName,
+      draft.legalBasis,
+      draft.blurb,
+      draft.boilerplate,
+    ],
   )
 
   const model = useMemo(() => {
@@ -73,7 +80,11 @@ export function TemplatePreview({ draft }: { draft: TemplateDraft }) {
           role="alert"
           className="flex items-start gap-2.5 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-caption text-amber-ink"
         >
-          <AlertTriangle size={16} strokeWidth={1.9} className="mt-0.5 shrink-0" />
+          <AlertTriangle
+            size={16}
+            strokeWidth={1.9}
+            className="mt-0.5 shrink-0"
+          />
           <span>
             Nothing to preview yet — this form has a problem that has to be
             fixed first. {parsed.error.issues[0]?.message ?? ''}
@@ -104,7 +115,9 @@ export function TemplatePreview({ draft }: { draft: TemplateDraft }) {
                 {section.number ?? index + 1}. {section.title}
               </p>
               {section.preamble && (
-                <p className="mt-1 text-caption text-muted">{section.preamble}</p>
+                <p className="mt-1 text-caption text-muted">
+                  {section.preamble}
+                </p>
               )}
 
               {asked.length === 0 ? (
@@ -117,7 +130,9 @@ export function TemplatePreview({ draft }: { draft: TemplateDraft }) {
                     <li key={field.key} className="flex items-baseline gap-2">
                       <span className="min-w-0 flex-1 truncate text-body text-ink">
                         {field.label}
-                        {field.required && <span className="ml-1 text-red">*</span>}
+                        {field.required && (
+                          <span className="ml-1 text-red">*</span>
+                        )}
                       </span>
                       {field.visibleWhen && (
                         <span className="shrink-0 text-caption text-muted">

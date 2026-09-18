@@ -14,8 +14,14 @@ const serviceReport = getTemplate('serviceReport')
 
 const FILLED = {
   treatments: [
-    { treatment: ['General Pest Control'], product: ['Biflex Ultra (100 g/L Bifenthrin)'] },
-    { treatment: ['General Pest Control'], product: ['Fipforce HP (100 g/L FIPRONIL)'] },
+    {
+      treatment: ['General Pest Control'],
+      product: ['Biflex Ultra (100 g/L Bifenthrin)'],
+    },
+    {
+      treatment: ['General Pest Control'],
+      product: ['Fipforce HP (100 g/L FIPRONIL)'],
+    },
   ],
   safeToStart: true,
   nextVisit: '6 Months',
@@ -26,7 +32,9 @@ const FILLED = {
 describe('what the finalise sheet reads back', () => {
   test('says what was applied, whether it was safe, and when the next visit falls due', () => {
     const lines = reportSummary(serviceReport, FILLED)
-    const byLabel = Object.fromEntries(lines.map((line) => [line.label, line.text]))
+    const byLabel = Object.fromEntries(
+      lines.map((line) => [line.label, line.text]),
+    )
 
     expect(byLabel['Treatment']).toBe('General Pest Control')
     expect(byLabel['Product & Active Ingredient']).toBe(
@@ -41,7 +49,9 @@ describe('what the finalise sheet reads back', () => {
     // two jobs. "General Pest Control, General Pest Control" would read as
     // a mistake in the report rather than a shape of the table.
     const lines = reportSummary(serviceReport, FILLED)
-    expect(lines.find((line) => line.label === 'Treatment')?.text).toBe('General Pest Control')
+    expect(lines.find((line) => line.label === 'Treatment')?.text).toBe(
+      'General Pest Control',
+    )
   })
 
   test('leaves out everything the form did not ask it to carry', () => {
@@ -59,8 +69,13 @@ describe('what the finalise sheet reads back', () => {
   test('an unsafe site is marked, not just stated', () => {
     // The one line that must catch the eye — the form's mandatory gate. It
     // still finalises; the technician has to see that it says No.
-    const lines = reportSummary(serviceReport, { ...FILLED, safeToStart: false })
-    const safety = lines.find((line) => line.label === 'Is it safe to commence work?')
+    const lines = reportSummary(serviceReport, {
+      ...FILLED,
+      safeToStart: false,
+    })
+    const safety = lines.find(
+      (line) => line.label === 'Is it safe to commence work?',
+    )
 
     expect(safety?.text).toBe('No')
     expect(safety?.tone).toBe('warn')
@@ -77,7 +92,9 @@ describe('what the finalise sheet reads back', () => {
       treatments: [{ treatment: [], product: [] }, {}],
       nextVisit: '3 Months',
     })
-    expect(lines.map((line) => line.label)).toEqual(['Your Next Pest Control Visit is due in'])
+    expect(lines.map((line) => line.label)).toEqual([
+      'Your Next Pest Control Visit is due in',
+    ])
   })
 
   test('drops answers to questions the form has hidden', () => {
@@ -97,13 +114,18 @@ describe('across the three forms', () => {
   test('each one summarises to a handful, and none to nothing', () => {
     // A form whose author marked no field would show a blank sheet with a red
     // button — the exact screen this component exists to replace.
-    for (const id of ['serviceReport', 'timberPestInspection', 'termiteManagementCert'] as const) {
+    for (const id of [
+      'serviceReport',
+      'timberPestInspection',
+      'termiteManagementCert',
+    ] as const) {
       const template = getTemplate(id)
       const marked = (template.sections ?? []).flatMap((section) =>
         section.fields.filter(
           (field) =>
             ('summary' in field && field.summary === true) ||
-            (field.kind === 'repeater' && field.columns.some((cell) => cell.summary === true)),
+            (field.kind === 'repeater' &&
+              field.columns.some((cell) => cell.summary === true)),
         ),
       )
       expect(marked.length, id).toBeGreaterThanOrEqual(3)

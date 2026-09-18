@@ -26,7 +26,9 @@ describe('the settings screen reaches every list', () => {
     // `OPTION_SET_LABELS` is `Record<OptionSetKey, string>`, so the compiler
     // already refuses a missing key there; this is the other direction — a
     // key the settings screen forgets to list is a list no owner can edit.
-    expect([...OPTION_SET_KEYS].sort()).toEqual(Object.keys(OPTION_SET_LABELS).sort())
+    expect([...OPTION_SET_KEYS].sort()).toEqual(
+      Object.keys(OPTION_SET_LABELS).sort(),
+    )
     expect(new Set(OPTION_SET_KEYS).size).toBe(OPTION_SET_KEYS.length)
   })
 
@@ -38,7 +40,9 @@ describe('the settings screen reaches every list', () => {
     // that refuses a key the app just offered.
     const expected = [...OPTION_SET_KEYS].sort()
     expect([...optionSetKeySchema.options].sort()).toEqual(expected)
-    expect(optionSetKey.members.map((member) => member.value).sort()).toEqual(expected)
+    expect(optionSetKey.members.map((member) => member.value).sort()).toEqual(
+      expected,
+    )
   })
 
   test('every listed key has a name and a default list behind it', () => {
@@ -67,10 +71,9 @@ describe('what a picker offers first', () => {
   })
 
   test('an option both marked and recently used appears once', () => {
-    expect(usualOrder(['Fipforce HP'], ['Fipforce HP', 'Stardust Pro'])).toEqual([
-      'Fipforce HP',
-      'Stardust Pro',
-    ])
+    expect(
+      usualOrder(['Fipforce HP'], ['Fipforce HP', 'Stardust Pro']),
+    ).toEqual(['Fipforce HP', 'Stardust Pro'])
   })
 
   test('the group stays small enough to be a glance', () => {
@@ -102,7 +105,8 @@ describe('what this member last reached for', () => {
 
   test('it never grows past five, however many reports get filled', () => {
     let recent: Array<string> = []
-    for (let i = 0; i < 40; i++) recent = rememberedOrder(recent, [`option-${i}`])
+    for (let i = 0; i < 40; i++)
+      recent = rememberedOrder(recent, [`option-${i}`])
     expect(recent).toHaveLength(MAX_RECENT)
     expect(recent[0]).toBe('option-39')
   })

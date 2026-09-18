@@ -33,14 +33,20 @@ test.use({ viewport: { width: 390, height: 844 } })
 
 /** Draws on the open signing sheet and commits it. */
 async function sign(page: Page, label: string) {
-  const pad = page.getByRole('img', { name: new RegExp(`${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} — sign here`) })
+  const pad = page.getByRole('img', {
+    name: new RegExp(
+      `${label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')} — sign here`,
+    ),
+  })
   // The mouse does not scroll: drawing at coordinates below the fold lands on
   // whatever is actually there, which is how this once "signed" nothing.
   await pad.scrollIntoViewIfNeeded()
   const box = (await pad.boundingBox())!
   await page.mouse.move(box.x + 24, box.y + box.height * 0.6)
   await page.mouse.down()
-  await page.mouse.move(box.x + box.width - 40, box.y + box.height * 0.35, { steps: 10 })
+  await page.mouse.move(box.x + box.width - 40, box.y + box.height * 0.35, {
+    steps: 10,
+  })
   await page.mouse.up()
   await page.getByRole('button', { name: 'Done' }).click()
 }
@@ -48,11 +54,14 @@ async function sign(page: Page, label: string) {
 async function startJobReport(label: string) {
   const email = uniqueEmail(label)
   const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
-  const { businessId, slug } = await owner.client.mutation(api.businesses.create, {
-    name: `${label} ${Date.now()}`,
-    state: 'WA',
-    timezone: 'Australia/Perth',
-  })
+  const { businessId, slug } = await owner.client.mutation(
+    api.businesses.create,
+    {
+      name: `${label} ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
+  )
   const propertyId = await owner.client.mutation(api.properties.create, {
     businessId,
     clientName: 'J. Nguyen',
@@ -61,7 +70,9 @@ async function startJobReport(label: string) {
     state: 'WA',
     postcode: '6053',
   })
-  const members = await owner.client.query(api.memberships.listForBusiness, { businessId })
+  const members = await owner.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
   const jobId = await owner.client.mutation(api.jobs.create, {
     businessId,
     propertyId,
@@ -71,11 +82,17 @@ async function startJobReport(label: string) {
     scheduledAt: Date.now(),
     durationMinutes: 60,
   })
-  const reportId = await createReport(owner.client, { businessId, propertyId, jobId }, 'serviceReport')
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId, jobId },
+    'serviceReport',
+  )
   return { email, owner, businessId, slug, propertyId, jobId, reportId }
 }
 
-test('a report opens on its sections, and is filled one at a time', async ({ page }) => {
+test('a report opens on its sections, and is filled one at a time', async ({
+  page,
+}) => {
   const { email, slug, reportId } = await startJobReport('fill-sections')
 
   await signInViaUi(page, email)
@@ -90,13 +107,28 @@ test('a report opens on its sections, and is filled one at a time', async ({ pag
     'RISK ASSESSMENT',
     "TECHNICIAN'S RECOMMENDATIONS & COMMENTS",
   ]) {
-    await expect(page.getByRole('button', { name: new RegExp(title.slice(0, 18).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')) }).first()).toBeVisible()
+    await expect(
+      page
+        .getByRole('button', {
+          name: new RegExp(
+            title.slice(0, 18).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
+          ),
+        })
+        .first(),
+    ).toBeVisible()
   }
 
   // Opening one shows that section, and not the rest of the form.
-  await page.getByRole('button', { name: /CLIENT & SITE DETAILS/ }).first().click()
-  await expect(page.getByRole('heading', { name: '1. CLIENT & SITE DETAILS' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: /RISK ASSESSMENT/ })).toHaveCount(0)
+  await page
+    .getByRole('button', { name: /CLIENT & SITE DETAILS/ })
+    .first()
+    .click()
+  await expect(
+    page.getByRole('heading', { name: '1. CLIENT & SITE DETAILS' }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: /RISK ASSESSMENT/ }),
+  ).toHaveCount(0)
   // And says where it sits, in the form's own numbering.
   await expect(page.getByText('Section 1 of 4')).toBeVisible()
 
@@ -104,19 +136,28 @@ test('a report opens on its sections, and is filled one at a time', async ({ pag
   // phone mid-job comes back to the question they were on.
   await page.reload()
   await builderReady(page)
-  await expect(page.getByRole('heading', { name: '1. CLIENT & SITE DETAILS' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: '1. CLIENT & SITE DETAILS' }),
+  ).toBeVisible()
 
   await page.getByRole('button', { name: /^Next:/ }).click()
   await expect(
-    page.getByRole('heading', { name: '2. TREATMENT, PRODUCT(S) AND QUANTITIES APPLIED' }),
+    page.getByRole('heading', {
+      name: '2. TREATMENT, PRODUCT(S) AND QUANTITIES APPLIED',
+    }),
   ).toBeVisible()
 
   await page.getByRole('button', { name: 'Back' }).click()
-  await expect(page.getByRole('heading', { name: '1. CLIENT & SITE DETAILS' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: '1. CLIENT & SITE DETAILS' }),
+  ).toBeVisible()
 })
 
-test('a suggested answer is marked, and confirmed by moving on', async ({ page }) => {
-  const { email, owner, businessId, slug, reportId } = await startJobReport('fill-confirm')
+test('a suggested answer is marked, and confirmed by moving on', async ({
+  page,
+}) => {
+  const { email, owner, businessId, slug, reportId } =
+    await startJobReport('fill-confirm')
 
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
@@ -127,9 +168,14 @@ test('a suggested answer is marked, and confirmed by moving on', async ({ page }
   // On the overview itself: the desktop rail says the same thing, and on a
   // phone it is the overview the technician is looking at.
   await expect(
-    page.getByRole('navigation', { name: 'Report sections' }).getByText(/[0-9]+ answers? to confirm/),
+    page
+      .getByRole('navigation', { name: 'Report sections' })
+      .getByText(/[0-9]+ answers? to confirm/),
   ).toBeVisible()
-  await page.getByRole('button', { name: /CLIENT & SITE DETAILS/ }).first().click()
+  await page
+    .getByRole('button', { name: /CLIENT & SITE DETAILS/ })
+    .first()
+    .click()
   await expect(page.getByText('Suggested').first()).toBeVisible()
 
   // Reading the section and moving on IS the confirmation.
@@ -138,7 +184,10 @@ test('a suggested answer is marked, and confirmed by moving on', async ({ page }
 
   await expect
     .poll(async () => {
-      const report = await owner.client.query(api.reports.get, { businessId, reportId })
+      const report = await owner.client.query(api.reports.get, {
+        businessId,
+        reportId,
+      })
       return report!.prefill!.startTime.confirmedAt !== undefined
     })
     .toBe(true)
@@ -160,7 +209,10 @@ test('an older app is given facts, never a guess it could not confirm', async ()
     legalBasis: getTemplate('serviceReport').legalBasis,
     data: {},
   })
-  const report = await owner.client.query(api.reports.get, { businessId, reportId: olderApp })
+  const report = await owner.client.query(api.reports.get, {
+    businessId,
+    reportId: olderApp,
+  })
   const data = report!.data as Record<string, unknown>
   // The facts still arrive — the day came from the job.
   expect(data.serviceDate).toEqual(expect.any(String))
@@ -170,7 +222,10 @@ test('an older app is given facts, never a guess it could not confirm', async ()
 
   // So what it starts, it can finish…
   await finaliseReport(owner.client, { businessId }, olderApp, 'serviceReport')
-  const locked = await owner.client.query(api.reports.get, { businessId, reportId: olderApp })
+  const locked = await owner.client.query(api.reports.get, {
+    businessId,
+    reportId: olderApp,
+  })
   expect(locked!.status).toBe('finalised')
 
   // …where the same report started by this app, and never confirmed, is
@@ -181,12 +236,20 @@ test('an older app is given facts, never a guess it could not confirm', async ()
   })
   expect(current!.prefill?.startTime).toBeDefined()
   await expectRejected(
-    () => finaliseReport(owner.client, { businessId }, withSuggestions.reportId, 'serviceReport'),
+    () =>
+      finaliseReport(
+        owner.client,
+        { businessId },
+        withSuggestions.reportId,
+        'serviceReport',
+      ),
     'REPORT_INCOMPLETE',
   )
 })
 
-test('finalising an unfinished report says what is missing, and jumps there', async ({ page }) => {
+test('finalising an unfinished report says what is missing, and jumps there', async ({
+  page,
+}) => {
   const { email, slug, reportId } = await startJobReport('fill-blocked')
 
   await signInViaUi(page, email)
@@ -206,7 +269,9 @@ test('finalising an unfinished report says what is missing, and jumps there', as
 
   // And each one is a way into the section that asks it.
   await safety.click()
-  await expect(page.getByRole('heading', { name: '3. RISK ASSESSMENT' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: '3. RISK ASSESSMENT' }),
+  ).toBeVisible()
   await expect(
     page.getByRole('group', { name: 'Is it safe to commence work?' }),
   ).toBeVisible()
@@ -222,16 +287,28 @@ test('a long answer list is searched, not scrolled', async ({ page }) => {
   // A treatment row is four choices, not four stacked lists: 13 products, 13
   // treatments, 10 methods and 6 quantities came to 42 checkbox rows for one
   // row of the grid.
-  await expect(page.getByRole('checkbox', { name: 'Advion Ant Gel (0.5 g/kg Indoxacarb)' })).toHaveCount(0)
+  await expect(
+    page.getByRole('checkbox', {
+      name: 'Advion Ant Gel (0.5 g/kg Indoxacarb)',
+    }),
+  ).toHaveCount(0)
 
-  await page.getByRole('button', { name: /Product & Active Ingredient — choose/ }).click()
+  await page
+    .getByRole('button', { name: /Product & Active Ingredient — choose/ })
+    .click()
   const sheet = page.getByRole('dialog')
-  await expect(sheet.getByRole('checkbox', { name: /Biflex Ultra/ })).toBeVisible()
+  await expect(
+    sheet.getByRole('checkbox', { name: /Biflex Ultra/ }),
+  ).toBeVisible()
 
   // Search narrows to the one the technician is holding.
   await sheet.getByLabel(/^Search /).fill('fipronil')
-  await expect(sheet.getByRole('checkbox', { name: /Fipforce HP/ })).toBeVisible()
-  await expect(sheet.getByRole('checkbox', { name: /Biflex Ultra/ })).toHaveCount(0)
+  await expect(
+    sheet.getByRole('checkbox', { name: /Fipforce HP/ }),
+  ).toBeVisible()
+  await expect(
+    sheet.getByRole('checkbox', { name: /Biflex Ultra/ }),
+  ).toHaveCount(0)
 
   await sheet.getByRole('checkbox', { name: /Fipforce HP/ }).click()
   await sheet.getByRole('button', { name: 'Done' }).click()
@@ -239,15 +316,22 @@ test('a long answer list is searched, not scrolled', async ({ page }) => {
   // And the answer reads back on the row, in the form's own words — including
   // to a screen reader, which hears the answer rather than "choose".
   await expect(
-    page.getByRole('button', { name: /Product & Active Ingredient — Fipforce HP/ }),
+    page.getByRole('button', {
+      name: /Product & Active Ingredient — Fipforce HP/,
+    }),
   ).toBeVisible()
 })
 
-test('a clean safety checklist is one tap, and never answers the safety gate', async ({ page }) => {
-  const { email, owner, businessId, slug, reportId } = await startJobReport('fill-quick')
+test('a clean safety checklist is one tap, and never answers the safety gate', async ({
+  page,
+}) => {
+  const { email, owner, businessId, slug, reportId } =
+    await startJobReport('fill-quick')
 
   await signInViaUi(page, email)
-  await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'safetyChecklists'))
+  await page.goto(
+    sectionUrl(slug, reportId, 'serviceReport', 'safetyChecklists'),
+  )
   await builderReady(page)
 
   await page.getByRole('button', { name: /Yes to all/ }).click()
@@ -256,7 +340,10 @@ test('a clean safety checklist is one tap, and never answers the safety gate', a
 
   await expect
     .poll(async () => {
-      const report = await owner.client.query(api.reports.get, { businessId, reportId })
+      const report = await owner.client.query(api.reports.get, {
+        businessId,
+        reportId,
+      })
       const data = report!.data as Record<string, unknown>
       return { ppe: data.ppe, msds: data.msds, safe: data.safeToStart }
     })
@@ -265,8 +352,11 @@ test('a clean safety checklist is one tap, and never answers the safety gate', a
     .toEqual({ ppe: true, msds: true, safe: undefined })
 })
 
-test('a service report from a job reaches Finalise in well under 30 taps', async ({ page }) => {
-  const { email, owner, businessId, slug, reportId } = await startJobReport('fill-taps')
+test('a service report from a job reaches Finalise in well under 30 taps', async ({
+  page,
+}) => {
+  const { email, owner, businessId, slug, reportId } =
+    await startJobReport('fill-taps')
 
   // Counts what a technician's thumb actually does, rather than the lines this
   // spec happens to be written in: every pointer press on the page, including
@@ -281,7 +371,8 @@ test('a service report from a job reaches Finalise in well under 30 taps', async
       true,
     )
   })
-  const taps = () => page.evaluate(() => (window as unknown as { __taps: number }).__taps)
+  const taps = () =>
+    page.evaluate(() => (window as unknown as { __taps: number }).__taps)
 
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
@@ -290,13 +381,24 @@ test('a service report from a job reaches Finalise in well under 30 taps', async
 
   // 1. Client & site details: everything is already filled from the job and
   // the client record, so this section is read and passed.
-  await page.getByRole('button', { name: /CLIENT & SITE DETAILS/ }).first().click()
+  await page
+    .getByRole('button', { name: /CLIENT & SITE DETAILS/ })
+    .first()
+    .click()
   await page.getByRole('button', { name: /^Next:/ }).click()
 
   // 2. Treatments: the row is already started from the job type, so what is
   // left is what only the technician knows — product, quantity, method.
-  for (const cell of ['Product & Active Ingredient', 'Quantity of Chemicals Used', 'Chemical Application Method']) {
-    await page.getByRole('button', { name: new RegExp(`${cell.replace(/[()&]/g, '\\$&')} — choose`) }).click()
+  for (const cell of [
+    'Product & Active Ingredient',
+    'Quantity of Chemicals Used',
+    'Chemical Application Method',
+  ]) {
+    await page
+      .getByRole('button', {
+        name: new RegExp(`${cell.replace(/[()&]/g, '\\$&')} — choose`),
+      })
+      .click()
     const sheet = page.getByRole('dialog')
     await sheet.getByRole('checkbox').first().click()
     await sheet.getByRole('button', { name: 'Done' }).click()
@@ -305,7 +407,9 @@ test('a service report from a job reaches Finalise in well under 30 taps', async
 
   // 3. Risk assessment: one risk, one action, the safety checks in one tap,
   // and the mandatory gate answered by hand.
-  await page.getByRole('checkbox', { name: 'No Risk Safe Access Given' }).click()
+  await page
+    .getByRole('checkbox', { name: 'No Risk Safe Access Given' })
+    .click()
   await page
     .getByRole('group', { name: 'Action taken to eliminate any risk was' })
     .getByRole('checkbox')
@@ -319,10 +423,14 @@ test('a service report from a job reaches Finalise in well under 30 taps', async
   await page.getByRole('button', { name: /^Next:/ }).click()
 
   // 4. Recommendations and the signature.
-  await page.getByRole('button', { name: "Technician's Signature — sign" }).click()
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
   await sign(page, "Technician's Signature")
   await expect(
-    page.getByRole('button', { name: "Technician's Signature — signed, sign again" }),
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
   ).toBeVisible()
 
   await page.getByRole('button', { name: 'Finalise & lock' }).click()
@@ -337,7 +445,10 @@ test('a service report from a job reaches Finalise in well under 30 taps', async
   // Locked, with nothing typed: no date, no client, no site, no technician.
   await expect
     .poll(async () => {
-      const report = await owner.client.query(api.reports.get, { businessId, reportId })
+      const report = await owner.client.query(api.reports.get, {
+        businessId,
+        reportId,
+      })
       return report!.status
     })
     .toBe('finalised')
@@ -351,11 +462,14 @@ test.describe('starting a report from the job it belongs to', () => {
   test('the job sheet offers the form that job produces', async ({ page }) => {
     const email = uniqueEmail('start-from-job')
     const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
-    const { businessId, slug } = await owner.client.mutation(api.businesses.create, {
-      name: `Start ${Date.now()}`,
-      state: 'WA',
-      timezone: 'Australia/Perth',
-    })
+    const { businessId, slug } = await owner.client.mutation(
+      api.businesses.create,
+      {
+        name: `Start ${Date.now()}`,
+        state: 'WA',
+        timezone: 'Australia/Perth',
+      },
+    )
     const propertyId = await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'J. Nguyen',
@@ -364,7 +478,9 @@ test.describe('starting a report from the job it belongs to', () => {
       state: 'WA',
       postcode: '6053',
     })
-    const members = await owner.client.query(api.memberships.listForBusiness, { businessId })
+    const members = await owner.client.query(api.memberships.listForBusiness, {
+      businessId,
+    })
     await owner.client.mutation(api.jobs.create, {
       businessId,
       propertyId,
@@ -382,18 +498,23 @@ test.describe('starting a report from the job it belongs to', () => {
     // A termite inspection produces a Timber Pest Inspection, so that is the
     // button — not a picker of every form the business issues.
     await page.getByRole('button', { name: /Start Inspection/ }).click()
-    await expect(page.getByRole('heading', { name: 'Timber Pest Inspection' })).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: 'Timber Pest Inspection' }),
+    ).toBeVisible()
     await expect(page.getByText('AS 4349.3-2010').first()).toBeVisible()
   })
 
   test('the picker puts that form first, and says why', async ({ page }) => {
     const email = uniqueEmail('picker-suggests')
     const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
-    const { businessId, slug } = await owner.client.mutation(api.businesses.create, {
-      name: `Picks ${Date.now()}`,
-      state: 'WA',
-      timezone: 'Australia/Perth',
-    })
+    const { businessId, slug } = await owner.client.mutation(
+      api.businesses.create,
+      {
+        name: `Picks ${Date.now()}`,
+        state: 'WA',
+        timezone: 'Australia/Perth',
+      },
+    )
     const propertyId = await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'J. Nguyen',
@@ -402,7 +523,9 @@ test.describe('starting a report from the job it belongs to', () => {
       state: 'WA',
       postcode: '6053',
     })
-    const members = await owner.client.query(api.memberships.listForBusiness, { businessId })
+    const members = await owner.client.query(api.memberships.listForBusiness, {
+      businessId,
+    })
     const jobId = await owner.client.mutation(api.jobs.create, {
       businessId,
       propertyId,
@@ -414,9 +537,13 @@ test.describe('starting a report from the job it belongs to', () => {
     })
 
     await signInViaUi(page, email)
-    await page.goto(`/${slug}/reports/new?propertyId=${propertyId}&jobId=${jobId}`)
+    await page.goto(
+      `/${slug}/reports/new?propertyId=${propertyId}&jobId=${jobId}`,
+    )
 
-    await expect(page.getByText('Suggested for Termite Treatment')).toBeVisible()
+    await expect(
+      page.getByText('Suggested for Termite Treatment'),
+    ).toBeVisible()
     // Suggested, not chosen for them: every form is still on the list.
     for (const name of ['Pest Service Report', 'Timber Pest Inspection']) {
       await expect(page.getByText(name, { exact: true })).toBeVisible()
@@ -438,19 +565,32 @@ async function readyToLock(
   reportId: Id<'reports'>,
   answers: Record<string, unknown>,
 ) {
-  const report = await owner.client.query(api.reports.get, { businessId, reportId })
-  await saveReportDraft(owner.client, { businessId }, reportId, 'serviceReport', {
-    ...(report!.data as Record<string, unknown>),
-    // The pad writes its own timestamp into the answers as well as the image
-    // into storage; the form asks for both.
-    technicianSignature: { signedAt: 1789000000000 },
-    ...answers,
+  const report = await owner.client.query(api.reports.get, {
+    businessId,
+    reportId,
   })
+  await saveReportDraft(
+    owner.client,
+    { businessId },
+    reportId,
+    'serviceReport',
+    {
+      ...(report!.data as Record<string, unknown>),
+      // The pad writes its own timestamp into the answers as well as the image
+      // into storage; the form asks for both.
+      technicianSignature: { signedAt: 1789000000000 },
+      ...answers,
+    },
+  )
   // Suggestions block the lock until someone has looked at them. Here, that
   // someone is the fixture.
   const keys = Object.keys(report!.prefill ?? {})
   if (keys.length > 0) {
-    await owner.client.mutation(api.reports.confirmPrefill, { businessId, reportId, keys })
+    await owner.client.mutation(api.reports.confirmPrefill, {
+      businessId,
+      reportId,
+      keys,
+    })
   }
   await signReport(owner.client, { businessId }, reportId, 'technician')
 }
@@ -459,7 +599,8 @@ test.describe('the sheet before the lock', () => {
   test('reads the report back, and offers the finish time it is the only one who knows', async ({
     page,
   }) => {
-    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-confirm-sheet')
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('fill-confirm-sheet')
 
     await readyToLock(owner, businessId, reportId, {
       treatments: [
@@ -484,7 +625,9 @@ test.describe('the sheet before the lock', () => {
     const sheet = page.getByRole('dialog')
     // What the report says, in the form's own words — not a field dump.
     await expect(sheet.getByText('General Pest Control')).toBeVisible()
-    await expect(sheet.getByText('Biflex Ultra (100 g/L Bifenthrin)')).toBeVisible()
+    await expect(
+      sheet.getByText('Biflex Ultra (100 g/L Bifenthrin)'),
+    ).toBeVisible()
     await expect(sheet.getByText('6 Months')).toBeVisible()
     // The gate answered No still locks — and must be impossible to miss.
     await expect(sheet.getByText('No', { exact: true })).toBeVisible()
@@ -498,16 +641,25 @@ test.describe('the sheet before the lock', () => {
 
     await expect
       .poll(async () => {
-        const report = await owner.client.query(api.reports.get, { businessId, reportId })
+        const report = await owner.client.query(api.reports.get, {
+          businessId,
+          reportId,
+        })
         return (report!.data as Record<string, unknown>).finishTime
       })
       .toMatch(/^\d{2}:\d{2}$/)
   })
 
-  test('the document itself can be read before it is locked', async ({ page }) => {
-    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-preview')
+  test('the document itself can be read before it is locked', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('fill-preview')
 
-    await readyToLock(owner, businessId, reportId, { safeToStart: true, treatments: [] })
+    await readyToLock(owner, businessId, reportId, {
+      safeToStart: true,
+      treatments: [],
+    })
 
     await signInViaUi(page, email)
     await page.goto(`/${slug}/reports/${reportId}`)
@@ -527,7 +679,10 @@ test.describe('the sheet before the lock', () => {
     await expect
       .poll(
         async () => {
-          const report = await owner.client.query(api.reports.get, { businessId, reportId })
+          const report = await owner.client.query(api.reports.get, {
+            businessId,
+            reportId,
+          })
           return report!.previewStorageId ?? null
         },
         { timeout: 30_000 },
@@ -535,27 +690,40 @@ test.describe('the sheet before the lock', () => {
       .not.toBeNull()
 
     // Still a draft: reading it is not agreeing to it.
-    const report = await owner.client.query(api.reports.get, { businessId, reportId })
+    const report = await owner.client.query(api.reports.get, {
+      businessId,
+      reportId,
+    })
     expect(report!.status).toBe('draft')
   })
 
   test('backing out of it changes nothing', async ({ page }) => {
-    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-sheet-cancel')
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('fill-sheet-cancel')
 
     // No treatments at all: an inspection-only visit finalises, and the row
     // the job type started is either completed or dropped.
-    await readyToLock(owner, businessId, reportId, { safeToStart: true, treatments: [] })
+    await readyToLock(owner, businessId, reportId, {
+      safeToStart: true,
+      treatments: [],
+    })
 
     await signInViaUi(page, email)
     await page.goto(`/${slug}/reports/${reportId}`)
     await builderReady(page)
     await page.getByRole('button', { name: 'Finalise & lock' }).click()
-    await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Close' })
+      .click()
 
     // Still editable: opening the sheet is asking what would happen, not
     // agreeing to it.
     await expect(page.getByRole('dialog')).toHaveCount(0)
-    const report = await owner.client.query(api.reports.get, { businessId, reportId })
+    const report = await owner.client.query(api.reports.get, {
+      businessId,
+      reportId,
+    })
     expect(report!.status).toBe('draft')
   })
 })
@@ -569,7 +737,11 @@ test.describe('the sheet before the lock', () => {
  * browser to do that. What can be tested is the contract either way — if this
  * device holds answers the server never acknowledged, they are offered back.
  */
-async function seedMirror(page: Page, reportId: string, data: Record<string, unknown>) {
+async function seedMirror(
+  page: Page,
+  reportId: string,
+  data: Record<string, unknown>,
+) {
   await page.evaluate(
     ([key, answers]) =>
       new Promise<void>((resolve, reject) => {
@@ -620,8 +792,11 @@ async function mirrored(page: Page, reportId: string) {
 }
 
 test.describe('answers that never reached the server', () => {
-  test('are offered back, and putting them back is what saves them', async ({ page }) => {
-    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-mirror')
+  test('are offered back, and putting them back is what saves them', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('fill-mirror')
 
     await signInViaUi(page, email)
     await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'comments'))
@@ -643,14 +818,20 @@ test.describe('answers that never reached the server', () => {
     // rather than a second copy of the same loss.
     await expect
       .poll(async () => {
-        const report = await owner.client.query(api.reports.get, { businessId, reportId })
+        const report = await owner.client.query(api.reports.get, {
+          businessId,
+          reportId,
+        })
         return (report!.data as Record<string, unknown>).comments
       })
       .toBe('Nest behind the meter box')
   })
 
-  test('are discarded when they are not wanted, and stay discarded', async ({ page }) => {
-    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-mirror-no')
+  test('are discarded when they are not wanted, and stay discarded', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('fill-mirror-no')
 
     await signInViaUi(page, email)
     await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'comments'))
@@ -659,7 +840,10 @@ test.describe('answers that never reached the server', () => {
     await seedMirror(page, reportId, { comments: 'Typed on the wrong report' })
     await page.reload()
     await builderReady(page)
-    await page.getByRole('dialog').getByRole('button', { name: 'Discard' }).click()
+    await page
+      .getByRole('dialog')
+      .getByRole('button', { name: 'Discard' })
+      .click()
 
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(page.getByLabel("Technician's Comments")).toHaveValue('')
@@ -669,7 +853,10 @@ test.describe('answers that never reached the server', () => {
     await builderReady(page)
     await expect(page.getByRole('dialog')).toHaveCount(0)
 
-    const report = await owner.client.query(api.reports.get, { businessId, reportId })
+    const report = await owner.client.query(api.reports.get, {
+      businessId,
+      reportId,
+    })
     expect((report!.data as Record<string, unknown>).comments).toBeUndefined()
   })
 
@@ -684,7 +871,10 @@ test.describe('answers that never reached the server', () => {
     await page.getByLabel("Technician's Comments").fill('Ants at the meter box')
     await expect
       .poll(async () => {
-        const report = await owner.client.query(api.reports.get, { businessId, reportId })
+        const report = await owner.client.query(api.reports.get, {
+          businessId,
+          reportId,
+        })
         return (report!.data as Record<string, unknown>).comments
       })
       .toBe('Ants at the meter box')
@@ -701,12 +891,17 @@ test.describe('the one question the phone answers better', () => {
     page,
     context,
   }) => {
-    const { email, owner, businessId, slug, reportId } = await startJobReport('fill-gps')
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('fill-gps')
 
     // Granted once, deliberately, on this device — which is the only state the
     // form is allowed to act on.
     await context.grantPermissions(['geolocation'])
-    await context.setGeolocation({ latitude: -31.9187, longitude: 115.9315, accuracy: 8 })
+    await context.setGeolocation({
+      latitude: -31.9187,
+      longitude: 115.9315,
+      accuracy: 8,
+    })
 
     await signInViaUi(page, email)
     await page.goto(sectionUrl(slug, reportId, 'serviceReport', 'location'))
@@ -720,14 +915,19 @@ test.describe('the one question the phone answers better', () => {
 
     await expect
       .poll(async () => {
-        const report = await owner.client.query(api.reports.get, { businessId, reportId })
+        const report = await owner.client.query(api.reports.get, {
+          businessId,
+          reportId,
+        })
         const gps = (report!.data as Record<string, { lat?: number }>).location
         return gps.lat
       })
       .toBeCloseTo(-31.9187, 3)
   })
 
-  test('asks for nothing when the permission has never been given', async ({ page }) => {
+  test('asks for nothing when the permission has never been given', async ({
+    page,
+  }) => {
     const { email, slug, reportId } = await startJobReport('fill-gps-none')
 
     await signInViaUi(page, email)
@@ -745,12 +945,18 @@ test.describe('the one question the phone answers better', () => {
 })
 
 test.describe('reports where the work is', () => {
-  test('a job sheet separates this visit from the property’s history', async ({ page }) => {
-    const { email, owner, businessId, slug, reportId } = await startJobReport('inline-job')
+  test('a job sheet separates this visit from the property’s history', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('inline-job')
 
     // A second report at the same address, from no job at all: the property's
     // history, not this visit's.
-    const property = await owner.client.query(api.reports.get, { businessId, reportId })
+    const property = await owner.client.query(api.reports.get, {
+      businessId,
+      reportId,
+    })
     await createReport(
       owner.client,
       { businessId, propertyId: property!.propertyId },
@@ -763,7 +969,9 @@ test.describe('reports where the work is', () => {
     // The report for THIS job is the thing a technician came looking for; the
     // rest is context. Retrying the tap: the schedule is server-rendered, and
     // one that lands before hydration opens nothing.
-    const thisVisit = sheet.getByRole('heading', { name: 'Reports for this visit' })
+    const thisVisit = sheet.getByRole('heading', {
+      name: 'Reports for this visit',
+    })
     await clickUntil(
       page.getByRole('button', { name: /General Pest Control/ }).first(),
       () => expect(thisVisit).toBeVisible({ timeout: 3_000 }),
@@ -775,7 +983,9 @@ test.describe('reports where the work is', () => {
     // Named for the form, not for the standard it was written to — three
     // different documents all used to read "APVMA · AEPMA".
     await expect(sheet.getByText('Pest Service Report').first()).toBeVisible()
-    await expect(sheet.getByText('Timber Pest Inspection').first()).toBeVisible()
+    await expect(
+      sheet.getByText('Timber Pest Inspection').first(),
+    ).toBeVisible()
   })
 
   test('a client with no reports is told so, rather than shown nothing', async ({
@@ -783,11 +993,14 @@ test.describe('reports where the work is', () => {
   }) => {
     const email = uniqueEmail('inline-client')
     const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
-    const { businessId, slug } = await owner.client.mutation(api.businesses.create, {
-      name: `Inline ${Date.now()}`,
-      state: 'WA',
-      timezone: 'Australia/Perth',
-    })
+    const { businessId, slug } = await owner.client.mutation(
+      api.businesses.create,
+      {
+        name: `Inline ${Date.now()}`,
+        state: 'WA',
+        timezone: 'Australia/Perth',
+      },
+    )
     await owner.client.mutation(api.properties.create, {
       businessId,
       clientName: 'J. Nguyen',
@@ -877,7 +1090,8 @@ test('the second visit to the same address costs a fraction of the first', async
       true,
     )
   })
-  const taps = () => page.evaluate(() => (window as unknown as { __taps: number }).__taps)
+  const taps = () =>
+    page.evaluate(() => (window as unknown as { __taps: number }).__taps)
 
   await signInViaUi(page, s.owner.email)
   await page.goto(`/${s.slug}/reports/${second}`)
@@ -891,7 +1105,10 @@ test('the second visit to the same address costs a fraction of the first', async
 
   // What is left is what only today's technician knows, and passing each
   // section is what confirms the answers copied into it.
-  await page.getByRole('button', { name: /CLIENT & SITE DETAILS/ }).first().click()
+  await page
+    .getByRole('button', { name: /CLIENT & SITE DETAILS/ })
+    .first()
+    .click()
   // Waited for between taps, not just clicked twice: the footer button keeps
   // its role and its `Next:` prefix from screen to screen, so a second click
   // can land on the one the first is still replacing.
@@ -911,10 +1128,14 @@ test('the second visit to the same address costs a fraction of the first', async
     .click()
   await page.getByRole('button', { name: /^Next: 4\./ }).click()
 
-  await page.getByRole('button', { name: "Technician's Signature — sign" }).click()
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
   await sign(page, "Technician's Signature")
   await expect(
-    page.getByRole('button', { name: "Technician's Signature — signed, sign again" }),
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
   ).toBeVisible()
 
   await page.getByRole('button', { name: 'Finalise & lock' }).click()
@@ -948,7 +1169,10 @@ test.describe('the second visit to the same address', () => {
       await startJobReport('fill-return')
 
     // The first visit: the full cost, paid once.
-    const first = await owner.client.query(api.reports.get, { businessId, reportId })
+    const first = await owner.client.query(api.reports.get, {
+      businessId,
+      reportId,
+    })
     const suggested = Object.keys(first!.prefill ?? {})
     if (suggested.length > 0) {
       await owner.client.mutation(api.reports.confirmPrefill, {
@@ -957,21 +1181,27 @@ test.describe('the second visit to the same address', () => {
         keys: suggested,
       })
     }
-    await finaliseReport(owner.client, { businessId }, reportId, 'serviceReport', {
-      ...(first!.data as Record<string, unknown>),
-      safeToStart: true,
-      treatments: [
-        {
-          _id: 'first-row',
-          treatment: ['Ants'],
-          product: ['Fipforce HP (100 g/L FIPRONIL)'],
-          quantity: ['100ml/10L'],
-          method: ['Spray'],
-        },
-      ],
-      nextVisit: '3 Months',
-      housekeeping: ['Remove all rubbish from around the house'],
-    })
+    await finaliseReport(
+      owner.client,
+      { businessId },
+      reportId,
+      'serviceReport',
+      {
+        ...(first!.data as Record<string, unknown>),
+        safeToStart: true,
+        treatments: [
+          {
+            _id: 'first-row',
+            treatment: ['Ants'],
+            product: ['Fipforce HP (100 g/L FIPRONIL)'],
+            quantity: ['100ml/10L'],
+            method: ['Spray'],
+          },
+        ],
+        nextVisit: '3 Months',
+        housekeeping: ['Remove all rubbish from around the house'],
+      },
+    )
 
     const second = await createReport(
       owner.client,
@@ -998,7 +1228,9 @@ test.describe('the second visit to the same address', () => {
     await page.goto(sectionUrl(slug, second, 'serviceReport', 'treatments'))
     await builderReady(page)
     await expect(
-      page.getByRole('button', { name: /Product & Active Ingredient — Fipforce HP/ }),
+      page.getByRole('button', {
+        name: /Product & Active Ingredient — Fipforce HP/,
+      }),
     ).toBeVisible()
 
     // ...and marked, because a guess never prints under a signature until the

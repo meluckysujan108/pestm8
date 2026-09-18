@@ -31,14 +31,34 @@ import type { ReportModel } from '../../../lib/reportTemplates/documentModel'
  */
 const styles = StyleSheet.create({
   page: { padding: 0, backgroundColor: COLOURS.white },
-  photo: { position: 'absolute', top: 0, left: 0, right: 0, height: '46%', objectFit: 'cover' },
+  photo: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '46%',
+    objectFit: 'cover',
+  },
   // No photo: a red panel of the same height, so the page keeps its shape
   // rather than opening on half a sheet of white. Graded rather than flat —
   // half a page of one solid colour reads as a printing fault.
   panel: { position: 'absolute', top: 0, left: 0, right: 0, height: '46%' },
   wave: { position: 'absolute', top: '33%', left: 0, right: 0, height: '17%' },
-  logo: { position: 'absolute', top: '55%', left: SIZES.pageX, width: 132, height: 34, objectFit: 'contain', objectPosition: 'left' },
-  block: { position: 'absolute', top: '64%', left: SIZES.pageX, right: SIZES.pageX },
+  logo: {
+    position: 'absolute',
+    top: '55%',
+    left: SIZES.pageX,
+    width: 132,
+    height: 34,
+    objectFit: 'contain',
+    objectPosition: 'left',
+  },
+  block: {
+    position: 'absolute',
+    top: '64%',
+    left: SIZES.pageX,
+    right: SIZES.pageX,
+  },
   rule: { height: 2, backgroundColor: COLOURS.red },
   title: {
     fontSize: 38,
@@ -46,7 +66,12 @@ const styles = StyleSheet.create({
     color: '#5A5A5F',
     paddingVertical: 12,
   },
-  subtitle: { fontSize: 12, fontFamily: FONT.bold, color: COLOURS.ink, marginTop: 12 },
+  subtitle: {
+    fontSize: 12,
+    fontFamily: FONT.bold,
+    color: COLOURS.ink,
+    marginTop: 12,
+  },
   address: { fontSize: 11, color: COLOURS.ink2, marginTop: 5 },
   date: { fontSize: 10, color: COLOURS.muted, marginTop: 3 },
   watermark: {
@@ -76,7 +101,11 @@ export function CoverPage({
       {cover.photo ? (
         <Image src={cover.photo.url} style={styles.photo} />
       ) : (
-        <Svg style={styles.panel} viewBox="0 0 100 100" preserveAspectRatio="none">
+        <Svg
+          style={styles.panel}
+          viewBox="0 0 100 100"
+          preserveAspectRatio="none"
+        >
           <Defs>
             <LinearGradient id="coverPanel" x1="0" y1="0" x2="0.35" y2="1">
               <Stop offset="0" stopColor={COLOURS.red} />
@@ -110,7 +139,9 @@ export function CoverPage({
         <View style={styles.rule} />
         <Text style={styles.title}>{cover.title}</Text>
         <View style={styles.rule} />
-        {cover.subtitle && <Text style={styles.subtitle}>{cover.subtitle}</Text>}
+        {cover.subtitle && (
+          <Text style={styles.subtitle}>{cover.subtitle}</Text>
+        )}
         {cover.address && <Text style={styles.address}>{cover.address}</Text>}
         {/* The vendor's cover carries no date. A document a client files for
             years should say when the visit was without being opened. */}

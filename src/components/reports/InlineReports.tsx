@@ -73,7 +73,9 @@ export function InlineReportsSection({
             ))}
           </div>
         )}
-        {action && <div className="border-t border-hairline p-2.5">{action}</div>}
+        {action && (
+          <div className="border-t border-hairline p-2.5">{action}</div>
+        )}
       </div>
     </section>
   )
@@ -89,7 +91,11 @@ function ReportLine({
   timezone: string
 }) {
   const bucket =
-    report.status === 'draft' ? 'draft' : report.emailedAt ? 'sent' : 'finalised'
+    report.status === 'draft'
+      ? 'draft'
+      : report.emailedAt
+        ? 'sent'
+        : 'finalised'
 
   return (
     <Link
@@ -124,7 +130,11 @@ function ReportLine({
         }`}
       >
         {bucket !== 'draft' && <Lock size={10} strokeWidth={2.6} />}
-        {bucket === 'sent' ? 'Sent' : bucket === 'finalised' ? 'Finalised' : 'Draft'}
+        {bucket === 'sent'
+          ? 'Sent'
+          : bucket === 'finalised'
+            ? 'Finalised'
+            : 'Draft'}
       </span>
     </Link>
   )

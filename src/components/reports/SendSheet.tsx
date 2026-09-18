@@ -148,9 +148,12 @@ export function SendSheet({
 
   const outcomes = send.data ?? []
   const sent = outcomes.filter((result) => result.code === null)
-  const held = outcomes.filter((result) => result.code === 'RECIPIENT_NEEDS_APPROVAL')
+  const held = outcomes.filter(
+    (result) => result.code === 'RECIPIENT_NEEDS_APPROVAL',
+  )
   const failed = outcomes.filter(
-    (result) => result.code !== null && result.code !== 'RECIPIENT_NEEDS_APPROVAL',
+    (result) =>
+      result.code !== null && result.code !== 'RECIPIENT_NEEDS_APPROVAL',
   )
 
   function addTyped() {
@@ -185,8 +188,8 @@ export function SendSheet({
     >
       {recipients.length === 0 && !adding && (
         <p className="text-body text-muted">
-          This form did not ask for a copy to go anywhere. Add an address
-          below and it will go there.
+          This form did not ask for a copy to go anywhere. Add an address below
+          and it will go there.
         </p>
       )}
 

@@ -46,7 +46,10 @@ export function sgarFollowUp(
   }
 }
 
-function usedSgar(template: ReportTemplate, data: Record<string, unknown>): boolean {
+function usedSgar(
+  template: ReportTemplate,
+  data: Record<string, unknown>,
+): boolean {
   for (const field of fieldsOf(template)) {
     if (field.kind !== 'repeater') continue
     const rows = data[field.key]

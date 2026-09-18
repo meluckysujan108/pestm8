@@ -143,7 +143,9 @@ export function SignSheet({
       ...(name.trim() ? { signedBy: name.trim() } : {}),
       ...(statement ? { statement } : {}),
       // Saving it is the signer's own choice, and only ever their own.
-      ...(method === 'drawn' && ownSignature && keepMine ? { saveForMember: true } : {}),
+      ...(method === 'drawn' && ownSignature && keepMine
+        ? { saveForMember: true }
+        : {}),
     })
     onSigned(Date.now())
     onClose()
@@ -212,7 +214,9 @@ export function SignSheet({
             type="button"
             // Nothing drawn is not a signature, and a disabled Done says so
             // more honestly than accepting a blank image would.
-            disabled={!drawn || busy || (askName === true && name.trim() === '')}
+            disabled={
+              !drawn || busy || (askName === true && name.trim() === '')
+            }
             onClick={() => void done()}
             className="h-12 flex-1 rounded-xl bg-red text-[16px] font-semibold text-white shadow-red disabled:opacity-40"
           >
@@ -252,7 +256,9 @@ export function SignSheet({
         className="mt-3 h-56 w-full touch-none rounded-xl border border-dashed border-hairline bg-surface"
       />
       <p className="mt-1.5 text-caption text-muted">
-        {drawn ? 'Tap Done to attach this signature.' : 'Sign above with a finger or a stylus.'}
+        {drawn
+          ? 'Tap Done to attach this signature.'
+          : 'Sign above with a finger or a stylus.'}
       </p>
 
       {ownSignature && saved && !drawn && (
@@ -281,7 +287,8 @@ export function SignSheet({
 
       {failed && (
         <p role="alert" className="mt-3 text-caption text-amber-ink">
-          Could not save the signature. Check your connection and tap Done again.
+          Could not save the signature. Check your connection and tap Done
+          again.
         </p>
       )}
     </Sheet>

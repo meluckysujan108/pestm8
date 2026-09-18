@@ -15,12 +15,15 @@ is the one edge validator for business-authored templates.
 ```ts
 type ReportTemplate = {
   id: TemplateId | 'custom'
-  version: number          // bump on ANY wording change — see below
-  name, shortName, legalBasis, blurb: string
+  version: number // bump on ANY wording change — see below
+  name
+  shortName
+  legalBasis
+  blurb: string
   sections: Array<SectionDef>
-  terms?: RichDoc          // the printed terms pages
-  boilerplate?: string     // legacy flat terms; prefer `terms`
-  print?: PrintSpec        // cover, headings, footer name, numbering
+  terms?: RichDoc // the printed terms pages
+  boilerplate?: string // legacy flat terms; prefer `terms`
+  print?: PrintSpec // cover, headings, footer name, numbering
   features?: Array<'durableNotice'>
   corrections?: Array<Correction>
   validationNotes?: Array<string>
@@ -28,8 +31,8 @@ type ReportTemplate = {
 }
 
 type SectionDef = {
-  id?: string              // stable key for `?s=` deep links
-  number?: number          // the form's own numbering
+  id?: string // stable key for `?s=` deep links
+  number?: number // the form's own numbering
   title: string
   preamble?: string
   visibleWhen?: Condition
@@ -51,23 +54,23 @@ answered but stores its answer elsewhere; the third is not a question at all.
 
 ### Answered, stored in `data`
 
-| Kind | Stores | Its own options |
-|---|---|---|
-| `text` | string | `placeholder` |
-| `area` | string | `placeholder`, `rows` |
-| `number` | number | `min`, `max`, `step`, `unit` |
-| `date` | `YYYY-MM-DD` | `defaultToday` |
-| `time` | `HH:MM` | — |
-| `toggle` | boolean | `yes`/`no` wording, `flaggedValue`, `statusBar`, `tones` |
-| `select` | string | `options`, + `Choice` |
-| `radio` | string | `options`, + `Choice` |
-| `chips` | `string[]` | `options`, + `Choice` |
-| `checks` | `string[]` | `options`, `extensible`, `locked`, `exclusive`, `layout`, + `Choice` |
-| `areas` | per-row `{ present, note }` | `rows`, `note` |
-| `gps` | `{ lat, lng, alt?, at? }` | `auto`, `format: 'lines'` |
-| `member` | membership id | `roleWord`, `defaultTo` |
-| `emails` | `string[]` | `semantic: 'emailTo'` |
-| `repeater` | `Array<RepeaterRow>` | `columns`, `min`, `addLabel`, `removeLabel` |
+| Kind       | Stores                      | Its own options                                                      |
+| ---------- | --------------------------- | -------------------------------------------------------------------- |
+| `text`     | string                      | `placeholder`                                                        |
+| `area`     | string                      | `placeholder`, `rows`                                                |
+| `number`   | number                      | `min`, `max`, `step`, `unit`                                         |
+| `date`     | `YYYY-MM-DD`                | `defaultToday`                                                       |
+| `time`     | `HH:MM`                     | —                                                                    |
+| `toggle`   | boolean                     | `yes`/`no` wording, `flaggedValue`, `statusBar`, `tones`             |
+| `select`   | string                      | `options`, + `Choice`                                                |
+| `radio`    | string                      | `options`, + `Choice`                                                |
+| `chips`    | `string[]`                  | `options`, + `Choice`                                                |
+| `checks`   | `string[]`                  | `options`, `extensible`, `locked`, `exclusive`, `layout`, + `Choice` |
+| `areas`    | per-row `{ present, note }` | `rows`, `note`                                                       |
+| `gps`      | `{ lat, lng, alt?, at? }`   | `auto`, `format: 'lines'`                                            |
+| `member`   | membership id               | `roleWord`, `defaultTo`                                              |
+| `emails`   | `string[]`                  | `semantic: 'emailTo'`                                                |
+| `repeater` | `Array<RepeaterRow>`        | `columns`, `min`, `addLabel`, `removeLabel`                          |
 
 `Choice` is shared by `select`/`radio`/`chips`/`checks`:
 `optionsFrom` (an owner-editable library), `blankOption` (a placeholder that is

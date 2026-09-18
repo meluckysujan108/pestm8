@@ -105,7 +105,9 @@ describe('the PDF a report hands out', () => {
         pdfRenderVersion: RENDER_VERSION,
       })
 
-      const report = await ctx.runQuery(internal.reports.getForRender, { reportId })
+      const report = await ctx.runQuery(internal.reports.getForRender, {
+        reportId,
+      })
       expect(report?.pdfUrl).toBeTruthy()
     })
   })
@@ -117,14 +119,20 @@ describe('the PDF a report hands out', () => {
       const storageId = await storeSomething(ctx)
       // Exactly the shape of every report finalised before this branch: a file
       // exists, and nothing records which painter made it.
-      const reportId = await finalisedReport(ctx, ids, { pdfStorageId: storageId })
+      const reportId = await finalisedReport(ctx, ids, {
+        pdfStorageId: storageId,
+      })
 
-      const report = await ctx.runQuery(internal.reports.getForRender, { reportId })
+      const report = await ctx.runQuery(internal.reports.getForRender, {
+        reportId,
+      })
       expect(report?.pdfUrl).toBeNull()
 
       // And the claim is available, rather than being short-circuited by the
       // pointer that is already there.
-      const claim = await ctx.runMutation(internal.reports.claimPdf, { reportId })
+      const claim = await ctx.runMutation(internal.reports.claimPdf, {
+        reportId,
+      })
       expect(claim.claimed).toBe(true)
     })
   })
@@ -135,7 +143,9 @@ describe('the PDF a report hands out', () => {
       const ids = await seed(ctx)
       const reportId = await finalisedReport(ctx, ids, { pdfStatus: 'pending' })
 
-      const report = await ctx.runQuery(internal.reports.getForRender, { reportId })
+      const report = await ctx.runQuery(internal.reports.getForRender, {
+        reportId,
+      })
       expect(report?.pdfUrl).toBeNull()
     })
   })
@@ -153,7 +163,9 @@ describe('the PDF a report hands out', () => {
         bytes: 8,
       })
 
-      const report = await ctx.runQuery(internal.reports.getForRender, { reportId })
+      const report = await ctx.runQuery(internal.reports.getForRender, {
+        reportId,
+      })
       expect(report?.pdfUrl).toBeTruthy()
       expect(report?.pdfRenderVersion).toBe(RENDER_VERSION)
 
@@ -173,12 +185,16 @@ describe('the PDF a report hands out', () => {
       const ids = await seed(ctx)
       const reportId = await finalisedReport(ctx, ids)
 
-      const first = await ctx.runMutation(internal.reports.claimPdf, { reportId })
+      const first = await ctx.runMutation(internal.reports.claimPdf, {
+        reportId,
+      })
       expect(first.claimed).toBe(true)
 
       // Two tabs opening the PDF at once: the loser waits for the winner's
       // file instead of rendering a second one and orphaning it in storage.
-      const second = await ctx.runMutation(internal.reports.claimPdf, { reportId })
+      const second = await ctx.runMutation(internal.reports.claimPdf, {
+        reportId,
+      })
       expect(second).toEqual({ claimed: false, reason: 'busy' })
     })
   })

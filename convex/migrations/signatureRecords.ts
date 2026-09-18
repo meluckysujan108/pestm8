@@ -41,7 +41,9 @@ const PAGE = 100
 export const backfill = internalMutation({
   args: { cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { cursor }) => {
-    const page = await ctx.db.query('reports').paginate({ numItems: PAGE, cursor })
+    const page = await ctx.db
+      .query('reports')
+      .paginate({ numItems: PAGE, cursor })
 
     for (const report of page.page) {
       const slots = report.signatureSlots
@@ -67,9 +69,13 @@ export const backfill = internalMutation({
     }
 
     if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.migrations.signatureRecords.backfill, {
-        cursor: page.continueCursor,
-      })
+      await ctx.scheduler.runAfter(
+        0,
+        internal.migrations.signatureRecords.backfill,
+        {
+          cursor: page.continueCursor,
+        },
+      )
     }
   },
 })
@@ -82,7 +88,10 @@ export const backfill = internalMutation({
  * this looks for any answer shaped like a signature whose key mentions the
  * slot rather than assuming one naming convention.
  */
-function signedAtFor(data: Record<string, unknown>, slot: string): number | undefined {
+function signedAtFor(
+  data: Record<string, unknown>,
+  slot: string,
+): number | undefined {
   for (const [key, value] of Object.entries(data)) {
     if (!key.toLowerCase().includes(slot.toLowerCase())) continue
     if (typeof value !== 'object' || value === null) continue

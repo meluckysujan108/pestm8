@@ -91,9 +91,12 @@ export async function forgetDraft(reportId: string): Promise<void> {
 }
 
 /** Answers this device kept that never reached the server, if any. */
-export async function recallDraft(reportId: string): Promise<MirroredDraft | null> {
-  const found = await withStore<MirroredDraft | undefined>('readonly', (store) =>
-    store.get(reportId),
+export async function recallDraft(
+  reportId: string,
+): Promise<MirroredDraft | null> {
+  const found = await withStore<MirroredDraft | undefined>(
+    'readonly',
+    (store) => store.get(reportId),
   )
   return found ?? null
 }

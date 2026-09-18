@@ -42,17 +42,24 @@ export function weatherAnswerFrom(
   if (forecast) {
     // Wind first: a wet day a technician can work around, a windy one changes
     // whether a spray goes on the wall or the neighbour's washing.
-    if ((forecast.windKmh ?? 0) >= WIND_WARN_KMH && has('Windy')) answer.push('Windy')
+    if ((forecast.windKmh ?? 0) >= WIND_WARN_KMH && has('Windy'))
+      answer.push('Windy')
     if ((forecast.rainMm ?? 0) >= RAIN_WARN_MM && has('Wet')) answer.push('Wet')
 
     if (answer.length === 0) {
-      if (forecast.code === OVERCAST_CODE && has('Overcast')) answer.push('Overcast')
-      else if (forecast.code !== undefined && CLEAR_CODES.has(forecast.code) && has('Sunny')) {
+      if (forecast.code === OVERCAST_CODE && has('Overcast'))
+        answer.push('Overcast')
+      else if (
+        forecast.code !== undefined &&
+        CLEAR_CODES.has(forecast.code) &&
+        has('Sunny')
+      ) {
         answer.push('Sunny')
       } else if (has('Dry')) answer.push('Dry')
     }
   }
 
-  if (startHour !== undefined && startHour >= 17 && has('Evening')) answer.push('Evening')
+  if (startHour !== undefined && startHour >= 17 && has('Evening'))
+    answer.push('Evening')
   return answer
 }

@@ -39,7 +39,9 @@ export function Sheet({
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
 
           <div className="px-4 pb-2 pt-3">
-            <Drawer.Title className="pr-10 text-row-title text-ink">{title}</Drawer.Title>
+            <Drawer.Title className="pr-10 text-row-title text-ink">
+              {title}
+            </Drawer.Title>
             {description ? (
               <Drawer.Description className="mt-0.5 text-caption text-muted">
                 {description}
@@ -47,11 +49,17 @@ export function Sheet({
             ) : (
               // Radix warns when a dialog has no description; saying nothing is
               // the honest description for a sheet whose title says it all.
-              <Drawer.Description className="sr-only">{title}</Drawer.Description>
+              <Drawer.Description className="sr-only">
+                {title}
+              </Drawer.Description>
             )}
           </div>
 
-          {open && <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">{children}</div>}
+          {open && (
+            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
+              {children}
+            </div>
+          )}
 
           {footer && (
             <div className="border-t border-hairline px-4 pb-[calc(12px+env(safe-area-inset-bottom))] pt-3">

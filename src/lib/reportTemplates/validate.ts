@@ -99,22 +99,29 @@ export function validateReport(input: ValidationInput): ValidationResult {
     // `{ signedAt }` the control writes into `data`; whether a signature was
     // actually drawn is a fact about storage, so it is checked here.
     if (field.kind === 'signature' && field.required && signedSlots) {
-      if (!signedSlots.includes(field.slot)) add(field.key, `${field.label} is required`)
+      if (!signedSlots.includes(field.slot))
+        add(field.key, `${field.label} is required`)
     }
 
-    if (field.kind === 'gallery' || field.kind === 'cover' || field.kind === 'photos') {
+    if (
+      field.kind === 'gallery' ||
+      field.kind === 'cover' ||
+      field.kind === 'photos'
+    ) {
       if (!field.required) continue
       const count = photoCounts?.[field.key]
       // Unknown never blocks: refusing a report because the count was
       // unavailable would lock a technician out of their own work.
-      if (count !== undefined && count === 0) add(field.key, `${field.label} is required`)
+      if (count !== undefined && count === 0)
+        add(field.key, `${field.label} is required`)
     }
   }
 
   for (const [key, entry] of Object.entries(prefill ?? {})) {
     if (entry.confirmedAt !== undefined) continue
     if (!visible.has(key)) continue
-    const label = fieldsOf(template).find((field) => field.key === key)?.label ?? key
+    const label =
+      fieldsOf(template).find((field) => field.key === key)?.label ?? key
     add(key, `Check ${label.replace(/:$/, '')} — the app suggested this answer`)
   }
 

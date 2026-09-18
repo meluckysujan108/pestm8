@@ -145,7 +145,10 @@ test('the policy is the owner’s, and only the owner can read it back', async (
     'NO_ACCESS',
   )
   await expectRejected(
-    () => s.sub.client.query(api.businesses.reportSettings, { businessId: s.businessId }),
+    () =>
+      s.sub.client.query(api.businesses.reportSettings, {
+        businessId: s.businessId,
+      }),
     'NO_ACCESS',
   )
 

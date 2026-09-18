@@ -33,7 +33,10 @@ export function TemplateSettingsSheet({
 }) {
   const template = getTemplate(templateId)
   const { data: saved } = useQuery(
-    convexQuery(api.templateSettings.get, { businessId, templateRef: templateId }),
+    convexQuery(api.templateSettings.get, {
+      businessId,
+      templateRef: templateId,
+    }),
   )
 
   const signers = fieldsOf(template).filter(
@@ -144,7 +147,9 @@ export function TemplateSettingsSheet({
 
       {signers.length > 0 && (
         <>
-          <p className="section-label mt-4">Must sign before it can be locked</p>
+          <p className="section-label mt-4">
+            Must sign before it can be locked
+          </p>
           <ul className="mt-1.5 flex flex-col gap-1.5">
             {signers.map((field) => {
               const on = current.requiredSigners.includes(field.slot)
@@ -156,12 +161,16 @@ export function TemplateSettingsSheet({
                     onClick={() =>
                       update({
                         requiredSigners: on
-                          ? current.requiredSigners.filter((slot) => slot !== field.slot)
+                          ? current.requiredSigners.filter(
+                              (slot) => slot !== field.slot,
+                            )
                           : [...current.requiredSigners, field.slot],
                       })
                     }
                     className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left ${
-                      on ? 'border-ink/15 bg-surface' : 'border-hairline bg-surface-2'
+                      on
+                        ? 'border-ink/15 bg-surface'
+                        : 'border-hairline bg-surface-2'
                     }`}
                   >
                     <span

@@ -77,7 +77,9 @@ export async function prepareUpload(
   const quality = options.quality ?? DEFAULT_QUALITY
 
   try {
-    const bitmap = await createImageBitmap(file, { imageOrientation: 'from-image' })
+    const bitmap = await createImageBitmap(file, {
+      imageOrientation: 'from-image',
+    })
     const size = targetSize(bitmap.width, bitmap.height, maxEdge)
 
     const canvas = document.createElement('canvas')
@@ -93,7 +95,13 @@ export async function prepareUpload(
     )
     if (!blob) throw new Error('could not encode the image')
 
-    return { blob, width: size.width, height: size.height, bytes: blob.size, passthrough: false }
+    return {
+      blob,
+      width: size.width,
+      height: size.height,
+      bytes: blob.size,
+      passthrough: false,
+    }
   } catch {
     // An image this browser cannot decode — an unusual HEIC, a corrupt file —
     // is uploaded as it came. A photo that cannot be shrunk is still evidence,

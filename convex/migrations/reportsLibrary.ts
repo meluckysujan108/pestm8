@@ -39,7 +39,9 @@ const PAGE = 100
 export const backfill = internalMutation({
   args: { cursor: v.union(v.string(), v.null()) },
   handler: async (ctx, { cursor }) => {
-    const page = await ctx.db.query('reports').paginate({ numItems: PAGE, cursor })
+    const page = await ctx.db
+      .query('reports')
+      .paginate({ numItems: PAGE, cursor })
 
     let stamped = 0
     let described = 0
@@ -60,9 +62,13 @@ export const backfill = internalMutation({
     }
 
     if (!page.isDone) {
-      await ctx.scheduler.runAfter(0, internal.migrations.reportsLibrary.backfill, {
-        cursor: page.continueCursor,
-      })
+      await ctx.scheduler.runAfter(
+        0,
+        internal.migrations.reportsLibrary.backfill,
+        {
+          cursor: page.continueCursor,
+        },
+      )
     }
 
     return { scanned: page.page.length, stamped, described, done: page.isDone }
@@ -76,7 +82,8 @@ export const invariant = internalQuery({
     return {
       reports: reports.length,
       withoutUpdatedAt: reports.filter((r) => r.updatedAt === undefined).length,
-      withoutSearchText: reports.filter((r) => r.searchText === undefined).length,
+      withoutSearchText: reports.filter((r) => r.searchText === undefined)
+        .length,
       inTrash: reports.filter((r) => r.deletedAt !== undefined).length,
     }
   },

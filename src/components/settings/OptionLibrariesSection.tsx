@@ -1,7 +1,15 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { ArrowDown, ArrowUp, Check, Plus, RotateCcw, Star, Trash2 } from 'lucide-react'
+import {
+  ArrowDown,
+  ArrowUp,
+  Check,
+  Plus,
+  RotateCcw,
+  Star,
+  Trash2,
+} from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import type { OptionSetKey } from '#/lib/reportTemplates'
@@ -322,7 +330,9 @@ function OptionListSheet({
                 <button
                   type="button"
                   aria-label={`Move ${option.label} down`}
-                  disabled={index === list.options.length - 1 || reorder.isPending}
+                  disabled={
+                    index === list.options.length - 1 || reorder.isPending
+                  }
                   onClick={() => move(index, 1)}
                   className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted disabled:opacity-30"
                 >
@@ -419,8 +429,10 @@ function messageFor(raw: string): string {
     return 'The form itself refers to this one by name — renaming or removing it would change how the form behaves, not just what it offers.'
   }
   if (raw.includes('OPTION_EXISTS')) return 'That one is already on the list.'
-  if (raw.includes('INVALID_OPTION')) return 'That is not something a form can offer.'
-  if (raw.includes('TOO_MANY_OPTIONS')) return 'This list is as long as it can get.'
+  if (raw.includes('INVALID_OPTION'))
+    return 'That is not something a form can offer.'
+  if (raw.includes('TOO_MANY_OPTIONS'))
+    return 'This list is as long as it can get.'
   if (raw.includes('LAST_OPTION')) return 'A list cannot be empty.'
   if (raw.includes('NO_ACCESS')) return 'Only an owner can change these.'
   return 'That did not work.'

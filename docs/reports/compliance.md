@@ -18,25 +18,25 @@ it rather than re-derive it.
 **Regulation 77** requires a licensed pest management technician to make a
 record of each treatment. The Service Report carries every element:
 
-| Required | Where it lives |
-|---|---|
-| Date of treatment | `serviceDate`, seeded from the job |
-| Address treated | `siteAddress`, a `derived` field off the property record |
+| Required                                   | Where it lives                                                                                                |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
+| Date of treatment                          | `serviceDate`, seeded from the job                                                                            |
+| Address treated                            | `siteAddress`, a `derived` field off the property record                                                      |
 | Pesticide used, and its active constituent | The treatment table's `product` cell — the option list prints the active in brackets, as the source form does |
-| Quantity applied | The `quantity` cell |
-| Method of application | The `method` cell |
-| Technician's name and licence | `technician` (a `member` field) prints `Name (Licence N)` |
+| Quantity applied                           | The `quantity` cell                                                                                           |
+| Method of application                      | The `method` cell                                                                                             |
+| Technician's name and licence              | `technician` (a `member` field) prints `Name (Licence N)`                                                     |
 
 **Retention.** The regulation wants records kept, and termite work kept
 longer. Finalised reports are never deleted, in two places rather than one:
 `requireDeletable` throws `REPORT_FINALISED` before a delete starts, and the
-nightly `purgeExpired` *restores* a report that was finalised while sitting in
+nightly `purgeExpired` _restores_ a report that was finalised while sitting in
 Recently Deleted rather than purging it on schedule. A stale-draft nudge
 (`reports.staleDrafts`) surfaces work that was started and never issued,
 because an unfinished draft is not a record.
 
 **Flag-only — not built, deliberately.** Three things the regulation mentions
-that the source form does not ask for, and which are therefore *not* added:
+that the source form does not ask for, and which are therefore _not_ added:
 
 - A "parts of the place treated" list distinct from the treatment table.
 - A licensed-versus-provisional distinction on the technician.
@@ -72,7 +72,7 @@ the system installed, the date, and when the next inspection falls due. The
 Certificate asks whether one was fitted, where, and the inspection frequency —
 all verbatim.
 
-What the notice itself must *say* is regulated, and the app can generate a
+What the notice itself must _say_ is regulated, and the app can generate a
 preview of it (`durableNoticeText` + `DurableNoticePreview`). This is an
 **app-labelled extra**, not part of the source form: it prints only for a
 template that declares `features: ['durableNotice']`, and no built-in does.
@@ -85,8 +85,8 @@ The Service Report's next-visit list includes the verbatim option
 
 The underlying fact: from **24 March 2026** the APVMA suspended second
 generation anticoagulant rodenticide registrations and issued replacement
-label instructions, including *"DO NOT use the product continuously for more
-than 35 days without an evaluation."* `sgarFollowUp` watches for an SGAR
+label instructions, including _"DO NOT use the product continuously for more
+than 35 days without an evaluation."_ `sgarFollowUp` watches for an SGAR
 product (`meta.sgar` on the affected products) applied via bait stations and
 surfaces the 35-day evaluation after the report is locked.
 
@@ -122,10 +122,10 @@ against. A licence-expiry warning is listed as an option and is not built.
 
 ## Where each of these is asserted
 
-| Claim | Test |
-|---|---|
-| The Service Report carries every reg 77 element | `src/lib/reportTemplates/fidelity.test.ts` (the strings) |
-| A finalised report cannot be deleted | `e2e/reportsList.spec.ts` (`REPORT_FINALISED`), and `e2e/{photos,gallery,annotation}.spec.ts` for its attachments |
-| A saved signature is owner-only | `e2e/signature.spec.ts` |
-| The SGAR nudge fires only for an SGAR product via bait stations | `src/lib/reportTemplates/sgar.test.ts`, `e2e/reports.spec.ts` |
-| The verbatim Certificate prints no durable notice | `e2e/reports.spec.ts`, `e2e/reportSnapshot.spec.ts`. Nothing yet tests the `features: ['durableNotice']` path, because no template declares it |
+| Claim                                                           | Test                                                                                                                                           |
+| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Service Report carries every reg 77 element                 | `src/lib/reportTemplates/fidelity.test.ts` (the strings)                                                                                       |
+| A finalised report cannot be deleted                            | `e2e/reportsList.spec.ts` (`REPORT_FINALISED`), and `e2e/{photos,gallery,annotation}.spec.ts` for its attachments                              |
+| A saved signature is owner-only                                 | `e2e/signature.spec.ts`                                                                                                                        |
+| The SGAR nudge fires only for an SGAR product via bait stations | `src/lib/reportTemplates/sgar.test.ts`, `e2e/reports.spec.ts`                                                                                  |
+| The verbatim Certificate prints no durable notice               | `e2e/reports.spec.ts`, `e2e/reportSnapshot.spec.ts`. Nothing yet tests the `features: ['durableNotice']` path, because no template declares it |

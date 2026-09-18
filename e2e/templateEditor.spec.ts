@@ -11,7 +11,10 @@ import { customTemplateArgs } from './fixtures/reportPayloads'
  * a heading and nothing under it.
  */
 
-async function openEditor(page: Parameters<typeof signInViaUi>[0], label: string) {
+async function openEditor(
+  page: Parameters<typeof signInViaUi>[0],
+  label: string,
+) {
   const s = await setupBusinessWithSub(label)
   const templateId = await s.owner.client.mutation(api.customTemplates.create, {
     businessId: s.businessId,
@@ -40,7 +43,9 @@ test('every kind the engine can render can be added', async ({ page }) => {
   }
 })
 
-test('a record detail is configured by choosing which detail', async ({ page }) => {
+test('a record detail is configured by choosing which detail', async ({
+  page,
+}) => {
   const s = await openEditor(page, 'editor-derived')
 
   await page.getByRole('button', { name: 'Add field' }).first().click()
@@ -62,7 +67,8 @@ test('a record detail is configured by choosing which detail', async ({ page }) 
       const sections = (t!.draft?.sections ?? []) as Array<{
         fields: Array<{ kind: string; source?: string }>
       }>
-      return sections.flatMap((x) => x.fields).find((f) => f.kind === 'derived')?.source
+      return sections.flatMap((x) => x.fields).find((f) => f.kind === 'derived')
+        ?.source
     })
     .toBe('property.address')
 })
@@ -74,24 +80,34 @@ test('the form can be read before it is issued', async ({ page }) => {
 
   // The questions in the order a technician meets them, built from the same
   // model the finished document is painted from.
-  await expect(page.getByText(/questions as a technician will meet them/)).toBeVisible()
+  await expect(
+    page.getByText(/questions as a technician will meet them/),
+  ).toBeVisible()
   await expect(page.getByText('Areas inspected')).toBeVisible()
 
   await page.getByRole('tab', { name: 'Edit' }).click()
-  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toBeVisible()
+  await expect(
+    page.getByRole('textbox', { name: 'Name', exact: true }),
+  ).toBeVisible()
 })
 
 test('the editor says what is issued and what is not', async ({ page }) => {
   const s = await openEditor(page, 'editor-state')
 
   // Nothing unissued yet.
-  await expect(page.getByText(/Issued\. Your team fills in version 1\./)).toBeVisible()
+  await expect(
+    page.getByText(/Issued\. Your team fills in version 1\./),
+  ).toBeVisible()
 
-  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Site Walkthrough (revised)')
+  await page
+    .getByRole('textbox', { name: 'Name', exact: true })
+    .fill('Site Walkthrough (revised)')
   await expect(page.getByText(/Not yet issued/)).toBeVisible()
 
   await page.getByRole('button', { name: 'Issue to my team' }).click()
-  await expect(page.getByText(/Issued\. Your team fills in version 2\./)).toBeVisible()
+  await expect(
+    page.getByText(/Issued\. Your team fills in version 2\./),
+  ).toBeVisible()
 
   // And the published form moved, which is the only thing that matters.
   await expect

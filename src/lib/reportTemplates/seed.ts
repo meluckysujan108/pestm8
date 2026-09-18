@@ -22,7 +22,8 @@ import type { CellDef, FieldDef, ReportTemplate } from './types'
  */
 
 /** Where an answer the app guessed came from, so the builder can say so. */
-export type SuggestionSource = 'forecast' | 'scheduled' | 'lastVisit' | 'history'
+export type SuggestionSource =
+  'forecast' | 'scheduled' | 'lastVisit' | 'history'
 
 export type Suggestion = { source: SuggestionSource; confirmedAt?: number }
 
@@ -85,7 +86,8 @@ export function seedFromContext(
       case 'sendCopyToClient':
         // Yes when there is an address to send to, No when there is not —
         // either way it is a fact about the client record, not a guess.
-        if (field.kind === 'toggle') data[field.key] = Boolean(facts.clientEmail)
+        if (field.kind === 'toggle')
+          data[field.key] = Boolean(facts.clientEmail)
         continue
       case 'startTime': {
         if (field.kind !== 'time') continue
@@ -97,12 +99,18 @@ export function seedFromContext(
         continue
       }
       case 'weather': {
-        const words = weatherAnswerFrom(facts.forecast, optionsOf(field), startHour)
+        const words = weatherAnswerFrom(
+          facts.forecast,
+          optionsOf(field),
+          startHour,
+        )
         if (words.length === 0) continue
         // The same question is a checklist on one form and a single choice on
         // another, so the shape follows the control, not the key.
-        if (field.kind === 'checks' || field.kind === 'chips') data[field.key] = words
-        else if (field.kind === 'select' || field.kind === 'radio') data[field.key] = words[0]
+        if (field.kind === 'checks' || field.kind === 'chips')
+          data[field.key] = words
+        else if (field.kind === 'select' || field.kind === 'radio')
+          data[field.key] = words[0]
         else continue
         prefill[field.key] = { source: 'forecast' }
         continue
@@ -124,7 +132,9 @@ export function seedFromContext(
 
     if (field.kind === 'member' && field.defaultTo) {
       const membershipId =
-        field.defaultTo === 'jobAssignee' ? facts.jobAssigneeMembershipId : facts.authorMembershipId
+        field.defaultTo === 'jobAssignee'
+          ? facts.jobAssigneeMembershipId
+          : facts.authorMembershipId
       if (membershipId) data[field.key] = membershipId
       continue
     }
@@ -153,7 +163,9 @@ function seedTreatmentRow(
 ): Record<string, unknown> | null {
   const treatment = treatmentForJobType(jobType)
   if (!treatment) return null
-  const column = field.columns.find((cell) => 'optionsFrom' in cell && cell.optionsFrom === 'treatments')
+  const column = field.columns.find(
+    (cell) => 'optionsFrom' in cell && cell.optionsFrom === 'treatments',
+  )
   if (!column) return null
   if (!optionsOf(column).includes(treatment)) return null
   // Rows carry an id so the grid can key and reorder them; `crypto.randomUUID`

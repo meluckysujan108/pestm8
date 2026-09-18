@@ -202,14 +202,15 @@ export function buildReportModel(record: ReportRecord): ReportModel {
   const askedFields = visible.flatMap((section) => section.fields)
   const documentDate =
     firstDateAnswer(askedFields, data) ??
-    (record.finalisedAt !== undefined ? shortDate(record.finalisedAt) : undefined)
+    (record.finalisedAt !== undefined
+      ? shortDate(record.finalisedAt)
+      : undefined)
   const documentYear =
     yearOfAnswer(askedFields, data) ??
     (record.finalisedAt !== undefined ? yearOf(record.finalisedAt) : undefined)
 
   const sections = visible
-    .map(
-    (section, index): DocSection => ({
+    .map((section, index): DocSection => ({
       key: section.id ?? `${index}-${section.title}`,
       number:
         section.number !== undefined && print?.numbering !== 'unnumbered'
@@ -263,9 +264,11 @@ export function buildReportModel(record: ReportRecord): ReportModel {
           omitEmpty: record.finalised && print?.omitEmpty === true,
         })
       }),
-    }),
-    )
-    .map((section) => ({ ...section, blocks: withoutDanglingHeadings(section.blocks) }))
+    }))
+    .map((section) => ({
+      ...section,
+      blocks: withoutDanglingHeadings(section.blocks),
+    }))
     // A heading over nothing is the same failure as a labelled em dash: on a
     // signed document it says the form asked something and reports no answer.
     // Rule 8 removes the answers; this removes what is left standing over
@@ -329,7 +332,13 @@ export function buildReportModel(record: ReportRecord): ReportModel {
 
     photoGroups: inlineGalleries
       ? []
-      : trailingPhotoGroups(template, record, galleryPhotos, coverKeys, printable),
+      : trailingPhotoGroups(
+          template,
+          record,
+          galleryPhotos,
+          coverKeys,
+          printable,
+        ),
 
     notice:
       printsDurableNotice(template) && property
@@ -470,7 +479,12 @@ function blocksForFields(
     }
     const last = blocks.at(-1)
     if (last?.type === 'rows') last.rows.push(row)
-    else blocks.push({ type: 'rows', key: `${keyPrefix}-${field.key}`, rows: [row] })
+    else
+      blocks.push({
+        type: 'rows',
+        key: `${keyPrefix}-${field.key}`,
+        rows: [row],
+      })
   }
 
   return blocks
@@ -492,7 +506,8 @@ function columnsOf(
   const total = declared.reduce((sum: number, w) => sum + (w ?? 0), 0)
   return labels.map((label, index) => ({
     label,
-    width: total > 0 ? ((declared[index] ?? 0) / total) * 100 : 100 / labels.length,
+    width:
+      total > 0 ? ((declared[index] ?? 0) / total) * 100 : 100 / labels.length,
   }))
 }
 
@@ -585,7 +600,11 @@ function trailingPhotoGroups(
   }
 
   for (const [fieldKey, photos] of byField) {
-    groups.push({ key: fieldKey, label: labels.get(fieldKey) ?? 'Photos', photos })
+    groups.push({
+      key: fieldKey,
+      label: labels.get(fieldKey) ?? 'Photos',
+      photos,
+    })
   }
 
   return groups
@@ -621,7 +640,8 @@ function yearOfAnswer(
   for (const field of fields) {
     if (field.kind !== 'date') continue
     const value = data[field.key]
-    if (typeof value === 'string' && /^\d{4}-/.test(value)) return Number(value.slice(0, 4))
+    if (typeof value === 'string' && /^\d{4}-/.test(value))
+      return Number(value.slice(0, 4))
   }
   return undefined
 }

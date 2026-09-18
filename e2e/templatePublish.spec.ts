@@ -1,6 +1,9 @@
 import { expect, test } from '@playwright/test'
 import { api, expectRejected, setupBusinessWithSub } from './fixtures'
-import { createCustomReport, customTemplateArgs } from './fixtures/reportPayloads'
+import {
+  createCustomReport,
+  customTemplateArgs,
+} from './fixtures/reportPayloads'
 import type { SectionDef } from '#/lib/reportTemplates'
 
 /**
@@ -37,7 +40,10 @@ test('an unissued edit is invisible to everyone filling the form in', async () =
     legalBasis: 'Internal',
     blurb: 'A rewrite nobody has been given.',
     sections: [
-      { title: 'Brand new section', fields: [{ kind: 'text', key: 'newField', label: 'New question' }] },
+      {
+        title: 'Brand new section',
+        fields: [{ kind: 'text', key: 'newField', label: 'New question' }],
+      },
     ],
     boilerplate: '',
   })
@@ -59,7 +65,9 @@ test('an unissued edit is invisible to everyone filling the form in', async () =
     reportId,
   })
   const sections = report!.customTemplate!.sections as Array<SectionDef>
-  expect(sections.some((section) => section.title === 'Brand new section')).toBe(false)
+  expect(
+    sections.some((section) => section.title === 'Brand new section'),
+  ).toBe(false)
 })
 
 test('issuing it is what puts it in front of the team', async () => {
@@ -73,14 +81,20 @@ test('issuing it is what puts it in front of the team', async () => {
     legalBasis: 'Internal',
     blurb: 'Now issued.',
     sections: [
-      { title: 'Brand new section', fields: [{ kind: 'text', key: 'newField', label: 'New question' }] },
+      {
+        title: 'Brand new section',
+        fields: [{ kind: 'text', key: 'newField', label: 'New question' }],
+      },
     ],
     boilerplate: '',
   })
-  const { version } = await s.owner.client.mutation(api.customTemplates.publish, {
-    businessId: s.businessId,
-    templateId: s.templateId,
-  })
+  const { version } = await s.owner.client.mutation(
+    api.customTemplates.publish,
+    {
+      businessId: s.businessId,
+      templateId: s.templateId,
+    },
+  )
   expect(version).toBe(2)
 
   const after = await s.owner.client.query(api.customTemplates.get, {
@@ -98,7 +112,9 @@ test('issuing it is what puts it in front of the team', async () => {
     reportId,
   })
   const sections = report!.customTemplate!.sections as Array<SectionDef>
-  expect(sections.some((section) => section.title === 'Brand new section')).toBe(true)
+  expect(
+    sections.some((section) => section.title === 'Brand new section'),
+  ).toBe(true)
 })
 
 test('a draft that is not a valid form is still kept, and refused only at issue', async () => {
@@ -191,7 +207,10 @@ test('the form keeps its own history, and only an owner writes it', async () => 
     legalBasis: 'Internal',
     blurb: '',
     sections: [
-      { title: 'Still a real form', fields: [{ kind: 'text', key: 'note', label: 'Note' }] },
+      {
+        title: 'Still a real form',
+        fields: [{ kind: 'text', key: 'note', label: 'Note' }],
+      },
     ],
     boilerplate: '',
   })

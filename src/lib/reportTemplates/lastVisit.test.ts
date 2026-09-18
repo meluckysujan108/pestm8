@@ -59,7 +59,10 @@ describe('what the forms say carries over', () => {
       'coverPhoto',
       'photos',
     ]) {
-      expect(declared.has(key), `${key} is not a field on the service report`).toBe(true)
+      expect(
+        declared.has(key),
+        `${key} is not a field on the service report`,
+      ).toBe(true)
       expect(carried.has(key), key).toBe(false)
     }
   })
@@ -68,7 +71,13 @@ describe('what the forms say carries over', () => {
 describe('copying from the last visit', () => {
   const previous = {
     treatments: [
-      { _id: 'old-row', treatment: ['Ants'], product: ['Fipforce HP'], quantity: [], method: [] },
+      {
+        _id: 'old-row',
+        treatment: ['Ants'],
+        product: ['Fipforce HP'],
+        quantity: [],
+        method: [],
+      },
     ],
     nextVisit: '3 Months',
     comments: 'Dog in the back yard, call ahead.',
@@ -78,7 +87,10 @@ describe('copying from the last visit', () => {
 
   test('it offers last visit’s work, marked as a suggestion', () => {
     const carried = carryOverFrom(serviceReport, previous, {})
-    expect(Object.keys(carried.data).sort()).toEqual(['nextVisit', 'treatments'])
+    expect(Object.keys(carried.data).sort()).toEqual([
+      'nextVisit',
+      'treatments',
+    ])
     expect(carried.prefill.nextVisit).toEqual({ source: 'lastVisit' })
     expect(carried.labels).toContain('Your Next Pest Control Visit is due in')
   })
@@ -90,9 +102,13 @@ describe('copying from the last visit', () => {
   })
 
   test('an answer already given is never overwritten', () => {
-    const carried = carryOverFrom(serviceReport, previous, { nextVisit: '6 Months' })
+    const carried = carryOverFrom(serviceReport, previous, {
+      nextVisit: '6 Months',
+    })
     expect(carried.data.nextVisit).toBeUndefined()
-    expect(carried.labels).not.toContain('Your Next Pest Control Visit is due in')
+    expect(carried.labels).not.toContain(
+      'Your Next Pest Control Visit is due in',
+    )
   })
 
   test('a blank last time is nothing to offer', () => {
@@ -104,7 +120,10 @@ describe('copying from the last visit', () => {
 
   test('copied rows get their own ids', () => {
     const carried = carryOverFrom(serviceReport, previous, {})
-    const rows = carried.data.treatments as Array<{ _id: string; product: Array<string> }>
+    const rows = carried.data.treatments as Array<{
+      _id: string
+      product: Array<string>
+    }>
     expect(rows[0].product).toEqual(['Fipforce HP'])
     // Two reports whose rows answer to the same name is how an edit to one
     // lands in the other.
@@ -120,7 +139,13 @@ describe('copying from the last visit', () => {
     // stays and the guess fills the cells beside it.
     const seeded = {
       treatments: [
-        { _id: 'today', treatment: ['General Pest Control'], product: [], quantity: [], method: [] },
+        {
+          _id: 'today',
+          treatment: ['General Pest Control'],
+          product: [],
+          quantity: [],
+          method: [],
+        },
       ],
     }
     const carried = carryOverFrom(serviceReport, previous, seeded)
@@ -152,15 +177,33 @@ describe('copying from the last visit', () => {
   test('last visit’s extra rows arrive only while nothing here is finished', () => {
     const twoLastTime = {
       treatments: [
-        { _id: 'a', treatment: ['Ants'], product: ['P1'], quantity: ['Q'], method: ['M'] },
-        { _id: 'b', treatment: ['Spiders'], product: ['P2'], quantity: ['Q'], method: ['M'] },
+        {
+          _id: 'a',
+          treatment: ['Ants'],
+          product: ['P1'],
+          quantity: ['Q'],
+          method: ['M'],
+        },
+        {
+          _id: 'b',
+          treatment: ['Spiders'],
+          product: ['P2'],
+          quantity: ['Q'],
+          method: ['M'],
+        },
       ],
     }
 
     // Nothing finished here: the second row is a head start.
     const blank = carryOverFrom(serviceReport, twoLastTime, {
       treatments: [
-        { _id: 'today', treatment: ['Ants'], product: [], quantity: [], method: [] },
+        {
+          _id: 'today',
+          treatment: ['Ants'],
+          product: [],
+          quantity: [],
+          method: [],
+        },
       ],
     })
     expect((blank.data.treatments as Array<unknown>).length).toBe(2)
@@ -169,7 +212,13 @@ describe('copying from the last visit', () => {
     // rearrangement, not a head start.
     const started = carryOverFrom(serviceReport, twoLastTime, {
       treatments: [
-        { _id: 'today', treatment: ['Ants'], product: ['P1'], quantity: ['Q'], method: ['M'] },
+        {
+          _id: 'today',
+          treatment: ['Ants'],
+          product: ['P1'],
+          quantity: ['Q'],
+          method: ['M'],
+        },
       ],
     })
     expect('treatments' in started.data).toBe(false)
@@ -183,7 +232,11 @@ describe('copying from the last visit', () => {
 })
 
 describe('which report counts as the last visit', () => {
-  const draft = { id: 'draft', templateRef: 'serviceReport', templateVersion: 2 }
+  const draft = {
+    id: 'draft',
+    templateRef: 'serviceReport',
+    templateVersion: 2,
+  }
   const signed = {
     id: 'older',
     templateRef: 'serviceReport',
@@ -211,9 +264,9 @@ describe('which report counts as the last visit', () => {
   test('never a different form', () => {
     // Last year's timber inspection has nothing to say to this month's
     // service report, and their keys do not correspond.
-    expect(canCarryFrom(draft, { ...signed, templateRef: 'timberPestInspection' })).toBe(
-      false,
-    )
+    expect(
+      canCarryFrom(draft, { ...signed, templateRef: 'timberPestInspection' }),
+    ).toBe(false)
   })
 
   test('never a report signed against the old wording', () => {
@@ -227,7 +280,9 @@ describe('which report counts as the last visit', () => {
   test('a missing version reads as 1 on both sides', () => {
     // Every report predating the stamp was backfilled to 1; one that slipped
     // through must not be treated as matching a v2 draft.
-    expect(canCarryFrom(draft, { ...signed, templateVersion: undefined })).toBe(false)
+    expect(canCarryFrom(draft, { ...signed, templateVersion: undefined })).toBe(
+      false,
+    )
     expect(
       canCarryFrom(
         { ...draft, templateVersion: undefined },

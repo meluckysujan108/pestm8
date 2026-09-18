@@ -20,15 +20,15 @@ import {
 
 describe('adding a phrase to what is written', () => {
   test('an empty box takes the phrase as it is', () => {
-    expect(withSnippet('', 'Keep pets off the treated area for two hours.')).toBe(
-      'Keep pets off the treated area for two hours.',
-    )
+    expect(
+      withSnippet('', 'Keep pets off the treated area for two hours.'),
+    ).toBe('Keep pets off the treated area for two hours.')
   })
 
   test('an answer already written keeps it, and gains a paragraph', () => {
-    expect(withSnippet('Wasp nest above the meter box.', 'Re-treat in 14 days.')).toBe(
-      'Wasp nest above the meter box.\nRe-treat in 14 days.',
-    )
+    expect(
+      withSnippet('Wasp nest above the meter box.', 'Re-treat in 14 days.'),
+    ).toBe('Wasp nest above the meter box.\nRe-treat in 14 days.')
   })
 
   test('a box left with trailing whitespace does not gain a blank line', () => {
@@ -40,11 +40,15 @@ describe('adding a phrase to what is written', () => {
 
 describe('the same phrase twice', () => {
   test('is the same phrase however it was typed', () => {
-    expect(sameSnippet('Re-treat in 14 days.', '  re-treat in 14 days. ')).toBe(true)
+    expect(sameSnippet('Re-treat in 14 days.', '  re-treat in 14 days. ')).toBe(
+      true,
+    )
   })
 
   test('and a different sentence is not', () => {
-    expect(sameSnippet('Re-treat in 14 days.', 'Re-treat in 28 days.')).toBe(false)
+    expect(sameSnippet('Re-treat in 14 days.', 'Re-treat in 28 days.')).toBe(
+      false,
+    )
   })
 })
 

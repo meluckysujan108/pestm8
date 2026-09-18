@@ -1,4 +1,11 @@
-import { Check, Clock, FileText, Loader2, Lock, TriangleAlert } from 'lucide-react'
+import {
+  Check,
+  Clock,
+  FileText,
+  Loader2,
+  Lock,
+  TriangleAlert,
+} from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { sectionsOf } from '#/lib/reportTemplates'
 import { visibleSections } from '#/lib/reportTemplates/visibility'
@@ -50,16 +57,22 @@ export function FinaliseSheet({
   onPreview?: () => void
   previewing?: boolean
 }) {
-  const fields = visibleSections(sectionsOf(template), data).flatMap((section) => section.fields)
+  const fields = visibleSections(sectionsOf(template), data).flatMap(
+    (section) => section.fields,
+  )
   const summary = reportSummary(template, data, context)
   const signatures = fields.filter(
-    (field): field is Extract<FieldDef, { kind: 'signature' }> => field.kind === 'signature',
+    (field): field is Extract<FieldDef, { kind: 'signature' }> =>
+      field.kind === 'signature',
   )
   const finish = fields.find((field) => field.semantic === 'finishTime')
   const finishAnswered = finish ? isAnswered(data[finish.key]) : true
   const recipients = recipientsOf(fields, data, context)
   const asksForPhotos = fields.some(
-    (field) => field.kind === 'gallery' || field.kind === 'photos' || field.kind === 'cover',
+    (field) =>
+      field.kind === 'gallery' ||
+      field.kind === 'photos' ||
+      field.kind === 'cover',
   )
 
   return (
@@ -88,15 +101,15 @@ export function FinaliseSheet({
               {previewing ? 'Preparing…' : 'Preview the document'}
             </button>
           )}
-        <button
-          type="button"
-          disabled={pending}
-          onClick={onConfirm}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
-        >
-          <Lock size={17} strokeWidth={2} />
-          {pending ? 'Locking…' : 'Finalise & lock'}
-        </button>
+          <button
+            type="button"
+            disabled={pending}
+            onClick={onConfirm}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          >
+            <Lock size={17} strokeWidth={2} />
+            {pending ? 'Locking…' : 'Finalise & lock'}
+          </button>
         </>
       }
     >
@@ -109,7 +122,9 @@ export function FinaliseSheet({
                 key={line.key}
                 className="flex justify-between gap-4 border-t border-hairline px-3.5 py-2.5 first:border-t-0"
               >
-                <dt className="shrink-0 text-caption text-muted">{line.label}</dt>
+                <dt className="shrink-0 text-caption text-muted">
+                  {line.label}
+                </dt>
                 <dd
                   className={`text-right text-body ${line.tone === 'warn' ? 'text-amber-ink' : 'text-ink'}`}
                 >
@@ -143,7 +158,8 @@ export function FinaliseSheet({
             // already driven off cannot sign, and the visit still has to be
             // recorded; a pad the form requires never reaches this sheet.
             <Row key={field.key} ok={signed} warn={!signed}>
-              {field.label.replace(/:$/, '')} — {signed ? 'signed' : 'not signed'}
+              {field.label.replace(/:$/, '')} —{' '}
+              {signed ? 'signed' : 'not signed'}
             </Row>
           )
         })}
@@ -151,7 +167,11 @@ export function FinaliseSheet({
             that never wanted a photo is a line that reads like a shortfall. */}
         {asksForPhotos && (
           <Row ok={photoCount > 0}>
-            {photoCount === 0 ? 'No photos' : photoCount === 1 ? '1 photo' : `${photoCount} photos`}
+            {photoCount === 0
+              ? 'No photos'
+              : photoCount === 1
+                ? '1 photo'
+                : `${photoCount} photos`}
           </Row>
         )}
       </ul>
@@ -191,7 +211,9 @@ function Row({
   children: React.ReactNode
 }) {
   return (
-    <li className={`flex items-center gap-2 text-body ${warn ? 'text-amber-ink' : 'text-ink-2'}`}>
+    <li
+      className={`flex items-center gap-2 text-body ${warn ? 'text-amber-ink' : 'text-ink-2'}`}
+    >
       {warn ? (
         <TriangleAlert size={15} strokeWidth={2} className="shrink-0" />
       ) : (
@@ -217,7 +239,10 @@ function nowAsTime(): string {
 }
 
 function readableNow(): string {
-  return new Intl.DateTimeFormat('en-AU', { hour: 'numeric', minute: '2-digit' }).format(new Date())
+  return new Intl.DateTimeFormat('en-AU', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date())
 }
 
 /**
@@ -242,7 +267,8 @@ function recipientsOf(
       const value = data[field.key]
       const list = Array.isArray(value) ? value : [value]
       for (const entry of list) {
-        if (typeof entry === 'string' && entry.trim() !== '') out.push(entry.trim())
+        if (typeof entry === 'string' && entry.trim() !== '')
+          out.push(entry.trim())
       }
     }
   }

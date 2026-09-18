@@ -22,7 +22,9 @@ import type { Id } from './_generated/dataModel'
  */
 
 /** `toBuffer()` resolves to a Node `ReadableStream`, not a `Buffer`. */
-export async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
+export async function streamToBuffer(
+  stream: NodeJS.ReadableStream,
+): Promise<Buffer> {
   const chunks: Array<Buffer> = []
   for await (const chunk of stream) chunks.push(chunk as Buffer)
   return Buffer.concat(chunks)
@@ -51,7 +53,9 @@ export async function renderIfNeeded(
   }
 
   try {
-    const report = await ctx.runQuery(internal.reports.getForRender, { reportId })
+    const report = await ctx.runQuery(internal.reports.getForRender, {
+      reportId,
+    })
     if (!report) {
       await ctx.runMutation(internal.reports.failPdf, { reportId })
       return null
@@ -64,7 +68,8 @@ export async function renderIfNeeded(
     })
 
     const { pdf } = await import('@react-pdf/renderer')
-    const { ReportPdf } = await import('../src/components/reports/pdf/ReportPdf')
+    const { ReportPdf } =
+      await import('../src/components/reports/pdf/ReportPdf')
 
     const stream = await pdf(
       <ReportPdf
@@ -127,9 +132,12 @@ async function waitForRender(
 ): Promise<Id<'_storage'> | null> {
   for (let attempt = 0; attempt < 16; attempt++) {
     await new Promise((resolve) => setTimeout(resolve, 500))
-    const pointer = await ctx.runQuery(internal.reports.pdfPointer, { reportId })
+    const pointer = await ctx.runQuery(internal.reports.pdfPointer, {
+      reportId,
+    })
     if (!pointer) return null
-    if (pointer.status === 'ready' && pointer.storageId) return pointer.storageId
+    if (pointer.status === 'ready' && pointer.storageId)
+      return pointer.storageId
     if (pointer.status === 'failed') return null
   }
   return null

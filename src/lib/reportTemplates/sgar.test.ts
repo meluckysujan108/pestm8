@@ -50,7 +50,11 @@ describe('when a rodent treatment has to be gone back to', () => {
 
   test('says nothing about a treatment that used something else', () => {
     expect(
-      sgarFollowUp(serviceReport, withMethod('Hand Compression Sprayer'), TREATED),
+      sgarFollowUp(
+        serviceReport,
+        withMethod('Hand Compression Sprayer'),
+        TREATED,
+      ),
     ).toBeNull()
   })
 

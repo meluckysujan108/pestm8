@@ -38,7 +38,8 @@ export function applyTemplateSettings(
   const print = mergePrint(template, settings)
   const sections = applySigners(template.sections, settings.requiredSigners)
 
-  if (print === template.print && sections === template.sections) return template
+  if (print === template.print && sections === template.sections)
+    return template
   return { ...template, print, sections }
 }
 

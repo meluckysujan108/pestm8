@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { api, expectRejected, setupBusinessWithSub, signInViaUi } from './fixtures'
+import {
+  api,
+  expectRejected,
+  setupBusinessWithSub,
+  signInViaUi,
+} from './fixtures'
 import {
   builderReady,
   createReport,
@@ -21,14 +26,19 @@ import {
  * follows is that contract, end to end.
  */
 
-async function productsFor(client: Parameters<typeof createReport>[0], businessId: string) {
+async function productsFor(
+  client: Parameters<typeof createReport>[0],
+  businessId: string,
+) {
   const lists = await client.query(api.optionSets.editable, {
     businessId: businessId as never,
   })
   return lists.find((list) => list.key === 'products')!
 }
 
-test('a product an owner adds in Settings is on the next report', async ({ page }) => {
+test('a product an owner adds in Settings is on the next report', async ({
+  page,
+}) => {
   const s = await setupBusinessWithSub('optionset-add')
   await signInViaUi(page, s.owner.email)
 
@@ -37,10 +47,15 @@ test('a product an owner adds in Settings is on the next report', async ({ page 
 
   const sheet = page.getByRole('dialog')
   await expect(sheet.getByText('Reports already finalised')).toBeVisible()
-  await sheet.getByLabel('Add to Products').fill('Termidor HE (100 g/L Fipronil)')
+  await sheet
+    .getByLabel('Add to Products')
+    .fill('Termidor HE (100 g/L Fipronil)')
   await sheet.getByRole('button', { name: 'Add', exact: true }).click()
   await expect(
-    sheet.getByRole('button', { name: 'Termidor HE (100 g/L Fipronil)', exact: true }),
+    sheet.getByRole('button', {
+      name: 'Termidor HE (100 g/L Fipronil)',
+      exact: true,
+    }),
   ).toBeVisible()
 
   // The thing that actually matters: a report started afterwards offers it.
@@ -60,21 +75,32 @@ test('a product an owner adds in Settings is on the next report', async ({ page 
 test('renaming a product rewrites the drafts that already chose it', async () => {
   const s = await setupBusinessWithSub('optionset-rename')
   const before = await productsFor(s.owner.client, s.businessId)
-  const original = before.options.find((o) => !before.pinned.includes(o.value))!.value
+  const original = before.options.find(
+    (o) => !before.pinned.includes(o.value),
+  )!.value
 
   const reportId = await createReport(s.sub.client, s, 'serviceReport')
   await saveReportDraft(s.sub.client, s, reportId, 'serviceReport', {
     treatments: [
-      { _id: 'row-1', treatment: ['Ants'], product: [original], quantity: [], method: [] },
+      {
+        _id: 'row-1',
+        treatment: ['Ants'],
+        product: [original],
+        quantity: [],
+        method: [],
+      },
     ],
   })
 
-  const { rewritten } = await s.owner.client.mutation(api.optionSets.renameOption, {
-    businessId: s.businessId,
-    key: 'products',
-    from: original,
-    to: `${original} EC`,
-  })
+  const { rewritten } = await s.owner.client.mutation(
+    api.optionSets.renameOption,
+    {
+      businessId: s.businessId,
+      key: 'products',
+      from: original,
+      to: `${original} EC`,
+    },
+  )
   expect(rewritten).toBe(1)
 
   const report = await s.sub.client.query(api.reports.get, {
@@ -90,12 +116,20 @@ test('renaming a product rewrites the drafts that already chose it', async () =>
 test('a finalised report keeps the words it was signed with', async () => {
   const s = await setupBusinessWithSub('optionset-frozen')
   const before = await productsFor(s.owner.client, s.businessId)
-  const original = before.options.find((o) => !before.pinned.includes(o.value))!.value
+  const original = before.options.find(
+    (o) => !before.pinned.includes(o.value),
+  )!.value
 
   const reportId = await createReport(s.sub.client, s, 'serviceReport')
   await saveReportDraft(s.sub.client, s, reportId, 'serviceReport', {
     treatments: [
-      { _id: 'row-1', treatment: ['Ants'], product: [original], quantity: [], method: [] },
+      {
+        _id: 'row-1',
+        treatment: ['Ants'],
+        product: [original],
+        quantity: [],
+        method: [],
+      },
     ],
   })
   // Renaming reaches this draft...
@@ -114,7 +148,9 @@ test('a finalised report keeps the words it was signed with', async () => {
   expect((fresh!.optionSets?.products ?? []).map((o) => o.value)).toContain(
     `${original} EC`,
   )
-  expect((fresh!.optionSets?.products ?? []).map((o) => o.value)).not.toContain(original)
+  expect((fresh!.optionSets?.products ?? []).map((o) => o.value)).not.toContain(
+    original,
+  )
 })
 
 test('the vocabulary is the owner’s to read and to change', async () => {
@@ -128,12 +164,15 @@ test('the vocabulary is the owner’s to read and to change', async () => {
   // editor's own payload is not theirs: `archived` is the list of products the
   // business has deliberately stopped offering.
   await expectRejected(
-    () => s.sub.client.query(api.optionSets.editable, { businessId: s.businessId }),
+    () =>
+      s.sub.client.query(api.optionSets.editable, { businessId: s.businessId }),
     'NO_ACCESS',
   )
   // What they do get is the cheap half — which of the options to put first.
   expect(
-    await s.sub.client.query(api.optionSets.usual, { businessId: s.businessId }),
+    await s.sub.client.query(api.optionSets.usual, {
+      businessId: s.businessId,
+    }),
   ).toBeDefined()
 
   await expectRejected(
@@ -160,7 +199,9 @@ test('the vocabulary is the owner’s to read and to change', async () => {
 test('a word a form matches on cannot be renamed away', async () => {
   const s = await setupBusinessWithSub('optionset-pinned')
   const risks = (
-    await s.owner.client.query(api.optionSets.editable, { businessId: s.businessId })
+    await s.owner.client.query(api.optionSets.editable, {
+      businessId: s.businessId,
+    })
   ).find((list) => list.key === 'risks')!
   // None of the three Pest M8 forms matches a library value by name — they
   // print these lists and nothing more — so the guard is exercised through the
@@ -181,7 +222,10 @@ test('a word a form matches on cannot be renamed away', async () => {
               key: 'risks',
               label: 'Risks on site',
               optionsFrom: 'risks',
-              options: risks.options.map((o) => ({ value: o.value, label: o.label })),
+              options: risks.options.map((o) => ({
+                value: o.value,
+                label: o.label,
+              })),
               exclusive: [exclusive],
             },
           ],
@@ -191,7 +235,9 @@ test('a word a form matches on cannot be renamed away', async () => {
   })
 
   const pinnedNow = (
-    await s.owner.client.query(api.optionSets.editable, { businessId: s.businessId })
+    await s.owner.client.query(api.optionSets.editable, {
+      businessId: s.businessId,
+    })
   ).find((list) => list.key === 'risks')!
   expect(pinnedNow.pinned).toContain(exclusive)
 
@@ -210,12 +256,20 @@ test('a word a form matches on cannot be renamed away', async () => {
 test('an archived product goes from new reports but stays in the draft that chose it', async () => {
   const s = await setupBusinessWithSub('optionset-archive')
   const before = await productsFor(s.owner.client, s.businessId)
-  const doomed = before.options.find((o) => !before.pinned.includes(o.value))!.value
+  const doomed = before.options.find(
+    (o) => !before.pinned.includes(o.value),
+  )!.value
 
   const reportId = await createReport(s.sub.client, s, 'serviceReport')
   await saveReportDraft(s.sub.client, s, reportId, 'serviceReport', {
     treatments: [
-      { _id: 'row-1', treatment: ['Ants'], product: [doomed], quantity: [], method: [] },
+      {
+        _id: 'row-1',
+        treatment: ['Ants'],
+        product: [doomed],
+        quantity: [],
+        method: [],
+      },
     ],
   })
 
@@ -251,7 +305,9 @@ test('an archived product goes from new reports but stays in the draft that chos
 test('renaming a product keeps it starred', async () => {
   const s = await setupBusinessWithSub('optionset-rename-star')
   const products = await productsFor(s.owner.client, s.businessId)
-  const starred = products.options.find((o) => !products.pinned.includes(o.value))!.value
+  const starred = products.options.find(
+    (o) => !products.pinned.includes(o.value),
+  )!.value
 
   await s.owner.client.mutation(api.optionSets.setUsual, {
     businessId: s.businessId,
@@ -272,15 +328,20 @@ test('renaming a product keeps it starred', async () => {
   const renamed = after.options.find((o) => o.value === `${starred} EC`)!
   expect(renamed.usual).toBe(true)
   expect(
-    (await s.owner.client.query(api.optionSets.usual, { businessId: s.businessId }))
-      .products,
+    (
+      await s.owner.client.query(api.optionSets.usual, {
+        businessId: s.businessId,
+      })
+    ).products,
   ).toEqual([`${starred} EC`])
 })
 
 test('a rename cannot collide with something in the archive', async () => {
   const s = await setupBusinessWithSub('optionset-rename-archived')
   const products = await productsFor(s.owner.client, s.businessId)
-  const live = products.options.filter((o) => !products.pinned.includes(o.value))
+  const live = products.options.filter(
+    (o) => !products.pinned.includes(o.value),
+  )
   const [keep, shelved] = [live[0].value, live[1].value]
 
   await s.owner.client.mutation(api.optionSets.archiveOption, {
@@ -308,7 +369,9 @@ test('the picker opens on what this business and this member actually use', asyn
 }) => {
   const s = await setupBusinessWithSub('optionset-usual')
   const products = await productsFor(s.owner.client, s.businessId)
-  const marked = products.options.find((o) => !products.pinned.includes(o.value))!.value
+  const marked = products.options.find(
+    (o) => !products.pinned.includes(o.value),
+  )!.value
 
   await s.owner.client.mutation(api.optionSets.setUsual, {
     businessId: s.businessId,
@@ -320,7 +383,11 @@ test('the picker opens on what this business and this member actually use', asyn
   // The owner's mark reaches the technician; the technician's own habit is
   // theirs alone until they form one.
   expect(
-    (await s.sub.client.query(api.optionSets.usual, { businessId: s.businessId })).products,
+    (
+      await s.sub.client.query(api.optionSets.usual, {
+        businessId: s.businessId,
+      })
+    ).products,
   ).toEqual([marked])
 
   const habit = products.options.find(
@@ -332,12 +399,19 @@ test('the picker opens on what this business and this member actually use', asyn
     values: [habit],
   })
   expect(
-    (await s.sub.client.query(api.optionSets.usual, { businessId: s.businessId })).products,
+    (
+      await s.sub.client.query(api.optionSets.usual, {
+        businessId: s.businessId,
+      })
+    ).products,
   ).toEqual([marked, habit])
   // Per member, not per business: the owner did not pick that up.
   expect(
-    (await s.owner.client.query(api.optionSets.usual, { businessId: s.businessId }))
-      .products,
+    (
+      await s.owner.client.query(api.optionSets.usual, {
+        businessId: s.businessId,
+      })
+    ).products,
   ).toEqual([marked])
 
   // And the sheet actually groups by it.

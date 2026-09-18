@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { api, expectRejected, setupBusinessWithSub, signInViaUi } from './fixtures'
+import {
+  api,
+  expectRejected,
+  setupBusinessWithSub,
+  signInViaUi,
+} from './fixtures'
 import {
   createReport,
   finaliseReport,
@@ -37,9 +42,15 @@ async function pdfText(url: string): Promise<string> {
 async function finalisedReport(label: string) {
   const s = await setupBusinessWithSub(label)
   const reportId = await createReport(s.owner.client, s, 'serviceReport')
-  await finaliseReport(s.owner.client, { businessId: s.businessId }, reportId, 'serviceReport', {
-    comments: 'Treated the perimeter.',
-  })
+  await finaliseReport(
+    s.owner.client,
+    { businessId: s.businessId },
+    reportId,
+    'serviceReport',
+    {
+      comments: 'Treated the perimeter.',
+    },
+  )
   return { ...s, reportId }
 }
 
@@ -47,7 +58,12 @@ type Setup = Awaited<ReturnType<typeof finalisedReport>>
 
 /** Signs and locks a correction — the step that actually replaces the original. */
 async function issueAmendment(s: Setup, amendmentId: Id<'reports'>) {
-  await signReport(s.owner.client, { businessId: s.businessId }, amendmentId, 'technician')
+  await signReport(
+    s.owner.client,
+    { businessId: s.businessId },
+    amendmentId,
+    'technician',
+  )
   await s.owner.client.mutation(api.reports.finalise, {
     businessId: s.businessId,
     reportId: amendmentId,
@@ -112,9 +128,12 @@ test('an amendment is a new document with the same number and the next version',
 test('the cover photo comes with it, like the rest of the evidence', async () => {
   const s = await setupBusinessWithSub('amend-cover')
   const reportId = await createReport(s.owner.client, s, 'serviceReport')
-  const uploadUrl = await s.owner.client.mutation(api.reports.generateUploadUrl, {
-    businessId: s.businessId,
-  })
+  const uploadUrl = await s.owner.client.mutation(
+    api.reports.generateUploadUrl,
+    {
+      businessId: s.businessId,
+    },
+  )
   const res = await fetch(uploadUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'image/png' },
@@ -130,7 +149,12 @@ test('the cover photo comes with it, like the rest of the evidence', async () =>
     storageId,
     slot: 'coverPhoto',
   })
-  await finaliseReport(s.owner.client, { businessId: s.businessId }, reportId, 'serviceReport')
+  await finaliseReport(
+    s.owner.client,
+    { businessId: s.businessId },
+    reportId,
+    'serviceReport',
+  )
 
   const amendmentId = await s.owner.client.mutation(api.reports.amend, {
     businessId: s.businessId,
@@ -347,7 +371,12 @@ test('correcting a document is for whoever signed it, or the owner', async () =>
 
   // The subcontractor's own is theirs — and the owner's too.
   const theirs = await createReport(s.sub.client, s, 'serviceReport')
-  await finaliseReport(s.sub.client, { businessId: s.businessId }, theirs, 'serviceReport')
+  await finaliseReport(
+    s.sub.client,
+    { businessId: s.businessId },
+    theirs,
+    'serviceReport',
+  )
   const asSeen = await s.sub.client.query(api.reports.get, {
     businessId: s.businessId,
     reportId: theirs,
@@ -408,10 +437,16 @@ test('both ends of the pair say so on screen', async ({ page }) => {
 
   // While it is being written, the original points at it instead of offering
   // a second one.
-  const amendmentId = page.url().split('/').pop()!.split('?')[0] as Id<'reports'>
+  const amendmentId = page
+    .url()
+    .split('/')
+    .pop()!
+    .split('?')[0] as Id<'reports'>
   await page.goto(`/${s.slug}/reports/${s.reportId}`)
   await expect(page.getByText('A correction is under way.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Issue a correction' })).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'Issue a correction' }),
+  ).toHaveCount(0)
 
   // Once it is issued, the document it replaced says it was replaced, rather
   // than silently becoming the wrong one to work from.
@@ -419,5 +454,7 @@ test('both ends of the pair say so on screen', async ({ page }) => {
   await page.reload()
   await expect(page.getByText('Replaced.')).toBeVisible()
   // With no way to fork the number again.
-  await expect(page.getByRole('button', { name: 'Issue a correction' })).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: 'Issue a correction' }),
+  ).toHaveCount(0)
 })

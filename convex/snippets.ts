@@ -34,7 +34,10 @@ export const list = query({
     const membership = await requireMembership(ctx, businessId)
     // Removing a phrase somebody else wrote is authority over the wording the
     // business issues — `templates.manage`, which a switch drops.
-    const canManage = hasCapability(await requireActor(ctx, businessId), 'templates.manage')
+    const canManage = hasCapability(
+      await requireActor(ctx, businessId),
+      'templates.manage',
+    )
 
     const rows = await ctx.db
       .query('reportSnippets')
@@ -55,9 +58,7 @@ export const list = query({
          * technician tapping a bin and watching nothing happen learns only
          * that the app is broken.
          */
-        canRemove:
-          canManage ||
-          row.createdByMembershipId === membership._id,
+        canRemove: canManage || row.createdByMembershipId === membership._id,
       })),
     )
   },
@@ -159,7 +160,8 @@ export const remove = mutation({
     const membership = await requireMembership(ctx, businessId)
 
     const row = await ctx.db.get(snippetId)
-    if (!row || row.businessId !== businessId) throw new ConvexError('NOT_FOUND')
+    if (!row || row.businessId !== businessId)
+      throw new ConvexError('NOT_FOUND')
     if (
       !hasCapability(await requireActor(ctx, businessId), 'templates.manage') &&
       row.createdByMembershipId !== membership._id

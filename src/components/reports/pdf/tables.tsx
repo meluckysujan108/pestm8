@@ -1,7 +1,11 @@
 import { Image, StyleSheet, Text, View } from '@react-pdf/renderer'
 import { RichTextPdf } from './RichTextPdf'
 import { COLOURS, FONT, LABEL_WIDTH, SIZES, VALUE_WIDTH } from './theme'
-import type { DocBar, DocPhoto, DocRow } from '../../../lib/reportTemplates/documentModel'
+import type {
+  DocBar,
+  DocPhoto,
+  DocRow,
+} from '../../../lib/reportTemplates/documentModel'
 
 /**
  * The three shapes a printed report is made of: labelled answers, a repeating
@@ -47,7 +51,12 @@ const styles = StyleSheet.create({
   pairRow: { flexDirection: 'row', paddingVertical: 1 },
   pairLabel: { width: '40%', color: COLOURS.muted, fontSize: SIZES.body - 0.5 },
   pairValue: { width: '60%', fontSize: SIZES.body - 0.5 },
-  signature: { width: 150, height: 52, objectFit: 'contain', objectPosition: 'left' },
+  signature: {
+    width: 150,
+    height: 52,
+    objectFit: 'contain',
+    objectPosition: 'left',
+  },
   signedBy: { fontSize: SIZES.caption, color: COLOURS.muted, marginTop: 2 },
 
   gridHead: { flexDirection: 'row', backgroundColor: COLOURS.red },
@@ -75,7 +84,11 @@ const styles = StyleSheet.create({
 
   photoRow: { flexDirection: 'row', marginBottom: 6 },
   photoTile: { paddingRight: 8 },
-  photoCaption: { fontSize: SIZES.caption - 0.5, color: COLOURS.muted, marginTop: 2 },
+  photoCaption: {
+    fontSize: SIZES.caption - 0.5,
+    color: COLOURS.muted,
+    marginTop: 2,
+  },
 })
 
 const BAR_COLOUR: Record<DocBar, string> = {
@@ -95,7 +108,9 @@ export function KeyValueTable({ rows }: { rows: Array<DocRow> }) {
                 bar and one without still start at the same place down the
                 column. Without that, a checklist reads as ragged. */}
             {row.bar ? (
-              <View style={[styles.bar, { backgroundColor: BAR_COLOUR[row.bar] }]} />
+              <View
+                style={[styles.bar, { backgroundColor: BAR_COLOUR[row.bar] }]}
+              />
             ) : (
               <View style={styles.barSpacer} />
             )}
@@ -146,7 +161,10 @@ function RowValue({ row }: { row: DocRow }) {
             <View key={pair.label} style={styles.pairRow}>
               <Text style={styles.pairLabel}>{pair.label}</Text>
               <Text
-                style={[styles.pairValue, ...(pair.tone === 'warn' ? [styles.warn] : [])]}
+                style={[
+                  styles.pairValue,
+                  ...(pair.tone === 'warn' ? [styles.warn] : []),
+                ]}
               >
                 {pair.value}
               </Text>
@@ -159,7 +177,9 @@ function RowValue({ row }: { row: DocRow }) {
       return (
         <>
           <Image src={shown.url} style={styles.signature} />
-          {shown.caption && <Text style={styles.signedBy}>{shown.caption}</Text>}
+          {shown.caption && (
+            <Text style={styles.signedBy}>{shown.caption}</Text>
+          )}
         </>
       )
 
@@ -256,7 +276,10 @@ function tileHeight(photo: DocPhoto, columnWidth: number): number {
   // A photo whose dimensions were never recorded keeps a fixed box: guessing a
   // shape for it would be worse than the box.
   if (!photo.width || !photo.height) return 120
-  return Math.min(MAX_TILE_HEIGHT_PT, (photo.height / photo.width) * columnWidth)
+  return Math.min(
+    MAX_TILE_HEIGHT_PT,
+    (photo.height / photo.width) * columnWidth,
+  )
 }
 
 export function PhotoGrid({ photos }: { photos: Array<DocPhoto> }) {
@@ -276,7 +299,10 @@ export function PhotoGrid({ photos }: { photos: Array<DocPhoto> }) {
       {rows.map((row, index) => (
         <View key={index} style={styles.photoRow} wrap={false}>
           {row.map((photo) => (
-            <View key={photo.key} style={[styles.photoTile, { width: `${100 / columns}%` }]}>
+            <View
+              key={photo.key}
+              style={[styles.photoTile, { width: `${100 / columns}%` }]}
+            >
               <Image
                 src={photo.url}
                 style={{

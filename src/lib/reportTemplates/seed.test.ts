@@ -52,9 +52,15 @@ describe('seeding a service report from its job', () => {
 
   test('offers to email the client exactly when there is an address', () => {
     expect(
-      seedFromContext(template, { today: TODAY, clientEmail: 'client@example.com' }).data.sendCopy,
+      seedFromContext(template, {
+        today: TODAY,
+        clientEmail: 'client@example.com',
+      }).data.sendCopy,
     ).toBe(true)
-    expect(seedFromContext(template, { today: TODAY, clientEmail: null }).data.sendCopy).toBe(false)
+    expect(
+      seedFromContext(template, { today: TODAY, clientEmail: null }).data
+        .sendCopy,
+    ).toBe(false)
   })
 
   test('never answers whether it is safe to commence work', () => {
@@ -79,7 +85,10 @@ describe('seeding a service report from its job', () => {
   })
 
   test('starts the treatment grid on the job type, in the form own words', () => {
-    const { data } = seedFromContext(template, { today: TODAY, jobType: 'Cockroaches' })
+    const { data } = seedFromContext(template, {
+      today: TODAY,
+      jobType: 'Cockroaches',
+    })
     const rows = data.treatments as Array<Record<string, unknown>>
     expect(rows).toHaveLength(1)
     expect(rows[0].treatment).toEqual(['Cockroach Treatment'])
@@ -89,7 +98,10 @@ describe('seeding a service report from its job', () => {
   })
 
   test('leaves the grid empty for a job type the form has no treatment for', () => {
-    expect(seedFromContext(template, { today: TODAY, jobType: 'Bed Bugs' }).data.treatments).toBeUndefined()
+    expect(
+      seedFromContext(template, { today: TODAY, jobType: 'Bed Bugs' }).data
+        .treatments,
+    ).toBeUndefined()
   })
 
   test('suggests the weather, and records that it was a guess', () => {
@@ -111,16 +123,28 @@ describe('seeding a service report from its job', () => {
   })
 
   test('says nothing about the weather when there is no forecast', () => {
-    const { data, prefill } = seedFromContext(template, { today: TODAY, forecast: null })
+    const { data, prefill } = seedFromContext(template, {
+      today: TODAY,
+      forecast: null,
+    })
     expect(data.weather).toBeUndefined()
     expect(prefill.weather).toBeUndefined()
   })
 
   test('fills blanks only, so re-seeding an edited draft changes nothing', () => {
-    const existing = { serviceDate: '2026-01-05', weather: ['Overcast'], sendCopy: false }
+    const existing = {
+      serviceDate: '2026-01-05',
+      weather: ['Overcast'],
+      sendCopy: false,
+    }
     const { data, prefill } = seedFromContext(
       template,
-      { today: TODAY, jobDate: '2026-09-16', clientEmail: 'a@example.com', forecast: { rainMm: 9 } },
+      {
+        today: TODAY,
+        jobDate: '2026-09-16',
+        clientEmail: 'a@example.com',
+        forecast: { rainMm: 9 },
+      },
       existing,
     )
     expect(data.serviceDate).toBeUndefined()
@@ -132,12 +156,15 @@ describe('seeding a service report from its job', () => {
 
 describe('seeding the AS forms', () => {
   test('the timber inspection takes its date, time and single weather word', () => {
-    const { data, prefill } = seedFromContext(getTemplate('timberPestInspection'), {
-      today: TODAY,
-      jobDate: '2026-09-16',
-      scheduledTime: '08:00',
-      forecast: { rainMm: 0, windKmh: 30 },
-    })
+    const { data, prefill } = seedFromContext(
+      getTemplate('timberPestInspection'),
+      {
+        today: TODAY,
+        jobDate: '2026-09-16',
+        scheduledTime: '08:00',
+        forecast: { rainMm: 0, windKmh: 30 },
+      },
+    )
     expect(data.inspectionDate).toBe('2026-09-16')
     expect(data.inspectionTime).toBe('08:00')
     // A radio holds one word, not a list — the same question, a different control.
@@ -157,15 +184,30 @@ describe('seeding the AS forms', () => {
 
 describe('reading the forecast in a form own words', () => {
   const FIVE = ['Overcast', 'Wet', 'Sunny', 'Windy', 'Evening']
-  const SEVEN = ['Dry', 'Prolonged Dry Period', 'Wet', 'Prolonged Wet Period', 'Overcast', 'Windy', 'Sunny']
+  const SEVEN = [
+    'Dry',
+    'Prolonged Dry Period',
+    'Wet',
+    'Prolonged Wet Period',
+    'Overcast',
+    'Windy',
+    'Sunny',
+  ]
 
   test('wind outranks rain, because it decides whether spraying happens at all', () => {
-    expect(weatherAnswerFrom({ rainMm: 9, windKmh: 40 }, FIVE)).toEqual(['Windy', 'Wet'])
+    expect(weatherAnswerFrom({ rainMm: 9, windKmh: 40 }, FIVE)).toEqual([
+      'Windy',
+      'Wet',
+    ])
   })
 
   test('falls back to Dry only on a form that offers it', () => {
-    expect(weatherAnswerFrom({ rainMm: 0, windKmh: 3, code: 45 }, SEVEN)).toEqual(['Dry'])
-    expect(weatherAnswerFrom({ rainMm: 0, windKmh: 3, code: 45 }, FIVE)).toEqual([])
+    expect(
+      weatherAnswerFrom({ rainMm: 0, windKmh: 3, code: 45 }, SEVEN),
+    ).toEqual(['Dry'])
+    expect(
+      weatherAnswerFrom({ rainMm: 0, windKmh: 3, code: 45 }, FIVE),
+    ).toEqual([])
   })
 
   test('never guesses a prolonged period from one day of forecast', () => {
@@ -190,7 +232,9 @@ describe('which form a job suggests', () => {
   })
 
   test('reads a renamed job type rather than guessing wrong', () => {
-    expect(suggestTemplate('Annual Termite Inspection (Warranty)')).toBe('timberPestInspection')
+    expect(suggestTemplate('Annual Termite Inspection (Warranty)')).toBe(
+      'timberPestInspection',
+    )
     expect(suggestTemplate('Rodent Bait Top-Up')).toBeNull()
     expect(suggestTemplate(undefined)).toBeNull()
   })

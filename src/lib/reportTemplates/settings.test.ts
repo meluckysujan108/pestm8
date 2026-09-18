@@ -24,7 +24,9 @@ function signerSlots(template: ReturnType<typeof getTemplate>) {
 describe('the parts a business owns', () => {
   test('the cover says what the business calls it', () => {
     const applied = applyTemplateSettings(serviceReport, {
-      print: { cover: { title: 'Pest Control Service Record', subtitle: 'Bayside' } },
+      print: {
+        cover: { title: 'Pest Control Service Record', subtitle: 'Bayside' },
+      },
     })
     expect(applied.print?.cover?.title).toBe('Pest Control Service Record')
     expect(applied.print?.cover?.subtitle).toBe('Bayside')
@@ -47,7 +49,9 @@ describe('the parts a business owns', () => {
       print: { formName: 'Anything', cover: { title: 'Anything' } },
       requiredSigners: [],
     })
-    const before = fieldsOf(serviceReport).map((f) => `${f.kind}:${f.key}:${f.label}`)
+    const before = fieldsOf(serviceReport).map(
+      (f) => `${f.kind}:${f.key}:${f.label}`,
+    )
     const after = fieldsOf(applied).map((f) => `${f.kind}:${f.key}:${f.label}`)
     expect(after).toEqual(before)
   })
@@ -68,11 +72,14 @@ describe('who has to sign', () => {
   test('a business can require nobody — the pads stay, the insistence goes', () => {
     // For the businesses where the office locks reports the next morning. The
     // signature pad is still on the form; the app just stops refusing.
-    const applied = applyTemplateSettings(serviceReport, { requiredSigners: [] })
+    const applied = applyTemplateSettings(serviceReport, {
+      requiredSigners: [],
+    })
     expect(signerSlots(applied)).toEqual([])
     const pads = fieldsOf(applied).filter((field) => field.kind === 'signature')
     expect(pads).toHaveLength(
-      fieldsOf(serviceReport).filter((field) => field.kind === 'signature').length,
+      fieldsOf(serviceReport).filter((field) => field.kind === 'signature')
+        .length,
     )
   })
 

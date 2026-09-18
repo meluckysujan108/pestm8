@@ -1,6 +1,15 @@
 import { expect, test } from '@playwright/test'
-import { api, expectRejected, setupBusinessWithSub, signInViaUi } from './fixtures'
-import { builderReady, createReport, sectionUrl } from './fixtures/reportPayloads'
+import {
+  api,
+  expectRejected,
+  setupBusinessWithSub,
+  signInViaUi,
+} from './fixtures'
+import {
+  builderReady,
+  createReport,
+  sectionUrl,
+} from './fixtures/reportPayloads'
 
 /**
  * Phrases: the sentences a business writes over and over.
@@ -48,16 +57,18 @@ test('a technician saves what they wrote, and the next report offers it', async 
 
   const again = page.getByRole('dialog')
   await again
-    .getByRole('button', { name: 'Keep pets off the treated area for two hours.' })
+    .getByRole('button', {
+      name: 'Keep pets off the treated area for two hours.',
+    })
     .click()
   await expect(
     page.getByRole('textbox', { name: "Technician's Comments" }),
-  ).toHaveValue(
-    'Keep pets off the treated area for two hours.',
-  )
+  ).toHaveValue('Keep pets off the treated area for two hours.')
 })
 
-test('a phrase is added to the answer, never substituted for it', async ({ page }) => {
+test('a phrase is added to the answer, never substituted for it', async ({
+  page,
+}) => {
   const s = await setupBusinessWithSub('phrase-add')
   await s.owner.client.mutation(api.snippets.save, {
     businessId: s.businessId,
@@ -106,7 +117,11 @@ test('the owner writes the wording once and the whole team has it', async () => 
     text: 'Roof void inspected from the access hatch only.',
   })
   expect(
-    (await s.owner.client.query(api.snippets.list, { businessId: s.businessId })).length,
+    (
+      await s.owner.client.query(api.snippets.list, {
+        businessId: s.businessId,
+      })
+    ).length,
   ).toBe(2)
 })
 
@@ -125,7 +140,8 @@ test('saving the same sentence twice keeps one of it', async () => {
   })
   expect(again).toBe(first)
   expect(
-    (await s.sub.client.query(api.snippets.list, { businessId: s.businessId })).length,
+    (await s.sub.client.query(api.snippets.list, { businessId: s.businessId }))
+      .length,
   ).toBe(1)
 })
 
@@ -139,7 +155,7 @@ test('a phrase belongs to its author and to the owner, and to nobody else', asyn
   const subsPhrase = await s.sub.client.mutation(api.snippets.save, {
     businessId: s.businessId,
     fieldKey: 'comments',
-    text: "Something this technician wrote.",
+    text: 'Something this technician wrote.',
   })
 
   // A technician cannot drop the wording their business issues.
@@ -162,7 +178,11 @@ test('a phrase belongs to its author and to the owner, and to nobody else', asyn
     snippetId: ownersPhrase,
   })
   expect(
-    (await s.owner.client.query(api.snippets.list, { businessId: s.businessId })).length,
+    (
+      await s.owner.client.query(api.snippets.list, {
+        businessId: s.businessId,
+      })
+    ).length,
   ).toBe(0)
 })
 

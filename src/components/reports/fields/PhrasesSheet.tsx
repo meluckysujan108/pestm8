@@ -154,12 +154,14 @@ export function PhrasesSheet({
         </p>
       )}
 
-      {written !== '' && !tooLong && phrases.length >= MAX_SNIPPETS_PER_FIELD && (
-        <p className="mt-3 text-caption text-muted">
-          This question holds {MAX_SNIPPETS_PER_FIELD} phrases, which is as many
-          as anyone reads. Remove one to save another.
-        </p>
-      )}
+      {written !== '' &&
+        !tooLong &&
+        phrases.length >= MAX_SNIPPETS_PER_FIELD && (
+          <p className="mt-3 text-caption text-muted">
+            This question holds {MAX_SNIPPETS_PER_FIELD} phrases, which is as
+            many as anyone reads. Remove one to save another.
+          </p>
+        )}
     </Sheet>
   )
 }

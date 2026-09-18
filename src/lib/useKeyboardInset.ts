@@ -20,7 +20,12 @@ export function useKeyboardInset(): number {
     if (!viewport) return
 
     const update = () =>
-      setInset(Math.max(0, Math.round(window.innerHeight - viewport.height - viewport.offsetTop)))
+      setInset(
+        Math.max(
+          0,
+          Math.round(window.innerHeight - viewport.height - viewport.offsetTop),
+        ),
+      )
 
     update()
     viewport.addEventListener('resize', update)

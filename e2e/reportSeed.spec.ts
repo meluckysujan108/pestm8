@@ -61,7 +61,9 @@ test.describe('a report started from a job', () => {
     // The form asks who did the work: the job's assignee, not the author.
     expect(data.technician).toBe(s.subMembershipId)
     // And the treatment the booking was for, in the form's own words.
-    expect(data.treatments).toMatchObject([{ treatment: ['General Pest Control'] }])
+    expect(data.treatments).toMatchObject([
+      { treatment: ['General Pest Control'] },
+    ])
     // The one question the form makes mandatory stays unanswered.
     expect(data.safeToStart).toBeUndefined()
   })
@@ -100,7 +102,9 @@ test.describe('a report started from a job', () => {
       businessId: s.businessId,
       reportId,
     })
-    expect(confirmed!.prefill!.startTime.confirmedAt).toEqual(expect.any(Number))
+    expect(confirmed!.prefill!.startTime.confirmedAt).toEqual(
+      expect.any(Number),
+    )
   })
 
   test('seeds nothing from a job at a different address', async () => {

@@ -98,7 +98,10 @@ describe('what the form itself asks for', () => {
     const { to, cc } = deliveryRecipients(
       template,
       { sendCopy: true },
-      { clientEmail: 'Client@Example.com', businessCopyEmail: 'office@pestm8.example' },
+      {
+        clientEmail: 'Client@Example.com',
+        businessCopyEmail: 'office@pestm8.example',
+      },
     )
     // Lower-cased, because case is not what makes two addresses different.
     expect(to).toEqual(['client@example.com'])
@@ -106,14 +109,21 @@ describe('what the form itself asks for', () => {
   })
 
   test('the toggle asks for nobody when the client has no email on file', () => {
-    const { to } = deliveryRecipients(template, { sendCopy: true }, { clientEmail: null })
+    const { to } = deliveryRecipients(
+      template,
+      { sendCopy: true },
+      { clientEmail: null },
+    )
     expect(to).toEqual([])
   })
 
   test('"Email Report To" adds whoever was typed there', () => {
     const { to } = deliveryRecipients(
       template,
-      { sendCopy: true, emailReportTo: ['strata@example.com', ' agent@example.com '] },
+      {
+        sendCopy: true,
+        emailReportTo: ['strata@example.com', ' agent@example.com '],
+      },
       { clientEmail: 'client@example.com' },
     )
     expect(to).toEqual([
@@ -127,7 +137,10 @@ describe('what the form itself asks for', () => {
     const { to, cc } = deliveryRecipients(
       template,
       { sendCopy: true },
-      { clientEmail: 'office@pestm8.example', businessCopyEmail: 'office@pestm8.example' },
+      {
+        clientEmail: 'office@pestm8.example',
+        businessCopyEmail: 'office@pestm8.example',
+      },
     )
     expect(to).toEqual(['office@pestm8.example'])
     expect(cc).toEqual([])
@@ -135,14 +148,17 @@ describe('what the form itself asks for', () => {
 
   test('a form that asked for nothing sends to nobody', () => {
     expect(
-      deliveryRecipients(template, {}, { clientEmail: 'client@example.com' }).to,
+      deliveryRecipients(template, {}, { clientEmail: 'client@example.com' })
+        .to,
     ).toEqual([])
   })
 })
 
 describe('what a settled delivery records', () => {
   async function queued(ids: Ids, t: ReturnType<typeof convexTest>) {
-    const reportId = await t.run((ctx) => finalisedReport(ctx, ids, ids.ownerId))
+    const reportId = await t.run((ctx) =>
+      finalisedReport(ctx, ids, ids.ownerId),
+    )
     const deliveryId = await t.mutation(internal.deliveries.queue, {
       reportId,
       to: ['client@example.com'],
@@ -157,7 +173,9 @@ describe('what a settled delivery records', () => {
 
   test('a send marks the report emailed and keeps the file it attached', async () => {
     const t = convexTest(schema, modules)
-    const ids = await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+    const ids = await t.run((ctx) =>
+      seed(ctx, { clientEmail: 'client@example.com' }),
+    )
     const { reportId, deliveryId } = await queued(ids, t)
 
     const pdfId = await t.run(async (ctx) => {
@@ -201,7 +219,9 @@ describe('what a settled delivery records', () => {
 
   test('a failure is kept, and does not claim the report was emailed', async () => {
     const t = convexTest(schema, modules)
-    const ids = await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+    const ids = await t.run((ctx) =>
+      seed(ctx, { clientEmail: 'client@example.com' }),
+    )
     const { reportId, deliveryId } = await queued(ids, t)
 
     await t.mutation(internal.deliveries.settle, {
@@ -219,7 +239,9 @@ describe('what a settled delivery records', () => {
 
   test('only what is queued is picked up when the render lands', async () => {
     const t = convexTest(schema, modules)
-    const ids = await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+    const ids = await t.run((ctx) =>
+      seed(ctx, { clientEmail: 'client@example.com' }),
+    )
     const { reportId, deliveryId } = await queued(ids, t)
 
     const held = await t.mutation(internal.deliveries.queue, {
@@ -232,7 +254,9 @@ describe('what a settled delivery records', () => {
       sentByMembershipId: ids.techId,
     })
 
-    const ready = await t.query(internal.deliveries.readyForReport, { reportId })
+    const ready = await t.query(internal.deliveries.readyForReport, {
+      reportId,
+    })
     // The held one stays held: a render finishing is not an approval.
     expect(ready).toEqual([deliveryId])
     expect(ready).not.toContain(held)
@@ -241,7 +265,9 @@ describe('what a settled delivery records', () => {
 
 describe('what the provider says afterwards', () => {
   async function sent(t: ReturnType<typeof convexTest>, ids: Ids) {
-    const reportId = await t.run((ctx) => finalisedReport(ctx, ids, ids.ownerId))
+    const reportId = await t.run((ctx) =>
+      finalisedReport(ctx, ids, ids.ownerId),
+    )
     const deliveryId = await t.mutation(internal.deliveries.queue, {
       reportId,
       to: ['client@example.com'],
@@ -261,7 +287,9 @@ describe('what the provider says afterwards', () => {
 
   test('a bounce stops the report claiming it was sent', async () => {
     const t = convexTest(schema, modules)
-    const ids = await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+    const ids = await t.run((ctx) =>
+      seed(ctx, { clientEmail: 'client@example.com' }),
+    )
     const { reportId, deliveryId } = await sent(t, ids)
 
     await t.mutation(internal.deliveries.recordProviderEvent, {
@@ -282,7 +310,9 @@ describe('what the provider says afterwards', () => {
 
   test('a bounce to one recipient leaves a good send standing', async () => {
     const t = convexTest(schema, modules)
-    const ids = await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+    const ids = await t.run((ctx) =>
+      seed(ctx, { clientEmail: 'client@example.com' }),
+    )
     const { reportId, deliveryId } = await sent(t, ids)
 
     const second = await t.mutation(internal.deliveries.queue, {
@@ -314,7 +344,9 @@ describe('what the provider says afterwards', () => {
 
   test('a delivery confirmation changes nothing', async () => {
     const t = convexTest(schema, modules)
-    const ids = await t.run((ctx) => seed(ctx, { clientEmail: 'client@example.com' }))
+    const ids = await t.run((ctx) =>
+      seed(ctx, { clientEmail: 'client@example.com' }),
+    )
     const { deliveryId } = await sent(t, ids)
 
     await t.mutation(internal.deliveries.recordProviderEvent, {

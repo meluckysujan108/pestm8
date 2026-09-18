@@ -48,7 +48,11 @@ test('an address on the client record is sent without asking anyone', async () =
 
   const { status, deliveryId } = await s.sub.client.mutation(
     api.deliveries.request,
-    { businessId: s.businessId, reportId: s.reportId, to: ['CLIENT@example.com'] },
+    {
+      businessId: s.businessId,
+      reportId: s.reportId,
+      to: ['CLIENT@example.com'],
+    },
   )
   expect(status).toBe('queued')
 
@@ -323,14 +327,18 @@ test.describe('the send sheet', () => {
     // they have just answered a question about.
     const client = sheet.getByRole('button', { name: /client@example\.com/ })
     await expect(client).toHaveAttribute('aria-pressed', 'true')
-    await expect(sheet.getByRole('button', { name: /Send to 1 person/ })).toBeVisible()
+    await expect(
+      sheet.getByRole('button', { name: /Send to 1 person/ }),
+    ).toBeVisible()
 
     // Someone else, and the sheet says before Send that it will be held.
     await sheet.getByRole('button', { name: 'Send to someone else' }).click()
     await sheet.getByLabel('Email address').fill('stranger@elsewhere.example')
     await sheet.getByRole('button', { name: 'Add', exact: true }).click()
     await expect(sheet.getByText('Needs approval')).toBeVisible()
-    await expect(sheet.getByRole('button', { name: 'Request approval' })).toBeVisible()
+    await expect(
+      sheet.getByRole('button', { name: 'Request approval' }),
+    ).toBeVisible()
   })
 
   test('a delivery the form opened shows in the history without anyone sending', async ({
@@ -398,6 +406,8 @@ test.describe('the send sheet', () => {
     // would misreport one of them.
     const results = sheet.getByRole('status')
     await expect(results.getByText(/^client@example\.com —/)).toBeVisible()
-    await expect(results.getByText(/^stranger@elsewhere\.example —/)).toBeVisible()
+    await expect(
+      results.getByText(/^stranger@elsewhere\.example —/),
+    ).toBeVisible()
   })
 })

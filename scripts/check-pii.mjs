@@ -59,7 +59,9 @@ for (const file of files) {
 }
 
 if (found.length > 0) {
-  console.error("Real client details from the source forms are in tracked files:\n")
+  console.error(
+    'Real client details from the source forms are in tracked files:\n',
+  )
   for (const f of found) console.error(`  ${f}`)
   console.error(
     `\n${found.length} occurrence(s). Replace them with a fixture — this repo uses` +

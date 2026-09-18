@@ -66,8 +66,9 @@ export function reportProgress(
   input: ProgressInput = {},
 ): ReportProgress {
   const prefill = input.prefill ?? {}
-  const sections = visibleSections(sectionsOf(template), data).map((section, index) =>
-    progressOf(section, index, data, prefill, input.photoCounts),
+  const sections = visibleSections(sectionsOf(template), data).map(
+    (section, index) =>
+      progressOf(section, index, data, prefill, input.photoCounts),
   )
 
   const missingRequired = sections.flatMap((section) => section.missing)
@@ -77,7 +78,8 @@ export function reportProgress(
     sections,
     missingRequired,
     toConfirm,
-    firstIncomplete: sections.find((section) => !section.done && !section.readingOnly) ?? null,
+    firstIncomplete:
+      sections.find((section) => !section.done && !section.readingOnly) ?? null,
     complete: missingRequired.length === 0 && toConfirm.length === 0,
   }
 }
@@ -102,7 +104,12 @@ function progressOf(
   // A photo field asks for something without storing it in `data`, so it is
   // counted only where the caller could tell us what it holds.
   for (const field of section.fields) {
-    if (field.kind !== 'gallery' && field.kind !== 'cover' && field.kind !== 'photos') continue
+    if (
+      field.kind !== 'gallery' &&
+      field.kind !== 'cover' &&
+      field.kind !== 'photos'
+    )
+      continue
     const count = photoCounts?.[field.key]
     if (count === undefined) continue
     if (count > 0) answered++
@@ -111,14 +118,20 @@ function progressOf(
 
   const suggestions: Partial<PrefillMap> = prefill
   const toConfirm = section.fields
-    .filter((field) => suggestions[field.key]?.confirmedAt === undefined && field.key in prefill)
+    .filter(
+      (field) =>
+        suggestions[field.key]?.confirmedAt === undefined &&
+        field.key in prefill,
+    )
     .map((field) => field.key)
 
   const counted =
     questions.length +
     section.fields.filter(
       (field) =>
-        (field.kind === 'gallery' || field.kind === 'cover' || field.kind === 'photos') &&
+        (field.kind === 'gallery' ||
+          field.kind === 'cover' ||
+          field.kind === 'photos') &&
         photoCounts?.[field.key] !== undefined,
     ).length
 

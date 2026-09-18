@@ -54,9 +54,9 @@ export function sameSnippet(a: string, b: string): boolean {
  * Ties break on newest first rather than oldest, because the phrase somebody
  * just saved is the one they are about to want.
  */
-export function snippetOrder<T extends Pick<Snippet, 'usedCount' | 'createdAt'>>(
-  rows: Array<T>,
-): Array<T> {
+export function snippetOrder<
+  T extends Pick<Snippet, 'usedCount' | 'createdAt'>,
+>(rows: Array<T>): Array<T> {
   return [...rows].sort(
     (a, b) => b.usedCount - a.usedCount || b.createdAt - a.createdAt,
   )

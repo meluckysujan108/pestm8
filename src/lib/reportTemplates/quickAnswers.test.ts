@@ -31,8 +31,12 @@ describe('nothing found, on a clean inspection', () => {
 
   test('leaves comments and photos alone — they are not yes/no claims', () => {
     const patch = quickAnswersFor(timberSection7.fields, 'allClear', {})
-    expect(Object.keys(patch).some((key) => key.toLowerCase().includes('comments'))).toBe(false)
-    expect(Object.keys(patch).some((key) => key.toLowerCase().includes('photos'))).toBe(false)
+    expect(
+      Object.keys(patch).some((key) => key.toLowerCase().includes('comments')),
+    ).toBe(false)
+    expect(
+      Object.keys(patch).some((key) => key.toLowerCase().includes('photos')),
+    ).toBe(false)
   })
 
   test('never overwrites an answer already given', () => {
@@ -63,12 +67,19 @@ describe('yes to all, on the safety checklist', () => {
     // The form's one mandatory gate. An app that answers it has defeated it —
     // and it sits in the same group, so this is a rule, not an accident of
     // where the fields happen to be.
-    expect(safety.fields.some((field) => field.semantic === 'safetyGate')).toBe(true)
-    expect(quickAnswersFor(safety.fields, 'allYes', {}).safeToStart).toBeUndefined()
+    expect(safety.fields.some((field) => field.semantic === 'safetyGate')).toBe(
+      true,
+    )
+    expect(
+      quickAnswersFor(safety.fields, 'allYes', {}).safeToStart,
+    ).toBeUndefined()
   })
 })
 
-function groupAfter(fields: Array<FieldDef>, headingKey: string): Array<FieldDef> {
+function groupAfter(
+  fields: Array<FieldDef>,
+  headingKey: string,
+): Array<FieldDef> {
   const start = fields.findIndex((field) => field.key === headingKey)
   const rest = fields.slice(start + 1)
   const next = rest.findIndex((field) => field.kind === 'heading')

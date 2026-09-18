@@ -79,7 +79,9 @@ export const set = mutation({
     const owner = env.actor.real
 
     const print = {
-      ...(trimmed(fields.formName) ? { formName: trimmed(fields.formName) } : {}),
+      ...(trimmed(fields.formName)
+        ? { formName: trimmed(fields.formName) }
+        : {}),
       ...(trimmed(fields.coverTitle) || trimmed(fields.coverSubtitle)
         ? {
             cover: {

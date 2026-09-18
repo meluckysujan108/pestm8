@@ -64,7 +64,8 @@ function unflagged(field: FieldDef): unknown {
       if (flagged.length === 0) return undefined
       // The first option the form does not flag, in the form's own order —
       // which is how these lists are written: the good answer comes first.
-      return field.options.find((option) => !flagged.includes(option.value))?.value
+      return field.options.find((option) => !flagged.includes(option.value))
+        ?.value
     }
     default:
       return undefined

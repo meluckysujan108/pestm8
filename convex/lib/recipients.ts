@@ -30,7 +30,9 @@ export function normaliseAddresses(
   return [
     ...new Set(
       values
-        .filter((value): value is string => Boolean(value && value.trim() !== ''))
+        .filter((value): value is string =>
+          Boolean(value && value.trim() !== ''),
+        )
         .map(normaliseAddress),
     ),
   ]
@@ -43,12 +45,13 @@ export async function knownRecipients(
 ): Promise<Array<string>> {
   const property = await ctx.db.get(report.propertyId)
   const client = property ? await ctx.db.get(property.clientId) : null
-  const contacts = client && withContacts
-    ? await ctx.db
-        .query('clientContacts')
-        .withIndex('by_client', (q) => q.eq('clientId', client._id))
-        .take(MAX_CONTACTS)
-    : []
+  const contacts =
+    client && withContacts
+      ? await ctx.db
+          .query('clientContacts')
+          .withIndex('by_client', (q) => q.eq('clientId', client._id))
+          .take(MAX_CONTACTS)
+      : []
   const business = await ctx.db.get(report.businessId)
 
   return normaliseAddresses([
