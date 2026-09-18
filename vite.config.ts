@@ -6,6 +6,9 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { nitro } from 'nitro/vite'
+import { serviceWorker } from './scripts/build-sw'
+
+const sw = serviceWorker()
 
 const config = defineConfig({
   // 3000 by default so `npm run dev` and the Playwright baseURL agree, but
@@ -29,7 +32,11 @@ const config = defineConfig({
   ssr: { noExternal: ['@convex-dev/better-auth'] },
   plugins: [
     devtools(),
-    nitro({ rollupConfig: { external: [/^@sentry\//] } }),
+    nitro({
+      rollupConfig: { external: [/^@sentry\//] },
+      modules: [sw.nitroModule],
+    }),
+    sw.plugin,
     tailwindcss(),
     tanstackStart(),
     viteReact(),
