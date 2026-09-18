@@ -5,7 +5,6 @@ import { dayKeyOf, startOfDayInZone, todayKeyInZone } from './lib/dates'
 import { jobsInRange } from './jobs'
 import type { Id } from './_generated/dataModel'
 import { requireActor } from './lib/actor'
-import { displayPerson } from './lib/capabilities'
 import { wireScope } from './lib/jobScope'
 import { hidePrices, redactTotal } from './lib/prices'
 
@@ -94,22 +93,9 @@ export const overview = query({
         const user = assignee
           ? await authComponent.getAnyUserById(ctx, assignee.userId)
           : null
-        // Keeps the owner's work in the chart's totals, against the business's
-        // name. Dropping the row would quietly make the numbers disagree with
-        // the revenue above them.
-        const shown = assignee
-          ? displayPerson(
-              env.actor,
-              { _id: assignee._id, role: assignee.role },
-              {
-                personName: user?.name ?? 'Unassigned',
-                businessName: business.name,
-              },
-            )
-          : { name: 'Unassigned' }
         return {
           membershipId,
-          name: shown.name,
+          name: user?.name ?? 'Unassigned',
           colour: assignee?.colour ?? '#8E8E93',
           count,
         }

@@ -8,6 +8,7 @@ import type { Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
 import { requireActor, requireCapability } from './lib/actor'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
+import { redactJobs } from './lib/prices'
 
 async function requireClient(
   ctx: QueryCtx,
@@ -114,7 +115,7 @@ export const unarchive = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { scope, caps } = await requireActor(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -132,9 +133,16 @@ export const jobHistory = query({
     )
     const jobs = jobsByProperty.flat()
 
-    return jobs
-      .filter((j) => isInScope(scope, j))
-      .sort((a, b) => b.scheduledAt - a.scheduledAt)
+    // Redacted like every other job read. These went out raw, so anyone who
+    // could open a client could read what each of their own visits was
+    // charged at whether or not they may see prices — and with the client
+    // book open to everyone, that is anyone.
+    return redactJobs(
+      caps,
+      jobs
+        .filter((j) => isInScope(scope, j))
+        .sort((a, b) => b.scheduledAt - a.scheduledAt),
+    )
   },
 })
 

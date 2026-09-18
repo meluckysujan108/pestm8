@@ -4,6 +4,7 @@ import {
   NO_GRANTS,
   ROLE_POLICY,
   beginSwitch,
+  canBookOnto,
   canDispatchTo,
   canEditJob,
   canFinaliseReport,
@@ -13,14 +14,12 @@ import {
   capabilitiesOf,
   clampGrants,
   clientScope,
-  displayPerson,
   effectiveCapabilities,
   isInScope,
   isSwitched,
   jobScope,
   licenceStatus,
   mergeDraft,
-  peopleVisibleTo,
   recomputeGrants,
   resolveActorForRead,
   resolveActorForWrite,
@@ -142,6 +141,32 @@ describe('the policy table', () => {
       ),
     ).toBe(false)
     expect(canDispatchTo(actor, contractor())).toBe(false)
+  })
+})
+
+describe('who a booking may go onto', () => {
+  test('the owner books anyone, himself included', () => {
+    for (const assignee of [OWNER, CONTRACTOR, KEVIN, PRIYA]) {
+      expect(canBookOnto(owner(), assignee)).toBe(true)
+    }
+  })
+
+  test('anyone else books themselves and nobody else — the owner least of all', () => {
+    // The case the pickers exist for: once the owner is on everyone's roster,
+    // a form that offered him to a subcontractor would be refused on submit.
+    expect(canBookOnto(sub(), KEVIN)).toBe(true)
+    expect(canBookOnto(sub(), OWNER)).toBe(false)
+    expect(canBookOnto(sub(), PRIYA)).toBe(false)
+    expect(canBookOnto(sub(), CONTRACTOR)).toBe(false)
+  })
+
+  test('a contractor is held to the same rule the mutations still enforce, not to canDispatchTo', () => {
+    const priya = member(PRIYA, 'subcontractor', {
+      parentMembershipId: CONTRACTOR,
+    })
+    expect(canDispatchTo(self(contractor()), priya)).toBe(true)
+    expect(canBookOnto(contractor(), PRIYA)).toBe(false)
+    expect(canBookOnto(contractor(), CONTRACTOR)).toBe(true)
   })
 })
 
@@ -300,12 +325,19 @@ describe('switching never widens what the person may know', () => {
     )
   })
 
-  test('a subcontractor without the client book still cannot see it while switched', () => {
+  test("the client book is one business's: everyone holds it, whatever the old toggle says", () => {
+    // `clientDirectory` is retired, not merely defaulted on: a row that still
+    // stores `false` must not narrow anything.
     const kevin = sub({ grants: grants({ switchInto: CONTRACTOR }) })
-    const actor = switched(kevin, contractor())
-    const caps = effectiveCapabilities(actor, contractor(), null)
-    expect(caps['clients.directory']).toBe(false)
-    expect(clientScope(caps)).toBe('assigned')
+    expect(kevin.grants.clientDirectory).toBe(false)
+    expect(clientScope(capabilitiesOf(kevin, contractor()))).toBe('directory')
+
+    const stingy = member(CONTRACTOR, 'contractor', {
+      grants: grants({ clientDirectory: false }),
+    })
+    const caps = effectiveCapabilities(switched(kevin, stingy), stingy, null)
+    expect(caps['clients.directory']).toBe(true)
+    expect(clientScope(caps)).toBe('directory')
   })
 
   test('admin actions are dropped entirely while switched, in both directions', () => {
@@ -426,18 +458,7 @@ describe('who gets the credit and who gets the blame', () => {
   })
 })
 
-describe('the owner is hidden as a person, not as work', () => {
-  test('the owner is absent from rosters, pickers and mention lists', () => {
-    const people = [owner(), contractor(), sub()]
-    const visible = peopleVisibleTo(self(sub()), people)
-    expect(visible.map((p) => p._id)).toEqual([CONTRACTOR, KEVIN])
-  })
-
-  test('the owner sees themselves', () => {
-    const people = [owner(), contractor()]
-    expect(peopleVisibleTo(self(owner()), people)).toHaveLength(2)
-  })
-
+describe('the owner is a person like anyone else', () => {
   test("the owner's jobs stay in everyone's scope, so nobody double-books them", () => {
     const actor = self(
       member(PRIYA, 'subcontractor', {
@@ -449,24 +470,17 @@ describe('the owner is hidden as a person, not as work', () => {
     expect(isInScope(scope, { assignedMembershipId: OWNER })).toBe(true)
   })
 
-  test('an owner-authored note keeps its content and loses its name, id included', () => {
-    const shown = displayPerson(self(sub()), owner(), {
-      personName: 'Terence',
-      businessName: 'Coastal Pest',
+  test('visible is not enterable: nobody works inside the owner account', () => {
+    const kevin = sub({ grants: grants({ switchInto: CONTRACTOR }) })
+    expect(canSwitchInto(self(kevin), owner())).toEqual({
+      ok: false,
+      reason: 'OWNER_NOT_SWITCHABLE',
     })
-    expect(shown).toEqual({
-      membershipId: null,
-      name: 'Coastal Pest',
-      anonymised: true,
-    })
+    expect(canSwitchInto(self(contractor()), owner()).ok).toBe(false)
   })
 
-  test('a colleague is shown normally', () => {
-    const shown = displayPerson(self(sub()), contractor(), {
-      personName: 'Jo',
-      businessName: 'Coastal Pest',
-    })
-    expect(shown).toMatchObject({ name: 'Jo', anonymised: false })
+  test('nor administrable, even by a contractor who manages a team', () => {
+    expect(canManageMember(self(contractor()), owner())).toBe(false)
   })
 })
 
@@ -517,21 +531,40 @@ describe('finalising a compliance document', () => {
     ).toEqual({ ok: false, reason: 'HOLDER_LICENCE_EXPIRED' })
   })
 
-  test('the technician the form names is checked too, not just the account holder', () => {
-    // The document prints whoever the member field chose. A valid holder does
-    // not make an expired technician's licence acceptable.
-    const technician = member(PRIYA, 'subcontractor', {
-      parentMembershipId: CONTRACTOR,
-      licence: { number: 'PMT-9', expiresAt: 500 },
-    })
+  test('a certificate naming someone else cannot be finalised — not even with their licence valid', () => {
+    // Kevin authors, names the owner as technician, and draws the signature.
+    // The owner's licence is current, which is exactly why this has to fail:
+    // it would print the owner's name and licence over Kevin's signature.
+    const decision = canFinaliseReport(
+      self(sub()),
+      regulated,
+      { holder: sub(), technician: owner() },
+      1_000,
+    )
+    expect(decision).toEqual({ ok: false, reason: 'TECHNICIAN_NOT_SIGNER' })
+  })
+
+  test('naming yourself is the way through, for the owner as much as anyone', () => {
+    const ownerReport = { ...regulated, authorMembershipId: OWNER }
+    expect(
+      canFinaliseReport(
+        self(owner()),
+        ownerReport,
+        { holder: owner(), technician: owner() },
+        1_000,
+      ),
+    ).toEqual({ ok: true })
+  })
+
+  test('an internal report may still name anyone', () => {
     expect(
       canFinaliseReport(
         self(sub()),
-        regulated,
-        { holder: sub(), technician },
+        internal,
+        { holder: sub(), technician: owner() },
         1_000,
       ),
-    ).toEqual({ ok: false, reason: 'TECHNICIAN_LICENCE_EXPIRED' })
+    ).toEqual({ ok: true })
   })
 
   test('licence status reads a bare number as valid, since expiry is not recorded yet', () => {

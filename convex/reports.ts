@@ -28,7 +28,13 @@ import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import { knownRecipients } from './lib/recipients'
 import { settingsFor } from './templateSettings'
 import { reportSearchText } from './lib/reportSearch'
-import { MAX_MEMBERS, buildReportContext, toPresentContext } from './lib/reportContext'
+import {
+  MAX_MEMBERS,
+  buildReportContext,
+  memberFieldKeys,
+  namedTechnician,
+  toPresentContext,
+} from './lib/reportContext'
 import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
 import { canCarryFrom, carryOverFrom } from '../src/lib/reportTemplates/lastVisit'
@@ -1938,11 +1944,23 @@ export const finalise = mutation({
     const holder = await ctx.db.get(report.authorMembershipId)
     if (!holder) throw new ConvexError('NOT_FOUND')
 
+    // From the answers being signed, not the stored draft: they are what the
+    // certificate will print.
+    const technician = await namedTechnician(
+      ctx,
+      report,
+      (data ?? {}) as Record<string, unknown>,
+      await memberFieldKeys(ctx, report),
+    )
+
     const env = await requireActor(ctx, businessId)
     const decision = canFinaliseReport(
       env.actor,
       reportFactsFrom(report),
-      { holder: factsFromMembership(holder) },
+      {
+        holder: factsFromMembership(holder),
+        technician: technician && factsFromMembership(technician),
+      },
       Date.now(),
     )
     if (!decision.ok) throw new ConvexError(decision.reason)

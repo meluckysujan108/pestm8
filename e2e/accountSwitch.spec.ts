@@ -70,7 +70,8 @@ test('the owner is in nobody else’s account menu', async ({ page }) => {
   await page.getByRole('button', { name: 'Account menu' }).click()
 
   // A subcontractor with no grant has nobody to work in, and the owner is
-  // never a candidate for anyone.
+  // never a candidate for anyone. He is visible as a person now (see
+  // ownerTechnician.spec.ts) — visible is not the same as enterable.
   await expect(page.getByText('Your account')).toBeVisible()
   await expect(page.getByText('Work in another account')).toBeHidden()
   await expect(page.getByText(/Terence/)).toBeHidden()

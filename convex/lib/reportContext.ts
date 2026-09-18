@@ -60,6 +60,45 @@ async function fieldsForReport(
   return sections.flatMap((section) => section.fields)
 }
 
+/** The keys of the form's `member` fields, in form order. */
+export async function memberFieldKeys(
+  ctx: QueryCtx | MutationCtx,
+  report: Doc<'reports'>,
+): Promise<Array<string>> {
+  return (await fieldsForReport(ctx, report))
+    .filter((field) => field.kind === 'member')
+    .map((field) => field.key)
+}
+
+/**
+ * Who the document says did the work: whoever the form's first member field
+ * names. The author stands in ONLY on a form with no member field at all: on a
+ * form that asks who did the work and got no answer, printing the author's
+ * licence would credit someone the document never named.
+ *
+ * One function for both readers — the context a report prints, and the check
+ * `reports.finalise` makes before it may be signed — so the person whose
+ * licence is checked is the person whose licence prints.
+ */
+export async function namedTechnician(
+  ctx: QueryCtx | MutationCtx,
+  report: Doc<'reports'>,
+  data: Record<string, unknown>,
+  memberKeys: ReadonlyArray<string>,
+): Promise<Doc<'memberships'> | null> {
+  if (memberKeys.length === 0) return ctx.db.get(report.authorMembershipId)
+
+  for (const key of memberKeys) {
+    const value = data[key]
+    if (typeof value !== 'string') continue
+    const id = ctx.db.normalizeId('memberships', value)
+    const member = id ? await ctx.db.get(id) : null
+    // A removed member still counts: they print on a report that chose them.
+    if (member && member.businessId === report.businessId) return member
+  }
+  return null
+}
+
 /**
  * Everything a report prints from a record rather than a typed answer, read
  * live: the client, the site, the business, the technician and the names of
@@ -79,9 +118,7 @@ export async function buildReportContext(
   const business = await ctx.db.get(report.businessId)
   const author = await ctx.db.get(report.authorMembershipId)
 
-  const memberKeys = (await fieldsForReport(ctx, report))
-    .filter((field) => field.kind === 'member')
-    .map((field) => field.key)
+  const memberKeys = await memberFieldKeys(ctx, report)
 
   // Only a form that can name a team member pays for identity lookups.
   let roster: Array<RosterEntry> = []
@@ -113,22 +150,12 @@ export async function buildReportContext(
     )
   }
 
-  // The technician is whoever the form's first member field names — the person
-  // the document says did the work. The author stands in ONLY on a form with no
-  // member field at all: on a form that asks who did the work and got no
-  // answer, printing the author's licence would credit someone the document
-  // never named.
-  const technicianId = memberKeys
-    .map((key) => data[key])
-    .find(
-      (value): value is Id<'memberships'> =>
-        typeof value === 'string' && roster.some((m) => m._id === value),
-    )
-  const technicianMembership = technicianId
-    ? await ctx.db.get(technicianId)
-    : memberKeys.length === 0
-      ? author
-      : null
+  const technicianMembership = await namedTechnician(
+    ctx,
+    report,
+    data,
+    memberKeys,
+  )
   const technicianEntry = roster.find((m) => m._id === technicianMembership?._id)
 
   const businessAddress = business

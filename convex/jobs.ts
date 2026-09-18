@@ -15,7 +15,7 @@ import {
 } from './properties'
 import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
 import type { Doc, Id } from './_generated/dataModel'
-import { displayPerson, isInScope } from './lib/capabilities'
+import { canBookOnto, isInScope } from './lib/capabilities'
 import { jobsInScope } from './lib/jobScope'
 import { hidePrices, redactJob } from './lib/prices'
 import type { RowScope } from './lib/capabilities'
@@ -62,12 +62,8 @@ export async function jobsInRange(
 async function decorate(
   ctx: QueryCtx,
   env: ActorEnvelope,
-  businessId: Id<'businesses'>,
   jobs: Array<Doc<'jobs'>>,
 ) {
-  // The business's own name stands in for anyone the caller may not see.
-  const businessName = (await ctx.db.get(businessId))?.name ?? ''
-
   // Resolving a name means a call into the auth component, so each assignee is
   // looked up once per query rather than once per job — the same memoisation
   // `listWeek` already does for colours. The map holds the in-flight promise,
@@ -95,22 +91,6 @@ async function decorate(
       .map(async (job) => {
         const property = await ctx.db.get(job.propertyId)
         const assignee = await ctx.db.get(job.assignedMembershipId)
-        // Hides the person, not the job: an owner-assigned visit stays on the
-        // calendar, shown against the business rather than against a name
-        // nobody else is supposed to know.
-        const shown = assignee
-          ? displayPerson(
-              env.actor,
-              { _id: assignee._id, role: assignee.role },
-              {
-                personName: await nameOf(
-                  job.assignedMembershipId,
-                  assignee.userId,
-                ),
-                businessName,
-              },
-            )
-          : { membershipId: null, name: '', anonymised: false }
         return {
           ...redactJob(env.caps, job),
           // The board-variant card shows the full street address; the compact
@@ -121,7 +101,9 @@ async function decorate(
           postcode: property?.postcode ?? '',
           clientName: await clientNameOf(ctx, property),
           assigneeColour: assignee?.colour ?? '#8E8E93',
-          assigneeName: shown.name,
+          assigneeName: assignee
+            ? await nameOf(job.assignedMembershipId, assignee.userId)
+            : '',
         }
       }),
   )
@@ -143,7 +125,6 @@ export const listDay = query({
     return decorate(
       ctx,
       env,
-      businessId,
       await jobsInRange(ctx, env.scope, businessId, from, to),
     )
   },
@@ -299,21 +280,9 @@ export const monthTeamLoad = query({
         const user = assignee
           ? await authComponent.getAnyUserById(ctx, assignee.userId)
           : null
-        // The owner's row stays — dropping it would change what the month's
-        // totals mean — but carries the business's name rather than theirs.
-        const shown = assignee
-          ? displayPerson(
-              env.actor,
-              { _id: assignee._id, role: assignee.role },
-              {
-                personName: user?.name ?? 'Unassigned',
-                businessName: business.name,
-              },
-            )
-          : { name: 'Unassigned', anonymised: false }
         return {
           membershipId,
-          name: shown.name,
+          name: user?.name ?? 'Unassigned',
           colour: assignee?.colour ?? '#8E8E93',
           count,
         }
@@ -357,11 +326,12 @@ export const get = query({
         frequency: recurrence.frequency,
         active: recurrence.active,
       },
+      // No licence number: nothing renders it, and it is exactly the detail
+      // the roster withholds from people who do not manage the team.
       assignee: assignee && {
         _id: assignee._id,
         colour: assignee.colour,
         role: assignee.role,
-        licenceNumber: assignee.licenceNumber,
       },
       // Granted read access never implies write access (§4.4).
       canEdit: canEditJob(membership, job),
@@ -390,11 +360,9 @@ export const create = mutation({
   ) => {
     const membership = await requireMembership(ctx, args.businessId)
 
-    // Only an owner may put work on someone else's calendar.
-    if (
-      membership.role !== 'owner' &&
-      args.assignedMembershipId !== membership._id
-    ) {
+    // Only an owner may put work on someone else's calendar. The pickers
+    // filter by this same function, so they cannot offer a refused option.
+    if (!canBookOnto(membership, args.assignedMembershipId)) {
       throw new ConvexError('NO_ACCESS')
     }
 
@@ -477,7 +445,12 @@ export const update = mutation({
       patch.assignedMembershipId !== undefined &&
       patch.assignedMembershipId !== job.assignedMembershipId
     ) {
-      if (membership.role !== 'owner') throw new ConvexError('NO_ACCESS')
+      // `requireEditableJob` already confines a non-owner to their own job,
+      // so the only reassignment this admits for them is the no-op onto
+      // themselves — which the `!==` above has already filtered out.
+      if (!canBookOnto(membership, patch.assignedMembershipId)) {
+        throw new ConvexError('NO_ACCESS')
+      }
       await requireAssignableMember(ctx, businessId, patch.assignedMembershipId)
     }
 

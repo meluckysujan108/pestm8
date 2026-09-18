@@ -34,6 +34,7 @@ import {
   StartReportButtons,
 } from '#/components/reports/InlineReports'
 import { prepareUpload } from '#/lib/images/prepareUpload'
+import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { RepeatValue } from '#/lib/format'
@@ -522,6 +523,7 @@ function JobEditForm({
   const [duration, setDuration] = useState(String(job.durationMinutes))
   const [price, setPrice] = useState(String(job.price / 100))
   const [assignee, setAssignee] = useState<string>(job.assignedMembershipId)
+  const { options: assignees } = useAssigneeOptions(members)
   const [repeat, setRepeat] = useState<RepeatValue>('once')
   const hasActiveRecurrence = job.recurrence?.active ?? false
 
@@ -605,27 +607,30 @@ function JobEditForm({
       </EditField>
 
       {/* Reassignment is an owner-only action even on your own job (jobs.update
-          enforces this server-side too) — a non-owner sees who it's assigned
-          to as plain text instead of a control they'd be rejected for using. */}
+          enforces this server-side too, through the same `canBookOnto` the
+          options are filtered by) — a non-owner sees who it's assigned to as
+          plain text instead of a control they'd be rejected for using. */}
       <EditField label="Assigned to">
-        {canReassign ? (
+        {canReassign && assignees.length > 1 ? (
           <select
             value={assignee}
             onChange={(e) => setAssignee(e.target.value)}
             className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
           >
-            {members
-              ?.filter((m) => m.status === 'active')
-              .map((m) => (
-                <option key={m._id} value={m._id}>
-                  {m.name || (m.role === 'owner' ? 'Owner' : 'Subcontractor')}
-                </option>
-              ))}
+            {assignees.map((m) => (
+              <option key={m._id} value={m._id}>
+                {personLabel(m)}
+              </option>
+            ))}
           </select>
         ) : (
           <p className="flex h-12 w-full items-center rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink">
-            {members?.find((m) => m._id === job.assignedMembershipId)?.name ??
-              'Assigned technician'}
+            {(() => {
+              const current = members?.find(
+                (m) => m._id === job.assignedMembershipId,
+              )
+              return current ? personLabel(current) : 'Assigned technician'
+            })()}
           </p>
         )}
       </EditField>

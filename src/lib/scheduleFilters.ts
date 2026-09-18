@@ -24,14 +24,10 @@ export type StaffLoad = {
  * present in `jobs` are included, so someone with zero jobs today never
  * shows up as "(0)".
  *
- * The name comes off the job rather than from a join against the roster, and
- * that is not a simplification — it is the fix for a real regression. The
- * roster hides the owner from everyone else, so joining against it dropped
- * owner-assigned jobs into a bucket labelled "Unassigned": a label that is
- * both wrong and conspicuous, since every job has an assignee. `jobs.decorate`
- * already resolves the name through `displayPerson`, which shows the business
- * where a hidden person would be — so reading it from the job inherits the
- * right answer instead of recomputing a worse one.
+ * The name comes off the job rather than from a join against the roster: the
+ * job carries its assignee's name already (`jobs.decorate`), and a join would
+ * put anyone missing from the roster — someone removed since — into a bucket
+ * labelled "Unassigned", which is wrong, since every job has an assignee.
  */
 export function computeStaffLoad(
   jobs: Array<{

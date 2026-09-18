@@ -3,6 +3,7 @@ import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { isInScope } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
+import { redactJobs } from './lib/prices'
 import { clientKind } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -288,7 +289,7 @@ export const update = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { scope, caps } = await requireActor(ctx, businessId)
 
     const property = await ctx.db.get(propertyId)
     if (!property || property.businessId !== businessId) return []
@@ -299,6 +300,10 @@ export const jobHistory = query({
       .order('desc')
       .collect()
 
-    return jobs.filter((j) => isInScope(scope, j))
+    // Redacted like every other job read — see `clients.jobHistory`.
+    return redactJobs(
+      caps,
+      jobs.filter((j) => isInScope(scope, j)),
+    )
   },
 })

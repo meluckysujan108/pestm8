@@ -14,10 +14,9 @@ import {
   requireWriteActor,
 } from './lib/actor'
 import { forSelf, recordAudit } from './lib/audit'
-import { clientScope, displayPerson, reportScope } from './lib/capabilities'
+import { clientScope, reportScope } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { emailConfigured } from './lib/emailConfig'
-import { factsFromMembership } from './lib/membershipFacts'
 import type { ActorEnvelope } from './lib/actor'
 import { memberName } from './lib/reportContext'
 import {
@@ -377,8 +376,6 @@ export const forReport = query({
     const canSend = emailConfigured()
     const described = await withActors(
       ctx,
-      env,
-      businessId,
       rows.sort((a, b) => b.createdAt - a.createdAt),
     )
     return described.map((row) => ({
@@ -410,8 +407,6 @@ export const pendingApproval = query({
 
     return withActors(
       ctx,
-      env,
-      businessId,
       rows.sort((a, b) => b.createdAt - a.createdAt),
     )
   },
@@ -604,21 +599,13 @@ export const reject = mutation({
  * tells an owner nothing about who sent it, and "who sent this to the wrong
  * address" is the question this history exists to answer.
  *
- * Named through `displayPerson`, as every other activity trail is: the owner
- * is invisible as a PERSON to the rest of the team, so to anyone else they
- * read as the business. And their membership id goes with the name — an id
- * that resolves to nobody on a technician's roster is a reliable way to pick
- * the owner out, so an anonymised row carries neither.
+ * Everyone by their own name, the owner included: he works jobs and sends
+ * reports like anyone else, and is on everyone's roster.
  */
 async function withActors(
   ctx: QueryCtx | MutationCtx,
-  env: ActorEnvelope,
-  businessId: Id<'businesses'>,
   rows: Array<Doc<'reportDeliveries'>>,
 ) {
-  const business = await ctx.db.get(businessId)
-  const businessName = business?.tradingName ?? business?.name ?? 'The business'
-
   const ids = [
     ...new Set(
       rows.flatMap((row) =>
@@ -633,16 +620,11 @@ async function withActors(
       ids.map(async (id) => {
         const member = await ctx.db.get(id)
         if (!member) return [id, null] as const
-        const shown = displayPerson(env.actor, factsFromMembership(member), {
-          personName: await memberName(ctx, member.userId),
-          businessName,
-        })
         return [
           id,
           {
-            name: shown.name,
-            colour: shown.anonymised ? undefined : member.colour,
-            anonymised: shown.anonymised,
+            name: await memberName(ctx, member.userId),
+            colour: member.colour,
           },
         ] as const
       }),
@@ -650,17 +632,10 @@ async function withActors(
   )
   const who = (id?: Id<'memberships'>) =>
     id ? (members.get(id) ?? null) : null
-  const hidden = (id?: Id<'memberships'>) =>
-    id !== undefined && who(id)?.anonymised === true
 
-  return rows.map((row) => {
-    const { sentByMembershipId, approvedByMembershipId, ...rest } = row
-    return {
-      ...rest,
-      ...(hidden(sentByMembershipId) ? {} : { sentByMembershipId }),
-      ...(hidden(approvedByMembershipId) ? {} : { approvedByMembershipId }),
-      sentBy: who(sentByMembershipId),
-      approvedBy: who(approvedByMembershipId),
-    }
-  })
+  return rows.map((row) => ({
+    ...row,
+    sentBy: who(row.sentByMembershipId),
+    approvedBy: who(row.approvedByMembershipId),
+  }))
 }

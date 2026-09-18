@@ -113,9 +113,11 @@ Still in Settings → Team, and all of it reversible:
 
 1. Promote the contractors (`role` → Contractor).
 2. Put each subcontractor under their contractor ("Works under").
-3. Set the four toggles per person. Moving someone between teams clears their
+3. Set the three toggles per person. Moving someone between teams clears their
    "access contractor's account" grant by construction — it named the
    contractor who granted it — so re-grant it after a move, not before.
+   ("Can see all clients" was retired on 2026-09-18: the client book is open
+   to everyone in the business. See `docs/deploy-owner-views.md`.)
 
 ## Rolling back
 
@@ -131,7 +133,8 @@ changed in the new UI in the meantime.
 ## What is deliberately not done yet
 
 **CONTRACT** — dropping `canViewAllJobs`, `canViewOtherAccounts`,
-`viewingAsMembershipId` and `lib/access.ts`.
+`viewingAsMembershipId`, `grants.clientDirectory` (inert since the client
+book opened to everyone) and `lib/access.ts`.
 
 It is meant to be gated on telemetry rather than a date, and **that telemetry
 does not exist yet**. There is no `__APP_BUILD__`, and no legacy function
