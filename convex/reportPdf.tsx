@@ -74,6 +74,10 @@ export const preview = action({
           context: report.context,
           legalBasis: report.legalBasis,
           finalised: false,
+          // A correction's draft already carries its number and next issue;
+          // the preview prints them as the finished document will.
+          reportNumber: report.reportNumber,
+          version: report.version ?? 1,
           data: (report.data ?? {}) as Record<string, unknown>,
           businessName: report.businessName,
           business: report.business,

@@ -49,6 +49,9 @@ export async function createReport(
     // cannot drift away from what the specs create.
     legalBasis: getTemplate(template).legalBasis,
     data,
+    // As the current app does. `reportFill.spec.ts` covers a caller that
+    // cannot show suggestions.
+    suggestions: true,
   })
 }
 
@@ -67,6 +70,7 @@ export async function createCustomReport(
     customTemplateId,
     legalBasis,
     data,
+    suggestions: true,
   })
 }
 

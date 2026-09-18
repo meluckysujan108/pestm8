@@ -247,6 +247,10 @@ test('the form’s own send-copy toggle opens a delivery when the report locks',
   expect(history[0].to).toEqual(['client@example.com'])
   // Named for the document, so the client's inbox says what arrived.
   expect(history[0].subject).toContain('12 Wattle Street')
+  // Email is not set up on this deployment, so nothing will send it — and the
+  // history says so rather than letting "Queued" read as a promise.
+  expect(history[0].status).toBe('queued')
+  expect(history[0].waitingForEmailSetup).toBe(true)
 })
 
 test('a form that asked for no copy opens no delivery', async () => {

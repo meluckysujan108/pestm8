@@ -4,6 +4,7 @@ import { ConvexError, v } from 'convex/values'
 import { action, internalAction } from './_generated/server'
 import { api, internal } from './_generated/api'
 import { renderIfNeeded } from './reportPipeline'
+import { emailConfigured } from './lib/emailConfig'
 import { reportEmailHtml } from './lib/reportEmail'
 import type { ActionCtx } from './_generated/server'
 import type { Id } from './_generated/dataModel'
@@ -16,11 +17,11 @@ import type { Id } from './_generated/dataModel'
  * Convex runtime, so a dependency buys nothing. `"use node"` is for `Buffer`,
  * used to base64-encode the PDF.
  *
- * Requires `RESEND_API_KEY` (and optionally `RESEND_FROM_EMAIL` — Resend only
- * sends from a domain verified on the account, so a customer's own business
- * email cannot be the `from` address; it goes in `reply-to` instead). Until
- * one exists this fails with `EMAIL_NOT_CONFIGURED` rather than silently doing
- * nothing.
+ * Requires `RESEND_API_KEY` and `RESEND_FROM_EMAIL` (see `lib/emailConfig`).
+ * Resend only sends from a domain verified on the account, so a customer's own
+ * business email cannot be the `from` address; it goes in `reply-to` instead.
+ * Until both exist this fails with `EMAIL_NOT_CONFIGURED` rather than silently
+ * doing nothing.
  *
  * Every send goes through a `reportDeliveries` row, written before the
  * provider is called. See `convex/deliveries.ts` for why.
@@ -47,9 +48,10 @@ export const deliver = internalAction({
     }
 
     const apiKey = process.env.RESEND_API_KEY
-    if (!apiKey) {
+    if (!apiKey || !emailConfigured()) {
       // Not a failure of this delivery — nothing was attempted, and marking
       // it failed would put a red row in a history that records real sends.
+      // The row stays queued, and the history says why (`deliveries.forReport`).
       throw new ConvexError('EMAIL_NOT_CONFIGURED')
     }
 
@@ -204,7 +206,7 @@ export const sendReportPdf = action({
     // recording against the report's history — so it is checked before a row
     // is written. `RESEND_FROM_EMAIL` is required too, whatever the older
     // comment claimed: Resend rejects a `from` that is a bare display name.
-    if (!process.env.RESEND_API_KEY || !process.env.RESEND_FROM_EMAIL) {
+    if (!emailConfigured()) {
       throw new ConvexError('EMAIL_NOT_CONFIGURED')
     }
 

@@ -4,6 +4,7 @@ import {
   FIXTURE_PASSWORD,
   api,
   clickUntil,
+  expectRejected,
   signInViaUi,
   signUpActor,
   uniqueEmail,
@@ -16,6 +17,7 @@ import {
   sectionUrl,
   signReport,
 } from './fixtures/reportPayloads'
+import { getTemplate } from '../src/lib/reportTemplates'
 import type { Id } from '../convex/_generated/dataModel'
 
 /**
@@ -140,6 +142,48 @@ test('a suggested answer is marked, and confirmed by moving on', async ({ page }
       return report!.prefill!.startTime.confirmedAt !== undefined
     })
     .toBe(true)
+})
+
+test('an older app is given facts, never a guess it could not confirm', async () => {
+  // Started from a job with no recorded start: the start time can only be read
+  // off the booking, which makes it a suggestion.
+  const withSuggestions = await startJobReport('fill-old-app')
+  const { owner, businessId, propertyId, jobId } = withSuggestions
+
+  // An installed app still on an older build does not say it can show
+  // suggestions, because it cannot.
+  const olderApp = await owner.client.mutation(api.reports.create, {
+    businessId,
+    propertyId,
+    jobId,
+    template: 'serviceReport',
+    legalBasis: getTemplate('serviceReport').legalBasis,
+    data: {},
+  })
+  const report = await owner.client.query(api.reports.get, { businessId, reportId: olderApp })
+  const data = report!.data as Record<string, unknown>
+  // The facts still arrive — the day came from the job.
+  expect(data.serviceDate).toEqual(expect.any(String))
+  // The guesses do not.
+  expect(report!.prefill).toBeUndefined()
+  expect(data.startTime).toBeUndefined()
+
+  // So what it starts, it can finish…
+  await finaliseReport(owner.client, { businessId }, olderApp, 'serviceReport')
+  const locked = await owner.client.query(api.reports.get, { businessId, reportId: olderApp })
+  expect(locked!.status).toBe('finalised')
+
+  // …where the same report started by this app, and never confirmed, is
+  // refused — which is what an older app used to be stuck on.
+  const current = await owner.client.query(api.reports.get, {
+    businessId,
+    reportId: withSuggestions.reportId,
+  })
+  expect(current!.prefill?.startTime).toBeDefined()
+  await expectRejected(
+    () => finaliseReport(owner.client, { businessId }, withSuggestions.reportId, 'serviceReport'),
+    'REPORT_INCOMPLETE',
+  )
 })
 
 test('finalising an unfinished report says what is missing, and jumps there', async ({ page }) => {

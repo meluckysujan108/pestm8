@@ -814,8 +814,16 @@ export const photosForRender = internalQuery({
  */
 const SWITCHABLE: ReadonlySet<TemplateId> = new Set(['serviceReport'])
 
-function upgradeFor(report: Doc<'reports'>): 'switch' | 'restart' | null {
+export function upgradeFor(
+  report: Pick<Doc<'reports'>, 'template' | 'templateVersion' | 'supersedesReportId'>,
+): 'switch' | 'restart' | null {
   if (report.template === 'custom') return null
+  // A correction stays on the form its original was signed on: it says the
+  // same things in the same words, minus the mistake. Offering to move it to a
+  // newer form — and "Start again" in particular, which makes a brand-new
+  // report — would issue the correction as an unrelated document with its own
+  // number, and leave the original current.
+  if (report.supersedesReportId !== undefined) return null
   const current = getTemplate(report.template).version
   if ((report.templateVersion ?? 1) >= current) return null
   return SWITCHABLE.has(report.template) ? 'switch' : 'restart'
@@ -1323,6 +1331,107 @@ async function seedNewReport(
   }
 }
 
+/**
+ * Creates a draft the one way a draft is created: seeded from what the job and
+ * the property already know, stamped with the revision it is written against,
+ * listed and findable from its first moment.
+ *
+ * `create` and `restartDraft` both come through here. They used to insert
+ * separately, and the restart path fell behind every time the other one
+ * learned something — a restarted form came up blank, sorted below everything
+ * and could not be found by search.
+ */
+async function insertNewDraft(
+  ctx: MutationCtx,
+  args: {
+    businessId: Id<'businesses'>
+    propertyId: Id<'properties'>
+    jobId?: Id<'jobs'>
+    authorMembershipId: Id<'memberships'>
+    template: TemplateId | 'custom'
+    customTemplateId?: Id<'customReportTemplates'>
+    legalBasis: string
+    given: Record<string, unknown>
+    showsSuggestions: boolean
+  },
+): Promise<Id<'reports'>> {
+  const seeded = forCaller(
+    await seedNewReport(ctx, {
+      businessId: args.businessId,
+      propertyId: args.propertyId,
+      jobId: args.jobId,
+      template: args.template,
+      customTemplateId: args.customTemplateId,
+      authorMembershipId: args.authorMembershipId,
+      given: args.given,
+    }),
+    args.given,
+    args.showsSuggestions,
+  )
+
+  const now = Date.now()
+  const reportId = await ctx.db.insert('reports', {
+    businessId: args.businessId,
+    propertyId: args.propertyId,
+    jobId: args.jobId,
+    authorMembershipId: args.authorMembershipId,
+    template: args.template,
+    customTemplateId: args.customTemplateId,
+    legalBasis: args.legalBasis,
+    status: 'draft',
+    data: seeded.data,
+    ...(Object.keys(seeded.prefill).length > 0 ? { prefill: seeded.prefill } : {}),
+    photoIds: [],
+    // Stamped server-side, never accepted as an argument: which revision a
+    // report was written against is a fact about the deployment, not a
+    // claim a caller gets to make.
+    templateVersion:
+      args.template === 'custom' ? 1 : getTemplate(args.template).version,
+    createdAt: now,
+    updatedAt: now,
+  })
+
+  // Written after the insert, because it reads the row it describes. A
+  // report is findable by client, address and form from the moment it
+  // exists, not from the moment it is first saved.
+  await refreshSearchText(ctx, reportId)
+
+  if (seeded.fetchWeather) {
+    await ctx.scheduler.runAfter(0, internal.weather.fillForReport, {
+      reportId,
+      ...seeded.fetchWeather,
+    })
+  }
+  return reportId
+}
+
+/**
+ * What a new report may hold, given who is asking.
+ *
+ * A suggestion — a start time read off the schedule, a forecast, last visit's
+ * answers — has to be shown as one and confirmed before the report can be
+ * finalised, because a guess must never print under a signature. That only
+ * works for a client that knows what a suggestion is. An installed app still
+ * running an older build does not: it would show the guess as a plain answer,
+ * never confirm it, and then be refused at finalise with no way to see why —
+ * on every report started from a job. So such a caller gets the facts (the
+ * date, the client, the technician) and none of the guesses, which is also
+ * what that build expected of the server it was written against.
+ */
+function forCaller(
+  seeded: Awaited<ReturnType<typeof seedNewReport>>,
+  given: Record<string, unknown>,
+  showsSuggestions: boolean,
+): Awaited<ReturnType<typeof seedNewReport>> {
+  if (showsSuggestions) return seeded
+  const data = { ...seeded.data }
+  for (const key of Object.keys(seeded.prefill)) {
+    // An answer the caller supplied is theirs, not a guess.
+    if (!(key in given)) delete data[key]
+  }
+  return { data, prefill: {}, fetchWeather: null }
+}
+
 /** The template a report about to be created will be filled against. */
 async function templateForNewReport(
   ctx: MutationCtx,
@@ -1374,6 +1483,11 @@ export const create = mutation({
     customTemplateId: v.optional(v.id('customReportTemplates')),
     legalBasis: v.string(),
     data: v.any(),
+    /**
+     * The caller can show a suggestion as one and let it be confirmed. See
+     * `forCaller` — an older build that cannot is given the facts only.
+     */
+    suggestions: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const membership = await requireMembership(ctx, args.businessId)
@@ -1413,17 +1527,7 @@ export const create = mutation({
     // what the weather was doing. Seeded here rather than in the browser so
     // the stored row matches what the technician sees from the first moment —
     // a draft abandoned before the first keystroke used to hold nothing at all.
-    const seeded = await seedNewReport(ctx, {
-      businessId: args.businessId,
-      propertyId: args.propertyId,
-      jobId: args.jobId,
-      template: args.template,
-      customTemplateId: args.customTemplateId,
-      authorMembershipId: membership._id,
-      given: (args.data ?? {}) as Record<string, unknown>,
-    })
-
-    const reportId = await ctx.db.insert('reports', {
+    return insertNewDraft(ctx, {
       businessId: args.businessId,
       propertyId: args.propertyId,
       jobId: args.jobId,
@@ -1431,32 +1535,9 @@ export const create = mutation({
       template: args.template,
       customTemplateId: args.template === 'custom' ? args.customTemplateId : undefined,
       legalBasis: args.legalBasis,
-      status: 'draft',
-      data: seeded.data,
-      ...(Object.keys(seeded.prefill).length > 0 ? { prefill: seeded.prefill } : {}),
-      photoIds: [],
-      // Stamped server-side, never accepted as an argument: which revision a
-      // report was written against is a fact about the deployment, not a
-      // claim a caller gets to make.
-      templateVersion:
-        args.template === 'custom' ? 1 : getTemplate(args.template).version,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
+      given: (args.data ?? {}) as Record<string, unknown>,
+      showsSuggestions: args.suggestions === true,
     })
-
-    // Written after the insert, because it reads the row it describes. A
-    // report is findable by client, address and form from the moment it
-    // exists, not from the moment it is first saved.
-    await refreshSearchText(ctx, reportId)
-
-    if (seeded.fetchWeather) {
-      await ctx.scheduler.runAfter(0, internal.weather.fillForReport, {
-        reportId,
-        ...seeded.fetchWeather,
-      })
-    }
-
-    return reportId
   },
 })
 
@@ -2130,9 +2211,10 @@ async function openAmendmentOf(
  * - **The deliveries.** What the client was sent stays sent; re-sending is a
  *   decision somebody makes about the new document.
  *
- * Photographs ARE carried: they are evidence of what was on site that day, and
- * the day has not changed. The rows are new, pointing at the same stored
- * files — one reason `purgeReport` never deletes a draft's stored files.
+ * Photographs ARE carried — the gallery and the single-photo fields alike:
+ * they are evidence of what was on site that day, and the day has not changed.
+ * They point at the same stored files — one reason `purgeReport` never
+ * deletes a draft's stored files.
  *
  * The original is marked superseded when the correction is FINALISED, not
  * here. Until then it is still the document the client holds, and a draft
@@ -2206,6 +2288,9 @@ export const amend = mutation({
       status: 'draft',
       data: original.data,
       photoIds: [],
+      // The single-photo fields (the cover, a notice photo) are evidence of
+      // the day like the gallery below, and come with it for the same reason.
+      ...(original.photoSlots ? { photoSlots: original.photoSlots } : {}),
       // Same number, next issue.
       ...(original.reportNumber !== undefined
         ? { reportNumber: original.reportNumber }
@@ -2468,7 +2553,7 @@ export const setPdf = internalMutation({
       storageId,
       rendererVersion: RENDER_VERSION,
       templateVersion: report.templateVersion,
-      version: 1,
+      version: report.version ?? 1,
       bytes,
       createdAt: Date.now(),
     })
@@ -2602,8 +2687,13 @@ export const switchTemplateVersion = mutation({
  * permanent removal is a decision for a purge, not a side effect of a button.
  */
 export const restartDraft = mutation({
-  args: { businessId: v.id('businesses'), reportId: v.id('reports') },
-  handler: async (ctx, { businessId, reportId }) => {
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    /** As on `create`: the caller can show and confirm a suggestion. */
+    suggestions: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { businessId, reportId, suggestions }) => {
     const { membership, report } = await requireEditableReport(
       ctx,
       businessId,
@@ -2615,20 +2705,20 @@ export const restartDraft = mutation({
     const template = getTemplate(report.template)
     const now = Date.now()
 
-    const newReportId = await ctx.db.insert('reports', {
+    // Started again means started the way `create` starts one — through the
+    // same function, so the two cannot drift apart again.
+    const newReportId = await insertNewDraft(ctx, {
       businessId,
       propertyId: report.propertyId,
       jobId: report.jobId,
       authorMembershipId: report.authorMembershipId,
       template: report.template,
       legalBasis: template.legalBasis,
-      status: 'draft',
-      data: {},
-      photoIds: [],
-      templateVersion: template.version,
-      createdAt: now,
+      given: {},
+      showsSuggestions: suggestions === true,
     })
-    await ctx.db.patch(reportId, { deletedAt: now })
+    // Into Recently Deleted exactly as `softDelete` puts it there.
+    await ctx.db.patch(reportId, { deletedAt: now, updatedAt: now })
     await recordAudit(ctx, forSelf(membership._id), {
       businessId,
       action: 'report.restart',

@@ -8,6 +8,19 @@ import {
 } from './fixtures/reportPayloads'
 import type { Id } from '../convex/_generated/dataModel'
 
+async function pdfText(url: string): Promise<string> {
+  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs')
+  const data = new Uint8Array(await (await fetch(url)).arrayBuffer())
+  const doc = await pdfjs.getDocument({ data, useSystemFonts: true }).promise
+  let text = ''
+  for (let p = 1; p <= doc.numPages; p++) {
+    const content = await (await doc.getPage(p)).getTextContent()
+    text += content.items.map((i) => ('str' in i ? i.str : '')).join(' ')
+  }
+  // react-pdf letter-spacing splits glyphs, so collapse before matching.
+  return text.replace(/\s+/g, ' ')
+}
+
 /**
  * Correcting a document that has already been signed.
  *
@@ -96,6 +109,42 @@ test('an amendment is a new document with the same number and the next version',
   expect(during!.status).toBe('finalised')
 })
 
+test('the cover photo comes with it, like the rest of the evidence', async () => {
+  const s = await setupBusinessWithSub('amend-cover')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  const uploadUrl = await s.owner.client.mutation(api.reports.generateUploadUrl, {
+    businessId: s.businessId,
+  })
+  const res = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png' },
+    body: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      'base64',
+    ),
+  })
+  const { storageId } = (await res.json()) as { storageId: Id<'_storage'> }
+  await s.owner.client.mutation(api.reports.attachPhoto, {
+    businessId: s.businessId,
+    reportId,
+    storageId,
+    slot: 'coverPhoto',
+  })
+  await finaliseReport(s.owner.client, { businessId: s.businessId }, reportId, 'serviceReport')
+
+  const amendmentId = await s.owner.client.mutation(api.reports.amend, {
+    businessId: s.businessId,
+    reportId,
+    reason: 'Corrected the treatment.',
+  })
+  const photos = await s.owner.client.query(api.reports.photoUrls, {
+    businessId: s.businessId,
+    reportId: amendmentId,
+  })
+  // The same day, the same site, the same photograph on the front.
+  expect(Object.keys(photos)).toContain('coverPhoto')
+})
+
 test('the signature does not come with it', async () => {
   const s = await finalisedReport('amend-signature')
 
@@ -158,6 +207,20 @@ test('an amendment locks as the next issue of the same number', async () => {
   // number from the sequence.
   expect(locked!.reportNumber).toBe(original!.reportNumber)
   expect(locked!.version).toBe(2)
+
+  // And the paper says so. The footer's `Version:` is the one line that tells
+  // a correction from the document it replaced — it used to print 1 on both.
+  const printed = async (reportId: Id<'reports'>) => {
+    const { url } = await s.owner.client.action(api.reportPdf.generate, {
+      businessId: s.businessId,
+      reportId,
+    })
+    return pdfText(url!)
+  }
+  const amendedText = await printed(amendmentId)
+  expect(amendedText).toContain('Version: 2')
+  expect(amendedText).toContain(`Submission ID: ${original!.reportNumber}`)
+  expect(await printed(s.reportId)).toContain('Version: 1')
 
   // Issuing it is what replaces the original, and the original says so.
   const replaced = await s.owner.client.query(api.reports.get, {

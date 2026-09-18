@@ -70,6 +70,12 @@ the difference matters on a document someone signs:
 is the one client-side exception: `auto` takes a reading when the question is
 first shown, but only where the browser already holds a granted permission.
 
+Suggestions are only seeded for a caller that says it can show them
+(`reports.create({ suggestions: true })`, and the same on `restartDraft`). An
+installed app still running an older build does not know what a suggestion is,
+so it could never confirm one, and finalise would refuse every report it started
+from a job. It gets the facts and none of the guesses instead.
+
 ## What the business owns
 
 The forms are reproduced word for word, which means their wording is not the
@@ -217,6 +223,11 @@ the day has not changed. The rows are new and point at the same stored files,
 which is one reason deleting a draft never deletes a stored file (see
 [Deleting a report](migrations.md#deleting-a-report)).
 
+A correction stays on the form revision its original was signed on, so a
+correction of a report written on an older form is not offered "Switch to the
+new form" or "Start again" — the second would issue it as an unrelated report
+with a number of its own.
+
 A report that has already been superseded cannot be amended again
 (`ALREADY_SUPERSEDED`) — that would fork one number into two live documents.
 Amend the current version instead. Nor can a second correction be started
@@ -352,7 +363,14 @@ client receive on 28 August?" answerable once the renderer has moved on.
 ### Configuring it
 
 Three environment variables, none of which are set on any deployment today, so
-sending fails with `EMAIL_NOT_CONFIGURED` by design:
+sending fails with `EMAIL_NOT_CONFIGURED` by design. A copy the form asked for at
+finalise, or approved by an owner, is still recorded as a queued delivery.
+Nothing is scheduled to send it (that could only throw), and the report's
+history says it is waiting for email to be set up rather than letting "Queued"
+read as a promise. Those rows are not sent retroactively once email is set up;
+the report is sent again from its send sheet. `lib/emailConfig`
+is the one definition of "configured" that the sender, the pipeline and that
+history all read:
 
 | Variable | What it is |
 | --- | --- |

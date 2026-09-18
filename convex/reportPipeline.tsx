@@ -3,6 +3,7 @@
 import { v } from 'convex/values'
 import { internalAction } from './_generated/server'
 import { internal } from './_generated/api'
+import { emailConfigured } from './lib/emailConfig'
 import type { ActionCtx } from './_generated/server'
 import type { Id } from './_generated/dataModel'
 
@@ -80,8 +81,10 @@ export async function renderIfNeeded(
           finalisedAt: report.finalisedAt,
           reportNumber: report.reportNumber,
           // Amendments, not resubmissions: a finalised report is never
-          // rewritten, so until the amend flow exists every document is v1.
-          version: 1,
+          // rewritten, so the version is the issue of this number — 2 for the
+          // first correction. It is the one line on paper that tells a
+          // correction from the document it replaced.
+          version: report.version ?? 1,
           submittedBy: report.author?.name,
           data: (report.data ?? {}) as Record<string, unknown>,
           businessName: report.businessName,
@@ -149,6 +152,11 @@ export const afterFinalise = internalAction({
       // send sheet can retry them.
       return
     }
+
+    // Nothing can be sent until the business has email set up. The rows stay
+    // queued and the history says why; scheduling sends that can only throw
+    // would put an error in the logs for every report finalised meanwhile.
+    if (!emailConfigured()) return
 
     // Whatever the form asked for at finalise. Each is its own scheduled
     // action: one recipient's provider failure must not stop the next.

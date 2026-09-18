@@ -81,7 +81,8 @@ function NewReportPage() {
       customTemplateId?: Id<'customReportTemplates'>
       legalBasis: string
       data: unknown
-    }) => convexCreate(args),
+      // This build shows a suggestion as one and asks for it to be confirmed.
+    }) => convexCreate({ ...args, suggestions: true }),
     onSuccess: (reportId) =>
       navigate({
         to: '/$businessSlug/reports/$reportId',

@@ -161,7 +161,8 @@ export function StartReportButtons({
       template: TemplateId
       legalBasis: string
       data: unknown
-    }) => convexCreate(args),
+      // This build shows a suggestion as one and asks for it to be confirmed.
+    }) => convexCreate({ ...args, suggestions: true }),
     onSuccess: (reportId: Id<'reports'>) =>
       navigate({
         to: '/$businessSlug/reports/$reportId',

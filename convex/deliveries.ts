@@ -11,6 +11,7 @@ import {
 import { forSelf, recordAudit } from './lib/audit'
 import { clientScope, displayPerson, reportScope } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
+import { emailConfigured } from './lib/emailConfig'
 import { factsFromMembership } from './lib/membershipFacts'
 import type { ActorEnvelope } from './lib/actor'
 import { memberName } from './lib/reportContext'
@@ -344,7 +345,20 @@ export const forReport = query({
       .withIndex('by_report', (q) => q.eq('reportId', reportId))
       .collect()
 
-    return withActors(ctx, env, businessId, rows.sort((a, b) => b.createdAt - a.createdAt))
+    // A queued row is only "on its way" if something can send it. Without
+    // email set up it will sit there, and the history has to say why rather
+    // than let "Queued" read as a promise.
+    const canSend = emailConfigured()
+    const described = await withActors(
+      ctx,
+      env,
+      businessId,
+      rows.sort((a, b) => b.createdAt - a.createdAt),
+    )
+    return described.map((row) => ({
+      ...row,
+      waitingForEmailSetup: row.status === 'queued' && !canSend,
+    }))
   },
 })
 
@@ -506,7 +520,12 @@ export const approve = mutation({
       meta: { to: delivery.to },
       at: Date.now(),
     })
-    await ctx.scheduler.runAfter(0, internal.email.deliver, { deliveryId })
+    // Approved is approved; sending waits for email to be set up, and the
+    // history says so (`forReport`) rather than logging a send that can only
+    // throw.
+    if (emailConfigured()) {
+      await ctx.scheduler.runAfter(0, internal.email.deliver, { deliveryId })
+    }
   },
 })
 

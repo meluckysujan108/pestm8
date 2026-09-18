@@ -345,6 +345,12 @@ export function DeliveryHistory({
               Waiting for an owner to approve this address.
             </p>
           )}
+          {row.waitingForEmailSetup && (
+            <p className="mt-1 text-caption text-amber-ink">
+              Not sent: email isn’t set up for this business yet. Download or
+              share the PDF instead.
+            </p>
+          )}
           {row.error && (
             <p className="mt-1 text-caption text-amber-ink">{row.error}</p>
           )}

@@ -257,11 +257,21 @@ the time it was booked for, marked as a suggestion.
 
 ### Ship the frontend and backend together
 
-`finalise` now refuses an incomplete report (`REPORT_INCOMPLETE`). An older frontend
-cannot produce one, since it validated the same rules itself — except for the two it
-could not see (a signature image, a required photo), where the refusal is the point.
-`reports.create` gained no arguments, so a stale client still creates reports; they
-simply arrive unseeded.
+`finalise` now refuses an incomplete report (`REPORT_INCOMPLETE`), and that includes
+a report still holding a suggestion nobody has confirmed. An older frontend validated
+the required answers itself, so the refusal it can meet is the one it could not see —
+a required signature image — where the refusal is the point. (Required photo fields
+are not yet enforced by the server: a field with no photo at all reads as "count
+unknown", which never blocks.)
+
+It cannot confirm a suggestion, though — it does not know what one is. So
+`reports.create` and `restartDraft` take an optional `suggestions: true`, which this
+build sends. A caller that leaves it out (an installed app still on an older build)
+gets the facts seeded — the date, the client, the technician — and no suggestions,
+so everything it starts can still be finalised. Before the flag, the server seeded
+suggestions regardless, and because every job on production had no `startedAt`,
+every report such a client started from a job carried an unconfirmable start-time
+suggestion and could never be locked.
 
 Open drafts on production need nothing. They keep their answers, gain no suggestions,
 and are validated on the rules of the revision they were written against.
@@ -294,9 +304,14 @@ branding settings still prints a coherent header and title band);
 `previewStorageId`; `reportPhotos` is unchanged. `reportPdfs` is a new
 append-only table. `reportContextSnapshot` gains `business.brandName`,
 `business.website` and `author.name` — all optional, so snapshots frozen
-before this keep resolving, and a report finalised then prints no
-`Submitted by:` line rather than a name taken from whoever holds that
-membership row today.
+before this keep resolving, and a report whose snapshot has no `author.name`
+prints no `Submitted by:` line.
+
+A report finalised before context snapshots existed at all has no snapshot to
+read, and is different: its document resolves the author live and prints their
+name as it is today. That is the same person — a membership row is never handed
+to someone else — but a name corrected since prints corrected. On production
+that was every finalised report at the time of the Phase 3–7 rollout (12 of 12).
 
 **`printSpec` gained `termsBreak`, so `convex/schema.ts` had to be widened in
 the same change.** That validator is closed and `freezeTemplate` swallows its
@@ -402,6 +417,17 @@ Re-check this before the NEXT deploy rather than trusting it: the query above
 is one line, and the answer changes as soon as a v2 report is finalised on
 production.
 
+Re-read 2026-09-18, before the Phase 3–7 rollout: 33 reports, 3 v2 drafts, 0 v2
+finalised, 0 v2 drafts carrying a signature. The decision holds.
+
+**Production documents printed no `Version:` line before the Phase 3–7
+rollout** — the footer that carries it arrived with this rollout. On the branch
+before it shipped, the pipeline, the draft preview and the `reportPdfs` row all
+hard-coded `Version: 1`, so a correction printed the same number as the
+document it replaced: the one line on paper meant to tell them apart. All three
+now read the report's own `version`. That only ever ran on dev and e2e, whose
+already-rendered corrections keep their cached `Version: 1` files.
+
 ## Phase 6 — what the business owns
 
 Five schema changes, **all expand-only**: new optional columns and two new
@@ -452,6 +478,50 @@ and `amendmentReason`, all optional. `version` absent means 1, which is what
 every report issued before amendments existed was; `finalise` stamps it from
 now on. No backfill: a report with no `version` and no supersede links is a
 first issue that was never corrected, which is the truth about all of them.
+
+## Rolling out Phases 3–7 — backend first, then merge
+
+Every phase above is expand-only, so the new backend is a strict superset of
+the old one: the frontend production was serving (`main` before the merge)
+calls nothing the new backend lacks, and every argument the new backend added
+is optional. The reverse is not true — the new frontend calls 34 functions the
+old backend does not have (`reports.list` and `reports.counts` among them, so
+the library does not even load). And Vercel publishes `main` about 30 seconds
+after a merge, faster than `npx convex deploy` finishes.
+
+So the order is the opposite of "merge, then deploy":
+
+1. Confirm the target (`rare-retriever-156`), snapshot production with
+   `--include-file-storage`, and check Vercel's newest successful production
+   deployment is the current `main`.
+2. With the PR open and CI green but **not merged**, `npx convex deploy` from
+   the branch head. The branch is 0 commits behind `main`, so the tree that
+   gets merged is the tree that was deployed.
+3. `npx convex run --prod migrations/reportsLibrary:backfill '{"cursor":null}'`,
+   then `migrations/reportsLibrary:invariant` — both counts must be 0.
+4. Merge. Wait for Vercel's production deployment of the merge commit.
+5. Ask everyone to close and reopen the app, then smoke-test: the library and
+   its counts, search finding an old report, a signature, a gallery photo, and
+   one legacy finalised PDF of each kind (it re-renders on first open).
+6. `migrations/signatureRecords:backfill`, then its invariant
+   (`bareStorageIds: 0`). No user impact either way; it has to precede the
+   contract deploy that drops the bare-id arm.
+
+**Rolling back is not symmetric.** The previous frontend runs fine on the new
+backend. The previous backend does not accept the new data: once the backfill
+has written `updatedAt` and `searchText`, `main`'s schema rejects those rows
+and its deploy fails validation. A backend rollback would need `main`'s code
+with this schema, plus a fix to `main`'s `signatureUrls`, which hands each slot
+straight to `storage.getUrl` and breaks on the object-shaped signatures every
+new signature is. Roll the frontend back first, and treat the snapshot as the
+data rollback of last resort — importing it with `--replace-all` loses every
+write made since.
+
+Email: with `RESEND_*` unset, a finalise whose form asks to send the client a
+copy records a delivery that stays queued, and so does an owner's approval of a
+held one. Nothing is scheduled to send either, and the report's history says
+it is waiting for email to be set up. Setting email up later does not send
+those rows retroactively — send the report again from its send sheet.
 
 ### Contract, later
 
