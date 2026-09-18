@@ -67,6 +67,7 @@ import type * as snippets from "../snippets.js";
 import type * as team from "../team.js";
 import type * as templateSettings from "../templateSettings.js";
 import type * as viewAs from "../viewAs.js";
+import type * as views from "../views.js";
 import type * as weather from "../weather.js";
 
 import type {
@@ -135,6 +136,7 @@ declare const fullApi: ApiFromModules<{
   team: typeof team;
   templateSettings: typeof templateSettings;
   viewAs: typeof viewAs;
+  views: typeof views;
   weather: typeof weather;
 }>;
 

@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { reportScope } from './lib/capabilities'
+import { reportReadable } from './lib/capabilities'
 import type { Ctx } from './lib/access'
 import type { Id } from './_generated/dataModel'
 import { requireActor } from './lib/actor'
@@ -31,7 +31,9 @@ async function requireVisibleReport(
     throw new ConvexError('NOT_FOUND')
   }
   if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
-  if (!reportScope(env.realScope, report)) throw new ConvexError('NO_ACCESS')
+  if (!reportReadable(env.realScope, env.actor.real._id, report)) {
+    throw new ConvexError('NO_ACCESS')
+  }
   return { membership, report }
 }
 

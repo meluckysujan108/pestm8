@@ -116,6 +116,7 @@ function viewer(real: MembershipFacts, scope: MembershipFacts): NoteViewer {
     scope,
     readRows: jobScope(capabilitiesOf(scope), scope, []),
     ownRows: jobScope(capabilitiesOf(real), real, []),
+    pickerRows: jobScope(capabilitiesOf(real), real, []),
   }
 }
 

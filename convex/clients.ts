@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { INLINE_LIMIT, decorate as decorateReports } from './reports'
-import { isInScope, reportScope } from './lib/capabilities'
+import { isInScope, reportReadable } from './lib/capabilities'
 import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
@@ -148,14 +148,14 @@ export const jobHistory = query({
 
 /**
  * Reports across every property this client owns, through the same
- * `reportScope` gate and `decorate()` row shape `reports.listByProperty` uses
+ * `reportReadable` gate and `decorate()` row shape `reports.listByProperty` uses
  * for one property — so the client sheet and the property sheet can never
  * disagree about which reports someone may see.
  */
 export const reports = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, scope } = await requireActor(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -178,7 +178,7 @@ export const reports = query({
         (r) =>
           r.businessId === businessId &&
           r.deletedAt === undefined &&
-          reportScope(scope, r),
+          reportReadable(scope, actor.real._id, r),
       )
       .sort((a, b) => (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt))
       // Bounded: this is a section inside a sheet. The library holds the rest.
