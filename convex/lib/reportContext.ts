@@ -20,7 +20,7 @@ export type RosterEntry = {
   phone?: string
 }
 
-const MAX_MEMBERS = 100
+export const MAX_MEMBERS = 100
 
 /**
  * A member's name from the auth component, or '' when it cannot be read. A

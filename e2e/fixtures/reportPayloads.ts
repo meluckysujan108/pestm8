@@ -138,28 +138,37 @@ const SIGNATURE_PNG = Buffer.from(
   'base64',
 )
 
-/** Signs a draft the way the pad does: upload the image, then attach it. */
+/**
+ * Signs a draft the way the pad does: upload the image, then attach it.
+ * Returns the stored image, so a spec can put the same one on a second report
+ * the way a reused saved signature does.
+ */
 export async function signReport(
   client: ConvexHttpClient,
   ids: Pick<Ids, 'businessId'>,
   reportId: Id<'reports'>,
   slot: string,
+  reuse?: Id<'_storage'>,
 ) {
-  const uploadUrl = await client.mutation(api.reports.generateUploadUrl, {
-    businessId: ids.businessId,
-  })
-  const res = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'image/png' },
-    body: SIGNATURE_PNG,
-  })
-  const { storageId } = (await res.json()) as { storageId: Id<'_storage'> }
+  let storageId = reuse
+  if (!storageId) {
+    const uploadUrl = await client.mutation(api.reports.generateUploadUrl, {
+      businessId: ids.businessId,
+    })
+    const res = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'image/png' },
+      body: SIGNATURE_PNG,
+    })
+    storageId = ((await res.json()) as { storageId: Id<'_storage'> }).storageId
+  }
   await client.mutation(api.reports.attachSignature, {
     businessId: ids.businessId,
     reportId,
     storageId,
     slot,
   })
+  return storageId
 }
 
 export async function finaliseReport(
@@ -168,10 +177,11 @@ export async function finaliseReport(
   reportId: Id<'reports'>,
   template: TemplateId,
   overrides: Record<string, unknown> = {},
+  reuseSignature?: Id<'_storage'>,
 ) {
   // Signed first, because the server now refuses an unsigned report — as it
   // should: every one of these forms is signed before it is issued.
-  await signReport(client, ids, reportId, REQUIRED_SLOT[template])
+  await signReport(client, ids, reportId, REQUIRED_SLOT[template], reuseSignature)
   return client.mutation(api.reports.finalise, {
     businessId: ids.businessId,
     reportId,

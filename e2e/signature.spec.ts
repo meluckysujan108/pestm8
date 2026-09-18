@@ -1,7 +1,21 @@
 import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { FIXTURE_PASSWORD, api, signInViaUi, signUpActor, uniqueEmail } from './fixtures'
-import { builderReady, createReport, sectionUrl } from './fixtures/reportPayloads'
+import type { Id } from '../convex/_generated/dataModel'
+import {
+  FIXTURE_PASSWORD,
+  api,
+  expectRejected,
+  setupBusinessWithSub,
+  signInViaUi,
+  signUpActor,
+  uniqueEmail,
+} from './fixtures'
+import {
+  builderReady,
+  createReport,
+  sectionUrl,
+  signReport,
+} from './fixtures/reportPayloads'
 
 /**
  * A signature is the evidence these documents rest on, so this spec is about
@@ -168,4 +182,58 @@ test('a client signing sees the statement and gives their name', async ({ page }
       return report!.signatureSlots?.client
     })
     .toMatchObject({ signedBy: 'R. Chen', method: 'drawn' })
+})
+
+test('a colleague’s saved signature cannot be put on your report, however it is labelled', async () => {
+  const s = await setupBusinessWithSub('sig-colleague')
+
+  // The owner signs and keeps it, as the pad does by default.
+  const ownerReport = await createReport(s.owner.client, s, 'serviceReport')
+  const uploadUrl = await s.owner.client.mutation(api.reports.generateUploadUrl, {
+    businessId: s.businessId,
+  })
+  const res = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'image/png' },
+    body: Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+      'base64',
+    ),
+  })
+  const { storageId } = (await res.json()) as { storageId: Id<'_storage'> }
+  await s.owner.client.mutation(api.reports.attachSignature, {
+    businessId: s.businessId,
+    reportId: ownerReport,
+    storageId,
+    slot: 'technician',
+    saveForMember: true,
+  })
+
+  // Reading the owner's report does not hand out the image's id…
+  const read = await s.owner.client.query(api.reports.get, {
+    businessId: s.businessId,
+    reportId: ownerReport,
+  })
+  expect(read!.signatureSlots!.technician).not.toHaveProperty('storageId')
+  expect(read!.context.signatureUrls.technician).toBeTruthy()
+
+  // …and holding it anyway is not enough. Not as "my saved signature", and
+  // not dressed up as a fresh drawing either.
+  const theirs = await createReport(s.sub.client, s, 'serviceReport')
+  for (const method of ['saved', 'drawn'] as const) {
+    await expectRejected(
+      () =>
+        s.sub.client.mutation(api.reports.attachSignature, {
+          businessId: s.businessId,
+          reportId: theirs,
+          storageId,
+          slot: 'technician',
+          method,
+        }),
+      'NOT_YOUR_SIGNATURE',
+    )
+  }
+
+  // Their own drawing is fine, of course.
+  await signReport(s.sub.client, s, theirs, 'technician')
 })

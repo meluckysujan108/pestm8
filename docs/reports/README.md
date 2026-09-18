@@ -187,12 +187,19 @@ report is never edited.
 
 ## Correcting one
 
-`reports.amend` is how a mistake on a signed document gets fixed: it issues a
-NEW report carrying the **same `reportNumber` at the next `version`**, and
-marks the original `supersededByReportId`. Both ends say so on screen — the
-replaced one so nobody works from it, the replacement so its reason travels
-with it rather than sitting in an audit log nobody reads. The footer's
-`Version:` line is what tells the two apart on paper.
+`reports.amend` is how a mistake on a signed document gets fixed: it starts a
+NEW report carrying the **same `reportNumber` at the next `version`**. The
+original is marked `supersededByReportId` when that correction is
+**finalised**, not when it is started — until then the original is still the
+document the client holds, and a correction abandoned half-way must not leave
+it saying it was replaced by a draft that no longer exists. Both ends say so on
+screen — the replaced one so nobody works from it, the replacement so its
+reason travels with it rather than sitting in an audit log nobody reads. The
+footer's `Version:` line is what tells the two apart on paper.
+
+Who may correct a document is not who may read it: the person who signed it,
+or someone with `business.manage`. Being able to *see* the team's certificates
+is not permission to reissue one under your own name.
 
 The answers come forward so the correction is the edit rather than the whole
 form again. Three things deliberately do not:
@@ -207,11 +214,15 @@ form again. Three things deliberately do not:
 
 Photographs *are* carried: they are evidence of what was on site that day, and
 the day has not changed. The rows are new and point at the same stored files,
-which the purge's `by_storage` check already understands.
+which is one reason deleting a draft never deletes a stored file (see
+[Deleting a report](migrations.md#deleting-a-report)).
 
 A report that has already been superseded cannot be amended again
 (`ALREADY_SUPERSEDED`) — that would fork one number into two live documents.
-Amend the current version instead.
+Amend the current version instead. Nor can a second correction be started
+while one is open (`AMENDMENT_IN_PROGRESS`); the page links to the open one
+instead of offering the button. Finalising re-checks both, so two corrections
+can never both supersede the same document.
 
 ## Drawing the PDF
 
@@ -321,7 +332,15 @@ client receive on 28 August?" answerable once the renderer has moved on.
   else is `pendingApproval` until an owner says yes, unless the business sets
   `allowTechnicianRecipients`. The held row IS the request, so approving is a
   decision about something real rather than a send retyped from memory, and
-  who asked and who allowed are kept as separate facts.
+  who asked and who allowed are kept as separate facts. The client's
+  *contacts* count as on file only for someone who may see that client —
+  the report's author, anyone with `clients.directory`, or anyone with a job
+  there. Reading a report is not the client-directory gate, so for anyone
+  else a contact's address is simply new, and `deliveries.known` does not
+  read it out.
+- **Who asked.** Every delivery names the person who asked for it: whoever
+  pressed Send, or, for the copy the form asked for, whoever finalised it with
+  the box ticked. Both count toward that person's limit.
 - **How many.** Twenty per member per hour, counted from the delivery rows
   themselves — they are already the exact record of every send, so a separate
   token bucket would be a second, less accurate account of the same events.

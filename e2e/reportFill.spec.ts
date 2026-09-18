@@ -3,6 +3,7 @@ import type { Page } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  clickUntil,
   signInViaUi,
   signUpActor,
   uniqueEmail,
@@ -714,13 +715,15 @@ test.describe('reports where the work is', () => {
 
     await signInViaUi(page, email)
     await page.goto(`/${slug}/schedule`)
-    await page.getByRole('button', { name: /General Pest Control/ }).first().click()
-
     const sheet = page.getByRole('dialog')
     // The report for THIS job is the thing a technician came looking for; the
-    // rest is context.
+    // rest is context. Retrying the tap: the schedule is server-rendered, and
+    // one that lands before hydration opens nothing.
     const thisVisit = sheet.getByRole('heading', { name: 'Reports for this visit' })
-    await expect(thisVisit).toBeVisible()
+    await clickUntil(
+      page.getByRole('button', { name: /General Pest Control/ }).first(),
+      () => expect(thisVisit).toBeVisible({ timeout: 3_000 }),
+    )
     await expect(
       sheet.getByRole('heading', { name: 'Other reports at this property' }),
     ).toBeVisible()
@@ -752,10 +755,14 @@ test.describe('reports where the work is', () => {
 
     await signInViaUi(page, email)
     await page.goto(`/${slug}/clients`)
-    await page.getByText('J. Nguyen').first().click()
-
     const sheet = page.getByRole('dialog')
-    await expect(sheet.getByRole('heading', { name: 'Reports' })).toBeVisible()
+    // Retried for the same reason: at phone width the list is on screen well
+    // before its tap handlers are.
+    await clickUntil(page.getByText('J. Nguyen').first(), () =>
+      expect(sheet.getByRole('heading', { name: 'Reports' })).toBeVisible({
+        timeout: 3_000,
+      }),
+    )
     // The section used to render nothing at all when empty, so a client with
     // no reports had no heading and no hint that reports exist.
     await expect(sheet.getByText(/No reports yet/)).toBeVisible()

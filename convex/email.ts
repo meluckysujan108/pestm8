@@ -238,8 +238,9 @@ async function audit(
   actorMembershipId: Id<'memberships'> | undefined,
   entry: { action: string; meta: unknown },
 ) {
-  // A send the form asked for at finalise has no actor; the delivery row is
-  // its record, and an audit line attributed to nobody would be a worse one.
+  // Every delivery written now names who asked for it (see the schema). A
+  // row without one has nobody to attribute the outcome to, and the delivery
+  // row is its record — an audit line attributed to nobody would be worse.
   if (!actorMembershipId) return
   await ctx.runMutation(internal.auditLog.log, {
     businessId,

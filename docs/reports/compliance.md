@@ -105,8 +105,12 @@ or reused.
 Two consequences in the code:
 
 - A saved signature is only ever applied by its owner —
-  `reports.attachSignature` checks the caller is the membership it belongs to.
-  Anything else is forgery with extra steps, however convenient.
+  `reports.attachSignature` refuses `method: 'saved'` unless the image is the
+  caller's own saved signature, and refuses any team member's saved signature
+  under any label (`NOT_YOUR_SIGNATURE`). Reading a report returns what was
+  signed and how, never the stored image's id, so the id is not handed out in
+  the first place. Anything else is forgery with extra steps, however
+  convenient.
 - Hand-to-client mode shows the statement, the name and the pad, and nothing
   else, so a client is signing a thing they can read.
 

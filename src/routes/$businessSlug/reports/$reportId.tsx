@@ -8,6 +8,7 @@ import { ReportBuilder } from '#/components/reports/ReportBuilder'
 import { ReportDocument } from '#/components/reports/ReportDocument'
 import {
   AmendButton,
+  CorrectionUnderWay,
   AmendmentNotice,
 } from '#/components/reports/AmendmentNotice'
 import { documentIdentity } from '#/lib/reportTemplates/documentModel'
@@ -93,17 +94,27 @@ function ReportPage() {
           version={report.version}
         />
         <ReportDocument report={report} businessId={business._id} />
-        {/* Offered only on the current version: correcting a document that has
-            already been replaced would fork its number into two live
-            documents, and the server refuses it. */}
-        {!report.supersededByReportId && (
+        {/* Offered only on the current version, to whoever signed it or the
+            owner, and only once: correcting a document that has already been
+            replaced — or that already has a correction under way — would fork
+            its number into two live documents, and the server refuses it. */}
+        {report.openAmendmentId ? (
           <div className="px-4 pb-6 pt-2">
-            <AmendButton
-              businessId={business._id}
+            <CorrectionUnderWay
               businessSlug={business.slug}
-              reportId={report._id}
+              amendmentId={report.openAmendmentId}
             />
           </div>
+        ) : (
+          report.canAmend && (
+            <div className="px-4 pb-6 pt-2">
+              <AmendButton
+                businessId={business._id}
+                businessSlug={business.slug}
+                reportId={report._id}
+              />
+            </div>
+          )
         )}
       </ReportActionBar>
     )

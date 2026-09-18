@@ -2,6 +2,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
+import { ConvexError } from 'convex/values'
 import { FilePenLine, History } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { Sheet } from '#/components/primitives/Sheet'
@@ -90,6 +91,44 @@ export function AmendmentNotice({
 }
 
 /**
+ * A correction has been started and not yet issued.
+ *
+ * The document it corrects is still the current one until then — the client
+ * holds it, and the draft may yet be abandoned — so this says where the
+ * correction is rather than calling the document replaced.
+ */
+export function CorrectionUnderWay({
+  businessSlug,
+  amendmentId,
+}: {
+  businessSlug: string
+  amendmentId: Id<'reports'>
+}) {
+  const navigate = useNavigate()
+  return (
+    <div className="flex items-start gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5">
+      <FilePenLine size={16} strokeWidth={1.9} className="mt-0.5 shrink-0 text-blue" />
+      <p className="min-w-0 flex-1 text-caption text-muted">
+        <span className="text-ink">A correction is under way.</span> This
+        document stays current until it is issued.{' '}
+        <button
+          type="button"
+          onClick={() =>
+            void navigate({
+              to: '/$businessSlug/reports/$reportId',
+              params: { businessSlug, reportId: amendmentId },
+            })
+          }
+          className="font-semibold text-blue underline"
+        >
+          Open the correction
+        </button>
+      </p>
+    </div>
+  )
+}
+
+/**
  * Starting a correction.
  *
  * The reason is required rather than optional: a client holding two documents
@@ -166,10 +205,27 @@ export function AmendButton({
 
         {amend.isError && (
           <p role="alert" className="mt-3 text-caption text-amber-ink">
-            Could not start a correction.
+            {amendError(amend.error)}
           </p>
         )}
       </Sheet>
     </>
   )
+}
+
+function amendError(error: unknown): string {
+  const code =
+    error instanceof ConvexError && typeof error.data === 'string'
+      ? error.data
+      : null
+  switch (code) {
+    case 'AMENDMENT_IN_PROGRESS':
+      return 'A correction of this document is already under way.'
+    case 'ALREADY_SUPERSEDED':
+      return 'This document has already been replaced.'
+    case 'NO_ACCESS':
+      return 'Only the person who signed this document, or the owner, can correct it.'
+    default:
+      return 'Could not start a correction.'
+  }
 }

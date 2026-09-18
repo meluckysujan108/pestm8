@@ -1233,7 +1233,11 @@ export default defineSchema({
     /** Resend's id, for matching a webhook back to this row. */
     providerMessageId: v.optional(v.string()),
     error: v.optional(v.string()),
-    /** Who asked for it. Absent when the form asked, at finalise. */
+    /**
+     * Who asked for it: whoever pressed Send, or — when the form asked, at
+     * finalise — whoever finalised it with "Send copy…" ticked, which was
+     * their instruction. It counts toward that person's send limit either way.
+     */
     sentByMembershipId: v.optional(v.id('memberships')),
     approvedByMembershipId: v.optional(v.id('memberships')),
     createdAt: v.number(),

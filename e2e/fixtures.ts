@@ -314,7 +314,11 @@ export type RejectionCode =
   | 'NOTHING_TO_PUBLISH'
   // Amending a report that has already been superseded would fork its number.
   | 'ALREADY_SUPERSEDED'
+  // A second correction of a document while the first is still a draft.
+  | 'AMENDMENT_IN_PROGRESS'
   | 'AMENDMENT_REASON_REQUIRED'
+  // Applying someone else's saved signature.
+  | 'NOT_YOUR_SIGNATURE'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

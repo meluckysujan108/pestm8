@@ -43,8 +43,9 @@ One caveat on the new index. `reportPhotos.by_storage` was added unstaged, which
 correct at dev's 124 rows. Convex's guidance is to add an index on a large populated
 table with `staged: true` and enable it afterwards, so check the prod row count first
 (`npx convex data reportPhotos --prod`) and stage it if the table is large. The index
-has no reader yet — it exists so that deleting a stored file can ask which report
-still prints it, the same question `noteAttachments.by_storage` answers.
+exists so that deleting a stored file can ask which gallery row still holds it,
+the same question `noteAttachments.by_storage` answers — necessary for a future
+storage sweep, but not sufficient on its own (see Deleting a report).
 
 ### The ordering rule — and why it no longer bites
 
@@ -348,8 +349,15 @@ pesticide regulations, ten where a termite certificate is involved — so
 `softDelete` refuses one outright, and the nightly purge restores rather than
 destroys anything that was finalised while sitting in the trash. The purge
 cron (`0 19 * * *` for notes, `20 19 * * *` for reports) deletes a draft's
-photo blobs only after a `by_storage` reference check, and never a member's
-saved signature.
+rows and its server-rendered preview, and **no other stored file**. A draft's
+photo and signature ids arrive from the client, and the same blob can sit
+under other reports — an amendment's photos share the original's files, and a
+technician's saved signature is one blob reused on every report they sign — in
+places that are not indexed by storage id. A reference check over
+`reportPhotos.by_storage` alone therefore proved nothing, and an earlier purge
+that trusted it could delete the signature from finalised certificates.
+Orphaned draft files cost kilobytes; reclaiming them needs a sweep that checks
+every reference, which is not built.
 
 ## The v2 templates changed after v2 shipped, and were not bumped to v3
 

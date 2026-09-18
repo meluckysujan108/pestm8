@@ -28,7 +28,7 @@ import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import { knownRecipients } from './lib/recipients'
 import { settingsFor } from './templateSettings'
 import { reportSearchText } from './lib/reportSearch'
-import { buildReportContext, toPresentContext } from './lib/reportContext'
+import { MAX_MEMBERS, buildReportContext, toPresentContext } from './lib/reportContext'
 import type { ReportContextSnapshot } from './lib/reportContext'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
 import { canCarryFrom, carryOverFrom } from '../src/lib/reportTemplates/lastVisit'
@@ -46,7 +46,7 @@ import type { TemplateId } from '../src/lib/reportTemplates'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Membership } from './lib/access'
 import { forSelf, recordAudit } from './lib/audit'
-import { hasCapability, requireActor } from './lib/actor'
+import { hasCapability, requireActor, requireWriteActor } from './lib/actor'
 
 /**
  * The guard every report-mutating mutation repeats: resolve membership, load
@@ -502,13 +502,21 @@ export const get = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const membership = await requireMembership(ctx, businessId)
-    const { scope } = await requireActor(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return null
-    if (!reportScope(scope, report)) return null
+    if (!reportScope(env.scope, report)) return null
     // Soft-deleted: gone from every list, and not openable by a stale link.
     if (report.deletedAt !== undefined) return null
+
+    // Correcting is offered on the current issue of a document, to the person
+    // who signed it or the owner — the same rule `amend` enforces, so the
+    // button is never an invitation to a refusal. A correction already under
+    // way is linked instead of offered twice.
+    const correctable =
+      report.status === 'finalised' && report.supersededByReportId === undefined
+    const openAmendment = correctable ? await openAmendmentOf(ctx, report) : null
 
     return {
       ...(await projectReport(ctx, report)),
@@ -516,6 +524,12 @@ export const get = query({
       canEdit:
         report.status === 'draft' &&
         report.authorMembershipId === membership._id,
+      canAmend:
+        correctable &&
+        openAmendment === null &&
+        (report.authorMembershipId === membership._id ||
+          hasCapability(env, 'business.manage')),
+      openAmendmentId: openAmendment?._id ?? null,
       // The caller's own membership — `reportPdf`/`email` actions need this
       // to attribute an audit-log entry, and can't call `requireMembership`
       // themselves (actions have no `ctx.db`).
@@ -523,6 +537,21 @@ export const get = query({
     }
   },
 })
+
+/**
+ * A business-authored template as everyone filling it in sees it: the
+ * published columns, and not the owner's unissued draft riding along beside
+ * them. A report is filled against what the business issues, and a draft that
+ * reached every technician through the report they opened would be the
+ * unissued edit handed out after all, by the side door.
+ */
+function publishedOnly(
+  template: Doc<'customReportTemplates'> | null,
+): Omit<Doc<'customReportTemplates'>, 'draft'> | null {
+  if (!template) return null
+  const { draft: _unissued, ...published } = template
+  return published
+}
 
 /**
  * Everything the document is built from, with no access check of its own.
@@ -568,7 +597,7 @@ async function projectReport(ctx: QueryCtx, report: Doc<'reports'>) {
         : finalised
           ? (report.customTemplateSnapshot ?? null)
           : report.customTemplateId
-            ? await ctx.db.get(report.customTemplateId)
+            ? publishedOnly(await ctx.db.get(report.customTemplateId))
             : null
 
     // The wording this report was signed against — for EVERY kind, not just
@@ -621,6 +650,7 @@ async function projectReport(ctx: QueryCtx, report: Doc<'reports'>) {
 
     return {
       ...report,
+      signatureSlots: withoutImages(report.signatureSlots),
       property,
       customTemplate,
       templateSnapshot,
@@ -850,6 +880,22 @@ export const attachSignature = mutation({
     // locked, it must not be possible to attach a different one.
     const { membership, report } = await requireEditableReport(ctx, businessId, reportId)
 
+    // A saved signature is applied by the person it belongs to, and by nobody
+    // else — that is the whole of what `method: 'saved'` claims on the record.
+    // Nor may a colleague's saved signature arrive dressed as a fresh drawing.
+    if (method === 'saved' && storageId !== membership.savedSignatureStorageId) {
+      throw new ConvexError('NOT_YOUR_SIGNATURE')
+    }
+    if (storageId !== membership.savedSignatureStorageId) {
+      const team = await ctx.db
+        .query('memberships')
+        .withIndex('by_business', (q) => q.eq('businessId', businessId))
+        .take(MAX_MEMBERS)
+      if (team.some((m) => m.savedSignatureStorageId === storageId)) {
+        throw new ConvexError('NOT_YOUR_SIGNATURE')
+      }
+    }
+
     await ctx.db.patch(reportId, {
       signatureSlots: {
         ...(report.signatureSlots ?? {}),
@@ -891,6 +937,25 @@ export const mySavedSignature = query({
     return url ? { storageId: membership.savedSignatureStorageId, url } : null
   },
 })
+
+/**
+ * What was signed, and how — without the stored image's id.
+ *
+ * The id is a capability: `attachSignature` takes one, so handing out the id
+ * under a colleague's signature handed out the means to put it on a document
+ * of your own. The image is still drawn from `context.signatureUrls`; nothing
+ * that reads a report needs the id itself.
+ */
+function withoutImages(slots: Doc<'reports'>['signatureSlots']) {
+  if (!slots) return undefined
+  return Object.fromEntries(
+    Object.entries(slots).map(([slot, held]) => {
+      if (typeof held === 'string') return [slot, {}]
+      const { storageId: _image, ...record } = held
+      return [slot, record]
+    }),
+  ) as Record<string, Partial<Omit<Exclude<typeof slots[string], string>, 'storageId'>>>
+}
 
 /**
  * The image behind a signature slot, whichever shape the row holds.
@@ -1317,6 +1382,16 @@ export const create = mutation({
     if (!property || property.businessId !== args.businessId) {
       throw new ConvexError('NOT_FOUND')
     }
+    // The job a report is filed against is read back as "this job has its
+    // report" — by the business's complete-only-when-reported policy among
+    // others — so it has to be one of this business's jobs, not an id from
+    // somewhere else.
+    if (args.jobId) {
+      const job = await ctx.db.get(args.jobId)
+      if (!job || job.businessId !== args.businessId) {
+        throw new ConvexError('NOT_FOUND')
+      }
+    }
 
     // A retired built-in still renders every report written against it, but a
     // stale bundle or a direct API call must not keep minting documents that
@@ -1597,10 +1672,11 @@ export const copyFromLastVisit = mutation({
   },
   handler: async (ctx, { businessId, reportId, fromReportId }) => {
     const { report } = await requireEditableReport(ctx, businessId, reportId)
-    // Whether the caller may READ the report being copied from is a question
-    // for the scope, which knows about teams and switching; authorship of the
-    // draft being written to is `requireEditableReport`'s.
-    const { scope } = await requireActor(ctx, businessId)
+    // Whether the caller may reach the report being copied FROM is a question
+    // for the scope — the write actor's, because this is a write, and the read
+    // scope carries the legacy view-as lens that must never reach one.
+    // Authorship of the draft written TO is `requireEditableReport`'s.
+    const { scope } = await requireWriteActor(ctx, businessId)
 
     const previous = await ctx.db.get(fromReportId)
     // Re-checked rather than trusted: the id came from the client, and this
@@ -1888,6 +1964,27 @@ export const finalise = mutation({
       ...(customTemplateSnapshot ? { customTemplateSnapshot } : {}),
     })
 
+    // A correction supersedes the document it corrects when it is ISSUED —
+    // not when somebody starts a draft of it, which may be abandoned. Checked
+    // again here rather than trusted from `amend`: in between, the original
+    // could have been corrected by someone else.
+    if (report.supersedesReportId) {
+      const original = await ctx.db.get(report.supersedesReportId)
+      if (!original || original.businessId !== businessId) {
+        throw new ConvexError('NOT_FOUND')
+      }
+      if (
+        original.supersededByReportId !== undefined &&
+        original.supersededByReportId !== reportId
+      ) {
+        throw new ConvexError('ALREADY_SUPERSEDED')
+      }
+      await ctx.db.patch(original._id, {
+        supersededByReportId: reportId,
+        updatedAt: now,
+      })
+    }
+
     await recordAudit(ctx, forSelf(membership._id), {
       businessId,
       action: 'report.finalise',
@@ -1986,17 +2083,33 @@ async function queueFormDeliveries(
 }
 
 /**
- * Deleting a draft, and only a draft.
+ * The correction of `original` that has been started and not yet issued.
  *
- * A finalised report is a record the business is required to keep — WA's
- * pesticide regulations say three years, ten where a termite certificate is
- * involved — so there is deliberately no way to delete one, from here or
- * anywhere. What lands in Recently Deleted is work in progress: a report
- * started on the wrong property, a duplicate, a test.
- *
- * Soft, because the photos attached to a draft are evidence somebody stood
- * somewhere and took them. Thirty days, then the nightly purge.
+ * Read from the property's newest reports rather than an index of its own: a
+ * correction is started after the document it corrects, so it sits at the top
+ * of that property's history unless dozens of reports have been written there
+ * since — and a bounded read that could in principle miss one costs a second
+ * open correction, which the finalise-time supersede check still refuses.
  */
+async function openAmendmentOf(
+  ctx: QueryCtx,
+  original: Doc<'reports'>,
+): Promise<Doc<'reports'> | null> {
+  const recent = await ctx.db
+    .query('reports')
+    .withIndex('by_property', (q) => q.eq('propertyId', original.propertyId))
+    .order('desc')
+    .take(LAST_VISIT_SCAN)
+  return (
+    recent.find(
+      (row) =>
+        row.supersedesReportId === original._id &&
+        row.status === 'draft' &&
+        row.deletedAt === undefined,
+    ) ?? null
+  )
+}
+
 /**
  * Corrects a finalised report by issuing a new one that supersedes it.
  *
@@ -2019,7 +2132,12 @@ async function queueFormDeliveries(
  *
  * Photographs ARE carried: they are evidence of what was on site that day, and
  * the day has not changed. The rows are new, pointing at the same stored
- * files, which the purge's `by_storage` check already understands.
+ * files — one reason `purgeReport` never deletes a draft's stored files.
+ *
+ * The original is marked superseded when the correction is FINALISED, not
+ * here. Until then it is still the document the client holds, and a draft
+ * abandoned half-way must not leave it pointing at a replacement that was
+ * never issued.
  */
 export const amend = mutation({
   args: {
@@ -2038,12 +2156,30 @@ export const amend = mutation({
     if (original.status !== 'finalised') {
       throw new ConvexError('REPORT_NOT_FINALISED')
     }
-    const { scope } = await requireActor(ctx, businessId)
-    if (!reportScope(scope, original)) throw new ConvexError('NO_ACCESS')
+    // Who may correct a signed document is not who may READ it. Being able
+    // to see a certificate — the whole team's, say, because the owner granted
+    // "see everyone's schedule" — must not let you supersede it and reissue it
+    // under your own name. So: the person who signed it, or the owner. And
+    // through the write actor, which never carries the read-only view-as lens
+    // and refuses a switch that has gone stale; a read scope inside a
+    // mutation is the door main's model was built to keep shut.
+    const env = await requireWriteActor(ctx, businessId)
+    if (
+      original.authorMembershipId !== membership._id &&
+      !hasCapability(env, 'business.manage')
+    ) {
+      throw new ConvexError('NO_ACCESS')
+    }
     // Amending an amendment is fine; amending something already superseded
     // would fork the number into two live documents.
     if (original.supersededByReportId !== undefined) {
       throw new ConvexError('ALREADY_SUPERSEDED')
+    }
+    // Nor may two corrections of one document be open at once: the first to
+    // be finalised would supersede the original, and the second would then be
+    // a correction of a document that is no longer current.
+    if (await openAmendmentOf(ctx, original)) {
+      throw new ConvexError('AMENDMENT_IN_PROGRESS')
     }
 
     const explanation = reason.trim()
@@ -2102,10 +2238,6 @@ export const amend = mutation({
       await ctx.db.insert('reportPhotos', { ...rest, reportId: amendmentId })
     }
 
-    await ctx.db.patch(original._id, {
-      supersededByReportId: amendmentId,
-      updatedAt: now,
-    })
 
     await recordAudit(ctx, forSelf(membership._id), {
       businessId,
@@ -2121,6 +2253,18 @@ export const amend = mutation({
   },
 })
 
+/**
+ * Deleting a draft, and only a draft.
+ *
+ * A finalised report is a record the business is required to keep — WA's
+ * pesticide regulations say three years, ten where a termite certificate is
+ * involved — so there is deliberately no way to delete one, from here or
+ * anywhere. What lands in Recently Deleted is work in progress: a report
+ * started on the wrong property, a duplicate, a test.
+ *
+ * Soft, because the photos attached to a draft are evidence somebody stood
+ * somewhere and took them. Thirty days, then the nightly purge.
+ */
 export const softDelete = mutation({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
@@ -2182,38 +2326,40 @@ async function requireDeletable(
 }
 
 /**
- * Everything a draft owns. The storage blobs go only after a reference check,
- * because an image can be shared — a saved signature belongs to the member,
- * not to this report, and deleting it here would blank it on every other.
+ * Removes a draft for good — its rows, and the one blob it provably owns.
+ *
+ * It deliberately does NOT delete the draft's photo or signature blobs, and
+ * that is a correction, not an omission. Those storage ids arrive from the
+ * client, and a blob can be referenced from places this function cannot see
+ * cheaply: another report's photo slots, signature slots or rendered PDF are
+ * not indexed by storage id. So "no other gallery row points at it" never
+ * proved "nothing points at it", and the purge was destroying files that
+ * other documents — finalised ones among them — still printed.
+ *
+ * The case that made this plain needed no attacker at all. The signing sheet
+ * saves a drawn signature by default and reuses it, so one blob sits under a
+ * technician's signature on many reports. Once they draw a new one, the old
+ * blob is nobody's saved signature any more — and purging any abandoned draft
+ * that still held it deleted the signature from every signed certificate that
+ * used it. The same shape, done on purpose, let anyone who could read a
+ * report attach its photo or signature id to a draft of their own, bin the
+ * draft, and wipe the original's evidence.
+ *
+ * An orphaned image costs a few kilobytes. A signed compliance record missing
+ * its signature is a destroyed legal document. Reclaiming draft storage
+ * properly needs a sweep that checks every reference, and that is its own
+ * piece of work; until then, nothing is deleted on a guess.
+ *
+ * The preview is the exception because the server made it, for this report
+ * alone, and nothing else is ever pointed at it.
  */
 async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
   const photos = await ctx.db
     .query('reportPhotos')
     .withIndex('by_report_field', (q) => q.eq('reportId', report._id))
     .collect()
-  for (const photo of photos) {
-    await ctx.db.delete(photo._id)
-    const stillUsed = await ctx.db
-      .query('reportPhotos')
-      .withIndex('by_storage', (q) => q.eq('storageId', photo.storageId))
-      .first()
-    if (!stillUsed) await ctx.storage.delete(photo.storageId)
-  }
+  for (const photo of photos) await ctx.db.delete(photo._id)
 
-  for (const held of Object.values(report.signatureSlots ?? {})) {
-    const storageId = storageIdOf(held)
-    const savedBy = await ctx.db
-      .query('memberships')
-      .withIndex('by_business', (q) => q.eq('businessId', report.businessId))
-      .filter((q) => q.eq(q.field('savedSignatureStorageId'), storageId))
-      .first()
-    // A member's saved signature is theirs, not this report's.
-    if (!savedBy) await ctx.storage.delete(storageId)
-  }
-
-  for (const slot of Object.values(report.photoSlots ?? {})) {
-    await ctx.storage.delete(slot)
-  }
   if (report.previewStorageId) await ctx.storage.delete(report.previewStorageId)
 
   await ctx.db.delete(report._id)

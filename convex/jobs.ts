@@ -521,6 +521,13 @@ export const update = mutation({
       fields.startedAt = Date.now()
     }
 
+    // `update` can set a job complete too, so the business's "not done until
+    // its report is" policy has to be asked here as well as in `complete` —
+    // otherwise the policy is a button the status menu walks straight past.
+    if (patch.status === 'completed' && job.status !== 'completed') {
+      await assertReportIssued(ctx, job)
+    }
+
     if (Object.keys(fields).length > 0) await ctx.db.patch(jobId, fields)
   },
 })
@@ -559,7 +566,11 @@ async function assertReportIssued(ctx: MutationCtx, job: Doc<'jobs'>) {
     .take(10)
 
   const issued = reports.some(
-    (report) => report.status === 'finalised' && report.deletedAt === undefined,
+    (report) =>
+      // Only this business's own: a report's job id is not proof on its own.
+      report.businessId === job.businessId &&
+      report.status === 'finalised' &&
+      report.deletedAt === undefined,
   )
   if (!issued) throw new ConvexError('REPORT_REQUIRED')
 }

@@ -112,6 +112,65 @@ test('the owner can let it go, and who allowed it is part of the record', async 
   expect(row?.approvedBy?.name).toBe('Terence')
 })
 
+test('seeing a report is not seeing the client book behind it', async () => {
+  const s = await setupBusinessWithSub('delivery-contacts')
+  const property = await s.owner.client.query(api.properties.get, {
+    businessId: s.businessId,
+    propertyId: s.propertyId,
+  })
+  const clientId = property!.clientId
+  await s.owner.client.mutation(api.clients.update, {
+    businessId: s.businessId,
+    clientId,
+    email: 'client@example.com',
+  })
+  await s.owner.client.mutation(api.clientContacts.create, {
+    businessId: s.businessId,
+    clientId,
+    name: 'Strata manager',
+    email: 'strata@example.com',
+  })
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+  // Everyone's schedule, but not the client directory — and no job of their
+  // own at this client. The report is theirs to read; the client's contacts
+  // are not theirs to be read out.
+  await s.owner.client.mutation(api.memberships.setGrants, {
+    businessId: s.businessId,
+    membershipId: s.subMembershipId,
+    grants: {
+      switchInto: null,
+      clientDirectory: false,
+      prices: false,
+      otherSchedules: true,
+    },
+  })
+
+  const asOwner = await s.owner.client.query(api.deliveries.known, {
+    businessId: s.businessId,
+    reportId,
+  })
+  expect(asOwner.addresses).toContain('strata@example.com')
+
+  const asSub = await s.sub.client.query(api.deliveries.known, {
+    businessId: s.businessId,
+    reportId,
+  })
+  // The client's own address is on the report they are reading anyway.
+  expect(asSub.addresses).toContain('client@example.com')
+  expect(asSub.addresses).not.toContain('strata@example.com')
+
+  // And a send cannot be used to test a guess: to them it is a new address,
+  // which the owner approves.
+  const { status } = await s.sub.client.mutation(api.deliveries.request, {
+    businessId: s.businessId,
+    reportId,
+    to: ['strata@example.com'],
+  })
+  expect(status).toBe('pendingApproval')
+})
+
 test('a technician cannot approve their own request', async () => {
   const s = await reportForSub('delivery-self-approve', 'client@example.com')
   const { deliveryId } = await s.sub.client.mutation(api.deliveries.request, {

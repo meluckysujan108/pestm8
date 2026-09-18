@@ -300,11 +300,18 @@ export const list = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
     await requireMembership(ctx, businessId)
-    return ctx.db
+    const rows = await ctx.db
       .query('customReportTemplates')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .order('desc')
       .collect()
+    // The owner's unissued draft is theirs until they issue it — the same rule
+    // `get` applies, so the list cannot hand out what the detail withholds.
+    // The flag survives, because "has unpublished changes" is worth a badge.
+    return rows.map(({ draft, ...published }) => ({
+      ...published,
+      hasUnpublishedChanges: draft !== undefined,
+    }))
   },
 })
 

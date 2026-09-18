@@ -6,6 +6,7 @@ import {
   signReport,
   versionOf,
 } from './fixtures/reportPayloads'
+import type { Id } from '../convex/_generated/dataModel'
 
 /**
  * Correcting a document that has already been signed.
@@ -27,6 +28,25 @@ async function finalisedReport(label: string) {
     comments: 'Treated the perimeter.',
   })
   return { ...s, reportId }
+}
+
+type Setup = Awaited<ReturnType<typeof finalisedReport>>
+
+/** Signs and locks a correction — the step that actually replaces the original. */
+async function issueAmendment(s: Setup, amendmentId: Id<'reports'>) {
+  await signReport(s.owner.client, { businessId: s.businessId }, amendmentId, 'technician')
+  await s.owner.client.mutation(api.reports.finalise, {
+    businessId: s.businessId,
+    reportId: amendmentId,
+    data: {
+      serviceDate: '2026-08-28',
+      safeToStart: true,
+      treatments: [],
+      addPhotos: true,
+      technicianSignature: { signedAt: 1789000000000 },
+    },
+    templateVersion: versionOf('serviceReport'),
+  })
 }
 
 test('an amendment is a new document with the same number and the next version', async () => {
@@ -62,14 +82,18 @@ test('an amendment is a new document with the same number and the next version',
     'Treated the perimeter.',
   )
 
-  // And the document it replaces says so.
-  const after = await s.owner.client.query(api.reports.get, {
+  // Until the correction is issued, the original is still the document the
+  // client holds — it links to the correction under way rather than calling
+  // itself replaced by a draft that may yet be abandoned.
+  const during = await s.owner.client.query(api.reports.get, {
     businessId: s.businessId,
     reportId: s.reportId,
   })
-  expect(after!.supersededByReportId).toBe(amendmentId)
+  expect(during!.supersededByReportId).toBeUndefined()
+  expect(during!.openAmendmentId).toBe(amendmentId)
+  expect(during!.canAmend).toBe(false)
   // Still finalised, still a record. Amending never unlocks anything.
-  expect(after!.status).toBe('finalised')
+  expect(during!.status).toBe('finalised')
 })
 
 test('the signature does not come with it', async () => {
@@ -123,19 +147,7 @@ test('an amendment locks as the next issue of the same number', async () => {
     reportId: s.reportId,
     reason: 'Corrected the product.',
   })
-  await signReport(s.owner.client, { businessId: s.businessId }, amendmentId, 'technician')
-  await s.owner.client.mutation(api.reports.finalise, {
-    businessId: s.businessId,
-    reportId: amendmentId,
-    data: {
-      serviceDate: '2026-08-28',
-      safeToStart: true,
-      treatments: [],
-      addPhotos: true,
-      technicianSignature: { signedAt: 1789000000000 },
-    },
-    templateVersion: versionOf('serviceReport'),
-  })
+  await issueAmendment(s, amendmentId)
 
   const locked = await s.owner.client.query(api.reports.get, {
     businessId: s.businessId,
@@ -146,16 +158,28 @@ test('an amendment locks as the next issue of the same number', async () => {
   // number from the sequence.
   expect(locked!.reportNumber).toBe(original!.reportNumber)
   expect(locked!.version).toBe(2)
+
+  // Issuing it is what replaces the original, and the original says so.
+  const replaced = await s.owner.client.query(api.reports.get, {
+    businessId: s.businessId,
+    reportId: s.reportId,
+  })
+  expect(replaced!.supersededByReportId).toBe(amendmentId)
+  expect(replaced!.status).toBe('finalised')
+  expect(replaced!.canAmend).toBe(false)
+  expect(replaced!.openAmendmentId).toBeNull()
 })
 
 test('a number cannot fork into two live documents', async () => {
   const s = await finalisedReport('amend-fork')
-  await s.owner.client.mutation(api.reports.amend, {
+  const first = await s.owner.client.mutation(api.reports.amend, {
     businessId: s.businessId,
     reportId: s.reportId,
     reason: 'First correction.',
   })
 
+  // Two open corrections of one document: whichever is issued first would
+  // leave the other correcting a document that is no longer current.
   await expectRejected(
     () =>
       s.owner.client.mutation(api.reports.amend, {
@@ -163,8 +187,115 @@ test('a number cannot fork into two live documents', async () => {
         reportId: s.reportId,
         reason: 'Second correction of the same document.',
       }),
+    'AMENDMENT_IN_PROGRESS',
+  )
+
+  // And once the first is issued, the original is history — correct the
+  // current version instead.
+  await issueAmendment(s, first)
+  await expectRejected(
+    () =>
+      s.owner.client.mutation(api.reports.amend, {
+        businessId: s.businessId,
+        reportId: s.reportId,
+        reason: 'Correcting the replaced one.',
+      }),
     'ALREADY_SUPERSEDED',
   )
+})
+
+test('an abandoned correction leaves the original current and its signature intact', async () => {
+  const s = await setupBusinessWithSub('amend-abandon')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  // One stored image under the signature of both documents — what a reused
+  // saved signature is.
+  const signature = await signReport(
+    s.owner.client,
+    { businessId: s.businessId },
+    reportId,
+    'technician',
+  )
+  await finaliseReport(
+    s.owner.client,
+    { businessId: s.businessId },
+    reportId,
+    'serviceReport',
+    {},
+    signature,
+  )
+
+  const amendmentId = await s.owner.client.mutation(api.reports.amend, {
+    businessId: s.businessId,
+    reportId,
+    reason: 'Started on the wrong report.',
+  })
+  await signReport(
+    s.owner.client,
+    { businessId: s.businessId },
+    amendmentId,
+    'technician',
+    signature,
+  )
+  // Binned and then removed for good — the path the nightly purge takes.
+  await s.owner.client.mutation(api.reports.softDelete, {
+    businessId: s.businessId,
+    reportId: amendmentId,
+  })
+  await s.owner.client.mutation(api.reports.remove, {
+    businessId: s.businessId,
+    reportId: amendmentId,
+  })
+
+  const original = await s.owner.client.query(api.reports.get, {
+    businessId: s.businessId,
+    reportId,
+  })
+  // Never marked replaced by a correction that was never issued…
+  expect(original!.supersededByReportId).toBeUndefined()
+  expect(original!.openAmendmentId).toBeNull()
+  // …so it can be corrected properly now.
+  expect(original!.canAmend).toBe(true)
+
+  // And the signed certificate still has its signature. Purging a draft
+  // deletes no stored file, because a draft's files can be the very files a
+  // finalised document prints.
+  const signed = await s.owner.client.query(api.reports.signatureUrls, {
+    businessId: s.businessId,
+    reportId,
+  })
+  expect(signed.technician).toBeTruthy()
+  const image = await fetch(signed.technician)
+  expect(image.status).toBe(200)
+})
+
+test('correcting a document is for whoever signed it, or the owner', async () => {
+  const s = await finalisedReport('amend-who')
+
+  // The owner's certificate is not the subcontractor's to reissue.
+  await expectRejected(
+    () =>
+      s.sub.client.mutation(api.reports.amend, {
+        businessId: s.businessId,
+        reportId: s.reportId,
+        reason: 'Not mine to correct.',
+      }),
+    'NO_ACCESS',
+  )
+
+  // The subcontractor's own is theirs — and the owner's too.
+  const theirs = await createReport(s.sub.client, s, 'serviceReport')
+  await finaliseReport(s.sub.client, { businessId: s.businessId }, theirs, 'serviceReport')
+  const asSeen = await s.sub.client.query(api.reports.get, {
+    businessId: s.businessId,
+    reportId: theirs,
+  })
+  expect(asSeen!.canAmend).toBe(true)
+  const byOwner = await s.owner.client.mutation(api.reports.amend, {
+    businessId: s.businessId,
+    reportId: theirs,
+    reason: 'Owner correcting the product.',
+  })
+  expect(byOwner).toBeTruthy()
 })
 
 test('a draft cannot be amended, and a reason is required', async () => {
@@ -212,9 +343,17 @@ test('both ends of the pair say so on screen', async ({ page }) => {
     page.getByText(/Wrong product recorded against the second treatment/),
   ).toBeVisible()
 
-  // And the document it replaced says it was replaced, rather than silently
-  // becoming the wrong one to work from.
+  // While it is being written, the original points at it instead of offering
+  // a second one.
+  const amendmentId = page.url().split('/').pop()!.split('?')[0] as Id<'reports'>
   await page.goto(`/${s.slug}/reports/${s.reportId}`)
+  await expect(page.getByText('A correction is under way.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Issue a correction' })).toHaveCount(0)
+
+  // Once it is issued, the document it replaced says it was replaced, rather
+  // than silently becoming the wrong one to work from.
+  await issueAmendment(s, amendmentId)
+  await page.reload()
   await expect(page.getByText('Replaced.')).toBeVisible()
   // With no way to fork the number again.
   await expect(page.getByRole('button', { name: 'Issue a correction' })).toHaveCount(0)

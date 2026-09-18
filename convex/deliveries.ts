@@ -2,9 +2,17 @@ import { ConvexError, v } from 'convex/values'
 import { internalMutation, internalQuery, mutation, query } from './_generated/server'
 import { internal } from './_generated/api'
 import { requireMembership } from './lib/access'
-import { hasCapability, requireActor, requireCapability } from './lib/actor'
+import {
+  hasCapability,
+  requireActor,
+  requireCapability,
+  requireWriteActor,
+} from './lib/actor'
 import { forSelf, recordAudit } from './lib/audit'
-import { reportScope } from './lib/capabilities'
+import { clientScope, displayPerson, reportScope } from './lib/capabilities'
+import { inClientScope, visibleClientIds } from './lib/clientScope'
+import { factsFromMembership } from './lib/membershipFacts'
+import type { ActorEnvelope } from './lib/actor'
 import { memberName } from './lib/reportContext'
 import { knownRecipients as knownFor, normaliseAddresses } from './lib/recipients'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
@@ -177,6 +185,41 @@ async function subjectFor(
 }
 
 /**
+ * The on-file addresses this caller may be told about.
+ *
+ * A client's contacts — the strata manager, the agent — are part of the
+ * client book, and the client book has its own gate: `clients.directory`, or
+ * the clients behind your own jobs. Being able to see a report (everyone's,
+ * with "see everyone's schedule") is not that gate, so without this the
+ * send sheet read out every contact's address for every client in the
+ * business, one report id at a time.
+ *
+ * The person who wrote the report stood at that property, so their own
+ * reports always count. Anyone else outside the client's scope still gets the
+ * client's own address and the business's — both already on the report they
+ * are looking at — and every other address is treated as new, which only
+ * means an owner approves it. `request` applies the same rule, so its
+ * queued-or-held answer cannot be used to test a guessed address either.
+ */
+async function knownToCaller(
+  ctx: QueryCtx,
+  env: ActorEnvelope,
+  report: Doc<'reports'>,
+): Promise<Array<string>> {
+  const own =
+    report.authorMembershipId === env.actor.real._id ||
+    report.authorMembershipId === env.actor.acting._id
+  let withContacts = own || clientScope(env.caps) === 'directory'
+  if (!withContacts) {
+    const property = await ctx.db.get(report.propertyId)
+    withContacts =
+      property !== null &&
+      inClientScope(await visibleClientIds(ctx, env), property.clientId)
+  }
+  return knownFor(ctx, report, { withContacts })
+}
+
+/**
  * The addresses this business already corresponds with about this report.
  *
  * Public so the send sheet can say "this one needs the owner's approval"
@@ -193,7 +236,7 @@ export const known = query({
 
     const business = await ctx.db.get(businessId)
     return {
-      addresses: await knownFor(ctx, report),
+      addresses: await knownToCaller(ctx, env, report),
       unrestricted:
         hasCapability(env, 'business.manage') ||
         business?.allowTechnicianRecipients === true,
@@ -291,17 +334,17 @@ async function anyOwner(ctx: MutationCtx, businessId: Id<'businesses'>) {
 export const forReport = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const env = await requireActor(ctx, businessId)
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return []
-    if (!reportScope(scope, report)) return []
+    if (!reportScope(env.scope, report)) return []
 
     const rows = await ctx.db
       .query('reportDeliveries')
       .withIndex('by_report', (q) => q.eq('reportId', reportId))
       .collect()
 
-    return withActors(ctx, rows.sort((a, b) => b.createdAt - a.createdAt))
+    return withActors(ctx, env, businessId, rows.sort((a, b) => b.createdAt - a.createdAt))
   },
 })
 
@@ -325,7 +368,7 @@ export const pendingApproval = query({
       )
       .take(50)
 
-    return withActors(ctx, rows.sort((a, b) => b.createdAt - a.createdAt))
+    return withActors(ctx, env, businessId, rows.sort((a, b) => b.createdAt - a.createdAt))
   },
 })
 
@@ -350,9 +393,12 @@ export const request = mutation({
   handler: async (ctx, { businessId, reportId, to, cc }) => {
     const membership = await requireMembership(ctx, businessId)
     // Who is sending is the membership, which is what the rate limit counts
-    // and the row records. Whether they may read this report, and whether
-    // they may send it anywhere at all, are the actor's scope and capability.
-    const env = await requireActor(ctx, businessId)
+    // and the row records. Whether they may send this report, and anywhere at
+    // all, are the WRITE actor's scope and capability: a send is a write, and
+    // the read scope carries the legacy read-only view-as lens, which would
+    // let someone email a report from another person's account they were
+    // only ever allowed to look at.
+    const env = await requireWriteActor(ctx, businessId)
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
@@ -365,7 +411,7 @@ export const request = mutation({
     await assertWithinSendLimit(ctx, membership._id)
 
     const business = await ctx.db.get(businessId)
-    const onFile = await knownFor(ctx, report)
+    const onFile = await knownToCaller(ctx, env, report)
     // An owner may send where they like; it is their client relationship.
     const unrestricted =
       hasCapability(env, 'business.manage') || business?.allowTechnicianRecipients === true
@@ -497,11 +543,22 @@ export const reject = mutation({
  * Names, not membership ids. A delivery history that reads "sent by k57d9…"
  * tells an owner nothing about who sent it, and "who sent this to the wrong
  * address" is the question this history exists to answer.
+ *
+ * Named through `displayPerson`, as every other activity trail is: the owner
+ * is invisible as a PERSON to the rest of the team, so to anyone else they
+ * read as the business. And their membership id goes with the name — an id
+ * that resolves to nobody on a technician's roster is a reliable way to pick
+ * the owner out, so an anonymised row carries neither.
  */
 async function withActors(
   ctx: QueryCtx | MutationCtx,
+  env: ActorEnvelope,
+  businessId: Id<'businesses'>,
   rows: Array<Doc<'reportDeliveries'>>,
 ) {
+  const business = await ctx.db.get(businessId)
+  const businessName = business?.tradingName ?? business?.name ?? 'The business'
+
   const ids = [
     ...new Set(
       rows.flatMap((row) =>
@@ -514,24 +571,34 @@ async function withActors(
   const members = new Map(
     await Promise.all(
       ids.map(async (id) => {
-        const membership = await ctx.db.get(id)
+        const member = await ctx.db.get(id)
+        if (!member) return [id, null] as const
+        const shown = displayPerson(env.actor, factsFromMembership(member), {
+          personName: await memberName(ctx, member.userId),
+          businessName,
+        })
         return [
           id,
-          membership
-            ? {
-                name: await memberName(ctx, membership.userId),
-                colour: membership.colour,
-              }
-            : null,
+          {
+            name: shown.name,
+            colour: shown.anonymised ? undefined : member.colour,
+            anonymised: shown.anonymised,
+          },
         ] as const
       }),
     ),
   )
   const who = (id?: Id<'memberships'>) => (id ? (members.get(id) ?? null) : null)
+  const hidden = (id?: Id<'memberships'>) => id !== undefined && who(id)?.anonymised === true
 
-  return rows.map((row) => ({
-    ...row,
-    sentBy: who(row.sentByMembershipId),
-    approvedBy: who(row.approvedByMembershipId),
-  }))
+  return rows.map((row) => {
+    const { sentByMembershipId, approvedByMembershipId, ...rest } = row
+    return {
+      ...rest,
+      ...(hidden(sentByMembershipId) ? {} : { sentByMembershipId }),
+      ...(hidden(approvedByMembershipId) ? {} : { approvedByMembershipId }),
+      sentBy: who(sentByMembershipId),
+      approvedBy: who(approvedByMembershipId),
+    }
+  })
 }

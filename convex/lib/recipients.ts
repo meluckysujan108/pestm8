@@ -39,10 +39,11 @@ export function normaliseAddresses(
 export async function knownRecipients(
   ctx: QueryCtx | MutationCtx,
   report: Doc<'reports'>,
+  { withContacts = true }: { withContacts?: boolean } = {},
 ): Promise<Array<string>> {
   const property = await ctx.db.get(report.propertyId)
   const client = property ? await ctx.db.get(property.clientId) : null
-  const contacts = client
+  const contacts = client && withContacts
     ? await ctx.db
         .query('clientContacts')
         .withIndex('by_client', (q) => q.eq('clientId', client._id))
