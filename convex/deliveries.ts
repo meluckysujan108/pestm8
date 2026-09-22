@@ -204,7 +204,10 @@ async function subjectFor(
  *
  * A client's contacts — the strata manager, the agent — are part of the
  * client book, and the client book has its own gate: `clients.directory`, or
- * the clients behind your own jobs. Being able to see a report (everyone's,
+ * the clients behind your own jobs. Every role holds `clients.directory` now
+ * (the book is open to everyone in the business), so today this always
+ * includes the contacts; the narrower branch is the path back if a business
+ * ever restricts it again. Being able to see a report (everyone's,
  * with "see everyone's schedule") is not that gate, so without this the
  * send sheet read out every contact's address for every client in the
  * business, one report id at a time.
