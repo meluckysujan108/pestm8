@@ -158,6 +158,7 @@ function ReportPage() {
         }
         roster={report.roster}
         context={report.context}
+        isCorrection={report.supersedesReportId !== undefined}
         upgrade={report.upgrade}
         onRestarted={(newReportId) =>
           navigate({
