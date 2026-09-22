@@ -154,6 +154,11 @@ await owner.mutation(api.memberships.setCanViewAllJobs, {
 })
 await owner.mutation(api.memberships.setLicence, {
   businessId,
+  membershipId: ownerMembershipId,
+  licenceNumber: 'TECH-0001',
+})
+await owner.mutation(api.memberships.setLicence, {
+  businessId,
   membershipId: kevinMembership._id,
   licenceNumber: 'TECH-8821',
 })
@@ -425,6 +430,7 @@ await owner.mutation(api.reports.finalise, {
   templateVersion: FORM_VERSION,
   data: {
     inspectorSignature: { signedAt: Date.now() },
+    inspectorSignedDate: new Date().toISOString().slice(0, 10),
     inspectionDate: new Date().toISOString().slice(0, 10),
     clientAgreesToInspection: 'Yes',
     inspectionTypeWarranty: ['12 Monthly Timber Pest Visual Inspection to maintain Warranty', 'Year 2'],
