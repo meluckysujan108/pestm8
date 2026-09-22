@@ -143,6 +143,13 @@ export function ViewMenu({
               caption="Just my jobs"
             />
 
+            {/* The first open on a slow phone can beat the names here; an
+                empty section would read as "nobody to switch to". */}
+            {options === undefined && (
+              <p className="px-2.5 py-2 text-caption text-muted">
+                Loading the team…
+              </p>
+            )}
             {accounts.length > 0 && (
               <>
                 <DropdownMenu.Separator className="my-1 border-t border-hairline" />
