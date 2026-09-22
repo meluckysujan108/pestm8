@@ -110,17 +110,37 @@ now-visible owner for every subcontractor. Rolling the backend back re-hides
 the owner and restores the "can see all clients" toggle's effect, with each
 person's stored value exactly as it was.
 
-**Release B — redeploy the previous backend.** Keep `sessionViews` declared in
-the schema when you do (the rollback deploy must not trip over rows that
-exist); the old resolver never reads it, so every device returns to God view.
+**Release B — clear the views, then redeploy the previous backend.** Release
+A's backend (`85d03a1`, `main` before #13 merged as `27ad9d0`) does not declare
+`sessionViews` and has no `views:clearAll`, so the clearing has to happen while
+Release B's backend is still live:
 
-If only the **frontend** is rolled back, clear the views first, or a phone left
-in "Just my jobs" stays narrowed with no menu to undo it:
+1. Clear every chosen view, then check it took:
+   ```bash
+   CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex run views:clearAll
+   CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex run --inline-query \
+     'return (await ctx.db.query("sessionViews").collect()).length'
+   ```
+   The second must print `0`. Skipped, the rows would sit unread in a table
+   the old schema no longer lists — harmless while A is live, but the day B is
+   redeployed they would quietly put those devices back into "Just my jobs".
+2. Revert #13 on `main` (`git revert -m 1 27ad9d0`, through a PR), so that
+   `main` and production agree and precondition 0 still holds, and deploy the
+   backend from that revert commit. In a hurry, `git checkout --detach 85d03a1`
+   and deploy from there instead.
+3. Expect `No large indexes are deleted by this push`. The push drops
+   `sessionViews.by_session` and `sessionViews.by_real`; the CLI only stops to
+   ask about deleting indexes on large tables, and this one is empty. The empty
+   table itself stays behind, undeclared, which Convex allows — tables outside
+   the schema are simply not validated.
 
-```bash
-CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex run views:clearAll
-```
+The order of frontend and backend does not matter for this rollback. The view
+menu renders only when `access.me` reports a view, which Release A's backend
+never does, so Release B's frontend on Release A's backend shows no menu and
+calls nothing that is missing.
 
-It returns how many it deleted and touches nothing else. The escape hatch in
+If only the **frontend** is rolled back, clear the views first (step 1), or a
+phone left in "Just my jobs" stays narrowed with no menu to undo it.
+`views:clearAll` returns how many it deleted and touches nothing else. The escape hatch in
 the field is Settings → Profile → Sign out, then sign back in: a view belongs
 to one sign-in.
