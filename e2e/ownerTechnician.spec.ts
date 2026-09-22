@@ -32,6 +32,10 @@ test('a subcontractor who can see the schedule sees the owner by name', async ({
 
   await signInViaUi(page, sub.email)
   await page.goto(`/${slug}/schedule`)
+  // The staff filter is in the server-rendered markup, so a tap on it before
+  // hydration is swallowed and the popover never opens (see clickUntil in
+  // fixtures.ts). New job stays disabled until the page has hydrated.
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
 
   // Each layout names people in its own place: the desktop month card's team
   // legend, and the phone's staff filter (which opens on your own jobs, so the
