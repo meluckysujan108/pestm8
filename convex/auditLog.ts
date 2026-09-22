@@ -125,8 +125,16 @@ export const forEntity = query({
     // the guarantee obvious rather than implicit.
     const scoped = entries.filter((entry) => entry.businessId === businessId)
 
+    // The accounts things were done in, too: "Terence" is half an answer
+    // when he was working in Kevin's account at the time.
     const actorIds = [
-      ...new Set(scoped.map((entry) => entry.actorMembershipId)),
+      ...new Set(
+        scoped.flatMap((entry) =>
+          entry.onBehalfOfMembershipId
+            ? [entry.actorMembershipId, entry.onBehalfOfMembershipId]
+            : [entry.actorMembershipId],
+        ),
+      ),
     ]
     const actors = new Map(
       await Promise.all(
@@ -151,6 +159,9 @@ export const forEntity = query({
         at: entry.at,
         actorName: actors.get(entry.actorMembershipId)?.name,
         actorColour: actors.get(entry.actorMembershipId)?.colour,
+        onBehalfOfName: entry.onBehalfOfMembershipId
+          ? actors.get(entry.onBehalfOfMembershipId)?.name
+          : undefined,
       }))
   },
 })

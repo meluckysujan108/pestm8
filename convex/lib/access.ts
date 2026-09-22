@@ -63,7 +63,7 @@ export function canViewAs(caller: Membership, target: Membership): boolean {
 /**
  * The effective membership for READ SCOPE only — e.g. feeding `jobVisibility`
  * for a list query. Never use this for anything identity- or write-bearing
- * (canEditJob, authorMembershipId, requireOwner, ...): those must always
+ * (editing a job, authorMembershipId, requireOwner, ...): those must always
  * resolve the REAL caller via `requireMembership`, so "view as" can never be
  * used to act as anyone. If the caller's stored `viewingAsMembershipId` no
  * longer checks out (grant revoked, target archived, etc.), this silently
@@ -81,17 +81,6 @@ export async function resolveViewScope(
   if (!target || !canViewAs(real, target)) return real
 
   return target
-}
-
-/**
- * Write access is deliberately stricter than read: canViewAllJobs grants
- * visibility of another person's booking, never the right to edit it.
- */
-export function canEditJob(
-  m: Membership,
-  job: { assignedMembershipId: Id<'memberships'> },
-): boolean {
-  return m.role === 'owner' || job.assignedMembershipId === m._id
 }
 
 /**

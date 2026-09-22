@@ -449,10 +449,12 @@ export function reportScope(
  * `reportScope`, plus every report this person wrote themselves.
  *
  * The two differ only while someone is looking through another account. The
- * report mutations attribute to the REAL person, so a report the owner starts
- * while working in Kevin's account is authored by the owner — and Kevin's
- * scope, the one being looked through, does not contain it: it disappeared the
- * moment it was created. Nobody needs a grant to read what they wrote.
+ * report mutations used to attribute to the REAL person, so a report the owner
+ * started while working in Kevin's account was authored by the owner — and
+ * Kevin's scope, the one being looked through, did not contain it: it
+ * disappeared the moment it was created. They attribute to the account now
+ * (`writeAttribution`), but the rows written before that still exist, and
+ * nobody needs a grant to read what they wrote.
  *
  * `readerId` is the real person's membership, never the account being worked
  * in; asked of that, this would widen nothing.
@@ -502,8 +504,16 @@ export function canEditJob(
   )
 }
 
-/** Who this actor may put work onto. A subcontractor may book their own next
- * visit, and nobody else's. */
+/**
+ * Who this actor may put work onto — the rule `jobs.create`, `jobs.update` and
+ * `recurrences.create` enforce, and the one the roster's `bookable` flag (and
+ * so every assignee picker) is computed from.
+ *
+ * Decided on the ACTING account. An owner working inside a subcontractor's
+ * account books what that subcontractor could book — their own calendar —
+ * and switches back to dispatch anyone else. A subcontractor may book their
+ * own next visit, and nobody else's; a contractor, their own team.
+ */
 export function canDispatchTo(
   actor: ReadActor,
   assignee: MembershipFacts,
@@ -519,20 +529,16 @@ export function canDispatchTo(
 }
 
 /**
- * Who a person may put work onto TODAY — the rule `jobs.create`,
- * `recurrences.create` and `jobs.update` actually enforce, and the one the
- * assignee pickers filter by.
+ * Who a person could put work onto BEFORE the job mutations moved to
+ * `canDispatchTo` — owner onto anyone, everyone else onto themselves, decided
+ * on the REAL person because the old resolver never read a switch.
  *
- * Not `canDispatchTo`, and the difference is deliberate for now. That is the
- * model's intended rule (a contractor dispatches to their own team, and it is
- * decided on the ACTING account); the mutations still gate on the real person
- * with the older owner-or-yourself rule. The picker has to agree with what the
- * server will accept rather than with what it one day should, or it offers an
- * option that is refused on submit — which is exactly how a subcontractor's
- * form came to default to someone they could not book.
- *
- * `booker` is the REAL person: the mutations resolve through
- * `requireMembership`, which never reads a switch.
+ * No mutation enforces this any more. It is kept for one reader: an assignee
+ * picker built after the move, meeting a backend from before it (the two
+ * deploy separately — CLAUDE.md). That backend sends no `bookable` flag on the
+ * roster and still enforces this rule, so this is what the picker falls back
+ * to; offering anything wider would offer options that backend refuses on
+ * submit. Delete it once no deployment serves the older job mutations.
  */
 export function canBookOnto(
   booker: Pick<MembershipFacts, '_id' | 'role'>,
@@ -968,6 +974,19 @@ export type ReportFacts = {
   regulated: boolean
 }
 
+/**
+ * Who may change a draft: the account it was written in, or the owner.
+ *
+ * Decided on the ACTING account, like everything a switch is for: an owner
+ * inside Kevin's account edits Kevin's drafts, and a report he starts there is
+ * Kevin's (`writeAttribution`), so he can go on editing it. The owner escape
+ * applies only to an owner working as himself — the owner is never a switch
+ * target, so `acting.role === 'owner'` cannot be reached through someone
+ * else's account.
+ *
+ * Editing is not signing. `canFinaliseReport` holds a regulated document for
+ * the person whose licence it prints, whoever may fill it in.
+ */
 export function canEditReport(actor: ReadActor, report: ReportFacts): boolean {
   if (report.status !== 'draft') return false
   if (report.businessId !== actor.acting.businessId) return false
@@ -978,6 +997,8 @@ export function canEditReport(actor: ReadActor, report: ReportFacts): boolean {
 export type FinaliseRefusal =
   | 'NOT_EDITABLE'
   | 'SWITCHED_REGULATED'
+  | 'HOLDER_MUST_FINALISE'
+  | 'HOLDER_MUST_SIGN'
   | 'HOLDER_LICENCE_MISSING'
   | 'HOLDER_LICENCE_EXPIRED'
   | 'TECHNICIAN_NOT_SIGNER'
@@ -1002,6 +1023,17 @@ export type FinaliseDecision =
  * regulated certificate is finalised by the person it names: name yourself,
  * or leave it to them to write. Their licence is then the holder's, which the
  * checks below already cover.
+ *
+ * And the holder is the person at the keyboard. `canEditReport` lets the owner
+ * edit anyone's draft from his own account, which is not switched — so "not
+ * switched" alone would let him finalise Kevin's certificate over Kevin's
+ * licence without Kevin ever pressing the button. It used to be implied by the
+ * edit gate being author-only; now it is said.
+ *
+ * And the signature above that licence is theirs. Whoever may edit a draft may
+ * attach a signature to it, so without this a helper — or the owner — draws
+ * in the technician's slot, the holder presses Finalise, and the certificate
+ * carries a hand that is not the one its licence belongs to.
  */
 export function canFinaliseReport(
   actor: ReadActor,
@@ -1010,6 +1042,10 @@ export function canFinaliseReport(
     holder: MembershipFacts
     /** Everyone the form's member fields name (`namedMembers`). */
     named?: ReadonlyArray<MembershipFacts>
+    /** Who captured each technician signature the draft holds. Rows from
+     * before signatures recorded it are left out: they could only ever have
+     * been attached by the author. */
+    signedBy?: ReadonlyArray<Id<'memberships'>>
   },
   now: number,
 ): FinaliseDecision {
@@ -1020,8 +1056,16 @@ export function canFinaliseReport(
   }
   if (!report.regulated) return { ok: true }
 
+  if (actor.real._id !== people.holder._id) {
+    return { ok: false, reason: 'HOLDER_MUST_FINALISE' }
+  }
+
   if ((people.named ?? []).some((person) => person._id !== people.holder._id)) {
     return { ok: false, reason: 'TECHNICIAN_NOT_SIGNER' }
+  }
+
+  if ((people.signedBy ?? []).some((id) => id !== people.holder._id)) {
+    return { ok: false, reason: 'HOLDER_MUST_SIGN' }
   }
 
   const holder = licenceStatus(people.holder.licence, now)

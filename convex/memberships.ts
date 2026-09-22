@@ -14,6 +14,7 @@ import {
   requireWriteActor,
 } from './lib/actor'
 import {
+  canDispatchTo,
   canManageMember,
   clampGrants,
   NO_GRANTS,
@@ -85,6 +86,15 @@ export const listForBusiness = query({
           canViewOtherAccounts: detailed
             ? (m.canViewOtherAccounts ?? false)
             : undefined,
+          /**
+           * Whether the caller may put work onto this person — `canDispatchTo`
+           * on the account being worked in, the function `jobs.create`,
+           * `jobs.update` and `recurrences.create` enforce. The assignee
+           * pickers filter by this and nothing else, so the two cannot drift:
+           * computed here, the client never has to hold a copy of the rule,
+           * nor the team structure the rule reads.
+           */
+          bookable: canDispatchTo(env.actor, factsFromMembership(m)),
         }
       }),
     )

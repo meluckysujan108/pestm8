@@ -18,11 +18,12 @@ import type { WriteAttribution } from './capabilities'
  * something, in the log a compliance dispute would be settled from.
  *
  * So: one writer, and the attribution is its own argument rather than two
- * fields buried among six. Today every caller passes `forSelf(...)`, which is
- * exactly what the rows already say. When switching lands, the same callers
- * pass `writeAttribution(actor)` — this type is a structural subset of what
- * that function returns, so the change is one line per site and the compiler
- * checks it.
+ * fields buried among six. A caller that resolved a write actor passes
+ * `writeAttribution(actor)` — this type is a structural subset of what that
+ * function returns — and the rows say "Terence, in Kevin's account" whenever
+ * that is what happened. `forSelf(...)` is what administration passes — a
+ * switch drops it, so nobody administers on anyone's behalf — and what the
+ * callers still on the older resolver pass until they move.
  */
 export type AuditAttribution = Pick<
   WriteAttribution,
@@ -69,4 +70,66 @@ export async function recordAudit(
     meta: entry.meta,
     at: entry.at ?? Date.now(),
   })
+}
+
+/**
+ * A write made inside someone else's account, recorded — and nothing when the
+ * writer was working as themselves.
+ *
+ * For the writes that have never been audited: booking, moving and closing
+ * jobs, starting a repeating series, starting a report. Working as yourself,
+ * a row would say nothing the job does not already say. Working in someone
+ * else's account it is the only record there is — the job carries no author,
+ * and without it the account holder finds a visit moved on their calendar and
+ * nothing anywhere saying who moved it. `onBehalfOfMembershipId` on the row is
+ * what `by_account` answers "what was done in my account, and by whom" from.
+ *
+ * Takes the whole `WriteAttribution`, which only `writeAttribution` produces,
+ * so there is no way to ask this about a switch that was never validated.
+ */
+export async function recordOnBehalf(
+  ctx: MutationCtx,
+  by: WriteAttribution,
+  entry: AuditEntry,
+): Promise<void> {
+  if (by.onBehalfOfMembershipId === undefined) return
+  await recordAudit(ctx, by, entry)
+}
+
+/**
+ * `recordAudit`, unless this person already has a row for this action on this
+ * entity since `since`.
+ *
+ * For edits that arrive as a stream. A draft autosaves every couple of seconds
+ * while someone types, and a row per save would bury the entity's history —
+ * the finalise, the sends — under hundreds of lines saying the same thing.
+ * One row per sitting says what the history needs: who else was in here.
+ *
+ * Walks the entity's rows newest first and stops at the first one older than
+ * `since`, so it reads only what was written since then.
+ */
+export async function recordOnce(
+  ctx: MutationCtx,
+  by: AuditAttribution,
+  entry: AuditEntry & { since: number },
+): Promise<void> {
+  const { since, ...rest } = entry
+  const recent = ctx.db
+    .query('auditLog')
+    .withIndex('by_entity', (q) =>
+      q.eq('entityType', entry.entityType).eq('entityId', entry.entityId),
+    )
+    .order('desc')
+
+  for await (const row of recent) {
+    if (row.at < since) break
+    if (
+      row.action === entry.action &&
+      row.actorMembershipId === by.actorMembershipId &&
+      row.onBehalfOfMembershipId === by.onBehalfOfMembershipId
+    ) {
+      return
+    }
+  }
+  await recordAudit(ctx, by, rest)
 }

@@ -607,10 +607,11 @@ function JobEditForm({
         />
       </EditField>
 
-      {/* Reassignment is an owner-only action even on your own job (jobs.update
-          enforces this server-side too, through the same `canBookOnto` the
-          options are filtered by) — a non-owner sees who it's assigned to as
-          plain text instead of a control they'd be rejected for using. */}
+      {/* Only the people the server will accept are offered (`bookable`,
+          which jobs.update enforces through the same `canDispatchTo`). With
+          nobody to move it to but its own assignee — a subcontractor on their
+          own job, the owner working inside one's account — it reads as plain
+          text instead of a control they'd be rejected for using. */}
       <EditField label="Assigned to">
         {canReassign && assignees.length > 1 ? (
           <select

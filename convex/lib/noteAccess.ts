@@ -90,7 +90,7 @@ export async function canReadNote(
 /**
  * Anyone who can read a note can edit it — shared knowledge stays fixable.
  * Except that writes never honour "view as": it is a read-only lens, so
- * the write decision is made as the REAL caller, exactly as `canEditJob`.
+ * the write decision is made as the REAL caller.
  */
 export async function canWriteNote(
   ctx: Ctx,

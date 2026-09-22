@@ -8,7 +8,6 @@ import {
   query,
 } from './_generated/server'
 import { internal } from './_generated/api'
-import { requireMembership } from './lib/access'
 import { clientNameOf, withClient } from './properties'
 import { reportTemplate } from './schema'
 import {
@@ -33,48 +32,58 @@ import {
   buildReportContext,
   memberFieldKeys,
   namedMembers,
+  technicianSignatureSlots,
   toPresentContext,
 } from './lib/reportContext'
 import type {
   ReportContextSnapshot,
   RosterEntry,
 } from './lib/reportContext'
-import type { ActorEnvelope } from './lib/actor'
+import type { ActorEnvelope, WriteEnvelope } from './lib/actor'
 import { printedMemberName } from '../src/lib/reportTemplates/memberName'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
 import { canCarryFrom, carryOverFrom } from '../src/lib/reportTemplates/lastVisit'
 import { migrateServiceReportV1 } from '../src/lib/reportTemplates/legacy/serviceReport.migrate'
 import type { DataModel, Doc, Id } from './_generated/dataModel'
 import {
+  canEditReport,
   canFinaliseReport,
   mergeDraft,
   reportReadable,
+  writeAttribution,
 } from './lib/capabilities'
 import type { RowScope } from './lib/capabilities'
 import { reportFactsFrom } from './lib/reportFacts'
 import { factsFromMembership } from './lib/membershipFacts'
 import type { TemplateId } from '../src/lib/reportTemplates'
 import type { MutationCtx, QueryCtx } from './_generated/server'
-import type { Membership } from './lib/access'
-import { forSelf, recordAudit } from './lib/audit'
+import { recordAudit, recordOnBehalf, recordOnce } from './lib/audit'
 import { hasCapability, requireActor, requireWriteActor } from './lib/actor'
 
 /**
- * The guard every report-mutating mutation repeats: resolve membership, load
+ * The guard every report-mutating mutation repeats: resolve the writer, load
  * the report, confirm it belongs to this business, and refuse a write once the
- * report is finalised or the caller did not author it.
+ * report is finalised or the writer may not edit it (`canEditReport`).
  *
  * Centralised because this file was about to carry it a tenth time — photos,
  * signatures, drafts and finalise already had five independent copies, and the
  * gallery mutations below would have made it ten. A single source means the
  * next photo-like field kind gets this for free instead of getting it wrong.
+ *
+ * Through the WRITE actor, on the account being worked in. It used to demand
+ * that the REAL person wrote the draft, which could not be squared with
+ * working in someone else's account: an owner inside Kevin's account could not
+ * touch Kevin's drafts, and a report he started there was his own, invisible
+ * to Kevin. It also never read a switch at all, so one past its twelve hours
+ * still wrote. `create` and this gate moved together — either alone makes a
+ * report its own writer cannot edit.
  */
 async function requireEditableReport(
   ctx: MutationCtx,
   businessId: Id<'businesses'>,
   reportId: Id<'reports'>,
-): Promise<{ membership: Membership; report: Doc<'reports'> }> {
-  const membership = await requireMembership(ctx, businessId)
+): Promise<{ env: WriteEnvelope; report: Doc<'reports'> }> {
+  const env = await requireWriteActor(ctx, businessId)
 
   const report = await ctx.db.get(reportId)
   if (!report || report.businessId !== businessId) {
@@ -82,11 +91,56 @@ async function requireEditableReport(
   }
   if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
   if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
-  if (report.authorMembershipId !== membership._id) {
+  if (!canEditReport(env.actor, reportFactsFrom(report))) {
     throw new ConvexError('NO_ACCESS')
   }
 
-  return { membership, report }
+  await recordEditByAnother(ctx, env, report)
+  return { env, report }
+}
+
+/** How long one row stands for an owner's edits to someone else's draft: a
+ * working day, the length of a switch. */
+const OWNER_EDIT_WINDOW_MS = 12 * 60 * 60 * 1000
+
+/**
+ * Who else was in this draft, on the draft's own history.
+ *
+ * `canEditReport` lets two people change a draft that is not theirs: someone
+ * working inside the author's account, and the owner from his own. Either way
+ * the author goes on to finalise answers they did not all write, and the
+ * report is the only place that could say so — nothing on the row records who
+ * typed what. Once per sitting rather than per autosave (`recordOnce`): per
+ * switch while switched, per working day for the owner.
+ *
+ * Here, in the gate, so every edit path records it without remembering to. It
+ * writes inside the caller's transaction, so an edit that is then refused
+ * leaves no row claiming it happened.
+ */
+async function recordEditByAnother(
+  ctx: MutationCtx,
+  env: WriteEnvelope,
+  report: Doc<'reports'>,
+) {
+  const by = writeAttribution(env.actor)
+  const entry = {
+    businessId: report.businessId,
+    entityType: 'reports',
+    entityId: report._id,
+  }
+  if (by.onBehalfOfMembershipId !== undefined && env.actor.session) {
+    await recordOnce(ctx, by, {
+      ...entry,
+      action: 'report.edit',
+      since: env.actor.session.startedAt,
+    })
+  } else if (report.authorMembershipId !== env.actor.real._id) {
+    await recordOnce(ctx, by, {
+      ...entry,
+      action: 'report.edit.byOwner',
+      since: Date.now() - OWNER_EDIT_WINDOW_MS,
+    })
+  }
 }
 
 /**
@@ -547,7 +601,6 @@ function rosterFor<T extends RosterEntry & { facts?: Record<string, string | und
 export const get = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const membership = await requireMembership(ctx, businessId)
     const env = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
@@ -556,8 +609,8 @@ export const get = query({
     // Soft-deleted: gone from every list, and not openable by a stale link.
     if (report.deletedAt !== undefined) return null
 
-    // Correcting is offered on the current issue of a document, to the person
-    // who signed it or the owner — the same rule `amend` enforces, so the
+    // Correcting is offered on the current issue of a document, to the account
+    // it was written in or the owner — the same rule `amend` enforces, so the
     // button is never an invitation to a refusal. A correction already under
     // way is linked instead of offered twice.
     const correctable =
@@ -566,20 +619,20 @@ export const get = query({
 
     return {
       ...(await projectReport(ctx, report, env)),
-      // A finalised report is immutable; only its author may edit a draft.
-      canEdit:
-        report.status === 'draft' &&
-        report.authorMembershipId === membership._id,
+      // A finalised report is immutable; a draft is editable by exactly whom
+      // `requireEditableReport` admits — asked of the actor, so the legacy
+      // view-as (which is not in `actor`) never makes a draft editable.
+      canEdit: canEditReport(env.actor, reportFactsFrom(report)),
       canAmend:
         correctable &&
         openAmendment === null &&
-        (report.authorMembershipId === membership._id ||
+        (report.authorMembershipId === env.actor.acting._id ||
           hasCapability(env, 'business.manage')),
       openAmendmentId: openAmendment?._id ?? null,
       // The caller's own membership — `reportPdf`/`email` actions need this
-      // to attribute an audit-log entry, and can't call `requireMembership`
+      // to attribute an audit-log entry, and cannot resolve an actor
       // themselves (actions have no `ctx.db`).
-      callerMembershipId: membership._id,
+      callerMembershipId: env.actor.real._id,
     }
   },
 })
@@ -891,7 +944,7 @@ export function upgradeFor(
 export const generateUploadUrl = mutation({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    await requireWriteActor(ctx, businessId)
     return ctx.storage.generateUploadUrl()
   },
 })
@@ -940,7 +993,11 @@ export const attachSignature = mutation({
   ) => {
     // A signature attests to a document's contents at a moment in time. Once
     // locked, it must not be possible to attach a different one.
-    const { membership, report } = await requireEditableReport(ctx, businessId, reportId)
+    const { env, report } = await requireEditableReport(ctx, businessId, reportId)
+    // The HUMAN, not the account being worked in: a saved signature is the
+    // hand of whoever holds the pen, and so is the record of who captured one.
+    const membership = await ctx.db.get(env.actor.real._id)
+    if (!membership) throw new ConvexError('NO_ACCESS')
 
     // A saved signature is applied by the person it belongs to, and by nobody
     // else — that is the whole of what `method: 'saved'` claims on the record.
@@ -993,8 +1050,9 @@ export const attachSignature = mutation({
 export const mySavedSignature = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const membership = await requireMembership(ctx, businessId)
-    if (!membership.savedSignatureStorageId) return null
+    const env = await requireActor(ctx, businessId)
+    const membership = await ctx.db.get(env.actor.real._id)
+    if (!membership?.savedSignatureStorageId) return null
     const url = await ctx.storage.getUrl(membership.savedSignatureStorageId)
     return url ? { storageId: membership.savedSignatureStorageId, url } : null
   },
@@ -1544,7 +1602,15 @@ export const create = mutation({
     suggestions: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
-    const membership = await requireMembership(ctx, args.businessId)
+    const env = await requireWriteActor(ctx, args.businessId)
+    /**
+     * The account it is written in, not the human writing it. A report the
+     * owner starts inside Kevin's account is Kevin's: it is in Kevin's list,
+     * Kevin can finish it, and `requireEditableReport` lets the owner go on
+     * editing it while he is still in there. It used to be the owner's — gone
+     * from the account he made it in, and editable by nobody standing there.
+     */
+    const by = writeAttribution(env.actor)
 
     const property = await ctx.db.get(args.propertyId)
     if (!property || property.businessId !== args.businessId) {
@@ -1581,17 +1647,26 @@ export const create = mutation({
     // what the weather was doing. Seeded here rather than in the browser so
     // the stored row matches what the technician sees from the first moment —
     // a draft abandoned before the first keystroke used to hold nothing at all.
-    return insertNewDraft(ctx, {
+    const reportId = await insertNewDraft(ctx, {
       businessId: args.businessId,
       propertyId: args.propertyId,
       jobId: args.jobId,
-      authorMembershipId: membership._id,
+      authorMembershipId: by.authorMembershipId,
       template: args.template,
       customTemplateId: args.template === 'custom' ? args.customTemplateId : undefined,
       legalBasis: args.legalBasis,
       given: (args.data ?? {}) as Record<string, unknown>,
       showsSuggestions: args.suggestions === true,
     })
+    // Kevin's report, started by the owner — and the report's own history is
+    // the only place that can say the second half.
+    await recordOnBehalf(ctx, by, {
+      businessId: args.businessId,
+      action: 'report.create',
+      entityType: 'reports',
+      entityId: reportId,
+    })
+    return reportId
   },
 })
 
@@ -1807,12 +1882,12 @@ export const copyFromLastVisit = mutation({
     fromReportId: v.id('reports'),
   },
   handler: async (ctx, { businessId, reportId, fromReportId }) => {
-    const { report } = await requireEditableReport(ctx, businessId, reportId)
+    const { env, report } = await requireEditableReport(ctx, businessId, reportId)
     // Whether the caller may reach the report being copied FROM is a question
     // for the scope — the write actor's, because this is a write, and the read
     // scope carries the legacy view-as lens that must never reach one.
-    // Authorship of the draft written TO is `requireEditableReport`'s.
-    const { actor, scope } = await requireWriteActor(ctx, businessId)
+    // Who may write the draft copied TO is `requireEditableReport`'s.
+    const { actor, scope } = env
 
     const previous = await ctx.db.get(fromReportId)
     // Re-checked rather than trusted: the id came from the client, and this
@@ -1969,7 +2044,7 @@ export const finalise = mutation({
     templateVersion: v.optional(v.number()),
   },
   handler: async (ctx, { businessId, reportId, data, templateVersion }) => {
-    const { membership, report } = await requireEditableReport(
+    const { env, report } = await requireEditableReport(
       ctx,
       businessId,
       reportId,
@@ -1985,9 +2060,10 @@ export const finalise = mutation({
      * file at all, and — once switching is reachable — from inside the licence
      * holder's account by someone who is not them.
      *
-     * It runs after `requireEditableReport`, which is the stricter gate of the
-     * two (author only, no owner escape), so this can only ever add a refusal.
-     * The holder is the report's author: their name and licence are what the
+     * It runs after `requireEditableReport`, which admits the same people
+     * `canEditReport` does — the owner among them, for anyone's draft — so it
+     * is this check that holds a regulated document for its holder. The
+     * holder is the report's author: their name and licence are what the
      * certificate prints, whoever filled the form in.
      */
     const holder = await ctx.db.get(report.authorMembershipId)
@@ -2002,13 +2078,26 @@ export const finalise = mutation({
       await memberFieldKeys(ctx, report),
     )
 
-    const env = await requireActor(ctx, businessId)
+    // The WRITE actor from the gate. The read actor falls back to the real
+    // person when a switch has lapsed — which reads as "not switched", and
+    // would wave a certificate straight past SWITCHED_REGULATED.
+    // Who drew each technician signature on it, where that was recorded.
+    const signedBy = (await technicianSignatureSlots(ctx, report)).flatMap(
+      (slot) => {
+        const held = report.signatureSlots?.[slot]
+        return held && typeof held !== 'string' && held.capturedByMembershipId
+          ? [held.capturedByMembershipId]
+          : []
+      },
+    )
+
     const decision = canFinaliseReport(
       env.actor,
       reportFactsFrom(report),
       {
         holder: factsFromMembership(holder),
         named: named.map(factsFromMembership),
+        signedBy,
       },
       Date.now(),
     )
@@ -2133,7 +2222,7 @@ export const finalise = mutation({
       })
     }
 
-    await recordAudit(ctx, forSelf(membership._id), {
+    await recordAudit(ctx, writeAttribution(env.actor), {
       businessId,
       action: 'report.finalise',
       entityType: 'reports',
@@ -2157,7 +2246,7 @@ export const finalise = mutation({
     // same transaction that locks the report, so "the form said send it" is
     // recorded even if the send never happens — and a recipient nobody has on
     // file waits for an owner, exactly as it would from the send sheet.
-    await queueFormDeliveries(ctx, report, data, membership)
+    await queueFormDeliveries(ctx, report, data, env)
 
     // Render now, not when someone first asks for it. The technician who
     // locked this is standing in a driveway; the person who opens the PDF
@@ -2184,7 +2273,7 @@ async function queueFormDeliveries(
   ctx: MutationCtx,
   report: Doc<'reports'>,
   data: Record<string, unknown>,
-  membership: Membership,
+  env: WriteEnvelope,
 ) {
   const template = resolveReportTemplate({
     template: report.template,
@@ -2208,7 +2297,7 @@ async function queueFormDeliveries(
   // the form itself asked for: sending anywhere is the owner's authority, and
   // not from inside somebody else's account.
   const unrestricted =
-    hasCapability(await requireActor(ctx, report.businessId), 'business.manage') ||
+    hasCapability(env, 'business.manage') ||
     business?.allowTechnicianRecipients === true
   const novel = to.filter((address) => !known.includes(address))
 
@@ -2225,7 +2314,9 @@ async function queueFormDeliveries(
     }).title,
     trigger: 'finalise',
     status: unrestricted || novel.length === 0 ? 'queued' : 'pendingApproval',
-    sentByMembershipId: membership._id,
+    // The human who locked it, like `finalisedByMembershipId`: it is their
+    // send the approval queue and the rate limit are about.
+    sentByMembershipId: env.actor.real._id,
     createdAt: Date.now(),
   })
 }
@@ -2295,7 +2386,8 @@ export const amend = mutation({
     reason: v.string(),
   },
   handler: async (ctx, { businessId, reportId, reason }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const env = await requireWriteActor(ctx, businessId)
+    const by = writeAttribution(env.actor)
 
     const original = await ctx.db.get(reportId)
     if (!original || original.businessId !== businessId) {
@@ -2308,13 +2400,12 @@ export const amend = mutation({
     // Who may correct a signed document is not who may READ it. Being able
     // to see a certificate — the whole team's, say, because the owner granted
     // "see everyone's schedule" — must not let you supersede it and reissue it
-    // under your own name. So: the person who signed it, or the owner. And
-    // through the write actor, which never carries the read-only view-as lens
-    // and refuses a switch that has gone stale; a read scope inside a
+    // under your own name. So: the account it was written in, or the owner.
+    // And through the write actor, which never carries the read-only view-as
+    // lens and refuses a switch that has gone stale; a read scope inside a
     // mutation is the door main's model was built to keep shut.
-    const env = await requireWriteActor(ctx, businessId)
     if (
-      original.authorMembershipId !== membership._id &&
+      original.authorMembershipId !== env.actor.acting._id &&
       !hasCapability(env, 'business.manage')
     ) {
       throw new ConvexError('NO_ACCESS')
@@ -2341,7 +2432,8 @@ export const amend = mutation({
       businessId,
       propertyId: original.propertyId,
       ...(original.jobId ? { jobId: original.jobId } : {}),
-      authorMembershipId: membership._id,
+      // Whose account the correction is written in, as `create` decides it.
+      authorMembershipId: by.authorMembershipId,
       template: original.template,
       ...(original.customTemplateId
         ? { customTemplateId: original.customTemplateId }
@@ -2391,7 +2483,7 @@ export const amend = mutation({
     }
 
 
-    await recordAudit(ctx, forSelf(membership._id), {
+    await recordAudit(ctx, by, {
       businessId,
       action: 'report.amend',
       entityType: 'reports',
@@ -2420,18 +2512,20 @@ export const amend = mutation({
 export const softDelete = mutation({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const report = await requireDeletable(ctx, businessId, reportId)
+    const { env, report } = await requireDeletable(ctx, businessId, reportId)
     if (report.deletedAt !== undefined) return
     await ctx.db.patch(reportId, { deletedAt: Date.now(), updatedAt: Date.now() })
+    await recordRetirement(ctx, env, report, 'report.delete')
   },
 })
 
 export const restore = mutation({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const report = await requireDeletable(ctx, businessId, reportId)
+    const { env, report } = await requireDeletable(ctx, businessId, reportId)
     if (report.deletedAt === undefined) return
     await ctx.db.patch(reportId, { deletedAt: undefined, updatedAt: Date.now() })
+    await recordRetirement(ctx, env, report, 'report.restore')
   },
 })
 
@@ -2442,39 +2536,55 @@ export const restore = mutation({
 export const remove = mutation({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const report = await requireDeletable(ctx, businessId, reportId)
+    const { env, report } = await requireDeletable(ctx, businessId, reportId)
     if (report.deletedAt === undefined) throw new ConvexError('NOT_IN_TRASH')
     await purgeReport(ctx, report)
+    // Kept after the report is gone: it is the only trace, for the account it
+    // was in, that someone else emptied it from their bin.
+    await recordRetirement(ctx, env, report, 'report.purge')
   },
 })
 
 /**
- * Who may retire a draft: its author, or an owner.
+ * Who may retire a draft: whoever may edit it (`canEditReport`) — the account
+ * it was written in, or the owner working as himself, who has to be able to
+ * clear a subcontractor's abandoned draft off the list.
  *
- * Deliberately NOT `requireEditableReport`, which is author-only — an owner
- * has to be able to clear a subcontractor's abandoned draft off the list. And
- * deliberately the REAL membership, not the view-as scope: looking through
- * someone else's eyes is a way to read, never a way to delete.
+ * Not `requireEditableReport` itself, which refuses a draft already in the
+ * bin — and restoring one from there is exactly this gate's job. Through the
+ * write actor, so the view-as lens never reaches it (looking through someone's
+ * eyes is a way to read, never a way to delete), and an owner working inside a
+ * technician's account bins only what that account could: its own drafts.
  */
 async function requireDeletable(
   ctx: MutationCtx,
   businessId: Id<'businesses'>,
   reportId: Id<'reports'>,
-): Promise<Doc<'reports'>> {
-  const membership = await requireMembership(ctx, businessId)
+): Promise<{ env: WriteEnvelope; report: Doc<'reports'> }> {
+  const env = await requireWriteActor(ctx, businessId)
   const report = await ctx.db.get(reportId)
   if (!report || report.businessId !== businessId) throw new ConvexError('NOT_FOUND')
   if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
-  // Your own draft, or anybody's with `business.manage` — owner authority,
-  // which a switch drops. A role check here let an owner working inside a
-  // technician's account bin that technician's other drafts.
-  if (
-    report.authorMembershipId !== membership._id &&
-    !hasCapability(await requireActor(ctx, businessId), 'business.manage')
-  ) {
+  if (!canEditReport(env.actor, reportFactsFrom(report))) {
     throw new ConvexError('NO_ACCESS')
   }
-  return report
+  return { env, report }
+}
+
+/** A draft binned, restored or purged inside someone else's account, on that
+ * account's record — see `recordOnBehalf`. */
+async function recordRetirement(
+  ctx: MutationCtx,
+  env: WriteEnvelope,
+  report: Doc<'reports'>,
+  action: 'report.delete' | 'report.restore' | 'report.purge',
+) {
+  await recordOnBehalf(ctx, writeAttribution(env.actor), {
+    businessId: report.businessId,
+    action,
+    entityType: 'reports',
+    entityId: report._id,
+  })
 }
 
 /**
@@ -2684,7 +2794,7 @@ export const markEmailed = internalMutation({
 export const switchTemplateVersion = mutation({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const { membership, report } = await requireEditableReport(
+    const { env, report } = await requireEditableReport(
       ctx,
       businessId,
       reportId,
@@ -2733,7 +2843,7 @@ export const switchTemplateVersion = mutation({
       // signed is withdrawn.
       signatureSlots: undefined,
     })
-    await recordAudit(ctx, forSelf(membership._id), {
+    await recordAudit(ctx, writeAttribution(env.actor), {
       businessId,
       action: 'report.switchVersion',
       entityType: 'reports',
@@ -2761,7 +2871,7 @@ export const restartDraft = mutation({
     suggestions: v.optional(v.boolean()),
   },
   handler: async (ctx, { businessId, reportId, suggestions }) => {
-    const { membership, report } = await requireEditableReport(
+    const { env, report } = await requireEditableReport(
       ctx,
       businessId,
       reportId,
@@ -2786,7 +2896,7 @@ export const restartDraft = mutation({
     })
     // Into Recently Deleted exactly as `softDelete` puts it there.
     await ctx.db.patch(reportId, { deletedAt: now, updatedAt: now })
-    await recordAudit(ctx, forSelf(membership._id), {
+    await recordAudit(ctx, writeAttribution(env.actor), {
       businessId,
       action: 'report.restart',
       entityType: 'reports',

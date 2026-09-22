@@ -71,6 +71,22 @@ export async function memberFieldKeys(
 }
 
 /**
+ * The slots of the form's technician signatures — the ones a licence holder
+ * draws, as against the client's acknowledgement, which is drawn on the
+ * technician's device by whoever is standing there.
+ */
+export async function technicianSignatureSlots(
+  ctx: QueryCtx | MutationCtx,
+  report: Doc<'reports'>,
+): Promise<Array<string>> {
+  return (await fieldsForReport(ctx, report)).flatMap((field) =>
+    field.kind === 'signature' && field.role === 'technician'
+      ? [field.slot]
+      : [],
+  )
+}
+
+/**
  * Who the document says did the work: whoever the form's first member field
  * names. The author stands in ONLY on a form with no member field at all: on a
  * form that asks who did the work and got no answer, printing the author's

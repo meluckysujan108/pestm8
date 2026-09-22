@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
@@ -31,18 +32,46 @@ export function SwitchBanner({ businessId }: { businessId: Id<'businesses'> }) {
   })
 
   /**
-   * A switch that ended by itself — revoked, moved team, the person removed.
-   * Reads fail open, so they are already back in their own account and the
-   * page still works; without this they would simply find the schedule
-   * different and no reason given.
+   * A switch that ended by itself — revoked, moved team, the person removed —
+   * is closed here, not just reported.
+   *
+   * Reads fail open, so the page already shows their own account. Writes fail
+   * closed: every booking, job edit and report autosave refuses while the dead
+   * row is still there, and nothing else removes one until its twelve hours
+   * are up. A banner saying "you are back in your own account" over a form
+   * that will not save would be the worst of both, so the row goes the moment
+   * the read reports it. The reason is kept on screen until they dismiss it —
+   * closing the row clears `degraded`, and without this they would simply find
+   * the schedule different and no reason given.
    */
-  if (access.degraded) {
+  const degraded = access.degraded
+  const [ended, setEnded] = useState<string | null>(null)
+  useEffect(() => {
+    if (!degraded) return
+    setEnded(degraded)
+    void convexStop({ businessId })
+  }, [degraded, businessId, convexStop])
+
+  const reason = degraded ?? ended
+  if (reason) {
     return (
-      <div className="flex items-center gap-2 border-b border-hairline bg-surface-2 px-4 py-2">
-        <p className="text-caption font-semibold text-ink-2">
-          {DEGRADED_COPY[access.degraded] ??
-            'You are back in your own account.'}
+      <div className="flex items-center justify-between gap-2 border-b border-hairline bg-surface-2 px-4 py-2">
+        <p className="min-w-0 text-caption font-semibold text-ink-2">
+          {DEGRADED_COPY[reason] ?? 'You are back in your own account.'}
         </p>
+        <button
+          type="button"
+          disabled={stop.isPending}
+          onClick={() => {
+            setEnded(null)
+            // Still reported means the close above did not land — offline,
+            // say. This is the retry.
+            if (degraded) stop.mutate({ businessId })
+          }}
+          className="shrink-0 rounded-full bg-surface-3 px-3 py-1 text-caption font-semibold text-ink-2 transition active:scale-[.95] disabled:opacity-50"
+        >
+          OK
+        </button>
       </div>
     )
   }

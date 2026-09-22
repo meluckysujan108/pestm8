@@ -1,11 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import {
-  canEditJob,
-  requireAssignableMember,
-  requireMembership,
-} from './lib/access'
 import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
 import {
   clientNameOf,
@@ -15,14 +10,19 @@ import {
 } from './properties'
 import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
 import type { Doc, Id } from './_generated/dataModel'
-import { canBookOnto, isInScope } from './lib/capabilities'
+import { isInScope, writeAttribution } from './lib/capabilities'
 import { jobsInScope } from './lib/jobScope'
 import { hidePrices, redactJob } from './lib/prices'
 import type { RowScope } from './lib/capabilities'
-import type { ActorEnvelope } from './lib/actor'
+import type { ActorEnvelope, WriteEnvelope } from './lib/actor'
 import type { MutationCtx, QueryCtx } from './_generated/server'
-import type { Membership } from './lib/access'
-import { requireActor } from './lib/actor'
+import { requireActor, requireWriteActor } from './lib/actor'
+import { recordOnBehalf } from './lib/audit'
+import {
+  mayEditJob,
+  requireBookable,
+  requireEditableJob,
+} from './lib/jobAccess'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -296,10 +296,10 @@ export const monthTeamLoad = query({
 export const get = query({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    const membership = await requireMembership(ctx, businessId)
     // Visibility (can this job be seen at all) follows "view as" when active;
-    // canEdit below always reflects the REAL caller, never the viewed-as
-    // person — read access granted by view-as never implies write access.
+    // canEdit below is asked of the ACTOR — the account being worked in when
+    // switched, and never the viewed-as person: read access granted by view-as
+    // never implies write access.
     const env = await requireActor(ctx, businessId)
 
     const job = await ctx.db.get(jobId)
@@ -333,8 +333,10 @@ export const get = query({
         colour: assignee.colour,
         role: assignee.role,
       },
-      // Granted read access never implies write access (§4.4).
-      canEdit: canEditJob(membership, job),
+      // Granted read access never implies write access (§4.4). The same
+      // question `requireEditableJob` asks, so the button is never an
+      // invitation to a refusal.
+      canEdit: await mayEditJob(ctx, env.actor, job),
     }
   },
 })
@@ -358,17 +360,16 @@ export const create = mutation({
     ctx,
     { propertyId: existingPropertyId, newClient, ...args },
   ) => {
-    const membership = await requireMembership(ctx, args.businessId)
+    const env = await requireWriteActor(ctx, args.businessId)
 
-    // Only an owner may put work on someone else's calendar. The pickers
-    // filter by this same function, so they cannot offer a refused option.
-    if (!canBookOnto(membership, args.assignedMembershipId)) {
-      throw new ConvexError('NO_ACCESS')
-    }
+    // Who the ACTING account may put work onto (`canDispatchTo`): the owner
+    // anyone, a contractor their team, anyone else themselves. The roster's
+    // `bookable` flag is the same function, so a picker cannot offer a
+    // refused option.
+    await requireBookable(ctx, env, args.businessId, args.assignedMembershipId)
 
     // A price from someone who cannot see prices is a placeholder, not a
     // figure. Stored as nothing rather than as whatever the form defaulted to.
-    const env = await requireActor(ctx, args.businessId)
     const price = hidePrices(env.caps) ? 0 : args.price
 
     const propertyId = await resolvePropertyId(ctx, args.businessId, {
@@ -376,43 +377,45 @@ export const create = mutation({
       newClient,
     })
 
-    await requireAssignableMember(
-      ctx,
-      args.businessId,
-      args.assignedMembershipId,
-    )
-
-    return ctx.db.insert('jobs', {
+    const jobNumber = await allocateJobNumber(ctx, args.businessId)
+    const jobId = await ctx.db.insert('jobs', {
       ...args,
       price,
       propertyId,
       status: 'booked',
       createdAt: Date.now(),
-      jobNumber: await allocateJobNumber(ctx, args.businessId),
+      jobNumber,
     })
+
+    await recordOnBehalf(ctx, writeAttribution(env.actor), {
+      businessId: args.businessId,
+      action: 'job.create',
+      entityType: 'jobs',
+      entityId: jobId,
+      meta: { jobNumber, assignedMembershipId: args.assignedMembershipId },
+    })
+    return jobId
   },
 })
 
 /**
- * The guard every job-editing mutation repeats: resolve membership, load the
- * job, confirm it belongs to this business, and refuse a write from anyone
- * but the owner or the assigned technician. Centralised here rather than
- * copied a fifth and sixth time for the new photo mutations below — the
- * same call this file's own `reports.ts` sibling makes for
- * `requireEditableReport`.
+ * A job write made inside someone else's account, on that account's record.
+ * Nothing when the writer was working as themselves — see `recordOnBehalf`.
  */
-async function requireEditableJob(
+async function recordJobWrite(
   ctx: MutationCtx,
-  businessId: Id<'businesses'>,
-  jobId: Id<'jobs'>,
-): Promise<{ membership: Membership; job: Doc<'jobs'> }> {
-  const membership = await requireMembership(ctx, businessId)
-
-  const job = await ctx.db.get(jobId)
-  if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
-  if (!canEditJob(membership, job)) throw new ConvexError('NO_ACCESS')
-
-  return { membership, job }
+  env: WriteEnvelope,
+  job: Doc<'jobs'>,
+  action: string,
+  meta?: unknown,
+) {
+  await recordOnBehalf(ctx, writeAttribution(env.actor), {
+    businessId: job.businessId,
+    action,
+    entityType: 'jobs',
+    entityId: job._id,
+    meta,
+  })
 }
 
 export const update = mutation({
@@ -438,20 +441,17 @@ export const update = mutation({
     ),
   },
   handler: async (ctx, { businessId, jobId, ...patch }) => {
-    const { membership, job } = await requireEditableJob(ctx, businessId, jobId)
+    const { env, job } = await requireEditableJob(ctx, businessId, jobId)
 
-    // Reassignment is an owner action even on your own job.
+    // Moving a job onto someone is booking it onto them, and asks the same
+    // question `create` does. A subcontractor's only admissible target is
+    // themselves — a no-op on their own job, which the `!==` filters out — and
+    // a contractor's is their own team.
     if (
       patch.assignedMembershipId !== undefined &&
       patch.assignedMembershipId !== job.assignedMembershipId
     ) {
-      // `requireEditableJob` already confines a non-owner to their own job,
-      // so the only reassignment this admits for them is the no-op onto
-      // themselves — which the `!==` above has already filtered out.
-      if (!canBookOnto(membership, patch.assignedMembershipId)) {
-        throw new ConvexError('NO_ACCESS')
-      }
-      await requireAssignableMember(ctx, businessId, patch.assignedMembershipId)
+      await requireBookable(ctx, env, businessId, patch.assignedMembershipId)
     }
 
     // An invoiced job is a billed job. Letting anyone with write access move it
@@ -483,7 +483,6 @@ export const update = mutation({
      * destroy the real one silently, and every total downstream of it with it.
      * Dropped rather than refused, so editing the date on a job still works.
      */
-    const env = await requireActor(ctx, businessId)
     if (hidePrices(env.caps)) delete fields.price
 
     // The first time a job says work has begun, record when. A report started
@@ -501,16 +500,22 @@ export const update = mutation({
       await assertReportIssued(ctx, job)
     }
 
-    if (Object.keys(fields).length > 0) await ctx.db.patch(jobId, fields)
+    if (Object.keys(fields).length > 0) {
+      await ctx.db.patch(jobId, fields)
+      await recordJobWrite(ctx, env, job, 'job.update', {
+        fields: Object.keys(fields),
+      })
+    }
   },
 })
 
 export const complete = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    const { job } = await requireEditableJob(ctx, businessId, jobId)
+    const { env, job } = await requireEditableJob(ctx, businessId, jobId)
     await assertReportIssued(ctx, job)
     await ctx.db.patch(jobId, { status: 'completed', completedAt: Date.now() })
+    await recordJobWrite(ctx, env, job, 'job.complete')
   },
 })
 
@@ -551,8 +556,9 @@ async function assertReportIssued(ctx: MutationCtx, job: Doc<'jobs'>) {
 export const cancel = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    await requireEditableJob(ctx, businessId, jobId)
+    const { env, job } = await requireEditableJob(ctx, businessId, jobId)
     await ctx.db.patch(jobId, { status: 'cancelled' })
+    await recordJobWrite(ctx, env, job, 'job.cancel')
   },
 })
 
@@ -564,7 +570,7 @@ export const cancel = mutation({
 export const generateUploadUrl = mutation({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    await requireMembership(ctx, businessId)
+    await requireWriteActor(ctx, businessId)
     return ctx.storage.generateUploadUrl()
   },
 })
@@ -577,7 +583,7 @@ export const addPhoto = mutation({
     caption: v.optional(v.string()),
   },
   handler: async (ctx, { businessId, jobId, storageId, caption }) => {
-    await requireEditableJob(ctx, businessId, jobId)
+    const { env, job } = await requireEditableJob(ctx, businessId, jobId)
 
     const existing = await ctx.db
       .query('jobPhotos')
@@ -591,6 +597,7 @@ export const addPhoto = mutation({
       order: existing.length,
       createdAt: Date.now(),
     })
+    await recordJobWrite(ctx, env, job, 'job.photo.add')
   },
 })
 
@@ -601,11 +608,12 @@ export const removePhoto = mutation({
     photoId: v.id('jobPhotos'),
   },
   handler: async (ctx, { businessId, jobId, photoId }) => {
-    await requireEditableJob(ctx, businessId, jobId)
+    const { env, job } = await requireEditableJob(ctx, businessId, jobId)
 
     const photo = await ctx.db.get(photoId)
     if (!photo || photo.jobId !== jobId) throw new ConvexError('NOT_FOUND')
     await ctx.db.delete(photoId)
+    await recordJobWrite(ctx, env, job, 'job.photo.remove')
   },
 })
 
