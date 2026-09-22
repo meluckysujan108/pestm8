@@ -49,8 +49,9 @@ import type { CustomSource } from '../lib/templateSnapshot'
  *    canonicalising; in the hundreds it is not.
  *
  * 4. CONTRACT — done by the contract release (docs/reports/migrations.md):
- *    `templateVersion` is `v.number()`, and `customTemplateSnapshot` was
- *    cleared by `migrations/reportsContract` and dropped. `templateSnapshotId`
+ *    `templateVersion` is `v.number()`, and `customTemplateSnapshot` is no
+ *    longer written or read and was emptied by `migrations/reportsContract`
+ *    — it stays declared on purpose (see its schema comment). `templateSnapshotId`
  *    stays optional forever: Convex cannot express "required only when
  *    finalised". `photoIds` is left alone — read by nothing, and removing it
  *    is a full-table rewrite for no gain.
