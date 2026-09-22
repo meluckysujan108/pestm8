@@ -29,7 +29,9 @@ export const listSwitchable = query({
         return {
           membershipId: m._id,
           name: user?.name ?? '',
-          email: user?.email ?? '',
+          // Your own only, as on the roster: a teammate's login email is not
+          // something this legacy list gets to hand out.
+          email: m._id === caller._id ? (user?.email ?? '') : undefined,
           role: m.role,
           colour: m.colour,
           isSelf: m._id === caller._id,

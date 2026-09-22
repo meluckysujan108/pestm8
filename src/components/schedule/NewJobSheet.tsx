@@ -12,6 +12,7 @@ import type { NewClientFieldsValue } from '#/components/clients/NewClientFields'
 import type { RepeatValue } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
+import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 
 type ClientMode = 'existing' | 'new'
@@ -92,10 +93,13 @@ function NewJobForm({
   useEffect(() => {
     if (!propertyId && properties.length > 0) setPropertyId(properties[0]._id)
   }, [properties, propertyId])
+  // Held to the options, not just seeded once: a switch starting or ending
+  // while the sheet is open changes who may be booked, and a stale id would
+  // be submitted as-is and refused.
+  const { options: assignees, preferred } = useAssigneeOptions(members)
   useEffect(() => {
-    const active = members.filter((m) => m.status === 'active')
-    if (!assignee && active.length > 0) setAssignee(active[0]._id)
-  }, [members, assignee])
+    if (!assignees.some((m) => m._id === assignee)) setAssignee(preferred)
+  }, [assignees, assignee, preferred])
 
   const hydrated = useHydrated()
 
@@ -230,19 +234,25 @@ function NewJobForm({
       </Field>
 
       <Field label="Assigned to">
-        <select
-          value={assignee}
-          onChange={(e) => setAssignee(e.target.value)}
-          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        >
-          {members
-            .filter((m) => m.status === 'active')
-            .map((m) => (
+        {assignees.length > 1 ? (
+          <select
+            value={assignee}
+            onChange={(e) => setAssignee(e.target.value)}
+            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          >
+            {assignees.map((m) => (
               <option key={m._id} value={m._id}>
-                {m.role === 'owner' ? 'Owner' : 'Subcontractor'} · {m.colour}
+                {personLabel(m)}
               </option>
             ))}
-        </select>
+          </select>
+        ) : (
+          // Someone who can only book themselves has nothing to choose, and a
+          // one-option select reads as a choice they are being denied.
+          <p className="flex h-12 w-full items-center rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink">
+            Assigned to you
+          </p>
+        )}
       </Field>
 
       <div className="grid grid-cols-2 gap-3">

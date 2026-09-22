@@ -5,6 +5,7 @@ import { ArrowUpRight, ChevronDown, ListChecks, Pin, Plus } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { editedLabel } from '#/lib/noteDates'
 import { useHydrated } from '#/lib/useHydrated'
+import { personLabel } from '#/lib/assignees'
 import { NoteEditor } from './NoteEditor'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { DecoratedNote } from '../../../convex/notes'
@@ -176,5 +177,5 @@ export function useMentionRoster(businessId: Id<'businesses'>): Array<MentionIte
   const { data } = useQuery(convexQuery(api.memberships.listForBusiness, { businessId }))
   return (data ?? [])
     .filter((m) => m.status === 'active')
-    .map((m) => ({ id: m._id, label: m.name || m.email, colour: m.colour, role: m.role }))
+    .map((m) => ({ id: m._id, label: personLabel(m), colour: m.colour, role: m.role }))
 }

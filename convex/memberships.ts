@@ -7,6 +7,7 @@ import { inviteState } from './lib/inviteTokens'
 import { grants, role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
 import {
+  hasCapability,
   requireActor,
   requireAssignableRole,
   requireCapability,
@@ -15,7 +16,6 @@ import {
 import {
   canManageMember,
   clampGrants,
-  isVisiblePerson,
   NO_GRANTS,
   recomputeGrants,
 } from './lib/capabilities'
@@ -35,40 +35,56 @@ export const listForBusiness = query({
       .collect()
 
     /**
-     * The owner is not on anyone else's roster.
+     * Everyone, the owner included — and the caller's own row first.
      *
-     * This query feeds six screens — the schedule's filter bar, the assignee
-     * picker, the job detail sheet, both note surfaces and Team settings — and
-     * returned every member's name, email, licence number and phone to anyone
-     * who asked. That is the single place the owner was most visible, and the
-     * switch-target list would have inherited it directly.
-     *
-     * It hides the PERSON, not the work: an owner-assigned job stays on the
-     * calendar and in the revenue totals, with the business's name where the
-     * technician's would be (`displayPerson`). Dropping the work instead would
-     * silently change what the numbers mean.
+     * First because every client older than the assignee-picker fix defaults
+     * the "Assigned to" field to row 0. By creation order that is the owner,
+     * whom nobody else may book onto, so a phone still running that build
+     * would preselect a refused assignee on every booking. Leading with the
+     * caller makes such a phone book onto its own holder instead, which is
+     * always allowed.
      */
+    const me = env.actor.real._id
     const visible = members
       .filter((m) => m.status !== 'removed')
-      .filter((m) => isVisiblePerson(env.actor, { _id: m._id, role: m.role }))
+      .sort((a, b) => Number(b._id === me) - Number(a._id === me))
+
+    /**
+     * Who someone is, for everyone; how to reach them, for the people who
+     * manage the team.
+     *
+     * This feeds the schedule's filter bar, the assignee pickers, the job
+     * detail sheet and both note surfaces, so every member reads it. Name,
+     * role and colour are what those need. Email, phone and licence number
+     * are management information — and with the owner on everyone's roster,
+     * his login email and licence would otherwise reach every phone in the
+     * business. Your own row always carries yours.
+     *
+     * `team.manage` is the effective capability, so an owner working inside
+     * someone else's account gets the plain roster, like everything else
+     * administrative while switched.
+     */
+    const manages = hasCapability(env, 'team.manage')
 
     return Promise.all(
       visible.map(async (m) => {
         // A team list showing user ids would be unusable; the auth component
         // owns identity, so the name and email are resolved from there.
         const user = await authComponent.getAnyUserById(ctx, m.userId)
+        const detailed = manages || m._id === me
         return {
           _id: m._id,
-          userId: m.userId,
           name: user?.name ?? '',
-          email: user?.email ?? '',
           role: m.role,
-          canViewAllJobs: m.canViewAllJobs,
-          canViewOtherAccounts: m.canViewOtherAccounts ?? false,
-          licenceNumber: m.licenceNumber,
-          phone: m.phone,
           colour: m.colour,
           status: m.status,
+          email: detailed ? (user?.email ?? '') : undefined,
+          phone: detailed ? m.phone : undefined,
+          licenceNumber: detailed ? m.licenceNumber : undefined,
+          canViewAllJobs: detailed ? m.canViewAllJobs : undefined,
+          canViewOtherAccounts: detailed
+            ? (m.canViewOtherAccounts ?? false)
+            : undefined,
         }
       }),
     )

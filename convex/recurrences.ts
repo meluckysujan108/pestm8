@@ -7,7 +7,7 @@ import {
 } from './lib/access'
 import { allocateJobNumber } from './jobs'
 import { requireActor } from './lib/actor'
-import { isInScope } from './lib/capabilities'
+import { canBookOnto, isInScope } from './lib/capabilities'
 import { redactJob } from './lib/prices'
 import { clientNameOf, newClientFields, resolvePropertyId } from './properties'
 import { frequency } from './schema'
@@ -104,10 +104,7 @@ export const create = mutation({
     const membership = await requireMembership(ctx, args.businessId)
 
     // Same rule as jobs.create: only an owner books someone else's calendar.
-    if (
-      membership.role !== 'owner' &&
-      args.assignedMembershipId !== membership._id
-    ) {
+    if (!canBookOnto(membership, args.assignedMembershipId)) {
       throw new ConvexError('NO_ACCESS')
     }
 

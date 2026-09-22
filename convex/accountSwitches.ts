@@ -31,10 +31,10 @@ import type { SwitchRefusal } from './lib/capabilities'
  * Refusals safe to tell the caller apart from each other.
  *
  * `targetMembershipId` is client-supplied, so anything that distinguishes one
- * member from another here is an oracle. Answering `OWNER_NOT_SWITCHABLE` for
- * exactly one id in the business would let anyone find the owner with a loop —
- * defeating, from this one mutation, the invisibility the rest of the model
- * goes to some length to maintain.
+ * id from another here is an oracle. It was first written to stop anyone
+ * finding the then-hidden owner with a loop; the owner is on everyone's roster
+ * now, but the same answer still keeps another business's ids, and members who
+ * have left, indistinguishable from ids that match nothing at all.
  *
  * So only the two a caller already knows about themselves come back as
  * themselves: that they were not granted access, and that they are already

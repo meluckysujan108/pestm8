@@ -133,6 +133,8 @@ test('an owner grants view-all access from settings', async ({ page }) => {
   const toggle = page.getByRole('switch').first()
   await expect(toggle).toBeVisible()
   await expect(toggle).toHaveAttribute('data-state', 'unchecked')
+  // Retired: the client book is open to everyone in the business.
+  await expect(page.getByText('Can see all clients')).toBeHidden()
 
   await toggle.click()
   await expect(toggle).toHaveAttribute('data-state', 'checked')

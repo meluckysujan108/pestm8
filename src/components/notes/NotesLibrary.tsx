@@ -10,6 +10,7 @@ import { FilterDropdown } from '#/components/primitives/FilterDropdown'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { NOTE_TEMPLATES, NOTE_TEMPLATE_KEYS } from '../../../convex/lib/noteTemplates'
 import { useHydrated } from '#/lib/useHydrated'
+import { personLabel } from '#/lib/assignees'
 import { NoteEditor } from './NoteEditor'
 import { NoteEditorHeader } from './NoteEditorHeader'
 import { NoteList } from './NoteList'
@@ -58,7 +59,7 @@ export function NotesLibrary({
   )
   const members = roster
     .filter((m) => m.status === 'active')
-    .map((m) => ({ id: m._id, label: m.name || m.email, colour: m.colour, role: m.role }))
+    .map((m) => ({ id: m._id, label: personLabel(m), colour: m.colour, role: m.role }))
 
   const { data: unread } = useQuery(
     convexQuery(api.notes.unreadMentionCount, { businessId: business._id }),

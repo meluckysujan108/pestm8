@@ -1131,11 +1131,8 @@ function finaliseError(error: unknown) {
   if (message.includes('HOLDER_LICENCE_EXPIRED')) {
     return 'The licence on this account has expired. Ask the owner to update it in Settings → Team, then finalise again.'
   }
-  if (message.includes('TECHNICIAN_LICENCE_MISSING')) {
-    return 'The technician named on this report has no licence number on file. Ask the owner to add it in Settings → Team.'
-  }
-  if (message.includes('TECHNICIAN_LICENCE_EXPIRED')) {
-    return 'The technician named on this report has an expired licence. Ask the owner to update it in Settings → Team.'
+  if (message.includes('TECHNICIAN_NOT_SIGNER')) {
+    return 'This certificate names someone else — as technician, inspector or installer — and only they can finalise a certificate in their name. Name yourself in each of those, or ask them to write it.'
   }
   if (message.includes('SWITCHED_REGULATED')) {
     return 'This is a regulated document, so it has to be finalised by the licence holder themselves. Switch back to your own account and ask them to sign it.'

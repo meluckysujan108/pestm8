@@ -28,8 +28,19 @@ import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import { knownRecipients } from './lib/recipients'
 import { settingsFor } from './templateSettings'
 import { reportSearchText } from './lib/reportSearch'
-import { MAX_MEMBERS, buildReportContext, toPresentContext } from './lib/reportContext'
-import type { ReportContextSnapshot } from './lib/reportContext'
+import {
+  MAX_MEMBERS,
+  buildReportContext,
+  memberFieldKeys,
+  namedMembers,
+  toPresentContext,
+} from './lib/reportContext'
+import type {
+  ReportContextSnapshot,
+  RosterEntry,
+} from './lib/reportContext'
+import type { ActorEnvelope } from './lib/actor'
+import { printedMemberName } from '../src/lib/reportTemplates/memberName'
 import { applyBusinessRenames, loadOverrides } from './lib/optionSets'
 import { canCarryFrom, carryOverFrom } from '../src/lib/reportTemplates/lastVisit'
 import { migrateServiceReportV1 } from '../src/lib/reportTemplates/legacy/serviceReport.migrate'
@@ -498,6 +509,41 @@ async function templateDisplay(
   return { templateName: live?.name ?? 'Custom template' }
 }
 
+/**
+ * The draft's team picker, told only what this caller may know.
+ *
+ * Each roster entry carries the member's licence and phone, so that choosing a
+ * technician resolves their details on the form at once. Those are the same
+ * details `memberships.listForBusiness` keeps to the people who manage the
+ * team — and every member opens drafts, so without this the owner's licence
+ * and mobile reached every phone in the business through the report screen
+ * instead of the roster.
+ *
+ * Kept whole for a manager, for the caller's own entry, and for anyone the
+ * report already names: their details print on the document, so they are no
+ * secret from the person writing it. Everyone else is a name. The frozen
+ * snapshot `finalise` writes is built separately and is untouched by this.
+ */
+function rosterFor<T extends RosterEntry & { facts?: Record<string, string | undefined> }>(
+  env: ActorEnvelope,
+  snapshot: ReportContextSnapshot,
+  roster: Array<T>,
+): Array<T> {
+  if (hasCapability(env, 'team.manage')) return roster
+  const named = new Set(Object.keys(snapshot.members ?? {}))
+  return roster.map((m) =>
+    m._id === env.actor.real._id || named.has(m._id)
+      ? m
+      : {
+          ...m,
+          printed: printedMemberName(m.name),
+          licence: undefined,
+          phone: undefined,
+          facts: { name: m.facts?.name, address: m.facts?.address },
+        },
+  )
+}
+
 export const get = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
@@ -519,7 +565,7 @@ export const get = query({
     const openAmendment = correctable ? await openAmendmentOf(ctx, report) : null
 
     return {
-      ...(await projectReport(ctx, report)),
+      ...(await projectReport(ctx, report, env)),
       // A finalised report is immutable; only its author may edit a draft.
       canEdit:
         report.status === 'draft' &&
@@ -562,7 +608,13 @@ function publishedOnly(
  * projections of the same report would let the PDF a client is emailed differ
  * from the one on screen, and only in the fields someone forgot to copy.
  */
-async function projectReport(ctx: QueryCtx, report: Doc<'reports'>) {
+async function projectReport(
+  ctx: QueryCtx,
+  report: Doc<'reports'>,
+  /** The person reading it, when there is one. The renderer has none, and
+   * needs every detail the document can print. */
+  viewer?: ActorEnvelope,
+) {
     const businessId = report.businessId
 
     const rawProperty = await ctx.db.get(report.propertyId)
@@ -621,7 +673,9 @@ async function projectReport(ctx: QueryCtx, report: Doc<'reports'>) {
           (report.data ?? {}) as Record<string, unknown>,
         )
     const contextSnapshot = frozen ?? live!.snapshot
-    const roster = live?.roster ?? []
+    const roster = viewer
+      ? rosterFor(viewer, contextSnapshot, live?.roster ?? [])
+      : (live?.roster ?? [])
 
     // The painter-facing record fields are overlaid from the freeze too: the
     // document's property block, header and filename read these, and freezing
@@ -1938,11 +1992,23 @@ export const finalise = mutation({
     const holder = await ctx.db.get(report.authorMembershipId)
     if (!holder) throw new ConvexError('NOT_FOUND')
 
+    // From the answers being signed, not the stored draft: they are what the
+    // certificate will print.
+    const named = await namedMembers(
+      ctx,
+      report,
+      (data ?? {}) as Record<string, unknown>,
+      await memberFieldKeys(ctx, report),
+    )
+
     const env = await requireActor(ctx, businessId)
     const decision = canFinaliseReport(
       env.actor,
       reportFactsFrom(report),
-      { holder: factsFromMembership(holder) },
+      {
+        holder: factsFromMembership(holder),
+        named: named.map(factsFromMembership),
+      },
       Date.now(),
     )
     if (!decision.ok) throw new ConvexError(decision.reason)

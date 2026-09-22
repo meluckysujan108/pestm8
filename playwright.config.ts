@@ -56,7 +56,7 @@ export default defineConfig({
       // mobile failure is a layout bug rather than an engine difference — and
       // one browser to install.
       use: { ...devices['iPhone 13'], browserName: 'chromium' },
-      testMatch: /(shell|schedule)\.spec\.ts/,
+      testMatch: /(shell|schedule|ownerTechnician|viewMenu)\.spec\.ts/,
     },
   ],
   /**

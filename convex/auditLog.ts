@@ -2,8 +2,7 @@ import { v } from 'convex/values'
 import { internalMutation, query } from './_generated/server'
 import { recordAudit } from './lib/audit'
 import { hasCapability, requireActor } from './lib/actor'
-import { displayPerson, isInScope, reportScope } from './lib/capabilities'
-import { factsFromMembership } from './lib/membershipFacts'
+import { isInScope, reportScope } from './lib/capabilities'
 import { memberName } from './lib/reportContext'
 import type { ActorEnvelope } from './lib/actor'
 import type { Id } from './_generated/dataModel'
@@ -126,10 +125,6 @@ export const forEntity = query({
     // the guarantee obvious rather than implicit.
     const scoped = entries.filter((entry) => entry.businessId === businessId)
 
-    const business = await ctx.db.get(businessId)
-    const businessName =
-      business?.tradingName ?? business?.name ?? 'The business'
-
     const actorIds = [
       ...new Set(scoped.map((entry) => entry.actorMembershipId)),
     ]
@@ -140,14 +135,9 @@ export const forEntity = query({
           if (!actor) return [id, null] as const
           // A history that reads "Emailed" with a colour dot beside it tells an
           // owner nothing about who did it, and "who sent this" is the question
-          // the history exists to answer. Named through `displayPerson`, so the
-          // owner — invisible as a person on every trail — reads as the
-          // business rather than by name.
-          const shown = displayPerson(env.actor, factsFromMembership(actor), {
-            personName: await memberName(ctx, actor.userId),
-            businessName,
-          })
-          return [id, { name: shown.name, colour: actor.colour }] as const
+          // the history exists to answer. By name, the owner included.
+          const name = await memberName(ctx, actor.userId)
+          return [id, { name, colour: actor.colour }] as const
         }),
       ),
     )
