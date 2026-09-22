@@ -100,14 +100,19 @@ Why frontend first: the old pickers offer by that older rule on the REAL
 person. Once the backend decides on the account being worked in, an owner
 inside Kevin's account on the old build is still offered everyone, and every
 booking onto anyone but Kevin is refused with a bare error. (The form defaults
-to Kevin, so only a deliberate change of assignee hits it.)
+to Kevin, so only a deliberate change of assignee hits it.) A contractor
+switched into one of their subcontractors on an old build fares worse: the old
+picker offers only the contractor, and the new backend refuses booking onto
+anyone but the subcontractor — every booking fails until they reload.
 
 And a second reason. Writes now fail closed on a switch that has died — a
-revoked grant, a team move — where they used to ignore switches entirely. The
-Release C banner closes such a switch the moment it sees one. An older build
-only says "you are back in your own account", while every booking and report
-save refuses (`SWITCH_REVOKED`, `SWITCH_TEAM_CHANGED`) until the row's 12 hours
-are up. The escape on an old build is Settings → Profile → Sign out and back
+revoked grant, a team move, or the person switched into being removed — where
+they used to ignore switches entirely. The last one can strand the owner too.
+The Release C banner closes such a switch the moment it sees one. An older
+build only says "you are back in your own account", while every booking and
+report save refuses (`SWITCH_REVOKED`, `SWITCH_TEAM_CHANGED`,
+`SWITCH_TARGET_INACTIVE`) with a misleading message ("check your connection"
+on a report) until the row's 12 hours are up. The escape on an old build is Settings → Profile → Sign out and back
 in: a switch belongs to one sign-in.
 
 The Release C builder also starts sending `base` with each autosave, which the
@@ -154,7 +159,9 @@ What changes for people the moment the backend lands:
   may edit a draft may sign on it, so the owner or a helper can take the
   client's acknowledgement — but a technician's line drawn from someone else's
   sign-in blocks finalising (`HOLDER_MUST_SIGN`) until the holder signs it
-  again themselves.
+  again themselves. An older build shows the generic "could not finalise"
+  for this one too, and retrying never helps: the signature has to be drawn
+  again by the holder.
 - **Two people on one draft keep each other's answers** (frontend). Autosave
   merges per answer instead of replacing the draft; the same answer changed
   two ways says so and asks for a reload. Finalising still sends the
