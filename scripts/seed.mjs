@@ -16,8 +16,8 @@
  *
  * Creates real accounts through the actual sign-up endpoint (there is no
  * other way to get a membership — every table is gated on requireMembership),
- * so this only works against a dev deployment. Safe to run more than once:
- * each run's accounts are unique.
+ * and refuses to run against anything but a dev deployment (see the guard
+ * below). Safe to run more than once: each run's accounts are unique.
  *
  * Deliberately cannot seed: a "Sent" report (needs a real Resend send —
  * `RESEND_API_KEY` isn't set in dev) or an "invoiced" job (no mutation
@@ -32,6 +32,40 @@ if (!CONVEX_URL) {
   console.error('VITE_CONVEX_URL is not set — is `npx convex dev` running?')
   process.exit(1)
 }
+
+/**
+ * A run creates three real accounts and a business, and never cleans up. The
+ * target comes from whichever .env.local happens to be present, and CLAUDE.md
+ * records that a checkout has pointed at the wrong project before — so this
+ * holds the same line `e2e/fixtures.ts` does: production deployments are
+ * refused by name, and anything that isn't a dev deployment by shape.
+ */
+const FORBIDDEN_DEPLOYMENTS = ['rare-retriever-156', 'joyous-otter-223']
+const DEPLOYMENT = process.env.CONVEX_DEPLOYMENT ?? ''
+
+function refuse(message) {
+  console.error(`Refusing to seed: ${message}`)
+  process.exit(1)
+}
+
+for (const name of FORBIDDEN_DEPLOYMENTS) {
+  if (`${DEPLOYMENT} ${CONVEX_URL}`.includes(name)) {
+    refuse(`${name} is production. This script creates real accounts and never removes them.`)
+  }
+}
+// Stricter than the e2e fixtures, which let an unset CONVEX_DEPLOYMENT through:
+// with nothing saying "dev", nothing vouches for VITE_CONVEX_URL either.
+if (!DEPLOYMENT.startsWith('dev:')) {
+  refuse(`CONVEX_DEPLOYMENT is "${DEPLOYMENT}", not a dev deployment. Point .env.local at one first.`)
+}
+// CONVEX_DEPLOYMENT is what says "dev"; VITE_CONVEX_URL is what this script
+// actually writes to. Unless they name the same deployment, the check above
+// vouches for one this script never touches.
+const deploymentName = DEPLOYMENT.slice('dev:'.length)
+if (new URL(CONVEX_URL).hostname.split('.')[0] !== deploymentName) {
+  refuse(`VITE_CONVEX_URL (${CONVEX_URL}) is not ${DEPLOYMENT}.`)
+}
+console.log(`Seeding ${DEPLOYMENT} (${CONVEX_URL}) via ${SITE}`)
 
 const { ConvexHttpClient } = await import('convex/browser')
 const { api } = await import('../convex/_generated/api.js')
@@ -143,6 +177,16 @@ const members = await owner.query(api.memberships.listForBusiness, { businessId 
 const ownerMembershipId = members.find((m) => m.role === 'owner')._id
 const kevinMembership = members.find((m) => m.email === kevinEmail)
 const priyaMembership = members.find((m) => m.email === priyaEmail)
+
+// Terence signs the certificate and the inspection below himself, and
+// `finalise` refuses a regulated report whose holder has no licence of their
+// own on file (`HOLDER_LICENCE_MISSING`). The business's licence set above is
+// the company's; this is the one that prints beside his signature.
+await owner.mutation(api.memberships.setLicence, {
+  businessId,
+  membershipId: ownerMembershipId,
+  licenceNumber: 'TECH-7102',
+})
 
 // Kevin is the senior tech — sees the whole schedule, the closest thing to a
 // "manager" this app's two-role model has. Priya stays scoped to her own day,
@@ -425,6 +469,9 @@ await owner.mutation(api.reports.finalise, {
   templateVersion: FORM_VERSION,
   data: {
     inspectorSignature: { signedAt: Date.now() },
+    // The AS form asks for the date beside the inspector's signature in its
+    // own right, and `finalise` refuses the report without it.
+    inspectorSignedDate: new Date().toISOString().slice(0, 10),
     inspectionDate: new Date().toISOString().slice(0, 10),
     clientAgreesToInspection: 'Yes',
     inspectionTypeWarranty: ['12 Monthly Timber Pest Visual Inspection to maintain Warranty', 'Year 2'],
