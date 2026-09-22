@@ -1,12 +1,13 @@
 # Deploying the owner views
 
-Two releases, and they deploy in **opposite orders**. Getting either one
+Three releases, and they do not all deploy in the same order. Getting one
 backwards breaks something for someone in the field, silently.
 
 | Release | Branch                                      | What it does                                                                                                                                      | Order              |
 | ------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
 | **A**   | `claude/owner-view-switching-access-c170ed` | The owner is on everyone's roster; job forms only offer who you can book; client book open to all; certificates finalised by the person they name | **Frontend first** |
 | **B**   | `claude/owner-view-dropdown` (on top of A)  | The view menu: God view / Just my jobs / someone's account                                                                                        | **Backend first**  |
+| **C**   | `claude/write-as-actor` (on top of B)       | Jobs, series and reports written inside someone's account act as that account, are recorded as on its behalf, and stop at the switch's 12 hours   | **Frontend first** |
 
 Every production command below is prefixed with
 `CONVEX_DEPLOYMENT=prod:rare-retriever-156`. Never pass `--prod` from a
@@ -30,7 +31,7 @@ with `--dry-run` first — it prints the URL.
 1. **Target.** `CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex deploy --dry-run`
    must name `rare-retriever-156`. Anything else — stop.
 2. **Snapshot.**
-   `CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex export --include-file-storage --path ~/pestm8-pre-owner-views-<A|B>.zip`
+   `CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex export --include-file-storage --path ~/pestm8-pre-owner-views-<A|B|C>.zip`
 3. **Vercel is current.** The newest _successful_ Vercel deployment must be
    the tip of `main`. If it lags, fix that first (CLAUDE.md).
 
@@ -86,7 +87,99 @@ row, so nothing about it changes.
    `CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex deploy`
 3. Merge → wait for Vercel.
 
-## After both
+## Release C — frontend first
+
+Function behaviour only: no schema change, no argument changes. Two queries
+gain a field — `memberships.listForBusiness` rows carry `bookable`, and
+`auditLog.forEntity` rows carry `onBehalfOfName` — and the Release C frontend
+reads both as optional. Without `bookable` its pickers fall back to the rule
+the older backend enforces (`canBookOnto`: owner onto anyone, everyone else
+onto themselves), so it is correct against the old backend and the new one.
+
+Why frontend first: the old pickers offer by that older rule on the REAL
+person. Once the backend decides on the account being worked in, an owner
+inside Kevin's account on the old build is still offered everyone, and every
+booking onto anyone but Kevin is refused with a bare error. (The form defaults
+to Kevin, so only a deliberate change of assignee hits it.) A contractor
+switched into one of their subcontractors on an old build fares worse: the old
+picker offers only the contractor, and the new backend refuses booking onto
+anyone but the subcontractor — every booking fails until they reload.
+
+And a second reason. Writes now fail closed on a switch that has died — a
+revoked grant, a team move, or the person switched into being removed — where
+they used to ignore switches entirely. The last one can strand the owner too.
+The Release C banner closes such a switch the moment it sees one. An older
+build only says "you are back in your own account", while every booking and
+report save refuses (`SWITCH_REVOKED`, `SWITCH_TEAM_CHANGED`,
+`SWITCH_TARGET_INACTIVE`) with a misleading message ("check your connection"
+on a report) until the row's 12 hours are up. The escape on an old build is Settings → Profile → Sign out and back
+in: a switch belongs to one sign-in.
+
+The Release C builder also starts sending `base` with each autosave, which the
+production backend has accepted since PR #9, so that half is safe in either
+order.
+
+1. Release B's backend **and** frontend are live (Vercel's newest successful
+   deployment is B's merge commit or later).
+2. **Read-only**, to know what the switch has already written under the old
+   rules — reports it attributed to the owner rather than the account:
+   ```bash
+   CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex run --inline-query \
+     'return (await ctx.db.query("auditLog").collect()).filter(r => r.action === "switch.start").length'
+   ```
+   `0` means nobody has ever switched, and there is nothing to think about.
+   Otherwise, reports the owner wrote while switched stay his (Kevin never
+   sees them); that is unchanged by this release, and nothing rewrites them.
+3. PR green → merge → wait for the Vercel build **of that commit** to go
+   green. Hard-reload the owner's phone.
+4. From `main` itself (precondition 0 must pass),
+   `CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex deploy`
+
+What changes for people the moment the backend lands:
+
+- **Inside someone's account, the owner has that account's reach, not his
+  own.** He books and moves work only onto that person, edits only their jobs,
+  series and drafts, and bins only their drafts. To dispatch anyone else he
+  switches back. The pickers show exactly that.
+- **A report he starts inside Kevin's account is Kevin's**: in Kevin's list,
+  finishable by Kevin, and still editable by the owner while he is in there.
+  It used to be the owner's, and vanished from Kevin's account.
+- **Everything he writes there is on record as done on Kevin's behalf** — an
+  audit row per job/series change and per draft binned or restored, and one
+  per report per switch for its edits. A report's Activity tab reads
+  "Terence, in Kevin's account".
+- **The owner, as himself, may edit anyone's draft** (`canEditReport`'s owner
+  rule; it used to be the author only). The report's Activity tab records it
+  once a day as "Edited by the owner". He may finalise their service reports,
+  but **not a regulated certificate** — timber pest, termite, treatment record
+  or a custom form: only the person whose licence it prints can
+  (`HOLDER_MUST_FINALISE`). A phone on an older build shows the generic "could
+  not finalise" message for that refusal.
+- **A certificate's technician signature must be its holder's own.** Whoever
+  may edit a draft may sign on it, so the owner or a helper can take the
+  client's acknowledgement — but a technician's line drawn from someone else's
+  sign-in blocks finalising (`HOLDER_MUST_SIGN`) until the holder signs it
+  again themselves. An older build shows the generic "could not finalise"
+  for this one too, and retrying never helps: the signature has to be drawn
+  again by the holder.
+- **Two people on one draft keep each other's answers** (frontend). Autosave
+  merges per answer instead of replacing the draft; the same answer changed
+  two ways says so and asks for a reload. Finalising still sends the
+  finaliser's screen whole: **if someone else has edited a draft since you
+  opened it, reload before finalising**, or their changes are overwritten.
+- **Corrections follow the same reach.** Inside someone's account he may
+  correct and reissue that account's finalised reports (`amend` decides on the
+  account being worked in); a regulated certificate among them is still
+  finalised only by its holder (`SWITCHED_REGULATED`, `HOLDER_MUST_FINALISE`,
+  `HOLDER_MUST_SIGN`), and a correction never carries the original's
+  signatures over.
+- **A contractor books onto their own team**, and edits and stops their team's
+  jobs and series. (Previously owner-or-yourself.)
+- **A switch past its 12 hours writes nothing** — booking, editing or filling
+  a report refuses with `SWITCH_EXPIRED` until they switch back or start
+  again. Reads catch up within the hour, when the sweep removes the row.
+
+## After A and B
 
 1. Read-only: the owner has no leftover legacy "view as" selection —
    ```bash
@@ -109,6 +202,14 @@ alone while the Release A backend is live: the old form would preselect the
 now-visible owner for every subcontractor. Rolling the backend back re-hides
 the owner and restores the "can see all clients" toggle's effect, with each
 person's stored value exactly as it was.
+
+**Release C — backend first, then the frontend if needed**, for Release A's
+reason: the Release C frontend works against the older backend by design, but
+the Release B frontend against the Release C backend offers a switched owner
+people the server refuses. Rolling back is safe for the data: a report
+written in someone's account stays authored by that account, and the older
+backend treats it exactly like one they started themselves — theirs to edit,
+nobody else's. The extra audit rows are only rows.
 
 **Release B — clear the views, then redeploy the previous backend.** Release
 A's backend (`85d03a1`, `main` before #13 merged as `27ad9d0`) does not declare

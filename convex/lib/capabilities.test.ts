@@ -145,7 +145,13 @@ describe('the policy table', () => {
   })
 })
 
-describe('who a booking may go onto', () => {
+/**
+ * `canBookOnto` is the rule the job mutations enforced before they moved to
+ * `canDispatchTo`. Nothing server-side reads it now; an assignee picker falls
+ * back to it when the backend it meets sends no `bookable` flag, because that
+ * backend still enforces exactly this. So it must go on meaning what it meant.
+ */
+describe('who a booking could go onto, on a backend from before canDispatchTo', () => {
   test('the owner books anyone, himself included', () => {
     for (const assignee of [OWNER, CONTRACTOR, KEVIN, PRIYA]) {
       expect(canBookOnto(owner(), assignee)).toBe(true)
@@ -161,7 +167,7 @@ describe('who a booking may go onto', () => {
     expect(canBookOnto(sub(), CONTRACTOR)).toBe(false)
   })
 
-  test('a contractor is held to the same rule the mutations still enforce, not to canDispatchTo', () => {
+  test('a contractor was held to owner-or-yourself there, where canDispatchTo gives them their team', () => {
     const priya = member(PRIYA, 'subcontractor', {
       parentMembershipId: CONTRACTOR,
     })
@@ -517,6 +523,42 @@ describe('finalising a compliance document', () => {
       0,
     )
     expect(decision).toEqual({ ok: true })
+  })
+
+  /**
+   * The owner may edit anyone's draft from his own account, and that is not
+   * switched — so "not switched" cannot be the whole rule, or he signs Kevin's
+   * certificate over Kevin's licence without Kevin pressing anything.
+   */
+  test('the owner, as himself, cannot sign a certificate that is not his', () => {
+    expect(
+      canFinaliseReport(self(owner()), regulated, { holder: sub() }, 0),
+    ).toEqual({ ok: false, reason: 'HOLDER_MUST_FINALISE' })
+    // Ordinary paperwork he may finish for them.
+    expect(
+      canFinaliseReport(self(owner()), internal, { holder: sub() }, 0),
+    ).toEqual({ ok: true })
+  })
+
+  test('nor may anyone else’s hand sign it for them', () => {
+    // Kevin presses the button, but the technician's signature on the
+    // certificate was captured by the owner.
+    expect(
+      canFinaliseReport(
+        self(sub()),
+        regulated,
+        { holder: sub(), named: [sub()], signedBy: [OWNER] },
+        0,
+      ),
+    ).toEqual({ ok: false, reason: 'HOLDER_MUST_SIGN' })
+    expect(
+      canFinaliseReport(
+        self(sub()),
+        regulated,
+        { holder: sub(), named: [sub()], signedBy: [KEVIN] },
+        0,
+      ),
+    ).toEqual({ ok: true })
   })
 
   test('an internal report can still be finalised while switched', () => {

@@ -356,6 +356,8 @@ function LogsPanel({
 }
 
 const ACTION_LABEL: Record<string, string> = {
+  'report.create': 'Started',
+  'report.edit': 'Edited',
   'report.finalise': 'Finalised',
   'report.email.sent': 'Emailed',
   'report.email.failed': 'Email failed',
@@ -375,6 +377,9 @@ function LogRow({
     at: number
     actorName?: string
     actorColour?: string
+    /** The account it was done in, when that was not the actor's own.
+     * Absent from a backend older than switching's audit rows. */
+    onBehalfOfName?: string
   }
 }) {
   const meta = (entry.meta ?? {}) as { to?: string | Array<string>; detail?: string }
@@ -397,7 +402,11 @@ function LogRow({
         <p className="text-caption text-muted">
           {/* Who, not just what: "Emailed" beside a colour dot tells an owner
               nothing, and who did it is the question a history answers. */}
-          {entry.actorName ? `${entry.actorName} · ` : ''}
+          {entry.actorName
+            ? entry.onBehalfOfName
+              ? `${entry.actorName}, in ${entry.onBehalfOfName}’s account · `
+              : `${entry.actorName} · `
+            : ''}
           {new Intl.DateTimeFormat('en-AU', {
             dateStyle: 'medium',
             timeStyle: 'short',

@@ -309,7 +309,7 @@ test('a job can be marked completed, cancelled, and reopened as booked', async (
 
   // An ACTIVE member of this business who simply isn't the assignee cannot
   // change the job's status. This is the row that exercises canEditJob; an
-  // outsider would be turned away by requireMembership long before it.
+  // outsider would be turned away by requireWriteActor long before it.
   await expectRejected(
     () =>
       s.sub.client.mutation(api.jobs.update, {

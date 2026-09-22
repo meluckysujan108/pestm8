@@ -49,6 +49,7 @@ import { useHydrated } from '#/lib/useHydrated'
 import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { useAutosave } from '#/lib/useAutosave'
 import { forgetDraft, recallDraft, rememberDraft } from '#/lib/draftMirror'
+import { draftToSend } from '#/lib/draftSync'
 import type { MirroredDraft } from '#/lib/draftMirror'
 import { Sheet } from '#/components/primitives/Sheet'
 
@@ -310,6 +311,7 @@ export function ReportBuilder({
       businessId: Id<'businesses'>
       reportId: Id<'reports'>
       data: unknown
+      base?: unknown
       templateVersion?: number
     }) => convexSave(args),
   })
@@ -387,19 +389,65 @@ export function ReportBuilder({
     }
   }, [hydrated, reportId])
 
+  /**
+   * The answers as this editor last knew the server to hold them: exactly what
+   * it opened with (`initialData` is the stored draft), then whatever it last
+   * sent.
+   *
+   * Sent with every save as `base`, which turns the server's wholesale replace
+   * into a merge per answer (`mergeDraft`). A draft can have two editors — its
+   * writer, and someone working in their account or the owner — and this
+   * builder never re-reads the answers once open. Replacing wholesale, a phone
+   * left open on the draft since the morning would put back every answer
+   * someone else has changed since, the moment its holder typed one letter.
+   * Merged, it writes only what was changed here.
+   *
+   * It must be the SERVER's copy, not the padded form. Seeded from the form,
+   * every placeholder `seedData` adds ('' for text, today's date, areas marked
+   * inspected) read to the server as a change on its side — `undefined` is not
+   * `''` — so the first answer typed into any new report was refused as a clash
+   * with nobody, and never saved. `draftToSend` keeps those placeholders out
+   * of what is sent instead, using `seededRef` to know them.
+   */
+  const baseRef = useRef<Record<string, unknown>>(initialData)
+  /** What the form padded the draft with when it opened. */
+  const seededRef = useRef<Record<string, unknown> | null>(null)
+  if (seededRef.current === null) seededRef.current = submittable()
+  /** The same answer changed here and by someone else — the one clash a merge
+   * cannot settle, and a person has to. */
+  const [clashed, setClashed] = useState(false)
+
   const autosave = useAutosave({
     value: submittable(),
     // A locked report has nothing to save, and neither does one still hydrating.
     enabled: hydrated && !finalise.isSuccess,
     // The revision this builder is rendering travels with every write, so a
     // server holding a newer form refuses answers shaped for an older one.
-    save: (payload) =>
-      save.mutateAsync({
-        businessId,
-        reportId,
-        data: payload,
-        templateVersion: template.version,
-      }),
+    save: async (payload) => {
+      const sent = draftToSend(
+        payload,
+        seededRef.current ?? {},
+        baseRef.current,
+      )
+      try {
+        await save.mutateAsync({
+          businessId,
+          reportId,
+          data: sent,
+          base: baseRef.current,
+          templateVersion: template.version,
+        })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        if (message.includes('DRAFT_CONFLICT')) setClashed(true)
+        throw error
+      }
+      // What the server holds now, for every answer this editor has seen: the
+      // merge wrote exactly `sent` over the keys it covers, and removed the
+      // ones `base` had that `sent` no longer does.
+      baseRef.current = sent
+      setClashed(false)
+    },
     // §5.5: there is still no offline mutation queue. This is a copy of the
     // answers on the device that typed them, so a tab iOS kills mid-save is
     // recoverable — not a sync.
@@ -819,8 +867,9 @@ export function ReportBuilder({
             role="alert"
             className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
           >
-            Not saved — check your connection, then tap Retry. Your answers are
-            still on this device until you leave the page.
+            {clashed
+              ? 'Not saved — someone else changed the same answer while you were editing. Reload to see what they wrote; this device keeps your answers and offers them back.'
+              : 'Not saved — check your connection, then tap Retry. Your answers are still on this device until you leave the page.'}
           </p>
         )}
 
@@ -1147,6 +1196,12 @@ function finaliseError(
     return isCorrection
       ? 'This correction names someone else — as technician, inspector or installer — and only they can finalise a certificate in their name. Name yourself in each of those, or delete this draft so they can correct it themselves.'
       : 'This certificate names someone else — as technician, inspector or installer — and only they can finalise a certificate in their name. Name yourself in each of those, or ask them to write it.'
+  }
+  if (message.includes('HOLDER_MUST_SIGN')) {
+    return 'The technician’s signature on this certificate was drawn from someone else’s sign-in. Sign it again yourself, then finalise.'
+  }
+  if (message.includes('HOLDER_MUST_FINALISE')) {
+    return 'This is a regulated document, so only the person whose licence it carries can finalise it. Ask them to sign it from their own account.'
   }
   if (message.includes('SWITCHED_REGULATED')) {
     return 'This is a regulated document, so it has to be finalised by the licence holder themselves. Switch back to your own account and ask them to sign it.'

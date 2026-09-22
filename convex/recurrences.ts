@@ -1,19 +1,20 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
-import {
-  canEditJob,
-  requireAssignableMember,
-  requireMembership,
-} from './lib/access'
 import { allocateJobNumber } from './jobs'
-import { requireActor } from './lib/actor'
-import { canBookOnto, isInScope } from './lib/capabilities'
+import { requireActor, requireWriteActor } from './lib/actor'
+import { recordOnBehalf } from './lib/audit'
+import { isInScope, writeAttribution } from './lib/capabilities'
+import {
+  mayEditJob,
+  requireBookable,
+  requireEditableJob,
+} from './lib/jobAccess'
 import { redactJob } from './lib/prices'
 import { clientNameOf, newClientFields, resolvePropertyId } from './properties'
 import { frequency } from './schema'
+import type { WriteEnvelope } from './lib/actor'
 import type { MutationCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
-import type { Membership } from './lib/access'
 
 /** How far ahead occurrences are created. Long enough to plan a quarter. */
 const HORIZON_DAYS = 180
@@ -101,18 +102,11 @@ export const create = mutation({
     ctx,
     { propertyId: existingPropertyId, newClient, ...args },
   ) => {
-    const membership = await requireMembership(ctx, args.businessId)
+    const env = await requireWriteActor(ctx, args.businessId)
 
-    // Same rule as jobs.create: only an owner books someone else's calendar.
-    if (!canBookOnto(membership, args.assignedMembershipId)) {
-      throw new ConvexError('NO_ACCESS')
-    }
-
-    await requireAssignableMember(
-      ctx,
-      args.businessId,
-      args.assignedMembershipId,
-    )
+    // Same rule as jobs.create, and it matters more here: the daily cron keeps
+    // booking a series onto its assignee for as long as it runs.
+    await requireBookable(ctx, env, args.businessId, args.assignedMembershipId)
 
     const propertyId = await resolvePropertyId(ctx, args.businessId, {
       propertyId: existingPropertyId,
@@ -131,9 +125,47 @@ export const create = mutation({
     })
 
     await materialiseOne(ctx, recurrenceId, args.durationMinutes)
+    await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.create', {
+      assignedMembershipId: args.assignedMembershipId,
+    })
     return recurrenceId
   },
 })
+
+/**
+ * A series changed inside someone else's account, on that account's record.
+ * Nothing when the writer was working as themselves — see `recordOnBehalf`.
+ */
+async function recordSeriesWrite(
+  ctx: MutationCtx,
+  env: WriteEnvelope,
+  recurrenceId: Id<'recurrences'>,
+  action: string,
+  meta?: unknown,
+) {
+  await recordOnBehalf(ctx, writeAttribution(env.actor), {
+    businessId: env.actor.real.businessId,
+    action,
+    entityType: 'recurrences',
+    entityId: recurrenceId,
+    meta,
+  })
+}
+
+/**
+ * Authority over a whole series: whoever may edit work assigned to its
+ * assignee — the owner, the assignee, their contractor — asked of the acting
+ * account like every other write here.
+ */
+async function requireEditableSeries(
+  ctx: MutationCtx,
+  env: WriteEnvelope,
+  recurrence: Doc<'recurrences'>,
+) {
+  if (!(await mayEditJob(ctx, env.actor, recurrence))) {
+    throw new ConvexError('NO_ACCESS')
+  }
+}
 
 export const setActive = mutation({
   args: {
@@ -142,20 +174,18 @@ export const setActive = mutation({
     active: v.boolean(),
   },
   handler: async (ctx, { businessId, recurrenceId, active }) => {
-    const membership = await requireMembership(ctx, businessId)
+    const env = await requireWriteActor(ctx, businessId)
 
     const recurrence = await ctx.db.get(recurrenceId)
     if (!recurrence || recurrence.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
-    if (
-      membership.role !== 'owner' &&
-      recurrence.assignedMembershipId !== membership._id
-    ) {
-      throw new ConvexError('NO_ACCESS')
-    }
+    await requireEditableSeries(ctx, env, recurrence)
 
     await ctx.db.patch(recurrenceId, { active })
+    await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.setActive', {
+      active,
+    })
 
     // Stopping a recurrence removes work not yet done; anything already
     // completed or invoiced is history and stays untouched.
@@ -248,7 +278,7 @@ export const materialiseAll = internalMutation({
 export const materialise = mutation({
   args: { businessId: v.id('businesses'), recurrenceId: v.id('recurrences') },
   handler: async (ctx, { businessId, recurrenceId }) => {
-    await requireMembership(ctx, businessId)
+    await requireWriteActor(ctx, businessId)
 
     const recurrence = await ctx.db.get(recurrenceId)
     if (!recurrence || recurrence.businessId !== businessId) {
@@ -257,27 +287,6 @@ export const materialise = mutation({
     return materialiseOne(ctx, recurrenceId)
   },
 })
-
-/**
- * Same shape as `jobs.ts`'s own private `requireEditableJob` (kept as its own
- * copy rather than exported, the same way `reports.ts` keeps its own
- * `requireEditableReport`) — resolve membership, load the job, confirm
- * tenancy, and require owner-or-assignee before either mutation below may
- * touch a job's recurring status.
- */
-async function requireEditableJob(
-  ctx: MutationCtx,
-  businessId: Id<'businesses'>,
-  jobId: Id<'jobs'>,
-): Promise<{ membership: Membership; job: Doc<'jobs'> }> {
-  const membership = await requireMembership(ctx, businessId)
-
-  const job = await ctx.db.get(jobId)
-  if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
-  if (!canEditJob(membership, job)) throw new ConvexError('NO_ACCESS')
-
-  return { membership, job }
-}
 
 /**
  * Turns an existing one-off job into the first booking of a new recurring
@@ -293,7 +302,7 @@ export const convertJobToRecurring = mutation({
     frequency,
   },
   handler: async (ctx, { businessId, jobId, frequency: freq }) => {
-    const { job } = await requireEditableJob(ctx, businessId, jobId)
+    const { env, job } = await requireEditableJob(ctx, businessId, jobId)
 
     if (job.recurrenceId) {
       const existing = await ctx.db.get(job.recurrenceId)
@@ -317,6 +326,9 @@ export const convertJobToRecurring = mutation({
     await ctx.db.patch(jobId, { recurrenceId })
 
     await materialiseOne(ctx, recurrenceId, job.durationMinutes)
+    await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.convert', {
+      jobId,
+    })
 
     return recurrenceId
   },
@@ -334,7 +346,7 @@ export const convertJobToRecurring = mutation({
 export const stopFromJob = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
-    const { job } = await requireEditableJob(ctx, businessId, jobId)
+    const { env, job } = await requireEditableJob(ctx, businessId, jobId)
     if (!job.recurrenceId) throw new ConvexError('NOT_RECURRING')
 
     const recurrenceId = job.recurrenceId
@@ -347,13 +359,7 @@ export const stopFromJob = mutation({
     // This checked only the job's own assignee, so a subcontractor given a
     // single visit could end the owner's quarterly contract and wipe every
     // remaining booking on it.
-    const membership = await requireMembership(ctx, businessId)
-    if (
-      membership.role !== 'owner' &&
-      recurrence.assignedMembershipId !== membership._id
-    ) {
-      throw new ConvexError('NO_ACCESS')
-    }
+    await requireEditableSeries(ctx, env, recurrence)
 
     await ctx.db.patch(jobId, { recurrenceId: undefined })
     await ctx.db.patch(recurrenceId, { active: false })
@@ -371,5 +377,8 @@ export const stopFromJob = mutation({
         await ctx.db.patch(sibling._id, { status: 'cancelled' })
       }
     }
+    await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.stop', {
+      keptJobId: jobId,
+    })
   },
 })
