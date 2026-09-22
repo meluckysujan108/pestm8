@@ -87,6 +87,7 @@ export function ReportBuilder({
   businessName,
   authorLicence,
   onFinalised,
+  isCorrection = false,
 }: {
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
@@ -114,6 +115,9 @@ export function ReportBuilder({
   businessName: string
   authorLicence?: string
   onFinalised: () => void
+  /** A correction of a finalised report (`supersedesReportId`), which changes
+   * how to get unstuck when it cannot be finalised. */
+  isCorrection?: boolean
 }) {
   // Memoised: with a business's own option lists applied, resolution builds a
   // new template object, and a new object every render would re-render every
@@ -829,7 +833,7 @@ export function ReportBuilder({
             role="alert"
             className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
           >
-            {finaliseError(finalise.error)}
+            {finaliseError(finalise.error, { isCorrection })}
           </p>
         )}
         {Object.keys(errors).length > 0 && !blocked && (
@@ -1122,7 +1126,10 @@ function QuickAnswer({
  * The licence cases name the fix, because the fix is not something they can do
  * from this screen and they need to know who to ask.
  */
-function finaliseError(error: unknown) {
+function finaliseError(
+  error: unknown,
+  { isCorrection }: { isCorrection: boolean },
+) {
   const message = error instanceof Error ? error.message : String(error)
 
   if (message.includes('HOLDER_LICENCE_MISSING')) {
@@ -1132,7 +1139,14 @@ function finaliseError(error: unknown) {
     return 'The licence on this account has expired. Ask the owner to update it in Settings → Team, then finalise again.'
   }
   if (message.includes('TECHNICIAN_NOT_SIGNER')) {
-    return 'This certificate names someone else — as technician, inspector or installer — and only they can finalise a certificate in their name. Name yourself in each of those, or ask them to write it.'
+    // A correction copies the original's answers, names included, onto a
+    // draft written by whoever pressed Correct — typically the owner fixing a
+    // technician's certificate. "Ask them to write it" is a dead end there:
+    // they cannot open a correction while this one exists. Deleting it is what
+    // lets them start their own.
+    return isCorrection
+      ? 'This correction names someone else — as technician, inspector or installer — and only they can finalise a certificate in their name. Name yourself in each of those, or delete this draft so they can correct it themselves.'
+      : 'This certificate names someone else — as technician, inspector or installer — and only they can finalise a certificate in their name. Name yourself in each of those, or ask them to write it.'
   }
   if (message.includes('SWITCHED_REGULATED')) {
     return 'This is a regulated document, so it has to be finalised by the licence holder themselves. Switch back to your own account and ask them to sign it.'
