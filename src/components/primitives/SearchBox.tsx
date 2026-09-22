@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import { Search, X } from 'lucide-react'
+import { recordSend, settleEcho, settlesAt } from './searchEcho'
 
 /**
  * A search field whose typing is instant and whose QUERY is not.
@@ -11,6 +12,14 @@ import { Search, X } from 'lucide-react'
  *
  * Lifted out of `NotesLibrary` when the reports library needed the same
  * thing. The only difference between the two was the word in the placeholder.
+ *
+ * `value` is usually the URL, so it arrives late: a term handed to `onChange`
+ * comes back only once its navigation commits, by which time more may have
+ * been typed. This box used to take that echo for an outside change and put
+ * the older term back — type "wat", pause, carry on while that navigation was
+ * still out, and "wattle" came back as "wat". So terms it sent are remembered
+ * until they come back (./searchEcho.ts), and only a value it did NOT send (a
+ * filter cleared elsewhere, the back button) replaces the draft.
  */
 export function SearchBox({
   value,
@@ -25,12 +34,26 @@ export function SearchBox({
   placeholder?: string
 }) {
   const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
+  // Sent, oldest first, and not yet echoed back through `value`.
+  const unechoed = useRef<Array<string>>([])
+
+  function send(term: string) {
+    unechoed.current = recordSend(unechoed.current, term, value)
+    onChange(term)
+  }
+  const sendLater = useEffectEvent(send)
+
   useEffect(() => {
-    if (draft === value) return
-    const timer = setTimeout(() => onChange(draft), 250)
+    const settled = settleEcho(unechoed.current, value)
+    unechoed.current = settled.unechoed
+    if (settled.adopt) setDraft(value)
+  }, [value])
+
+  useEffect(() => {
+    if (draft === settlesAt(unechoed.current, value)) return
+    const timer = setTimeout(() => sendLater(draft), 250)
     return () => clearTimeout(timer)
-  }, [draft, value, onChange])
+  }, [draft, value])
 
   return (
     <label className="flex h-10 flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
@@ -49,7 +72,7 @@ export function SearchBox({
           aria-label="Clear search"
           onClick={() => {
             setDraft('')
-            onChange('')
+            send('')
           }}
           className="flex size-5 items-center justify-center rounded-full bg-muted-2/40 text-white"
         >
