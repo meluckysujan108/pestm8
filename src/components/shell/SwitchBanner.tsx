@@ -52,7 +52,19 @@ export function SwitchBanner({ businessId }: { businessId: Id<'businesses'> }) {
     void convexStop({ businessId })
   }, [degraded, businessId, convexStop])
 
-  const reason = degraded ?? ended
+  /**
+   * A live switch outranks the notice. The notice waits for OK, and if they
+   * start another switch first, "you are back in your own account" would sit
+   * over a session writing in someone else's — the one thing this banner must
+   * never say wrongly. Starting one also retires the notice, so it cannot
+   * resurface out of context when that switch ends.
+   */
+  const acting = access.actingAs !== null
+  useEffect(() => {
+    if (acting) setEnded(null)
+  }, [acting])
+
+  const reason = degraded ?? (acting ? null : ended)
   if (reason) {
     return (
       <div className="flex items-center justify-between gap-2 border-b border-hairline bg-surface-2 px-4 py-2">
