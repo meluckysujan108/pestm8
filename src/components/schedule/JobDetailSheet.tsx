@@ -40,16 +40,32 @@ import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dat
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { RepeatValue } from '#/lib/format'
 
-type SettableStatus = 'booked' | 'inProgress' | 'completed' | 'cancelled'
+type SettableStatus =
+  | 'pending'
+  | 'booked'
+  | 'completed'
+  | 'invoiced'
+  | 'cancelled'
 
-// "Invoiced" is deliberately excluded — no mutation can put a job there yet
-// (invoicing/Xero isn't built).
+// "Recurring" is excluded for good: only the recurrence engine creates it, the
+// server refuses it from anyone, and a job that leaves it can never return
+// (convex/lib/jobStatus.ts). A recurring job still opens this menu — its pill
+// says Recurring, and every choice here moves it out.
 const STATUS_MENU_LABEL: Record<SettableStatus, string> = {
+  pending: 'Pending',
   booked: 'Booked',
-  inProgress: 'In Progress',
   completed: 'Completed',
+  invoiced: 'Invoiced',
   cancelled: 'Cancelled',
 }
+
+const STATUS_MENU: ReadonlyArray<SettableStatus> = [
+  'pending',
+  'booked',
+  'completed',
+  'invoiced',
+  'cancelled',
+]
 
 export function JobDetailSheet({
   businessId,
@@ -144,20 +160,23 @@ function JobDetailBody({
     onSuccess: () => setConfirmStopRepeatingOpen(false),
   })
 
-  // Sets any non-terminal, non-confirmed status — booked or in-progress —
-  // via the generic patch mutation. `complete`/`cancel` stay separate above
+  // Sets any status without a dedicated mutation — pending, booked or
+  // invoiced — via the generic patch mutation. `complete`/`cancel` stay separate above
   // since they're dedicated mutations with their own semantics.
   const convexUpdate = useConvexMutation(api.jobs.update)
   const setStatus = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
       jobId: Id<'jobs'>
-      status: 'booked' | 'inProgress'
+      status: 'pending' | 'booked' | 'invoiced'
     }) => convexUpdate(args),
   })
 
   function selectStatus(next: SettableStatus) {
     if (!job || next === job.status) return
+    // A refusal belongs to the choice that caused it, not the next one.
+    complete.reset()
+    setStatus.reset()
     if (next === 'cancelled') {
       // Cancelling is the one destructive-feeling choice here — the only
       // one that gets a confirmation, not the others.
@@ -210,10 +229,10 @@ function JobDetailBody({
             <>
               <div className="mt-2 flex items-center gap-2">
                 {/* Read access can be granted without edit rights, so the menu
-                    is driven by the server's canEdit, not by role. Invoiced has
-                    no mutation to leave it — that feature doesn't exist yet — so
-                    the pill is just a label there, not a trigger. */}
-                {job.canEdit && job.status !== 'invoiced' ? (
+                    is driven by the server's canEdit, not by role. An invoiced
+                    job keeps its menu: moving it back out is how its details
+                    reopen for editing. */}
+                {job.canEdit ? (
                   <DropdownMenu.Root>
                     <DropdownMenu.Trigger asChild>
                       <button
@@ -231,7 +250,7 @@ function JobDetailBody({
                         sideOffset={6}
                         className="z-50 w-48 rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
                       >
-                        {(['booked', 'inProgress', 'completed', 'cancelled'] as const).map((option) => (
+                        {STATUS_MENU.map((option) => (
                           <DropdownMenu.Item
                             key={option}
                             onSelect={() => selectStatus(option)}
@@ -266,6 +285,16 @@ function JobDetailBody({
                   {complete.error.message.includes('REPORT_REQUIRED')
                     ? 'Finalise this job’s report first — your business asks for one before a job is marked complete.'
                     : 'Could not mark this job complete.'}
+                </p>
+              )}
+              {setStatus.isError && (
+                <p
+                  role="alert"
+                  className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+                >
+                  {setStatus.error.message.includes('REPORT_REQUIRED')
+                    ? 'Finalise this job’s report first — your business asks for one before a job is marked invoiced.'
+                    : 'Could not change this job’s status.'}
                 </p>
               )}
 
@@ -378,7 +407,8 @@ function JobDetailBody({
           )}
           {job.status === 'invoiced' && (
             <p className="mt-6 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-muted">
-              This job has been invoiced and can no longer be reopened here.
+              This job has been invoiced, so its details are locked. Change
+              its status to edit them.
             </p>
           )}
 

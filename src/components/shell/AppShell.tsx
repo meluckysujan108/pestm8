@@ -7,6 +7,7 @@ import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -18,7 +19,7 @@ import {
 } from '#/components/ui/sidebar.tsx'
 import { BusinessSwitcher } from './BusinessSwitcher'
 import { MobileDock } from './MobileDock'
-import { NAV_ITEMS, SETTINGS_ITEM } from './navItems'
+import { MORE_NAV, PRIMARY_NAV, SETTINGS_ITEM } from './navItems'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
 
@@ -82,7 +83,7 @@ export function AppShell({
           <nav aria-label="Primary" className="flex min-h-0 flex-1 flex-col">
             <SidebarGroup>
               <SidebarMenu>
-                {NAV_ITEMS.map((item) => (
+                {PRIMARY_NAV.map((item) => (
                   <SidebarMenuItem key={item.to}>
                     <SidebarMenuButton asChild tooltip={item.label}>
                       <Link
@@ -99,6 +100,30 @@ export function AppShell({
                         {unread >= 10 ? '9+' : unread}
                       </SidebarMenuBadge>
                     )}
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+
+            {/* What the phone hides behind its burger. A sidebar has the room
+                to show them, so it does: the grouping is the same statement
+                about which sections are daily ones, without making a desktop
+                user open a menu to reach Analytics. */}
+            <SidebarGroup>
+              <SidebarGroupLabel>More</SidebarGroupLabel>
+              <SidebarMenu>
+                {MORE_NAV.map((item) => (
+                  <SidebarMenuItem key={item.to}>
+                    <SidebarMenuButton asChild tooltip={item.label}>
+                      <Link
+                        to={item.to}
+                        params={{ businessSlug: business.slug }}
+                        activeProps={{ 'data-active': 'true' }}
+                      >
+                        <item.icon size={20} strokeWidth={1.7} />
+                        <span>{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>

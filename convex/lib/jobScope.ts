@@ -85,6 +85,57 @@ export async function jobsInScope(
 }
 
 /**
+ * The newest `limit` jobs in scope, most recently created first.
+ *
+ * Same shape as `jobsInScope` and the same reasoning about indexes — one
+ * indexed scan per member of a team rather than a whole-tenant read — but
+ * ordered by creation rather than by `scheduledAt`, which is what the Job tab
+ * lists by. Bounded on purpose: a business's jobs grow fastest of anything in
+ * the app, since every recurring series projects six months of them.
+ */
+export async function jobsNewestFirst(
+  ctx: QueryCtx,
+  scope: RowScope,
+  opts: { businessId: Id<'businesses'>; limit: number },
+): Promise<Array<Doc<'jobs'>>> {
+  const { businessId, limit } = opts
+
+  if (scope.kind === 'business') {
+    return ctx.db
+      .query('jobs')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .order('desc')
+      .take(limit)
+  }
+
+  const ids =
+    scope.kind === 'own' ? [scope.membershipId] : [...scope.membershipIds]
+
+  const perMember = await Promise.all(
+    ids.map((membershipId) =>
+      ctx.db
+        .query('jobs')
+        .withIndex('by_assignee', (q) =>
+          q.eq('assignedMembershipId', membershipId),
+        )
+        .order('desc')
+        // The true newest `limit` across a team can all belong to one person.
+        .take(limit),
+    ),
+  )
+
+  if (ids.length === 1) return (perMember[0] ?? []).slice(0, limit)
+
+  // The index is per assignee, not per business: someone who works for two
+  // businesses must not see the other one's jobs in this business's list.
+  return perMember
+    .flat()
+    .filter((job) => job.businessId === businessId)
+    .sort((a, b) => b._creationTime - a._creationTime)
+    .slice(0, limit)
+}
+
+/**
  * The same decision for a job already loaded — a deep link, a note's job, a
  * property's history. Returns null rather than throwing at the call sites that
  * must not distinguish "not yours" from "does not exist": a subcontractor who

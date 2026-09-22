@@ -9,9 +9,17 @@ import {
   withClient,
 } from './properties'
 import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
+import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
-import { jobsInScope } from './lib/jobScope'
+import { jobsInScope, jobsNewestFirst } from './lib/jobScope'
+import {
+  assertStatusChange,
+  entersDone,
+  initialJobStatus,
+  orderForDay,
+  setJobStatus,
+} from './lib/jobStatus'
 import { hidePrices, redactJob } from './lib/prices'
 import type { RowScope } from './lib/capabilities'
 import type { ActorEnvelope, WriteEnvelope } from './lib/actor'
@@ -93,9 +101,9 @@ async function decorate(
         const assignee = await ctx.db.get(job.assignedMembershipId)
         return {
           ...redactJob(env.caps, job),
-          // The board-variant card shows the full street address; the compact
-          // list variant still shows suburb alone, per §2.3's reasoning that
-          // scanning a day wants the suburb.
+          // The job card shows the full street address; the table row shows
+          // the suburb alone, per §2.3's reasoning that scanning a day wants
+          // the suburb.
           addressLine: property?.addressLine ?? '',
           suburb: property?.suburb ?? '',
           postcode: property?.postcode ?? '',
@@ -122,11 +130,52 @@ export const listDay = query({
     const from = startOfDayInZone(dayKey, business.timezone)
     const to = endOfDayInZone(dayKey, business.timezone)
 
-    return decorate(
-      ctx,
-      env,
-      await jobsInRange(ctx, env.listScope, businessId, from, to),
+    // Completed work sinks to the bottom of the day (lib/jobStatus.ts), so
+    // the card that moves when a job is finished moves for every viewer at
+    // once — the card and table views both render this order as given.
+    return orderForDay(
+      await decorate(
+        ctx,
+        env,
+        await jobsInRange(ctx, env.listScope, businessId, from, to),
+      ),
     )
+  },
+})
+
+/**
+ * How many jobs the Job tab holds. Bounded because jobs are the fastest-growing
+ * table in the app — one recurring series projects six months of them — and a
+ * list nobody scrolls to the end of does not need to be complete. The page says
+ * so when it is showing a capped list.
+ */
+const JOB_LIST_LIMIT = 200
+
+/**
+ * The Job tab's list: every job in scope, most recently booked first, whatever
+ * its status and whatever day it is on. Cancelled jobs are included — the
+ * status filter is the reader's to set, and a list that silently omits them
+ * would make "Cancelled" an empty filter.
+ */
+export const list = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const env = await requireActor(ctx, businessId)
+
+    // One more than the limit, so "there are more" needs no second query.
+    const found = await jobsNewestFirst(ctx, env.listScope, {
+      businessId,
+      limit: JOB_LIST_LIMIT + 1,
+    })
+    const jobs = await decorate(ctx, env, found.slice(0, JOB_LIST_LIMIT))
+
+    return {
+      // `decorate` orders a day's work by start time; this list is read the
+      // other way round — newest first, so a job just booked is at the top.
+      jobs: jobs.sort((a, b) => b._creationTime - a._creationTime),
+      capped: found.length > JOB_LIST_LIMIT,
+      limit: JOB_LIST_LIMIT,
+    }
   },
 })
 
@@ -382,7 +431,7 @@ export const create = mutation({
       ...args,
       price,
       propertyId,
-      status: 'booked',
+      status: initialJobStatus('manual'),
       createdAt: Date.now(),
       jobNumber,
     })
@@ -428,17 +477,13 @@ export const update = mutation({
     scheduledAt: v.optional(v.number()),
     durationMinutes: v.optional(v.number()),
     assignedMembershipId: v.optional(v.id('memberships')),
-    // Deliberately not `jobStatus`: 'invoiced' is set by the invoicing flow
-    // (ARCHITECTURE.md §4.5), never by an edit. Any assignee could previously
-    // mark their own job invoiced and move the owner's revenue figures.
-    status: v.optional(
-      v.union(
-        v.literal('booked'),
-        v.literal('inProgress'),
-        v.literal('completed'),
-        v.literal('cancelled'),
-      ),
-    ),
+    // Deliberately not `jobStatus`: 'recurring' is system-only
+    // (lib/jobStatus.ts), refused here at the door so a client that sends it
+    // fails argument validation before any handler code runs.
+    // `assertStatusChange` below repeats the rule for the day this is widened
+    // by mistake. 'invoiced' is an ordinary choice for whoever may edit the
+    // job — the owner's decision, 2026-09-22.
+    status: v.optional(settableJobStatus),
   },
   handler: async (ctx, { businessId, jobId, ...patch }) => {
     const { env, job } = await requireEditableJob(ctx, businessId, jobId)
@@ -454,10 +499,18 @@ export const update = mutation({
       await requireBookable(ctx, env, businessId, patch.assignedMembershipId)
     }
 
-    // An invoiced job is a billed job. Letting anyone with write access move it
-    // back to booked, re-price it or reschedule it silently contradicts an
-    // invoice that has already gone out.
-    if (job.status === 'invoiced') throw new ConvexError('JOB_INVOICED')
+    if (patch.status !== undefined) assertStatusChange(job.status, patch.status)
+
+    // An invoiced job is a billed job: re-pricing, rescheduling or moving it
+    // silently contradicts an invoice that has already gone out. Its STATUS is
+    // an ordinary choice like any other, so a status-only change still passes
+    // — moving it back out of invoiced is how its details are reopened.
+    const touchesDetails = Object.entries(
+      patch as Record<string, unknown>,
+    ).some(([field, value]) => field !== 'status' && value !== undefined)
+    if (job.status === 'invoiced' && touchesDetails) {
+      throw new ConvexError('JOB_INVOICED')
+    }
 
     // Same tenant check `create` already performs — a job can be corrected
     // to a different address, never moved to another business's property.
@@ -485,18 +538,11 @@ export const update = mutation({
      */
     if (hidePrices(env.caps)) delete fields.price
 
-    // The first time a job says work has begun, record when. A report started
-    // from this job prints that as its start time, instead of the technician
-    // remembering it an hour later. Stamped once: a job bounced back to
-    // `inProgress` after a pause still began when it began.
-    if (patch.status === 'inProgress' && job.startedAt === undefined) {
-      fields.startedAt = Date.now()
-    }
-
-    // `update` can set a job complete too, so the business's "not done until
-    // its report is" policy has to be asked here as well as in `complete` —
-    // otherwise the policy is a button the status menu walks straight past.
-    if (patch.status === 'completed' && job.status !== 'completed') {
+    // `update` can finish a job too — as Completed or straight to Invoiced —
+    // so the business's "not done until its report is" policy has to be asked
+    // here as well as in `complete`; otherwise the policy is a button the
+    // status menu walks straight past.
+    if (patch.status !== undefined && entersDone(job.status, patch.status)) {
       await assertReportIssued(ctx, job)
     }
 
@@ -513,8 +559,10 @@ export const complete = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
     const { env, job } = await requireEditableJob(ctx, businessId, jobId)
-    await assertReportIssued(ctx, job)
-    await ctx.db.patch(jobId, { status: 'completed', completedAt: Date.now() })
+    // Asked on the way into finished work only: an invoiced job moved back to
+    // Completed already answered it.
+    if (entersDone(job.status, 'completed')) await assertReportIssued(ctx, job)
+    await setJobStatus(ctx, job, 'completed', { completedAt: Date.now() })
     await recordJobWrite(ctx, env, job, 'job.complete')
   },
 })
@@ -557,7 +605,7 @@ export const cancel = mutation({
   args: { businessId: v.id('businesses'), jobId: v.id('jobs') },
   handler: async (ctx, { businessId, jobId }) => {
     const { env, job } = await requireEditableJob(ctx, businessId, jobId)
-    await ctx.db.patch(jobId, { status: 'cancelled' })
+    await setJobStatus(ctx, job, 'cancelled')
     await recordJobWrite(ctx, env, job, 'job.cancel')
   },
 })

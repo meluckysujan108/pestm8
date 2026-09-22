@@ -15,7 +15,7 @@ test.describe('a report started from a job', () => {
   test('arrives with the date, technician, treatment and delivery already answered', async () => {
     const s = await setupBusinessWithSub('report-seed')
 
-    // A general pest job, in progress, for a client with an email on file.
+    // A general pest job for a client with an email on file.
     const jobId = await s.owner.client.mutation(api.jobs.create, {
       businessId: s.businessId,
       propertyId: s.propertyId,
@@ -24,11 +24,6 @@ test.describe('a report started from a job', () => {
       price: 22000,
       scheduledAt: Date.now(),
       durationMinutes: 60,
-    })
-    await s.owner.client.mutation(api.jobs.update, {
-      businessId: s.businessId,
-      jobId,
-      status: 'inProgress',
     })
     const property = await s.owner.client.query(api.properties.get, {
       businessId: s.businessId,
@@ -53,9 +48,10 @@ test.describe('a report started from a job', () => {
     const data = report!.data as Record<string, unknown>
     // The day of the visit, not the day it is written up.
     expect(data.serviceDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
-    // Work has started, so the time is a fact and needs no confirming.
+    // Nothing records when work began since In Progress was retired, so the
+    // booked time is offered as a suggestion for the technician to confirm.
     expect(data.startTime).toMatch(/^\d{2}:\d{2}$/)
-    expect(report!.prefill?.startTime).toBeUndefined()
+    expect(report!.prefill?.startTime).toMatchObject({ source: 'scheduled' })
     // The client has an address on file, so the report offers to send it.
     expect(data.sendCopy).toBe(true)
     // The form asks who did the work: the job's assignee, not the author.

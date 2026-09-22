@@ -75,10 +75,11 @@ test('an owner can add a property, book a job, and complete it', async ({
   const card = page.getByRole('button', { name: /Termite Inspection/ })
   await expect(card).toBeVisible()
   await expect(page.getByText('$380')).toBeVisible()
-  // Scoped to the card: the desktop day panel also has a "Booked" status
-  // filter, so an unscoped match is ambiguous about which one is being
-  // asserted — and it is the card's status pill that matters here.
-  await expect(card.getByText('Booked')).toBeVisible()
+  // A job booked by hand starts Pending (convex/lib/jobStatus.ts). Scoped to
+  // the card: the desktop day panel also has a "Pending" status filter, so an
+  // unscoped match is ambiguous about which one is being asserted — and it is
+  // the card's status pill that matters here.
+  await expect(card.getByText('Pending')).toBeVisible()
 
   // --- open and complete it ----------------------------------------------
   await card.click()
@@ -191,12 +192,12 @@ async function seedOneJob(prefix: string) {
 }
 
 /**
- * Pins the amended §2.3 rule: the rich `board` card carries the full street
- * address, the compact `list` row carries the suburb alone. The distinction is
- * deliberate and easy to erase by accident, so it is asserted rather than
- * trusted to the comment in `JobCard.tsx`.
+ * Pins the amended §2.3 rule: the job card carries the full street address,
+ * the table row carries the suburb alone. The distinction is deliberate and
+ * easy to erase by accident, so it is asserted rather than trusted to the
+ * comment in `JobCard.tsx`.
  */
-test('the board card shows the full address and the list row shows only the suburb', async ({
+test('the job card shows the full address and the table row shows only the suburb', async ({
   page,
 }) => {
   const { email, slug } = await seedOneJob('cardvariant')
@@ -208,16 +209,22 @@ test('the board card shows the full address and the list row shows only the subu
   const card = page.getByRole('button', { name: /Termite Inspection/ })
   await expect(card).toBeVisible()
 
-  // Board is the default.
+  // "Job" — the cards — is the default, and the only other view is the table.
+  await expect(view.getByRole('tab', { name: 'Job' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+  await expect(view.getByRole('tab', { name: 'List' })).toHaveCount(0)
   await expect(page.getByText('12 Wattle Street')).toBeVisible()
 
-  await view.getByRole('tab', { name: 'List' }).click()
+  await view.getByRole('tab', { name: 'Table' }).click()
   await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
   // The suburb survives the switch — it is the address line that is dropped,
-  // not location information altogether.
-  await expect(card.getByText('Bayswater')).toBeVisible()
+  // not location information altogether. Scoped to the table: the desktop day
+  // panel prints the same suburb in its weather banner.
+  await expect(page.getByRole('table').getByText('Bayswater')).toBeVisible()
 
-  await view.getByRole('tab', { name: 'Board' }).click()
+  await view.getByRole('tab', { name: 'Job' }).click()
   await expect(page.getByText('12 Wattle Street')).toBeVisible()
 })
 
@@ -236,22 +243,21 @@ test('the chosen card view is kept in the URL and survives a reload', async ({
   await clickUntil(
     page
       .getByRole('tablist', { name: 'View' })
-      .getByRole('tab', { name: 'List' }),
-    () => expect(page).toHaveURL(/view=list/, { timeout: 2_000 }),
+      .getByRole('tab', { name: 'Table' }),
+    () => expect(page).toHaveURL(/view=table/, { timeout: 2_000 }),
   )
 
   await page.reload()
   await expect(
     page.getByRole('button', { name: /Termite Inspection/ }),
   ).toBeVisible()
+  // Still the table: the address line is the card's, not the row's.
   await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
 
-  // A view the mobile layout cannot render must not leave the page blank; it
-  // falls back to board rather than showing a data grid on a phone.
-  await page.goto(`/${slug}/schedule?view=table`)
-  await expect(
-    page.getByRole('button', { name: /Termite Inspection/ }),
-  ).toBeVisible()
+  // A link to the retired List view must not leave the page blank; it opens
+  // the default view instead.
+  await page.goto(`/${slug}/schedule?view=list`)
+  await expect(page.getByText('12 Wattle Street')).toBeVisible()
 })
 
 /**
@@ -259,7 +265,7 @@ test('the chosen card view is kept in the URL and survives a reload', async ({
  * this asserts the strip reaches one of its two defined states rather than a
  * particular temperature. `e2e/weather.spec.ts` covers the forecast itself.
  */
-test('a board card renders a weather panel for its own suburb', async ({
+test('a job card renders a weather panel for its own suburb', async ({
   page,
 }) => {
   const { email, slug } = await seedOneJob('cardweather')

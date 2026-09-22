@@ -71,6 +71,21 @@ export function travelHint(
 }
 
 /**
+ * The jobs a travel hint is worth measuring between: everything not yet
+ * completed, in the order given.
+ *
+ * `jobs.listDay` sinks completed work to the bottom of the day, so measuring
+ * over the whole rendered list would hang a hop off each completed card from
+ * whatever sits above it — a trip nobody is going to make. The work is done;
+ * those cards get no hint, and the chain runs over what is still ahead.
+ */
+export function jobsAhead<T extends { status: string }>(
+  jobs: Array<T>,
+): Array<T> {
+  return jobs.filter((job) => job.status !== 'completed')
+}
+
+/**
  * Hop text per job id, for one day's jobs **in the order they are rendered**.
  *
  * Deliberately computed over the filtered list rather than the whole day: the

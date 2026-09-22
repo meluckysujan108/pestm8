@@ -3,12 +3,28 @@ import type { JobStatus } from '#/components/primitives/StatusPill'
 
 export type StatusFilter = 'all' | JobStatus
 
+// Pending is here because every job booked by hand now starts there — without
+// it "Booked" would quietly stop matching new work. Recurring is not: it is
+// never something a person chooses (convex/lib/jobStatus.ts).
+//
+// No Cancelled either: `jobs.listDay` never returns a cancelled job, so the
+// schedule would offer a filter that can only ever empty the day.
 export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = [
+  { value: 'pending', label: 'Pending' },
   { value: 'booked', label: 'Booked' },
-  { value: 'inProgress', label: 'In Progress' },
   { value: 'completed', label: 'Completed' },
   { value: 'invoiced', label: 'Invoiced' },
 ]
+
+/**
+ * The Job tab's filter. That list holds every job whatever its status, so
+ * unlike the schedule's it can offer Cancelled. Recurring is still absent:
+ * projected visits get their own view in the section (src/lib/jobViews.ts).
+ */
+export const JOB_LIST_STATUS_OPTIONS: Array<{
+  value: JobStatus
+  label: string
+}> = [...STATUS_OPTIONS, { value: 'cancelled', label: 'Cancelled' }]
 
 export type StaffLoad = {
   membershipId: string

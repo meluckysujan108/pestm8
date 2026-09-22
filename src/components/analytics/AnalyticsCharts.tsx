@@ -16,18 +16,12 @@ import {
 } from 'recharts'
 import { api } from '../../../convex/_generated/api'
 import { formatMoney } from '#/lib/format'
+import { jobStatusLabel } from '#/components/primitives/StatusPill'
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
 
-const STATUS_LABEL: Record<string, string> = {
-  booked: 'Booked',
-  inProgress: 'In Progress',
-  completed: 'Completed',
-  invoiced: 'Invoiced',
-}
 const STATUS_COLOUR: Record<string, string> = {
   booked: 'var(--amber)',
-  inProgress: 'var(--red)',
   completed: 'var(--green)',
   invoiced: 'var(--blue)',
 }
@@ -157,7 +151,7 @@ export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }
                 className="size-2.5 rounded-full"
                 style={{ background: STATUS_COLOUR[entry.status] ?? 'var(--muted)' }}
               />
-              {STATUS_LABEL[entry.status] ?? entry.status} ({entry.count})
+              {jobStatusLabel(entry.status)} ({entry.count})
             </li>
           ))}
         </ul>
