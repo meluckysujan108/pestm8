@@ -70,7 +70,7 @@ function AnalyticsPage() {
         <Card>
           <p className="section-label mb-1">Upcoming</p>
           <p className="text-metric text-ink">{summary.upcomingCount}</p>
-          <p className="mt-1 text-body text-muted">still booked</p>
+          <p className="mt-1 text-body text-muted">not yet started</p>
         </Card>
 
         <Card>

@@ -57,7 +57,8 @@ the difference matters on a document someone signs:
   it is a draft, frozen into `contextSnapshot` at finalise, so renaming a client
   next year does not rewrite a report issued this year.
 - **Fact** — read off a record into `data` at create, then editable and printed
-  as-is: the job's date, `jobs.startedAt`, the assigned technician, the first
+  as-is: the job's date, `jobs.startedAt` (only on jobs that reached the
+  retired In Progress status), the assigned technician, the first
   treatment row from the job type. Not marked, because asking a technician to
   confirm what their own client record says is a tax on being helpful.
 - **Suggestion** — something the app worked out: the forecast weather, a booked

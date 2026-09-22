@@ -3,6 +3,7 @@ import { query } from './_generated/server'
 import { startOfDayInZone, todayKeyInZone } from './lib/dates'
 import { requireActor } from './lib/actor'
 import { jobsInScope, wireScope } from './lib/jobScope'
+import { NOT_STARTED_STATUSES } from './lib/jobStatus'
 import { hidePrices, redactTotal } from './lib/prices'
 
 /**
@@ -25,6 +26,16 @@ export const summary = query({
       `${todayKey.slice(0, 7)}-01`,
       business.timezone,
     )
+    // Bounded both ends: a job can be marked invoiced ahead of its visit, and
+    // without an end it would count toward this month and every month until
+    // the one it is booked in.
+    const [year, month] = todayKey.slice(0, 7).split('-').map(Number)
+    const nextMonthStart = startOfDayInZone(
+      month === 12
+        ? `${year + 1}-01-01`
+        : `${year}-${String(month + 1).padStart(2, '0')}-01`,
+      business.timezone,
+    )
 
     const live = all.filter((j) => j.status !== 'cancelled')
 
@@ -33,7 +44,7 @@ export const summary = query({
         (j) => j.scheduledAt >= dayStart && j.scheduledAt < dayEnd,
       ).length,
       upcomingCount: live.filter(
-        (j) => j.scheduledAt >= dayEnd && j.status === 'booked',
+        (j) => j.scheduledAt >= dayEnd && NOT_STARTED_STATUSES.has(j.status),
       ).length,
       // The amber state: work done, money not yet billed. This is the number
       // the owner is meant to act on.
@@ -57,7 +68,12 @@ export const summary = query({
       invoicedThisMonth: redactTotal(
         env.caps,
         live
-          .filter((j) => j.status === 'invoiced' && j.scheduledAt >= monthStart)
+          .filter(
+            (j) =>
+              j.status === 'invoiced' &&
+              j.scheduledAt >= monthStart &&
+              j.scheduledAt < nextMonthStart,
+          )
           .reduce((sum, j) => sum + j.price, 0),
       ),
       pricesHidden: hidePrices(env.caps),

@@ -7,6 +7,8 @@ import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
 import { canManageMember, NO_GRANTS, recomputeGrants } from './lib/capabilities'
 import { factsFromMembership } from './lib/membershipFacts'
+import { NOT_STARTED_STATUSES } from './lib/jobStatus'
+import type { JobStatus } from './lib/jobStatus'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { requireActor, requireCapability, requireWriteActor } from './lib/actor'
@@ -25,7 +27,13 @@ import { requireActor, requireCapability, requireWriteActor } from './lib/actor'
  * Doing any of that separately leaves a business in a worse state than before.
  */
 
-const FUTURE_JOB_STATUSES = new Set(['booked', 'inProgress'])
+// Every visit still to be done: a projected `recurring` visit and a `pending`
+// one are as much this person's upcoming work as a `booked` one — and so is
+// one already `invoiced`, since a visit can be billed before it happens.
+const FUTURE_JOB_STATUSES: ReadonlySet<JobStatus> = new Set<JobStatus>([
+  ...NOT_STARTED_STATUSES,
+  'invoiced',
+])
 
 async function futureJobsOf(
   ctx: QueryCtx | MutationCtx,

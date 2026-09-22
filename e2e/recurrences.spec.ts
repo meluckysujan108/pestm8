@@ -67,7 +67,11 @@ test('a quarterly recurrence books a run of future visits', async () => {
   // 180-day horizon at three-month steps: the first visit plus one more.
   expect(jobs.length).toBeGreaterThanOrEqual(2)
   expect(jobs.every((j) => j.recurrenceId === recurrenceId)).toBe(true)
-  expect(jobs.every((j) => j.status === 'booked')).toBe(true)
+  // The first visit is the one booked by hand, so it starts `pending` like any
+  // other; the engine projects the rest as `recurring` (convex/lib/jobStatus.ts).
+  const byDate = [...jobs].sort((a, b) => a.scheduledAt - b.scheduledAt)
+  expect(byDate[0].status).toBe('pending')
+  expect(byDate.slice(1).every((j) => j.status === 'recurring')).toBe(true)
 
   const dates = jobs.map((j) => j.scheduledAt).sort((a, b) => a - b)
   const gapDays = (dates[1] - dates[0]) / DAY
@@ -147,7 +151,12 @@ test('ending a recurrence clears future visits but keeps history', async () => {
     propertyId: s.propertyId,
   })
   expect(remaining.map((j) => j._id)).toContain(first._id)
-  expect(remaining.filter((j) => j.status === 'booked')).toHaveLength(0)
+  // Nothing not-yet-started survives the series ending.
+  expect(
+    remaining.filter((j) =>
+      ['recurring', 'pending', 'booked'].includes(j.status),
+    ),
+  ).toHaveLength(0)
 })
 
 test('a subcontractor cannot set up work on another calendar', async () => {
@@ -265,9 +274,10 @@ test('stopping a series from one job preserves that job but cancels its still-bo
   const futureSibling = remaining.find((j) => j._id === sorted[2]._id)
   expect(futureSibling?.status).toBe('cancelled')
 
+  // It was a projected visit; kept as a one-off, it is an ordinary job again.
   const viewedJob = remaining.find((j) => j._id === viewedJobId)
   expect(viewedJob?.recurrenceId).toBeUndefined()
-  expect(viewedJob?.status).toBe('booked')
+  expect(viewedJob?.status).toBe('pending')
 })
 
 test('recurrence mutations follow the same edit gate as every other job field', async () => {

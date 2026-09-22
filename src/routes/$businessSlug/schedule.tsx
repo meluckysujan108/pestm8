@@ -27,7 +27,7 @@ import { JobTable } from '#/components/schedule/JobTable'
 import { ScheduleFilterBar } from '#/components/schedule/ScheduleFilterBar'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
-import { travelHintsFor } from '#/lib/travel'
+import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useActing, useCan, useViewMode } from '#/lib/access'
 
@@ -128,8 +128,9 @@ function SchedulePage() {
   )
 
   // Coordinates come from the raw entries: a travel hint is geography, and
-  // must not disappear just because a forecast is still in flight.
-  const travel = travelHintsFor(filteredJobs, (job) =>
+  // must not disappear just because a forecast is still in flight. Measured
+  // over the work still ahead only — see `jobsAhead`.
+  const travel = travelHintsFor(jobsAhead(filteredJobs), (job) =>
     weather.byKey[weatherKeyOf(job.suburb, job.postcode, selectedKey)],
   )
 

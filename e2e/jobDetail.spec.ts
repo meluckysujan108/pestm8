@@ -364,10 +364,10 @@ test('cancelling a job from the status menu asks for confirmation first, with a 
   ).toBeVisible()
   await expect(confirm.getByText(/Nothing is deleted/)).toBeVisible()
 
-  // Backing out changes nothing.
+  // Backing out changes nothing — the job is still where every new job starts.
   await confirm.getByRole('button', { name: 'Keep job' }).click()
   await expect(confirm).toHaveCount(0)
-  await expect(detail.getByText('Booked')).toBeVisible()
+  await expect(detail.getByText('Pending')).toBeVisible()
 
   // Confirming actually cancels it.
   await detail.getByRole('button', { name: 'Change job status' }).click()

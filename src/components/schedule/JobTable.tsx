@@ -12,7 +12,7 @@ import type { WeatherLookup } from '#/lib/weather'
 /**
  * Dense alternative to the card list — same jobs, same click target, laid
  * out for scanning many rows at once rather than glancing at one. No table
- * library: a single day's jobs, already chronologically sorted, never gets
+ * library: a single day's jobs, already in schedule order (`jobs.listDay`), never gets
  * big enough to need sorting/pagination machinery. On a narrow viewport the
  * table scrolls horizontally within its own container rather than breaking
  * page layout.

@@ -3,9 +3,12 @@ import type { JobStatus } from '#/components/primitives/StatusPill'
 
 export type StatusFilter = 'all' | JobStatus
 
+// Pending is here because every job booked by hand now starts there — without
+// it "Booked" would quietly stop matching new work. Recurring is not: it is
+// never something a person chooses (convex/lib/jobStatus.ts).
 export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = [
+  { value: 'pending', label: 'Pending' },
   { value: 'booked', label: 'Booked' },
-  { value: 'inProgress', label: 'In Progress' },
   { value: 'completed', label: 'Completed' },
   { value: 'invoiced', label: 'Invoiced' },
 ]

@@ -9,6 +9,11 @@ import {
   requireBookable,
   requireEditableJob,
 } from './lib/jobAccess'
+import {
+  NOT_STARTED_STATUSES,
+  initialJobStatus,
+  setJobStatus,
+} from './lib/jobStatus'
 import { redactJob } from './lib/prices'
 import { clientNameOf, newClientFields, resolvePropertyId } from './properties'
 import { frequency } from './schema'
@@ -124,6 +129,22 @@ export const create = mutation({
       active: true,
     })
 
+    // The first visit is the one the person just booked by hand, so it is
+    // born `pending` like any other job they create — and is inserted here,
+    // whatever the horizon. Left to `materialiseOne`, an anchor more than
+    // HORIZON_DAYS out would be skipped today and created weeks later by the
+    // cron, as `recurring`. The engine then finds its instant taken and
+    // projects only the visits after it.
+    const recurrence = await ctx.db.get(recurrenceId)
+    if (recurrence && !isBackfill(recurrence.anchorDate)) {
+      await insertVisit(
+        ctx,
+        recurrence,
+        recurrence.anchorDate,
+        args.durationMinutes,
+        'manual',
+      )
+    }
     await materialiseOne(ctx, recurrenceId, args.durationMinutes)
     await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.create', {
       assignedMembershipId: args.assignedMembershipId,
@@ -187,8 +208,8 @@ export const setActive = mutation({
       active,
     })
 
-    // Stopping a recurrence removes work not yet done; anything already
-    // completed or invoiced is history and stays untouched.
+    // Stopping a recurrence removes work not yet started; anything in
+    // progress, completed or invoiced is history and stays untouched.
     if (!active) {
       const jobs = await ctx.db
         .query('jobs')
@@ -197,17 +218,50 @@ export const setActive = mutation({
 
       const now = Date.now()
       for (const job of jobs) {
-        if (job.status === 'booked' && job.scheduledAt > now) {
-          await ctx.db.patch(job._id, { status: 'cancelled' })
+        if (NOT_STARTED_STATUSES.has(job.status) && job.scheduledAt > now) {
+          await setJobStatus(ctx, job, 'cancelled')
         }
       }
     }
   },
 })
 
+/** Never backfill: a missed visit is not something to invent after the fact. */
+function isBackfill(scheduledAt: number): boolean {
+  return scheduledAt < Date.now() - 24 * 60 * 60 * 1000
+}
+
 /**
- * Creates any missing occurrences inside the horizon. Idempotent by design —
- * the cron runs daily and must never double-book a property.
+ * One visit of a series. `origin` decides its first status: `recurrence` for a
+ * visit the engine projects — the only way any job becomes `recurring` — and
+ * `manual` for the one a person booked by hand when creating the series.
+ */
+async function insertVisit(
+  ctx: MutationCtx,
+  recurrence: Doc<'recurrences'>,
+  scheduledAt: number,
+  durationMinutes: number,
+  origin: 'manual' | 'recurrence',
+): Promise<void> {
+  await ctx.db.insert('jobs', {
+    businessId: recurrence.businessId,
+    propertyId: recurrence.propertyId,
+    assignedMembershipId: recurrence.assignedMembershipId,
+    jobType: recurrence.jobType,
+    price: recurrence.price,
+    scheduledAt,
+    durationMinutes,
+    status: initialJobStatus(origin),
+    recurrenceId: recurrence._id,
+    createdAt: Date.now(),
+    jobNumber: await allocateJobNumber(ctx, recurrence.businessId),
+  })
+}
+
+/**
+ * Creates any missing occurrences inside the horizon, every one `recurring`.
+ * Idempotent by design — the cron runs daily and must never double-book a
+ * property.
  */
 async function materialiseOne(
   ctx: MutationCtx,
@@ -232,23 +286,15 @@ async function materialiseOne(
     until,
   )) {
     if (taken.has(scheduledAt)) continue
+    if (isBackfill(scheduledAt)) continue
 
-    // Never backfill: a missed visit is not something to invent after the fact.
-    if (scheduledAt < Date.now() - 24 * 60 * 60 * 1000) continue
-
-    await ctx.db.insert('jobs', {
-      businessId: recurrence.businessId,
-      propertyId: recurrence.propertyId,
-      assignedMembershipId: recurrence.assignedMembershipId,
-      jobType: recurrence.jobType,
-      price: recurrence.price,
+    await insertVisit(
+      ctx,
+      recurrence,
       scheduledAt,
       durationMinutes,
-      status: 'booked',
-      recurrenceId,
-      createdAt: Date.now(),
-      jobNumber: await allocateJobNumber(ctx, recurrence.businessId),
-    })
+      'recurrence',
+    )
     created++
   }
 
@@ -337,7 +383,7 @@ export const convertJobToRecurring = mutation({
 /**
  * Stops a recurring series from one specific job's context, guaranteeing
  * that exact job survives as a standalone one-off even though it may itself
- * be a future `booked` visit that the cleanup below would otherwise delete.
+ * be a future, not-yet-started visit that the cleanup below would cancel.
  * Detaching this job's recurrenceId BEFORE the cleanup sweep is what makes
  * that guarantee airtight: the sweep reads jobs `by_recurrence`, and by the
  * time it runs this job no longer carries that recurrenceId, so it can't be
@@ -362,6 +408,10 @@ export const stopFromJob = mutation({
     await requireEditableSeries(ctx, env, recurrence)
 
     await ctx.db.patch(jobId, { recurrenceId: undefined })
+    // A one-off is not a projected visit of anything, so a kept job that was
+    // still `recurring` becomes an ordinary job the person has in hand. This
+    // is it LEAVING `recurring`, which is always allowed.
+    if (job.status === 'recurring') await setJobStatus(ctx, job, 'pending')
     await ctx.db.patch(recurrenceId, { active: false })
 
     const siblings = await ctx.db
@@ -371,10 +421,13 @@ export const stopFromJob = mutation({
 
     const now = Date.now()
     for (const sibling of siblings) {
-      if (sibling.status === 'booked' && sibling.scheduledAt > now) {
+      if (
+        NOT_STARTED_STATUSES.has(sibling.status) &&
+        sibling.scheduledAt > now
+      ) {
         // Cancelled, not deleted: someone turned up to these, or planned to.
         // A hard delete leaves the owner no way to see what was dropped.
-        await ctx.db.patch(sibling._id, { status: 'cancelled' })
+        await setJobStatus(ctx, sibling, 'cancelled')
       }
     }
     await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.stop', {

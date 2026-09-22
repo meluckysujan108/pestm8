@@ -8,7 +8,7 @@ import { formatDayLabel } from '#/lib/format'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useActing, useViewMode } from '#/lib/access'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
-import { travelHintsFor } from '#/lib/travel'
+import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -75,7 +75,8 @@ export function DayAgendaPanel({
   )
   // Travel hints read lat/lng out of the RAW entries, not the rendered cell —
   // the coordinates are geography, unrelated to whether a forecast resolved.
-  const travel = travelHintsFor(filteredJobs, (job) =>
+  // Measured over the work still ahead only — see `jobsAhead`.
+  const travel = travelHintsFor(jobsAhead(filteredJobs), (job) =>
     weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
   )
 

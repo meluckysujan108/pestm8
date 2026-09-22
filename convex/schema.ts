@@ -46,12 +46,31 @@ export const membershipStatus = v.union(
   v.literal('removed'),
 )
 
-export const jobStatus = v.union(
+/**
+ * What a person may set a job to: every status but `recurring`. `pending` is
+ * where every job booked by hand starts.
+ *
+ * `inProgress` was retired on 2026-09-22. A deployment still holding rows
+ * with it cannot take this schema until convex/migrations/jobStatusV1.ts has
+ * run — its header has the sequence.
+ */
+export const settableJobStatus = v.union(
+  v.literal('pending'),
   v.literal('booked'),
-  v.literal('inProgress'),
   v.literal('completed'),
   v.literal('invoiced'),
   v.literal('cancelled'),
+)
+
+/**
+ * `recurring` marks a visit the recurrence engine projected onto the calendar
+ * and nobody has acted on yet — the job-shaped equivalent of a draft order.
+ * Only the engine writes it, and only when it inserts the visit; once a job
+ * moves to any other status it can never move back (convex/lib/jobStatus.ts).
+ */
+export const jobStatus = v.union(
+  v.literal('recurring'),
+  ...settableJobStatus.members,
 )
 
 export const reportTemplate = v.union(
@@ -469,11 +488,11 @@ export default defineSchema({
     status: jobStatus,
     recurrenceId: v.optional(v.id('recurrences')),
     /**
-     * When work actually began, stamped the moment the job moves to
-     * `inProgress`. A report started from the job seeds its "Start Time:" from
-     * this — a fact, unlike `scheduledAt`, which is only when it was booked to
-     * begin. Optional: jobs that reached `inProgress` before this existed, and
-     * jobs that go straight to `completed`, have none.
+     * When work actually began, stamped the moment a job moved to the retired
+     * `inProgress` status. A report started from the job seeds its "Start
+     * Time:" from this as a fact; without it the report offers `scheduledAt`
+     * as a suggestion to confirm. Nothing writes it since `inProgress` was
+     * retired (2026-09-22) — the jobs that reached it keep theirs.
      */
     startedAt: v.optional(v.number()),
     completedAt: v.optional(v.number()),

@@ -241,7 +241,11 @@ jobs: {
   jobType,                              // "General Pest Control" | "Rodents" | "Termite Inspection" | ...
   price,                                // cents
   scheduledAt, durationMinutes,
-  status: "booked" | "completed" | "invoiced" | "cancelled",
+  status: "recurring" | "pending" | "booked"
+        | "completed" | "invoiced" | "cancelled",
+                                        // new by hand = pending; "recurring" only
+                                        // from the recurrence engine, one-way out
+                                        // (convex/lib/jobStatus.ts)
   recurrenceId?,                        // null = one-off
   completedAt?, createdAt
 }

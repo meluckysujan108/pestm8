@@ -168,7 +168,12 @@ describe('who work can be booked onto', () => {
 })
 
 describe('invoiced jobs', () => {
-  test('cannot be marked invoiced by an edit, and cannot be edited afterwards', async () => {
+  // Invoiced used to be closed to edits entirely: the invoicing flow owned it.
+  // On 2026-09-22 the owner made it an ordinary status for whoever may edit
+  // the job (Phase 1 status rules). What still holds is WHO: nobody outside
+  // the job's edit gate can set it, and an invoiced job's billed details stay
+  // put until its status is moved back out.
+  test('can be set by whoever may edit the job, and by nobody else', async () => {
     const s = await twoBusinesses()
     const jobId = await s.terence.as.mutation(api.jobs.create, {
       businessId: s.coastal.businessId,
@@ -180,21 +185,44 @@ describe('invoiced jobs', () => {
       durationMinutes: 60,
     })
 
-    // 'invoiced' is no longer in the argument validator: the invoicing flow
-    // owns that transition, not whoever happens to be assigned.
+    // Another business's owner cannot reach across and invoice it.
     await expect(
-      s.kevin.as.mutation(api.jobs.update, {
+      s.rival.as.mutation(api.jobs.update, {
         businessId: s.coastal.businessId,
         jobId,
-        // @ts-expect-error — the point of the test is that this is rejected.
         status: 'invoiced',
       }),
     ).rejects.toThrow()
 
-    // And once something else has invoiced it, the job is settled.
-    await s.t.run(async (ctx) => {
-      await ctx.db.patch(jobId, { status: 'invoiced' })
+    // The assignee can.
+    await s.kevin.as.mutation(api.jobs.update, {
+      businessId: s.coastal.businessId,
+      jobId,
+      status: 'invoiced',
     })
+    expect((await s.t.run(async (ctx) => ctx.db.get(jobId)))?.status).toBe(
+      'invoiced',
+    )
+  })
+
+  test('keep their billed details until the status is moved back out', async () => {
+    const s = await twoBusinesses()
+    const jobId = await s.terence.as.mutation(api.jobs.create, {
+      businessId: s.coastal.businessId,
+      propertyId: s.property,
+      assignedMembershipId: s.kevinMembershipId,
+      jobType: 'General Pest Control',
+      price: 20000,
+      scheduledAt: Date.now() + 86_400_000,
+      durationMinutes: 60,
+    })
+    await s.kevin.as.mutation(api.jobs.update, {
+      businessId: s.coastal.businessId,
+      jobId,
+      status: 'invoiced',
+    })
+
+    // No re-pricing or moving what was billed — not even alongside a status.
     await expect(
       s.kevin.as.mutation(api.jobs.update, {
         businessId: s.coastal.businessId,
@@ -202,6 +230,30 @@ describe('invoiced jobs', () => {
         price: 1,
       }),
     ).rejects.toThrow(/JOB_INVOICED/)
+    await expect(
+      s.kevin.as.mutation(api.jobs.update, {
+        businessId: s.coastal.businessId,
+        jobId,
+        status: 'booked',
+        scheduledAt: Date.now(),
+      }),
+    ).rejects.toThrow(/JOB_INVOICED/)
+
+    // Its status moves freely, and with it the details reopen. (The re-price
+    // is Terence's: Kevin cannot see prices, so his would be dropped.)
+    await s.kevin.as.mutation(api.jobs.update, {
+      businessId: s.coastal.businessId,
+      jobId,
+      status: 'booked',
+    })
+    await s.terence.as.mutation(api.jobs.update, {
+      businessId: s.coastal.businessId,
+      jobId,
+      price: 25000,
+    })
+    const job = await s.t.run(async (ctx) => ctx.db.get(jobId))
+    expect(job?.status).toBe('booked')
+    expect(job?.price).toBe(25000)
   })
 })
 

@@ -11,10 +11,9 @@ import {
 /**
  * `analytics.overview` — the historical-trend query behind the Analytics
  * page's charts. Money/status semantics deliberately mirror
- * `dashboard.summary`'s: a `booked` job hasn't happened yet and must not
- * inflate revenue; a job cannot reach `invoiced` at all today (no mutation
- * sets it — invoicing/Xero isn't built, per `access-control.spec.ts`'s own
- * `test.fixme` notes), so only `completed` is exercised here.
+ * `dashboard.summary`'s: a `pending` job hasn't happened yet and must not
+ * inflate revenue. Only `completed` is exercised here; `invoiced` counts the
+ * same way (convex/analytics.ts).
  *
  * Day 15 at noon, in every job below: comfortably clear of both ends of the
  * calendar month in any timezone the test runner and the business
@@ -29,7 +28,7 @@ function midMonth(monthsAgo: number): number {
   return d.getTime()
 }
 
-test('revenue counts only completed jobs, excludes booked, and buckets by month', async () => {
+test('revenue counts only completed jobs, excludes pending, and buckets by month', async () => {
   const owner = await signUpActor(uniqueEmail('analytics-owner'), FIXTURE_PASSWORD, 'Terence')
 
   const { businessId } = await owner.client.mutation(api.businesses.create, {
@@ -62,7 +61,7 @@ test('revenue counts only completed jobs, excludes booked, and buckets by month'
     return jobId
   }
 
-  // This month: one completed (counts), one still booked (must not count).
+  // This month: one completed (counts), one still pending (must not count).
   await bookJob(20000, midMonth(0), true)
   await bookJob(50000, midMonth(0), false)
   // Last month: one completed, a different month bucket.
@@ -76,15 +75,16 @@ test('revenue counts only completed jobs, excludes booked, and buckets by month'
 
   const thisMonthRevenue = overview!.revenueByMonth.find((r) => r.month === thisMonthKey)
   const lastMonthRevenue = overview!.revenueByMonth.find((r) => r.month === lastMonthKey)
-  expect(thisMonthRevenue?.value).toBe(20000) // not 70000 — the booked job is excluded
+  expect(thisMonthRevenue?.value).toBe(20000) // not 70000 — the pending job is excluded
   expect(lastMonthRevenue?.value).toBe(15000)
 
   const thisMonthVolume = overview!.volumeByMonth.find((r) => r.month === thisMonthKey)
   expect(thisMonthVolume?.value).toBe(2) // volume counts both, unlike revenue
 
-  const booked = overview!.statusBreakdown.find((s) => s.status === 'booked')
+  // A job booked by hand starts `pending` (convex/lib/jobStatus.ts).
+  const pending = overview!.statusBreakdown.find((s) => s.status === 'pending')
   const completed = overview!.statusBreakdown.find((s) => s.status === 'completed')
-  expect(booked?.count).toBe(1)
+  expect(pending?.count).toBe(1)
   expect(completed?.count).toBe(2)
 })
 

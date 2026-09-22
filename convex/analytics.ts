@@ -53,8 +53,8 @@ export const overview = query({
 
     // `jobsInRange` already excludes cancelled jobs, so a true cancellation
     // rate would need a second, unfiltered scan — not worth it for a first
-    // cut. `statusBreakdown` below can therefore only ever show
-    // booked/inProgress/completed/invoiced.
+    // cut. `statusBreakdown` below can therefore show every status except
+    // cancelled.
     const jobs = await jobsInRange(ctx, env.listScope, businessId, from, to)
 
     const revenueByMonth = new Map(monthKeys.map((k) => [k, 0]))
