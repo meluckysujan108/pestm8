@@ -3,6 +3,7 @@ import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { authClient } from '#/lib/auth-client'
+import { forgetCachedPages } from '#/lib/rootState'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 
@@ -31,7 +32,9 @@ export function ProfileSection({
   phone?: string
   state: string
 }) {
-  const { data: user } = useSuspenseQuery(convexQuery(api.auth.getCurrentUser, {}))
+  const { data: user } = useSuspenseQuery(
+    convexQuery(api.auth.getCurrentUser, {}),
+  )
 
   const [name, setName] = useState(user.name)
   const [phone, setPhone] = useState(initialPhone ?? '')
@@ -45,8 +48,11 @@ export function ProfileSection({
 
   const convexSetProfile = useConvexMutation(api.memberships.setProfile)
   const saveProfile = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'>; membershipId: Id<'memberships'>; phone?: string }) =>
-      convexSetProfile(args),
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      membershipId: Id<'memberships'>
+      phone?: string
+    }) => convexSetProfile(args),
   })
 
   const convexSetLicence = useConvexMutation(api.memberships.setLicence)
@@ -66,7 +72,11 @@ export function ProfileSection({
         onSubmit={(e) => {
           e.preventDefault()
           saveName.mutate(name)
-          saveProfile.mutate({ businessId, membershipId, phone: phone.trim() || undefined })
+          saveProfile.mutate({
+            businessId,
+            membershipId,
+            phone: phone.trim() || undefined,
+          })
         }}
       >
         <label className="flex flex-col gap-1.5">
@@ -110,7 +120,11 @@ export function ProfileSection({
         className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation"
         onSubmit={(e) => {
           e.preventDefault()
-          saveLicence.mutate({ businessId, membershipId, licenceNumber: licence })
+          saveLicence.mutate({
+            businessId,
+            membershipId,
+            licenceNumber: licence,
+          })
         }}
       >
         <label className="flex flex-col gap-1.5">
@@ -131,7 +145,11 @@ export function ProfileSection({
           disabled={saveLicence.isPending || !hydrated}
           className="mt-3 h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
         >
-          {saveLicence.isPending ? 'Saving…' : saveLicence.isSuccess ? 'Saved' : 'Save'}
+          {saveLicence.isPending
+            ? 'Saving…'
+            : saveLicence.isSuccess
+              ? 'Saved'
+              : 'Save'}
         </button>
       </form>
 
@@ -139,6 +157,7 @@ export function ProfileSection({
         type="button"
         onClick={async () => {
           await authClient.signOut()
+          await forgetCachedPages()
           // expectAuth requires a full reload so the client re-authenticates.
           window.location.href = '/login'
         }}

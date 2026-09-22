@@ -324,6 +324,41 @@
   -webkit-touch-callout: none;
 }
 
+/* The navigation progress bar (NavProgress.tsx). Transparent for its first
+   150 ms, so a navigation that answers from cache never flashes it; after
+   that, a crawl that slows as it goes and never finishes, because the bar
+   knows nothing about how much is left. Removed, not completed, on arrival. */
+@layer components {
+  .nav-progress {
+    opacity: 0;
+    animation: nav-progress-in 120ms ease-out 150ms forwards;
+  }
+  .nav-progress-bar {
+    transform: scaleX(0.05);
+    transform-origin: left;
+    animation: nav-progress-crawl 8s cubic-bezier(0.1, 0.6, 0.2, 1) 150ms
+      forwards;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .nav-progress-bar {
+      animation: none;
+      transform: scaleX(0.6);
+    }
+  }
+}
+
+@keyframes nav-progress-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes nav-progress-crawl {
+  to {
+    transform: scaleX(0.9);
+  }
+}
+
 /* The note body (Tiptap). Deliberately the phone's Notes look: one big
    title line, plain 17px body, round yellow checklist circles. Not the
    typography plugin's `prose` — that is a reading style, this is a
@@ -421,7 +456,11 @@
     border-radius: 6px;
     font-weight: 600;
     color: var(--mention-colour, var(--blue));
-    background: color-mix(in srgb, var(--mention-colour, var(--blue)) 14%, transparent);
+    background: color-mix(
+      in srgb,
+      var(--mention-colour, var(--blue)) 14%,
+      transparent
+    );
   }
   .note-editor .is-empty::before {
     content: attr(data-placeholder);
