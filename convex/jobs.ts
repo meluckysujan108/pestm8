@@ -12,7 +12,7 @@ import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
 import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
-import { jobsInScope } from './lib/jobScope'
+import { jobsInScope, jobsNewestFirst } from './lib/jobScope'
 import {
   assertStatusChange,
   entersDone,
@@ -101,9 +101,9 @@ async function decorate(
         const assignee = await ctx.db.get(job.assignedMembershipId)
         return {
           ...redactJob(env.caps, job),
-          // The board-variant card shows the full street address; the compact
-          // list variant still shows suburb alone, per §2.3's reasoning that
-          // scanning a day wants the suburb.
+          // The job card shows the full street address; the table row shows
+          // the suburb alone, per §2.3's reasoning that scanning a day wants
+          // the suburb.
           addressLine: property?.addressLine ?? '',
           suburb: property?.suburb ?? '',
           postcode: property?.postcode ?? '',
@@ -132,7 +132,7 @@ export const listDay = query({
 
     // Completed work sinks to the bottom of the day (lib/jobStatus.ts), so
     // the card that moves when a job is finished moves for every viewer at
-    // once — the list, board and table all render this order as given.
+    // once — the card and table views both render this order as given.
     return orderForDay(
       await decorate(
         ctx,
@@ -140,6 +140,42 @@ export const listDay = query({
         await jobsInRange(ctx, env.listScope, businessId, from, to),
       ),
     )
+  },
+})
+
+/**
+ * How many jobs the Job tab holds. Bounded because jobs are the fastest-growing
+ * table in the app — one recurring series projects six months of them — and a
+ * list nobody scrolls to the end of does not need to be complete. The page says
+ * so when it is showing a capped list.
+ */
+const JOB_LIST_LIMIT = 200
+
+/**
+ * The Job tab's list: every job in scope, most recently booked first, whatever
+ * its status and whatever day it is on. Cancelled jobs are included — the
+ * status filter is the reader's to set, and a list that silently omits them
+ * would make "Cancelled" an empty filter.
+ */
+export const list = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const env = await requireActor(ctx, businessId)
+
+    // One more than the limit, so "there are more" needs no second query.
+    const found = await jobsNewestFirst(ctx, env.listScope, {
+      businessId,
+      limit: JOB_LIST_LIMIT + 1,
+    })
+    const jobs = await decorate(ctx, env, found.slice(0, JOB_LIST_LIMIT))
+
+    return {
+      // `decorate` orders a day's work by start time; this list is read the
+      // other way round — newest first, so a job just booked is at the top.
+      jobs: jobs.sort((a, b) => b._creationTime - a._creationTime),
+      capped: found.length > JOB_LIST_LIMIT,
+      limit: JOB_LIST_LIMIT,
+    }
   },
 })
 

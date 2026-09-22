@@ -84,7 +84,7 @@ test('collapsing the sidebar to icons keeps every link findable by name', async 
   )
   await expect.poll(widthOf).toBeLessThan(expandedWidth)
 
-  for (const name of ['Schedule', 'Clients', 'Reports', 'Notes', 'Analytics', 'Settings']) {
+  for (const name of ['Schedule', 'Client', 'Reports', 'Notes', 'Analytics', 'Settings']) {
     await expect(sidebar.getByRole('link', { name })).toBeVisible()
   }
 
@@ -104,15 +104,19 @@ test('the mobile dock gives every destination an equal, thumb-sized target', asy
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
 
   const dock = page.getByRole('navigation').last()
-  const links = dock.getByRole('link')
-  await expect(links).toHaveCount(6)
+  // Four destinations and the burger that holds the rest. The burger is a
+  // button, not a link, since it opens a sheet rather than going anywhere.
+  await expect(dock.getByRole('link')).toHaveCount(4)
+  await expect(dock.getByRole('button', { name: 'More' })).toHaveCount(1)
 
-  const boxes = await links.evaluateAll((els) =>
+  const cells = dock.locator(':scope > a, :scope > button')
+  await expect(cells).toHaveCount(5)
+  const boxes = await cells.evaluateAll((els) =>
     els.map((el) => el.getBoundingClientRect()),
   )
   const widths = boxes.map((b) => Math.round(b.width))
   // An even grid, not flex-1 on labels of different lengths: uneven targets on
-  // a phone are how "Analytics" ends up twice the tap area of "Notes".
+  // a phone are how "Schedule" ends up twice the tap area of "Notes".
   expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1)
   // Apple's minimum touch target. Below this the dock is decorative.
   for (const box of boxes) expect(box.height).toBeGreaterThanOrEqual(44)

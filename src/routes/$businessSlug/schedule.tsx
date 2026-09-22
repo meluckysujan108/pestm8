@@ -30,10 +30,12 @@ import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useActing, useCan, useViewMode } from '#/lib/access'
+import type { ScheduleView } from '#/components/schedule/DayAgendaPanel'
 
-const VIEW_OPTIONS: Array<{ value: 'list' | 'board' | 'table'; label: string }> = [
-  { value: 'list', label: 'List' },
-  { value: 'board', label: 'Board' },
+// A list, not a pair of branches: the section is meant to hold more views
+// than it has today. "Job" is the cards; the compact list view is gone.
+const VIEW_OPTIONS: Array<{ value: ScheduleView; label: string }> = [
+  { value: 'job', label: 'Job' },
   { value: 'table', label: 'Table' },
 ]
 
@@ -48,8 +50,9 @@ const searchSchema = z.object({
   // client's job history — without depending on which day is on screen.
   jobId: z.string().optional(),
   // How the day is rendered, in the URL for the same reason `date` is: the way
-  // a tech prefers to read their day should survive a refresh (§5.1).
-  view: z.enum(['list', 'board', 'table']).optional(),
+  // a tech prefers to read their day should survive a refresh (§5.1). A link
+  // to a view that no longer exists opens the default rather than erroring.
+  view: z.enum(['job', 'table']).optional().catch(undefined),
 })
 
 export const Route = createFileRoute('/$businessSlug/schedule')({
@@ -68,9 +71,8 @@ function SchedulePage() {
   const openJobId = jobId ?? null
   const setOpenJobId = (id: string | null) =>
     navigate({ search: (prev) => ({ ...prev, jobId: id ?? undefined }), replace: true })
-  const activeView = view ?? 'board'
-  const cardVariant = activeView === 'table' ? 'board' : activeView
-  const setView = (next: 'list' | 'board' | 'table') =>
+  const activeView: ScheduleView = view ?? 'job'
+  const setView = (next: ScheduleView) =>
     navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
   const [newJobOpen, setNewJobOpen] = useState(false)
   const [monthOpen, setMonthOpen] = useState(false)
@@ -282,7 +284,6 @@ function SchedulePage() {
                   <JobCard
                     key={job._id}
                     job={job}
-                    variant={cardVariant}
                     travel={travel[job._id]}
                     weather={weather.cell(job.suburb, job.postcode, selectedKey)}
                     timezone={business.timezone}

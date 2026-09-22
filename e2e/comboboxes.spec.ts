@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test'
-import { FIXTURE_PASSWORD, api, signInViaUi, signUpActor, uniqueEmail } from './fixtures'
+import {
+  FIXTURE_PASSWORD,
+  api,
+  clickUntil,
+  signInViaUi,
+  signUpActor,
+  uniqueEmail,
+} from './fixtures'
 
 async function setup(label: string) {
   const owner = await signUpActor(uniqueEmail(label), FIXTURE_PASSWORD, 'Terence')
@@ -76,7 +83,7 @@ test('the property combobox filters by client name, not just address', async ({ 
   await expect(page.getByText('M. Roberts')).toBeVisible()
 })
 
-test('Settings moved out of the page header: reachable from the mobile tab bar and the desktop sidebar', async ({
+test('Settings moved out of the page header: reachable from the phone burger and the desktop sidebar', async ({
   page,
 }) => {
   const s = await setup('combo-settings-nav')
@@ -89,8 +96,15 @@ test('Settings moved out of the page header: reachable from the mobile tab bar a
   await page.goto(`/${s.slug}/schedule`)
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
   const mobileNav = page.getByRole('navigation').last()
-  const mobileSettings = mobileNav.getByRole('link', { name: 'Settings' })
-  await expect(mobileSettings).toBeVisible()
+  // The dock holds four daily destinations and a burger; Settings is the last
+  // item in the sheet that burger opens.
+  await expect(mobileNav.getByRole('link', { name: 'Settings' })).toHaveCount(0)
+  const mobileSettings = page
+    .getByRole('dialog')
+    .getByRole('link', { name: 'Settings' })
+  await clickUntil(mobileNav.getByRole('button', { name: 'More' }), () =>
+    expect(mobileSettings).toBeVisible({ timeout: 2_000 }),
+  )
   await mobileSettings.click()
   await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings$`))
 

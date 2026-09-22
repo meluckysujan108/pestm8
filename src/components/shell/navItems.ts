@@ -1,9 +1,12 @@
 import {
   BarChart3,
+  Briefcase,
   CalendarDays,
   FileText,
+  Package,
   Settings,
   StickyNote,
+  Target,
   Users,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
@@ -20,22 +23,34 @@ export type NavItem = {
  * and fourth time because it is pinned to the end rather than living in the
  * list — which is exactly how a nav item ends up in one nav and not the other.
  *
- * Settings is separate here for the same layout reason, but it is still a
- * single declaration both navs read.
+ * The app has more sections than a phone dock can hold legibly, so they are
+ * split: four destinations a technician uses every day, and a burger holding
+ * the rest. Four plus the burger is five cells, and five is what fits at 390px
+ * without the labels truncating.
  */
-export const NAV_ITEMS: Array<NavItem> = [
+export const PRIMARY_NAV: Array<NavItem> = [
   { to: '/$businessSlug/schedule', label: 'Schedule', icon: CalendarDays },
-  { to: '/$businessSlug/clients', label: 'Clients', icon: Users },
+  { to: '/$businessSlug/clients', label: 'Client', icon: Users },
   { to: '/$businessSlug/reports', label: 'Reports', icon: FileText },
   { to: '/$businessSlug/notes', label: 'Notes', icon: StickyNote },
-  { to: '/$businessSlug/analytics', label: 'Analytics', icon: BarChart3 },
 ]
 
+/** Behind the burger: the sections that are not a daily destination. */
+export const MORE_NAV: Array<NavItem> = [
+  { to: '/$businessSlug/job', label: 'Job', icon: Briefcase },
+  { to: '/$businessSlug/analytics', label: 'Analytics', icon: BarChart3 },
+  { to: '/$businessSlug/products', label: 'Products', icon: Package },
+  { to: '/$businessSlug/leads', label: 'Leads', icon: Target },
+]
+
+/** Settings is separate for the same layout reason it always was: it is pinned
+ * to the bottom of the sidebar rather than living in a list. Both navs still
+ * read it from this one declaration. */
 export const SETTINGS_ITEM: NavItem = {
   to: '/$businessSlug/settings',
   label: 'Settings',
   icon: Settings,
 }
 
-/** What the dock renders: the tabs plus Settings, in order. */
-export const DOCK_ITEMS: Array<NavItem> = [...NAV_ITEMS, SETTINGS_ITEM]
+/** What the burger menu holds, in order, with Settings last. */
+export const MORE_ITEMS: Array<NavItem> = [...MORE_NAV, SETTINGS_ITEM]

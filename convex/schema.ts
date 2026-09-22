@@ -509,6 +509,13 @@ export default defineSchema({
     .index('by_assignee_date', ['assignedMembershipId', 'scheduledAt'])
     .index('by_property', ['propertyId'])
     .index('by_business_status', ['businessId', 'status'])
+    // The Job tab lists jobs newest-BOOKED first, which neither date index can
+    // answer: both order by `scheduledAt`. Convex appends `_creationTime` to
+    // every index, so a businessId/assignee-only index read descending is
+    // exactly "most recently created first". One per scope, because a
+    // subcontractor's list is read the same way as the owner's.
+    .index('by_business', ['businessId'])
+    .index('by_assignee', ['assignedMembershipId'])
     // Materialising recurrences must be idempotent, which means asking "does
     // this occurrence already exist" on every cron run.
     .index('by_recurrence', ['recurrenceId']),

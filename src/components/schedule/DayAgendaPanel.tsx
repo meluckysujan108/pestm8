@@ -12,11 +12,15 @@ import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
 
-type View = 'list' | 'board' | 'table'
+/**
+ * How a day is read. A list rather than a pair of branches: the section is
+ * meant to hold more views than it has today. "Job" is the cards; the compact
+ * list view is gone.
+ */
+export type ScheduleView = 'job' | 'table'
 
-const VIEW_OPTIONS: Array<{ value: View; label: string }> = [
-  { value: 'list', label: 'List' },
-  { value: 'board', label: 'Board' },
+const VIEW_OPTIONS: Array<{ value: ScheduleView; label: string }> = [
+  { value: 'job', label: 'Job' },
   { value: 'table', label: 'Table' },
 ]
 
@@ -49,8 +53,8 @@ export function DayAgendaPanel({
   // Owned by the route, not held locally: the choice lives in a search param
   // so it survives a refresh and is shareable (§5.1), and so the mobile and
   // desktop layouts cannot end up disagreeing about which view is active.
-  view: View
-  onViewChange: (view: View) => void
+  view: ScheduleView
+  onViewChange: (view: ScheduleView) => void
   onOpenJob: (jobId: string) => void
 }) {
   const mode = useViewMode()
@@ -130,18 +134,11 @@ export function DayAgendaPanel({
           }
         />
       ) : view !== 'table' ? (
-        <div
-          className={
-            view === 'board'
-              ? 'grid grid-cols-1 items-stretch gap-3 xl:grid-cols-2'
-              : 'flex flex-col gap-2.5'
-          }
-        >
+        <div className="grid grid-cols-1 items-stretch gap-3 xl:grid-cols-2">
           {filteredJobs.map((job) => (
             <JobCard
               key={job._id}
               job={job}
-              variant={view}
               travel={travel[job._id]}
               weather={weather.cell(job.suburb, job.postcode ?? '', selectedKey)}
               timezone={timezone}

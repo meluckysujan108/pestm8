@@ -83,7 +83,7 @@ export function WeatherStrip({ cell }: { cell: WeatherCell }) {
   if (cell.status === 'pending') {
     // Deliberately the same height as the resolved strip below (a 26px numeral
     // over a 2.5-unit padded box). A shorter placeholder would re-introduce the
-    // board-card reflow that `a9dc2cb` fixed — the card would visibly resize as
+    // job-card reflow that `a9dc2cb` fixed — the card would visibly resize as
     // each forecast landed.
     return (
       <span
