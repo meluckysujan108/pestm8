@@ -1,6 +1,7 @@
 import { ChevronDown } from 'lucide-react'
 import { SidebarTrigger } from '#/components/ui/sidebar.tsx'
 import { AccountMenu } from './AccountMenu'
+import { ViewMenu } from './ViewMenu'
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -42,10 +43,14 @@ export function PageHeader({
           ) : (
             <p className="section-label mb-0.5 truncate">{kicker}</p>
           ))}
-        <h1 className="text-page-title text-ink">{title}</h1>
+        {/* Truncated rather than wrapped: the header's height is load-bearing
+            (the schedule's week strip is pinned beneath it), and the view
+            menu leaves the longest titles less room on a phone. */}
+        <h1 className="truncate text-page-title text-ink">{title}</h1>
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {action}
+        <ViewMenu businessId={businessId} businessSlug={businessSlug} />
         <AccountMenu businessId={businessId} businessSlug={businessSlug} />
       </div>
     </header>

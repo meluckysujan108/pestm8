@@ -2,7 +2,7 @@ import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { authComponent } from './auth'
 import { requireActor } from './lib/actor'
-import { ALL_CAPABILITIES } from './lib/capabilities'
+import { ALL_CAPABILITIES, canChooseView } from './lib/capabilities'
 import type { Capability } from './lib/capabilities'
 
 /**
@@ -66,6 +66,19 @@ export const me = query({
        * reason they would simply find themselves somewhere else.
        */
       degraded: env.actor.degraded,
+
+      /**
+       * Which of the owner's views is showing, for the dropdown and for the
+       * screens that simplify in "Just my jobs". Null for anyone who does not
+       * get the dropdown (`canChooseView`), so the client renders it on this
+       * alone and never has to know the rule.
+       *
+       * 'account' while a switch is open: the chosen view is set aside, not
+       * lost, and resumes when he switches back.
+       */
+      view: canChooseView(env.actor.real)
+        ? { mode: switched ? ('account' as const) : env.view }
+        : null,
 
       /** The older read-only "view as", which still exists and is not the same
        * thing: it shows another person's rows and grants nothing. */

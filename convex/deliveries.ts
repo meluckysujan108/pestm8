@@ -14,7 +14,7 @@ import {
   requireWriteActor,
 } from './lib/actor'
 import { forSelf, recordAudit } from './lib/audit'
-import { clientScope, reportScope } from './lib/capabilities'
+import { clientScope, reportReadable } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { emailConfigured } from './lib/emailConfig'
 import type { ActorEnvelope } from './lib/actor'
@@ -251,7 +251,7 @@ export const known = query({
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId)
       return { addresses: [], unrestricted: false }
-    if (!reportScope(env.scope, report))
+    if (!reportReadable(env.scope, env.actor.real._id, report))
       return { addresses: [], unrestricted: false }
 
     const business = await ctx.db.get(businessId)
@@ -366,7 +366,7 @@ export const forReport = query({
     const env = await requireActor(ctx, businessId)
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return []
-    if (!reportScope(env.scope, report)) return []
+    if (!reportReadable(env.scope, env.actor.real._id, report)) return []
 
     const rows = await ctx.db
       .query('reportDeliveries')
@@ -446,7 +446,8 @@ export const request = mutation({
     if (!report || report.businessId !== businessId)
       throw new ConvexError('NOT_FOUND')
     if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
-    if (!reportScope(env.scope, report)) throw new ConvexError('NO_ACCESS')
+    if (!reportReadable(env.scope, env.actor.real._id, report))
+      throw new ConvexError('NO_ACCESS')
     if (report.status !== 'finalised')
       throw new ConvexError('REPORT_NOT_FINALISED')
 

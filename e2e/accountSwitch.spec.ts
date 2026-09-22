@@ -27,9 +27,12 @@ test('an owner works in a subcontractor’s account, then comes back out', async
   // Nothing is claimed about the account before a switch starts.
   await expect(page.getByText(/Working in/)).toBeHidden()
 
-  await page.getByRole('button', { name: 'Account menu' }).click()
+  // The owner switches from the view menu beside the +, which lists every
+  // account he may work in (see viewMenu.spec.ts); the account menu no longer
+  // offers the same thing twice.
+  await page.getByRole('button', { name: 'Whose jobs to show' }).click()
   await expect(page.getByText('Work in another account')).toBeVisible()
-  await page.getByRole('button', { name: /Kevin/ }).click()
+  await page.getByRole('menuitemradio', { name: /Kevin/ }).click()
 
   // The banner is the whole point: it says whose account this is, and that
   // what happens here is recorded.

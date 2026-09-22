@@ -55,7 +55,7 @@ export const overview = query({
     // rate would need a second, unfiltered scan — not worth it for a first
     // cut. `statusBreakdown` below can therefore only ever show
     // booked/inProgress/completed/invoiced.
-    const jobs = await jobsInRange(ctx, env.scope, businessId, from, to)
+    const jobs = await jobsInRange(ctx, env.listScope, businessId, from, to)
 
     const revenueByMonth = new Map(monthKeys.map((k) => [k, 0]))
     const volumeByMonth = new Map(monthKeys.map((k) => [k, 0]))
@@ -108,7 +108,7 @@ export const overview = query({
       // subcontractor's technicianLoad always degenerates to one row
       // (themselves), so that chart is skipped entirely rather than shown
       // as a meaningless single bar.
-      scope: wireScope(env.scope),
+      scope: wireScope(env.listScope),
       months: monthKeys,
       // Null rather than zero: a total of zero is a claim about the business,
       // and this is the absence of one.

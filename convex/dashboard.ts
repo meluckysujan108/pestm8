@@ -16,7 +16,7 @@ export const summary = query({
     const business = await ctx.db.get(businessId)
     if (!business) return null
 
-    const all = await jobsInScope(ctx, env.scope, { businessId })
+    const all = await jobsInScope(ctx, env.listScope, { businessId })
 
     const todayKey = todayKeyInZone(business.timezone)
     const dayStart = startOfDayInZone(todayKey, business.timezone)
@@ -61,7 +61,7 @@ export const summary = query({
           .reduce((sum, j) => sum + j.price, 0),
       ),
       pricesHidden: hidePrices(env.caps),
-      scope: wireScope(env.scope),
+      scope: wireScope(env.listScope),
     }
   },
 })

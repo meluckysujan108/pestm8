@@ -2,6 +2,7 @@ import { ConvexError } from 'convex/values'
 import { authComponent } from '../auth'
 import { factsFromMembership } from './membershipFacts'
 import {
+  canChooseView,
   capabilitiesOf,
   effectiveCapabilities,
   isAssignableRole,
@@ -20,6 +21,7 @@ import type {
   Role,
   RowScope,
   SwitchSession,
+  ViewMode,
   WriteActor,
 } from './capabilities'
 
@@ -86,6 +88,22 @@ export type ActorEnvelope = {
    * would surface later as a refused write rather than an absent option.
    */
   realScope: RowScope
+  /**
+   * The rows a LIST should show: `scope`, narrowed to the caller's own work
+   * when they have chosen "Just my jobs" on this device.
+   *
+   * Only the "my round" surfaces read this — the schedule, the dashboard,
+   * analytics, the reports list. Anything that opens one record (a job, a
+   * report, a client's history) reads `scope`, because a technician on site
+   * needs the whole history of the house in front of them, not just the
+   * visits that were theirs. And it is `scope` in every mutation: a view is
+   * a choice about what to be shown, never about what is allowed, so no write
+   * may be refused because of which view a screen was left in.
+   */
+  listScope: RowScope
+  /** The view chosen on this device. Always 'everyone' for anyone who cannot
+   * choose one (`canChooseView`). */
+  view: ViewMode
   /** True when `readScope` came from the legacy read-only view-as rather than
    * from a switch. Read access only — never let this reach a write path. */
   viewingAsLegacy: boolean
@@ -121,6 +139,9 @@ type ActorRows = {
   /** The legacy read-only view-as target, if the stored selection still
    * validates under the OLD rule. Never feeds `acting`. */
   legacyTarget: MembershipFacts | null
+  /** The view chosen on this device — 'everyone' unless a `sessionViews` row
+   * applies. Only ever read for someone who may choose one. */
+  view: ViewMode
 }
 
 /**
@@ -187,10 +208,14 @@ async function readActorRows(
 
   const real = factsFromMembership(membership)
 
-  const [realParent, switchRow, legacyTarget] = await Promise.all([
+  const [realParent, switchRow, legacyTarget, view] = await Promise.all([
     parentOf(ctx, real),
     findSwitch(ctx, businessId, real._id),
     legacyViewAsTarget(ctx, membership),
+    // Nobody else has a view to load, so nobody else pays the read.
+    canChooseView(real)
+      ? findView(ctx, businessId, real._id)
+      : Promise.resolve<ViewMode>('everyone'),
   ])
 
   const target = switchRow ? await getMembership(ctx, switchRow.target) : null
@@ -201,6 +226,7 @@ async function readActorRows(
     target,
     session: switchRow?.session ?? null,
     legacyTarget,
+    view,
   }
 }
 
@@ -280,6 +306,39 @@ async function findSwitch(
       expiresAt: row.expiresAt,
     },
   }
+}
+
+/**
+ * The view chosen on THIS device, by the same rules as `findSwitch`: keyed by
+ * session, ignored when it belongs to another business, and re-checked against
+ * the membership it was chosen for — so someone removed and later re-added
+ * does not inherit a view from their previous stint. Newest wins if a bug ever
+ * leaves two.
+ */
+async function findView(
+  ctx: Ctx,
+  businessId: Id<'businesses'>,
+  realMembershipId: Id<'memberships'>,
+): Promise<ViewMode> {
+  const sessionId = await currentSessionId(ctx)
+  if (!sessionId) return 'everyone'
+
+  const rows = await ctx.db
+    .query('sessionViews')
+    .withIndex('by_session', (q) => q.eq('sessionId', sessionId))
+    .collect()
+
+  const row = rows
+    .filter(
+      (r) =>
+        r.businessId === businessId && r.realMembershipId === realMembershipId,
+    )
+    .sort(
+      (a, b) => b.updatedAt - a.updatedAt || b._creationTime - a._creationTime,
+    )
+    .at(0)
+
+  return row ? row.mode : 'everyone'
 }
 
 /**
@@ -402,6 +461,13 @@ async function envelope(
   const switched = isSwitched(actor)
 
   /**
+   * "Just my jobs" is in force when it was chosen on this device and nothing
+   * outranks it. A switch does: inside someone else's account you see what
+   * that account sees, and the chosen view resumes when you switch back.
+   */
+  const ownView = !switched && rows.view === 'mine' && canChooseView(rows.real)
+
+  /**
    * Three-way precedence, and the middle case is the one that is easy to miss.
    *
    * A live switch wins: you cannot be looking through one person's eyes while
@@ -414,9 +480,11 @@ async function envelope(
    * quietly served Priya's rows.
    *
    * Only with no switch in play at all does the legacy selection apply. And
-   * never on a write.
+   * never on a write — nor over a view the owner has chosen since, which is
+   * the newer and more deliberate of the two (`views.set` also clears it).
    */
-  const legacyTarget = forWrite || actor.degraded ? null : rows.legacyTarget
+  const legacyTarget =
+    forWrite || actor.degraded || ownView ? null : rows.legacyTarget
   const readScope = switched ? actor.acting : (legacyTarget ?? rows.real)
   const readScopeParent = switched
     ? await parentOf(ctx, actor.acting)
@@ -456,6 +524,14 @@ async function envelope(
     caps,
     scope,
     realScope,
+    // Queries only — see `listScope` on the envelope type. `isMutation` is the
+    // same test `now` uses, and it is structural: a query's database has no
+    // `insert`, so no mutation can be handed a narrowed list scope.
+    listScope:
+      ownView && !isMutation(ctx)
+        ? { kind: 'own', membershipId: rows.real._id }
+        : scope,
+    view: canChooseView(rows.real) ? rows.view : 'everyone',
     viewingAsLegacy: !switched && looking,
   }
 }

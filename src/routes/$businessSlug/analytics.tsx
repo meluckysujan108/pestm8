@@ -6,6 +6,8 @@ import { api } from '../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { formatMoney } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
+import { useViewMode } from '#/lib/access'
+import { useSetView } from '#/lib/useSetView'
 
 // A separate lazy chunk so `recharts` (~150KB gzipped) never loads on
 // Schedule or any other route — only whoever actually opens Analytics pays
@@ -22,6 +24,8 @@ export const Route = createFileRoute('/$businessSlug/analytics')({
 
 function AnalyticsPage() {
   const { business } = Route.useRouteContext()
+  const mode = useViewMode()
+  const setView = useSetView(business._id)
   const hydrated = useHydrated()
   const { data: summary } = useSuspenseQuery(
     convexQuery(api.dashboard.summary, { businessId: business._id }),
@@ -81,6 +85,21 @@ function AnalyticsPage() {
         {summary.scope === 'assignee' && (
           <p className="text-caption text-muted md:col-span-3">
             These figures cover your own jobs.
+            {/* The owner narrowed these himself, so the way back is his to
+                take — without hunting for the header menu. */}
+            {mode === 'mine' && (
+              <>
+                {' '}
+                <button
+                  type="button"
+                  disabled={!hydrated || setView.isPending}
+                  onClick={() => setView.mutate({ kind: 'everyone' })}
+                  className="font-semibold text-blue disabled:opacity-50"
+                >
+                  Show the whole business
+                </button>
+              </>
+            )}
           </p>
         )}
       </div>

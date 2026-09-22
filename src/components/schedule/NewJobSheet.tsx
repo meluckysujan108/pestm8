@@ -13,6 +13,7 @@ import type { RepeatValue } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
+import { OffViewNote } from './OffViewNote'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 
 type ClientMode = 'existing' | 'new'
@@ -253,6 +254,7 @@ function NewJobForm({
             Assigned to you
           </p>
         )}
+        <OffViewNote assignee={assignee} people={assignees} />
       </Field>
 
       <div className="grid grid-cols-2 gap-3">

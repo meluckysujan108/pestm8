@@ -445,6 +445,26 @@ export function reportScope(
   return scope.membershipIds.includes(report.authorMembershipId)
 }
 
+/**
+ * `reportScope`, plus every report this person wrote themselves.
+ *
+ * The two differ only while someone is looking through another account. The
+ * report mutations attribute to the REAL person, so a report the owner starts
+ * while working in Kevin's account is authored by the owner — and Kevin's
+ * scope, the one being looked through, does not contain it: it disappeared the
+ * moment it was created. Nobody needs a grant to read what they wrote.
+ *
+ * `readerId` is the real person's membership, never the account being worked
+ * in; asked of that, this would widen nothing.
+ */
+export function reportReadable(
+  scope: RowScope,
+  readerId: Id<'memberships'>,
+  report: { authorMembershipId: Id<'memberships'> },
+): boolean {
+  return reportScope(scope, report) || report.authorMembershipId === readerId
+}
+
 export function isInScope(
   scope: RowScope,
   row: { assignedMembershipId: Id<'memberships'> },
@@ -834,7 +854,31 @@ export function isSelectableAsTechnician(person: MembershipFacts): boolean {
   return person.status === 'active'
 }
 
-// ───────────────────────────────────────────────────────────────── licences
+// ──────────────────────────────────────────────────────────────────── views
+
+/**
+ * What someone has chosen to look at: the whole of what they may see, or just
+ * the work assigned to them.
+ *
+ * A LENS, not a permission. "Just my jobs" narrows the lists a person looks
+ * through — the schedule, the dashboard, analytics, the reports list — and
+ * nothing else: not the history on a client or a job they open, and never
+ * what they may do. An owner in his own view can still open any job and
+ * administer the business; he has only asked not to be shown everyone else's
+ * day.
+ */
+export type ViewMode = 'everyone' | 'mine'
+
+/**
+ * Who gets the choice. The owner only, for now: he works jobs himself and has
+ * the whole business in view by default. This is the one place to widen it —
+ * a contractor would want "my team" and "me" in the same way.
+ */
+export function canChooseView(real: MembershipFacts): boolean {
+  return real.role === 'owner'
+}
+
+// ───────────────────────────────────────────────────────────────── licences// ───────────────────────────────────────────────────────────────── licences
 
 export type LicenceStatus = 'valid' | 'missing' | 'expired'
 

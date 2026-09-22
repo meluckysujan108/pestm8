@@ -55,4 +55,16 @@ crons.cron(
   {},
 )
 
+/**
+ * Forgets the owner's chosen view on devices that have signed out. Its own job,
+ * not a step in the switch sweep above, so a failure in one cannot stop the
+ * other; and hygiene only, since a dead session's view is never read.
+ */
+crons.cron(
+  'sweep views of ended sign-ins',
+  '30 * * * *',
+  internal.views.sweepEnded,
+  {},
+)
+
 export default crons

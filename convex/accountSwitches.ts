@@ -8,9 +8,15 @@ import {
 } from './lib/actor'
 import { recordAudit } from './lib/audit'
 import { factsFromMembership } from './lib/membershipFacts'
-import { beginSwitch, canSwitchInto, switchTargets } from './lib/capabilities'
+import {
+  beginSwitch,
+  canSwitchInto,
+  isSwitched,
+  switchTargets,
+} from './lib/capabilities'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Id } from './_generated/dataModel'
+import type { ActorEnvelope } from './lib/actor'
 import type { SwitchRefusal } from './lib/capabilities'
 
 /**
@@ -62,6 +68,111 @@ async function rowsForSession(
   return rows.filter((r) => r.businessId === businessId)
 }
 
+/**
+ * Open a switch for this session into `target`, replacing any it holds.
+ *
+ * The door check lives HERE, not in the callers, so there is no way to create a
+ * switch row that skipped it. `chained` is the caller's statement of whether
+ * the person is already inside someone else's account: `start` passes the
+ * truth (and so refuses A → B → C), while `views.set` passes false because it
+ * closes the old switch first and decides on the real person's own authority —
+ * which is exactly what a direct switch would have decided.
+ */
+export async function openSwitch(
+  ctx: MutationCtx,
+  env: ActorEnvelope,
+  sessionId: string,
+  businessId: Id<'businesses'>,
+  targetMembershipId: Id<'memberships'>,
+  { chained }: { chained: boolean },
+): Promise<{ expiresAt: number }> {
+  const targetDoc = await ctx.db.get(targetMembershipId)
+  if (!targetDoc) throw new ConvexError('NOT_FOUND')
+
+  const actor = chained
+    ? env.actor
+    : {
+        real: env.actor.real,
+        acting: env.actor.real,
+        session: null,
+        degraded: null,
+      }
+  const decision = canSwitchInto(actor, factsFromMembership(targetDoc))
+  if (!decision.ok) throw refusal(decision.reason)
+
+  /**
+   * One row per session. `findSwitch` in lib/actor.ts tolerates duplicates
+   * and takes the newest, but that is a fail-safe against this file having a
+   * bug, not a licence to leave two. With two rows, `stop` deletes one, the
+   * banner clears, and the person carries on writing inside someone else's
+   * account under the other — the worst thing this feature can do.
+   */
+  for (const row of await rowsForSession(ctx, sessionId, businessId)) {
+    await ctx.db.delete(row._id)
+  }
+
+  const session = beginSwitch(targetMembershipId, Date.now())
+  await ctx.db.insert('accountSwitches', {
+    sessionId,
+    businessId,
+    // The person, never the account. `findSwitch` re-checks this on every
+    // request so a row cannot outlive the membership it was opened for.
+    realMembershipId: env.actor.real._id,
+    targetMembershipId,
+    startedAt: session.startedAt,
+    expiresAt: session.expiresAt,
+  })
+
+  await recordAudit(
+    ctx,
+    {
+      actorMembershipId: env.actor.real._id,
+      // Recorded against the account, so "what happened in mine, and who did
+      // it" can be answered by the person whose account it is. That question
+      // being answerable is what makes handing someone your account
+      // reasonable at all.
+      onBehalfOfMembershipId: targetMembershipId,
+    },
+    {
+      businessId,
+      action: 'switch.start',
+      entityType: 'memberships',
+      entityId: targetMembershipId,
+      at: session.startedAt,
+    },
+  )
+
+  return { expiresAt: session.expiresAt }
+}
+
+/** Close every switch this session holds in this business, each audited. */
+export async function closeSwitches(
+  ctx: MutationCtx,
+  env: ActorEnvelope,
+  sessionId: string,
+  businessId: Id<'businesses'>,
+): Promise<number> {
+  const rows = await rowsForSession(ctx, sessionId, businessId)
+  for (const row of rows) await ctx.db.delete(row._id)
+
+  for (const row of rows) {
+    await recordAudit(
+      ctx,
+      {
+        actorMembershipId: env.actor.real._id,
+        onBehalfOfMembershipId: row.targetMembershipId,
+      },
+      {
+        businessId,
+        action: 'switch.stop',
+        entityType: 'memberships',
+        entityId: row.targetMembershipId,
+      },
+    )
+  }
+  return rows.length
+}
+
 export const start = mutation({
   args: {
     businessId: v.id('businesses'),
@@ -90,9 +201,6 @@ export const start = mutation({
     // them to the phone in their pocket.
     if (!sessionId) throw new ConvexError('NO_SESSION')
 
-    const targetDoc = await ctx.db.get(targetMembershipId)
-    if (!targetDoc) throw new ConvexError('NOT_FOUND')
-
     /**
      * NO_CHAINING is enforced through `isSwitched(actor)`, and the actor was
      * resolved from the row this mutation is about to delete. A → B → C must
@@ -100,63 +208,20 @@ export const start = mutation({
      * someone apparently standing in their own account.
      *
      * What guarantees that is the resolve at the top of the handler, not the
-     * order of the two statements below: `requireActor` runs before anything is
-     * touched and its result is memoised per request, so the decision sees the
-     * pre-delete state either way. I had this comment claiming the ordering was
-     * load-bearing until a reviewer pointed out the test passed with the two
-     * swapped — which it does, and for that reason.
+     * order of the check and the delete inside `openSwitch`: `requireActor`
+     * runs before anything is touched and its result is memoised per request,
+     * so the decision sees the pre-delete state either way. I had this comment
+     * claiming the ordering was load-bearing until a reviewer pointed out the
+     * test passed with the two swapped — which it does, and for that reason.
      *
-     * The check stays above the delete regardless, because the real rule is
-     * "resolve before mutating", and reading it in that order is how the next
-     * person sees it. What would break this is an `invalidateActor` between
-     * the two.
+     * The check stays above the delete there regardless, because the real
+     * rule is "resolve before mutating", and reading it in that order is how
+     * the next person sees it. What would break this is an `invalidateActor`
+     * between the two.
      */
-    const decision = canSwitchInto(env.actor, factsFromMembership(targetDoc))
-    if (!decision.ok) throw refusal(decision.reason)
-
-    /**
-     * One row per session. `findSwitch` in lib/actor.ts tolerates duplicates
-     * and takes the newest, but that is a fail-safe against this file having a
-     * bug, not a licence to leave two. With two rows, `stop` deletes one, the
-     * banner clears, and the person carries on writing inside someone else's
-     * account under the other — the worst thing this feature can do.
-     */
-    for (const row of await rowsForSession(ctx, sessionId, businessId)) {
-      await ctx.db.delete(row._id)
-    }
-
-    const session = beginSwitch(targetMembershipId, Date.now())
-    await ctx.db.insert('accountSwitches', {
-      sessionId,
-      businessId,
-      // The person, never the account. `findSwitch` re-checks this on every
-      // request so a row cannot outlive the membership it was opened for.
-      realMembershipId: env.actor.real._id,
-      targetMembershipId,
-      startedAt: session.startedAt,
-      expiresAt: session.expiresAt,
+    return openSwitch(ctx, env, sessionId, businessId, targetMembershipId, {
+      chained: isSwitched(env.actor),
     })
-
-    await recordAudit(
-      ctx,
-      {
-        actorMembershipId: env.actor.real._id,
-        // Recorded against the account, so "what happened in mine, and who did
-        // it" can be answered by the person whose account it is. That question
-        // being answerable is what makes handing someone your account
-        // reasonable at all.
-        onBehalfOfMembershipId: targetMembershipId,
-      },
-      {
-        businessId,
-        action: 'switch.start',
-        entityType: 'memberships',
-        entityId: targetMembershipId,
-        at: session.startedAt,
-      },
-    )
-
-    return { expiresAt: session.expiresAt }
   },
 })
 
@@ -175,26 +240,9 @@ export const stop = mutation({
     const sessionId = await currentSessionId(ctx)
     if (!sessionId) return { stopped: false }
 
-    const rows = await rowsForSession(ctx, sessionId, businessId)
-    for (const row of rows) await ctx.db.delete(row._id)
-
-    for (const row of rows) {
-      await recordAudit(
-        ctx,
-        {
-          actorMembershipId: env.actor.real._id,
-          onBehalfOfMembershipId: row.targetMembershipId,
-        },
-        {
-          businessId,
-          action: 'switch.stop',
-          entityType: 'memberships',
-          entityId: row.targetMembershipId,
-        },
-      )
+    return {
+      stopped: (await closeSwitches(ctx, env, sessionId, businessId)) > 0,
     }
-
-    return { stopped: rows.length > 0 }
   },
 })
 

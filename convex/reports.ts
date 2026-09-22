@@ -48,7 +48,7 @@ import type { DataModel, Doc, Id } from './_generated/dataModel'
 import {
   canFinaliseReport,
   mergeDraft,
-  reportScope,
+  reportReadable,
 } from './lib/capabilities'
 import type { RowScope } from './lib/capabilities'
 import { reportFactsFrom } from './lib/reportFacts'
@@ -111,7 +111,7 @@ function requireSameVersion(
 export const listByProperty = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, scope } = await requireActor(ctx, businessId)
 
     const reports = await ctx.db
       .query('reports')
@@ -128,7 +128,7 @@ export const listByProperty = query({
         (r) =>
           r.businessId === businessId &&
           r.deletedAt === undefined &&
-          reportScope(scope, r),
+          reportReadable(scope, actor.real._id, r),
       ),
     )
   },
@@ -140,7 +140,7 @@ export const INLINE_LIMIT = 20
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, listScope } = await requireActor(ctx, businessId)
 
     const reports = await ctx.db
       .query('reports')
@@ -149,7 +149,7 @@ export const listForBusiness = query({
       .collect()
 
     const visible = reports.filter(
-      (r) => r.deletedAt === undefined && reportScope(scope, r),
+      (r) => r.deletedAt === undefined && reportReadable(listScope, actor.real._id, r),
     )
 
     // Resolved BEFORE the fan-out, not lazily inside it. Snapshots dedupe by
@@ -226,7 +226,7 @@ export const list = query({
     paginationOpts: paginationOptsValidator,
   },
   handler: async (ctx, { businessId, filter, paginationOpts }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, listScope } = await requireActor(ctx, businessId)
 
     const page = await ctx.db
       .query('reports')
@@ -243,7 +243,7 @@ export const list = query({
     // Visibility is applied after the page is drawn, as it is for notes: a
     // subcontractor's page can come back short, which the paginator handles,
     // and the alternative is an index per membership.
-    const visible = page.page.filter((r) => reportScope(scope, r))
+    const visible = page.page.filter((r) => reportReadable(listScope, actor.real._id, r))
 
     return { ...page, page: await decorate(ctx, visible) }
   },
@@ -271,7 +271,7 @@ export const search = query({
   },
   handler: async (ctx, { businessId, term, filter }) => {
     if (term.trim() === '') return []
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, listScope } = await requireActor(ctx, businessId)
 
     const rows = await ctx.db
       .query('reports')
@@ -288,7 +288,7 @@ export const search = query({
       .filter((q) => segmentPredicate(q, filter))
       .take(SEARCH_LIMIT)
 
-    return decorate(ctx, rows.filter((r) => reportScope(scope, r)))
+    return decorate(ctx, rows.filter((r) => reportReadable(listScope, actor.real._id, r)))
   },
 })
 
@@ -370,7 +370,7 @@ export async function decorate(ctx: QueryCtx, rows: Array<Doc<'reports'>>) {
 export const counts = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, listScope } = await requireActor(ctx, businessId)
     const rows = await ctx.db
       .query('reports')
       .withIndex('by_business_updated', (q) => q.eq('businessId', businessId))
@@ -379,7 +379,7 @@ export const counts = query({
 
     const counted = { all: 0, draft: 0, finalised: 0, sent: 0, trash: 0 }
     for (const r of rows) {
-      if (!reportScope(scope, r)) continue
+      if (!reportReadable(listScope, actor.real._id, r)) continue
       if (r.deletedAt !== undefined) {
         counted.trash += 1
         continue
@@ -415,7 +415,7 @@ export const staleDrafts = query({
     olderThanMs: v.optional(v.number()),
   },
   handler: async (ctx, { businessId, olderThanMs }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, listScope } = await requireActor(ctx, businessId)
     const cutoff = Date.now() - (olderThanMs ?? STALE_AFTER_MS)
 
     const rows = await ctx.db
@@ -431,7 +431,7 @@ export const staleDrafts = query({
       )
       .take(COUNT_LIMIT)
 
-    const mine = rows.filter((r) => reportScope(scope, r))
+    const mine = rows.filter((r) => reportReadable(listScope, actor.real._id, r))
     return {
       count: mine.length,
       /** The one to open, which is the oldest — it is the most forgotten. */
@@ -552,7 +552,7 @@ export const get = query({
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return null
-    if (!reportScope(env.scope, report)) return null
+    if (!reportReadable(env.scope, env.actor.real._id, report)) return null
     // Soft-deleted: gone from every list, and not openable by a stale link.
     if (report.deletedAt !== undefined) return null
 
@@ -1036,12 +1036,12 @@ function storageIdOf(
 export const signatureUrls = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}
     if (report.deletedAt !== undefined) return {}
-    if (!reportScope(scope, report)) return {}
+    if (!reportReadable(scope, actor.real._id, report)) return {}
 
     return resolveSignatureUrls(ctx, report)
   },
@@ -1251,12 +1251,12 @@ export const removeGalleryPhoto = mutation({
 export const galleryPhotos = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return []
     if (report.deletedAt !== undefined) return []
-    if (!reportScope(scope, report)) return []
+    if (!reportReadable(scope, actor.real._id, report)) return []
 
     const photos = await ctx.db
       .query('reportPhotos')
@@ -1288,12 +1288,12 @@ export const galleryPhotos = query({
 export const photoUrls = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, scope } = await requireActor(ctx, businessId)
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}
     if (report.deletedAt !== undefined) return {}
-    if (!reportScope(scope, report)) return {}
+    if (!reportReadable(scope, actor.real._id, report)) return {}
 
     const entries = await Promise.all(
       Object.entries(report.photoSlots ?? {}).map(async ([slot, storageId]) => {
@@ -1708,6 +1708,7 @@ function carryFrom(draft: Doc<'reports'>, candidate: Doc<'reports'>): boolean {
 async function lastVisitSource(
   ctx: QueryCtx,
   scope: RowScope,
+  readerId: Id<'memberships'>,
   draft: Doc<'reports'>,
 ) {
   const rows = await ctx.db
@@ -1720,7 +1721,7 @@ async function lastVisitSource(
     (row) =>
       row.businessId === draft.businessId &&
       carryFrom(draft, row) &&
-      reportScope(scope, row),
+      reportReadable(scope, readerId, row),
   )
 
   // Ranked by when each was SIGNED, not when it was started. A draft left in
@@ -1770,14 +1771,14 @@ async function carryOverFor(
 export const lastAtProperty = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, scope } = await requireActor(ctx, businessId)
 
     const draft = await ctx.db.get(reportId)
     if (!draft || draft.businessId !== businessId) return null
     if (draft.status !== 'draft' || draft.deletedAt !== undefined) return null
-    if (!reportScope(scope, draft)) return null
+    if (!reportReadable(scope, actor.real._id, draft)) return null
 
-    const previous = await lastVisitSource(ctx, scope, draft)
+    const previous = await lastVisitSource(ctx, scope, actor.real._id, draft)
     if (!previous) return null
 
     const carried = await carryOverFor(ctx, draft, previous)
@@ -1811,7 +1812,7 @@ export const copyFromLastVisit = mutation({
     // for the scope — the write actor's, because this is a write, and the read
     // scope carries the legacy view-as lens that must never reach one.
     // Authorship of the draft written TO is `requireEditableReport`'s.
-    const { scope } = await requireWriteActor(ctx, businessId)
+    const { actor, scope } = await requireWriteActor(ctx, businessId)
 
     const previous = await ctx.db.get(fromReportId)
     // Re-checked rather than trusted: the id came from the client, and this
@@ -1822,7 +1823,7 @@ export const copyFromLastVisit = mutation({
       previous._id === report._id ||
       previous.propertyId !== report.propertyId ||
       !carryFrom(report, previous) ||
-      !reportScope(scope, previous)
+      !reportReadable(scope, actor.real._id, previous)
     ) {
       throw new ConvexError('NOT_FOUND')
     }

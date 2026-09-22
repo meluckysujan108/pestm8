@@ -31,9 +31,13 @@ export type NoteViewer = {
   scope: MembershipFacts
   /** Rows the lens they are looking through may read — job-note visibility. */
   readRows: RowScope
-  /** Rows the real person may read, for pickers: a note is attached as
-   * yourself, never as whoever you are looking at. */
+  /** Rows the real person may read: a note is attached as yourself, never
+   * as whoever you are looking at. What writes are checked against. */
   ownRows: RowScope
+  /** What the attach-to-job picker OFFERS — `ownRows`, narrowed to their own
+   * jobs when they have chosen "Just my jobs". A choice of what to be shown,
+   * so it is read by the picker and by nothing that decides what is allowed. */
+  pickerRows: RowScope
 }
 
 export async function noteViewer(
@@ -49,6 +53,11 @@ export async function noteViewer(
     scope: env.readScope,
     readRows: env.scope,
     ownRows: env.realScope,
+    // Standing in their own account, `listScope` is their own rows as their
+    // chosen view shows them. Looking through anyone else, it is that
+    // person's — and the picker offers what you would attach as yourself.
+    pickerRows:
+      env.readScope._id === env.actor.real._id ? env.listScope : env.realScope,
   }
 }
 
@@ -98,6 +107,7 @@ export async function canWriteNote(
       scope: viewer.real,
       readRows: viewer.ownRows,
       ownRows: viewer.ownRows,
+      pickerRows: viewer.ownRows,
     },
     note,
   )

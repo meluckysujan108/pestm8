@@ -4,6 +4,8 @@ import { Drawer } from 'vaul'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { WEEKDAY_INITIALS, dayKeyToDate, formatMonthLabel } from '#/lib/format'
+import { useViewMode } from '#/lib/access'
+import { dayDots } from '#/lib/scheduleFilters'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 function monthKeyOf(dayKey: string) {
@@ -99,6 +101,8 @@ function MonthGrid({
   )
 
   const byDay = new Map(days.map((d) => [d.dayKey, d]))
+  // One neutral dot in "Just my jobs" — see `dayDots`.
+  const mine = useViewMode() === 'mine'
 
   return (
     <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-12">
@@ -165,14 +169,16 @@ function MonthGrid({
               </span>
 
               <span className="flex h-1.5 items-center gap-0.5">
-                {(day?.colours ?? []).slice(0, 3).map((colour) => (
-                  <span
-                    key={colour}
-                    aria-hidden
-                    className="size-1.5 rounded-full"
-                    style={{ backgroundColor: colour }}
-                  />
-                ))}
+                {dayDots(day?.colours ?? [], mine)
+                  .slice(0, 3)
+                  .map((colour) => (
+                    <span
+                      key={colour}
+                      aria-hidden
+                      className="size-1.5 rounded-full"
+                      style={{ backgroundColor: colour }}
+                    />
+                  ))}
               </span>
 
               <span className="flex h-3.5 items-center text-[11px] font-semibold tabular-nums text-muted">

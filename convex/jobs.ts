@@ -125,7 +125,7 @@ export const listDay = query({
     return decorate(
       ctx,
       env,
-      await jobsInRange(ctx, env.scope, businessId, from, to),
+      await jobsInRange(ctx, env.listScope, businessId, from, to),
     )
   },
 })
@@ -137,14 +137,14 @@ export const listDay = query({
 export const listWeek = query({
   args: { businessId: v.id('businesses'), startKey: v.string() },
   handler: async (ctx, { businessId, startKey }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { listScope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
 
     const from = startOfDayInZone(startKey, business.timezone)
     const to = from + 7 * 24 * 60 * 60 * 1000
 
-    const jobs = await jobsInRange(ctx, scope, businessId, from, to)
+    const jobs = await jobsInRange(ctx, listScope, businessId, from, to)
     const assignees = new Map<Id<'memberships'>, string>()
     for (const job of jobs) {
       if (!assignees.has(job.assignedMembershipId)) {
@@ -208,7 +208,7 @@ export const listMonth = query({
         : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
-    const jobs = await jobsInRange(ctx, env.scope, businessId, from, to)
+    const jobs = await jobsInRange(ctx, env.listScope, businessId, from, to)
 
     const byDay = new Map<
       string,
@@ -264,7 +264,7 @@ export const monthTeamLoad = query({
         : `${year}-${String(month + 1).padStart(2, '0')}-01`
     const to = startOfDayInZone(nextMonth, business.timezone)
 
-    const jobs = await jobsInRange(ctx, env.scope, businessId, from, to)
+    const jobs = await jobsInRange(ctx, env.listScope, businessId, from, to)
 
     const counts = new Map<Id<'memberships'>, number>()
     for (const job of jobs) {

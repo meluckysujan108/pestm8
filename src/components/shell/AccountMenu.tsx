@@ -70,6 +70,11 @@ export function AccountMenu({
   // them the moment one is written, and the whole UI follows on its own.
   const others = targets ?? []
 
+  // Someone with the view menu switches from there — it lists every account
+  // even while they are in one, and the amber banner carries "Switch back".
+  // Offering the same thing in two places invites them to disagree.
+  const switchesHere = !access.view
+
   return (
     <Popover.Root
       open={open}
@@ -119,7 +124,7 @@ export function AccountMenu({
                 </p>
               </div>
 
-              {access.actingAs ? (
+              {!switchesHere ? null : access.actingAs ? (
                 <button
                   type="button"
                   disabled={stop.isPending}

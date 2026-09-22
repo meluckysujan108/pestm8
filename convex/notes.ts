@@ -435,14 +435,14 @@ export const jobOptions = query({
     const from = now - 90 * day
     const to = now + 60 * day
     const [past, future] = await Promise.all([
-      jobsInScope(ctx, viewer.ownRows, {
+      jobsInScope(ctx, viewer.pickerRows, {
         businessId,
         from,
         to: now,
         order: 'desc',
         limit: 120,
       }),
-      jobsInScope(ctx, viewer.ownRows, { businessId, from: now, to, limit: 120 }),
+      jobsInScope(ctx, viewer.pickerRows, { businessId, from: now, to, limit: 120 }),
     ])
 
     const kept = [...past, ...future]

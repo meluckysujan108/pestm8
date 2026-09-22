@@ -205,6 +205,14 @@ async function offboard(
     for (const row of rows) await ctx.db.delete(row._id)
   }
 
+  // Their chosen views go the same way, for the same reason: a row naming a
+  // membership that has ended should not be waiting if the ids come back.
+  const views = await ctx.db
+    .query('sessionViews')
+    .withIndex('by_real', (q) => q.eq('realMembershipId', target._id))
+    .collect()
+  for (const row of views) await ctx.db.delete(row._id)
+
   // Anyone currently looking through this person's eyes stops doing so.
   const siblings = await ctx.db
     .query('memberships')

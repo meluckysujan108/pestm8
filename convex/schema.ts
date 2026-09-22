@@ -956,6 +956,30 @@ export default defineSchema({
     .index('by_real', ['realMembershipId'])
     .index('by_target', ['targetMembershipId']),
 
+  /**
+   * The owner's chosen view on one device: "Just my jobs" instead of the whole
+   * business. No row is God view, which is the default.
+   *
+   * Keyed by the Better Auth SESSION, like `accountSwitches`, and for the same
+   * reason: the phone in a roof void and the desktop in the office are
+   * different places to be looking from. His phone can sit on his own jobs all
+   * day while the office machine keeps showing everyone's.
+   *
+   * It narrows what a LIST shows, never what anyone may do — see `listScope`
+   * in lib/actor.ts — so a stale or orphaned row can cost nothing but a
+   * narrower schedule, and deleting one is hygiene. Rows die with their
+   * session (`views.sweepEnded`) or their membership (`team.offboard`).
+   */
+  sessionViews: defineTable({
+    sessionId: v.string(),
+    businessId: v.id('businesses'),
+    realMembershipId: v.id('memberships'),
+    mode: v.literal('mine'),
+    updatedAt: v.number(),
+  })
+    .index('by_session', ['sessionId'])
+    .index('by_real', ['realMembershipId']),
+
   auditLog: defineTable({
     businessId: v.id('businesses'),
     /** The human who actually did it — always the real person, never the
