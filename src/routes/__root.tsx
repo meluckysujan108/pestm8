@@ -18,11 +18,16 @@ import { authClient } from '#/lib/auth-client'
 import { getToken } from '#/lib/auth-server'
 import { THEME_COOKIE, normaliseThemePref, themeInitScript } from '#/lib/theme'
 import { useSystemThemeSync } from '#/lib/useTheme'
+import {
+  recoverIfVersionSkewed,
+  useVersionSkewRecovery,
+} from '#/lib/versionSkew'
 import appCss from '../styles.css?url'
 
 import type { QueryClient } from '@tanstack/react-query'
 import type { ConvexQueryClient } from '@convex-dev/react-query'
 import type { AuthClient } from '@convex-dev/better-auth/react'
+import type { ThemePref } from '#/lib/theme'
 
 interface RouterContext {
   queryClient: QueryClient
@@ -35,6 +40,57 @@ const getInitialState = createServerFn({ method: 'GET' }).handler(async () => ({
   token: await getToken(),
   theme: normaliseThemePref(getCookie(THEME_COOKIE)),
 }))
+
+interface InitialState {
+  token: Awaited<ReturnType<typeof getToken>>
+  theme: ThemePref
+}
+
+/**
+ * A failed server function does not reject — it resolves `undefined`.
+ *
+ * The 500 comes back as `application/json` without the `x-tss-serialized`
+ * header, so the client's fetcher hands the error body straight through as the
+ * envelope it was expecting; `createServerFn` then finds no `.error` on it,
+ * returns its absent `.result`, and the call resolves. A `try`/`catch` here
+ * catches nothing at all, and the first thing to actually fail is destructuring
+ * `token` off `undefined`, somewhere that says nothing about why.
+ *
+ * So the shape is what is checked, not the control flow.
+ */
+function isInitialState(value: unknown): value is InitialState {
+  return typeof value === 'object' && value !== null && 'theme' in value
+}
+
+/**
+ * This call is reached by an id derived from the function's *name*, so renaming
+ * it renames its endpoint, and every client still running the previous build
+ * fails here — on every navigation, since this is `beforeLoad`. Rather than
+ * leave those clients wedged until someone thinks to clear their site data, a
+ * failure is treated as possible version skew and checked; see
+ * src/lib/versionSkew.ts for how that is told apart from the backend being
+ * down, and what happens when it is skew.
+ *
+ * If it is not skew, the failure carries on to the router.
+ */
+async function fetchInitialState(): Promise<InitialState> {
+  let state: unknown
+  let thrown: unknown
+
+  try {
+    state = await getInitialState()
+  } catch (error) {
+    thrown = error
+  }
+
+  if (isInitialState(state)) return state
+
+  await recoverIfVersionSkewed()
+  throw (
+    thrown ??
+    new Error('The server could not be asked for the initial app state.')
+  )
+}
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => ({
@@ -55,7 +111,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     ],
   }),
   beforeLoad: async ({ context }) => {
-    const { token, theme } = await getInitialState()
+    const { token, theme } = await fetchInitialState()
     if (token) {
       context.convexQueryClient.serverHttpClient?.setAuth(token)
     }
@@ -94,6 +150,10 @@ function RootComponent() {
   // Mounted once, at the root: while the preference is `system`, this is what
   // makes the app follow a phone that flips to dark at sunset.
   useSystemThemeSync()
+
+  // Also once, at the root: catches the other face of version skew, a route
+  // chunk that the server no longer has.
+  useVersionSkewRecovery()
 
   // @convex-dev/better-auth 0.12.5 declares AuthClient as
   // createAuthClient<BetterAuthClientPlugin & { plugins }>, intersecting a
