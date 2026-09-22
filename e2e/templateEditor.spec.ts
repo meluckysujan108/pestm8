@@ -22,6 +22,15 @@ async function openEditor(
   })
   await signInViaUi(page, s.owner.email)
   await page.goto(`/${s.slug}/reports/templates/${templateId}`)
+
+  // The editor is server-rendered with its data, so "Add field" is on screen
+  // before React has attached a handler to it, and a click that lands there is
+  // swallowed with no error — the sheet just never opens. The Edit/Preview
+  // switch is disabled until hydrated (src/lib/useHydrated.ts) and belongs to
+  // the same component as the sections, so once it enables, every control in
+  // the editor is live.
+  await expect(page.getByRole('tab', { name: 'Edit' })).toBeEnabled()
+
   return { ...s, templateId }
 }
 
