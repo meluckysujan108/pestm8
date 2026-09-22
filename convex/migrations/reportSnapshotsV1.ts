@@ -37,20 +37,23 @@ import type { CustomSource } from '../lib/templateSnapshot'
  *      npx convex run migrations/reportSnapshotsV1:backfillTemplateVersion '{"cursor":null}'
  *      npx convex run migrations/reportSnapshotsV1:backfillSnapshots '{"cursor":null}'
  *
+ *    (`backfillTemplateVersion` has since been removed: the contract release
+ *    made `templateVersion` required, so the schema itself now guarantees it.)
+ *
  *    then again with `--prod`. Confirm `--prod` resolves to the intended
  *    deployment before running it: `.env.local` points at dev.
  *
  * 3. VERIFY — `npx convex run migrations/reportSnapshotsV1:invariant` must
- *    report `finalisedWithoutSnapshot: 0` and `reportsWithoutVersion: 0` on
- *    both deployments. `snapshotRows` in the tens means the hash is
+ *    report `finalisedWithoutSnapshot: 0` on both deployments (it also
+ *    reported `reportsWithoutVersion: 0` until the schema made that certain). `snapshotRows` in the tens means the hash is
  *    canonicalising; in the hundreds it is not.
  *
- * 4. CONTRACT (later, its own deploy pair, and only once both deployments
- *    report zero) — tighten `templateVersion` to `v.number()`. Dropping
- *    `customTemplateSnapshot` needs its rows patched to `undefined` first.
- *    Leave `templateSnapshotId` optional forever: Convex cannot express
- *    "required only when finalised". Leave `photoIds` alone entirely — it is
- *    read by nothing and removing it is a full-table rewrite for no gain.
+ * 4. CONTRACT — done by the contract release (docs/reports/migrations.md):
+ *    `templateVersion` is `v.number()`, and `customTemplateSnapshot` was
+ *    cleared by `migrations/reportsContract` and dropped. `templateSnapshotId`
+ *    stays optional forever: Convex cannot express "required only when
+ *    finalised". `photoIds` is left alone — read by nothing, and removing it
+ *    is a full-table rewrite for no gain.
  *
  * Re-running any step is safe: each skips rows it has already converted.
  *
@@ -59,47 +62,9 @@ import type { CustomSource } from '../lib/templateSnapshot'
  * 12 finalised, both counts zero afterwards, 5 snapshot rows.
  */
 
-// Larger than notesV2's 25. A report averages ~500 bytes and this pass only
-// patches one number, so 200 a batch is eight transactions where 25 would be
-// sixty-three.
-const VERSION_PAGE = 200
-/**
- * The revision every report predating this migration was written against.
- * Frozen as a literal so the backfill cannot drift with the modules — see
- * `backfillTemplateVersion`.
- */
-const PRE_REWRITE_VERSION = 1
 // Smaller: each row additionally does an indexed lookup and possibly an
 // insert.
 const SNAPSHOT_PAGE = 100
-
-export const backfillTemplateVersion = internalMutation({
-  args: { cursor: v.union(v.string(), v.null()) },
-  handler: async (ctx, { cursor }) => {
-    const page = await ctx.db
-      .query('reports')
-      .paginate({ numItems: VERSION_PAGE, cursor })
-
-    for (const report of page.page) {
-      if (report.templateVersion !== undefined) continue
-      // The literal 1, not `getTemplate(...).version`. Every report that
-      // exists before this pass runs was written against the pre-rewrite
-      // wording, and reading the live module would stamp whatever the
-      // revision happens to be WHEN THE PASS RUNS — so running it a day late,
-      // after a version bump, would quietly relabel old reports as new ones.
-      // A backfill of history must not depend on the present.
-      await ctx.db.patch(report._id, { templateVersion: PRE_REWRITE_VERSION })
-    }
-
-    if (!page.isDone) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.migrations.reportSnapshotsV1.backfillTemplateVersion,
-        { cursor: page.continueCursor },
-      )
-    }
-  },
-})
 
 export const backfillSnapshots = internalMutation({
   args: { cursor: v.union(v.string(), v.null()) },
@@ -165,9 +130,6 @@ export const invariant = internalQuery({
       finalised: reports.filter((r) => r.status === 'finalised').length,
       finalisedWithoutSnapshot: reports.filter(
         (r) => r.status === 'finalised' && r.templateSnapshotId === undefined,
-      ).length,
-      reportsWithoutVersion: reports.filter(
-        (r) => r.templateVersion === undefined,
       ).length,
       snapshotRows: snapshots.length,
       snapshotsByTemplate: snapshots.reduce<Record<string, number>>(

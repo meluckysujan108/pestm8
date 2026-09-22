@@ -454,7 +454,8 @@ export const remove = mutation({
  * "clone don't edit" rule, which is about the 4 *built-in* `.ts` files.
  * `reports.get`/`reports.finalise` are what stop this from ever mutating a
  * document already signed: a draft rereads this doc live, a finalised report
- * reads its own frozen `customTemplateSnapshot` and never this row again.
+ * reads the frozen copy `templateSnapshotId` points at and never this row
+ * again — finalise refuses to lock a custom report it cannot freeze.
  *
  * Full CRUD (duplicate, archive, remove) is Phase 3; `update` exists now
  * because Phase 2's own verification requires editing a live template to

@@ -222,6 +222,7 @@ describe('the reports library and notes follow the same line', () => {
           propertyId: f.propertyId,
           authorMembershipId,
           template: 'serviceReport',
+          templateVersion: 1,
           legalBasis: 'APVMA',
           status: 'draft',
           data: {},

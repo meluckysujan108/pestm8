@@ -119,6 +119,7 @@ async function seedWork(
       propertyId,
       authorMembershipId: membershipId,
       template: 'treatmentRecord',
+      templateVersion: 1,
       legalBasis: 'APVMA',
       status: 'draft',
       data: {},

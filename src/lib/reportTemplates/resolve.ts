@@ -14,7 +14,7 @@ import type {
 
 /** What every render surface needs from a business-authored template. Shaped
  * to match `customReportTemplates` (minus the Convex-only bookkeeping
- * fields), so a live doc or a frozen `customTemplateSnapshot` both fit. */
+ * fields), so a live doc or a frozen `reportTemplateSnapshots` row both fit. */
 export type CustomTemplateShape = {
   name: string
   shortName: string

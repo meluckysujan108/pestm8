@@ -51,6 +51,7 @@ function report(
     propertyId: id<'properties'>('p_1'),
     authorMembershipId: KEVIN,
     template,
+    templateVersion: 1,
     legalBasis: 'whatever the client sent',
     status: 'draft',
     data: {},

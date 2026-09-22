@@ -22,9 +22,9 @@ time. Built-ins were the exception, and the exception has expired.
 | Step | What | Command |
 |---|---|---|
 | Expand | Adds `reportTemplateSnapshots`, `reports.templateSnapshotId`, `reports.templateVersion`, `reportPhotos.by_storage` | `npx convex deploy` |
-| Migrate | Stamps a revision on every report | `npx convex run migrations/reportSnapshotsV1:backfillTemplateVersion '{"cursor":null}'` |
+| Migrate | Stamps a revision on every report (removed by the contract release, which made `templateVersion` required) | `npx convex run migrations/reportSnapshotsV1:backfillTemplateVersion '{"cursor":null}'` |
 | Migrate | Freezes every finalised report's wording | `npx convex run migrations/reportSnapshotsV1:backfillSnapshots '{"cursor":null}'` |
-| Verify | Must report two zeros | `npx convex run migrations/reportSnapshotsV1:invariant` |
+| Verify | Must report `finalisedWithoutSnapshot: 0` | `npx convex run migrations/reportSnapshotsV1:invariant` |
 
 Repeat each with `--prod`. Confirm `--prod` resolves to the intended deployment
 first: `.env.local` points at dev.
@@ -128,15 +128,16 @@ reasonable-sounding and wrong.
 
 ### Contract, later
 
-Its own deploy pair, only once both deployments report zero.
+Its own deploy pair, only once both deployments report zero. Done by
+[the contract release](#the-contract-release):
 
-- Tighten `templateVersion` to `v.number()`.
-- Dropping `customTemplateSnapshot` needs its rows patched to `undefined` first, using
-  the `field: undefined` + cast idiom from `notesV2.ts`.
-- Leave `templateSnapshotId` optional permanently. Convex cannot express "required only
+- `templateVersion` is `v.number()`.
+- `customTemplateSnapshot` is no longer written or read, and is patched to
+  `undefined` everywhere. The declaration stays; see below for why.
+- `templateSnapshotId` stays optional permanently. Convex cannot express "required only
   when status is finalised" without splitting the table into a status-discriminated
   union, which is not worth it.
-- Leave `photoIds` alone. It is a required array on every row, read by nothing, and
+- `photoIds` is left alone. It is a required array on every row, read by nothing, and
   removing it is three deploys and a full-table rewrite for no benefit.
 
 ## Deferred deliberately in Phase 1
@@ -278,10 +279,11 @@ and are validated on the rules of the revision they were written against.
 
 ## Phase 4 — signatures that record the act, not just the image
 
-Expand-only. `reports.signatureSlots` accepts either a bare storage id or a
-record carrying `signedAt`, `method`, and optionally `signedBy`, `statement`,
-`templateVersion` and `capturedByMembershipId`; every reader goes through
-`storageIdOf()`. `memberships.savedSignatureStorageId` is new and optional.
+Expand-only at the time. `reports.signatureSlots` accepted either a bare storage
+id or a record carrying `signedAt`, `method`, and optionally `signedBy`,
+`statement`, `templateVersion` and `capturedByMembershipId`, and every reader
+went through a `storageIdOf()` that handled both.
+`memberships.savedSignatureStorageId` is new and optional.
 
 `migrations/signatureRecords.ts` converts the rows already stored, and is
 honest about what it cannot recover: an old row knows only the image, so
@@ -291,7 +293,9 @@ only way a signature could have been made then, and the rest is left absent
 rather than invented. Run on dev 2026-09-16: 246 bare ids converted, 257
 signatures, zero remaining.
 
-Contract later, once prod also reports zero: drop the `v.id('_storage')` arm.
+Prod reported zero on 2026-09-18 (9 converted). The contract release then
+dropped the `v.id('_storage')` arm, `storageIdOf()` and the migration itself —
+see [The contract release](#the-contract-release).
 
 ## Phase 4 — the document, and the pipeline that draws it
 
@@ -505,7 +509,8 @@ So the order is the opposite of "merge, then deploy":
    one legacy finalised PDF of each kind (it re-renders on first open).
 6. `migrations/signatureRecords:backfill`, then its invariant
    (`bareStorageIds: 0`). No user impact either way; it has to precede the
-   contract deploy that drops the bare-id arm.
+   contract deploy that drops the bare-id arm. (Done 2026-09-18; the migration
+   was removed by the contract release.)
 
 **Rolling back is not symmetric.** The previous frontend runs fine on the new
 backend. The previous backend does not accept the new data: once the backfill
@@ -530,3 +535,50 @@ Once no deployment holds a pre-Phase-7 row that was written by the old editor:
 - Nothing to tighten. `draft` is optional by design, and `publishedVersion`
   stays optional for the same reason `templateSnapshotId` does — Convex cannot
   express "required only for rows created after a date".
+
+## The contract release
+
+The contract steps the phases above deferred, once prod and dev both reported
+zero rows needing them (read 2026-09-22: prod 38 reports, dev 6,328).
+
+| Change | Why it is safe now |
+| --- | --- |
+| `reports.templateVersion` is required | Backfilled to 1 in Phase 1; zero rows without it on either deployment |
+| `reports.signatureSlots` holds records only | `signatureRecords` converted every bare id; zero on either deployment. The migration and `storageIdOf()` are gone |
+| `reports.customTemplateSnapshot` is retired and emptied | Every reader takes `templateSnapshotId`; 1 row on prod and 205 on dev still carried the old copy, every one alongside a reference |
+
+Dropping the inline custom snapshot changes one behaviour on purpose. It was
+the fallback for a custom report whose frozen reference failed to save — the
+freeze is deliberately best-effort, because a built-in can fall back to its
+revision's module. A custom form has nothing to fall back to, so **finalise
+now refuses a custom report it cannot freeze** (`TEMPLATE_NOT_FROZEN`) rather
+than lock a document that could later print an edit made after it was signed.
+Nothing is written when it refuses, and the technician's answers are kept.
+
+It is one deploy and one migration:
+
+1. Confirm the target (`rare-retriever-156`), snapshot production with
+   `--include-file-storage`, and confirm nothing else is mid-rollout — the
+   branch is cut from `main`, so deploying it deploys everything on `main`.
+2. `npx convex deploy` from the branch head. There are no argument changes,
+   so the order against Vercel does not matter; merging after the deploy
+   keeps the merged tree identical to the deployed one.
+3. `npx convex run --prod migrations/reportsContract:clearCustomSnapshots '{"cursor":null}'`,
+   then `migrations/reportsContract:invariant` — `withCustomSnapshot: 0` and
+   `finalisedCustomWithoutSnapshot: 0`. A row whose inline copy was its only
+   copy is frozen from it before it is cleared.
+4. Merge.
+
+Run it against dev first. The shared e2e deployment (`warmhearted-cricket-924`)
+can be migrated the same way whenever a branch carrying this runs there.
+
+**Why the column is still declared.** Dropping the line from the schema would
+refuse the push to any deployment still holding an old row — the shared e2e
+deployment among them — and the migration that empties them would have to be
+deleted with it, since it could no longer name the field. All of that to
+remove one optional field that is always absent. The declaration costs
+nothing; the comment beside it says it is retired.
+
+**Rollback** is a redeploy of the previous `main`: its schema is looser in all
+three places, and every reader it has prefers `templateSnapshotId`.
+

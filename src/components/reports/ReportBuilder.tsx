@@ -1209,6 +1209,12 @@ function finaliseError(
   if (message.includes('REPORT_FINALISED')) {
     return 'This report has already been finalised.'
   }
+  if (message.includes('TEMPLATE_NOT_FROZEN')) {
+    // A business's own form is locked with a copy of its wording, so the
+    // report can never later print an edit made after it was signed. That
+    // copy could not be saved; nothing was locked.
+    return 'The form’s wording could not be saved with this report, so it has not been finalised. Your answers are kept — try again in a moment.'
+  }
   if (message.includes('TEMPLATE_VERSION_MISMATCH')) {
     return 'This form has been updated since you opened it. Reload the page and check your answers before finalising.'
   }

@@ -17,6 +17,7 @@ import {
   templateFor,
 } from '../src/lib/reportTemplates'
 import { freezeTemplate } from './lib/templateSnapshot'
+import type { CustomSource } from './lib/templateSnapshot'
 import { seedFromContext } from '../src/lib/reportTemplates/seed'
 import { validateReport } from '../src/lib/reportTemplates/validate'
 import { dayKeyOf, timeKeyOf, todayKeyInZone } from './lib/dates'
@@ -157,7 +158,7 @@ function requireSameVersion(
   report: Doc<'reports'>,
   clientVersion: number | undefined,
 ) {
-  if ((clientVersion ?? 1) !== (report.templateVersion ?? 1)) {
+  if ((clientVersion ?? 1) !== report.templateVersion) {
     throw new ConvexError('TEMPLATE_VERSION_MISMATCH')
   }
 }
@@ -554,11 +555,8 @@ async function templateDisplay(
     return { templateName: templateFor(r.template, r.templateVersion).name }
   }
 
-  if (r.status === 'finalised') {
-    const snapshot = r.customTemplateSnapshot as { name?: string } | undefined
-    return { templateName: snapshot?.name ?? 'Custom template' }
-  }
-
+  // A finalised custom report is named by its snapshot above; one without a
+  // snapshot cannot be finalised any more, so this is a draft's live name.
   const live = r.customTemplateId ? await ctx.db.get(r.customTemplateId) : null
   return { templateName: live?.name ?? 'Custom template' }
 }
@@ -691,20 +689,6 @@ async function projectReport(
 
     const finalised = report.status === 'finalised'
 
-    // `null` for a built-in template; a **frozen** snapshot once finalised
-    // (nothing may change what a signed document says); the **live** doc
-    // while still a draft, since nothing is legally binding yet and picking
-    // up a concurrent edit to the template is fine — see
-    // `customReportTemplates`'s own schema comment for the full rationale.
-    const customTemplate =
-      report.template !== 'custom'
-        ? null
-        : finalised
-          ? (report.customTemplateSnapshot ?? null)
-          : report.customTemplateId
-            ? publishedOnly(await ctx.db.get(report.customTemplateId))
-            : null
-
     // The wording this report was signed against — for EVERY kind, not just
     // custom. A missing snapshot falls back to the revision the report was
     // written against rather than failing: a row finalised before the backfill
@@ -713,6 +697,20 @@ async function projectReport(
       finalised && report.templateSnapshotId
         ? await ctx.db.get(report.templateSnapshotId)
         : null
+
+    // `null` for a built-in template. For a custom one, the **live** published
+    // doc while still a draft — nothing is legally binding yet, and picking up
+    // a concurrent edit to the template is fine — and nothing once finalised,
+    // because the frozen `templateSnapshot` above is what a signed document
+    // prints. Finalise refuses a custom report it cannot freeze, so the live
+    // fallback for a finalised one is only ever reached by a row finalised
+    // before snapshots existed, which would otherwise not open at all.
+    const customTemplate =
+      report.template !== 'custom' || templateSnapshot
+        ? null
+        : report.customTemplateId
+          ? publishedOnly(await ctx.db.get(report.customTemplateId))
+          : null
 
     // What the document prints from records. Frozen once signed, when the
     // freeze exists; live otherwise — which is what a report finalised before
@@ -932,7 +930,7 @@ export function upgradeFor(
   // number, and leave the original current.
   if (report.supersedesReportId !== undefined) return null
   const current = getTemplate(report.template).version
-  if ((report.templateVersion ?? 1) >= current) return null
+  if (report.templateVersion >= current) return null
   return SWITCHABLE.has(report.template) ? 'switch' : 'restart'
 }
 
@@ -1070,24 +1068,10 @@ function withoutImages(slots: Doc<'reports'>['signatureSlots']) {
   if (!slots) return undefined
   return Object.fromEntries(
     Object.entries(slots).map(([slot, held]) => {
-      if (typeof held === 'string') return [slot, {}]
       const { storageId: _image, ...record } = held
       return [slot, record]
     }),
-  ) as Record<string, Partial<Omit<Exclude<typeof slots[string], string>, 'storageId'>>>
-}
-
-/**
- * The image behind a signature slot, whichever shape the row holds.
- *
- * Rows written before signatures carried their provenance hold a bare storage
- * id. Both are read here rather than at each call site, so a reader cannot
- * quietly forget the older shape and start rendering nothing.
- */
-function storageIdOf(
-  held: NonNullable<Doc<'reports'>['signatureSlots']>[string],
-): Id<'_storage'> {
-  return typeof held === 'string' ? held : held.storageId
+  ) as Record<string, Omit<(typeof slots)[string], 'storageId'>>
 }
 
 /** Signed URLs for display; storage ids are useless to the client on their own. */
@@ -1119,7 +1103,7 @@ async function resolveSignatureUrls(
 ): Promise<Record<string, string>> {
   const entries = await Promise.all(
     Object.entries(report.signatureSlots ?? {}).map(async ([slot, held]) => {
-      const url = await ctx.storage.getUrl(storageIdOf(held))
+      const url = await ctx.storage.getUrl(held.storageId)
       return [slot, url] as const
     }),
   )
@@ -2114,27 +2098,17 @@ export const finalise = mutation({
 
     // Frozen the instant this becomes a signed document — editing the live
     // custom template afterward must never change what was already finalised.
-    // Undefined for a built-in template, whose 4 `.ts` files never change.
-    //
-    // SUPERSEDED by `templateSnapshotId` below, which covers every kind. Still
-    // written for now so a rollback to the previous release finds what it
-    // expects; it stops being written in the contract deploy.
-    let customTemplateSnapshot:
-      | {
-          name: string
-          shortName: string
-          legalBasis: string
-          blurb: string
-          sections: unknown
-          boilerplate: string
-          terms?: unknown
-          print?: Doc<'customReportTemplates'>['print']
-        }
-      | undefined
+    // For a custom template this is the ONLY copy of the wording the report
+    // was signed against: the inline `customTemplateSnapshot` it used to be
+    // written alongside is gone. A built-in can fall back to its revision's
+    // module if the freeze fails; a custom form has nothing to fall back to,
+    // so its freeze failing refuses the finalise rather than locking a
+    // document that could later print someone else's edit of the form.
+    let custom: CustomSource | undefined
     if (report.template === 'custom' && report.customTemplateId) {
       const live = await ctx.db.get(report.customTemplateId)
       if (live) {
-        customTemplateSnapshot = {
+        custom = {
           name: live.name,
           shortName: live.shortName,
           legalBasis: live.legalBasis,
@@ -2149,9 +2123,10 @@ export const finalise = mutation({
       }
     }
 
-    const templateSnapshotId = await freezeTemplate(ctx, report, {
-      custom: customTemplateSnapshot,
-    })
+    const templateSnapshotId = await freezeTemplate(ctx, report, { custom })
+    if (report.template === 'custom' && templateSnapshotId === undefined) {
+      throw new ConvexError('TEMPLATE_NOT_FROZEN')
+    }
 
     // The client, site, business and technician exactly as this report prints
     // them, frozen with its wording. Built from the answers being signed, so
@@ -2198,7 +2173,6 @@ export const finalise = mutation({
       finalisedByMembershipId: env.actor.real._id,
       ...(templateSnapshotId ? { templateSnapshotId } : {}),
       ...(contextSnapshot ? { contextSnapshot } : {}),
-      ...(customTemplateSnapshot ? { customTemplateSnapshot } : {}),
     })
 
     // A correction supersedes the document it corrects when it is ISSUED —
@@ -2440,9 +2414,7 @@ export const amend = mutation({
         : {}),
       // The revision it was WRITTEN against, not today's: a correction to a
       // document says the same things in the same words, minus the mistake.
-      ...(original.templateVersion !== undefined
-        ? { templateVersion: original.templateVersion }
-        : {}),
+      templateVersion: original.templateVersion,
       legalBasis: original.legalBasis,
       status: 'draft',
       data: original.data,
@@ -2801,7 +2773,7 @@ export const switchTemplateVersion = mutation({
     )
     if (report.template === 'custom') throw new ConvexError('NOT_FOUND')
     const current = getTemplate(report.template).version
-    const from = report.templateVersion ?? 1
+    const from = report.templateVersion
     if (from >= current) {
       return { switched: false, unmapped: [], clearedSignatures: false }
     }
@@ -2903,7 +2875,7 @@ export const restartDraft = mutation({
       entityId: reportId,
       meta: {
         toReportId: newReportId,
-        fromVersion: report.templateVersion ?? 1,
+        fromVersion: report.templateVersion,
         toVersion: template.version,
       },
       at: now,

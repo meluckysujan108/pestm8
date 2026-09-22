@@ -588,28 +588,27 @@ export default defineSchema({
      * Transactions Act what makes a signature stand up is the link between the
      * person, the act and the document — a bare storage id records none of it.
      *
-     * The union is the expand step of a migration: rows written before this
-     * hold a plain storage id. Read both through `signatureOf()`.
+     * Rows written before this held a plain storage id. They were converted
+     * by `migrations/signatureRecords` (prod and dev both reported zero bare
+     * ids), and the bare-id arm of this validator was then dropped — the
+     * contract step of that migration.
      */
     signatureSlots: v.optional(
       v.record(
         v.string(),
-        v.union(
-          v.id('_storage'),
-          v.object({
-            storageId: v.id('_storage'),
-            signedAt: v.number(),
-            /** Drawn here, or the technician's own saved signature reused. */
-            method: v.union(v.literal('drawn'), v.literal('saved')),
-            /** The name typed by whoever signed, where the form asks for one. */
-            signedBy: v.optional(v.string()),
-            /** The words agreed to, frozen: terms can be edited afterwards. */
-            statement: v.optional(v.string()),
-            templateVersion: v.optional(v.number()),
-            /** Whose device captured it — not necessarily who signed. */
-            capturedByMembershipId: v.optional(v.id('memberships')),
-          }),
-        ),
+        v.object({
+          storageId: v.id('_storage'),
+          signedAt: v.number(),
+          /** Drawn here, or the technician's own saved signature reused. */
+          method: v.union(v.literal('drawn'), v.literal('saved')),
+          /** The name typed by whoever signed, where the form asks for one. */
+          signedBy: v.optional(v.string()),
+          /** The words agreed to, frozen: terms can be edited afterwards. */
+          statement: v.optional(v.string()),
+          templateVersion: v.optional(v.number()),
+          /** Whose device captured it — not necessarily who signed. */
+          capturedByMembershipId: v.optional(v.id('memberships')),
+        }),
       ),
     ),
     finalisedAt: v.optional(v.number()),
@@ -667,12 +666,12 @@ export default defineSchema({
     // Only set when `template === 'custom'`.
     customTemplateId: v.optional(v.id('customReportTemplates')),
     /**
-     * SUPERSEDED by `templateSnapshotId` — kept because 31 finalised rows on
-     * dev (and an unknown number on prod) still carry it, so removing it from
-     * this validator would reject them on the next push. Readers prefer
-     * `templateSnapshotId` and fall back to this. It is dropped in a later
-     * contract deploy, after every row has been backfilled and patched to
-     * `undefined`. See convex/migrations/reportSnapshotsV1.ts.
+     * SUPERSEDED by `templateSnapshotId`: nothing writes or reads it, and
+     * `migrations/reportsContract:clearCustomSnapshots` empties it. Still
+     * declared on purpose. Dropping the line would refuse the push to any
+     * deployment still holding an old row — the shared e2e deployment among
+     * them — and the migration that empties them would have to go with it,
+     * all to delete one optional field that is always absent.
      */
     customTemplateSnapshot: v.optional(v.any()),
     /**
@@ -693,10 +692,11 @@ export default defineSchema({
     templateSnapshotId: v.optional(v.id('reportTemplateSnapshots')),
     /**
      * Which revision of the template this report was created against.
-     * Backfilled to 1 on every pre-existing row, so "was this written before
-     * or after the rewrite?" is answerable without guessing from dates.
+     * Backfilled to 1 on every row that predated it, then made required once
+     * prod and dev both reported none missing, so "was this written before or
+     * after the rewrite?" is answerable without guessing from dates.
      */
-    templateVersion: v.optional(v.number()),
+    templateVersion: v.number(),
     /**
      * The client, site, business and technician facts this report printed,
      * frozen at finalise.
