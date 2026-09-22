@@ -49,6 +49,7 @@ import { useHydrated } from '#/lib/useHydrated'
 import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { useAutosave } from '#/lib/useAutosave'
 import { forgetDraft, recallDraft, rememberDraft } from '#/lib/draftMirror'
+import { draftToSend } from '#/lib/draftSync'
 import type { MirroredDraft } from '#/lib/draftMirror'
 import { Sheet } from '#/components/primitives/Sheet'
 
@@ -389,8 +390,9 @@ export function ReportBuilder({
   }, [hydrated, reportId])
 
   /**
-   * The answers as this editor last knew the server to hold them: what it
-   * opened with, then whatever it last saved.
+   * The answers as this editor last knew the server to hold them: exactly what
+   * it opened with (`initialData` is the stored draft), then whatever it last
+   * sent.
    *
    * Sent with every save as `base`, which turns the server's wholesale replace
    * into a merge per answer (`mergeDraft`). A draft can have two editors — its
@@ -400,12 +402,17 @@ export function ReportBuilder({
    * someone else has changed since, the moment its holder typed one letter.
    * Merged, it writes only what was changed here.
    *
-   * Seeded from the same payload the autosave's own baseline is, so "changed
-   * here" means changed by the person at this screen — not padded by the
-   * placeholders `seedData` adds for the form's own sake.
+   * It must be the SERVER's copy, not the padded form. Seeded from the form,
+   * every placeholder `seedData` adds ('' for text, today's date, areas marked
+   * inspected) read to the server as a change on its side — `undefined` is not
+   * `''` — so the first answer typed into any new report was refused as a clash
+   * with nobody, and never saved. `draftToSend` keeps those placeholders out
+   * of what is sent instead, using `seededRef` to know them.
    */
-  const baseRef = useRef<Record<string, unknown> | null>(null)
-  if (baseRef.current === null) baseRef.current = submittable()
+  const baseRef = useRef<Record<string, unknown>>(initialData)
+  /** What the form padded the draft with when it opened. */
+  const seededRef = useRef<Record<string, unknown> | null>(null)
+  if (seededRef.current === null) seededRef.current = submittable()
   /** The same answer changed here and by someone else — the one clash a merge
    * cannot settle, and a person has to. */
   const [clashed, setClashed] = useState(false)
@@ -417,12 +424,17 @@ export function ReportBuilder({
     // The revision this builder is rendering travels with every write, so a
     // server holding a newer form refuses answers shaped for an older one.
     save: async (payload) => {
+      const sent = draftToSend(
+        payload,
+        seededRef.current ?? {},
+        baseRef.current,
+      )
       try {
         await save.mutateAsync({
           businessId,
           reportId,
-          data: payload,
-          base: baseRef.current ?? undefined,
+          data: sent,
+          base: baseRef.current,
           templateVersion: template.version,
         })
       } catch (error) {
@@ -430,7 +442,10 @@ export function ReportBuilder({
         if (message.includes('DRAFT_CONFLICT')) setClashed(true)
         throw error
       }
-      baseRef.current = payload
+      // What the server holds now, for every answer this editor has seen: the
+      // merge wrote exactly `sent` over the keys it covers, and removed the
+      // ones `base` had that `sent` no longer does.
+      baseRef.current = sent
       setClashed(false)
     },
     // §5.5: there is still no offline mutation queue. This is a copy of the
