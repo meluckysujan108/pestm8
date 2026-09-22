@@ -290,6 +290,7 @@ describe('audit history visibility', () => {
         propertyId: s.property,
         authorMembershipId: s.coastal.ownerMembershipId,
         template: 'treatmentRecord',
+        templateVersion: 1,
         legalBasis: 'APVMA',
         status: 'finalised',
         data: {},

@@ -198,7 +198,18 @@ test.describe('custom report templates', () => {
       reportId: finalisedReportId,
     })
     expect(finalised?.status).toBe('finalised')
-    expect(finalised?.customTemplate?.name).toBe('Site Walkthrough')
+    // What every painter prints from: the frozen copy, resolved the way the
+    // document and the PDF resolve it. A signed report is handed no live form
+    // at all, so nothing can print one by mistake.
+    const printedName = (report: typeof finalised) =>
+      resolveReportTemplate({
+        template: report!.template,
+        templateVersion: report!.templateVersion,
+        customTemplate: report!.customTemplate,
+        templateSnapshot: report!.templateSnapshot,
+      }).name
+    expect(printedName(finalised)).toBe('Site Walkthrough')
+    expect(finalised?.customTemplate).toBeNull()
 
     // The PDF pipeline flows through `resolveReportTemplate` too
     // (`convex/reportPdf.tsx` → `ReportPdf.tsx`) — a successful render proves
@@ -226,7 +237,8 @@ test.describe('custom report templates', () => {
       businessId,
       reportId: finalisedReportId,
     })
-    expect(finalisedAfterEdit?.customTemplate?.name).toBe('Site Walkthrough')
+    expect(printedName(finalisedAfterEdit)).toBe('Site Walkthrough')
+    expect(finalisedAfterEdit?.templateSnapshot?.name).toBe('Site Walkthrough')
 
     // The still-draft report, sharing the same live template, must reflect
     // the edit — nothing is legally binding yet.

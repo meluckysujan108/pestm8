@@ -319,6 +319,8 @@ export type RejectionCode =
   | 'AMENDMENT_REASON_REQUIRED'
   // Applying someone else's saved signature.
   | 'NOT_YOUR_SIGNATURE'
+  // A custom form's wording could not be frozen with the report it locks.
+  | 'TEMPLATE_NOT_FROZEN'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

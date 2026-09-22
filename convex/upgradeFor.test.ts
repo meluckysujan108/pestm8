@@ -23,7 +23,7 @@ describe('upgradeFor', () => {
     expect(
       upgradeFor({
         template: 'termiteManagementCert',
-        templateVersion: undefined,
+        templateVersion: 1,
       }),
     ).toBe('restart')
   })

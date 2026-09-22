@@ -68,6 +68,7 @@ async function finalisedReport(
     propertyId: ids.propertyId,
     authorMembershipId: ids.membershipId,
     template: 'serviceReport',
+    templateVersion: 1,
     legalBasis: 'APVMA · AEPMA',
     status: 'finalised',
     data: {},

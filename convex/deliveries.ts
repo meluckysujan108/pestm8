@@ -185,10 +185,16 @@ async function subjectFor(
     : null
   const property = await ctx.db.get(report.propertyId)
   const business = await ctx.db.get(report.businessId)
+  // The frozen wording names a finalised document. Only a custom report
+  // finalised before snapshots existed has none, and is named for its form.
+  const live =
+    !snapshot && report.template === 'custom' && report.customTemplateId
+      ? await ctx.db.get(report.customTemplateId)
+      : null
   const template = resolveReportTemplate({
     template: report.template,
     templateVersion: report.templateVersion,
-    customTemplate: report.customTemplateSnapshot ?? null,
+    customTemplate: live,
     templateSnapshot: snapshot,
   })
   return documentIdentity({
