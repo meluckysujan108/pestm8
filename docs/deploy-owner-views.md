@@ -172,7 +172,9 @@ What changes for people the moment the backend lands:
   account being worked in); a regulated certificate among them is still
   finalised only by its holder (`SWITCHED_REGULATED`, `HOLDER_MUST_FINALISE`,
   `HOLDER_MUST_SIGN`), and a correction never carries the original's
-  signatures over.
+  signatures over. The reverse holds too: while switched, nobody can correct
+  their **own** reports — Correct is not offered on them, and `amend` refuses
+  with `NO_ACCESS` — until they switch back.
 - **A contractor books onto their own team**, and edits and stops their team's
   jobs and series. (Previously owner-or-yourself.)
 - **A switch past its 12 hours writes nothing** — booking, editing or filling
