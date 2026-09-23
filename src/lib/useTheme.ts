@@ -40,13 +40,26 @@ export function useSystemThemeSync(): void {
   useEffect(() => {
     const mq = window.matchMedia(PREFERS_DARK)
 
-    const onChange = () => {
+    const sync = () => {
       const root = document.documentElement
       if (root.dataset.themePref !== 'system') return
       root.dataset.theme = resolveTheme('system', mq.matches)
     }
 
-    mq.addEventListener('change', onChange)
-    return () => mq.removeEventListener('change', onChange)
+    /**
+     * Reconciled once here, and not only on `change`. `themeInitScript` read
+     * the OS while <head> was parsing; this effect runs after hydration, and a
+     * flip inside that window is a `change` event no listener existed to hear.
+     * Nothing else ever revisits the attribute while `system` is in force, so
+     * the page stayed on the wrong theme for as long as it was open — which is
+     * what made `e2e/theme.spec.ts` flaky rather than merely slow.
+     *
+     * A no-op when the OS has not moved, and an explicit light/dark choice is
+     * left alone by the guard above.
+     */
+    sync()
+
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
   }, [])
 }
