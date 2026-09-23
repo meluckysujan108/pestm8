@@ -125,7 +125,7 @@ test('the Job tab keeps the technician, with Call and Map', async ({
   await expect(page.getByRole('link', { name: MAP })).toBeVisible()
 })
 
-test('a series: the hand-booked visit offers Call and Map, its future projections nothing, and the Recurring Job view nothing', async ({
+test('a series: the Job tab lists the hand-booked visit, with Call and Map, and the Recurring Job view its projections, with neither', async ({
   page,
 }) => {
   const s = await seed('card-series')
@@ -144,13 +144,16 @@ test('a series: the hand-booked visit offers Call and Map, its future projection
   await signInViaUi(page, s.owner.email)
   await page.goto(`/${s.slug}/job`)
 
-  // The first visit plus at least one projection inside the horizon — and
-  // only the first, the one somebody booked, can be called about or driven to.
+  // Only the first visit, the one somebody booked, is booked work: the
+  // projections after it are listed on the Recurring Job view instead.
   const cards = page.getByRole('button', { name: /Rodent Baiting/ })
-  await expect(cards.nth(1)).toBeVisible()
+  await expect(cards.first()).toBeVisible()
+  await expect(cards).toHaveCount(1)
   await expect(page.getByRole('button', { name: CALL })).toHaveCount(1)
   await expect(page.getByRole('link', { name: MAP })).toHaveCount(1)
 
+  // At least one projection inside the horizon, and none of them can be
+  // called about or driven to.
   await page.goto(`/${s.slug}/job/recurring`)
   await expect(
     page.getByRole('button', { name: /Rodent Baiting/ }).first(),

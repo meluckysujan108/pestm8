@@ -129,6 +129,9 @@ test('an owner grants view-all access from settings', async ({ page }) => {
 
   await signInViaUi(page, ownerEmail)
   await page.goto(`/${slug}/settings?seg=team`)
+  // A tap before hydration is dropped: the server-rendered switch has no
+  // handler yet. Create link stays disabled until the page has hydrated.
+  await expect(page.getByRole('button', { name: 'Create link' })).toBeEnabled()
 
   const toggle = page.getByRole('switch').first()
   await expect(toggle).toBeVisible()
