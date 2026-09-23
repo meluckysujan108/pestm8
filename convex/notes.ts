@@ -23,6 +23,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Note, NoteViewer } from './lib/noteAccess'
 import { requireActor } from './lib/actor'
+import { UNASSIGNED_COLOUR } from './lib/colours'
 
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 // A photo may only be attached within this long of being uploaded. Convex
@@ -127,7 +128,7 @@ async function decorate(ctx: QueryCtx, viewer: NoteViewer, notes: Array<Note>) {
         clientName: client?.name ?? '',
         addressLine: property?.addressLine ?? '',
         suburb: property?.suburb ?? '',
-        authorColour: author?.colour ?? '#8E8E93',
+        authorColour: author?.colour ?? UNASSIGNED_COLOUR,
         authorRole: author?.role,
         authorName: await nameOf(note.authorMembershipId),
         editorName: await nameOf(note.lastEditedByMembershipId),

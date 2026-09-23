@@ -22,6 +22,8 @@ import { MobileDock } from './MobileDock'
 import { MORE_NAV, PRIMARY_NAV, SETTINGS_ITEM } from './navItems'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
+import { OVERDUE_CHIP } from '#/lib/statusColours'
+import { useOverdueRecurring } from '#/lib/useOverdueRecurring'
 
 export type ShellBusiness = {
   _id: Id<'businesses'>
@@ -32,21 +34,6 @@ export type ShellBusiness = {
 /** Unread @mentions, capped server-side — "9+" is as precise as a badge needs to be. */
 export function useUnreadMentions(businessId: Id<'businesses'>): number {
   const { data } = useQuery(convexQuery(api.notes.unreadMentionCount, { businessId }))
-  return data ?? 0
-}
-
-/**
- * Projected visits that came due and nobody actioned.
- *
- * A badge in the nav, because this is the one number that has to reach
- * somebody who is not looking for it. Showing an overdue visit on today's
- * schedule helps whoever opens the schedule; a business that has stopped
- * opening it is exactly the business quietly failing to treat a customer.
- */
-export function useOverdueRecurring(businessId: Id<'businesses'>): number {
-  const { data } = useQuery(
-    convexQuery(api.jobs.overdueRecurringCount, { businessId }),
-  )
   return data ?? 0
 }
 
@@ -140,11 +127,15 @@ export function AppShell({
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
-                    {/* Amber, not blue: unlike an unread mention, this is
-                        work that should already have happened. */}
+                    {/* Ink, not blue and not amber: unlike an unread mention
+                        this is work that should already have happened, and
+                        overdue carries no hue anywhere (`--overdue`). */}
                     {item.label === 'Job' && overdue > 0 && (
-                      <SidebarMenuBadge className="rounded-full bg-amber-ink px-1.5 text-[11px] font-bold text-white">
+                      <SidebarMenuBadge
+                        className={`rounded-full px-1.5 text-[11px] font-bold ${OVERDUE_CHIP}`}
+                      >
                         {overdue >= 10 ? '9+' : overdue}
+                        <span className="sr-only"> overdue</span>
                       </SidebarMenuBadge>
                     )}
                   </SidebarMenuItem>

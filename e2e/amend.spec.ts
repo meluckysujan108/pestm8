@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import {
   api,
+  clickUntil,
   expectRejected,
   setupBusinessWithSub,
   signInViaUi,
@@ -421,9 +422,13 @@ test('both ends of the pair say so on screen', async ({ page }) => {
   await signInViaUi(page, s.owner.email)
 
   await page.goto(`/${s.slug}/reports/${s.reportId}`)
-  await page.getByRole('button', { name: 'Issue a correction' }).click()
-
+  // Clicked straight after load, before hydration, the tap is dropped and the
+  // sheet never opens (see clickUntil).
   const sheet = page.getByRole('dialog')
+  await clickUntil(
+    page.getByRole('button', { name: 'Issue a correction' }),
+    () => expect(sheet).toBeVisible({ timeout: 2_000 }),
+  )
   await sheet
     .getByLabel('What was wrong?')
     .fill('Wrong product recorded against the second treatment')

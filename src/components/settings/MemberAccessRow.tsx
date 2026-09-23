@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
+import { ColourPicker } from './ColourPicker'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Grants, Role } from '../../../convex/lib/capabilities'
 
@@ -18,6 +19,9 @@ export type Member = {
   licenceNumber?: string
   colour: string
   status: string
+  /** From the roster: whether this viewer may set this person's colour. Absent
+   * from an older backend, which means no picker. */
+  canSetColour?: boolean
 }
 
 export function MemberAccessRow({
@@ -102,6 +106,18 @@ export function MemberAccessRow({
           </p>
         </div>
       </div>
+
+      {member.canSetColour && (
+        <div className="mt-3 border-t border-hairline-2 pt-3">
+          <ColourPicker
+            businessId={businessId}
+            membershipId={member._id}
+            name={member.name || member.email || 'this person'}
+            colour={member.colour}
+            others={others}
+          />
+        </div>
+      )}
 
       {/*
         Here, and not only on each person's own Profile page.

@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { REPORT_PILL } from '#/lib/statusColours'
 import { convexQuery } from '@convex-dev/react-query'
 import { Lock } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
@@ -165,11 +166,7 @@ export function ReportDocument({
       )}
 
       <span
-        className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold ${
-          finalised
-            ? 'bg-green/12 text-green'
-            : 'border border-amber-line bg-amber-bg text-amber-ink'
-        }`}
+        className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold ${finalised ? REPORT_PILL.finalised : REPORT_PILL.draft}`}
       >
         {finalised && <Lock size={11} strokeWidth={2.4} />}
         {finalised ? 'Finalised and locked' : 'Draft — read only'}

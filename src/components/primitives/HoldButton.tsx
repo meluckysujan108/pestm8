@@ -17,11 +17,21 @@ export function HoldButton({
   children,
   className = '',
   ariaLabel,
+  inScrollingList = false,
 }: {
   onComplete: () => void
   children: ReactNode
   className?: string
   ariaLabel?: string
+  /**
+   * The button sits in a list the thumb scrolls — a job card's Call. With the
+   * usual `touch-action: none`, a flick that starts on it cannot scroll the
+   * list at all, which on a phone full of cards is a dead strip across every
+   * one. This lets the browser take a vertical drag; when it does it cancels
+   * the pointer, and `onPointerCancel` cancels the hold, so a scroll never
+   * dials. A thumb held still still has to hold for the full time.
+   */
+  inScrollingList?: boolean
 }) {
   const isTouch = useMediaQuery('(hover: none)')
   const [progress, setProgress] = useState(0)
@@ -70,7 +80,7 @@ export function HoldButton({
       aria-label={ariaLabel}
       // touch-action/user-select guards keep the browser from stealing the
       // pointer stream with scrolling or a selection callout mid-hold.
-      className={`hold-target relative overflow-hidden ${className}`}
+      className={`${inScrollingList ? 'hold-target-scroll' : 'hold-target'} relative overflow-hidden ${className}`}
       onPointerDown={(e) => {
         e.currentTarget.setPointerCapture(e.pointerId)
         startedAt.current = performance.now()

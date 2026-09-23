@@ -69,6 +69,17 @@ function AnalyticsPage() {
               ? 'Completed and not yet billed'
               : `${summary.awaitingInvoice} ${summary.awaitingInvoice === 1 ? 'job' : 'jobs'} completed and not yet billed`}
           </p>
+          {/* The prompt to invoice lives here now. Completed used to be amber
+              on every card to say "raise the invoice"; it is green since
+              Phase 4.3, where amber means a warning and hue a status. */}
+          <Link
+            to="/$businessSlug/job"
+            params={{ businessSlug: business.slug }}
+            search={{ status: 'completed' }}
+            className="mt-1 inline-block text-body text-blue"
+          >
+            Review completed jobs
+          </Link>
         </Card>
 
         <Card>

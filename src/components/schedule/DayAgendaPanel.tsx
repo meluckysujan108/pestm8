@@ -9,20 +9,13 @@ import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useActing, useViewMode } from '#/lib/access'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { jobsAhead, travelHintsFor } from '#/lib/travel'
+import { isOverdueProjection } from '#/lib/jobCardActions'
+import { OVERDUE_CHIP } from '#/lib/statusColours'
+import { RecurringDueNote } from './RecurringDueNote'
+import { SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
+import type { ScheduleView } from '#/lib/scheduleViews'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
-
-/**
- * How a day is read. A list rather than a pair of branches: the section is
- * meant to hold more views than it has today. "Job" is the cards; the compact
- * list view is gone.
- */
-export type ScheduleView = 'job' | 'table'
-
-const VIEW_OPTIONS: Array<{ value: ScheduleView; label: string }> = [
-  { value: 'job', label: 'Job' },
-  { value: 'table', label: 'Table' },
-]
 
 /**
  * Desktop-only (§2.4) right pane beside MonthCalendarCard. Status and staff
@@ -42,6 +35,8 @@ export function DayAgendaPanel({
   view,
   onViewChange,
   onOpenJob,
+  businessSlug,
+  recurringDue = 0,
 }: {
   businessId: Id<'businesses'>
   state: string
@@ -56,6 +51,9 @@ export function DayAgendaPanel({
   view: ScheduleView
   onViewChange: (view: ScheduleView) => void
   onOpenJob: (jobId: string) => void
+  businessSlug: string
+  /** Projected visits on this day when it is still ahead (`listWeek`). */
+  recurringDue?: number
 }) {
   const mode = useViewMode()
   const acting = useActing()
@@ -84,8 +82,19 @@ export function DayAgendaPanel({
     weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
   )
 
-  const overdue = filteredJobs.filter((j) => j.status === 'recurring')
+  // Three numbers, never one: booked work, projected visits due today, and
+  // projected visits whose day has passed. A projection is work nobody has
+  // committed to, so it is in no job total anywhere (the month grid, the
+  // team legend, the dashboard); and "overdue" means what the card's marker
+  // and the nav badge mean by it, so a visit due later today is not one.
+  const now = Date.now()
   const booked = filteredJobs.filter((j) => j.status !== 'recurring')
+  const overdue = filteredJobs.filter((j) =>
+    isOverdueProjection(j, timezone, now),
+  )
+  const due = filteredJobs.filter(
+    (j) => j.status === 'recurring' && !isOverdueProjection(j, timezone, now),
+  )
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -94,23 +103,29 @@ export function DayAgendaPanel({
           <h2 className="text-sheet-title text-ink">
             {formatDayLabel(selectedKey)}
           </h2>
-          {/* Counted apart, because they are not the same thing. An overdue
-              projection is shown here but is work nobody has committed to —
-              it is in no job total anywhere else either (the month grid, the
-              team legend, the dashboard), and folding it in would make this
-              line the one place that disagrees. */}
-          <p className="text-caption tabular-nums text-muted">
-            {booked.length} {booked.length === 1 ? 'job' : 'jobs'}
+          <p className="flex flex-wrap items-center gap-x-1.5 text-caption tabular-nums text-ink-2">
+            <span>
+              {booked.length} {booked.length === 1 ? 'job' : 'jobs'}
+            </span>
+            {due.length > 0 && <span>· {due.length} due</span>}
             {overdue.length > 0 && (
-              <span className="text-amber-ink">
-                {' · '}
+              <span
+                className={`rounded-full px-2 text-[12px] font-semibold leading-5 ${OVERDUE_CHIP}`}
+              >
                 {overdue.length} overdue
               </span>
             )}
           </p>
         </div>
-        <Segmented label="View" value={view} options={VIEW_OPTIONS} onChange={onViewChange} />
+        <Segmented
+          label="View"
+          value={view}
+          options={SCHEDULE_VIEW_OPTIONS}
+          onChange={onViewChange}
+        />
       </div>
+
+      <RecurringDueNote count={recurringDue} businessSlug={businessSlug} />
 
       <ScheduleFilterBar
         jobs={jobs}
@@ -157,7 +172,7 @@ export function DayAgendaPanel({
               weather={weather.cell(job.suburb, job.postcode ?? '', selectedKey)}
               timezone={timezone}
               onOpen={onOpenJob}
-              hideTechnician={mode === 'mine'}
+              hideTechnician
             />
           ))}
         </div>

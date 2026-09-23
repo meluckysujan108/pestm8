@@ -20,9 +20,8 @@
  * below). Safe to run more than once: each run's accounts are unique.
  *
  * Deliberately cannot seed: a "Sent" report (needs a real Resend send —
- * `RESEND_API_KEY` isn't set in dev) or an "invoiced" job (no mutation
- * exists yet; Xero/invoicing is unbuilt, per `e2e/access-control.spec.ts`'s
- * own `test.fixme` notes).
+ * `RESEND_API_KEY` isn't set in dev). Every job status is seeded, so each of
+ * the six status colours (Phase 4.3) renders somewhere real.
  */
 process.loadEnvFile('.env.local')
 
@@ -178,6 +177,20 @@ const ownerMembershipId = members.find((m) => m.role === 'owner')._id
 const kevinMembership = members.find((m) => m.email === kevinEmail)
 const priyaMembership = members.find((m) => m.email === priyaEmail)
 
+// Colours are dealt in palette order (convex/lib/colours.ts): the owner the
+// first, the first to join the second. That is how the demo comes out Terence
+// blue and Kevin red (Phase 4.2) without a name anywhere in the app — so a
+// palette reorder that breaks it should stop the seed, not ship a demo in
+// the wrong colours.
+for (const [who, member, want] of [
+  ['Terence', members.find((m) => m.role === 'owner'), '#0A84FF'],
+  ['Kevin', kevinMembership, '#DC2626'],
+]) {
+  if (member.colour !== want) {
+    throw new Error(`${who} was dealt ${member.colour}, expected ${want}`)
+  }
+}
+
 // Terence signs the certificate and the inspection below himself, and
 // `finalise` refuses a regulated report whose holder has no licence of their
 // own on file (`HOLDER_LICENCE_MISSING`). The business's licence set above is
@@ -268,6 +281,8 @@ for (let day = -14; day < 0; day++) {
       scheduledAt: at(day, 8 + n * 3, 0),
       durationMinutes,
       complete: true,
+      // The oldest job was billed, so Invoiced renders too.
+      invoice: day === -14 && n === 0,
     })
   }
 }
@@ -292,7 +307,8 @@ const cancelledDraft = {
 }
 jobs.push(cancelledDraft)
 
-// The rest of this week and all of next week, still booked.
+// The rest of this week and all of next week. New work starts Pending; the
+// next two days' are confirmed, so Booked renders beside it.
 for (let day = 1; day <= 10; day++) {
   const date = new Date(today.getTime() + day * DAY)
   if (date.getDay() === 0) continue
@@ -304,13 +320,21 @@ for (let day = 1; day <= 10; day++) {
     price,
     scheduledAt: at(day, 9 + (day % 3) * 2, 0),
     durationMinutes,
+    book: day <= 2,
   })
 }
 
-for (const { complete, cancel, ...job } of jobs) {
+for (const { complete, cancel, invoice, book, ...job } of jobs) {
   const jobId = await owner.mutation(api.jobs.create, { businessId, ...job })
   if (complete) await owner.mutation(api.jobs.complete, { businessId, jobId })
   if (cancel) await owner.mutation(api.jobs.cancel, { businessId, jobId })
+  if (invoice || book) {
+    await owner.mutation(api.jobs.update, {
+      businessId,
+      jobId,
+      status: invoice ? 'invoiced' : 'booked',
+    })
+  }
 }
 
 console.log('Setting up recurring services…')
@@ -318,7 +342,9 @@ await owner.mutation(api.recurrences.create, {
   businessId,
   propertyId: nguyen,
   assignedMembershipId: ownerMembershipId,
-  frequency: 'quarterly',
+  // Any interval since Phase 3: a count and a unit, not a named frequency.
+  intervalCount: 3,
+  intervalUnit: 'month',
   jobType: 'General Pest Control',
   price: 22000,
   anchorDate: at(15, 9, 0),
@@ -328,7 +354,8 @@ await owner.mutation(api.recurrences.create, {
   businessId,
   propertyId: okafor,
   assignedMembershipId: kevinMembership._id,
-  frequency: 'monthly',
+  intervalCount: 1,
+  intervalUnit: 'month',
   jobType: 'Rodent Bait Top-Up',
   price: 12000,
   anchorDate: at(20, 10, 0),
@@ -591,6 +618,5 @@ template ("Six-Monthly Termite Check") with a draft and a finalised report,
 a gallery photo + cover flag + technician signature on one finalised report,
 business branding (logo/address/phone/email/licence), and 3 notes.
 
-Not seedable: a "Sent" report (needs RESEND_API_KEY) or an "invoiced" job
-(no mutation exists yet — invoicing/Xero isn't built).
+Not seedable: a "Sent" report (needs RESEND_API_KEY).
 `)

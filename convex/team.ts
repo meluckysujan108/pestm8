@@ -5,7 +5,12 @@ import { authComponent } from './auth'
 import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
-import { canManageMember, NO_GRANTS, recomputeGrants } from './lib/capabilities'
+import {
+  canManageMember,
+  canSetColour,
+  NO_GRANTS,
+  recomputeGrants,
+} from './lib/capabilities'
 import { factsFromMembership } from './lib/membershipFacts'
 import { NOT_STARTED_STATUSES } from './lib/jobStatus'
 import type { JobStatus } from './lib/jobStatus'
@@ -394,6 +399,10 @@ export const roster = query({
             /** Whether this caller may change any of it — an owner may manage
              * anyone but themselves; a contractor, only their own team. */
             canManage: canManageMember(env.actor, facts),
+            /** Whether this caller may set this person's colour — the owner,
+             * for anyone including themselves (`canSetColour`). An added
+             * field, so an older client simply shows no picker. */
+            canSetColour: canSetColour(env.actor, facts),
           }
         }),
     )

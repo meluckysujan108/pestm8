@@ -17,6 +17,7 @@ import { api } from '../../../convex/_generated/api'
 import { Combobox } from '#/components/primitives/Combobox'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
+import { JOB_STATUS } from '#/lib/statusColours'
 import { Segmented } from '#/components/primitives/Segmented'
 import {
   JOB_TYPES,
@@ -107,14 +108,8 @@ type SettableStatus =
 // "Recurring" is excluded for good: only the recurrence engine creates it, the
 // server refuses it from anyone, and a job that leaves it can never return
 // (convex/lib/jobStatus.ts). A recurring job still opens this menu — its pill
-// says Recurring, and every choice here moves it out.
-const STATUS_MENU_LABEL: Record<SettableStatus, string> = {
-  pending: 'Pending',
-  booked: 'Booked',
-  completed: 'Completed',
-  invoiced: 'Invoiced',
-  cancelled: 'Cancelled',
-}
+// says Recurring, and every choice here moves it out. Labels come from the
+// one status definition (src/lib/statusColours.ts), like the pill's.
 
 const STATUS_MENU: ReadonlyArray<SettableStatus> = [
   'pending',
@@ -321,7 +316,7 @@ function JobDetailBody({
                             onSelect={() => selectStatus(option)}
                             className="flex cursor-pointer items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-body text-ink outline-none transition data-[highlighted]:bg-surface-2"
                           >
-                            {STATUS_MENU_LABEL[option]}
+                            {JOB_STATUS[option].label}
                             {job.status === option && (
                               <Check size={15} strokeWidth={2.2} className="text-blue" />
                             )}
@@ -408,7 +403,7 @@ function JobDetailBody({
             {job.recurrence?.active ? (
               <>
                 <div className="flex items-center gap-2">
-                  <Repeat size={16} strokeWidth={1.7} className="text-blue" />
+                  <Repeat size={16} strokeWidth={1.7} className="text-ink-2" />
                   <p className="text-body text-ink">
                     {describeRepeat(job.recurrence.interval)}
                   </p>

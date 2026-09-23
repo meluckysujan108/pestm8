@@ -7,6 +7,7 @@ import type { Id } from './_generated/dataModel'
 import { requireActor } from './lib/actor'
 import { wireScope } from './lib/jobScope'
 import { hidePrices, redactTotal } from './lib/prices'
+import { UNASSIGNED_COLOUR } from './lib/colours'
 
 /** Shifts a `"YYYY-MM"` key by `offset` months (either direction). */
 function monthKeyOffset(monthKey: string, offset: number): string {
@@ -96,7 +97,7 @@ export const overview = query({
         return {
           membershipId,
           name: user?.name ?? 'Unassigned',
-          colour: assignee?.colour ?? '#8E8E93',
+          colour: assignee?.colour ?? UNASSIGNED_COLOUR,
           count,
         }
       }),

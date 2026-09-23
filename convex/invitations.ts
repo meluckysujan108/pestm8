@@ -9,7 +9,7 @@ import {
 import { internal } from './_generated/api'
 import { authComponent } from './auth'
 import { getAuthUserId, requireMembership } from './lib/access'
-import { nextColour } from './lib/colours'
+import { isMemberColour, nextColour, normaliseColour } from './lib/colours'
 import {
   INVITE_TTL_MS,
   hashInviteToken,
@@ -314,13 +314,34 @@ export const redeemByHash = internalMutation({
       if (existing.status === 'active') throw new ConvexError('ALREADY_MEMBER')
       // Rejoining starts from the invitation, not from whatever this person
       // held last time: a former owner re-invited as a subcontractor must come
-      // back as a subcontractor, with no grants carried over.
+      // back as a subcontractor, with no grants carried over. Their colour
+      // comes back too, when it still can: it must be one the palette offers
+      // (not a colour from before Phase 4.2's), and nobody active may have
+      // been dealt it while they were away — two people with one colour are
+      // two jobs nobody can tell apart on the schedule. Otherwise they are
+      // dealt afresh, like anyone joining.
+      const others = (
+        await ctx.db
+          .query('memberships')
+          .withIndex('by_business', (q) =>
+            q.eq('businessId', invitation.businessId),
+          )
+          .collect()
+      ).filter((m) => m._id !== existing._id && m.status !== 'removed')
+      const keptColour = normaliseColour(existing.colour)
+      const colour =
+        keptColour &&
+        isMemberColour(keptColour) &&
+        !others.some((m) => normaliseColour(m.colour) === keptColour)
+          ? keptColour
+          : nextColour(others.map((m) => m.colour))
       await ctx.db.patch(existing._id, {
         status: 'active',
         role: invitation.role,
         canViewAllJobs: false,
         canViewOtherAccounts: false,
         viewingAsMembershipId: undefined,
+        colour,
       })
       membershipId = existing._id
     } else {

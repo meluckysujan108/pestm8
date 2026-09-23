@@ -2,17 +2,13 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import {
+  addDaysToKey,
   dayKeyOf,
   endOfDayInZone,
   startOfDayInZone,
   todayKeyInZone,
 } from './lib/dates'
-import {
-  clientNameOf,
-  newClientFields,
-  resolvePropertyId,
-  withClient,
-} from './properties'
+import { newClientFields, resolvePropertyId, withClient } from './properties'
 import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
 import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
@@ -22,6 +18,7 @@ import {
   assertStatusChange,
   entersDone,
   initialJobStatus,
+  isCountedJob,
   orderForDay,
   setJobStatus,
 } from './lib/jobStatus'
@@ -37,6 +34,7 @@ import {
   requireBookable,
   requireEditableJob,
 } from './lib/jobAccess'
+import { UNASSIGNED_COLOUR } from './lib/colours'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -83,9 +81,7 @@ export async function jobsInRange(
   // silently missed. Shown there, counted nowhere. The distinction is
   // future-vs-due, and it lives in `listDay` because this function has no day
   // to compare against.
-  return jobs.filter(
-    (j) => j.status !== 'cancelled' && j.status !== 'recurring',
-  )
+  return jobs.filter(isCountedJob)
 }
 
 async function decorate(
@@ -119,17 +115,23 @@ async function decorate(
       .sort((a, b) => a.scheduledAt - b.scheduledAt)
       .map(async (job) => {
         const property = await ctx.db.get(job.propertyId)
+        const client = property ? await ctx.db.get(property.clientId) : null
         const assignee = await ctx.db.get(job.assignedMembershipId)
         return {
           ...redactJob(env.caps, job),
-          // The job card shows the full street address; the table row shows
-          // the suburb alone, per §2.3's reasoning that scanning a day wants
-          // the suburb.
+          // Card and table row both SHOW the suburb alone (§2.3: scanning a
+          // day wants the suburb). The street address still rides along for
+          // the card's Map link.
           addressLine: property?.addressLine ?? '',
           suburb: property?.suburb ?? '',
           postcode: property?.postcode ?? '',
-          clientName: await clientNameOf(ctx, property),
-          assigneeColour: assignee?.colour ?? '#8E8E93',
+          clientName: client?.name ?? '',
+          // For the card's Call. The same number the job detail sheet dials
+          // (`get` embeds the whole client), read off a document this row
+          // loads anyway — and the client book is open to everyone who can
+          // see the job (`clients.directory` is 'always' for every role).
+          clientPhone: client?.phone ?? '',
+          assigneeColour: assignee?.colour ?? UNASSIGNED_COLOUR,
           assigneeName: assignee
             ? await nameOf(job.assignedMembershipId, assignee.userId)
             : '',
@@ -268,26 +270,24 @@ export const listDay = query({
  */
 const JOB_LIST_LIMIT = 200
 
+/** Every status but `recurring`: the ones a person can set, which is to say
+ * every job somebody booked (schema.ts `settableJobStatus`). */
+const BOOKED_STATUSES = settableJobStatus.members.map((m) => m.value)
+
 /**
- * The Job tab's list: every job in scope, most recently booked first, whatever
- * its status and whatever day it is on. Cancelled jobs are included — the
- * status filter is the reader's to set, and a list that silently omits them
- * would make "Cancelled" an empty filter.
+ * The Job tab's list: every job in scope that somebody booked, most recently
+ * booked first, whatever its status and whatever day it is on. Cancelled jobs
+ * are included — the status filter is the reader's to set, and a list that
+ * silently omits them would make "Cancelled" an empty filter.
  *
- * Projected `recurring` visits ARE included here, unlike on the calendar
- * (`jobsInRange` above) and unlike in every count the dashboard shows. That
- * is deliberate, and it is a limit of the index rather than a preference:
- * this list is the newest `JOB_LIST_LIMIT` by creation, and a business
- * running a few active series has thousands of projected visits inserted in
- * bulk by the nightly cron — so they are exactly the newest rows. Filtering
- * them out AFTER an indexed read of a fixed size returns a page that is
- * mostly, and sometimes entirely, empty. Doing it properly needs a
- * status-aware index per scope (`by_business_status` exists; `by_assignee`
- * has no status counterpart) and a merge of one descending scan per status.
- *
- * Until then the reader has the status filter, and the Recurring Job view
- * one tab across is the place projections are read on purpose — counted as
- * series rather than as records (`listRecurring`).
+ * Projected `recurring` visits are NOT (Phase 4, from the Phase 3 carry-
+ * forward). They are the engine's projections of a series, read on purpose in
+ * the Recurring Job view one tab across and counted there as series; here
+ * they buried the booked work under six months of them and put projections
+ * into the tab's "N jobs". They are left out by the read itself — one indexed
+ * scan per status that a person can set (`jobsNewestFirst`) — because they
+ * are the newest rows, and dropping them after a fixed-size read would empty
+ * the page.
  */
 export const list = query({
   args: { businessId: v.id('businesses') },
@@ -298,6 +298,7 @@ export const list = query({
     const found = await jobsNewestFirst(ctx, env.listScope, {
       businessId,
       limit: JOB_LIST_LIMIT + 1,
+      statuses: BOOKED_STATUSES,
     })
     const jobs = await decorate(ctx, env, found.slice(0, JOB_LIST_LIMIT))
 
@@ -332,16 +333,26 @@ export const listRecurring = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
     const env = await requireActor(ctx, businessId)
+    const business = await ctx.db.get(businessId)
+    if (!business)
+      return { jobs: [], seriesCount: 0, horizonDays: HORIZON_DAYS }
 
     const now = Date.now()
+    const startOfToday = startOfDayInZone(
+      todayKeyInZone(business.timezone),
+      business.timezone,
+    )
     const visits = (
       await jobsInScope(ctx, env.listScope, {
         businessId,
         // Reaches BACKWARDS as well, so a projection nobody actioned is
         // listed here for as long as today's schedule carries it forward.
         // This view is the backstop: nothing should ever be invisible in
-        // both places at once.
-        from: now - OVERDUE_LOOKBACK_DAYS * DAY_MS,
+        // both places at once. From the start of today, exactly as
+        // `overdueRecurring` reads: measured from `now`, a visit at 09:00 on
+        // the last day of the lookback was still counted by the nav badge and
+        // the Job tab's link all afternoon, but gone from the view they open.
+        from: startOfToday - OVERDUE_LOOKBACK_DAYS * DAY_MS,
         // One day's slack past the horizon: the cron projects from its own
         // "now", which is up to a day ahead of this query's.
         to: now + (HORIZON_DAYS + 1) * DAY_MS,
@@ -377,8 +388,23 @@ export const listRecurring = query({
 })
 
 /**
- * Seven days from `startKey`, grouped by day. Drives the week strip's
- * per-subcontractor dots, so it returns assignee colours per day.
+ * Seven days from `startKey`, grouped by the tenant's own calendar day — the
+ * week strip's per-person dots and job count, and the Week View's headers.
+ *
+ * TWO NUMBERS PER DAY, NEVER ONE (Phase 4.4):
+ * - `count` is booked work, exactly as `jobsInRange` counts it: no
+ *   projection and no cancellation. It is the same number the month grid,
+ *   the team legend and the dashboard show.
+ * - `recurringCount` is that day's projected visits — status `recurring`,
+ *   counted on their OWN day, past, today or future alike. Not carried onto
+ *   today the way `listDay` carries an overdue one (that and the nav badge
+ *   are the escalation), not series (the Recurring Job view counts those),
+ *   and never added to `count` here or anywhere a caller might.
+ *
+ * Its own read rather than `jobsInRange`'s, because that one throws the
+ * projections away before the days are built — the rows are the same, and
+ * so is the cost. No wall clock: which days have arrived is the caller's
+ * question, asked against its own "today".
  */
 export const listWeek = query({
   args: { businessId: v.id('businesses'), startKey: v.string() },
@@ -386,49 +412,63 @@ export const listWeek = query({
     const { listScope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
+    const tz = business.timezone
 
-    const from = startOfDayInZone(startKey, business.timezone)
-    const to = from + 7 * 24 * 60 * 60 * 1000
+    // Day boundaries by the calendar, not in 24-hour steps: a week holding a
+    // daylight-saving change has one 23- or 25-hour day in it.
+    const dayKeys = Array.from({ length: 7 }, (_, i) =>
+      addDaysToKey(startKey, i),
+    )
+    const from = startOfDayInZone(startKey, tz)
+    const to = startOfDayInZone(addDaysToKey(startKey, 7), tz)
 
-    const jobs = await jobsInRange(ctx, listScope, businessId, from, to)
-    const assignees = new Map<Id<'memberships'>, string>()
-    for (const job of jobs) {
-      if (!assignees.has(job.assignedMembershipId)) {
-        const m = await ctx.db.get(job.assignedMembershipId)
-        assignees.set(job.assignedMembershipId, m?.colour ?? '#8E8E93')
-      }
+    const rows = await jobsInScope(ctx, listScope, { businessId, from, to })
+    const byDay = new Map<string, Array<Doc<'jobs'>>>()
+    for (const job of rows) {
+      const key = dayKeyOf(job.scheduledAt, tz)
+      byDay.set(key, [...(byDay.get(key) ?? []), job])
     }
 
-    const dayMs = 24 * 60 * 60 * 1000
-    return Promise.all(
-      Array.from({ length: 7 }, async (_, i) => {
-        const dayFrom = from + i * dayMs
-        const inDay = jobs
-          .filter(
-            (j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs,
-          )
-          .sort((a, b) => a.scheduledAt - b.scheduledAt)
+    const colours = new Map<Id<'memberships'>, string>()
+    const colourOf = async (membershipId: Id<'memberships'>) => {
+      if (!colours.has(membershipId)) {
+        const m = await ctx.db.get(membershipId)
+        colours.set(membershipId, m?.colour ?? UNASSIGNED_COLOUR)
+      }
+      return colours.get(membershipId) ?? UNASSIGNED_COLOUR
+    }
 
-        // The first job's suburb stands for the day's weather. A day spanning
-        // several suburbs has no single forecast, so the UI labels which one.
-        const property = inDay[0] ? await ctx.db.get(inDay[0].propertyId) : null
+    const days = []
+    for (const [offset, dayKey] of dayKeys.entries()) {
+      const inDay = (byDay.get(dayKey) ?? []).sort(
+        (a, b) => a.scheduledAt - b.scheduledAt,
+      )
+      const counted = inDay.filter(isCountedJob)
 
-        return {
-          offset: i,
-          dayKey: dayKeyOf(dayFrom, business.timezone),
-          count: inDay.length,
-          suburb: property?.suburb ?? '',
-          postcode: property?.postcode ?? '',
-          colours: [
-            ...new Set(
-              inDay.map(
-                (j) => assignees.get(j.assignedMembershipId) ?? '#8E8E93',
-              ),
-            ),
-          ],
-        }
-      }),
-    )
+      // The first booked job's suburb stands for the day's weather. A day
+      // spanning several suburbs has no single forecast, so the UI labels
+      // which one.
+      const property = counted[0]
+        ? await ctx.db.get(counted[0].propertyId)
+        : null
+
+      const dayColours: Array<string> = []
+      for (const job of counted) {
+        const colour = await colourOf(job.assignedMembershipId)
+        if (!dayColours.includes(colour)) dayColours.push(colour)
+      }
+
+      days.push({
+        offset,
+        dayKey,
+        count: counted.length,
+        recurringCount: inDay.filter((j) => j.status === 'recurring').length,
+        suburb: property?.suburb ?? '',
+        postcode: property?.postcode ?? '',
+        colours: dayColours,
+      })
+    }
+    return days
   },
 })
 
@@ -473,7 +513,7 @@ export const listMonth = query({
         postcode: property?.postcode ?? '',
       }
       entry.count += 1
-      entry.colours.add(assignee?.colour ?? '#8E8E93')
+      entry.colours.add(assignee?.colour ?? UNASSIGNED_COLOUR)
       byDay.set(dayKey, entry)
     }
 
@@ -529,7 +569,7 @@ export const monthTeamLoad = query({
         return {
           membershipId,
           name: user?.name ?? 'Unassigned',
-          colour: assignee?.colour ?? '#8E8E93',
+          colour: assignee?.colour ?? UNASSIGNED_COLOUR,
           count,
         }
       }),

@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 import { JobCard } from '#/components/schedule/JobCard'
@@ -8,6 +8,8 @@ import { FilterDropdown } from '#/components/primitives/FilterDropdown'
 import { JOB_LIST_STATUS_OPTIONS } from '#/lib/scheduleFilters'
 import { useCan } from '#/lib/access'
 import { rq, warm } from '#/lib/routeQueries'
+import { useOverdueRecurring } from '#/lib/useOverdueRecurring'
+import { OVERDUE_CHIP } from '#/lib/statusColours'
 
 const STATUS_VALUES = JOB_LIST_STATUS_OPTIONS.map((option) => option.value)
 
@@ -37,6 +39,10 @@ function JobListPage() {
   const shown = status
     ? data.jobs.filter((job) => job.status === status)
     : data.jobs
+  // The nav badge on this tab counts overdue recurring visits, which are not
+  // in this list — it holds booked work, and projections are read in the
+  // Recurring Job view. So the tab says where they are.
+  const overdue = useOverdueRecurring(business._id)
 
   return (
     <>
@@ -67,6 +73,24 @@ function JobListPage() {
             ]}
           />
         </div>
+
+        {overdue > 0 && (
+          <Link
+            to="/$businessSlug/job/recurring"
+            params={{ businessSlug: business.slug }}
+            className="mb-3 flex min-h-11 items-center gap-2 rounded-xl bg-surface px-3 text-caption text-ink shadow-elevation transition active:scale-[.99]"
+          >
+            <span
+              className={`rounded-full px-2 text-[12px] font-semibold leading-5 ${OVERDUE_CHIP}`}
+            >
+              {overdue} overdue
+            </span>
+            recurring {overdue === 1 ? 'visit' : 'visits'} to book
+            <span className="ml-auto font-semibold text-blue">
+              Recurring Job ›
+            </span>
+          </Link>
+        )}
 
         {shown.length === 0 ? (
           <EmptyState

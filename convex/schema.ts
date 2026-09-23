@@ -547,6 +547,12 @@ export default defineSchema({
     // subcontractor's list is read the same way as the owner's.
     .index('by_business', ['businessId'])
     .index('by_assignee', ['assignedMembershipId'])
+    // The Job tab's list by status, per assignee — the counterpart of
+    // `by_business_status` for a subcontractor or a team. Newest-created first
+    // within a status, like every index here (`_creationTime` is appended),
+    // so the Job tab can ask for booked work without reading the projections
+    // (`jobsNewestFirst` in lib/jobScope.ts).
+    .index('by_assignee_status', ['assignedMembershipId', 'status'])
     // Materialising recurrences must be idempotent, which means asking "does
     // this occurrence already exist" on every cron run.
     .index('by_recurrence', ['recurrenceId']),

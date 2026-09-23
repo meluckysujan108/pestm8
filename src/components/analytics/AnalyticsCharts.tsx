@@ -15,15 +15,9 @@ import {
 } from 'recharts'
 import { formatMoney } from '#/lib/format'
 import { rq } from '#/lib/routeQueries'
-import { jobStatusLabel } from '#/components/primitives/StatusPill'
+import { jobStatusStyle } from '#/lib/statusColours'
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
-
-const STATUS_COLOUR: Record<string, string> = {
-  booked: 'var(--amber)',
-  completed: 'var(--green)',
-  invoiced: 'var(--blue)',
-}
 
 /** "2026-09" → "Sep" — compact enough for 6 months across a 460px x-axis. */
 function shortMonthLabel(monthKey: string): string {
@@ -134,7 +128,7 @@ export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }
               {data.statusBreakdown.map((entry) => (
                 <Cell
                   key={entry.status}
-                  fill={STATUS_COLOUR[entry.status] ?? 'var(--muted)'}
+                  fill={jobStatusStyle(entry.status).chart}
                 />
               ))}
             </Pie>
@@ -148,9 +142,9 @@ export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }
             >
               <span
                 className="size-2.5 rounded-full"
-                style={{ background: STATUS_COLOUR[entry.status] ?? 'var(--muted)' }}
+                style={{ background: jobStatusStyle(entry.status).chart }}
               />
-              {jobStatusLabel(entry.status)} ({entry.count})
+              {jobStatusStyle(entry.status).label} ({entry.count})
             </li>
           ))}
         </ul>

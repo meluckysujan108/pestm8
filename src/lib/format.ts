@@ -69,6 +69,36 @@ export function formatDayLabel(dayKey: string): string {
   }).format(dayKeyToDate(dayKey))
 }
 
+/** "Mon 21" — a day heading inside a week, where the month is already said. */
+export function formatShortDayLabel(dayKey: string): string {
+  return new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    day: 'numeric',
+  }).format(dayKeyToDate(dayKey))
+}
+
+/**
+ * "21–27 September", or "28 September – 4 October" across a month, or with
+ * both years across a year — a week named the way it would be said.
+ */
+export function formatWeekRange(startKey: string): string {
+  const endKey = addDaysToKey(startKey, 6)
+  const [start, end] = [startKey, endKey].map(dayKeyToDate)
+  const part = (d: Date, opts: Intl.DateTimeFormatOptions) =>
+    new Intl.DateTimeFormat('en-AU', { timeZone: 'UTC', ...opts }).format(d)
+
+  if (startKey.slice(0, 4) !== endKey.slice(0, 4)) {
+    const full = { day: 'numeric', month: 'long', year: 'numeric' } as const
+    return `${part(start, full)} – ${part(end, full)}`
+  }
+  if (startKey.slice(0, 7) !== endKey.slice(0, 7)) {
+    const dayMonth = { day: 'numeric', month: 'long' } as const
+    return `${part(start, dayMonth)} – ${part(end, dayMonth)}`
+  }
+  return `${part(start, { day: 'numeric' })}–${part(end, { day: 'numeric', month: 'long' })}`
+}
+
 export function formatMonthLabel(dayKey: string): string {
   return new Intl.DateTimeFormat('en-AU', {
     timeZone: 'UTC',

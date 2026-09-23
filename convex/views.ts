@@ -6,6 +6,7 @@ import { closeSwitches, openSwitch } from './accountSwitches'
 import { currentSessionId, requireActor } from './lib/actor'
 import { canChooseView, licenceStatus, switchTargets } from './lib/capabilities'
 import { factsFromMembership } from './lib/membershipFacts'
+import { UNASSIGNED_COLOUR } from './lib/colours'
 
 /**
  * The owner's view dropdown: God view, just his own jobs, or somebody else's
@@ -56,7 +57,7 @@ export const options = query({
       me: {
         membershipId: real._id,
         name: await nameOf(me?.userId),
-        colour: me?.colour ?? '#8E8E93',
+        colour: me?.colour ?? UNASSIGNED_COLOUR,
         // Working his own jobs means signing his own certificates, which a
         // blank licence number refuses. Better to say so in the place he
         // chooses to work them than at the end of an inspection.
@@ -72,7 +73,7 @@ export const options = query({
           return {
             membershipId: person._id,
             name: await nameOf(row?.userId),
-            colour: row?.colour ?? '#8E8E93',
+            colour: row?.colour ?? UNASSIGNED_COLOUR,
             role: person.role,
           }
         }),

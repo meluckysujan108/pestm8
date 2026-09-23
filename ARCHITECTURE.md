@@ -55,11 +55,26 @@ re-declared per theme, so nothing else in the system is themed twice.
   --scrim        rgba(0,0,0,.30)        rgba(0,0,0,.60)        sheet backdrop
   --red          #FF3B30                #FF453A    primary action, brand
   --blue         #0A84FF                #0A84FF    links, contact actions
-  --green        #34C759                #30D158    invoiced / success
-  --amber        #FF9F0A                #FF9F0A    completed-awaiting-invoice
+  --green        #34C759                #30D158    success
+  --amber        #FF9F0A                #FF9F0A    warning accent
   --amber-ink    #B26B00                #FFB340    warning text
   --amber-bg     #FFF8EC                #2A1E0A    warning surface
   --amber-line   #FFE2B8                #4D3712    warning border
+
+  Job status ramps (Phase 4.3), one per hue, each a -bg / -line / -ink triple:
+  --orange-*  Recurring   --red-*   Pending    --yellow-*  Booked
+  --green-*   Completed   --blue-*  Invoiced   --grey-*    Cancelled
+  Every -ink clears 7:1 on its -bg (grey 6.3:1) and every -line 3:1 on the
+  card, in both themes — checked against this file by statusColours.test.ts.
+  Which status takes which hue is decided once, in src/lib/statusColours.ts.
+  --overdue / --overdue-ink = --ink / --surface: overdue carries no hue.
+
+  Three signals share a job card, so each keeps its own form: a solid mark
+  with no text is a PERSON (the technician colour, convex/lib/colours.ts —
+  the owner sets it in Settings → Team); a bordered tinted pill with a word is
+  a STATUS; ink with no hue is OVERDUE; and amber with a pale border stays a
+  WARNING. Completed is green since 4.3 — the "raise the invoice" prompt
+  lives on Analytics' Awaiting invoice figure, which links to those jobs.
 
   Dark inverts the elevation model: --canvas is black and cards sit *above* it,
   where light has white cards on a grey canvas. --blue and --amber do not move
@@ -126,10 +141,10 @@ activity timeline with actor names.
 **Cross-cutting:** preview-as banner (sticky, dark, top), toast (bottom centre)
 
 ## 2.3 Interaction patterns worth naming
-- **Hold-to-call / hold-to-email** — pointer-down starts a fill animation, pointer-up before completion cancels. Prevents pocket-dialling a client mid-job. Uses `onPointerDown/Up/Leave/Cancel`, `touch-action:none`, `user-select:none`.
+- **Hold-to-call / hold-to-email** — pointer-down starts a fill animation, pointer-up before completion cancels. Prevents pocket-dialling a client mid-job. Uses `onPointerDown/Up/Leave/Cancel`, `touch-action:none`, `user-select:none`. *Amended (Phase 4):* on a job card the same hold sits in a list the thumb scrolls, so there it uses `touch-action:pan-y` instead — the browser may take a vertical drag, and when it does it cancels the pointer, which cancels the hold. A scroll never dials; a still thumb still has to hold. The sheets keep `touch-action:none`.
 - **Segmented controls** for all binary/ternary filters — never dropdowns.
 - **Week strip with per-subcontractor dots** — colour-coded, so the Owner sees whose day is loaded at a glance.
-- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. *Amended:* the schedule's job card now has two variants, and the rule holds per-variant rather than per-surface — the compact **list** row still shows suburb alone, while the richer **board** card shows the full street address. A board card is being read, not scanned past, and at that size the address is the fastest way to recognise a job. `JobCard.tsx` is the only place this applies; every other list row is unchanged.
+- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. The job card follows it too. *History:* a list/board split once had the board card print the full street address; the variants went in Phase 2, and in Phase 4 the card went back to the suburb alone, matching the table row. Its Map button carries the street address to the maps app, so the address no longer has to be read off the card to be used. The job detail sheet and the report still print it in full.
 - **Locked boilerplate blocks** — report disclaimers render in a grey inset card, visibly non-editable.
 - **A delivery is a record, not an event** — every attempt to send a report is a `reportDeliveries` row, written before the provider is called and naming the `reportPdfs` row it attached, so "which file did the client receive?" has an answer after the renderer has moved on. `sent` means the provider accepted it; the Resend webhook moves a row to `bounced` later, and the report's Sent bucket with it.
 - **Who a report may be sent to** — a technician may send to addresses already on the client record; anywhere else is `pendingApproval` until an owner says yes, unless the business turns the restriction off. The held row IS the request, so approving is a decision about something real. Twenty sends an hour per member, counted from the delivery rows rather than a separate token bucket.
@@ -470,7 +485,9 @@ src/components/
     HoldButton.tsx                pointer-driven fill; click-through on desktop
   schedule/
     WeekStrip.tsx  DayDots.tsx  MonthPickerSheet.tsx
-    JobCard.tsx                   list | board variants (§2.3)
+    JobCard.tsx                   one card, four surfaces; Call + Map beside the open button (§2.3)
+    JobTable.tsx                  the day as a table, one row per job — a card rule may apply here too
+    WeekView.tsx                  the Week View's own job blocks, not JobCard — check card rules here too
     WeatherStrip.tsx              per-card forecast: values, never advice
     JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx
     WeekGrid.tsx                  desktop-only

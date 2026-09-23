@@ -1,33 +1,36 @@
 import { useState } from 'react'
+import { JOB_STATUS } from '#/lib/statusColours'
 import type { JobStatus } from '#/components/primitives/StatusPill'
+import { UNASSIGNED_COLOUR } from '../../convex/lib/colours'
 
 export type StatusFilter = 'all' | JobStatus
 
 // Pending is here because every job booked by hand now starts there — without
 // it "Booked" would quietly stop matching new work.
 //
-// Neither Recurring nor Cancelled: `jobs.listDay` returns neither, so either
-// filter could only ever empty the day. Projected visits are kept off the
-// schedule and out of its counts on purpose (`jobsInRange` in convex/jobs.ts)
-// and are read in the Recurring Job view instead.
-export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'booked', label: 'Booked' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'invoiced', label: 'Invoiced' },
-]
+// No Cancelled: `jobs.listDay` never returns a cancelled job, so the filter
+// could only ever empty the day. No Recurring either, though `listDay` does
+// return projections once their day has come, and carries overdue ones onto
+// today (convex/jobs.ts): they are work nobody has booked, marked as such on
+// their cards and counted apart in the day's header, and read in full in the
+// Recurring Job view.
+export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = (
+  ['pending', 'booked', 'completed', 'invoiced'] as const
+).map((value) => ({ value, label: JOB_STATUS[value].label }))
 
 /**
- * The Job tab's filter. That list holds every job whatever its status, so
- * unlike the schedule's it can offer Cancelled — and, unlike the schedule's,
- * it does still receive projected visits (`jobs.list` in convex/jobs.ts says
- * why). Recurring is absent all the same: those get their own view in the
- * section, with their own count (src/lib/jobViews.ts).
+ * The Job tab's filter. That list holds every job somebody booked, whatever
+ * its status, so unlike the schedule's it can offer Cancelled. It holds no
+ * projected visits (`jobs.list` in convex/jobs.ts), so there is no Recurring:
+ * those are the Recurring Job view's (src/lib/jobViews.ts).
  */
 export const JOB_LIST_STATUS_OPTIONS: Array<{
   value: JobStatus
   label: string
-}> = [...STATUS_OPTIONS, { value: 'cancelled', label: 'Cancelled' }]
+}> = [
+  ...STATUS_OPTIONS,
+  { value: 'cancelled', label: JOB_STATUS.cancelled.label },
+]
 
 export type StaffLoad = {
   membershipId: string
@@ -40,8 +43,15 @@ export type StaffLoad = {
  * "Who's on today, and how many jobs each of them has" — mirrors
  * `monthTeamLoad`'s accumulation/sort shape (convex/jobs.ts), but pure and
  * client-side since a single day's jobs are already fully loaded. Only staff
- * present in `jobs` are included, so someone with zero jobs today never
+ * present in `jobs` are included, so someone with nothing on today never
  * shows up as "(0)".
+ *
+ * The count is of booked jobs only. The day's list also holds projected
+ * visits once their day has come, and those are in no job count anywhere
+ * (brief §2, and `jobsInRange` in convex/jobs.ts) — this is the team legend's
+ * number for one day, so it keeps the same rule. Someone whose only visit
+ * today is a projection is still listed, at 0, so the filter can still find
+ * it.
  *
  * The name comes off the job rather than from a join against the roster: the
  * job carries its assignee's name already (`jobs.decorate`), and a join would
@@ -53,20 +63,22 @@ export function computeStaffLoad(
     assignedMembershipId: string
     assigneeName?: string
     assigneeColour?: string
+    status?: JobStatus
   }>,
 ): Array<StaffLoad> {
   const byId = new Map<string, StaffLoad>()
   for (const job of jobs) {
+    const counts = job.status !== 'recurring' ? 1 : 0
     const row = byId.get(job.assignedMembershipId)
     if (row) {
-      row.count += 1
+      row.count += counts
       continue
     }
     byId.set(job.assignedMembershipId, {
       membershipId: job.assignedMembershipId,
       name: job.assigneeName || 'Unassigned',
-      colour: job.assigneeColour ?? '#8E8E93',
-      count: 1,
+      colour: job.assigneeColour ?? UNASSIGNED_COLOUR,
+      count: counts,
     })
   }
   return [...byId.values()].sort((a, b) => b.count - a.count)
