@@ -270,26 +270,24 @@ export const listDay = query({
  */
 const JOB_LIST_LIMIT = 200
 
+/** Every status but `recurring`: the ones a person can set, which is to say
+ * every job somebody booked (schema.ts `settableJobStatus`). */
+const BOOKED_STATUSES = settableJobStatus.members.map((m) => m.value)
+
 /**
- * The Job tab's list: every job in scope, most recently booked first, whatever
- * its status and whatever day it is on. Cancelled jobs are included — the
- * status filter is the reader's to set, and a list that silently omits them
- * would make "Cancelled" an empty filter.
+ * The Job tab's list: every job in scope that somebody booked, most recently
+ * booked first, whatever its status and whatever day it is on. Cancelled jobs
+ * are included — the status filter is the reader's to set, and a list that
+ * silently omits them would make "Cancelled" an empty filter.
  *
- * Projected `recurring` visits ARE included here, unlike on the calendar
- * (`jobsInRange` above) and unlike in every count the dashboard shows. That
- * is deliberate, and it is a limit of the index rather than a preference:
- * this list is the newest `JOB_LIST_LIMIT` by creation, and a business
- * running a few active series has thousands of projected visits inserted in
- * bulk by the nightly cron — so they are exactly the newest rows. Filtering
- * them out AFTER an indexed read of a fixed size returns a page that is
- * mostly, and sometimes entirely, empty. Doing it properly needs a
- * status-aware index per scope (`by_business_status` exists; `by_assignee`
- * has no status counterpart) and a merge of one descending scan per status.
- *
- * Until then the reader has the status filter, and the Recurring Job view
- * one tab across is the place projections are read on purpose — counted as
- * series rather than as records (`listRecurring`).
+ * Projected `recurring` visits are NOT (Phase 4, from the Phase 3 carry-
+ * forward). They are the engine's projections of a series, read on purpose in
+ * the Recurring Job view one tab across and counted there as series; here
+ * they buried the booked work under six months of them and put projections
+ * into the tab's "N jobs". They are left out by the read itself — one indexed
+ * scan per status that a person can set (`jobsNewestFirst`) — because they
+ * are the newest rows, and dropping them after a fixed-size read would empty
+ * the page.
  */
 export const list = query({
   args: { businessId: v.id('businesses') },
@@ -300,6 +298,7 @@ export const list = query({
     const found = await jobsNewestFirst(ctx, env.listScope, {
       businessId,
       limit: JOB_LIST_LIMIT + 1,
+      statuses: BOOKED_STATUSES,
     })
     const jobs = await decorate(ctx, env, found.slice(0, JOB_LIST_LIMIT))
 

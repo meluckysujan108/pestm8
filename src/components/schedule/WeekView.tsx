@@ -384,7 +384,11 @@ function JobBlock({
         )}
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1">
-        <StatusPill status={job.status} />
+        {/* A ring of card surface around the pill, so its edge holds against
+            the technician's tint the way it does on a white card. */}
+        <span className="inline-flex rounded-full bg-surface p-px">
+          <StatusPill status={job.status} />
+        </span>
         {overdue && (
           <span
             className={`rounded-full px-2 text-[11px] font-semibold leading-4 ${OVERDUE_CHIP}`}

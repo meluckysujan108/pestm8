@@ -54,6 +54,7 @@ import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
 import type * as memberships from "../memberships.js";
 import type * as migrations_accessV3 from "../migrations/accessV3.js";
 import type * as migrations_jobStatusV1 from "../migrations/jobStatusV1.js";
+import type * as migrations_memberColoursV1 from "../migrations/memberColoursV1.js";
 import type * as migrations_notesV2 from "../migrations/notesV2.js";
 import type * as migrations_recurringIntervalV1 from "../migrations/recurringIntervalV1.js";
 import type * as migrations_reportSnapshotsV1 from "../migrations/reportSnapshotsV1.js";
@@ -128,6 +129,7 @@ declare const fullApi: ApiFromModules<{
   memberships: typeof memberships;
   "migrations/accessV3": typeof migrations_accessV3;
   "migrations/jobStatusV1": typeof migrations_jobStatusV1;
+  "migrations/memberColoursV1": typeof migrations_memberColoursV1;
   "migrations/notesV2": typeof migrations_notesV2;
   "migrations/recurringIntervalV1": typeof migrations_recurringIntervalV1;
   "migrations/reportSnapshotsV1": typeof migrations_reportSnapshotsV1;

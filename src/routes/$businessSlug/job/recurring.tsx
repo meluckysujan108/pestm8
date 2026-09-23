@@ -45,7 +45,7 @@ function RecurringJobPage() {
       <section className="px-4 pt-3 pb-6">
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-hairline bg-surface px-4 py-3 shadow-elevation">
           <span className="flex items-center gap-2">
-            <Repeat size={18} strokeWidth={1.7} className="text-blue" />
+            <Repeat size={18} strokeWidth={1.7} className="text-ink-2" />
             <span className="text-row-title tabular-nums text-ink">
               {seriesCount}{' '}
               {/* Says "Recurring Job", not "recurring jobs in the next six

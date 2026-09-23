@@ -114,7 +114,10 @@ test('the Job tab keeps the technician, with Call and Map', async ({
 
   const card = page.getByRole('button', { name: /Spider Treatment/ })
   await expect(card).toBeVisible()
-  await expect(card).toContainText('Technician')
+  // The visible row, not the screen-reader line the Schedule card keeps in
+  // its place — which would also contain "Technician".
+  await expect(card.getByText('Technician', { exact: true })).toBeVisible()
+  await expect(card.getByText('Technician: Kevin')).toHaveCount(0)
   await expect(card).toContainText('Kevin')
   await expect(card).toContainText('Morley')
   await expect(card).not.toContainText('7 Banksia Road')

@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { describe, expect, test } from 'vitest'
-import { api } from './_generated/api'
+import { api, internal } from './_generated/api'
 import { addSession, createActor, testApp } from '../test/harness'
 import type { TestActor } from '../test/harness'
 import { MEMBER_COLOURS } from './lib/colours'
@@ -249,6 +249,120 @@ describe('what the screens are told', () => {
     const mine = await s.owner.as.query(api.businesses.listForUser, {})
     expect(mine.find((b) => b.businessId === s.businessId)?.colour).toBe(
       '#9333EA',
+    )
+  })
+})
+
+describe('the one-off re-deal for businesses from before the palette (memberColoursV1)', () => {
+  /** How a business started before Phase 4.2 was dealt: the owner the brand
+   * red, and the first person to join, blue. */
+  async function asBeforePhase42(s: Setup) {
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.ownerId, { colour: '#FF3B30' })
+      await ctx.db.patch(s.kevinId, { colour: '#0A84FF' })
+    })
+  }
+  const redeal = (s: Setup, dryRun?: boolean) =>
+    s.t.mutation(internal.migrations.memberColoursV1.run, { dryRun })
+  const remaining = (s: Setup) =>
+    s.t.query(internal.migrations.memberColoursV1.remaining, {})
+
+  test('Terence comes out blue and Kevin red, and the next person joining is dealt teal', async () => {
+    const s = await setup()
+    await asBeforePhase42(s)
+    expect(await remaining(s)).toBe(1)
+
+    const { changes, skipped } = await redeal(s)
+    expect(changes).toEqual([
+      expect.objectContaining({
+        membershipId: s.ownerId,
+        from: '#FF3B30',
+        to: '#0A84FF',
+      }),
+      expect.objectContaining({
+        membershipId: s.kevinId,
+        from: '#0A84FF',
+        to: '#DC2626',
+      }),
+    ])
+    expect(skipped).toEqual([])
+    expect(await colourOf(s, s.ownerId)).toBe('#0A84FF')
+    expect(await colourOf(s, s.kevinId)).toBe('#DC2626')
+    expect(await remaining(s)).toBe(0)
+
+    const priya = await createActor(s.t, { email: 'priya@coastal.test' })
+    expect(await colourOf(s, await joinAs(s, priya))).toBe(MEMBER_COLOURS[2])
+  })
+
+  test('a dry run says what it would change and writes nothing', async () => {
+    const s = await setup()
+    await asBeforePhase42(s)
+    const { dryRun, changes } = await redeal(s, true)
+    expect(dryRun).toBe(true)
+    expect(changes).toHaveLength(2)
+    expect(await colourOf(s, s.ownerId)).toBe('#FF3B30')
+    expect(await colourOf(s, s.kevinId)).toBe('#0A84FF')
+    expect(await remaining(s)).toBe(1)
+  })
+
+  test('a second run changes nothing', async () => {
+    const s = await setup()
+    await asBeforePhase42(s)
+    await redeal(s)
+    expect((await redeal(s)).changes).toEqual([])
+  })
+
+  test('someone who has left is neither re-dealt nor holding a colour back', async () => {
+    const s = await setup()
+    const priya = await createActor(s.t, { email: 'priya@coastal.test' })
+    const priyaId = await joinAs(s, priya)
+    await asBeforePhase42(s)
+    await s.t.run((ctx) => ctx.db.patch(priyaId, { colour: '#34C759' }))
+    await removeKevin(s)
+
+    await redeal(s)
+    expect(await colourOf(s, s.ownerId)).toBe('#0A84FF')
+    expect(await colourOf(s, priyaId)).toBe('#DC2626')
+    expect(await colourOf(s, s.kevinId)).toBe('#0A84FF')
+  })
+
+  test('a business whose owner has picked their own colour is left as they chose', async () => {
+    const s = await setup()
+    await s.t.run((ctx) => ctx.db.patch(s.kevinId, { colour: '#0A84FF' }))
+    await s.t.run((ctx) => ctx.db.patch(s.ownerId, { colour: '#9333EA' }))
+    expect(await remaining(s)).toBe(0)
+    expect((await redeal(s)).changes).toEqual([])
+    expect(await colourOf(s, s.kevinId)).toBe('#0A84FF')
+  })
+
+  test('…and so is one where anyone’s colour was set by hand, even if not the owner’s', async () => {
+    const s = await setup()
+    await asBeforePhase42(s)
+    await s.owner.as.mutation(api.memberships.setColour, {
+      businessId: s.businessId,
+      membershipId: s.kevinId,
+      colour: '#16A34A',
+    })
+
+    const { changes, skipped } = await redeal(s)
+    expect(changes).toEqual([])
+    expect(skipped).toEqual([s.businessId])
+    expect(await colourOf(s, s.ownerId)).toBe('#FF3B30')
+    expect(await colourOf(s, s.kevinId)).toBe('#16A34A')
+  })
+
+  test('another business already on the new deal is not touched', async () => {
+    const s = await setup()
+    await asBeforePhase42(s)
+    const other = await createActor(s.t, { email: 'other@elsewhere.test' })
+    await other.as.mutation(api.businesses.create, {
+      name: 'Elsewhere Pest',
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    })
+    const { changes } = await redeal(s)
+    expect(new Set(changes.map((c) => c.businessId))).toEqual(
+      new Set([s.businessId]),
     )
   })
 })

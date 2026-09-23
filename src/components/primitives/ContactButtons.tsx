@@ -19,7 +19,9 @@ const TILE = {
 /**
  * Hold-to-call/text/email row, shared by ClientSheet.tsx (a client's own
  * line, and once per named contact), JobDetailSheet.tsx (a job's client) and
- * the job card, so they stay pixel-identical rather than drifting. Text is
+ * the job card, so the hold, its labels and its guards cannot drift apart.
+ * The sheets use the full-width `sheet` buttons; the card, compact `card`
+ * ones that fit beside its text. Text is
  * offered wherever Call is, since both dial the same number — unless `show`
  * narrows the set. Renders nothing if none of the requested actions has the
  * data it needs.

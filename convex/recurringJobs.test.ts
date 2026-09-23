@@ -486,21 +486,43 @@ describe('projected visits stay out of every job total', () => {
     expect(loadTotal).toBe(1)
   })
 
-  test('the Job tab is the one list that still holds them, and says so', async () => {
+  test('the Job tab lists booked work only: projections are read in the Recurring Job view', async () => {
     const s = await setup()
     await series(s, { count: 1, unit: 'week' })
 
     const list = await s.owner.as.query(api.jobs.list, {
       businessId: s.businessId,
     })
-    // Pinned deliberately: `jobs.list` reads the newest rows by creation, and
-    // projections ARE the newest rows, so filtering them after the read would
-    // empty the page rather than clean it up (see the comment on `list`). The
-    // reader has the status filter; the Recurring Job view is where they are
-    // read on purpose. If this ever starts failing because a status-aware
-    // index landed, the exclusion is what to assert instead.
-    expect(list.jobs.some((j) => j.status === 'recurring')).toBe(true)
+    expect(list.jobs.some((j) => j.status === 'recurring')).toBe(false)
     expect(list.jobs.some((j) => j.status === 'pending')).toBe(true)
+  })
+
+  test('…and the booked work is not pushed off the page by projections created after it', async () => {
+    const s = await setup()
+    const kevin = await createActor(s.t, { email: 'kevin@coastal.test' })
+    const kevinId = await join(s.t, s.owner, kevin, s.businessId)
+    // Booked FIRST, so every projection below is newer than it.
+    const booked = await s.owner.as.mutation(api.jobs.create, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+      assignedMembershipId: kevinId,
+      jobType: 'Termite Inspection',
+      price: 38000,
+      scheduledAt: Date.now() + 3 * DAY,
+      durationMinutes: 90,
+    })
+    // Two daily series: about 360 projected visits, far more than the page.
+    await series(s, { count: 1, unit: 'day' }, Date.now() + DAY, kevinId)
+    await series(s, { count: 1, unit: 'day' }, Date.now() + 2 * DAY, kevinId)
+
+    // Read newest-first and then filtered, this page would be all
+    // projections and the booked job would be past the end of it.
+    for (const as of [s.owner.as, kevin.as]) {
+      const list = await as.query(api.jobs.list, { businessId: s.businessId })
+      expect(list.jobs.map((j) => j._id)).toContain(booked)
+      expect(list.jobs.every((j) => j.status !== 'recurring')).toBe(true)
+      expect(list.capped).toBe(false)
+    }
   })
 
   test('a cancelled series leaves no trace in either place', async () => {

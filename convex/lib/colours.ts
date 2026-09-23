@@ -2,7 +2,8 @@
  * Technician colours (Phase 4.2): one per member, stored on
  * `memberships.colour`, and drawn wherever the app marks whose work something
  * is — the job card's rail, the table row's border, the week strip's dots, the
- * team legend, the discs in the view menu.
+ * Week View's blocks (a rail over a light tint of the colour, or a dashed
+ * outline for a projected visit), the team legend, the discs in the view menu.
  *
  * A person is always a SOLID mark with no text, and a job's status always a
  * tinted pill that says its word (src/lib/statusColours.ts), so the two can

@@ -374,7 +374,7 @@ function JobDetailBody({
             {job.recurrence?.active ? (
               <>
                 <div className="flex items-center gap-2">
-                  <Repeat size={16} strokeWidth={1.7} className="text-blue" />
+                  <Repeat size={16} strokeWidth={1.7} className="text-ink-2" />
                   <p className="text-body text-ink">
                     {describeRepeat(job.recurrence.interval)}
                   </p>

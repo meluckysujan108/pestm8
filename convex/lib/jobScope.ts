@@ -85,54 +85,69 @@ export async function jobsInScope(
 }
 
 /**
- * The newest `limit` jobs in scope, most recently created first.
+ * The newest `limit` jobs in scope with one of `statuses`, most recently
+ * created first — what the Job tab lists.
  *
- * Same shape as `jobsInScope` and the same reasoning about indexes — one
- * indexed scan per member of a team rather than a whole-tenant read — but
- * ordered by creation rather than by `scheduledAt`, which is what the Job tab
- * lists by. Bounded on purpose: a business's jobs grow fastest of anything in
- * the app, since every recurring series projects six months of them.
+ * One indexed scan per status (and, for a team, per member), each already
+ * newest-first and bounded, merged by creation time. Status is part of the
+ * index rather than a filter after it because of what is newest: a business
+ * running a few recurring series has its most recently created rows almost
+ * all projected `recurring` visits, inserted in bulk by the nightly cron. Read
+ * the newest `limit` and drop those afterwards, and the page comes back mostly
+ * — sometimes entirely — empty. Asking only for the statuses wanted never
+ * reads them at all.
  */
 export async function jobsNewestFirst(
   ctx: QueryCtx,
   scope: RowScope,
-  opts: { businessId: Id<'businesses'>; limit: number },
+  opts: {
+    businessId: Id<'businesses'>
+    limit: number
+    statuses: ReadonlyArray<Doc<'jobs'>['status']>
+  },
 ): Promise<Array<Doc<'jobs'>>> {
-  const { businessId, limit } = opts
+  const { businessId, limit, statuses } = opts
+  const newestFirst = (rows: Array<Doc<'jobs'>>) =>
+    rows.sort((a, b) => b._creationTime - a._creationTime).slice(0, limit)
 
   if (scope.kind === 'business') {
-    return ctx.db
-      .query('jobs')
-      .withIndex('by_business', (q) => q.eq('businessId', businessId))
-      .order('desc')
-      .take(limit)
+    const perStatus = await Promise.all(
+      statuses.map((status) =>
+        ctx.db
+          .query('jobs')
+          .withIndex('by_business_status', (q) =>
+            q.eq('businessId', businessId).eq('status', status),
+          )
+          .order('desc')
+          .take(limit),
+      ),
+    )
+    return newestFirst(perStatus.flat())
   }
 
   const ids =
     scope.kind === 'own' ? [scope.membershipId] : [...scope.membershipIds]
 
-  const perMember = await Promise.all(
-    ids.map((membershipId) =>
-      ctx.db
-        .query('jobs')
-        .withIndex('by_assignee', (q) =>
-          q.eq('assignedMembershipId', membershipId),
-        )
-        .order('desc')
-        // The true newest `limit` across a team can all belong to one person.
-        .take(limit),
+  const perScan = await Promise.all(
+    ids.flatMap((membershipId) =>
+      statuses.map((status) =>
+        ctx.db
+          .query('jobs')
+          .withIndex('by_assignee_status', (q) =>
+            q.eq('assignedMembershipId', membershipId).eq('status', status),
+          )
+          .order('desc')
+          // The true newest `limit` can all be one person's, in one status.
+          .take(limit),
+      ),
     ),
   )
 
-  if (ids.length === 1) return (perMember[0] ?? []).slice(0, limit)
-
   // The index is per assignee, not per business: someone who works for two
   // businesses must not see the other one's jobs in this business's list.
-  return perMember
-    .flat()
-    .filter((job) => job.businessId === businessId)
-    .sort((a, b) => b._creationTime - a._creationTime)
-    .slice(0, limit)
+  return newestFirst(
+    perScan.flat().filter((job) => job.businessId === businessId),
+  )
 }
 
 /**
