@@ -535,6 +535,14 @@ export default defineSchema({
     // with fabricated numbers would misrepresent when a job was actually
     // booked relative to others.
     jobNumber: v.optional(v.number()),
+    /**
+     * The client's own reference for this visit — a facilities company's work
+     * order or PO number — which their accounts team needs on the invoice
+     * before they will pay it. Free text, trimmed, absent when there is none
+     * (`lib/workOrder.ts`). Locked with the other details once a job is
+     * invoiced, since the invoice already carries it.
+     */
+    workOrder: v.optional(v.string()),
   })
     .index('by_business_date', ['businessId', 'scheduledAt'])
     .index('by_assignee_date', ['assignedMembershipId', 'scheduledAt'])
@@ -578,6 +586,13 @@ export default defineSchema({
     price: v.number(),
     anchorDate: v.number(),
     active: v.boolean(),
+    /**
+     * The work order every visit of the series is booked under — commercial
+     * contracts are mostly a quarterly or monthly service against one standing
+     * PO. Copied onto each visit as it is projected, like `jobType` and
+     * `price`; a visit's own copy is then edited on its own.
+     */
+    workOrder: v.optional(v.string()),
   })
     .index('by_business', ['businessId'])
     // The Recurring Job view counts active series, not projected visits, so

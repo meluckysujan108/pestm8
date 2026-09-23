@@ -25,6 +25,7 @@ import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
+import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 
 type ClientMode = 'existing' | 'new'
 
@@ -117,6 +118,9 @@ function NewJobForm({
   const [time, setTime] = useState('09:00')
   const [price, setPrice] = useState('')
   const [duration, setDuration] = useState('60')
+  const [workOrder, setWorkOrder] = useState('')
+  const [addingWorkOrder, setAddingWorkOrder] = useState(false)
+  const workOrderInput = useRef<HTMLInputElement>(null)
   // "Does it repeat" and "how often" are two questions, so they are two
   // controls: the interval fields stay mounted but disabled when it does not,
   // rather than appearing and reflowing the form under the person's thumb.
@@ -144,6 +148,17 @@ function NewJobForm({
     [properties],
   )
   const [propertyMissing, setPropertyMissing] = useState(false)
+  // A work order is mostly a business client's — a facilities company, an
+  // agency — so for them the field is simply there. Anyone else can still
+  // add one; a landlord's managing agent issues them too.
+  const clientKind =
+    mode === 'existing'
+      ? properties.find((p) => p._id === propertyId)?.client?.kind
+      : newClient.kind
+  // Kept open while it holds anything, so a value typed for one client is
+  // never sent unseen after switching to another.
+  const showWorkOrder =
+    clientKind === 'business' || addingWorkOrder || workOrder !== ''
   const propertyTrigger = useRef<HTMLButtonElement>(null)
   // A choice the list stops offering while the sheet is open is dropped
   // rather than submitted as an id nobody can see. Nothing removes a property
@@ -182,6 +197,7 @@ function NewJobForm({
       price: number
       scheduledAt: number
       durationMinutes: number
+      workOrder: string | undefined
       repeat: { count: number; unit: IntervalUnit } | null
       // Returns a job id or a recurrence id depending on the branch, and the
       // caller needs neither — void keeps them from being conflated.
@@ -214,6 +230,9 @@ function NewJobForm({
             price: job.price,
             anchorDate: job.scheduledAt,
             durationMinutes: job.durationMinutes,
+            // Listed by hand, like everything in this branch: a field left
+            // off here is silently dropped from every visit of the series.
+            workOrder: job.workOrder,
           }).then(() => undefined)
     },
     onSuccess: onClose,
@@ -254,6 +273,7 @@ function NewJobForm({
           price: Math.round(Number(price || '0') * 100),
           scheduledAt,
           durationMinutes: Number(duration),
+          workOrder: workOrder.trim() || undefined,
           repeat: chosenInterval,
         })
       }}
@@ -310,6 +330,39 @@ function NewJobForm({
           value={newClient}
           onChange={(patch) => setNewClient((v) => ({ ...v, ...patch }))}
         />
+      )}
+
+      {showWorkOrder ? (
+        <Field label="Work Order (Optional)">
+          <input
+            ref={workOrderInput}
+            value={workOrder}
+            onChange={(e) => setWorkOrder(e.target.value)}
+            maxLength={MAX_WORK_ORDER_LENGTH}
+            // Work-order numbers are codes, not words: capitals on the phone
+            // keyboard, and nothing "corrected" into a dictionary word.
+            autoCapitalize="characters"
+            autoCorrect="off"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="e.g. WO-448120"
+            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          />
+        </Field>
+      ) : (
+        // A button, not a Field: inside a <label> it would take the label's
+        // name. type="button" so it can never be the form's submit.
+        <button
+          type="button"
+          onClick={() => {
+            setAddingWorkOrder(true)
+            // Once the input exists, not before.
+            requestAnimationFrame(() => workOrderInput.current?.focus())
+          }}
+          className="mt-3 text-[15px] font-semibold text-blue"
+        >
+          + Add work order
+        </button>
       )}
 
       <Field label="Job type">

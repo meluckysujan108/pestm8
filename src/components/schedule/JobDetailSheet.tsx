@@ -35,6 +35,7 @@ import { OffViewNote } from './OffViewNote'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
+import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import {
   DEFAULT_INTERVAL,
   RecurrenceFields,
@@ -383,6 +384,23 @@ function JobDetailBody({
                 )}
               </Section>
 
+              {/* The client's reference, read out at a site's sign-in desk
+                  and needed on the invoice. A business client without one is
+                  said so, so a missing PO is noticed before the job is
+                  invoiced rather than when the invoice bounces. */}
+              {(job.workOrder !== undefined ||
+                job.property?.client?.kind === 'business') && (
+                <Section label="Work order">
+                  {job.workOrder !== undefined ? (
+                    <p className="select-text text-row-title text-ink">
+                      {job.workOrder}
+                    </p>
+                  ) : (
+                    <p className="text-body text-muted">None recorded</p>
+                  )}
+                </Section>
+              )}
+
               <Section label="Price">
                 <p className="text-metric-sm text-ink">{formatJobMoney(job)}</p>
               </Section>
@@ -634,6 +652,7 @@ function JobEditForm({
     scheduledAt: number
     durationMinutes: number
     assignedMembershipId: Id<'memberships'>
+    workOrder?: string
     recurrence: { _id: Id<'recurrences'>; interval: Interval; active: boolean } | null
   }
   canReassign: boolean
@@ -660,6 +679,7 @@ function JobEditForm({
   const [duration, setDuration] = useState(String(job.durationMinutes))
   const [price, setPrice] = useState(String(job.price / 100))
   const [assignee, setAssignee] = useState<string>(job.assignedMembershipId)
+  const [workOrder, setWorkOrder] = useState(job.workOrder ?? '')
   const { options: assignees } = useAssigneeOptions(members)
   const [repeats, setRepeats] = useState(false)
   const [interval, setInterval] = useState<IntervalDraft>(DEFAULT_INTERVAL)
@@ -684,6 +704,7 @@ function JobEditForm({
       scheduledAt: number
       durationMinutes: number
       assignedMembershipId: Id<'memberships'>
+      workOrder: string | undefined
       repeat: Interval | null
     }) => {
       const { repeat: nextRepeat, ...patch } = args
@@ -726,6 +747,13 @@ function JobEditForm({
           scheduledAt,
           durationMinutes: Number(duration),
           assignedMembershipId: assignee as Id<'memberships'>,
+          // Sent only when changed ('' clears it). Every other edit then
+          // leaves it out entirely, so rescheduling a job never depends on
+          // the server knowing this field.
+          workOrder:
+            workOrder.trim() === (job.workOrder ?? '')
+              ? undefined
+              : workOrder.trim(),
           repeat: recurrence,
         })
       }}
@@ -738,6 +766,20 @@ function JobEditForm({
           placeholder="Search by name or address"
           noMatchLabel="No properties match"
           ariaLabel="Property"
+        />
+      </EditField>
+
+      <EditField label="Work order">
+        <input
+          value={workOrder}
+          onChange={(e) => setWorkOrder(e.target.value)}
+          maxLength={MAX_WORK_ORDER_LENGTH}
+          autoCapitalize="characters"
+          autoCorrect="off"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="None"
+          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
         />
       </EditField>
 
