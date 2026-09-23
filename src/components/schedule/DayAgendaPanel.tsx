@@ -1,5 +1,4 @@
 import { JobCard } from './JobCard'
-import { JobTable } from './JobTable'
 import { WeatherBanner } from './WeatherBanner'
 import { ScheduleFilterBar } from './ScheduleFilterBar'
 import { Segmented } from '#/components/primitives/Segmented'
@@ -21,8 +20,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * Desktop-only (§2.4) right pane beside MonthCalendarCard. Status and staff
  * filter dropdowns (ScheduleFilterBar) narrow the same jobs the mobile list
  * uses — via the same useScheduleFilters hook, so both layouts filter
- * identically. A Cards/Table view switcher is desktop-only — a data table
- * doesn't fit a field technician's phone screen, so mobile always shows Cards.
+ * identically. Its Job|Week switch is the same one the phone shows; the
+ * Table view was retired from both, since the card carries all its row did.
  */
 export function DayAgendaPanel({
   businessId,
@@ -162,7 +161,7 @@ export function DayAgendaPanel({
               : 'No jobs match this filter.'
           }
         />
-      ) : view !== 'table' ? (
+      ) : (
         <div className="grid grid-cols-1 items-stretch gap-3 xl:grid-cols-2">
           {filteredJobs.map((job) => (
             <JobCard
@@ -176,14 +175,6 @@ export function DayAgendaPanel({
             />
           ))}
         </div>
-      ) : (
-        <JobTable
-          jobs={filteredJobs}
-          weather={weather}
-          selectedKey={selectedKey}
-          timezone={timezone}
-          onOpenJob={onOpenJob}
-        />
       )}
     </div>
   )

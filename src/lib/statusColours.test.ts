@@ -176,7 +176,6 @@ describe('the old styles are gone', () => {
 
   test.each([
     'schedule/JobCard.tsx',
-    'schedule/JobTable.tsx',
     'schedule/DayAgendaPanel.tsx',
     'shell/AppShell.tsx',
     'shell/MobileDock.tsx',

@@ -172,7 +172,7 @@ test('a non-member cannot set a business address or a primary contact', async ()
   )
 })
 
-test('typing in the client search keeps every character, and the view', async ({
+test('typing in the client search keeps every character, and an old view link opens the cards', async ({
   page,
 }) => {
   const s = await setupBusinessWithSub('client-search')
@@ -192,21 +192,27 @@ test('typing in the client search keeps every character, and the view', async ({
   }
 
   await signInViaUi(page, s.owner.email)
+  // A bookmark to the retired Table view: the page opens the cards, with no
+  // view switch left to show, rather than failing search validation.
   await page.goto(`/${s.slug}/clients?view=table`)
   await expect(page.getByRole('button', { name: 'New client' })).toBeEnabled()
+  await expect(page.getByRole('tablist', { name: 'View' })).toHaveCount(0)
+  await expect(page.getByRole('table')).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: /Wattle Grove Strata/ }),
+  ).toBeVisible()
 
   // Typed at a person's pace. The box used to be bound to the URL and
   // navigate on every key, so whenever a navigation was slower than the gap
   // between two keys it put the committed term back over what came after —
-  // "wattle" arrived as "e" — and each one passed `{ q }` alone, dropping
-  // `view`. Found by label, which the old bare input had too, so the old page
-  // fails on the value rather than on finding the box.
+  // "wattle" arrived as "e". Found by label, which the old bare input had
+  // too, so the old page fails on the value rather than on finding the box.
   const search = page.getByLabel('Search by name or address')
   await search.pressSequentially('wattle', { delay: 120 })
 
   await expect(search).toHaveValue('wattle')
   await expect(page).toHaveURL(/[?&]q=wattle(&|$)/)
-  await expect(page).toHaveURL(/[?&]view=table(&|$)/)
+  await expect(page).not.toHaveURL(/[?&]view=/)
   await expect(page.getByText('Wattle Grove Strata')).toBeVisible()
   await expect(page.getByText('Banksia Rise')).toHaveCount(0)
 })
