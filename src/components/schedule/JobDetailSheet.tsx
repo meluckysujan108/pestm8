@@ -679,7 +679,11 @@ function JobEditForm({
   const [duration, setDuration] = useState(String(job.durationMinutes))
   const [price, setPrice] = useState(String(job.price / 100))
   const [assignee, setAssignee] = useState<string>(job.assignedMembershipId)
-  const [workOrder, setWorkOrder] = useState(job.workOrder ?? '')
+  // What the form opened with, held still: `job` is live, and comparing
+  // against it would send this form's stale value over a work order someone
+  // else set while it was open.
+  const [openedWorkOrder] = useState(job.workOrder ?? '')
+  const [workOrder, setWorkOrder] = useState(openedWorkOrder)
   const { options: assignees } = useAssigneeOptions(members)
   const [repeats, setRepeats] = useState(false)
   const [interval, setInterval] = useState<IntervalDraft>(DEFAULT_INTERVAL)
@@ -751,7 +755,7 @@ function JobEditForm({
           // leaves it out entirely, so rescheduling a job never depends on
           // the server knowing this field.
           workOrder:
-            workOrder.trim() === (job.workOrder ?? '')
+            workOrder.trim() === openedWorkOrder
               ? undefined
               : workOrder.trim(),
           repeat: recurrence,

@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
@@ -355,9 +356,11 @@ function NewJobForm({
         <button
           type="button"
           onClick={() => {
-            setAddingWorkOrder(true)
-            // Once the input exists, not before.
-            requestAnimationFrame(() => workOrderInput.current?.focus())
+            // Rendered now, and focused while the tap is still being handled:
+            // iOS opens the keyboard only for a focus inside the tap, so a
+            // focus deferred to the next frame leaves a ring and no keyboard.
+            flushSync(() => setAddingWorkOrder(true))
+            workOrderInput.current?.focus()
           }}
           className="mt-3 text-[15px] font-semibold text-blue"
         >

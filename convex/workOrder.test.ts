@@ -263,6 +263,30 @@ describe('a Recurring Job booked under a work order', () => {
     )
   })
 
+  test('one too long is refused, and no series or visit is made', async () => {
+    const s = await setup()
+    await expect(
+      s.owner.as.mutation(api.recurrences.create, {
+        businessId: s.businessId,
+        propertyId: s.propertyId,
+        assignedMembershipId: s.kevinMembershipId,
+        intervalCount: 1,
+        intervalUnit: 'month',
+        jobType: 'General Pest Control',
+        price: 20000,
+        anchorDate: Date.now() + DAY,
+        durationMinutes: 60,
+        workOrder: 'X'.repeat(MAX_WORK_ORDER_LENGTH + 1),
+      }),
+    ).rejects.toThrow(/INVALID_WORK_ORDER/)
+    const [series, jobs] = await s.t.run(async (ctx) => [
+      await ctx.db.query('recurrences').collect(),
+      await ctx.db.query('jobs').collect(),
+    ])
+    expect(series).toHaveLength(0)
+    expect(jobs).toHaveLength(0)
+  })
+
   test('without one, no visit gets one', async () => {
     const s = await setup()
     const recurrenceId = await s.owner.as.mutation(api.recurrences.create, {
