@@ -71,8 +71,8 @@ export function NotesLibrary({
       onCreated(id, folder === 'mine' || folder === 'all')
     },
   })
-  // The note + just made opens with the cursor in its title; one opened
-  // from the list does not steal focus from wherever the person was.
+  // The note + just made opens with the cursor in its title, once; one
+  // opened from the list does not steal focus from wherever the person was.
   const [justMade, setJustMade] = useState<Id<'notes'> | null>(null)
 
   const newNote = (
@@ -97,6 +97,8 @@ export function NotesLibrary({
       members={members}
       isOwner={isOwner}
       autoFocus={justMade === noteId}
+      // Once: reopened later from the list, it must not grab focus again.
+      onAutoFocused={() => setJustMade(null)}
       onBack={() => onOpen(null)}
     />
   )
@@ -184,6 +186,7 @@ function OpenNote({
   members,
   isOwner,
   autoFocus,
+  onAutoFocused,
   onBack,
 }: {
   businessId: Id<'businesses'>
@@ -193,6 +196,7 @@ function OpenNote({
   members: Array<{ id: string; label: string; colour: string; role: Role }>
   isOwner: boolean
   autoFocus: boolean
+  onAutoFocused: () => void
   onBack: () => void
 }) {
   const { data: note } = useQuery(convexQuery(api.notes.get, { businessId, noteId }))
@@ -250,6 +254,7 @@ function OpenNote({
         // A personal note tags nobody: whoever is tagged could not open it.
         mentions={!note.private}
         autoFocus={autoFocus}
+        onAutoFocused={onAutoFocused}
       />
     </>
   )

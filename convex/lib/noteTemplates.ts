@@ -8,8 +8,11 @@ import {
 import type { PmNode } from './richText'
 
 /**
- * Starting points for the "+" menu. Pure data shared with the client, which
- * reads the labels; the server reads the documents when creating a note.
+ * Starting documents for a new note, read by the server in `notes.create`.
+ *
+ * The library's "+" no longer offers them (Phase 5.3: it makes a blank
+ * personal note); a job's "+ Site note" still uses `siteAccess`. All four
+ * keys stay accepted, for frontends built before the menu went.
  */
 export const NOTE_TEMPLATE_KEYS = [
   'blank',

@@ -47,6 +47,14 @@ test('a technician’s note is theirs: blank on +, no tags, and said so', async 
   await expect(row).toBeVisible()
   await expect(row.getByLabel('Personal')).toBeVisible()
 
+  // Opened again later from the list, it does not grab the cursor.
+  const folders = page.getByRole('navigation', { name: 'Notes folders' })
+  await folders.getByRole('button', { name: 'All Notes', exact: true }).click()
+  await page.getByRole('button', { name: /Van stock/ }).click()
+  await expect(body).toBeVisible()
+  await expect(body).toContainText('Order more bait')
+  await expect(body).not.toBeFocused()
+
   // The body reached the server as a personal note.
   await expect
     .poll(async () =>
@@ -71,10 +79,20 @@ test('the owner reads the team’s personal notes in God view, and cannot change
   page,
 }) => {
   const s = await setupBusinessWithSub('personal-owner')
+  // Kevin's own, pinned by him; and a team memo, so each folder below has a
+  // row to wait for before an absence means anything.
   const noteId = await s.sub.client.mutation(api.notes.create, {
     businessId: s.businessId,
     visibility: 'private',
-    title: 'Kevin’s van list',
+    title: 'Van list',
+  })
+  await s.sub.client.mutation(api.notes.togglePin, {
+    businessId: s.businessId,
+    noteId,
+  })
+  await s.owner.client.mutation(api.notes.create, {
+    businessId: s.businessId,
+    title: 'Mix ratios for the truck',
   })
 
   await signInViaUi(page, s.owner.email)
@@ -82,12 +100,18 @@ test('the owner reads the team’s personal notes in God view, and cannot change
   const add = page.getByRole('button', { name: 'New note' })
   await expect(add).toBeEnabled()
 
-  // Not in his own notebook or the team's folders…
-  await expect(page.getByText('Kevin’s van list')).toHaveCount(0)
-  // …but in the folder God view gives him.
+  // Not in his own notebook or the team's folders, pinned rows included…
   const folders = page.getByRole('navigation', { name: 'Notes folders' })
+  for (const name of ['All Notes', 'Team']) {
+    await folders.getByRole('button', { name, exact: true }).click()
+    await expect(
+      page.getByRole('button', { name: /Mix ratios for the truck/ }),
+    ).toBeVisible()
+    await expect(page.getByRole('button', { name: /Van list/ })).toHaveCount(0)
+  }
+  // …but in the folder God view gives him, under whose it is.
   await folders.getByRole('button', { name: 'Everyone’s notes' }).click()
-  const row = page.getByRole('button', { name: /Kevin’s van list/ })
+  const row = page.getByRole('button', { name: /Van list/ })
   await expect(row).toContainText('Kevin')
   await row.click()
 
@@ -108,19 +132,27 @@ test('the owner reads the team’s personal notes in God view, and cannot change
     page.getByText('This note can no longer be edited from here.'),
   ).toHaveCount(0)
 
-  // In "Just my jobs" the folder is not offered.
-  await page.getByRole('button', { name: 'Whose jobs to show' }).click()
-  await page.getByRole('menuitemradio', { name: /Just my jobs/ }).click()
-  await expect(
-    folders.getByRole('button', { name: 'Everyone’s notes' }),
-  ).toHaveCount(0)
+  // In "Just my jobs", or working in Kevin's account, the folder is not
+  // offered; back in God view it is.
+  const everyone = folders.getByRole('button', { name: 'Everyone’s notes' })
+  const view = async (item: RegExp) => {
+    await page.getByRole('button', { name: 'Whose jobs to show' }).click()
+    await page.getByRole('menuitemradio', { name: item }).click()
+  }
+  await view(/Just my jobs/)
+  await expect(everyone).toHaveCount(0)
+  await view(/God view/)
+  await expect(everyone).toBeVisible()
+  await view(/Kevin/)
+  await expect(page.getByText(/Working in .*’s account/)).toBeVisible()
+  await expect(everyone).toHaveCount(0)
 
   // The note itself is untouched.
   const after = await s.sub.client.query(api.notes.get, {
     businessId: s.businessId,
     noteId,
   })
-  expect(after?.title).toBe('Kevin’s van list')
+  expect(after?.title).toBe('Van list')
 })
 
 test('sharing a personal note hands it to the team', async ({ page }) => {

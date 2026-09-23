@@ -18,6 +18,7 @@ import {
   User,
   Users,
 } from 'lucide-react'
+import { ConvexError } from 'convex/values'
 import { api } from '../../../convex/_generated/api'
 import { editedLabel } from '#/lib/noteDates'
 import { useHydrated } from '#/lib/useHydrated'
@@ -281,7 +282,10 @@ export function NoteEditorHeader({
       )}
       {setVisibility.isError && (
         <p role="alert" className="mt-1 px-1 text-caption text-red-ink">
-          Could not change who can see this note.
+          {setVisibility.error instanceof ConvexError &&
+          setVisibility.error.data === 'NOTE_SAVING'
+            ? 'Still saving your last change. Try again in a moment.'
+            : 'Could not change who can see this note.'}
         </p>
       )}
 
@@ -293,8 +297,10 @@ export function NoteEditorHeader({
               Share this note with the team?
             </AlertDialog.Title>
             <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
-              Everyone in the business will be able to read and edit it. You
-              can make it personal again, but by then they may have read it.
+              Everyone in the business will be able to read and edit it, and it
+              moves to Team. Its earlier drafts are not shared, and a pin comes
+              off. You can make it personal again, but by then they may have
+              read it.
             </AlertDialog.Description>
             <div className="mt-4 flex gap-2">
               <AlertDialog.Cancel asChild>

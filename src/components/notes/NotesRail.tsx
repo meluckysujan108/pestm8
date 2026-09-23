@@ -39,9 +39,10 @@ export function useLibraryFolders() {
 }
 
 /**
- * The desktop library's left column — the phone app's folder list, except
- * the folders are what a note is about rather than something you file it
- * under. Styled like the app sidebar's own rows so the two read as one nav.
+ * The desktop library's left column — the phone app's folder list. My notes
+ * and Everyone's notes are whose a note is; the rest are what it is about,
+ * rather than something you file it under. Styled like the app sidebar's own
+ * rows so the two read as one nav.
  */
 export function NotesRail({
   folders,

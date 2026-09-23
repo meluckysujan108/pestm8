@@ -25,6 +25,7 @@ export function NoteEditor({
   editable,
   mentions = true,
   autoFocus = false,
+  onAutoFocused,
   trailingTools,
   inline = false,
 }: {
@@ -36,6 +37,8 @@ export function NoteEditor({
   mentions?: boolean
   /** Put the cursor in the title: a page just made with + is for typing on. */
   autoFocus?: boolean
+  /** Told once the editor has taken focus, so it is done only the once. */
+  onAutoFocused?: () => void
   trailingTools?: ReactNode
   /** Embedded in a sheet: toolbar in the flow, no floating bar, no own scroll. */
   inline?: boolean
@@ -87,6 +90,7 @@ export function NoteEditor({
         editable={editable && !revoked}
         mentions={mentions}
         autoFocus={autoFocus}
+        onAutoFocused={onAutoFocused}
         trailingTools={trailingTools}
         inline={inline}
       />
@@ -101,6 +105,7 @@ function SyncedEditor({
   editable,
   mentions,
   autoFocus,
+  onAutoFocused,
   trailingTools,
   inline,
 }: {
@@ -110,6 +115,7 @@ function SyncedEditor({
   editable: boolean
   mentions: boolean
   autoFocus: boolean
+  onAutoFocused?: () => void
   trailingTools?: ReactNode
   inline: boolean
 }) {
@@ -148,6 +154,10 @@ function SyncedEditor({
   useEffect(() => {
     editor?.setEditable(editable)
   }, [editor, editable])
+
+  useEffect(() => {
+    if (editor && autoFocus) onAutoFocused?.()
+  }, [editor, autoFocus, onAutoFocused])
 
   if (inline) {
     return (

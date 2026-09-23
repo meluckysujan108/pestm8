@@ -260,11 +260,13 @@ describe('personal notes', () => {
       userId: 'u-contractor',
       businessId: owner.businessId,
       role: 'contractor',
-      canViewAllJobs: true,
+      canViewAllJobs: false,
       colour: '#000000',
       status: 'active',
       createdAt: now,
     })
+    // The author is on this contractor's team.
+    await ctx.db.patch(s.subId, { parentMembershipId: contractorId })
     const privateNote = (author: Id<'memberships'>, deletedAt?: number) =>
       ctx.db.insert('notes', {
         businessId: owner.businessId,
@@ -310,12 +312,15 @@ describe('personal notes', () => {
     })
   })
 
-  test('nobody else reads it — not business-wide job scope, not a contractor', async () => {
+  test('nobody else reads it — not business-wide job scope, not the author’s own contractor', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {
       const s = await personal(ctx)
       expect(await read(ctx, s.seniorId, s.subsPersonal)).toBe(false)
       expect(await read(ctx, s.contractorId, s.subsPersonal)).toBe(false)
+      expect(await write(ctx, s.contractorId, s.subsPersonal)).toBe(false)
+      // Nor looking through the author's account.
+      expect(await read(ctx, s.contractorId, s.subsPersonal, s.subId)).toBe(false)
       expect(await read(ctx, s.subId, s.ownersPersonal)).toBe(false)
       expect(await read(ctx, s.seniorId, s.ownersPersonal)).toBe(false)
     })

@@ -7,6 +7,7 @@ import { NOTES_PAGE, notesFirstPage, rq } from '#/lib/routeQueries'
 import { Briefcase, ListChecks, Lock, MapPin, Pin, User } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { EmptyState } from '#/components/primitives/EmptyState'
+import { useAccess } from '#/lib/access'
 import { editedLabel, noteGroupLabel, noteGroupOf } from '#/lib/noteDates'
 import { LIBRARY_FILTERS } from './NotesRail'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -23,7 +24,8 @@ type Row = DecoratedNote & { unread?: boolean }
 const EMPTY: Record<LibraryFilter, { title: string; body: string }> = {
   mine: {
     title: 'No notes of your own yet',
-    body: 'Press + for a blank page. Your notes are yours: nobody else on the team can see them.',
+    // Said to staff with the owner in it (see `emptyFor`).
+    body: 'Press + for a blank page. Nobody else can see your notes.',
   },
   all: {
     title: 'No notes yet',
@@ -39,7 +41,7 @@ const EMPTY: Record<LibraryFilter, { title: string; body: string }> = {
   },
   jobs: {
     title: 'No job notes',
-    body: 'Attach a note to a job and it shows up on that job too.',
+    body: 'Notes attached to a job. They also show on the client’s sheet.',
   },
   sites: {
     title: 'No site or client notes',
@@ -53,6 +55,18 @@ const EMPTY: Record<LibraryFilter, { title: string; body: string }> = {
     title: 'Recently Deleted is empty',
     body: 'Deleted notes stay here for 30 days.',
   },
+}
+
+/** The empty folder's words. My notes tells staff, before they write a thing,
+ * that the owner can read what they put there. */
+function emptyFor(filter: LibraryFilter, isOwner: boolean) {
+  if (filter === 'mine' && !isOwner) {
+    return {
+      title: EMPTY.mine.title,
+      body: 'Press + for a blank page. Only you and the owner can see your notes.',
+    }
+  }
+  return EMPTY[filter]
 }
 
 /**
@@ -77,6 +91,7 @@ export function NoteList({
 }) {
   const searching = query.trim() !== ''
   const paging = !searching && filter !== 'mentions'
+  const isOwner = useAccess().role === 'owner'
 
   const paged = usePaginatedQuery(
     api.notes.list,
@@ -200,7 +215,7 @@ export function NoteList({
             body={`Nothing in ${folderLabel(filter)} mentions “${query.trim()}”.`}
           />
         ) : (
-          <EmptyState title={EMPTY[filter].title} body={EMPTY[filter].body} />
+          <EmptyState {...emptyFor(filter, isOwner)} />
         )}
       </div>
     )

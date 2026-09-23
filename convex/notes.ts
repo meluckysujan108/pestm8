@@ -382,8 +382,13 @@ export const search = query({
             return viewer.godView
               ? live
               : q.and(live, q.or(q.not(personal), mine))
-          default:
+          case 'all':
             return q.and(live, q.or(q.not(personal), mine))
+          default:
+            // Jobs, Sites & clients, Team: shared notes only, the caller's
+            // own personal ones included — or a few dozen of them would fill
+            // the window before the folder is applied.
+            return q.and(live, q.not(personal))
         }
       })
       .take(40)
@@ -753,7 +758,8 @@ export const togglePin = mutation({
  *
  * Making a note personal takes its @mentions off (nobody tagged can open it
  * now) and needs it unlinked: a note on a job or client sheet is already the
- * team's. Sharing it puts the mentions in its body back into force.
+ * team's. Sharing it puts the mentions in its body back into force, and
+ * shares only what it says now — see below.
  */
 export const setVisibility = mutation({
   args: {
@@ -781,7 +787,39 @@ export const setVisibility = mutation({
     }
 
     if (!isPrivate(note)) return
-    await ctx.db.patch(noteId, { visibility: undefined })
+
+    // Its history goes no further than this moment. Once shared, anyone who
+    // can read a note can page back through its edits (notesSync.getSteps),
+    // and what was typed and taken out while it was personal must not come
+    // back with it. So the note is shared as its last saved state alone:
+    // older snapshots and every edit up to that save are deleted.
+    //
+    // Refused while an edit is newer than the last save — the editor saves
+    // within a second of typing stopping — since that edit is still history
+    // the team would receive.
+    const sync = components.prosemirrorSync.lib
+    const saved = await ctx.runQuery(sync.getSnapshot, { id: noteId })
+    const newest = await ctx.runQuery(sync.latestVersion, { id: noteId })
+    if (saved.content === null || newest !== saved.version) {
+      throw new ConvexError('NOTE_SAVING')
+    }
+    await ctx.runMutation(sync.deleteSnapshots, {
+      id: noteId,
+      beforeVersion: saved.version,
+    })
+    // The component deletes a hundred edits a call and schedules the rest;
+    // asking until none are left (bounded, for a very long note) removes them
+    // in this transaction, before anyone can read the note at all.
+    for (let i = 0; i < Math.min(Math.ceil(saved.version / 100), 60); i++) {
+      await ctx.runMutation(sync.deleteSteps, {
+        id: noteId,
+        beforeTs: Date.now(),
+      })
+    }
+
+    // A pin on a personal note was its author's; on a shared one it pins it
+    // for everyone.
+    await ctx.db.patch(noteId, { visibility: undefined, pinnedAt: undefined })
     const doc = await latestDoc(ctx, noteId)
     if (doc) {
       const me = await requireMembership(ctx, businessId)
