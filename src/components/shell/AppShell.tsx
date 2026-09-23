@@ -23,6 +23,7 @@ import { MORE_NAV, PRIMARY_NAV, SETTINGS_ITEM } from './navItems'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
+import { useOverdueRecurring } from '#/lib/useOverdueRecurring'
 
 export type ShellBusiness = {
   _id: Id<'businesses'>
@@ -33,21 +34,6 @@ export type ShellBusiness = {
 /** Unread @mentions, capped server-side — "9+" is as precise as a badge needs to be. */
 export function useUnreadMentions(businessId: Id<'businesses'>): number {
   const { data } = useQuery(convexQuery(api.notes.unreadMentionCount, { businessId }))
-  return data ?? 0
-}
-
-/**
- * Projected visits that came due and nobody actioned.
- *
- * A badge in the nav, because this is the one number that has to reach
- * somebody who is not looking for it. Showing an overdue visit on today's
- * schedule helps whoever opens the schedule; a business that has stopped
- * opening it is exactly the business quietly failing to treat a customer.
- */
-export function useOverdueRecurring(businessId: Id<'businesses'>): number {
-  const { data } = useQuery(
-    convexQuery(api.jobs.overdueRecurringCount, { businessId }),
-  )
   return data ?? 0
 }
 

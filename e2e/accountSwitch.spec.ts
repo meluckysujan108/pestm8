@@ -136,6 +136,9 @@ test('an owner builds a contractor a team, and the team works in their account',
   await signInViaUi(page, owner.email)
   await page.goto(`/${slug}/settings?seg=team`)
   await expect(page.getByRole('heading', { name: 'Team' })).toBeVisible()
+  // A change before hydration is dropped: the server-rendered select has no
+  // handler yet. Create link stays disabled until the page has hydrated.
+  await expect(page.getByRole('button', { name: 'Create link' })).toBeEnabled()
 
   await page.getByLabel('Role').selectOption('contractor')
 

@@ -8,7 +8,7 @@ import { FilterDropdown } from '#/components/primitives/FilterDropdown'
 import { JOB_LIST_STATUS_OPTIONS } from '#/lib/scheduleFilters'
 import { useCan } from '#/lib/access'
 import { rq, warm } from '#/lib/routeQueries'
-import { useOverdueRecurring } from '#/components/shell/AppShell'
+import { useOverdueRecurring } from '#/lib/useOverdueRecurring'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 
 const STATUS_VALUES = JOB_LIST_STATUS_OPTIONS.map((option) => option.value)
