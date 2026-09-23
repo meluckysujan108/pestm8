@@ -12,17 +12,38 @@ import {
   withinForecastWindow,
 } from './lib/forecastWindow'
 import { dayKeyOf } from './lib/dates'
+import { STATE_TIMEZONES, dailyFromMetNorway } from './lib/metNorway'
+import type { MetTimestep } from './lib/metNorway'
 import type { ActionCtx } from './_generated/server'
 
 /**
  * Weather is decision-relevant here, not decoration: rain within a day of a
  * treatment washes it off, and wind decides whether spraying is viable at all.
  *
- * Open-Meteo needs no API key, which keeps this working for a design partner
- * before any commercial arrangement exists.
+ * Open-Meteo first (no key), MET Norway when Open-Meteo will not answer. Open-
+ * Meteo's free tier counts its limits per IP address, and Convex sends every
+ * app's requests from shared addresses, so another app can use up the day's
+ * allowance and ours are refused through no fault of our own. MET Norway is
+ * free for any use, needs only an honest User-Agent, and runs the same ECMWF
+ * model for Australia — see convex/lib/metNorway.ts. Both are credited
+ * wherever the forecast shows (WeatherCredit.tsx).
  */
 const GEOCODE_URL = 'https://geocoding-api.open-meteo.com/v1/search'
 const FORECAST_URL = 'https://api.open-meteo.com/v1/forecast'
+const MET_URL = 'https://api.met.no/weatherapi/locationforecast/2.0/compact'
+/** MET Norway blocks anonymous or made-up agents; this says who is asking
+ * and where to find us. */
+const USER_AGENT = 'PestM8/1.0 (+https://pestm8.vercel.app)'
+
+/** How long a suburb the geocoder has no place for is left alone. */
+const GEOCODE_MISS_MS = 24 * 60 * 60 * 1000
+
+/** A failed lookup, said where it can be read (`npx convex logs`) instead of
+ * vanishing into "No forecast". */
+async function warnFailed(what: string, res: Response) {
+  const body = await res.text().catch(() => '')
+  console.warn(`[weather] ${what}: HTTP ${res.status} ${body.slice(0, 200)}`)
+}
 
 /** Cache entries older than this are refetched; forecasts move during a day. */
 const STALE_MS = 3 * 60 * 60 * 1000
@@ -112,6 +133,32 @@ export const writeGeocache = internalMutation({
   },
 })
 
+export const readGeocodeMiss = internalQuery({
+  args: { suburbKey: v.string(), state: v.string() },
+  handler: async (ctx, { suburbKey, state }) =>
+    ctx.db
+      .query('geocodeMisses')
+      .withIndex('by_suburb_state', (q) =>
+        q.eq('suburbKey', suburbKey).eq('state', state),
+      )
+      .unique(),
+})
+
+export const writeGeocodeMiss = internalMutation({
+  args: { suburbKey: v.string(), state: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('geocodeMisses')
+      .withIndex('by_suburb_state', (q) =>
+        q.eq('suburbKey', args.suburbKey).eq('state', args.state),
+      )
+      .unique()
+    const doc = { ...args, missedAt: Date.now() }
+    if (existing) await ctx.db.patch(existing._id, doc)
+    else await ctx.db.insert('geocodeMisses', doc)
+  },
+})
+
 /**
  * Membership check, plus the tenant's timezone — which the caller needs in
  * order to know what "today" is. The forecast window is relative to the
@@ -157,41 +204,73 @@ async function geocode(
   const cached = await ctx.runQuery(internal.weather.readGeocache, { suburbKey })
   if (cached) return { latitude: cached.lat, longitude: cached.lng }
 
-  // countryCode, not country: the latter is ignored and happily returns
-  // Bayswater, New Zealand for an Australian pest controller.
-  const res = await fetch(
-    `${GEOCODE_URL}?name=${encodeURIComponent(suburb)}&count=10&countryCode=AU&language=en&format=json`,
-  )
-  if (!res.ok) return null
-
-  const body = (await res.json()) as {
-    results?: Array<{
-      latitude: number
-      longitude: number
-      admin1?: string
-      country_code?: string
-    }>
-  }
-
-  const wanted = STATE_NAMES[state]
-  // Showing a Perth tech Melbourne's rainfall is worse than showing nothing,
-  // so an ambiguous match is refused rather than approximated.
-  const place = body.results?.find(
-    (r) => r.country_code === 'AU' && (!wanted || r.admin1 === wanted),
-  )
-  if (!place) return null
-
-  await ctx.runMutation(internal.weather.writeGeocache, {
+  // A suburb that was not there yesterday is not asked about again today.
+  const missed = await ctx.runQuery(internal.weather.readGeocodeMiss, {
     suburbKey,
     state,
-    lat: place.latitude,
-    lng: place.longitude,
   })
+  if (missed && Date.now() - missed.missedAt < GEOCODE_MISS_MS) return null
 
-  return { latitude: place.latitude, longitude: place.longitude }
+  // "Mt Lawley" is how people type it and "Mount Lawley" how the gazetteer
+  // has it, so the long form is tried when the short one finds nothing.
+  const names = [suburb]
+  if (/^mt\.?\s/i.test(suburb)) names.push(suburb.replace(/^mt\.?\s/i, 'Mount '))
+
+  for (const name of names) {
+    // countryCode, not country: the latter is ignored and happily returns
+    // Bayswater, New Zealand for an Australian pest controller.
+    const res = await fetch(
+      `${GEOCODE_URL}?name=${encodeURIComponent(name)}&count=10&countryCode=AU&language=en&format=json`,
+    )
+    if (!res.ok) {
+      // Refused or broken, not "no such place": left to try again next time.
+      await warnFailed(`geocoding ${name}`, res)
+      return null
+    }
+
+    const body = (await res.json()) as {
+      results?: Array<{
+        latitude: number
+        longitude: number
+        admin1?: string
+        country_code?: string
+        feature_code?: string
+      }>
+    }
+
+    const wanted = STATE_NAMES[state]
+    // Showing a Perth tech Melbourne's rainfall is worse than showing nothing,
+    // so an ambiguous match is refused rather than approximated. A populated
+    // place only (feature codes PPL…): "Morley" also finds Morley Dam, Morley
+    // Park and Morley Island, and a dam in the right state is still wrong.
+    const place = body.results?.find(
+      (r) =>
+        r.country_code === 'AU' &&
+        (!wanted || r.admin1 === wanted) &&
+        (r.feature_code?.startsWith('PPL') ?? true),
+    )
+    if (!place) continue
+
+    await ctx.runMutation(internal.weather.writeGeocache, {
+      suburbKey,
+      state,
+      lat: place.latitude,
+      lng: place.longitude,
+    })
+    return { latitude: place.latitude, longitude: place.longitude }
+  }
+
+  console.info(`[weather] no place called ${suburb} in ${state}`)
+  await ctx.runMutation(internal.weather.writeGeocodeMiss, { suburbKey, state })
+  return null
 }
 
-type DayRow = { dayKey: string; suburb: string; postcode: string }
+type DayRow = {
+  dayKey: string
+  suburb: string
+  postcode: string
+  state?: string
+}
 
 /**
  * Weather for a set of days, each with its own suburb — a week can span
@@ -208,40 +287,103 @@ type DayRow = { dayKey: string; suburb: string; postcode: string }
 async function fetchDailyRange(
   place: { latitude: number; longitude: number },
   dayKeys: Array<string>,
+  timezone: string,
 ): Promise<Array<[string, DailyEntry]>> {
-  const sorted = [...dayKeys].sort()
-  if (sorted.length === 0) return []
+  if (dayKeys.length === 0) return []
+  const fromOpenMeteo = await fetchOpenMeteo(place, dayKeys).catch(
+    (error: unknown) => {
+      console.warn(`[weather] Open-Meteo unreachable: ${String(error)}`)
+      return null
+    },
+  )
+  if (fromOpenMeteo !== null && fromOpenMeteo.length > 0) return fromOpenMeteo
 
+  const fromMet = await fetchMetNorway(place, dayKeys, timezone).catch(
+    (error: unknown) => {
+      console.warn(`[weather] MET Norway unreachable: ${String(error)}`)
+      return null
+    },
+  )
+  return fromMet ?? []
+}
+
+/** Open-Meteo's daily forecast for the days asked, or null if it would not
+ * answer. */
+async function fetchOpenMeteo(
+  place: { latitude: number; longitude: number },
+  dayKeys: Array<string>,
+): Promise<Array<[string, DailyEntry]> | null> {
+  const sorted = [...dayKeys].sort()
   const res = await fetch(
     `${FORECAST_URL}?latitude=${place.latitude}&longitude=${place.longitude}` +
       '&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,wind_speed_10m_max' +
       `&timezone=auto&start_date=${sorted[0]}&end_date=${sorted[sorted.length - 1]}`,
   )
-  if (!res.ok) return []
+  if (!res.ok) {
+    await warnFailed('Open-Meteo forecast', res)
+    return null
+  }
 
   const body = (await res.json()) as {
     daily?: {
       time?: Array<string>
-      weather_code?: Array<number>
-      temperature_2m_max?: Array<number>
-      temperature_2m_min?: Array<number>
-      precipitation_sum?: Array<number>
-      wind_speed_10m_max?: Array<number>
+      weather_code?: Array<number | null>
+      temperature_2m_max?: Array<number | null>
+      temperature_2m_min?: Array<number | null>
+      precipitation_sum?: Array<number | null>
+      wind_speed_10m_max?: Array<number | null>
     }
   }
   const daily = body.daily
-  if (!daily?.time) return []
+  if (!daily?.time) {
+    console.warn('[weather] Open-Meteo forecast: no daily data in the answer')
+    return null
+  }
+
+  // A gap in the model comes back as null, which the cache (numbers or
+  // nothing) refuses — and one refused write used to lose the whole suburb.
+  const value = (list: Array<number | null> | undefined, i: number) =>
+    list?.[i] ?? undefined
 
   return daily.time.map((dayKey, i) => [
     dayKey,
     {
-      maxTempC: daily.temperature_2m_max?.[i],
-      minTempC: daily.temperature_2m_min?.[i],
-      rainMm: daily.precipitation_sum?.[i],
-      windKmh: daily.wind_speed_10m_max?.[i],
-      code: daily.weather_code?.[i],
+      maxTempC: value(daily.temperature_2m_max, i),
+      minTempC: value(daily.temperature_2m_min, i),
+      rainMm: value(daily.precipitation_sum, i),
+      windKmh: value(daily.wind_speed_10m_max, i),
+      code: value(daily.weather_code, i),
     },
   ])
+}
+
+/**
+ * MET Norway's forecast for the same days, read into the same shape — the
+ * fallback. Coordinates to four decimals, as its terms ask; days past its
+ * ~9–10-day reach are left out rather than guessed.
+ */
+async function fetchMetNorway(
+  place: { latitude: number; longitude: number },
+  dayKeys: Array<string>,
+  timezone: string,
+): Promise<Array<[string, DailyEntry]> | null> {
+  const res = await fetch(
+    `${MET_URL}?lat=${place.latitude.toFixed(4)}&lon=${place.longitude.toFixed(4)}`,
+    { headers: { 'User-Agent': USER_AGENT } },
+  )
+  if (!res.ok) {
+    await warnFailed('MET Norway forecast', res)
+    return null
+  }
+  const body = (await res.json()) as {
+    properties?: { timeseries?: Array<MetTimestep> }
+  }
+  const timeseries = body.properties?.timeseries
+  if (!timeseries) {
+    console.warn('[weather] MET Norway forecast: no timeseries in the answer')
+    return null
+  }
+  return dailyFromMetNorway(timeseries, timezone, dayKeys)
 }
 
 type DailyEntry = {
@@ -276,7 +418,11 @@ export const fillForReport = internalAction({
       const place = await geocode(ctx, suburb, postcode, state)
       if (!place) return
 
-      const fetched = await fetchDailyRange(place, [dayKey])
+      const fetched = await fetchDailyRange(
+        place,
+        [dayKey],
+        STATE_TIMEZONES[state] ?? 'Australia/Perth',
+      )
       for (const [key, entry] of fetched) {
         await ctx.runMutation(internal.weather.writeCache, { suburbKey, dayKey: key, ...entry })
       }
@@ -287,8 +433,9 @@ export const fillForReport = internalAction({
         reportId,
         forecast: { rainMm: wanted.rainMm, windKmh: wanted.windKmh, code: wanted.code },
       })
-    } catch {
-      // Advisory only, exactly as above.
+    } catch (error) {
+      // Advisory only, exactly as above — but said, not swallowed.
+      console.warn(`[weather] report ${reportId}: ${String(error)}`)
     }
   },
 })
@@ -302,6 +449,10 @@ export const forDays = action({
         dayKey: v.string(),
         suburb: v.string(),
         postcode: v.string(),
+        // The property's own state, which is what finds the right suburb:
+        // Darwin is in the NT whatever state the business is in. Optional,
+        // with `state` above standing in for a caller that does not send it.
+        state: v.optional(v.string()),
       }),
     ),
   },
@@ -320,14 +471,17 @@ export const forDays = action({
       withinForecastWindow(d.dayKey, todayKey),
     )
 
+    // Grouped by suburb AND state: the same name in two states is two
+    // places, and each is looked up in its own.
     const bySuburb = new Map<string, Array<DayRow>>()
     for (const day of wanted) {
-      const key = suburbKeyOf(day.suburb, day.postcode)
+      const key = `${suburbKeyOf(day.suburb, day.postcode)}|${day.state ?? state}`
       bySuburb.set(key, [...(bySuburb.get(key) ?? []), day])
     }
 
     for (const rows of bySuburb.values()) {
       const { suburb, postcode } = rows[0]
+      const placeState = rows[0].state ?? state
       const suburbKey = suburbKeyOf(suburb, postcode)
 
       // Resolved before the forecast-cache check rather than after it: the
@@ -335,7 +489,12 @@ export const forDays = action({
       // hints), including entries whose forecast comes back from cache and so
       // never reach the fetch below. After a suburb's first ever lookup this
       // is a database read, not a network call.
-      const place = await geocode(ctx, suburb, postcode, state).catch(() => null)
+      const place = await geocode(ctx, suburb, postcode, placeState).catch(
+        (error: unknown) => {
+          console.warn(`[weather] geocoding ${suburb}: ${String(error)}`)
+          return null
+        },
+      )
       const coords = place ? { lat: place.latitude, lng: place.longitude } : {}
 
       const missing: Array<string> = []
@@ -363,7 +522,11 @@ export const forDays = action({
       try {
         if (!place) continue
 
-        const fetched = await fetchDailyRange(place, missing)
+        const fetched = await fetchDailyRange(
+          place,
+          missing,
+          STATE_TIMEZONES[placeState] ?? timezone,
+        )
         for (const [dayKey, entry] of fetched) {
           await ctx.runMutation(internal.weather.writeCache, {
             suburbKey,
@@ -374,8 +537,9 @@ export const forDays = action({
             out[compositeKeyOf(suburbKey, dayKey)] = { ...entry, suburb, ...coords }
           }
         }
-      } catch {
+      } catch (error) {
         // Advisory only: an outage must never stop the schedule rendering.
+        console.warn(`[weather] forecast for ${suburb}: ${String(error)}`)
       }
     }
 

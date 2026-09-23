@@ -7,6 +7,7 @@ import {
   weatherKeyOf,
   withinForecastWindow,
 } from '../../convex/lib/forecastWindow'
+import { dayKeyOf } from '../../convex/lib/dates'
 import type { Id } from '../../convex/_generated/dataModel'
 
 export { weatherKeyOf }
@@ -31,6 +32,9 @@ export type WeatherDayRequest = {
   dayKey: string
   suburb: string
   postcode: string
+  /** The property's own state, when the caller knows it. Otherwise the
+   * business's state (useWeather's `state`) is used to find the suburb. */
+  state?: string
 }
 
 /** Defined beside the forecast window, so the server and the report seeding share them. */
@@ -107,7 +111,14 @@ export function useWeather(
     const key = weatherKeyOf(r.suburb, r.postcode, r.dayKey)
     if (seen.has(key)) continue
     seen.add(key)
-    days.push({ dayKey: r.dayKey, suburb: r.suburb, postcode: r.postcode })
+    days.push({
+      dayKey: r.dayKey,
+      suburb: r.suburb,
+      postcode: r.postcode,
+      // Sent only when known, so the request stays exactly as before for a
+      // caller that does not have it.
+      ...(r.state ? { state: r.state } : {}),
+    })
   }
   days.sort((a, b) =>
     weatherKeyOf(a.suburb, a.postcode, a.dayKey).localeCompare(
@@ -162,5 +173,43 @@ export function useWeather(
       // "No forecast" rather than spinning forever.
       return query.isPending ? { status: 'pending' } : { status: 'absent' }
     },
+  }
+}
+
+/**
+ * Forecasts for a list of jobs spread over many days — the Job tab, the
+ * Recurring Job view — each on its own day, in its own suburb and state. Jobs
+ * outside the forecast window draw no strip, as the card always has; `any`
+ * says whether a forecast is showing at all, for the credit beside it.
+ */
+export function useJobsWeather(
+  business: { _id: Id<'businesses'>; state: string; timezone: string },
+  jobs: Array<{
+    scheduledAt: number
+    suburb: string
+    postcode?: string
+    propertyState?: string
+  }>,
+) {
+  const dayOf = (ts: number) => dayKeyOf(ts, business.timezone)
+  const lookup = useWeather(
+    business._id,
+    business.state,
+    dayOf(Date.now()),
+    jobs.map((job) => ({
+      dayKey: dayOf(job.scheduledAt),
+      suburb: job.suburb,
+      postcode: job.postcode ?? '',
+      state: job.propertyState,
+    })),
+  )
+  return {
+    cellFor: (job: {
+      scheduledAt: number
+      suburb: string
+      postcode?: string
+    }): WeatherCell =>
+      lookup.cell(job.suburb, job.postcode ?? '', dayOf(job.scheduledAt)),
+    any: Object.keys(lookup.byKey).length > 0,
   }
 }

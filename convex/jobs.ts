@@ -144,6 +144,9 @@ async function decorate(
           addressLine: property?.addressLine ?? '',
           suburb: property?.suburb ?? '',
           postcode: property?.postcode ?? '',
+          // For the forecast: a suburb is found in its own state, which is
+          // not always the business's (a Perth business's Darwin job).
+          propertyState: property?.state ?? '',
           clientName: client?.name ?? '',
           // For the card's Call. The same number the job detail sheet dials
           // (`get` embeds the whole client), read off a document this row

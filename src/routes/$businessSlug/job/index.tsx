@@ -10,6 +10,8 @@ import { useCan } from '#/lib/access'
 import { rq, warm } from '#/lib/routeQueries'
 import { useOverdueRecurring } from '#/lib/useOverdueRecurring'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
+import { useJobsWeather } from '#/lib/weather'
+import { WeatherCredit } from '#/components/schedule/WeatherCredit'
 
 const STATUS_VALUES = JOB_LIST_STATUS_OPTIONS.map((option) => option.value)
 
@@ -43,6 +45,9 @@ function JobListPage() {
   // in this list — it holds booked work, and projections are read in the
   // Recurring Job view. So the tab says where they are.
   const overdue = useOverdueRecurring(business._id)
+  // The forecast for each job on its own day, where there is one (the next
+  // two weeks); further out a card simply has none.
+  const weather = useJobsWeather(business, shown)
 
   return (
     <>
@@ -107,6 +112,7 @@ function JobListPage() {
               <JobCard
                 key={job._id}
                 job={job}
+                weather={weather.cellFor(job)}
                 timezone={business.timezone}
                 onOpen={(id) =>
                   navigate({
@@ -118,6 +124,7 @@ function JobListPage() {
             ))}
           </div>
         )}
+        {weather.any && <WeatherCredit className="mt-4" />}
       </section>
 
       <JobDetailSheet

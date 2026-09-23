@@ -11,6 +11,7 @@ import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import { isOverdueProjection } from '#/lib/jobCardActions'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { RecurringDueNote } from './RecurringDueNote'
+import { WeatherCredit } from './WeatherCredit'
 import { SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
 import type { ScheduleView } from '#/lib/scheduleViews'
 import type { JobRow } from './JobCard'
@@ -72,6 +73,7 @@ export function DayAgendaPanel({
       dayKey: selectedKey,
       suburb: j.suburb,
       postcode: j.postcode ?? '',
+      state: j.propertyState,
     })),
   )
   // Travel hints read lat/lng out of the RAW entries, not the rendered cell —
@@ -172,8 +174,12 @@ export function DayAgendaPanel({
               timezone={timezone}
               onOpen={onOpenJob}
               hideTechnician
+              dayShown={selectedKey}
             />
           ))}
+          {Object.keys(weather.byKey).length > 0 && (
+            <WeatherCredit className="xl:col-span-2" />
+          )}
         </div>
       )}
     </div>

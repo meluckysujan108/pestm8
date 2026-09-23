@@ -1,5 +1,5 @@
 import { CalendarClock, Repeat } from 'lucide-react'
-import { formatDuration, formatJobMoney, formatTime } from '#/lib/format'
+import { formatJobDate, formatJobMoney, formatTimeRange } from '#/lib/format'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import {
   ContactButtons,
@@ -12,6 +12,7 @@ import {
 } from '#/lib/jobCardActions'
 import { mapsUrl } from '#/lib/maps'
 import { describeInterval } from '../../../convex/lib/recurrence'
+import { dayKeyOf } from '../../../convex/lib/dates'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { WeatherStrip } from './WeatherStrip'
 import type { JobStatus } from '#/components/primitives/StatusPill'
@@ -29,6 +30,9 @@ export type JobRow = {
   addressLine?: string
   suburb: string
   postcode?: string
+  /** The property's state, so its suburb is found in the right one. Absent
+   * from a backend older than it; the business's state stands in. */
+  propertyState?: string
   clientName: string
   /** Absent from a backend older than the card's Call — then there is no
    * Call, rather than a broken one. */
@@ -42,12 +46,6 @@ export type JobRow = {
   /** How often the visit's series repeats, while it runs. Absent for a
    * one-off, a stopped series, and on a backend older than the indicator. */
   repeats?: Interval
-}
-
-/** "9:30am – 11:00am · 1 hr" — the span, not just the start. */
-function timeRange(job: JobRow, timezone: string): string {
-  const end = job.scheduledAt + job.durationMinutes * 60_000
-  return `${formatTime(job.scheduledAt, timezone)} – ${formatTime(end, timezone)} · ${formatDuration(job.durationMinutes)}`
 }
 
 /** A label on the left, its value right-aligned against it. */
@@ -76,11 +74,12 @@ export function JobCard({
   onOpen,
   hideTechnician = false,
   hideActions = false,
+  dayShown,
 }: {
   job: JobRow
-  /** The day's forecast where there is one. The Job tab lists work across
-   * months, where a per-row forecast neither exists nor is the point, so it
-   * renders without one. */
+  /** The forecast for the job's own day and suburb, where there is one —
+   * within the next two weeks. Without one (further out, or not asked for)
+   * the card draws no strip. */
   weather?: WeatherCell
   timezone: string
   /** Hop from the previous job in the day, e.g. "≈ 8 km → Morley". */
@@ -96,6 +95,14 @@ export function JobCard({
    * drive — so it offers no Call or Map at all, even on one whose day has
    * come. Everywhere else the job's own status decides (`cardActionsFor`). */
   hideActions?: boolean
+  /**
+   * The day the page is showing, when it shows one (the Schedule's day
+   * key). The card then leaves out its Date row, since the heading says it —
+   * unless the job is on another day, as a visit carried forward from a day
+   * nobody opened is. Omitted (the Job tab, the Recurring Job view, lists
+   * that span weeks) the card always says its date.
+   */
+  dayShown?: string
 }) {
   /**
    * The card is a frame, not a button. Opening the job is one button inside
@@ -113,19 +120,20 @@ export function JobCard({
     'relative flex h-full w-full flex-col rounded-2xl border border-hairline bg-surface shadow-elevation transition has-[.job-card-open:active]:scale-[.99]'
 
   /**
-   * "19 Sep" when this is a projected visit whose day has passed, otherwise
-   * null. Derived here rather than sent by the server: the card already knows
-   * the tenant's timezone, and the answer changes at midnight without anything
-   * having to re-query.
+   * Whether this is a projected visit whose day has passed. Derived here
+   * rather than sent by the server: the card already knows the tenant's
+   * timezone, and the answer changes at midnight without anything having to
+   * re-query. The day it was due is in the Date row, which such a card
+   * always has.
    */
   const now = Date.now()
-  const overdueSince = isOverdueProjection(job, timezone, now)
-    ? new Intl.DateTimeFormat('en-AU', {
-        timeZone: timezone,
-        day: 'numeric',
-        month: 'short',
-      }).format(new Date(job.scheduledAt))
-    : null
+  const overdue = isOverdueProjection(job, timezone, now)
+
+  // The day the job is booked for, in the tenant's zone. Compared with the
+  // page's own day as two keys — no clock — so the server render and the
+  // phone always agree on whether the row shows.
+  const jobDay = dayKeyOf(job.scheduledAt, timezone)
+  const showDate = dayShown === undefined || jobDay !== dayShown
 
   // What sits beside the open button (cardActionsFor, cardButtonsFor): on
   // committed work, Call, Text and Email along the bottom and the Map in the
@@ -139,7 +147,7 @@ export function JobCard({
   const email = job.clientEmail || undefined
   const offersContact =
     buttons.contact && (phone !== undefined || email !== undefined)
-  // Never beside the "Overdue since" chip: that marks a projection, and a
+  // Never beside the "Overdue" chip: that marks a projection, and a
   // projection has no Map. So the corner can sit at a fixed height below.
   const offersMap = buttons.map && mapsUrl(job) !== null
 
@@ -190,15 +198,16 @@ export function JobCard({
           </span>
 
           {/* A projection carried forward from a day nobody opened. Its time and
-              date are no longer today's, so the card has to say which day it was
-              due or it reads as work scheduled for now. Ink, not a hue: see
-              `--overdue` in styles.css. */}
-          {overdueSince !== null && (
+              date are no longer today's: the chip says so, and the Date row
+              (always shown for it, since its day is not the page's) says
+              which day it was due. Ink, not a hue: see `--overdue` in
+              styles.css. */}
+          {overdue && (
             <span
               className={`inline-flex items-center gap-1.5 self-start rounded-full px-2.5 py-1 text-[12px] font-semibold ${OVERDUE_CHIP}`}
             >
               <CalendarClock size={13} strokeWidth={2} aria-hidden />
-              Overdue since {overdueSince}
+              Overdue
             </span>
           )}
 
@@ -217,7 +226,16 @@ export function JobCard({
 
           <span className="block border-t border-hairline-2 pt-1.5">
             <Row label="Service">{job.jobType}</Row>
-            <Row label="Time">{timeRange(job, timezone)}</Row>
+            {showDate && (
+              <Row label="Date">
+                <time dateTime={jobDay}>
+                  {formatJobDate(jobDay, dayKeyOf(now, timezone))}
+                </time>
+              </Row>
+            )}
+            <Row label="Time">
+              {formatTimeRange(job.scheduledAt, job.durationMinutes, timezone)}
+            </Row>
             {/* Off the Schedule's cards, where the rail's colour says whose job
                 it is — which a screen reader cannot see, so it still says. */}
             {job.assigneeName && hideTechnician && (
