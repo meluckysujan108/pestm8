@@ -27,7 +27,12 @@ export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
   // navigation that suspension blanks the whole app shell until the report
   // arrives. "Start again" navigates to a report no query has seen yet, so it
   // showed an empty screen for a second or more. Loading first keeps the
-  // current screen up until the report is ready.
+  // current screen up while the report is fetched — which `pendingMs` has to
+  // say too, or the default page placeholder, shaped for a list page rather
+  // than a report, would replace that screen after 200 ms. It still appears
+  // once the page commits and waits on something of its own; ending that
+  // means loading those with the report, not a longer wait here.
+  pendingMs: Infinity,
   loader: ({ context, params }) =>
     context.queryClient.ensureQueryData(
       convexQuery(api.reports.get, {
@@ -140,7 +145,7 @@ function ReportPage() {
         // Keyed by revision: the builder seeds its answers once, so switching a
         // draft to a newer form must remount it rather than let the old
         // revision's in-memory answers autosave back over the migrated ones.
-        key={`${report._id}:${report.templateVersion ?? 1}`}
+        key={`${report._id}:${report.templateVersion}`}
         businessId={business._id}
         reportId={report._id}
         template={report.template}

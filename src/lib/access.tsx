@@ -1,7 +1,8 @@
-import { createContext, useContext } from 'react'
+import { createContext, useContext, useEffect } from 'react'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../convex/_generated/api'
+import { authClient } from '#/lib/auth-client'
 import type { ReactNode } from 'react'
 import type { Id } from '../../convex/_generated/dataModel'
 import type { Capability } from '../../convex/lib/capabilities'
@@ -53,7 +54,23 @@ export function AccessProvider({
   businessId: Id<'businesses'>
   children: ReactNode
 }) {
-  const { data } = useSuspenseQuery(convexQuery(api.access.me, { businessId }))
+  const { data, error } = useSuspenseQuery(
+    convexQuery(api.access.me, { businessId }),
+  )
+
+  // This query resolves through the Better Auth session, so it is the first
+  // thing in the browser to learn that the session has gone — an offboarding
+  // deletes it, an expiry lapses it — and it learns by failing. Nothing else
+  // would: the sign-in the browser caches (src/lib/rootState.ts) is not asked
+  // again, and Better Auth re-checks only when the tab regains focus. So a
+  // failure here asks Better Auth now, and if the answer is "signed out",
+  // SessionWatch (__root.tsx) sends the person to sign in. Any other failure
+  // (no longer a member, but still signed in) costs one session check.
+  const { refetch } = authClient.useSession()
+  useEffect(() => {
+    if (error) void refetch()
+  }, [error, refetch])
+
   return <AccessContext value={data}>{children}</AccessContext>
 }
 

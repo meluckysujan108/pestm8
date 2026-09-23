@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { authClient } from '#/lib/auth-client'
+import { forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/login')({ component: LoginPage })
@@ -22,7 +23,6 @@ export const Route = createFileRoute('/login')({ component: LoginPage })
 function LoginPage() {
   const hydrated = useHydrated()
 
-  const router = useRouter()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -33,17 +33,28 @@ function LoginPage() {
     setError(null)
     setPending(true)
 
-    const result = await authClient.signIn.email({ email, password })
-
-    setPending(false)
+    const result = await authClient.signIn.email({ email, password }).catch(
+      // A dropped connection rejects rather than answering, and without this
+      // the button sits on "Just a moment…" for good.
+      () => ({ error: { message: 'Could not reach PestM8. Try again.' } }),
+    )
 
     if (result.error) {
+      setPending(false)
       setError(result.error.message ?? 'Something went wrong.')
       return
     }
 
-    await router.invalidate()
-    await router.navigate({ to: '/' })
+    // A full load, not a client navigation. This page can be opened over
+    // someone else's live session — a shared tablet — and the Convex client
+    // keeps the token it was handed for that page load until a refresh swaps
+    // it, so the next person's first queries would run as the last one's and
+    // put their business in the shell. A document load starts the client, the
+    // query cache and the cached sign-in (src/lib/rootState.ts) over for
+    // whoever holds the cookie now. `replace`, so Back does not return to a
+    // form they have already used. The button stays pending until it lands.
+    await forgetCachedPages()
+    window.location.replace('/')
   }
 
   return (

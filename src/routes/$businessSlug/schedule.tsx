@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useDeferredValue, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { usePrefetchQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { z } from 'zod'
@@ -85,9 +85,31 @@ function SchedulePage() {
   const isDesktop = useMediaQuery('(min-width: 1024px)')
 
   const today = todayKeyIn(business.timezone)
-  const selectedKey = date ?? today
+  // The day asked for, and the day on screen. A day not fetched yet suspends
+  // this page, and a suspension here swaps the whole page — the strip or
+  // calendar just tapped included — for the route's placeholder. Deferring
+  // the day keeps the current one up, dimmed, until the next is ready; a day
+  // already in the cache still switches at once. What was tapped (the
+  // highlight, the next/previous week, the new job's day) follows
+  // `requestedKey`; everything drawn from the day's data follows
+  // `selectedKey`.
+  const requestedKey = date ?? today
+  const selectedKey = useDeferredValue(requestedKey)
+  const stale = selectedKey !== requestedKey
+  // The delay is what keeps a cached day from flashing dimmed on its way past;
+  // reduced motion takes the instant change after that delay, not no delay.
+  const dimmed = `transition-opacity delay-150 motion-reduce:duration-0 ${stale ? 'opacity-60' : 'delay-0'}`
   const weekStart = startOfWeekKey(selectedKey)
 
+  // Asked for first, and not waited on here: read in the order they are
+  // needed, the day's jobs went out only once the week had come back, so
+  // every cold week change paid two round trips instead of one.
+  usePrefetchQuery(
+    convexQuery(api.jobs.listDay, {
+      businessId: business._id,
+      dayKey: selectedKey,
+    }),
+  )
   const { data: week } = useSuspenseQuery(
     convexQuery(api.jobs.listWeek, {
       businessId: business._id,
@@ -171,24 +193,26 @@ function SchedulePage() {
         <section className="grid grid-cols-[340px_minmax(0,1fr)] items-start gap-5 px-4 pt-4 pb-6">
           <MonthCalendarCard
             businessId={business._id}
-            monthKey={monthKey ?? selectedKey.slice(0, 7)}
-            selectedKey={selectedKey}
+            monthKey={monthKey ?? requestedKey.slice(0, 7)}
+            selectedKey={requestedKey}
             todayKey={today}
             onSelect={setDay}
             onMonthChange={setMonthKey}
           />
-          <DayAgendaPanel
-            businessId={business._id}
-            state={business.state}
-            timezone={business.timezone}
-            selectedKey={selectedKey}
-            todayKey={today}
-            jobs={jobs}
-            members={members}
-            view={activeView}
-            onViewChange={setView}
-            onOpenJob={setOpenJobId}
-          />
+          <div aria-busy={stale || undefined} className={`min-w-0 ${dimmed}`}>
+            <DayAgendaPanel
+              businessId={business._id}
+              state={business.state}
+              timezone={business.timezone}
+              selectedKey={selectedKey}
+              todayKey={today}
+              jobs={jobs}
+              members={members}
+              view={activeView}
+              onViewChange={setView}
+              onOpenJob={setOpenJobId}
+            />
+          </div>
         </section>
       ) : (
         <>
@@ -197,7 +221,7 @@ function SchedulePage() {
               <button
                 type="button"
                 aria-label="Previous week"
-                onClick={() => setDay(addDaysToKey(selectedKey, -7))}
+                onClick={() => setDay(addDaysToKey(requestedKey, -7))}
                 className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
               >
                 <ChevronLeft size={20} strokeWidth={1.7} />
@@ -212,7 +236,7 @@ function SchedulePage() {
               <button
                 type="button"
                 aria-label="Next week"
-                onClick={() => setDay(addDaysToKey(selectedKey, 7))}
+                onClick={() => setDay(addDaysToKey(requestedKey, 7))}
                 className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
               >
                 <ChevronRight size={20} strokeWidth={1.7} />
@@ -220,7 +244,14 @@ function SchedulePage() {
             </div>
             <WeekStrip
               startKey={weekStart}
-              selectedKey={selectedKey}
+              // The tapped day, unless it belongs to a week not up yet — then
+              // the strip on screen has no such day to mark, and marking none
+              // would read as nothing having happened.
+              selectedKey={
+                startOfWeekKey(requestedKey) === weekStart
+                  ? requestedKey
+                  : selectedKey
+              }
               todayKey={today}
               load={week}
               onSelect={setDay}
@@ -228,7 +259,10 @@ function SchedulePage() {
             />
           </div>
 
-          <section className="px-4 pt-4 pb-6">
+          <section
+            aria-busy={stale || undefined}
+            className={`px-4 pt-4 pb-6 ${dimmed}`}
+          >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
               <h2 className="section-label">
                 {formatDayLabel(selectedKey)}
@@ -309,8 +343,8 @@ function SchedulePage() {
       <MonthPickerSheet
         businessId={business._id}
         open={monthOpen}
-        monthKey={monthKey ?? selectedKey.slice(0, 7)}
-        selectedKey={selectedKey}
+        monthKey={monthKey ?? requestedKey.slice(0, 7)}
+        selectedKey={requestedKey}
         todayKey={today}
         onSelect={(dayKey) => {
           setDay(dayKey)
@@ -322,7 +356,7 @@ function SchedulePage() {
 
       <NewJobSheet
         businessId={business._id}
-        dayKey={selectedKey}
+        dayKey={requestedKey}
         timezone={business.timezone}
         open={newJobOpen}
         onClose={() => setNewJobOpen(false)}

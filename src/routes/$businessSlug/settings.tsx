@@ -1,7 +1,9 @@
+import { Suspense } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { Segmented } from '#/components/primitives/Segmented'
+import { SectionPending } from '#/components/shell/Pending'
 import { TeamSection } from '#/components/settings/TeamSection'
 import { ProfileSection } from '#/components/settings/ProfileSection'
 import { PrefsSection } from '#/components/settings/PrefsSection'
@@ -54,7 +56,9 @@ function SettingsPage() {
             SEGMENTS.filter(
               (s) =>
                 (s.value !== 'team' || canManageTeam) &&
-                (s.value !== 'reports' || canManageTemplates || canManageBusiness),
+                (s.value !== 'reports' ||
+                  canManageTemplates ||
+                  canManageBusiness),
             )
           }
           onChange={(value) =>
@@ -64,46 +68,54 @@ function SettingsPage() {
       </div>
 
       <div className="px-4 pt-5 pb-6">
-        {active === 'profile' && (
-          <ProfileSection
-            businessId={business._id}
-            membershipId={membership._id}
-            licenceNumber={membership.licenceNumber}
-            phone={membership.phone}
-            state={business.state}
-          />
-        )}
-        {active === 'team' && canManageTeam && (
-          <TeamSection businessId={business._id} />
-        )}
-        {active === 'reports' && (
-          <>
-            {/* The lists of answers the forms offer are form content. */}
-            {canManageTemplates && (
-              <OptionLibrariesSection businessId={business._id} />
-            )}
-            {/* Whether a job may close without a report is business policy. */}
-            {canManageBusiness && (
-              <div className={canManageTemplates ? 'mt-6' : undefined}>
-                <ReportPolicySection businessId={business._id} />
-              </div>
-            )}
-          </>
-        )}
-        {active === 'prefs' && (
-          <>
-            <PrefsSection
+        {/* The header and segments stay put while a section loads: Profile
+            and Team suspend on their queries, which without this took the
+            page down with them. */}
+        <Suspense fallback={<SectionPending />}>
+          {active === 'profile' && (
+            <ProfileSection
               businessId={business._id}
-              business={business}
-              canEdit={canManageBusiness}
+              membershipId={membership._id}
+              licenceNumber={membership.licenceNumber}
+              phone={membership.phone}
+              state={business.state}
             />
-            {canManageBusiness && (
-              <div className="mt-6">
-                <BrandingSection businessId={business._id} business={business} />
-              </div>
-            )}
-          </>
-        )}
+          )}
+          {active === 'team' && canManageTeam && (
+            <TeamSection businessId={business._id} />
+          )}
+          {active === 'reports' && (
+            <>
+              {/* The lists of answers the forms offer are form content. */}
+              {canManageTemplates && (
+                <OptionLibrariesSection businessId={business._id} />
+              )}
+              {/* Whether a job may close without a report is business policy. */}
+              {canManageBusiness && (
+                <div className={canManageTemplates ? 'mt-6' : undefined}>
+                  <ReportPolicySection businessId={business._id} />
+                </div>
+              )}
+            </>
+          )}
+          {active === 'prefs' && (
+            <>
+              <PrefsSection
+                businessId={business._id}
+                business={business}
+                canEdit={canManageBusiness}
+              />
+              {canManageBusiness && (
+                <div className="mt-6">
+                  <BrandingSection
+                    businessId={business._id}
+                    business={business}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </Suspense>
       </div>
     </>
   )

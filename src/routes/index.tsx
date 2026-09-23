@@ -21,4 +21,7 @@ export const Route = createFileRoute('/')({
       params: { businessSlug: businesses[0].slug },
     })
   },
+  // Only ever redirects, so a placeholder here would stand in for the whole
+  // app, shell and all. Keep the screen you came from, with the progress bar.
+  pendingMs: Infinity,
 })

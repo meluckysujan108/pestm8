@@ -2,11 +2,12 @@ import { useMemo, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
-import { Plus, Search } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
+import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { ClientCard } from '#/components/clients/ClientCard'
@@ -17,7 +18,10 @@ import { useHydrated } from '#/lib/useHydrated'
 import { useClientFilters } from '#/lib/clientFilters'
 import { useCan } from '#/lib/access'
 
-const VIEW_OPTIONS: Array<{ value: 'list' | 'board' | 'table'; label: string }> = [
+const VIEW_OPTIONS: Array<{
+  value: 'list' | 'board' | 'table'
+  label: string
+}> = [
   { value: 'list', label: 'List' },
   { value: 'board', label: 'Board' },
   { value: 'table', label: 'Table' },
@@ -84,7 +88,8 @@ function ClientsPage() {
     })
   }, [clients, properties, q])
 
-  const { kind, setKind, suburb, setSuburb, filteredRows } = useClientFilters(rows)
+  const { kind, setKind, suburb, setSuburb, filteredRows } =
+    useClientFilters(rows)
   const filtersActive = kind !== 'all' || suburb !== 'all'
 
   return (
@@ -107,22 +112,22 @@ function ClientsPage() {
         }
       />
 
-      <div className="px-4 pt-3">
-        <label className="flex items-center gap-2 rounded-xl bg-surface-3 px-3">
-          <Search size={17} strokeWidth={1.7} className="text-muted" />
-          <span className="sr-only">Search by name or address</span>
-          <input
-            value={q ?? ''}
-            onChange={(e) =>
-              navigate({
-                search: { q: e.target.value || undefined },
-                replace: true,
-              })
-            }
-            placeholder="Search by name or address"
-            className="h-11 flex-1 bg-transparent text-[16px] text-ink outline-none"
-          />
-        </label>
+      <div className="flex px-4 pt-3">
+        {/* The shared box, not a bare input bound to the URL: that navigated
+            on every keystroke and, while a navigation was in flight, put the
+            committed term back over whatever had been typed since. It also
+            passed `{ q }` alone, which dropped `view` with every character. */}
+        <SearchBox
+          value={q ?? ''}
+          onChange={(term) =>
+            navigate({
+              search: (prev) => ({ ...prev, q: term || undefined }),
+              replace: true,
+            })
+          }
+          label="Search by name or address"
+          placeholder="Search by name or address"
+        />
       </div>
 
       <section className="px-4 pt-4 pb-6">

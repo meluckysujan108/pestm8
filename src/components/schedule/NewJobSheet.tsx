@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
@@ -12,13 +12,17 @@ import {
 } from './RecurrenceFields'
 import { Combobox } from '#/components/primitives/Combobox'
 import { Segmented } from '#/components/primitives/Segmented'
-import { EMPTY_NEW_CLIENT, NewClientFields } from '#/components/clients/NewClientFields'
+import {
+  EMPTY_NEW_CLIENT,
+  NewClientFields,
+} from '#/components/clients/NewClientFields'
 import type { NewClientFieldsValue } from '#/components/clients/NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { IntervalUnit } from '../../../convex/lib/recurrence'
 import { useHydrated } from '#/lib/useHydrated'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
+import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 
 type ClientMode = 'existing' | 'new'
@@ -42,13 +46,28 @@ export function NewJobSheet({
         <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
+          {/* The form suspends on the property and team lists. Its own
+              boundary lets the sheet slide up at once; without one, the first
+              open blanked the whole app until both had loaded. */}
           {open && (
-            <NewJobForm
-              businessId={businessId}
-              dayKey={dayKey}
-              timezone={timezone}
-              onClose={onClose}
-            />
+            <Suspense
+              fallback={
+                <SheetPending
+                  title={
+                    <Drawer.Title className="text-sheet-title text-ink">
+                      New job
+                    </Drawer.Title>
+                  }
+                />
+              }
+            >
+              <NewJobForm
+                businessId={businessId}
+                dayKey={dayKey}
+                timezone={timezone}
+                onClose={onClose}
+              />
+            </Suspense>
           )}
           <button
             type="button"
@@ -88,7 +107,8 @@ function NewJobForm({
     properties.length > 0 ? 'existing' : 'new',
   )
   const [propertyId, setPropertyId] = useState('')
-  const [newClient, setNewClient] = useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
+  const [newClient, setNewClient] =
+    useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
   const [assignee, setAssignee] = useState('')
   const [jobType, setJobType] = useState<string>(JOB_TYPES[0])
   const [time, setTime] = useState('09:00')
@@ -137,7 +157,8 @@ function NewJobForm({
   const create = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
-      property: { propertyId: Id<'properties'> } | { newClient: NewClientFieldsValue }
+      property:
+        { propertyId: Id<'properties'> } | { newClient: NewClientFieldsValue }
       assignedMembershipId: Id<'memberships'>
       jobType: string
       price: number
