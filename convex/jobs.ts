@@ -88,6 +88,8 @@ async function decorate(
   ctx: QueryCtx,
   env: ActorEnvelope,
   jobs: Array<Doc<'jobs'>>,
+  // Series the caller has already read, so they are not read again.
+  knownSeries: Array<Doc<'recurrences'>> = [],
 ) {
   // Resolving a name means a call into the auth component, so each assignee is
   // looked up once per query rather than once per job — the same memoisation
@@ -110,6 +112,21 @@ async function decorate(
     return pending
   }
 
+  // The series behind a recurring visit, for the card's "Every 2 weeks". Read
+  // once per series per query, not once per visit — a day holds a few visits
+  // of one series, the Job tab up to 200 — and memoised the same way, on the
+  // in-flight promise.
+  const series = new Map<Id<'recurrences'>, Promise<Doc<'recurrences'> | null>>(
+    knownSeries.map((r) => [r._id, Promise.resolve(r)]),
+  )
+  const seriesOf = (recurrenceId: Id<'recurrences'>) => {
+    const inFlight = series.get(recurrenceId)
+    if (inFlight) return inFlight
+    const pending = ctx.db.get(recurrenceId)
+    series.set(recurrenceId, pending)
+    return pending
+  }
+
   return Promise.all(
     jobs
       .sort((a, b) => a.scheduledAt - b.scheduledAt)
@@ -117,11 +134,13 @@ async function decorate(
         const property = await ctx.db.get(job.propertyId)
         const client = property ? await ctx.db.get(property.clientId) : null
         const assignee = await ctx.db.get(job.assignedMembershipId)
+        const recurrence = job.recurrenceId
+          ? await seriesOf(job.recurrenceId)
+          : null
         return {
           ...redactJob(env.caps, job),
-          // Card and table row both SHOW the suburb alone (§2.3: scanning a
-          // day wants the suburb). The street address still rides along for
-          // the card's Map link.
+          // The card SHOWS the suburb alone (§2.3: scanning a day wants the
+          // suburb). The street address still rides along for its Map.
           addressLine: property?.addressLine ?? '',
           suburb: property?.suburb ?? '',
           postcode: property?.postcode ?? '',
@@ -131,6 +150,14 @@ async function decorate(
           // loads anyway — and the client book is open to everyone who can
           // see the job (`clients.directory` is 'always' for every role).
           clientPhone: client?.phone ?? '',
+          // For the card's Email: the address the job sheet's Email uses,
+          // off the same document, with the same exposure as the phone.
+          clientEmail: client?.email ?? '',
+          // How often the visit's series repeats, for the card's indicator —
+          // only while the series is running, as the job sheet shows it, so
+          // a visit left over from a stopped series does not read as one
+          // that will come round again.
+          repeats: recurrence?.active ? intervalOf(recurrence) : undefined,
           assigneeColour: assignee?.colour ?? UNASSIGNED_COLOUR,
           assigneeName: assignee
             ? await nameOf(job.assignedMembershipId, assignee.userId)
@@ -257,7 +284,7 @@ export const listDay = query({
 
     // Completed work sinks to the bottom of the day (lib/jobStatus.ts), so
     // the card that moves when a job is finished moves for every viewer at
-    // once — the card and table views both render this order as given.
+    // once — the day's cards and the Week View render this order as given.
     return orderForDay(await decorate(ctx, env, jobs))
   },
 })
@@ -376,7 +403,7 @@ export const listRecurring = query({
       .collect()
 
     return {
-      jobs: await decorate(ctx, env, visits),
+      jobs: await decorate(ctx, env, visits, series),
       seriesCount: series.filter((r) =>
         isInScope(env.listScope, {
           assignedMembershipId: r.assignedMembershipId,

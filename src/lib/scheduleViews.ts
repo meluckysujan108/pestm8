@@ -3,21 +3,19 @@
  *
  * It was two hand-kept VIEW_OPTIONS lists (the page's and the desktop
  * panel's) and a zod enum beside them — which is how a view ends up
- * offered on one layout and not the other. `job` and `table` read one day;
- * `week` (Phase 4.4) reads the seven days of the strip.
+ * offered on one layout and not the other. `job` reads one day as cards;
+ * `week` (Phase 4.4) reads the seven days of the strip. The Table view was
+ * retired: the card shows everything its row did, and an old `?view=table`
+ * link opens the cards (the route's `.catch`).
  */
-export const SCHEDULE_VIEWS = ['job', 'table', 'week'] as const
+export const SCHEDULE_VIEWS = ['job', 'week'] as const
 
 export type ScheduleView = (typeof SCHEDULE_VIEWS)[number]
-
-/** The views that read a single day. */
-export type DayView = Exclude<ScheduleView, 'week'>
 
 export const SCHEDULE_VIEW_OPTIONS: Array<{
   value: ScheduleView
   label: string
 }> = [
   { value: 'job', label: 'Job' },
-  { value: 'table', label: 'Table' },
   { value: 'week', label: 'Week' },
 ]

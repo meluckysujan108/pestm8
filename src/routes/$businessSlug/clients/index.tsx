@@ -9,30 +9,19 @@ import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { ClientCard } from '#/components/clients/ClientCard'
-import { ClientTable } from '#/components/clients/ClientTable'
 import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
-import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
 import { useClientFilters } from '#/lib/clientFilters'
 import { useCan } from '#/lib/access'
 import { rq, warm } from '#/lib/routeQueries'
 
-const VIEW_OPTIONS: Array<{
-  value: 'list' | 'board' | 'table'
-  label: string
-}> = [
-  { value: 'list', label: 'List' },
-  { value: 'board', label: 'Board' },
-  { value: 'table', label: 'Table' },
-]
-
 export const Route = createFileRoute('/$businessSlug/clients/')({
-  // `view` mirrors the Schedule route exactly: the way an operator prefers
-  // to read their client list should survive a refresh, same as the way
-  // they prefer to read their day.
+  // One way to read clients: the cards. The List and Table views were
+  // retired, and `view` with them — the key is gone rather than narrowed, so
+  // an old `?view=list` or `?view=table` link passes validation and opens the
+  // cards. The stale key stays in the address bar until the first search.
   validateSearch: z.object({
     q: z.string().optional(),
-    view: z.enum(['list', 'board', 'table']).optional(),
   }),
   // Both lists together, before the page renders: read in order, the
   // properties were not asked for until the clients had come back.
@@ -44,11 +33,8 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
 function ClientsPage() {
   const { business } = Route.useRouteContext()
   const canManageClients = useCan('clients.manage')
-  const { q, view } = Route.useSearch()
+  const { q } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const activeView = view ?? 'board'
-  const setView = (next: 'list' | 'board' | 'table') =>
-    navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
   const [newOpen, setNewOpen] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const hydrated = useHydrated()
@@ -114,15 +100,14 @@ function ClientsPage() {
       <div className="flex px-4 pt-3">
         {/* The shared box, not a bare input bound to the URL: that navigated
             on every keystroke and, while a navigation was in flight, put the
-            committed term back over whatever had been typed since. It also
-            passed `{ q }` alone, which dropped `view` with every character. */}
+            committed term back over whatever had been typed since. The
+            search is `q` alone now — the only thing this page keeps in the
+            URL — which also drops a retired `?view=` an old link brought in,
+            since the router carries unknown keys along otherwise. */}
         <SearchBox
           value={q ?? ''}
           onChange={(term) =>
-            navigate({
-              search: (prev) => ({ ...prev, q: term || undefined }),
-              replace: true,
-            })
+            navigate({ search: { q: term || undefined }, replace: true })
           }
           label="Search by name or address"
           placeholder="Search by name or address"
@@ -131,12 +116,6 @@ function ClientsPage() {
 
       <section className="px-4 pt-4 pb-6">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Segmented
-            label="View"
-            value={activeView}
-            options={VIEW_OPTIONS}
-            onChange={setView}
-          />
           <ClientFilterBar
             rows={rows}
             kind={kind}
@@ -155,8 +134,6 @@ function ClientsPage() {
                 : 'Add a client to start booking work for them.'
             }
           />
-        ) : activeView === 'table' ? (
-          <ClientTable rows={filteredRows} onOpenClient={setOpenId} />
         ) : (
           <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
             {filteredRows.map(({ client, properties: owned }) => (
@@ -164,7 +141,6 @@ function ClientsPage() {
                 key={client._id}
                 client={client}
                 properties={owned}
-                variant={activeView}
                 onOpen={setOpenId}
               />
             ))}

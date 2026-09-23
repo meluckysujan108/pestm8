@@ -22,7 +22,6 @@ import { useMediaQuery } from '#/lib/useMediaQuery'
 import { MonthPickerSheet } from '#/components/schedule/MonthPickerSheet'
 import { MonthCalendarCard } from '#/components/schedule/MonthCalendarCard'
 import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
-import { JobTable } from '#/components/schedule/JobTable'
 import { ScheduleFilterBar } from '#/components/schedule/ScheduleFilterBar'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
@@ -34,7 +33,7 @@ import { WeekView } from '#/components/schedule/WeekView'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
 import { SCHEDULE_VIEWS, SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
 import { weekDayKeys, weekTotals } from '#/lib/weekView'
-import type { DayView, ScheduleView } from '#/lib/scheduleViews'
+import type { ScheduleView } from '#/lib/scheduleViews'
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
@@ -136,10 +135,6 @@ function SchedulePage() {
       )
       ?.focus()
   }, [shownView])
-  // The way this person last read a single day, for opening one from the
-  // week — the cards if they have not chosen.
-  const lastDayView = useRef<DayView>('job')
-  if (activeView !== 'week') lastDayView.current = activeView
   const [newJobOpen, setNewJobOpen] = useState(false)
   const [monthOpen, setMonthOpen] = useState(false)
   const [monthKey, setMonthKey] = useState<string | null>(null)
@@ -226,7 +221,7 @@ function SchedulePage() {
   // From the week to one of its days. A push, unlike `setDay`: Back returns
   // to the week the day was opened from.
   const openDay = (dayKey: string) =>
-    navigate({ search: { date: dayKey, view: lastDayView.current } })
+    navigate({ search: { date: dayKey, view: 'job' } })
 
   // Projected visits on the selected day, when it is still ahead: not on its
   // list and in no count, but worth saying so the day does not look clear.
@@ -446,14 +441,6 @@ function SchedulePage() {
                     ? 'This day is clear. Tap + to book a job.'
                     : 'No jobs match this filter.'
                 }
-              />
-            ) : shownView === 'table' ? (
-              <JobTable
-                jobs={filteredJobs}
-                weather={weather}
-                selectedKey={selectedKey}
-                timezone={business.timezone}
-                onOpenJob={setOpenJobId}
               />
             ) : (
               // Two columns from md: the same cards, re-flowed. A tablet

@@ -4,12 +4,13 @@ import type { JobStatus } from '#/components/primitives/StatusPill'
 /**
  * What a job card offers besides opening the job.
  *
- * - `visit` — committed work: Call the client, Map the address.
+ * - `visit` — committed work: Call, Text or Email the client, Map the address.
  * - `book` — a projected visit whose day has come: due today, or overdue and
  *   carried onto today's Schedule. Nobody has agreed to it, so there is
- *   nowhere to drive yet and no Map. What there is to do is ring the client
- *   and book it, so Call stays — labelled "Call to book", because ringing
- *   about it as though it were already arranged would be wrong.
+ *   nowhere to drive yet and no Map. What there is to do is reach the client
+ *   and book it — by whichever channel they answer — so Call, Text and Email
+ *   stay, each named "… to book", because contacting them about it as though
+ *   it were already arranged would be wrong.
  * - `none` — a projection whose day is still ahead (booking it is a job for
  *   nearer the time, and it is not on any schedule yet), or a cancelled job,
  *   which is not work anyone is going to.
@@ -33,6 +34,24 @@ export function cardActionsFor(
       : 'none'
   }
   return 'visit'
+}
+
+/** The buttons each of those means on the card. One place, so the rule and
+ * the buttons cannot disagree. */
+export function cardButtonsFor(actions: CardActions): {
+  /** Call, Text and Email, each shown where the client has the detail. */
+  contact: boolean
+  map: boolean
+  toBook: boolean
+} {
+  switch (actions) {
+    case 'visit':
+      return { contact: true, map: true, toBook: false }
+    case 'book':
+      return { contact: true, map: false, toBook: true }
+    case 'none':
+      return { contact: false, map: false, toBook: false }
+  }
 }
 
 /**

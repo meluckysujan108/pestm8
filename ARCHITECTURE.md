@@ -144,7 +144,7 @@ activity timeline with actor names.
 - **Hold-to-call / hold-to-email** — pointer-down starts a fill animation, pointer-up before completion cancels. Prevents pocket-dialling a client mid-job. Uses `onPointerDown/Up/Leave/Cancel`, `touch-action:none`, `user-select:none`. *Amended (Phase 4):* on a job card the same hold sits in a list the thumb scrolls, so there it uses `touch-action:pan-y` instead — the browser may take a vertical drag, and when it does it cancels the pointer, which cancels the hold. A scroll never dials; a still thumb still has to hold. The sheets keep `touch-action:none`.
 - **Segmented controls** for all binary/ternary filters — never dropdowns.
 - **Week strip with per-subcontractor dots** — colour-coded, so the Owner sees whose day is loaded at a glance.
-- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. The job card follows it too. *History:* a list/board split once had the board card print the full street address; the variants went in Phase 2, and in Phase 4 the card went back to the suburb alone, matching the table row. Its Map button carries the street address to the maps app, so the address no longer has to be read off the card to be used. The job detail sheet and the report still print it in full.
+- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. The job card follows it too. *History:* a list/board split once had the board card print the full street address; the variants went in Phase 2, and in Phase 4 the card went back to the suburb alone, as the day table's row showed it (the table itself was retired later). Its Map button carries the street address to the maps app, so the address no longer has to be read off the card to be used. The job detail sheet and the report still print it in full.
 - **Locked boilerplate blocks** — report disclaimers render in a grey inset card, visibly non-editable.
 - **A delivery is a record, not an event** — every attempt to send a report is a `reportDeliveries` row, written before the provider is called and naming the `reportPdfs` row it attached, so "which file did the client receive?" has an answer after the renderer has moved on. `sent` means the provider accepted it; the Resend webhook moves a row to `bounced` later, and the report's Sent bucket with it.
 - **Who a report may be sent to** — a technician may send to addresses already on the client record; anywhere else is `pendingApproval` until an owner says yes, unless the business turns the restriction off. The held row IS the request, so approving is a decision about something real. Twenty sends an hour per member, counted from the delivery rows rather than a separate token bucket.
@@ -485,8 +485,7 @@ src/components/
     HoldButton.tsx                pointer-driven fill; click-through on desktop
   schedule/
     WeekStrip.tsx  DayDots.tsx  MonthPickerSheet.tsx
-    JobCard.tsx                   one card, four surfaces; Call + Map beside the open button (§2.3)
-    JobTable.tsx                  the day as a table, one row per job — a card rule may apply here too
+    JobCard.tsx                   one card, four surfaces; Map top right, Call/Text/Email below, all holds (§2.3)
     WeekView.tsx                  the Week View's own job blocks, not JobCard — check card rules here too
     WeatherStrip.tsx              per-card forecast: values, never advice
     JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx

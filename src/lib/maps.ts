@@ -25,3 +25,37 @@ export function mapsUrl(address: {
   const query = [...parts, 'Australia'].join(', ')
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`
 }
+
+/** The part of a window `openMapTab` needs, so a test can hand it a fake. */
+type TabOpener = {
+  open: (url: string, target: string) => { opener: unknown } | null
+  navigator: { userActivation?: { isActive: boolean } }
+}
+
+/**
+ * Opens the map in a new tab, and says whether it did.
+ *
+ * Never by navigating this window: that unloads the installed app, and the
+ * technician comes back to a cold start. A new tab is only allowed from the
+ * user's own gesture — for touch, the finger lifting — which is why the Map
+ * hold acts on the lift (src/lib/holdGesture.ts). Where the browser still
+ * says no, this returns false and the caller offers a plain link, which a
+ * tap always opens.
+ *
+ * Deliberately without the 'noopener' feature: with it `open` returns null
+ * whether or not the tab opened, and null is the only sign of a block. The
+ * opener is cut by hand instead, while the new tab is still about:blank.
+ */
+export function openMapTab(url: string, win: TabOpener = window): boolean {
+  // Known to be refused: skip straight to the link, and spare Chrome its
+  // "pop-up blocked" bar.
+  if (win.navigator.userActivation?.isActive === false) return false
+  const tab = win.open(url, '_blank')
+  if (tab === null) return false
+  try {
+    tab.opener = null
+  } catch {
+    // Already navigated away from about:blank; nothing left to cut.
+  }
+  return true
+}

@@ -35,8 +35,8 @@ export function computeSuburbLoad(
 /**
  * Kind + suburb narrowing for the client list — the client-context analogue
  * of `useScheduleFilters`'s status/staff narrowing. Local state, not the URL:
- * mirrors status/staff being ephemeral per-visit while `view`/`q` (durable,
- * "survives a refresh") stay in the route's search params.
+ * mirrors status/staff being ephemeral per-visit while `q` (durable, "survives
+ * a refresh") stays in the route's search params.
  */
 export function useClientFilters<
   T extends { client: { kind: ClientKind }; properties: Array<{ suburb: string }> },
