@@ -27,6 +27,17 @@ import type { TestActor, TestApp } from '../test/harness'
 const DAY = 24 * 60 * 60 * 1000
 const TZ = 'Australia/Perth'
 
+/** An hour from now, but never past 23:59 today in Perth: a visit whose day
+ * has arrived. A plain `now + 1h` falls on tomorrow after 11pm, so the tests
+ * that used it failed every night between 23:00 and midnight Perth time. */
+function laterToday(): number {
+  const tomorrow = addDaysToKey(dayKeyOf(Date.now(), TZ), 1)
+  return Math.min(
+    Date.now() + 60 * 60 * 1000,
+    startOfDayInZone(tomorrow, TZ) - 60_000,
+  )
+}
+
 async function setup() {
   const t = testApp()
   const owner = await createActor(t, { email: 'terence@coastal.test' })
@@ -223,7 +234,7 @@ describe('projected visits stay out of every job total', () => {
 
     const today = dayKeyOf(Date.now(), TZ)
     await s.t.run(async (ctx) =>
-      ctx.db.patch(projected._id, { scheduledAt: Date.now() + 60 * 60 * 1000 }),
+      ctx.db.patch(projected._id, { scheduledAt: laterToday() }),
     )
 
     const day = await s.owner.as.query(api.jobs.listDay, {
@@ -287,7 +298,7 @@ describe('projected visits stay out of every job total', () => {
 
     const today = dayKeyOf(Date.now(), TZ)
     await s.t.run(async (ctx) =>
-      ctx.db.patch(projected._id, { scheduledAt: Date.now() + 60 * 60 * 1000 }),
+      ctx.db.patch(projected._id, { scheduledAt: laterToday() }),
     )
 
     // Shown on the day...
