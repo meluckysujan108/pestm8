@@ -3,7 +3,12 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { WEEKDAY_INITIALS, dayKeyToDate, formatMonthLabel } from '#/lib/format'
+import {
+  WEEKDAY_INITIALS,
+  dayKeyToDate,
+  formatMonthLabel,
+  addDaysToKey,
+} from '#/lib/format'
 import { useViewMode } from '#/lib/access'
 import { dayDots } from '#/lib/scheduleFilters'
 import { MonthDaysPending } from '#/components/shell/Pending'
@@ -39,6 +44,7 @@ export function MonthCalendarCard({
   monthKey,
   selectedKey,
   todayKey,
+  weekStart,
   onSelect,
   onMonthChange,
 }: {
@@ -46,6 +52,9 @@ export function MonthCalendarCard({
   monthKey: string
   selectedKey: string
   todayKey: string
+  /** In the Week View: the Monday of the week beside the grid, whose row is
+   * shaded so the grid says which week the pane is showing. */
+  weekStart?: string
   onSelect: (dayKey: string) => void
   onMonthChange: (monthKey: string) => void
 }) {
@@ -99,6 +108,7 @@ export function MonthCalendarCard({
           monthKey={monthKey}
           selectedKey={selectedKey}
           todayKey={todayKey}
+          weekStart={weekStart}
           onSelect={onSelect}
           mine={mine}
         />
@@ -131,6 +141,7 @@ function MonthDays({
   monthKey,
   selectedKey,
   todayKey,
+  weekStart,
   onSelect,
   mine,
 }: {
@@ -138,9 +149,11 @@ function MonthDays({
   monthKey: string
   selectedKey: string
   todayKey: string
+  weekStart?: string
   onSelect: (dayKey: string) => void
   mine: boolean
 }) {
+  const weekEnd = weekStart ? addDaysToKey(weekStart, 6) : undefined
   const { data: days } = useSuspenseQuery(
     convexQuery(api.jobs.listMonth, { businessId, monthKey }),
   )
@@ -162,7 +175,11 @@ function MonthDays({
             aria-label={dayKey}
             aria-pressed={isSelected}
             onClick={() => onSelect(dayKey)}
-            className="flex flex-col items-center gap-0.5 rounded-xl py-1.5 transition hover:bg-surface-2 active:scale-[.95]"
+            className={`flex flex-col items-center gap-0.5 rounded-xl py-1.5 transition hover:bg-surface-2 active:scale-[.95] ${
+              weekStart && weekEnd && dayKey >= weekStart && dayKey <= weekEnd
+                ? 'bg-surface-2'
+                : ''
+            }`}
           >
             <span
               className={[

@@ -11,20 +11,11 @@ import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import { isOverdueProjection } from '#/lib/jobCardActions'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
+import { RecurringDueNote } from './RecurringDueNote'
+import { SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
+import type { ScheduleView } from '#/lib/scheduleViews'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
-
-/**
- * How a day is read. A list rather than a pair of branches: the section is
- * meant to hold more views than it has today. "Job" is the cards; the compact
- * list view is gone.
- */
-export type ScheduleView = 'job' | 'table'
-
-const VIEW_OPTIONS: Array<{ value: ScheduleView; label: string }> = [
-  { value: 'job', label: 'Job' },
-  { value: 'table', label: 'Table' },
-]
 
 /**
  * Desktop-only (§2.4) right pane beside MonthCalendarCard. Status and staff
@@ -44,6 +35,8 @@ export function DayAgendaPanel({
   view,
   onViewChange,
   onOpenJob,
+  businessSlug,
+  recurringDue = 0,
 }: {
   businessId: Id<'businesses'>
   state: string
@@ -58,6 +51,9 @@ export function DayAgendaPanel({
   view: ScheduleView
   onViewChange: (view: ScheduleView) => void
   onOpenJob: (jobId: string) => void
+  businessSlug: string
+  /** Projected visits on this day when it is still ahead (`listWeek`). */
+  recurringDue?: number
 }) {
   const mode = useViewMode()
   const acting = useActing()
@@ -121,8 +117,15 @@ export function DayAgendaPanel({
             )}
           </p>
         </div>
-        <Segmented label="View" value={view} options={VIEW_OPTIONS} onChange={onViewChange} />
+        <Segmented
+          label="View"
+          value={view}
+          options={SCHEDULE_VIEW_OPTIONS}
+          onChange={onViewChange}
+        />
       </div>
+
+      <RecurringDueNote count={recurringDue} businessSlug={businessSlug} />
 
       <ScheduleFilterBar
         jobs={jobs}

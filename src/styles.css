@@ -78,6 +78,11 @@
   --grey-line: #8e8e93;
   --grey-ink: #545458;
 
+  /* How much of a technician's colour fills a job block in the Week View:
+     enough to say whose it is, little enough that ink on it stays far past
+     AA. Dark needs more of the colour to show against #1c1c1e. */
+  --block-tint: 14%;
+
   /* Sticky headers and the mobile dock, behind a backdrop-filter. */
   --chrome: rgba(255, 255, 255, 0.92);
   /* Dimmer behind sheets and dialogs. */
@@ -151,6 +156,8 @@
   --grey-bg: #2c2c2e;
   --grey-line: #8e8e93;
   --grey-ink: #aeaeb2;
+
+  --block-tint: 24%;
 
   --chrome: rgba(28, 28, 30, 0.82);
   /* 30% black over a black canvas barely dims; a sheet needs its backdrop to

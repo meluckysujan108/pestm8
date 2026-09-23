@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import {
+  addDaysToKey,
   dayKeyOf,
   endOfDayInZone,
   startOfDayInZone,
@@ -17,6 +18,7 @@ import {
   assertStatusChange,
   entersDone,
   initialJobStatus,
+  isCountedJob,
   orderForDay,
   setJobStatus,
 } from './lib/jobStatus'
@@ -79,9 +81,7 @@ export async function jobsInRange(
   // silently missed. Shown there, counted nowhere. The distinction is
   // future-vs-due, and it lives in `listDay` because this function has no day
   // to compare against.
-  return jobs.filter(
-    (j) => j.status !== 'cancelled' && j.status !== 'recurring',
-  )
+  return jobs.filter(isCountedJob)
 }
 
 async function decorate(
@@ -379,8 +379,23 @@ export const listRecurring = query({
 })
 
 /**
- * Seven days from `startKey`, grouped by day. Drives the week strip's
- * per-subcontractor dots, so it returns assignee colours per day.
+ * Seven days from `startKey`, grouped by the tenant's own calendar day — the
+ * week strip's per-person dots and job count, and the Week View's headers.
+ *
+ * TWO NUMBERS PER DAY, NEVER ONE (Phase 4.4):
+ * - `count` is booked work, exactly as `jobsInRange` counts it: no
+ *   projection and no cancellation. It is the same number the month grid,
+ *   the team legend and the dashboard show.
+ * - `recurringCount` is that day's projected visits — status `recurring`,
+ *   counted on their OWN day, past, today or future alike. Not carried onto
+ *   today the way `listDay` carries an overdue one (that and the nav badge
+ *   are the escalation), not series (the Recurring Job view counts those),
+ *   and never added to `count` here or anywhere a caller might.
+ *
+ * Its own read rather than `jobsInRange`'s, because that one throws the
+ * projections away before the days are built — the rows are the same, and
+ * so is the cost. No wall clock: which days have arrived is the caller's
+ * question, asked against its own "today".
  */
 export const listWeek = query({
   args: { businessId: v.id('businesses'), startKey: v.string() },
@@ -388,50 +403,63 @@ export const listWeek = query({
     const { listScope } = await requireActor(ctx, businessId)
     const business = await ctx.db.get(businessId)
     if (!business) return []
+    const tz = business.timezone
 
-    const from = startOfDayInZone(startKey, business.timezone)
-    const to = from + 7 * 24 * 60 * 60 * 1000
+    // Day boundaries by the calendar, not in 24-hour steps: a week holding a
+    // daylight-saving change has one 23- or 25-hour day in it.
+    const dayKeys = Array.from({ length: 7 }, (_, i) =>
+      addDaysToKey(startKey, i),
+    )
+    const from = startOfDayInZone(startKey, tz)
+    const to = startOfDayInZone(addDaysToKey(startKey, 7), tz)
 
-    const jobs = await jobsInRange(ctx, listScope, businessId, from, to)
-    const assignees = new Map<Id<'memberships'>, string>()
-    for (const job of jobs) {
-      if (!assignees.has(job.assignedMembershipId)) {
-        const m = await ctx.db.get(job.assignedMembershipId)
-        assignees.set(job.assignedMembershipId, m?.colour ?? UNASSIGNED_COLOUR)
-      }
+    const rows = await jobsInScope(ctx, listScope, { businessId, from, to })
+    const byDay = new Map<string, Array<Doc<'jobs'>>>()
+    for (const job of rows) {
+      const key = dayKeyOf(job.scheduledAt, tz)
+      byDay.set(key, [...(byDay.get(key) ?? []), job])
     }
 
-    const dayMs = 24 * 60 * 60 * 1000
-    return Promise.all(
-      Array.from({ length: 7 }, async (_, i) => {
-        const dayFrom = from + i * dayMs
-        const inDay = jobs
-          .filter(
-            (j) => j.scheduledAt >= dayFrom && j.scheduledAt < dayFrom + dayMs,
-          )
-          .sort((a, b) => a.scheduledAt - b.scheduledAt)
+    const colours = new Map<Id<'memberships'>, string>()
+    const colourOf = async (membershipId: Id<'memberships'>) => {
+      if (!colours.has(membershipId)) {
+        const m = await ctx.db.get(membershipId)
+        colours.set(membershipId, m?.colour ?? UNASSIGNED_COLOUR)
+      }
+      return colours.get(membershipId) ?? UNASSIGNED_COLOUR
+    }
 
-        // The first job's suburb stands for the day's weather. A day spanning
-        // several suburbs has no single forecast, so the UI labels which one.
-        const property = inDay[0] ? await ctx.db.get(inDay[0].propertyId) : null
+    const days = []
+    for (const [offset, dayKey] of dayKeys.entries()) {
+      const inDay = (byDay.get(dayKey) ?? []).sort(
+        (a, b) => a.scheduledAt - b.scheduledAt,
+      )
+      const counted = inDay.filter(isCountedJob)
 
-        return {
-          offset: i,
-          dayKey: dayKeyOf(dayFrom, business.timezone),
-          count: inDay.length,
-          suburb: property?.suburb ?? '',
-          postcode: property?.postcode ?? '',
-          colours: [
-            ...new Set(
-              inDay.map(
-                (j) =>
-                  assignees.get(j.assignedMembershipId) ?? UNASSIGNED_COLOUR,
-              ),
-            ),
-          ],
-        }
-      }),
-    )
+      // The first booked job's suburb stands for the day's weather. A day
+      // spanning several suburbs has no single forecast, so the UI labels
+      // which one.
+      const property = counted[0]
+        ? await ctx.db.get(counted[0].propertyId)
+        : null
+
+      const dayColours: Array<string> = []
+      for (const job of counted) {
+        const colour = await colourOf(job.assignedMembershipId)
+        if (!dayColours.includes(colour)) dayColours.push(colour)
+      }
+
+      days.push({
+        offset,
+        dayKey,
+        count: counted.length,
+        recurringCount: inDay.filter((j) => j.status === 'recurring').length,
+        suburb: property?.suburb ?? '',
+        postcode: property?.postcode ?? '',
+        colours: dayColours,
+      })
+    }
+    return days
   },
 })
 

@@ -46,6 +46,17 @@ export const DONE_STATUSES: ReadonlySet<JobStatus> = new Set<JobStatus>([
   'invoiced',
 ])
 
+/**
+ * Work that counts: booked by somebody and not called off. A projection is
+ * the engine's guess at a date nobody has confirmed, and a cancellation is
+ * work that is not happening, so neither goes into a job total anywhere —
+ * the week strip, the month grid, the team legend, the dashboard, analytics.
+ * Projections are counted, when they are, as their own separate number.
+ */
+export function isCountedJob(job: { status: JobStatus }): boolean {
+  return job.status !== 'cancelled' && job.status !== 'recurring'
+}
+
 /** A move from unfinished work to finished work — what the report policy asks about. */
 export function entersDone(from: JobStatus, to: JobStatus): boolean {
   return DONE_STATUSES.has(to) && !DONE_STATUSES.has(from)

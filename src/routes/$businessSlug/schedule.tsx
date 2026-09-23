@@ -1,4 +1,4 @@
-import { useDeferredValue, useState } from 'react'
+import { useDeferredValue, useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { usePrefetchQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
@@ -13,6 +13,7 @@ import {
   addDaysToKey,
   formatDayLabel,
   formatMonthLabel,
+  formatWeekRange,
   startOfWeekKey,
   todayKey as todayKeyIn,
 } from '#/lib/format'
@@ -29,14 +30,11 @@ import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useActing, useCan, useViewMode } from '#/lib/access'
 import { rq, searchParam, warm } from '#/lib/routeQueries'
-import type { ScheduleView } from '#/components/schedule/DayAgendaPanel'
-
-// A list, not a pair of branches: the section is meant to hold more views
-// than it has today. "Job" is the cards; the compact list view is gone.
-const VIEW_OPTIONS: Array<{ value: ScheduleView; label: string }> = [
-  { value: 'job', label: 'Job' },
-  { value: 'table', label: 'Table' },
-]
+import { WeekView } from '#/components/schedule/WeekView'
+import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
+import { SCHEDULE_VIEWS, SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
+import { weekDayKeys, weekTotals } from '#/lib/weekView'
+import type { DayView, ScheduleView } from '#/lib/scheduleViews'
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
@@ -51,7 +49,7 @@ const searchSchema = z.object({
   // How the day is rendered, in the URL for the same reason `date` is: the way
   // a tech prefers to read their day should survive a refresh (§5.1). A link
   // to a view that no longer exists opens the default rather than erroring.
-  view: z.enum(['job', 'table']).optional().catch(undefined),
+  view: z.enum(SCHEDULE_VIEWS).optional().catch(undefined),
 })
 
 export const Route = createFileRoute('/$businessSlug/schedule')({
@@ -85,10 +83,19 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
       )
     }
 
+    // The Week View reads all seven days: asked for together, here, rather
+    // than one after another as it renders.
+    const weekDays =
+      searchParam(location, 'view') === 'week'
+        ? weekDayKeys(startOfWeekKey(day)).map((key) =>
+            rq.day(business._id, key),
+          )
+        : [rq.day(business._id, day)]
+
     return warm(
       queryClient,
       rq.week(business._id, startOfWeekKey(day)),
-      rq.day(business._id, day),
+      ...weekDays,
       rq.roster(business._id),
     )
   },
@@ -107,8 +114,16 @@ function SchedulePage() {
   const setOpenJobId = (id: string | null) =>
     navigate({ search: (prev) => ({ ...prev, jobId: id ?? undefined }), replace: true })
   const activeView: ScheduleView = view ?? 'job'
+  // What is drawn: the view just picked once it can be, the one before it
+  // (dimmed) until then — so switching to a week not yet loaded keeps the
+  // page up rather than swapping it for the route's placeholder.
+  const shownView = useDeferredValue(activeView)
   const setView = (next: ScheduleView) =>
     navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
+  // The way this person last read a single day, for opening one from the
+  // week — the cards if they have not chosen.
+  const lastDayView = useRef<DayView>('job')
+  if (activeView !== 'week') lastDayView.current = activeView
   const [newJobOpen, setNewJobOpen] = useState(false)
   const [monthOpen, setMonthOpen] = useState(false)
   const [monthKey, setMonthKey] = useState<string | null>(null)
@@ -130,7 +145,7 @@ function SchedulePage() {
   // `selectedKey`.
   const requestedKey = date ?? today
   const selectedKey = useDeferredValue(requestedKey)
-  const stale = selectedKey !== requestedKey
+  const stale = selectedKey !== requestedKey || shownView !== activeView
   // The delay is what keeps a cached day from flashing dimmed on its way past;
   // reduced motion takes the instant change after that delay, not no delay.
   const dimmed = `transition-opacity delay-150 motion-reduce:duration-0 ${stale ? 'opacity-60' : 'delay-0'}`
@@ -180,6 +195,45 @@ function SchedulePage() {
   // should close a sheet showing a job that day no longer contains.
   const setDay = (dayKey: string) =>
     navigate({ search: (prev) => ({ view: prev.view, date: dayKey }), replace: true })
+  // From the week to one of its days. A push, unlike `setDay`: Back returns
+  // to the week the day was opened from.
+  const openDay = (dayKey: string) =>
+    navigate({ search: { date: dayKey, view: lastDayView.current } })
+
+  // Projected visits on the selected day, when it is still ahead: not on its
+  // list and in no count, but worth saying so the day does not look clear.
+  const recurringDue =
+    selectedKey > today
+      ? (week.find((d) => d.dayKey === selectedKey)?.recurringCount ?? 0)
+      : 0
+  const totals = weekTotals(week)
+  const weekSummary = (
+    <p className="flex flex-wrap items-center gap-x-1.5 text-caption tabular-nums text-ink-2">
+      <span>
+        {totals.jobs} {totals.jobs === 1 ? 'job' : 'jobs'}
+      </span>
+      {totals.recurring > 0 && (
+        <span>
+          · {totals.recurring} recurring{' '}
+          {totals.recurring === 1 ? 'visit' : 'visits'}
+        </span>
+      )}
+    </p>
+  )
+  const weekView = (
+    <WeekView
+      businessId={business._id}
+      businessSlug={business.slug}
+      timezone={business.timezone}
+      weekStart={weekStart}
+      todayKey={today}
+      focusKey={selectedKey}
+      week={week}
+      showTeam={mode !== 'mine'}
+      onOpenJob={setOpenJobId}
+      onOpenDay={openDay}
+    />
+  )
 
   return (
     <>
@@ -214,27 +268,53 @@ function SchedulePage() {
             monthKey={monthKey ?? requestedKey.slice(0, 7)}
             selectedKey={requestedKey}
             todayKey={today}
+            weekStart={shownView === 'week' ? weekStart : undefined}
             onSelect={setDay}
             onMonthChange={setMonthKey}
           />
           <div aria-busy={stale || undefined} className={`min-w-0 ${dimmed}`}>
-            <DayAgendaPanel
-              businessId={business._id}
-              state={business.state}
-              timezone={business.timezone}
-              selectedKey={selectedKey}
-              todayKey={today}
-              jobs={jobs}
-              members={members}
-              view={activeView}
-              onViewChange={setView}
-              onOpenJob={setOpenJobId}
-            />
+            {shownView === 'week' ? (
+              <div className="flex min-w-0 flex-col gap-3">
+                <div className="flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <h2 className="text-sheet-title text-ink">
+                      {formatWeekRange(weekStart)}
+                    </h2>
+                    {weekSummary}
+                  </div>
+                  <Segmented
+                    label="View"
+                    value={activeView}
+                    options={SCHEDULE_VIEW_OPTIONS}
+                    onChange={setView}
+                  />
+                </div>
+                {weekView}
+              </div>
+            ) : (
+              <DayAgendaPanel
+                businessId={business._id}
+                businessSlug={business.slug}
+                state={business.state}
+                timezone={business.timezone}
+                selectedKey={selectedKey}
+                todayKey={today}
+                jobs={jobs}
+                members={members}
+                view={activeView}
+                onViewChange={setView}
+                onOpenJob={setOpenJobId}
+                recurringDue={recurringDue}
+              />
+            )}
           </div>
         </section>
       ) : (
         <>
-          <div className="chrome-blur sticky top-[76px] z-20 border-b border-hairline">
+          <div
+            data-schedule-chrome
+            className="chrome-blur sticky top-[76px] z-20 border-b border-hairline"
+          >
             <div className="flex items-center justify-between px-3 pt-2">
               <button
                 type="button"
@@ -282,29 +362,48 @@ function SchedulePage() {
             className={`px-4 pt-4 pb-6 ${dimmed}`}
           >
             <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h2 className="section-label">
-                {formatDayLabel(selectedKey)}
-              </h2>
+              <div className="min-w-0">
+                <h2 className="section-label">
+                  {shownView === 'week'
+                    ? formatWeekRange(weekStart)
+                    : formatDayLabel(selectedKey)}
+                </h2>
+                {shownView === 'week' && weekSummary}
+              </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Segmented
                   label="View"
                   value={activeView}
-                  options={VIEW_OPTIONS}
+                  options={SCHEDULE_VIEW_OPTIONS}
                   onChange={setView}
                 />
-                <ScheduleFilterBar
-                  jobs={jobs}
-                  members={members}
-                  status={status}
-                  setStatus={setStatus}
-                  staffId={staffId}
-                  setStaffId={setStaffId}
-                  hideStaff={mode === 'mine'}
-                />
+                {/* The week is unfiltered: its numbers are the week's. */}
+                {shownView !== 'week' && (
+                  <ScheduleFilterBar
+                    jobs={jobs}
+                    members={members}
+                    status={status}
+                    setStatus={setStatus}
+                    staffId={staffId}
+                    setStaffId={setStaffId}
+                    hideStaff={mode === 'mine'}
+                  />
+                )}
               </div>
             </div>
 
-            {filteredJobs.length === 0 ? (
+            {shownView !== 'week' && (
+              <div className="mb-3 empty:hidden">
+                <RecurringDueNote
+                  count={recurringDue}
+                  businessSlug={business.slug}
+                />
+              </div>
+            )}
+
+            {shownView === 'week' ? (
+              weekView
+            ) : filteredJobs.length === 0 ? (
               <EmptyState
                 title={
                   jobs.length === 0
@@ -319,7 +418,7 @@ function SchedulePage() {
                     : 'No jobs match this filter.'
                 }
               />
-            ) : activeView === 'table' ? (
+            ) : shownView === 'table' ? (
               <JobTable
                 jobs={filteredJobs}
                 weather={weather}

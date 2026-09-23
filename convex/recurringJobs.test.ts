@@ -298,6 +298,8 @@ describe('projected visits stay out of every job total', () => {
     })
     const todayCell = week.find((d) => d.dayKey === today)
     expect(todayCell?.count ?? 0).toBe(0)
+    // Counted apart instead (Phase 4.4): its own number, on its own day.
+    expect(todayCell?.recurringCount).toBe(1)
 
     const month = await s.owner.as.query(api.jobs.listMonth, {
       businessId: s.businessId,
@@ -458,6 +460,9 @@ describe('projected visits stay out of every job total', () => {
     // A daily series projects a visit on every one of the next seven days.
     // Exactly one of them is work anybody has actually booked.
     expect(week.reduce((n, d) => n + d.count, 0)).toBe(1)
+    // The rest are the week's second number: tomorrow is the hand-booked
+    // visit, and the five days after it hold one projection each.
+    expect(week.reduce((n, d) => n + d.recurringCount, 0)).toBe(5)
   })
 
   test('the month grid and the team legend agree with it', async () => {
@@ -512,7 +517,106 @@ describe('projected visits stay out of every job total', () => {
       startKey: dayKeyOf(Date.now(), TZ),
     })
     expect(week.reduce((n, d) => n + d.count, 0)).toBe(0)
+    expect(week.reduce((n, d) => n + d.recurringCount, 0)).toBe(0)
     expect((await recurringView(s)).jobs).toHaveLength(0)
+  })
+})
+
+/**
+ * Phase 4.4: the week shows booked work and projected visits side by side,
+ * as two numbers that are never added together.
+ */
+describe('the week counts projected visits apart', () => {
+  /** The first projection of a weekly series anchored tomorrow — eight days
+   * out — moved to noon yesterday, as if nobody had actioned it. */
+  async function overdueVisit(s: Setup, assignee = s.ownerMembershipId) {
+    const recurrenceId = await series(
+      s,
+      { count: 1, unit: 'week' },
+      Date.now() + DAY,
+      assignee,
+    )
+    const visit = (
+      await s.t.run(async (ctx) =>
+        ctx.db
+          .query('jobs')
+          .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
+          .collect(),
+      )
+    )
+      .filter((j) => j.status === 'recurring')
+      .sort((a, b) => a.scheduledAt - b.scheduledAt)[0]
+    const yesterday = addDaysToKey(dayKeyOf(Date.now(), TZ), -1)
+    await s.t.run(async (ctx) =>
+      ctx.db.patch(visit._id, {
+        scheduledAt: Date.parse(`${yesterday}T12:00:00+08:00`),
+      }),
+    )
+    return { recurrenceId, visitId: visit._id, yesterday }
+  }
+
+  function weekFrom(s: Setup, startKey: string, as = s.owner.as) {
+    return as.query(api.jobs.listWeek, { businessId: s.businessId, startKey })
+  }
+
+  test('an overdue visit is counted on its own day, and not carried onto today', async () => {
+    const s = await setup()
+    const { yesterday } = await overdueVisit(s)
+    const today = dayKeyOf(Date.now(), TZ)
+
+    const week = await weekFrom(s, yesterday)
+    expect(week.find((d) => d.dayKey === yesterday)?.recurringCount).toBe(1)
+    expect(week.find((d) => d.dayKey === today)?.recurringCount).toBe(0)
+    // listDay does carry it onto today — that and the nav badge are the
+    // escalation; the week's numbers stay honest about which day it was.
+    const todayList = await s.owner.as.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: today,
+    })
+    expect(todayList.some((j) => j.status === 'recurring')).toBe(true)
+  })
+
+  test('the two numbers are never one: booked work is not in the recurring count, nor the reverse', async () => {
+    const s = await setup()
+    const { yesterday } = await overdueVisit(s)
+    const tomorrow = addDaysToKey(dayKeyOf(Date.now(), TZ), 1)
+
+    const week = await weekFrom(s, yesterday)
+    const tomorrowCell = week.find((d) => d.dayKey === tomorrow)
+    expect(tomorrowCell).toMatchObject({ count: 1, recurringCount: 0 })
+    expect(week.find((d) => d.dayKey === yesterday)).toMatchObject({
+      count: 0,
+      recurringCount: 1,
+    })
+  })
+
+  test('a stopped series keeps its unactioned past visit and drops its future ones', async () => {
+    const s = await setup()
+    const { recurrenceId, yesterday } = await overdueVisit(s)
+    await s.owner.as.mutation(api.recurrences.setActive, {
+      businessId: s.businessId,
+      recurrenceId,
+      active: false,
+    })
+
+    const week = await weekFrom(s, yesterday)
+    // Still somebody's missed visit, so still counted where it fell.
+    expect(week.find((d) => d.dayKey === yesterday)?.recurringCount).toBe(1)
+    // Tomorrow's hand-booked visit was cancelled with the series.
+    expect(week.reduce((n, d) => n + d.count, 0)).toBe(0)
+  })
+
+  test('each person counts what they may see, like every other job read', async () => {
+    const s = await setup()
+    const kevin = await createActor(s.t, { email: 'kevin@coastal.test' })
+    const kevinMembershipId = await join(s.t, s.owner, kevin, s.businessId)
+    const { yesterday } = await overdueVisit(s)
+    await overdueVisit(s, kevinMembershipId)
+
+    const owners = await weekFrom(s, yesterday)
+    const kevins = await weekFrom(s, yesterday, kevin.as)
+    expect(owners.find((d) => d.dayKey === yesterday)?.recurringCount).toBe(2)
+    expect(kevins.find((d) => d.dayKey === yesterday)?.recurringCount).toBe(1)
   })
 })
 

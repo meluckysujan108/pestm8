@@ -62,8 +62,15 @@ export function startOfDayInZone(dayKey: string, timezone: string): number {
   return zonedDateTimeToUtc(dayKey, 0, 0, timezone)
 }
 
+/**
+ * The start of the next local day — not start + 24h. A day is 23 or 25 hours
+ * long when the clocks change, and a fixed 24h window then drops the last
+ * hour of a 25-hour Sunday from every day's list (and adds the next day's
+ * first hour to a 23-hour one). No change for Perth, which has no daylight
+ * saving; it matters for every tenant in NSW, VIC, SA, TAS and the ACT.
+ */
 export function endOfDayInZone(dayKey: string, timezone: string): number {
-  return startOfDayInZone(dayKey, timezone) + 24 * 60 * 60 * 1000
+  return startOfDayInZone(addDaysToKey(dayKey, 1), timezone)
 }
 
 function pad(n: number): string {

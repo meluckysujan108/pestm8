@@ -209,11 +209,13 @@ test('the job card and the table row both show the suburb alone', async ({
   const card = page.getByRole('button', { name: /Termite Inspection/ })
   await expect(card).toBeVisible()
 
-  // "Job" — the cards — is the default, and the only other view is the table.
+  // "Job" — the cards — is the default; the others are the table and, since
+  // Phase 4.4, the week.
   await expect(view.getByRole('tab', { name: 'Job' })).toHaveAttribute(
     'aria-selected',
     'true',
   )
+  await expect(view.getByRole('tab')).toHaveCount(3)
   await expect(view.getByRole('tab', { name: 'List' })).toHaveCount(0)
   await expect(card).toContainText('Bayswater')
   await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
@@ -289,4 +291,197 @@ test('a job card renders a weather panel for its own suburb', async ({
   // a live geocode + forecast round trip and passes or fails on timing.
   await expect(card.getByTestId('weather-pending')).toHaveCount(0)
   await expect(card).toContainText(/\d+°|No forecast/)
+})
+
+/** A Perth day, as the schedule's `?date=` names it. */
+function perthKey(ts: number) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Perth',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(ts))
+}
+
+/** "YYYY-MM-DD" plus `days`, by the calendar. */
+function plusDays(dayKey: string, days: number) {
+  const d = new Date(`${dayKey}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Next week, Monday to Sunday — wholly ahead of today whatever day the suite
+ * runs, so every projection in it is a future one: counted apart, not drawn.
+ * Monday holds a daily series' hand-booked first visit, and Tuesday a job
+ * booked by hand; the series projects one visit onto each of Tuesday to
+ * Sunday.
+ */
+async function seedNextWeek(prefix: string) {
+  const email = uniqueEmail(prefix)
+  const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
+  const { businessId, slug } = await owner.client.mutation(
+    api.businesses.create,
+    {
+      name: `${prefix} ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
+  )
+  const propertyId = await owner.client.mutation(api.properties.create, {
+    businessId,
+    clientName: 'J. Nguyen',
+    addressLine: '12 Wattle Street',
+    suburb: 'Bayswater',
+    state: 'WA',
+    postcode: '6053',
+  })
+  const members = await owner.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
+  const ownerMembershipId = members.find((m) => m.role === 'owner')!._id
+
+  const today = perthKey(Date.now())
+  const weekday = (new Date(`${today}T00:00:00Z`).getUTCDay() + 6) % 7
+  const monday = plusDays(today, 7 - weekday)
+  const tuesday = plusDays(monday, 1)
+  const perthAt = (dayKey: string, hour: number) =>
+    Date.parse(`${dayKey}T${String(hour).padStart(2, '0')}:00:00+08:00`)
+
+  await owner.client.mutation(api.recurrences.create, {
+    businessId,
+    propertyId,
+    assignedMembershipId: ownerMembershipId,
+    intervalCount: 1,
+    intervalUnit: 'day',
+    jobType: 'Rodent Baiting',
+    price: 12000,
+    anchorDate: perthAt(monday, 10),
+    durationMinutes: 30,
+  })
+  await owner.client.mutation(api.jobs.create, {
+    businessId,
+    propertyId,
+    assignedMembershipId: ownerMembershipId,
+    jobType: 'Termite Inspection',
+    price: 38000,
+    scheduledAt: perthAt(tuesday, 14),
+    durationMinutes: 90,
+  })
+
+  return { email, slug, monday, tuesday }
+}
+
+/**
+ * Phase 4.4: the week, with booked jobs and projected visits as two numbers
+ * that are never added together.
+ */
+test('the week view lists the week’s jobs and counts recurring visits apart', async ({
+  page,
+}) => {
+  const s = await seedNextWeek('weekview')
+  await signInViaUi(page, s.email)
+  await page.goto(`/${s.slug}/schedule?view=week&date=${s.monday}`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+
+  // The week's totals, side by side: the Monday visit and the Tuesday job,
+  // then Tuesday to Sunday's six projections — never "8".
+  await expect(page.getByText('2 jobs', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('· 6 recurring visits')).toBeVisible()
+
+  const tuesday = page.locator(`#week-day-${s.tuesday}`)
+  await expect(tuesday.getByText('1 job', { exact: true })).toBeVisible()
+  await expect(
+    tuesday.getByRole('link', { name: '1 recurring visit not yet booked' }),
+  ).toBeVisible()
+  // Booked work is drawn; a projection still ahead of its day is not.
+  await expect(
+    tuesday.getByRole('button', { name: /Termite Inspection/ }),
+  ).toBeVisible()
+  await expect(tuesday.getByText('Rodent Baiting')).toHaveCount(0)
+
+  // On a phone the strip says the same, as the day's description.
+  if (test.info().project.name === 'mobile') {
+    await expect(
+      page.getByRole('button', { name: s.tuesday, exact: true }),
+    ).toHaveAccessibleDescription('1 job, 1 recurring visit not yet booked')
+  }
+})
+
+test('a block opens its job, and a day opens its own view with Back returning to the week', async ({
+  page,
+}) => {
+  const s = await seedNextWeek('weeknav')
+  await signInViaUi(page, s.email)
+  await page.goto(`/${s.slug}/schedule?view=week&date=${s.monday}`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+
+  const tuesday = page.locator(`#week-day-${s.tuesday}`)
+  await clickUntil(
+    tuesday.getByRole('button', { name: /Termite Inspection/ }),
+    () => expect(page.getByRole('dialog')).toBeVisible({ timeout: 2_000 }),
+  )
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+
+  await tuesday.locator(`#week-day-${s.tuesday}-heading`).click()
+  await expect(page).toHaveURL(new RegExp(`date=${s.tuesday}`))
+  await expect(page).toHaveURL(/view=job/)
+  await expect(
+    page
+      .getByRole('tablist', { name: 'View' })
+      .getByRole('tab', { name: 'Job' }),
+  ).toHaveAttribute('aria-selected', 'true')
+
+  await page.goBack()
+  await expect(page).toHaveURL(/view=week/)
+  await expect(page.locator(`#week-day-${s.monday}`)).toBeVisible()
+})
+
+test('the week is kept in the URL, and a view that does not exist falls back', async ({
+  page,
+}) => {
+  const s = await seedNextWeek('weekurl')
+  await signInViaUi(page, s.email)
+  await page.goto(`/${s.slug}/schedule?view=week&date=${s.monday}`)
+
+  const week = page
+    .getByRole('tablist', { name: 'View' })
+    .getByRole('tab', { name: 'Week' })
+  await expect(week).toHaveAttribute('aria-selected', 'true')
+  await page.reload()
+  await expect(week).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator(`#week-day-${s.monday}`)).toBeVisible()
+
+  await page.goto(`/${s.slug}/schedule?view=weekly&date=${s.monday}`)
+  await expect(
+    page
+      .getByRole('tablist', { name: 'View' })
+      .getByRole('tab', { name: 'Job' }),
+  ).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator(`#week-day-${s.monday}`)).toHaveCount(0)
+})
+
+/**
+ * The strip sits under a sticky header whose height viewMenu.spec.ts pins, at
+ * a hard-coded offset — so a strip that grew to hold the recurring number
+ * would slide under it. Same height in the week as in the day.
+ */
+test('the phone’s sticky strip is the same height in the week as in the day', async ({
+  page,
+}) => {
+  test.skip(test.info().project.name !== 'mobile', 'phone layout only')
+  const s = await seedNextWeek('weekstrip')
+  await signInViaUi(page, s.email)
+
+  const chrome = page.locator('[data-schedule-chrome]')
+  await page.goto(`/${s.slug}/schedule?view=job&date=${s.monday}`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  const dayHeight = (await chrome.boundingBox())!.height
+
+  await page.goto(`/${s.slug}/schedule?view=week&date=${s.monday}`)
+  await expect(page.locator(`#week-day-${s.monday}`)).toBeVisible()
+  const weekHeight = (await chrome.boundingBox())!.height
+
+  expect(Math.abs(weekHeight - dayHeight)).toBeLessThanOrEqual(0.5)
 })
