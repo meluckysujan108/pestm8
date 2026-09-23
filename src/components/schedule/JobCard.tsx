@@ -69,8 +69,16 @@ export function JobCard({
    * noise rather than information. */
   hideTechnician?: boolean
 }) {
+  /**
+   * The card is a frame, not a button. Opening the job is one button inside
+   * it, holding everything that describes the job, so anything else that
+   * acts — a call, a map — can sit beside it as a real control rather than
+   * nested inside another (invalid HTML, and the outer click swallows the
+   * inner one). The frame shrinks when that button is pressed, as the whole
+   * card did when it was the button.
+   */
   const shell =
-    'flex w-full items-stretch gap-3.5 rounded-2xl border border-hairline bg-surface text-left shadow-elevation transition active:scale-[.99]'
+    'flex h-full w-full items-stretch gap-3.5 rounded-2xl border border-hairline bg-surface shadow-elevation transition has-[.job-card-open:active]:scale-[.99]'
 
   /**
    * "19 Sep" when this is a projected visit whose day has passed, otherwise
@@ -89,92 +97,94 @@ export function JobCard({
       : null
 
   return (
-    <button
-      type="button"
-      onClick={() => onOpen(job._id)}
-      className={`${shell} h-full p-0`}
-    >
+    <div className={shell}>
       <span
         aria-hidden
         className="w-1.5 shrink-0 rounded-l-2xl"
         style={{ backgroundColor: job.assigneeColour }}
       />
 
-      <span className="flex min-w-0 flex-1 flex-col gap-3 p-4 pl-1">
-        <span className="flex items-center justify-between gap-2">
-          <span className="flex min-w-0 items-center gap-2">
-            {job.jobNumber !== undefined && (
-              <span className="shrink-0 font-mono text-caption font-bold tabular-nums text-muted">
-                #{job.jobNumber}
-              </span>
-            )}
-            <StatusPill status={job.status} />
-            {job.recurrenceId !== undefined && (
-              <Repeat
-                size={13}
-                strokeWidth={1.7}
-                role="img"
-                aria-label="Recurring job"
-                className="shrink-0 text-blue"
-              />
-            )}
-          </span>
-          <span className="shrink-0 font-mono text-caption tabular-nums text-muted">
-            {formatTime(job.scheduledAt, timezone)}
-          </span>
-        </span>
-
-        {/* A projection carried forward from a day nobody opened. Its time and
-            date are no longer today's, so the card has to say which day it was
-            due or it reads as work scheduled for now. */}
-        {overdueSince !== null && (
-          <span className="flex items-center gap-1.5 rounded-lg bg-amber-bg px-2 py-1 text-caption font-semibold text-amber-ink">
-            <TriangleAlert size={13} strokeWidth={2} aria-hidden />
-            Overdue since {overdueSince}
-          </span>
-        )}
-
-        <span className="block min-w-0">
-          <span className="block truncate text-sheet-title text-ink">
-            {job.clientName}
-          </span>
-          {/* The full street address: a card this size is being read, not
-              scanned past. */}
-          <span className="mt-0.5 block truncate text-caption text-muted">
-            {[job.addressLine, job.suburb, job.postcode]
-              .filter(Boolean)
-              .join(', ')}
-          </span>
-        </span>
-
-        <span className="block border-t border-hairline-2 pt-1.5">
-          <Row label="Service">{job.jobType}</Row>
-          <Row label="Time">{timeRange(job, timezone)}</Row>
-          {job.assigneeName && !hideTechnician && (
-            <Row label="Technician">
-              <span className="inline-flex items-center gap-1.5">
-                <span
-                  aria-hidden
-                  className="size-2 shrink-0 rounded-full"
-                  style={{ backgroundColor: job.assigneeColour }}
+      <div className="flex min-w-0 flex-1 flex-col">
+        <button
+          type="button"
+          onClick={() => onOpen(job._id)}
+          className="job-card-open flex min-w-0 flex-1 flex-col gap-3 rounded-r-2xl p-4 pl-1 text-left"
+        >
+          <span className="flex items-center justify-between gap-2">
+            <span className="flex min-w-0 items-center gap-2">
+              {job.jobNumber !== undefined && (
+                <span className="shrink-0 font-mono text-caption font-bold tabular-nums text-muted">
+                  #{job.jobNumber}
+                </span>
+              )}
+              <StatusPill status={job.status} />
+              {job.recurrenceId !== undefined && (
+                <Repeat
+                  size={13}
+                  strokeWidth={1.7}
+                  role="img"
+                  aria-label="Recurring job"
+                  className="shrink-0 text-blue"
                 />
-                {job.assigneeName}
-              </span>
-            </Row>
+              )}
+            </span>
+            <span className="shrink-0 font-mono text-caption tabular-nums text-muted">
+              {formatTime(job.scheduledAt, timezone)}
+            </span>
+          </span>
+
+          {/* A projection carried forward from a day nobody opened. Its time and
+              date are no longer today's, so the card has to say which day it was
+              due or it reads as work scheduled for now. */}
+          {overdueSince !== null && (
+            <span className="flex items-center gap-1.5 rounded-lg bg-amber-bg px-2 py-1 text-caption font-semibold text-amber-ink">
+              <TriangleAlert size={13} strokeWidth={2} aria-hidden />
+              Overdue since {overdueSince}
+            </span>
           )}
-        </span>
 
-        <WeatherStrip cell={weather} />
+          <span className="block min-w-0">
+            <span className="block truncate text-sheet-title text-ink">
+              {job.clientName}
+            </span>
+            {/* The full street address: a card this size is being read, not
+                scanned past. */}
+            <span className="mt-0.5 block truncate text-caption text-muted">
+              {[job.addressLine, job.suburb, job.postcode]
+                .filter(Boolean)
+                .join(', ')}
+            </span>
+          </span>
 
-        <span className="mt-auto flex items-end justify-between gap-2 border-t border-hairline-2 pt-3">
-          <span className="min-w-0 truncate text-caption text-muted">
-            {travel ?? ''}
+          <span className="block border-t border-hairline-2 pt-1.5">
+            <Row label="Service">{job.jobType}</Row>
+            <Row label="Time">{timeRange(job, timezone)}</Row>
+            {job.assigneeName && !hideTechnician && (
+              <Row label="Technician">
+                <span className="inline-flex items-center gap-1.5">
+                  <span
+                    aria-hidden
+                    className="size-2 shrink-0 rounded-full"
+                    style={{ backgroundColor: job.assigneeColour }}
+                  />
+                  {job.assigneeName}
+                </span>
+              </Row>
+            )}
           </span>
-          <span className="shrink-0 text-metric-sm leading-none text-ink">
-            {formatJobMoney(job)}
+
+          <WeatherStrip cell={weather} />
+
+          <span className="mt-auto flex items-end justify-between gap-2 border-t border-hairline-2 pt-3">
+            <span className="min-w-0 truncate text-caption text-muted">
+              {travel ?? ''}
+            </span>
+            <span className="shrink-0 text-metric-sm leading-none text-ink">
+              {formatJobMoney(job)}
+            </span>
           </span>
-        </span>
-      </span>
-    </button>
+        </button>
+      </div>
+    </div>
   )
 }
