@@ -913,6 +913,25 @@ export function canSetLicence(
   return canManageMember(actor, target)
 }
 
+/**
+ * A technician's colour is the business's scheduling convention — whose work
+ * is whose, across every calendar the team shares — so the owner sets it, for
+ * anyone including themselves. `canManageMember` is the wrong question here:
+ * it refuses the owner's own row, and the owner's colour is the first one a
+ * new business has to be able to change. Nobody else sets colours, and not
+ * while switched: an owner working in Kevin's account is Kevin for the
+ * moment, and Kevin does not choose the team's colours.
+ */
+export function canSetColour(
+  actor: ReadActor,
+  target: MembershipFacts,
+): boolean {
+  if (isSwitched(actor)) return false
+  if (actor.real.businessId !== target.businessId) return false
+  if (target.status === 'removed') return false
+  return actor.real.role === 'owner'
+}
+
 /** Name and phone always edit the real person: someone working in a colleague's
  * account who opens Settings is editing themselves. */
 export function profileEditTarget(actor: ReadActor): Id<'memberships'> {

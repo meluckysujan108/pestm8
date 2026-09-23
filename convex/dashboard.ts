@@ -52,8 +52,9 @@ export const summary = query({
       upcomingCount: live.filter(
         (j) => j.scheduledAt >= dayEnd && NOT_STARTED_STATUSES.has(j.status),
       ).length,
-      // The amber state: work done, money not yet billed. This is the number
-      // the owner is meant to act on.
+      // Work done, money not yet billed: the number the owner is meant to act
+      // on. (It was the amber state on every card until Phase 4.3 made
+      // Completed green; Analytics links from this figure to those jobs.)
       /**
        * The count travels with the value, and that is not tidiness.
        *

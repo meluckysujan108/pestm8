@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import { canViewAs, getAuthUserId, requireMembership } from './lib/access'
-import { nextColour } from './lib/colours'
+import { isMemberColour, nextColour, normaliseColour } from './lib/colours'
 import { inviteState } from './lib/inviteTokens'
 import { grants, role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
@@ -16,6 +16,7 @@ import {
 import {
   canDispatchTo,
   canManageMember,
+  canSetColour,
   clampGrants,
   NO_GRANTS,
   recomputeGrants,
@@ -219,7 +220,10 @@ export const invite = mutation({
       .query('memberships')
       .withIndex('by_business', (q) => q.eq('businessId', args.businessId))
       .collect()
-    const colour = nextColour(members.map((m) => m.colour))
+    // Someone who left does not keep a colour from the next person.
+    const colour = nextColour(
+      members.filter((m) => m.status !== 'removed').map((m) => m.colour),
+    )
 
     const membershipId = existing
       ? (await ctx.db.patch(existing._id, {
@@ -541,6 +545,58 @@ export const setLicence = mutation({
         at: Date.now(),
       })
     }
+  },
+})
+
+/**
+ * A technician's colour (Phase 4.2), set by the owner from Settings → Team —
+ * for anyone, their own row included (`canSetColour`). Only the palette's
+ * colours are accepted: the picker offers nothing else, and each was chosen
+ * to stay visible as a rail on both themes, which an arbitrary colour need
+ * not be. Two people may share one; the picker says when they would.
+ */
+export const setColour = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    membershipId: v.id('memberships'),
+    colour: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const env = await requireWriteActor(ctx, args.businessId)
+    requireCapability(env, 'business.manage')
+
+    const target = await ctx.db.get(args.membershipId)
+    if (
+      !target ||
+      target.businessId !== args.businessId ||
+      target.status === 'removed'
+    ) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    if (!canSetColour(env.actor, factsFromMembership(target))) {
+      throw new ConvexError('NO_ACCESS')
+    }
+
+    const colour = normaliseColour(args.colour)
+    if (colour === null || !isMemberColour(colour)) {
+      throw new ConvexError('INVALID_COLOUR')
+    }
+
+    const previous = target.colour
+    if (normaliseColour(previous) === colour) return
+
+    await ctx.db.patch(args.membershipId, { colour })
+
+    // Whose work is whose on every calendar the team shares: worth a trace
+    // when it changes, as a licence number is.
+    await recordAudit(ctx, forSelf(env.actor.real._id), {
+      businessId: args.businessId,
+      action: 'membership.setColour',
+      entityType: 'memberships',
+      entityId: args.membershipId,
+      meta: { from: previous, to: colour },
+      at: Date.now(),
+    })
   },
 })
 

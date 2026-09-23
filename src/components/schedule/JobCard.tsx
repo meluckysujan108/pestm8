@@ -1,13 +1,13 @@
-import { Repeat, TriangleAlert } from 'lucide-react'
+import { CalendarClock, Repeat } from 'lucide-react'
 import { formatDuration, formatJobMoney, formatTime } from '#/lib/format'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
-import { cardActionsFor } from '#/lib/jobCardActions'
+import { cardActionsFor, isOverdueProjection } from '#/lib/jobCardActions'
 import { mapsUrl } from '#/lib/maps'
+import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { WeatherStrip } from './WeatherStrip'
 import type { JobStatus } from '#/components/primitives/StatusPill'
 import type { WeatherCell } from '#/lib/weather'
-import { dayKeyOf } from '../../../convex/lib/dates'
 
 export type JobRow = {
   _id: string
@@ -105,15 +105,13 @@ export function JobCard({
    * having to re-query.
    */
   const now = Date.now()
-  const overdueSince =
-    job.status === 'recurring' &&
-    dayKeyOf(job.scheduledAt, timezone) < dayKeyOf(now, timezone)
-      ? new Intl.DateTimeFormat('en-AU', {
-          timeZone: timezone,
-          day: 'numeric',
-          month: 'short',
-        }).format(new Date(job.scheduledAt))
-      : null
+  const overdueSince = isOverdueProjection(job, timezone, now)
+    ? new Intl.DateTimeFormat('en-AU', {
+        timeZone: timezone,
+        day: 'numeric',
+        month: 'short',
+      }).format(new Date(job.scheduledAt))
+    : null
 
   // What sits beside the open button: Call and Map on committed work, a
   // call to book a projection whose day has come, nothing otherwise. Worked
@@ -152,7 +150,9 @@ export function JobCard({
                   strokeWidth={1.7}
                   role="img"
                   aria-label="Recurring job"
-                  className="shrink-0 text-blue"
+                  // Not blue: blue is Invoiced now (src/lib/statusColours.ts),
+                  // and this marks a series, not a status.
+                  className="shrink-0 text-ink-2"
                 />
               )}
             </span>
@@ -163,10 +163,13 @@ export function JobCard({
 
           {/* A projection carried forward from a day nobody opened. Its time and
               date are no longer today's, so the card has to say which day it was
-              due or it reads as work scheduled for now. */}
+              due or it reads as work scheduled for now. Ink, not a hue: see
+              `--overdue` in styles.css. */}
           {overdueSince !== null && (
-            <span className="flex items-center gap-1.5 rounded-lg bg-amber-bg px-2 py-1 text-caption font-semibold text-amber-ink">
-              <TriangleAlert size={13} strokeWidth={2} aria-hidden />
+            <span
+              className={`inline-flex items-center gap-1.5 self-start rounded-full px-2.5 py-1 text-[12px] font-semibold ${OVERDUE_CHIP}`}
+            >
+              <CalendarClock size={13} strokeWidth={2} aria-hidden />
               Overdue since {overdueSince}
             </span>
           )}
@@ -186,6 +189,11 @@ export function JobCard({
           <span className="block border-t border-hairline-2 pt-1.5">
             <Row label="Service">{job.jobType}</Row>
             <Row label="Time">{timeRange(job, timezone)}</Row>
+            {/* Off the Schedule's cards, where the rail's colour says whose job
+                it is — which a screen reader cannot see, so it still says. */}
+            {job.assigneeName && hideTechnician && (
+              <span className="sr-only">Technician: {job.assigneeName}</span>
+            )}
             {job.assigneeName && !hideTechnician && (
               <Row label="Technician">
                 <span className="inline-flex items-center gap-1.5">

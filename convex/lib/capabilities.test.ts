@@ -10,6 +10,7 @@ import {
   canEditJob,
   canFinaliseReport,
   canManageMember,
+  canSetColour,
   canSetLicence,
   canSwitchInto,
   capabilitiesOf,
@@ -649,6 +650,33 @@ describe('a licence belongs to its holder', () => {
     expect(canSetLicence(self(sub()), sub())).toBe(true)
     expect(canSetLicence(self(owner()), sub())).toBe(true)
     expect(canSetLicence(self(sub()), contractor())).toBe(false)
+  })
+})
+
+describe('a technician’s colour is the owner’s to set', () => {
+  test('the owner sets anyone’s, their own included — which canManageMember refuses', () => {
+    expect(canSetColour(self(owner()), sub())).toBe(true)
+    expect(canSetColour(self(owner()), contractor())).toBe(true)
+    expect(canSetColour(self(owner()), owner())).toBe(true)
+    expect(canManageMember(self(owner()), owner())).toBe(false)
+  })
+
+  test('nobody else sets a colour, not even their own or their own team’s', () => {
+    expect(canSetColour(self(sub()), sub())).toBe(false)
+    expect(canSetColour(self(contractor()), contractor())).toBe(false)
+    expect(canSetColour(self(contractor()), sub())).toBe(false)
+  })
+
+  test('not while working in someone else’s account', () => {
+    expect(canSetColour(switched(owner(), sub()), sub())).toBe(false)
+    expect(canSetColour(switched(owner(), sub()), owner())).toBe(false)
+  })
+
+  test('not for someone who has left, or who is in another business', () => {
+    expect(canSetColour(self(owner()), sub({ status: 'removed' }))).toBe(false)
+    expect(
+      canSetColour(self(owner()), sub({ businessId: OTHER_BUSINESS })),
+    ).toBe(false)
   })
 })
 

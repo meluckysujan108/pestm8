@@ -2,6 +2,7 @@
 import { convexTest } from 'convex-test'
 import betterAuthTest from '@convex-dev/better-auth/test'
 import schema from '../convex/schema'
+import { MEMBER_COLOURS } from '../convex/lib/colours'
 import { components } from '../convex/_generated/api'
 import type { Id } from '../convex/_generated/dataModel'
 
@@ -169,7 +170,9 @@ export async function createBusiness(
       businessId,
       role: 'owner',
       canViewAllJobs: true,
-      colour: '#FF3B30',
+      // What businesses.create deals the owner, so tests stand on the same
+      // colour a real business starts with.
+      colour: MEMBER_COLOURS[0],
       status: 'active',
       createdAt: now,
     })

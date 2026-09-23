@@ -22,6 +22,7 @@ import { MobileDock } from './MobileDock'
 import { MORE_NAV, PRIMARY_NAV, SETTINGS_ITEM } from './navItems'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
+import { OVERDUE_CHIP } from '#/lib/statusColours'
 
 export type ShellBusiness = {
   _id: Id<'businesses'>
@@ -140,11 +141,15 @@ export function AppShell({
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
-                    {/* Amber, not blue: unlike an unread mention, this is
-                        work that should already have happened. */}
+                    {/* Ink, not blue and not amber: unlike an unread mention
+                        this is work that should already have happened, and
+                        overdue carries no hue anywhere (`--overdue`). */}
                     {item.label === 'Job' && overdue > 0 && (
-                      <SidebarMenuBadge className="rounded-full bg-amber-ink px-1.5 text-[11px] font-bold text-white">
+                      <SidebarMenuBadge
+                        className={`rounded-full px-1.5 text-[11px] font-bold ${OVERDUE_CHIP}`}
+                      >
                         {overdue >= 10 ? '9+' : overdue}
+                        <span className="sr-only"> overdue</span>
                       </SidebarMenuBadge>
                     )}
                   </SidebarMenuItem>

@@ -5,6 +5,8 @@ import {
   formatTime,
 } from '#/lib/format'
 import { StatusPill } from '#/components/primitives/StatusPill'
+import { isOverdueProjection } from '#/lib/jobCardActions'
+import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { WeatherGlyph } from './WeatherGlyph'
 import type { JobRow } from './JobCard'
 import type { WeatherLookup } from '#/lib/weather'
@@ -30,6 +32,7 @@ export function JobTable({
   timezone: string
   onOpenJob: (jobId: string) => void
 }) {
+  const now = Date.now()
   return (
     <div className="overflow-x-auto rounded-2xl border border-hairline bg-surface shadow-elevation">
       <table className="w-full min-w-[760px] text-left">
@@ -74,12 +77,19 @@ export function JobTable({
                         strokeWidth={1.7}
                         role="img"
                         aria-label="Recurring job"
-                        className="shrink-0 text-blue"
+                        className="shrink-0 text-ink-2"
                       />
                     )}
                   </button>
                 </td>
-                <td className="px-2 py-2.5 text-body text-ink-2">{job.clientName}</td>
+                <td className="px-2 py-2.5 text-body text-ink-2">
+                  {job.clientName}
+                  {/* The row's colour border says whose job it is; a screen
+                      reader cannot see a colour. */}
+                  {job.assigneeName && (
+                    <span className="sr-only">, technician {job.assigneeName}</span>
+                  )}
+                </td>
                 <td className="px-2 py-2.5 text-caption tabular-nums text-muted">
                   {formatTime(job.scheduledAt, timezone)}
                 </td>
@@ -95,7 +105,19 @@ export function JobTable({
                   </span>
                 </td>
                 <td className="px-2 py-2.5">
-                  <StatusPill status={job.status} />
+                  <span className="flex items-center gap-1.5">
+                    <StatusPill status={job.status} />
+                    {/* Carried onto today from an earlier day: without this the
+                        row reads as a slot booked for today, since the table
+                        shows a time and no date. */}
+                    {isOverdueProjection(job, timezone, now) && (
+                      <span
+                        className={`rounded-full px-2 py-[3px] text-[12px] font-semibold ${OVERDUE_CHIP}`}
+                      >
+                        Overdue
+                      </span>
+                    )}
+                  </span>
                 </td>
                 <td className="px-4 py-2.5 text-right text-row-title tabular-nums text-ink">
                   {formatJobMoney(job)}

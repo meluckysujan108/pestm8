@@ -1,4 +1,5 @@
 import { Link, useNavigate } from '@tanstack/react-router'
+import { REPORT_PILL } from '#/lib/statusColours'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { Lock, Plus } from 'lucide-react'
@@ -121,13 +122,7 @@ function ReportLine({
         </span>
       </span>
       <span
-        className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-          bucket === 'sent'
-            ? 'bg-blue/12 text-blue'
-            : bucket === 'finalised'
-              ? 'bg-green/12 text-green'
-              : 'border border-amber-line bg-amber-bg text-amber-ink'
-        }`}
+        className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${REPORT_PILL[bucket]}`}
       >
         {bucket !== 'draft' && <Lock size={10} strokeWidth={2.6} />}
         {bucket === 'sent'

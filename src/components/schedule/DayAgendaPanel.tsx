@@ -9,6 +9,8 @@ import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useActing, useViewMode } from '#/lib/access'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { jobsAhead, travelHintsFor } from '#/lib/travel'
+import { isOverdueProjection } from '#/lib/jobCardActions'
+import { OVERDUE_CHIP } from '#/lib/statusColours'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -84,8 +86,19 @@ export function DayAgendaPanel({
     weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
   )
 
-  const overdue = filteredJobs.filter((j) => j.status === 'recurring')
+  // Three numbers, never one: booked work, projected visits due today, and
+  // projected visits whose day has passed. A projection is work nobody has
+  // committed to, so it is in no job total anywhere (the month grid, the
+  // team legend, the dashboard); and "overdue" means what the card's marker
+  // and the nav badge mean by it, so a visit due later today is not one.
+  const now = Date.now()
   const booked = filteredJobs.filter((j) => j.status !== 'recurring')
+  const overdue = filteredJobs.filter((j) =>
+    isOverdueProjection(j, timezone, now),
+  )
+  const due = filteredJobs.filter(
+    (j) => j.status === 'recurring' && !isOverdueProjection(j, timezone, now),
+  )
 
   return (
     <div className="flex min-w-0 flex-col gap-3">
@@ -94,16 +107,15 @@ export function DayAgendaPanel({
           <h2 className="text-sheet-title text-ink">
             {formatDayLabel(selectedKey)}
           </h2>
-          {/* Counted apart, because they are not the same thing. An overdue
-              projection is shown here but is work nobody has committed to —
-              it is in no job total anywhere else either (the month grid, the
-              team legend, the dashboard), and folding it in would make this
-              line the one place that disagrees. */}
-          <p className="text-caption tabular-nums text-muted">
-            {booked.length} {booked.length === 1 ? 'job' : 'jobs'}
+          <p className="flex flex-wrap items-center gap-x-1.5 text-caption tabular-nums text-ink-2">
+            <span>
+              {booked.length} {booked.length === 1 ? 'job' : 'jobs'}
+            </span>
+            {due.length > 0 && <span>· {due.length} due</span>}
             {overdue.length > 0 && (
-              <span className="text-amber-ink">
-                {' · '}
+              <span
+                className={`rounded-full px-2 text-[12px] font-semibold leading-5 ${OVERDUE_CHIP}`}
+              >
                 {overdue.length} overdue
               </span>
             )}

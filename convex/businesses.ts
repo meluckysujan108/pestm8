@@ -32,6 +32,9 @@ export const listForUser = query({
         return {
           membershipId: m._id,
           role: m.role,
+          // Live for the sidebar's own-colour dot, which otherwise read the
+          // route context's snapshot and kept an old colour after a change.
+          colour: m.colour,
           canViewAllJobs: m.canViewAllJobs,
           businessId: m.businessId,
           name: business?.name ?? '',

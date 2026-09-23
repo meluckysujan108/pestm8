@@ -55,11 +55,26 @@ re-declared per theme, so nothing else in the system is themed twice.
   --scrim        rgba(0,0,0,.30)        rgba(0,0,0,.60)        sheet backdrop
   --red          #FF3B30                #FF453A    primary action, brand
   --blue         #0A84FF                #0A84FF    links, contact actions
-  --green        #34C759                #30D158    invoiced / success
-  --amber        #FF9F0A                #FF9F0A    completed-awaiting-invoice
+  --green        #34C759                #30D158    success
+  --amber        #FF9F0A                #FF9F0A    warning accent
   --amber-ink    #B26B00                #FFB340    warning text
   --amber-bg     #FFF8EC                #2A1E0A    warning surface
   --amber-line   #FFE2B8                #4D3712    warning border
+
+  Job status ramps (Phase 4.3), one per hue, each a -bg / -line / -ink triple:
+  --orange-*  Recurring   --red-*   Pending    --yellow-*  Booked
+  --green-*   Completed   --blue-*  Invoiced   --grey-*    Cancelled
+  Every -ink clears 7:1 on its -bg (grey 6.3:1) and every -line 3:1 on the
+  card, in both themes — checked against this file by statusColours.test.ts.
+  Which status takes which hue is decided once, in src/lib/statusColours.ts.
+  --overdue / --overdue-ink = --ink / --surface: overdue carries no hue.
+
+  Three signals share a job card, so each keeps its own form: a solid mark
+  with no text is a PERSON (the technician colour, convex/lib/colours.ts —
+  the owner sets it in Settings → Team); a bordered tinted pill with a word is
+  a STATUS; ink with no hue is OVERDUE; and amber with a pale border stays a
+  WARNING. Completed is green since 4.3 — the "raise the invoice" prompt
+  lives on Analytics' Awaiting invoice figure, which links to those jobs.
 
   Dark inverts the elevation model: --canvas is black and cards sit *above* it,
   where light has white cards on a grey canvas. --blue and --amber do not move

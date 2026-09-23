@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { JOB_STATUS } from '#/lib/statusColours'
 import type { JobStatus } from '#/components/primitives/StatusPill'
+import { UNASSIGNED_COLOUR } from '../../convex/lib/colours'
 
 export type StatusFilter = 'all' | JobStatus
 
@@ -10,12 +12,9 @@ export type StatusFilter = 'all' | JobStatus
 // filter could only ever empty the day. Projected visits are kept off the
 // schedule and out of its counts on purpose (`jobsInRange` in convex/jobs.ts)
 // and are read in the Recurring Job view instead.
-export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = [
-  { value: 'pending', label: 'Pending' },
-  { value: 'booked', label: 'Booked' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'invoiced', label: 'Invoiced' },
-]
+export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = (
+  ['pending', 'booked', 'completed', 'invoiced'] as const
+).map((value) => ({ value, label: JOB_STATUS[value].label }))
 
 /**
  * The Job tab's filter. That list holds every job whatever its status, so
@@ -27,7 +26,10 @@ export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = [
 export const JOB_LIST_STATUS_OPTIONS: Array<{
   value: JobStatus
   label: string
-}> = [...STATUS_OPTIONS, { value: 'cancelled', label: 'Cancelled' }]
+}> = [
+  ...STATUS_OPTIONS,
+  { value: 'cancelled', label: JOB_STATUS.cancelled.label },
+]
 
 export type StaffLoad = {
   membershipId: string
@@ -65,7 +67,7 @@ export function computeStaffLoad(
     byId.set(job.assignedMembershipId, {
       membershipId: job.assignedMembershipId,
       name: job.assigneeName || 'Unassigned',
-      colour: job.assigneeColour ?? '#8E8E93',
+      colour: job.assigneeColour ?? UNASSIGNED_COLOUR,
       count: 1,
     })
   }

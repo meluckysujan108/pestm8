@@ -34,3 +34,20 @@ export function cardActionsFor(
   }
   return 'visit'
 }
+
+/**
+ * A projected visit whose day has passed with nobody acting on it: what the
+ * card's "Overdue since" marker, the day header's overdue count and the nav
+ * badge all mean by overdue. One definition, so the header can no longer call
+ * a visit due later today "overdue" while its card says nothing of the kind.
+ */
+export function isOverdueProjection(
+  job: { status: JobStatus; scheduledAt: number },
+  timezone: string,
+  now: number,
+): boolean {
+  return (
+    job.status === 'recurring' &&
+    dayKeyOf(job.scheduledAt, timezone) < dayKeyOf(now, timezone)
+  )
+}

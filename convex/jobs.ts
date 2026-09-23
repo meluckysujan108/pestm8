@@ -32,6 +32,7 @@ import {
   requireBookable,
   requireEditableJob,
 } from './lib/jobAccess'
+import { UNASSIGNED_COLOUR } from './lib/colours'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -130,7 +131,7 @@ async function decorate(
           // loads anyway — and the client book is open to everyone who can
           // see the job (`clients.directory` is 'always' for every role).
           clientPhone: client?.phone ?? '',
-          assigneeColour: assignee?.colour ?? '#8E8E93',
+          assigneeColour: assignee?.colour ?? UNASSIGNED_COLOUR,
           assigneeName: assignee
             ? await nameOf(job.assignedMembershipId, assignee.userId)
             : '',
@@ -396,7 +397,7 @@ export const listWeek = query({
     for (const job of jobs) {
       if (!assignees.has(job.assignedMembershipId)) {
         const m = await ctx.db.get(job.assignedMembershipId)
-        assignees.set(job.assignedMembershipId, m?.colour ?? '#8E8E93')
+        assignees.set(job.assignedMembershipId, m?.colour ?? UNASSIGNED_COLOUR)
       }
     }
 
@@ -423,7 +424,8 @@ export const listWeek = query({
           colours: [
             ...new Set(
               inDay.map(
-                (j) => assignees.get(j.assignedMembershipId) ?? '#8E8E93',
+                (j) =>
+                  assignees.get(j.assignedMembershipId) ?? UNASSIGNED_COLOUR,
               ),
             ),
           ],
@@ -474,7 +476,7 @@ export const listMonth = query({
         postcode: property?.postcode ?? '',
       }
       entry.count += 1
-      entry.colours.add(assignee?.colour ?? '#8E8E93')
+      entry.colours.add(assignee?.colour ?? UNASSIGNED_COLOUR)
       byDay.set(dayKey, entry)
     }
 
@@ -530,7 +532,7 @@ export const monthTeamLoad = query({
         return {
           membershipId,
           name: user?.name ?? 'Unassigned',
-          colour: assignee?.colour ?? '#8E8E93',
+          colour: assignee?.colour ?? UNASSIGNED_COLOUR,
           count,
         }
       }),

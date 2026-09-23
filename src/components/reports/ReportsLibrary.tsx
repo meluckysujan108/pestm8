@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { REPORT_PILL } from '#/lib/statusColours'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
@@ -303,13 +304,7 @@ function ReportRow({
       <p className="mt-0.5 text-body text-ink-2">{row.clientName}</p>
       <p className="mt-0.5 text-caption text-muted">{row.suburb}</p>
       <span
-        className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold ${
-          bucket === 'sent'
-            ? 'bg-blue/12 text-blue'
-            : bucket === 'finalised'
-              ? 'bg-green/12 text-green'
-              : 'border border-amber-line bg-amber-bg text-amber-ink'
-        }`}
+        className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold ${REPORT_PILL[bucket]}`}
       >
         {bucket !== 'draft' && <Lock size={11} strokeWidth={2.4} />}
         {bucket === 'sent'

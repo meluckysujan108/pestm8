@@ -9,7 +9,7 @@ import {
 import { internal } from './_generated/api'
 import { authComponent } from './auth'
 import { getAuthUserId, requireMembership } from './lib/access'
-import { nextColour } from './lib/colours'
+import { isMemberColour, nextColour, normaliseColour } from './lib/colours'
 import {
   INVITE_TTL_MS,
   hashInviteToken,
@@ -314,13 +314,32 @@ export const redeemByHash = internalMutation({
       if (existing.status === 'active') throw new ConvexError('ALREADY_MEMBER')
       // Rejoining starts from the invitation, not from whatever this person
       // held last time: a former owner re-invited as a subcontractor must come
-      // back as a subcontractor, with no grants carried over.
+      // back as a subcontractor, with no grants carried over. Their colour
+      // comes back too — unless it is one no longer offered (a colour from
+      // before Phase 4.2's palette), when they are dealt a current one.
+      const keptColour = normaliseColour(existing.colour)
+      const colour =
+        keptColour && isMemberColour(keptColour)
+          ? keptColour
+          : nextColour(
+              (
+                await ctx.db
+                  .query('memberships')
+                  .withIndex('by_business', (q) =>
+                    q.eq('businessId', invitation.businessId),
+                  )
+                  .collect()
+              )
+                .filter((m) => m.status !== 'removed')
+                .map((m) => m.colour),
+            )
       await ctx.db.patch(existing._id, {
         status: 'active',
         role: invitation.role,
         canViewAllJobs: false,
         canViewOtherAccounts: false,
         viewingAsMembershipId: undefined,
+        colour,
       })
       membershipId = existing._id
     } else {

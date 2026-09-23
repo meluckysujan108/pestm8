@@ -18,6 +18,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Id } from './_generated/dataModel'
 import type { ActorEnvelope } from './lib/actor'
 import type { SwitchRefusal } from './lib/capabilities'
+import { UNASSIGNED_COLOUR } from './lib/colours'
 
 /**
  * Working inside somebody else's account: starting, stopping, and saying so.
@@ -329,7 +330,7 @@ export const targets = query({
         return {
           membershipId: person._id,
           name: user?.name ?? '',
-          colour: row?.colour ?? '#8E8E93',
+          colour: row?.colour ?? UNASSIGNED_COLOUR,
           role: person.role,
         }
       }),

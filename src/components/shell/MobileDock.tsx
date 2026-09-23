@@ -3,6 +3,7 @@ import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import { Menu } from 'lucide-react'
 import { MORE_ITEMS, PRIMARY_NAV } from './navItems'
+import { OVERDUE_CHIP } from '#/lib/statusColours'
 
 /**
  * The phone's primary navigation. Five cells is the most a dock can hold
@@ -71,7 +72,9 @@ export function MobileDock({
             anywhere, and the sheet is what holds the remaining sections. */}
         <button
           type="button"
-          aria-label="More"
+          // The count is part of the name: a badge drawn on a button is not
+          // read out on its own.
+          aria-label={overdueJobs > 0 ? `More, ${overdueJobs} overdue` : 'More'}
           aria-haspopup="dialog"
           aria-expanded={moreOpen}
           onClick={() => setMoreOpen(true)}
@@ -83,7 +86,10 @@ export function MobileDock({
                 lives behind this button, so a badge in there is only seen by
                 someone who already went looking. */}
             {overdueJobs > 0 && (
-              <span className="absolute right-2 top-0 min-w-4 rounded-full bg-amber-ink px-1 text-center text-[10px] font-bold leading-4 text-white">
+              <span
+                aria-hidden
+                className={`absolute right-2 top-0 min-w-4 rounded-full px-1 text-center text-[10px] font-bold leading-4 ${OVERDUE_CHIP}`}
+              >
                 {overdueJobs >= 10 ? '9+' : overdueJobs}
               </span>
             )}
@@ -115,8 +121,11 @@ export function MobileDock({
                   <item.icon size={20} strokeWidth={1.7} />
                   <span>{item.label}</span>
                   {item.label === 'Job' && overdueJobs > 0 && (
-                    <span className="ml-auto min-w-5 rounded-full bg-amber-ink px-1.5 text-center text-caption font-bold leading-5 text-white">
+                    <span
+                      className={`ml-auto min-w-5 rounded-full px-1.5 text-center text-caption font-bold leading-5 ${OVERDUE_CHIP}`}
+                    >
                       {overdueJobs >= 10 ? '9+' : overdueJobs}
+                      <span className="sr-only"> overdue</span>
                     </span>
                   )}
                 </Link>
