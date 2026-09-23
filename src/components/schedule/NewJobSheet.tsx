@@ -4,13 +4,18 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { JOB_TYPES, REPEAT_OPTIONS } from '#/lib/format'
+import { JOB_TYPES } from '#/lib/format'
+import {
+  DEFAULT_INTERVAL,
+  RecurrenceFields,
+  intervalFromDraft,
+} from './RecurrenceFields'
 import { Combobox } from '#/components/primitives/Combobox'
 import { Segmented } from '#/components/primitives/Segmented'
 import { EMPTY_NEW_CLIENT, NewClientFields } from '#/components/clients/NewClientFields'
 import type { NewClientFieldsValue } from '#/components/clients/NewClientFields'
-import type { RepeatValue } from '#/lib/format'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { IntervalUnit } from '../../../convex/lib/recurrence'
 import { useHydrated } from '#/lib/useHydrated'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
@@ -89,7 +94,23 @@ function NewJobForm({
   const [time, setTime] = useState('09:00')
   const [price, setPrice] = useState('')
   const [duration, setDuration] = useState('60')
-  const [repeat, setRepeat] = useState<RepeatValue>('once')
+  // "Does it repeat" and "how often" are two questions, so they are two
+  // controls: the interval fields stay mounted but disabled when it does not,
+  // rather than appearing and reflowing the form under the person's thumb.
+  const [repeats, setRepeats] = useState(false)
+  const [interval, setInterval] = useState(DEFAULT_INTERVAL)
+  /**
+   * Null while "Recurring Job" is chosen but the interval does not describe
+   * one — an emptied count field, say, which native validation lets through
+   * because the input is not `required`.
+   *
+   * Without this the submit handler passed `null` down the SAME branch a
+   * one-off takes, so "Book job" quietly created a plain job, closed the
+   * sheet and reported success. The person asked for a repeating job and got
+   * one job, with nothing to say so.
+   */
+  const chosenInterval = repeats ? intervalFromDraft(interval) : null
+  const intervalIncomplete = repeats && chosenInterval === null
 
   useEffect(() => {
     if (!propertyId && properties.length > 0) setPropertyId(properties[0]._id)
@@ -122,11 +143,11 @@ function NewJobForm({
       price: number
       scheduledAt: number
       durationMinutes: number
-      repeat: RepeatValue
+      repeat: { count: number; unit: IntervalUnit } | null
       // Returns a job id or a recurrence id depending on the branch, and the
       // caller needs neither — void keeps them from being conflated.
     }): Promise<void> => {
-      const { repeat: freq, property, ...job } = args
+      const { repeat: recurrence, property, ...job } = args
       const propertyArgs =
         'propertyId' in property
           ? { propertyId: property.propertyId }
@@ -142,13 +163,14 @@ function NewJobForm({
                 email: property.newClient.email.trim() || undefined,
               },
             }
-      return freq === 'once'
+      return recurrence === null
         ? convexCreate({ ...job, ...propertyArgs }).then(() => undefined)
         : convexCreateRecurrence({
             businessId: job.businessId,
             ...propertyArgs,
             assignedMembershipId: job.assignedMembershipId,
-            frequency: freq,
+            intervalCount: recurrence.count,
+            intervalUnit: recurrence.unit,
             jobType: job.jobType,
             price: job.price,
             anchorDate: job.scheduledAt,
@@ -163,6 +185,7 @@ function NewJobForm({
       className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
       onSubmit={(e) => {
         e.preventDefault()
+        if (intervalIncomplete) return
         const [hh, mm] = time.split(':').map(Number)
         // The picker gives a wall-clock time on the selected day, in the
         // tenant's own timezone — not the viewer's browser zone, which may
@@ -181,7 +204,7 @@ function NewJobForm({
           price: Math.round(Number(price || '0') * 100),
           scheduledAt,
           durationMinutes: Number(duration),
-          repeat,
+          repeat: chosenInterval,
         })
       }}
     >
@@ -278,19 +301,27 @@ function NewJobForm({
         </Field>
       </div>
 
-      <Field label="Repeat">
-        <select
-          value={repeat}
-          onChange={(e) => setRepeat(e.target.value as RepeatValue)}
-          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        >
-          {REPEAT_OPTIONS.map((o) => (
-            <option key={o.value} value={o.value}>
-              {o.label}
-            </option>
-          ))}
-        </select>
-      </Field>
+      <FieldGroup label="Repeat">
+        <Segmented
+          label="Repeat"
+          value={repeats ? 'repeats' : 'once'}
+          onChange={(v) => setRepeats(v === 'repeats')}
+          disabled={!hydrated}
+          options={[
+            { value: 'once', label: 'One-off' },
+            { value: 'repeats', label: 'Recurring Job' },
+          ]}
+        />
+        {repeats && (
+          <div className="mt-2">
+            <RecurrenceFields
+              value={interval}
+              onChange={setInterval}
+              idPrefix="new-job-repeat"
+            />
+          </div>
+        )}
+      </FieldGroup>
 
       <Field label="Price (AUD)">
         <input
@@ -316,7 +347,7 @@ function NewJobForm({
 
       <button
         type="submit"
-        disabled={create.isPending || !hydrated}
+        disabled={create.isPending || !hydrated || intervalIncomplete}
         className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
       >
         {create.isPending ? 'Booking…' : 'Book job'}
@@ -337,5 +368,33 @@ function Field({
       <span className="section-label">{label}</span>
       {children}
     </label>
+  )
+}
+/**
+ * Like `Field`, but for a composite control rather than a single input.
+ *
+ * A `<label>` names exactly ONE control. Wrapping a group of them — a
+ * segmented toggle, a number box, a unit select and a line of help text —
+ * makes every descendant inherit the group's entire text as its accessible
+ * name: the "One-off" tab came out called "Repeat Repeat Every 3 weeks,
+ * starting from this job's date", which is both wrong for a screen reader and
+ * ambiguous for anything matching controls by name. A labelled group is what
+ * this shape actually is.
+ */
+function FieldGroup({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div role="group" aria-label={label} className="mt-4 flex flex-col gap-1.5">
+      {/* Already announced by the group's own name. */}
+      <span className="section-label" aria-hidden="true">
+        {label}
+      </span>
+      {children}
+    </div>
   )
 }

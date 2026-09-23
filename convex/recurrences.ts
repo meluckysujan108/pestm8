@@ -15,49 +15,31 @@ import {
   setJobStatus,
 } from './lib/jobStatus'
 import { redactJob } from './lib/prices'
+import {
+  HORIZON_DAYS,
+  assertInterval,
+  describeInterval,
+  intervalOf,
+  occurrencesFrom,
+} from './lib/recurrence'
 import { clientNameOf, newClientFields, resolvePropertyId } from './properties'
-import { frequency } from './schema'
+import { intervalUnit } from './schema'
 import type { WriteEnvelope } from './lib/actor'
+import type { Interval } from './lib/recurrence'
 import type { MutationCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 
-/** How far ahead occurrences are created. Long enough to plan a quarter. */
-const HORIZON_DAYS = 180
-
-const MONTHS_BY_FREQUENCY = {
-  monthly: 1,
-  quarterly: 3,
-  sixMonthly: 6,
-  yearly: 12,
-} as const
-
 /**
- * Occurrence instants from the anchor forward. Uses calendar months rather
- * than fixed day counts: a quarterly service booked on the 15th should stay on
- * the 15th, not drift by two days every year.
+ * The most visits one materialise run will insert for one series.
+ *
+ * Daily intervals are bookable, and six months of a daily series is ~180 job
+ * inserts — each one also bumping `businesses.nextJobNumber` — in a single
+ * transaction. Capping the run keeps any one mutation small and leaves the
+ * rest to the next cron pass, which fills the horizon within a few days.
+ * Nothing is lost: `materialiseOne` is idempotent and always resumes from
+ * whatever is missing.
  */
-function occurrencesFrom(
-  anchorDate: number,
-  freq: Doc<'recurrences'>['frequency'],
-  untilMs: number,
-): Array<number> {
-  const step = MONTHS_BY_FREQUENCY[freq]
-  const anchor = new Date(anchorDate)
-  const out: Array<number> = []
-
-  for (let i = 0; i < 200; i++) {
-    const d = new Date(anchor.getTime())
-    d.setMonth(d.getMonth() + step * i)
-    // Clamp to the last valid day: the 31st does not exist in every month, and
-    // Date would otherwise roll a 31 Jan quarterly into 3 May.
-    if (d.getDate() !== anchor.getDate()) d.setDate(0)
-
-    const ts = d.getTime()
-    if (ts > untilMs) break
-    out.push(ts)
-  }
-  return out
-}
+const MAX_VISITS_PER_RUN = 60
 
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
@@ -97,7 +79,8 @@ export const create = mutation({
     propertyId: v.optional(v.id('properties')),
     newClient: v.optional(newClientFields),
     assignedMembershipId: v.id('memberships'),
-    frequency,
+    intervalCount: v.number(),
+    intervalUnit,
     jobType: v.string(),
     price: v.number(),
     anchorDate: v.number(),
@@ -108,6 +91,10 @@ export const create = mutation({
     { propertyId: existingPropertyId, newClient, ...args },
   ) => {
     const env = await requireWriteActor(ctx, args.businessId)
+
+    // Before anything is written: `v.number()` admits 0, -3 and 2.5, none of
+    // which describe a repeat.
+    assertInterval({ count: args.intervalCount, unit: args.intervalUnit })
 
     // Same rule as jobs.create, and it matters more here: the daily cron keeps
     // booking a series onto its assignee for as long as it runs.
@@ -122,7 +109,8 @@ export const create = mutation({
       businessId: args.businessId,
       propertyId,
       assignedMembershipId: args.assignedMembershipId,
-      frequency: args.frequency,
+      intervalCount: args.intervalCount,
+      intervalUnit: args.intervalUnit,
       jobType: args.jobType,
       price: args.price,
       anchorDate: args.anchorDate,
@@ -148,6 +136,10 @@ export const create = mutation({
     await materialiseOne(ctx, recurrenceId, args.durationMinutes)
     await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.create', {
       assignedMembershipId: args.assignedMembershipId,
+      interval: describeInterval({
+        count: args.intervalCount,
+        unit: args.intervalUnit,
+      }),
     })
     return recurrenceId
   },
@@ -244,6 +236,9 @@ async function insertVisit(
   origin: 'manual' | 'recurrence',
 ): Promise<void> {
   await ctx.db.insert('jobs', {
+    // Which occurrence this is, kept even if the visit is later moved — see
+    // the field's note in schema.ts.
+    occurrenceAt: scheduledAt,
     businessId: recurrence.businessId,
     propertyId: recurrence.propertyId,
     assignedMembershipId: recurrence.assignedMembershipId,
@@ -271,22 +266,41 @@ async function materialiseOne(
   const recurrence = await ctx.db.get(recurrenceId)
   if (!recurrence || !recurrence.active) return 0
 
+  // The series repeats on the tenant's calendar, not the server's.
+  const business = await ctx.db.get(recurrence.businessId)
+  if (!business) return 0
+
   const existing = await ctx.db
     .query('jobs')
     .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
     .collect()
 
-  const taken = new Set(existing.map((j) => j.scheduledAt))
-  const until = Date.now() + HORIZON_DAYS * 24 * 60 * 60 * 1000
+  // Which OCCURRENCES are spoken for, not which instants — a visit somebody
+  // moved still occupies the one it was projected onto (schema.ts).
+  const taken = new Set(existing.map((j) => j.occurrenceAt ?? j.scheduledAt))
 
+  const now = Date.now()
   let created = 0
   for (const scheduledAt of occurrencesFrom(
     recurrence.anchorDate,
-    recurrence.frequency,
-    until,
+    intervalOf(recurrence),
+    {
+      timezone: business.timezone,
+      // Never backfill: a missed visit is not something to invent after the
+      // fact. Asking for the window directly also means the work of this call
+      // is bounded by the horizon rather than by the age of the series.
+      from: now - 24 * 60 * 60 * 1000,
+      until: now + HORIZON_DAYS * 24 * 60 * 60 * 1000,
+      // One more than the run's budget, so the loop below can stop on its own
+      // terms without a second pass deciding there was nothing left.
+      limit: MAX_VISITS_PER_RUN + existing.length + 1,
+    },
   )) {
     if (taken.has(scheduledAt)) continue
-    if (isBackfill(scheduledAt)) continue
+    // Stop rather than skip: the occurrences are in order, so everything left
+    // is further out than everything taken, and the next run resumes exactly
+    // here. Skipping would insert the far end of the horizon and leave a hole.
+    if (created >= MAX_VISITS_PER_RUN) break
 
     await insertVisit(
       ctx,
@@ -345,9 +359,16 @@ export const convertJobToRecurring = mutation({
   args: {
     businessId: v.id('businesses'),
     jobId: v.id('jobs'),
-    frequency,
+    intervalCount: v.number(),
+    intervalUnit,
   },
-  handler: async (ctx, { businessId, jobId, frequency: freq }) => {
+  handler: async (
+    ctx,
+    { businessId, jobId, intervalCount, intervalUnit: unit },
+  ) => {
+    const interval: Interval = { count: intervalCount, unit }
+    assertInterval(interval)
+
     const { env, job } = await requireEditableJob(ctx, businessId, jobId)
 
     if (job.recurrenceId) {
@@ -355,11 +376,17 @@ export const convertJobToRecurring = mutation({
       if (existing?.active) throw new ConvexError('ALREADY_RECURRING')
     }
 
+    // The same rule `create` applies, and for the same reason: a series keeps
+    // booking onto its assignee nightly for as long as it runs, so turning a
+    // job into one must ask whether that person can still be booked.
+    await requireBookable(ctx, env, businessId, job.assignedMembershipId)
+
     const recurrenceId = await ctx.db.insert('recurrences', {
       businessId,
       propertyId: job.propertyId,
       assignedMembershipId: job.assignedMembershipId,
-      frequency: freq,
+      intervalCount,
+      intervalUnit: unit,
       jobType: job.jobType,
       price: job.price,
       anchorDate: job.scheduledAt,
@@ -368,12 +395,13 @@ export const convertJobToRecurring = mutation({
 
     // Attach the EXISTING job to the new series before materialising —
     // materialiseOne's own idempotency check then finds this job already
-    // occupying the anchor instant and skips generating a duplicate for it.
-    await ctx.db.patch(jobId, { recurrenceId })
+    // occupying the anchor occurrence and skips generating a duplicate for it.
+    await ctx.db.patch(jobId, { recurrenceId, occurrenceAt: job.scheduledAt })
 
     await materialiseOne(ctx, recurrenceId, job.durationMinutes)
     await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.convert', {
       jobId,
+      interval: describeInterval(interval),
     })
 
     return recurrenceId

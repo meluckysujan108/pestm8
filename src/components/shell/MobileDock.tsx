@@ -23,9 +23,12 @@ import { MORE_ITEMS, PRIMARY_NAV } from './navItems'
 export function MobileDock({
   businessSlug,
   unreadNotes = 0,
+  overdueJobs = 0,
 }: {
   businessSlug: string
   unreadNotes?: number
+  /** Projected visits that came due and were never actioned. */
+  overdueJobs?: number
 }) {
   const [moreOpen, setMoreOpen] = useState(false)
 
@@ -74,8 +77,16 @@ export function MobileDock({
           onClick={() => setMoreOpen(true)}
           className={cell}
         >
-          <span aria-hidden className={glyph}>
-            <Menu size={21} strokeWidth={1.8} />
+          <span className={glyph}>
+            <Menu size={21} strokeWidth={1.8} aria-hidden />
+            {/* On the burger, not just on the Job row inside the sheet: Job
+                lives behind this button, so a badge in there is only seen by
+                someone who already went looking. */}
+            {overdueJobs > 0 && (
+              <span className="absolute right-2 top-0 min-w-4 rounded-full bg-amber-ink px-1 text-center text-[10px] font-bold leading-4 text-white">
+                {overdueJobs >= 10 ? '9+' : overdueJobs}
+              </span>
+            )}
           </span>
           <span className="max-w-full truncate px-0.5">More</span>
         </button>
@@ -103,6 +114,11 @@ export function MobileDock({
                 >
                   <item.icon size={20} strokeWidth={1.7} />
                   <span>{item.label}</span>
+                  {item.label === 'Job' && overdueJobs > 0 && (
+                    <span className="ml-auto min-w-5 rounded-full bg-amber-ink px-1.5 text-center text-caption font-bold leading-5 text-white">
+                      {overdueJobs >= 10 ? '9+' : overdueJobs}
+                    </span>
+                  )}
                 </Link>
               ))}
             </nav>

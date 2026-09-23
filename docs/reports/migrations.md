@@ -579,6 +579,42 @@ deleted with it, since it could no longer name the field. All of that to
 remove one optional field that is always absent. The declaration costs
 nothing; the comment beside it says it is retired.
 
+### Restoring a backfill this release deleted
+
+This release removed `reportSnapshotsV1:backfillTemplateVersion` along with the
+fallbacks that treated an absent `templateVersion` as 1. That is correct for
+prod and personal-dev, which both reported zero. It is NOT correct for any
+deployment that was never migrated — and the shared e2e deployment
+(`warmhearted-cricket-924`) was one. It still held 128 reports without the
+field on 2026-09-23, which refuses the strict schema outright:
+
+    Document with ID "…" in table "reports" does not match the schema:
+    Object is missing the required field `templateVersion`.
+
+**The backfill is recoverable, and restoring it is mechanical:**
+
+    git show 71c8726^:convex/migrations/reportSnapshotsV1.ts
+
+Take `backfillTemplateVersion` verbatim into a scratch file under
+`convex/migrations/`, run it, delete the file again — it is ~25 lines, it
+self-schedules its own pagination, and it depends on nothing that was removed
+alongside it. Do not "modernise" it: it patches the literal `1`, not
+`getTemplate(...).version`, precisely so that running it late — after a
+revision bump — cannot relabel pre-rewrite reports as new ones. A backfill of
+history must not depend on the present.
+
+The same shape recovers any other retired migration: find the commit that
+deleted it with `git log -S<functionName> -- convex/`, then read the file at
+that commit's parent.
+
+**General recipe when a push is refused by an un-migrated deployment.** Loosen
+the offending field in `convex/schema.ts`, `npx convex dev --once --typecheck
+disable`, run the backfill, revert the loosening, and push strict to confirm
+the drift is gone. Done on `warmhearted-cricket-924` on 2026-09-23 for both
+`templateVersion` and the retired `inProgress` job status
+(`migrations/jobStatusV1`); both counts are now 0 and the strict schema
+deploys there with a plain `npx convex dev --once`.
+
 **Rollback** is a redeploy of the previous `main`: its schema is looser in all
 three places, and every reader it has prefers `templateSnapshotId`.
 
