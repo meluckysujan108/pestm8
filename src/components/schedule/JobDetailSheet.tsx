@@ -483,19 +483,12 @@ function JobDetailBody({
           {/* Its own boundary, so the rest of the sheet draws while the
               editor's code arrives, and in the sections' own loading state. */}
           <Suspense
-            fallback={
-              <>
-                <SectionLoading label="Before you arrive" />
-                <SectionLoading label="Notes for this visit" />
-              </>
-            }
+            fallback={<SectionLoading label="Before you arrive" />}
           >
             <JobNotesSection
               businessId={businessId}
               businessSlug={businessSlug}
               timezone={timezone}
-              jobId={job._id}
-              jobType={job.jobType}
               propertyId={job.propertyId}
               addressLine={job.property?.addressLine ?? ''}
             />

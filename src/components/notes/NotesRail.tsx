@@ -1,15 +1,42 @@
-import { AtSign, Briefcase, MapPin, Notebook, Trash2, Users } from 'lucide-react'
+import {
+  AtSign,
+  BookUser,
+  Briefcase,
+  MapPin,
+  Notebook,
+  NotebookPen,
+  Trash2,
+  Users,
+} from 'lucide-react'
+import { useAccess } from '#/lib/access'
 import type { LucideIcon } from 'lucide-react'
 import type { LibraryFilter } from './NoteList'
 
 export const LIBRARY_FILTERS: Array<{ value: LibraryFilter; label: string; icon: LucideIcon }> = [
+  { value: 'mine', label: 'My notes', icon: NotebookPen },
   { value: 'all', label: 'All Notes', icon: Notebook },
   { value: 'mentions', label: 'Mentions', icon: AtSign },
   { value: 'jobs', label: 'Jobs', icon: Briefcase },
   { value: 'sites', label: 'Sites & clients', icon: MapPin },
   { value: 'team', label: 'Team', icon: Users },
+  { value: 'everyone', label: 'Everyone’s notes', icon: BookUser },
   { value: 'trash', label: 'Recently Deleted', icon: Trash2 },
 ]
+
+/**
+ * The folders this person is offered. "Everyone's notes" — the team's
+ * personal notes — only to the owner in God view as himself: not in "Just my
+ * jobs", not switched into an account, not looking through anyone. That is
+ * the one view in which he has asked to see the whole business.
+ */
+export function useLibraryFolders() {
+  const access = useAccess()
+  const godView = access.view?.mode === 'everyone' && access.viewingAs === null
+  return {
+    godView,
+    folders: LIBRARY_FILTERS.filter((f) => f.value !== 'everyone' || godView),
+  }
+}
 
 /**
  * The desktop library's left column — the phone app's folder list, except
@@ -17,17 +44,19 @@ export const LIBRARY_FILTERS: Array<{ value: LibraryFilter; label: string; icon:
  * under. Styled like the app sidebar's own rows so the two read as one nav.
  */
 export function NotesRail({
+  folders,
   value,
   unreadMentions,
   onChange,
 }: {
+  folders: typeof LIBRARY_FILTERS
   value: LibraryFilter
   unreadMentions: number
   onChange: (next: LibraryFilter) => void
 }) {
   return (
     <nav aria-label="Notes folders" className="flex flex-col gap-0.5 p-2">
-      {LIBRARY_FILTERS.map((f) => (
+      {folders.map((f) => (
         <button
           key={f.value}
           type="button"

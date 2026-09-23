@@ -110,8 +110,13 @@ async function seed(ctx: MutationCtx) {
 /** The shape `noteViewer` returns: two membership facts plus the row scopes
  * derived from each. Built here so a test can pin the real/scope asymmetry
  * without a request. */
-function viewer(real: MembershipFacts, scope: MembershipFacts): NoteViewer {
+function viewer(
+  real: MembershipFacts,
+  scope: MembershipFacts,
+  godView = false,
+): NoteViewer {
   return {
+    godView,
     real,
     scope,
     readRows: jobScope(capabilitiesOf(scope), scope, []),
@@ -237,6 +242,137 @@ describe('canWriteNote', () => {
       expect(await canWriteNote(ctx, viewer(senior, sub), note)).toBe(true)
       // And the junior viewing as the senior gains nothing.
       expect(await canWriteNote(ctx, viewer(sub, senior), note)).toBe(false)
+    })
+  })
+})
+
+/**
+ * Phase 5.3: a personal note is its author's, readable by the business owner
+ * and by nobody else — decided on who is REALLY asking, before job scope,
+ * lenses or @mentions are consulted at all.
+ */
+describe('personal notes', () => {
+  async function personal(ctx: MutationCtx) {
+    const s = await seed(ctx)
+    const owner = (await ctx.db.get(s.ownerId))!
+    const now = Date.now()
+    const contractorId = await ctx.db.insert('memberships', {
+      userId: 'u-contractor',
+      businessId: owner.businessId,
+      role: 'contractor',
+      canViewAllJobs: true,
+      colour: '#000000',
+      status: 'active',
+      createdAt: now,
+    })
+    const privateNote = (author: Id<'memberships'>, deletedAt?: number) =>
+      ctx.db.insert('notes', {
+        businessId: owner.businessId,
+        authorMembershipId: author,
+        lastEditedByMembershipId: author,
+        title: 'mine',
+        preview: '',
+        plainText: 'mine',
+        createdAt: now,
+        updatedAt: now,
+        visibility: 'private',
+        ...(deletedAt !== undefined && { deletedAt }),
+      })
+    return {
+      ...s,
+      contractorId,
+      subsPersonal: await privateNote(s.subId),
+      ownersPersonal: await privateNote(s.ownerId),
+      subsBinnedPersonal: await privateNote(s.subId, now),
+    }
+  }
+
+  async function write(ctx: MutationCtx, real: Id<'memberships'>, noteId: Id<'notes'>, scope = real) {
+    const note = (await ctx.db.get(noteId))!
+    return canWriteNote(ctx, viewer(await member(ctx, real), await member(ctx, scope)), note)
+  }
+
+  test('its author reads and writes it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const s = await personal(ctx)
+      expect(await read(ctx, s.subId, s.subsPersonal)).toBe(true)
+      expect(await write(ctx, s.subId, s.subsPersonal)).toBe(true)
+    })
+  })
+
+  test('the owner reads it but cannot write it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const s = await personal(ctx)
+      expect(await read(ctx, s.ownerId, s.subsPersonal)).toBe(true)
+      expect(await write(ctx, s.ownerId, s.subsPersonal)).toBe(false)
+    })
+  })
+
+  test('nobody else reads it — not business-wide job scope, not a contractor', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const s = await personal(ctx)
+      expect(await read(ctx, s.seniorId, s.subsPersonal)).toBe(false)
+      expect(await read(ctx, s.contractorId, s.subsPersonal)).toBe(false)
+      expect(await read(ctx, s.subId, s.ownersPersonal)).toBe(false)
+      expect(await read(ctx, s.seniorId, s.ownersPersonal)).toBe(false)
+    })
+  })
+
+  test('an @mention grants nothing on a personal note', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const s = await personal(ctx)
+      await s.mention(s.subsPersonal, s.seniorId)
+      expect(await read(ctx, s.seniorId, s.subsPersonal)).toBe(false)
+    })
+  })
+
+  test('looking through the author grants nothing; the owner reads as himself', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const s = await personal(ctx)
+      // The senior sub viewing as the author: still the senior.
+      expect(await read(ctx, s.seniorId, s.subsPersonal, s.subId)).toBe(false)
+      expect(await write(ctx, s.seniorId, s.subsPersonal, s.subId)).toBe(false)
+      // The owner viewing as the author reads it — as the owner — and still
+      // cannot write it.
+      expect(await read(ctx, s.ownerId, s.subsPersonal, s.subId)).toBe(true)
+      expect(await write(ctx, s.ownerId, s.subsPersonal, s.subId)).toBe(false)
+      // And the author viewing as the owner gains nothing on his.
+      expect(await read(ctx, s.subId, s.ownersPersonal, s.ownerId)).toBe(false)
+    })
+  })
+
+  test('in Recently Deleted: the author and the owner, and nobody writes it', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const s = await personal(ctx)
+      expect(await read(ctx, s.subId, s.subsBinnedPersonal)).toBe(true)
+      expect(await read(ctx, s.ownerId, s.subsBinnedPersonal)).toBe(true)
+      expect(await read(ctx, s.seniorId, s.subsBinnedPersonal)).toBe(false)
+      expect(await write(ctx, s.subId, s.subsBinnedPersonal)).toBe(false)
+    })
+  })
+
+  test('deleting keeps the author-or-owner rule', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const s = await personal(ctx)
+      const note = (await ctx.db.get(s.subsPersonal))!
+      expect(canDeleteNote(await member(ctx, s.subId), note)).toBe(true)
+      expect(canDeleteNote(await member(ctx, s.ownerId), note)).toBe(true)
+      expect(canDeleteNote(await member(ctx, s.seniorId), note)).toBe(false)
+    })
+  })
+
+  test('it is still a team-kind note by its links: visibility is separate', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const s = await personal(ctx)
+      expect(noteKind((await ctx.db.get(s.subsPersonal))!)).toBe('team')
     })
   })
 })

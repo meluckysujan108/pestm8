@@ -867,6 +867,13 @@ export default defineSchema({
    * so a client's sheet finds every note about them in one index); a
    * `propertyId` alone is standing site knowledge (gate code, dog, key);
    * `clientId` alone is about the client; none is a team memo.
+   *
+   * `visibility` is separate from what a note is about. Absent, a note is
+   * shared as above — every note written before it existed. `'private'` is a
+   * personal note (Phase 5.3, the owner's amendment to knowledge-first): read
+   * and written by its author, read — never written — by the business owner,
+   * and by nobody else, whatever their job scope or @mentions. A personal note
+   * is never linked to a job, site or client; it is shared first.
    */
   notes: defineTable({
     businessId: v.id('businesses'),
@@ -886,8 +893,21 @@ export default defineSchema({
     deletedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    visibility: v.optional(v.literal('private')),
   })
     .index('by_business_updated', ['businessId', 'updatedAt'])
+    // "My notes": one person's personal notes, newest edited first.
+    .index('by_authorMembershipId_and_visibility_and_updatedAt', [
+      'authorMembershipId',
+      'visibility',
+      'updatedAt',
+    ])
+    // The owner's "Everyone's notes": every personal note in the business.
+    .index('by_businessId_and_visibility_and_updatedAt', [
+      'businessId',
+      'visibility',
+      'updatedAt',
+    ])
     .index('by_job', ['jobId'])
     .index('by_property', ['propertyId'])
     .index('by_client', ['clientId'])

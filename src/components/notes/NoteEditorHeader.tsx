@@ -7,6 +7,7 @@ import {
   Briefcase,
   ChevronLeft,
   Link2,
+  Lock,
   MapPin,
   MoreHorizontal,
   Pin,
@@ -15,6 +16,7 @@ import {
   Search,
   Trash2,
   User,
+  Users,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { editedLabel } from '#/lib/noteDates'
@@ -37,6 +39,10 @@ type NoteMeta = {
   deletedAt?: number
   canEdit: boolean
   canDelete: boolean
+  /** A personal note: its author's, readable by the owner too. */
+  private: boolean
+  mine: boolean
+  authorName: string
 }
 
 /**
@@ -50,7 +56,7 @@ export function NoteEditorHeader({
   businessSlug,
   timezone,
   note,
-  initialPickerOpen = false,
+  isOwner,
   onBack,
   onGone,
 }: {
@@ -58,13 +64,22 @@ export function NoteEditorHeader({
   businessSlug: string
   timezone: string
   note: NoteMeta
-  initialPickerOpen?: boolean
+  /** Whether the person reading is the business owner — the one other
+   * person who can read a personal note. */
+  isOwner: boolean
   onBack: () => void
   onGone: () => void
 }) {
   const hydrated = useHydrated()
-  const [pickerOpen, setPickerOpen] = useState(initialPickerOpen)
+  const [pickerOpen, setPickerOpen] = useState(false)
   const [confirmPurgeOpen, setConfirmPurgeOpen] = useState(false)
+  const [confirmShareOpen, setConfirmShareOpen] = useState(false)
+
+  const convexSetVisibility = useConvexMutation(api.notes.setVisibility)
+  const setVisibility = useMutation({
+    mutationFn: (visibility: 'private' | 'shared') =>
+      convexSetVisibility({ businessId, noteId: note._id, visibility }),
+  })
 
   const togglePin = useNoteMutation(api.notes.togglePin)
   const softDelete = useNoteMutation(api.notes.softDelete, onGone)
@@ -123,7 +138,7 @@ export function NoteEditorHeader({
                 : [note.addressLine, note.suburb].filter(Boolean).join(', ')}
             </Chip>
           )}
-          {!inTrash && note.canEdit && !note.job && (
+          {!inTrash && note.canEdit && !note.job && !note.private && (
             <button
               type="button"
               disabled={!hydrated}
@@ -198,15 +213,37 @@ export function NoteEditorHeader({
                         >
                           {note.pinnedAt ? 'Unpin' : 'Pin'}
                         </MenuItem>
-                        <MenuItem icon={<Link2 size={16} strokeWidth={2} />} onSelect={() => setPickerOpen(true)}>
-                          {note.job ? 'Change job…' : 'Attach to job…'}
-                        </MenuItem>
+                        {/* A personal note is shared before it is put on a
+                            job, where everyone who sees the job would read it. */}
+                        {!note.private && (
+                          <MenuItem icon={<Link2 size={16} strokeWidth={2} />} onSelect={() => setPickerOpen(true)}>
+                            {note.job ? 'Change job…' : 'Attach to job…'}
+                          </MenuItem>
+                        )}
                         {note.kind === 'job' && (
                           <MenuItem icon={<Link2 size={16} strokeWidth={2} />} onSelect={detachFromJob}>
                             Detach from job
                           </MenuItem>
                         )}
                       </>
+                    )}
+                    {note.mine && note.private && (
+                      <MenuItem
+                        icon={<Users size={16} strokeWidth={2} />}
+                        onSelect={() => setConfirmShareOpen(true)}
+                      >
+                        Share with team…
+                      </MenuItem>
+                    )}
+                    {/* Only a note about nothing in particular: one on a job,
+                        site or client is already part of that record. */}
+                    {note.mine && !note.private && note.kind === 'team' && (
+                      <MenuItem
+                        icon={<Lock size={16} strokeWidth={2} />}
+                        onSelect={() => setVisibility.mutate('private')}
+                      >
+                        Make personal
+                      </MenuItem>
                     )}
                     {note.canDelete && (
                       <MenuItem
@@ -230,6 +267,58 @@ export function NoteEditorHeader({
           ? 'In Recently Deleted · gone for good after 30 days'
           : `Edited ${note.editorName ? `by ${note.editorName} · ` : ''}${editedLabel(note.updatedAt, timezone, Date.now())}`}
       </p>
+      {/* Said on every personal note, so nobody finds out later that the
+          owner could read what they wrote. */}
+      {note.private && (
+        <p className="mt-0.5 flex items-center gap-1 px-1 text-caption text-muted">
+          <Lock size={12} strokeWidth={2.2} className="shrink-0" />
+          <span className="truncate">
+            {note.mine
+              ? `Personal · ${isOwner ? 'only you can see this' : 'only you and the owner can see this'}`
+              : `${note.authorName || 'A team member'}’s personal note · read-only`}
+          </span>
+        </p>
+      )}
+      {setVisibility.isError && (
+        <p role="alert" className="mt-1 px-1 text-caption text-red-ink">
+          Could not change who can see this note.
+        </p>
+      )}
+
+      <AlertDialog.Root open={confirmShareOpen} onOpenChange={setConfirmShareOpen}>
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
+            <AlertDialog.Title className="text-row-title text-ink">
+              Share this note with the team?
+            </AlertDialog.Title>
+            <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
+              Everyone in the business will be able to read and edit it. You
+              can make it personal again, but by then they may have read it.
+            </AlertDialog.Description>
+            <div className="mt-4 flex gap-2">
+              <AlertDialog.Cancel asChild>
+                <button
+                  type="button"
+                  className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                >
+                  Keep it personal
+                </button>
+              </AlertDialog.Cancel>
+              <AlertDialog.Action asChild>
+                <button
+                  type="button"
+                  disabled={setVisibility.isPending}
+                  onClick={() => setVisibility.mutate('shared')}
+                  className="h-11 flex-1 rounded-xl bg-blue text-[15px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+                >
+                  Share
+                </button>
+              </AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
 
       <JobPicker
         businessId={businessId}
