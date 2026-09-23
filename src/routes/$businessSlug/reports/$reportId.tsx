@@ -145,7 +145,7 @@ function ReportPage() {
         // Keyed by revision: the builder seeds its answers once, so switching a
         // draft to a newer form must remount it rather than let the old
         // revision's in-memory answers autosave back over the migrated ones.
-        key={`${report._id}:${report.templateVersion ?? 1}`}
+        key={`${report._id}:${report.templateVersion}`}
         businessId={business._id}
         reportId={report._id}
         template={report.template}
