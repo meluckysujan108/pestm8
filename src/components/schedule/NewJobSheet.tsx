@@ -145,9 +145,10 @@ function NewJobForm({
   )
   const [propertyMissing, setPropertyMissing] = useState(false)
   const propertyTrigger = useRef<HTMLButtonElement>(null)
-  // A choice that stops being offered while the sheet is open (the property
-  // was deleted) is dropped rather than submitted as an id the list no longer
-  // shows.
+  // A choice the list stops offering while the sheet is open is dropped
+  // rather than submitted as an id nobody can see. Nothing removes a property
+  // today, but the list is scoped to the client directory (clientScope.ts),
+  // and a narrower scope would take rows away mid-booking.
   useEffect(() => {
     if (propertyId && !properties.some((p) => p._id === propertyId))
       setPropertyId('')
@@ -298,7 +299,7 @@ function NewJobForm({
             <p
               id={PROPERTY_ERROR_ID}
               role="alert"
-              className="mt-1.5 text-caption text-red"
+              className="mt-1.5 text-caption text-red-ink"
             >
               Choose the client and address for this job.
             </p>

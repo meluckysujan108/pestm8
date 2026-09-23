@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import { ChevronsUpDown, Search } from 'lucide-react'
 import { Popover } from 'radix-ui'
-import { matchesAllWords } from '#/lib/searchMatch'
+import { filterByWords, pickOnEnter } from '#/lib/searchMatch'
 
 export type ComboboxOption = {
   value: string
@@ -75,7 +75,7 @@ export function Combobox({
   const currentLabel = options.find((o) => o.value === value)?.label ?? value
 
   const filtered = useMemo(
-    () => options.filter((o) => matchesAllWords(o.searchText ?? o.label, query)),
+    () => filterByWords(options, query),
     [options, query],
   )
   const shown = filtered.slice(0, MAX_ROWS)
@@ -100,19 +100,21 @@ export function Combobox({
         // The aria-label names the field, which hides the chosen value from a
         // screen reader; describing the trigger by its own text says it back.
         aria-describedby={
-          [currentLabel ? valueId : null, invalid ? errorId : null]
+          [currentLabel || emptyLabel ? valueId : null, invalid ? errorId : null]
             .filter(Boolean)
             .join(' ') || undefined
         }
         aria-invalid={invalid || undefined}
-        className={`flex h-12 w-full items-center justify-between gap-2 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue ${invalid ? 'ring-2 ring-red' : ''}`}
+        // Red while invalid even with focus on it: focus is moved here when
+        // booking is refused, and a blue focus ring would hide the reason.
+        className={`flex h-12 w-full items-center justify-between gap-2 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none ${invalid ? 'ring-2 ring-red' : 'focus:ring-2 focus:ring-blue'}`}
       >
         {currentLabel ? (
           <span id={valueId} className="min-w-0 truncate text-left">
             {currentLabel}
           </span>
         ) : (
-          <span className="min-w-0 truncate text-left text-muted">
+          <span id={valueId} className="min-w-0 truncate text-left text-muted">
             {emptyLabel}
           </span>
         )}
@@ -137,15 +139,18 @@ export function Combobox({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               // The popover is portalled outside any form, so Enter would
-              // otherwise do nothing at all. With one match left it is
-              // obvious which row was meant; with several, it is not.
+              // otherwise do nothing at all. It takes a row only when it is
+              // plain which one was meant (see pickOnEnter).
               onKeyDown={(e) => {
                 if (e.key !== 'Enter') return
                 e.preventDefault()
-                if (filtered.length === 1) choose(filtered[0].value)
-                else if (filtered.length === 0 && showCustomRow)
-                  choose(trimmedQuery)
+                const picked = pickOnEnter(filtered, query, allowCustom)
+                if (picked !== null) choose(picked)
               }}
+              // Surnames and suburbs are not dictionary words; a phone that
+              // "corrects" one after the space empties the list.
+              autoCorrect="off"
+              spellCheck={false}
               placeholder={placeholder}
               className="h-11 flex-1 bg-transparent text-[16px] text-ink outline-none"
             />

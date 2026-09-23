@@ -51,7 +51,6 @@ export function propertyOptions(
       const name = p.client?.archivedAt
         ? `${clientName(p)} (archived)`
         : clientName(p)
-      const phoneDigits = (p.client?.phone ?? '').replace(/\D/g, '')
       return {
         value: p._id,
         label: `${name} — ${p.addressLine}, ${p.suburb}`,
@@ -60,10 +59,22 @@ export function propertyOptions(
           p.addressLine,
           p.suburb,
           p.postcode,
-          phoneDigits,
+          phoneForms(p.client?.phone),
         ].join(' '),
       }
     })
+}
+
+/**
+ * The client's number as digits, in both the ways an Australian number gets
+ * written — 0412 345 678 and +61 412 345 678 — so whichever the office
+ * types finds whichever was saved. The phone field is free text.
+ */
+function phoneForms(phone: string | undefined): string {
+  const digits = (phone ?? '').replace(/\D/g, '')
+  if (digits.startsWith('61')) return `${digits} 0${digits.slice(2)}`
+  if (digits.startsWith('0')) return `${digits} 61${digits.slice(1)}`
+  return digits
 }
 
 function clientName(p: PickableProperty): string {

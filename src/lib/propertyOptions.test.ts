@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { propertyOptions } from './propertyOptions'
 import type { PickableProperty } from './propertyOptions'
-import { matchesAllWords } from './searchMatch'
+import { filterByWords, pickOnEnter } from './searchMatch'
 
 function property(
   id: string,
@@ -40,11 +40,10 @@ const ARCHIVED = property(
   'Bayswater',
 )
 
-/** What a person typing `query` into the picker would be offered. */
+/** What a person typing `query` into the picker would be offered — through
+ * the same filter the Combobox runs, not a copy of it. */
 function offered(query: string, list = [NGUYEN, ROBERTS, CAFE, ARCHIVED]) {
-  return propertyOptions(list)
-    .filter((o) => matchesAllWords(o.searchText ?? o.label, query))
-    .map((o) => o.value)
+  return filterByWords(propertyOptions(list), query).map((o) => o.value)
 }
 
 describe('finding a client and address for a new job', () => {
@@ -69,6 +68,20 @@ describe('finding a client and address for a new job', () => {
     expect(offered('0412345678')).toEqual(['p-nguyen'])
     expect(offered('0412 345 678')).toEqual(['p-nguyen'])
     expect(offered('345678')).toEqual(['p-nguyen'])
+    expect(offered('0412-345-678')).toEqual(['p-nguyen'])
+    expect(offered('0412.345.678')).toEqual(['p-nguyen'])
+  })
+
+  test('a number saved one way is found when typed the other: 04… and +61 4…', () => {
+    expect(offered('+61 412 345 678')).toEqual(['p-nguyen'])
+    const international = property(
+      'p-intl',
+      { name: 'K. Tran', phone: '+61 498 765 432' },
+      '5 Short Street',
+      'Perth',
+    )
+    expect(offered('0498 765 432', [international])).toEqual(['p-intl'])
+    expect(offered('+61 498 765 432', [international])).toEqual(['p-intl'])
   })
 
   test('case, accents and commas do not stop a match', () => {
@@ -114,5 +127,46 @@ describe('how the picker lists them', () => {
     expect(propertyOptions([orphan])[0].label).toBe(
       'Unknown client — 7 Lost Lane, Perth',
     )
+  })
+})
+
+describe('what Enter in the search box takes', () => {
+  const sites = propertyOptions([NGUYEN, ROBERTS])
+  const jobTypes = ['General Pest Control', 'Rodents', 'Spiders'].map((t) => ({
+    value: t,
+    label: t,
+  }))
+  const enter = (options: typeof sites, query: string, allowCustom = false) =>
+    pickOnEnter(filterByWords(options, query), query, allowCustom)
+
+  test('the only site left', () => {
+    expect(enter(sites, '6062')).toBe('p-roberts')
+  })
+
+  test('nothing while several sites still match — that would be a guess', () => {
+    expect(enter(sites, 'a')).toBeNull()
+  })
+
+  test('nothing before a word is typed, even when there is one site', () => {
+    expect(enter(propertyOptions([NGUYEN]), '')).toBeNull()
+    expect(enter(propertyOptions([NGUYEN]), '   ')).toBeNull()
+  })
+
+  test('a job type typed exactly', () => {
+    expect(enter(jobTypes, 'rodents', true)).toBe('Rodents')
+  })
+
+  test('not the one partial match while "Add …" is also offered', () => {
+    // "Pest" matches General Pest Control, and the picker also offers to add
+    // "Pest" as a new type: two rows, so Enter takes neither.
+    expect(enter(jobTypes, 'Pest', true)).toBeNull()
+  })
+
+  test('the typed text, where free text is allowed and nothing matches', () => {
+    expect(enter(jobTypes, 'Possum Removal', true)).toBe('Possum Removal')
+  })
+
+  test('never free text where it is not allowed', () => {
+    expect(enter(sites, 'Okafor')).toBeNull()
   })
 })
