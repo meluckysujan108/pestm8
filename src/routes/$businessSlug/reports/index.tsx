@@ -1,13 +1,12 @@
 import { createFileRoute, Link, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { convexQuery } from '@convex-dev/react-query'
 import { LayoutTemplate, Plus } from 'lucide-react'
 import { z } from 'zod'
-import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
 import type { Segment } from '#/components/reports/ReportsLibrary'
 import { useCan } from '#/lib/access'
+import { reportsFirstPage, rq, searchParam, warm } from '#/lib/routeQueries'
 
 const SEGMENTS = ['all', 'draft', 'finalised', 'sent', 'trash'] as const
 
@@ -16,6 +15,21 @@ export const Route = createFileRoute('/$businessSlug/reports/')({
     q: z.string().optional(),
     seg: z.enum(SEGMENTS).optional(),
   }),
+  // The count the header reads and the first page of the list, together. No
+  // `loaderDeps`: that would make every segment tap a new match, and a new
+  // match gets the route's placeholder instead of the list it is filtering.
+  loader: ({ context: { queryClient, business }, location }) => {
+    const segment = (searchParam(location, 'seg') ?? 'all') as Segment
+    const searching = (searchParam(location, 'q') ?? '') !== ''
+    // The banner above the list, asked for in the same round but not waited
+    // on: it renders nothing at all when there is nothing to say.
+    void warm(queryClient, rq.staleDrafts(business._id))
+    return warm(
+      queryClient,
+      rq.reportCounts(business._id),
+      ...(searching ? [] : [reportsFirstPage(business._id, segment)]),
+    )
+  },
   component: ReportsPage,
 })
 
@@ -28,9 +42,7 @@ function ReportsPage() {
 
   // Counted rather than paginated: a badge that says twelve has to have looked
   // at all twelve. Suspense-loaded because the header reads it.
-  const { data: counts } = useSuspenseQuery(
-    convexQuery(api.reports.counts, { businessId: business._id }),
-  )
+  const { data: counts } = useSuspenseQuery(rq.reportCounts(business._id))
 
   return (
     <>

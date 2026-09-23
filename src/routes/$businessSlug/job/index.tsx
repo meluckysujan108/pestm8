@@ -1,14 +1,13 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { convexQuery } from '@convex-dev/react-query'
 import { z } from 'zod'
-import { api } from '../../../../convex/_generated/api'
 import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { FilterDropdown } from '#/components/primitives/FilterDropdown'
 import { JOB_LIST_STATUS_OPTIONS } from '#/lib/scheduleFilters'
 import { useCan } from '#/lib/access'
+import { rq, warm } from '#/lib/routeQueries'
 
 const STATUS_VALUES = JOB_LIST_STATUS_OPTIONS.map((option) => option.value)
 
@@ -22,6 +21,8 @@ export const Route = createFileRoute('/$businessSlug/job/')({
       .catch(undefined),
     jobId: z.string().optional(),
   }),
+  loader: ({ context: { queryClient, business } }) =>
+    warm(queryClient, rq.jobs(business._id)),
   component: JobListPage,
 })
 
@@ -31,9 +32,7 @@ function JobListPage() {
   const { status, jobId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
-  const { data } = useSuspenseQuery(
-    convexQuery(api.jobs.list, { businessId: business._id }),
-  )
+  const { data } = useSuspenseQuery(rq.jobs(business._id))
 
   const shown = status
     ? data.jobs.filter((job) => job.status === status)

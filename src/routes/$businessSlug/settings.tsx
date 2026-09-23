@@ -11,6 +11,8 @@ import { BrandingSection } from '#/components/settings/BrandingSection'
 import { OptionLibrariesSection } from '#/components/settings/OptionLibrariesSection'
 import { ReportPolicySection } from '#/components/settings/ReportPolicySection'
 import { useCan } from '#/lib/access'
+import { rq, searchParam, warm } from '#/lib/routeQueries'
+import type { Access } from '#/lib/access'
 
 const SEGMENTS = [
   { value: 'profile' as const, label: 'Profile' },
@@ -23,6 +25,24 @@ export const Route = createFileRoute('/$businessSlug/settings')({
   validateSearch: z.object({
     seg: z.enum(['profile', 'team', 'prefs', 'reports']).optional(),
   }),
+  // Profile's user and, for whoever may see it, Team's two lists — which the
+  // section reads one after the other. `access.me` is already in the cache:
+  // the layout's beforeLoad warms it, so reading the capability here costs
+  // nothing and keeps a technician from asking for a roster they cannot have.
+  loader: ({ context: { queryClient, business }, location }) => {
+    const seg = searchParam(location, 'seg') ?? 'profile'
+    const access = queryClient.getQueryData<Access>(
+      rq.access(business._id).queryKey,
+    )
+    const team = seg === 'team' && access?.caps['team.manage'] === true
+    return warm(
+      queryClient,
+      ...(seg === 'profile' ? [rq.currentUser()] : []),
+      ...(team
+        ? [rq.team(business._id), rq.invitations(business._id)]
+        : []),
+    )
+  },
   component: SettingsPage,
 })
 

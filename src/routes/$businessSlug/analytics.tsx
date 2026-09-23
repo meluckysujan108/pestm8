@@ -1,13 +1,12 @@
 import { Suspense, lazy } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { convexQuery } from '@convex-dev/react-query'
-import { api } from '../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { formatMoney } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
 import { useViewMode } from '#/lib/access'
 import { useSetView } from '#/lib/useSetView'
+import { rq, warm } from '#/lib/routeQueries'
 
 // A separate lazy chunk so `recharts` (~150KB gzipped) never loads on
 // Schedule or any other route — only whoever actually opens Analytics pays
@@ -19,6 +18,25 @@ const LazyAnalyticsCharts = lazy(() =>
 )
 
 export const Route = createFileRoute('/$businessSlug/analytics')({
+  // The cards wait for their summary; the charts' chunk and the charts' data
+  // are started beside it and not waited on, because only the lazy chunk
+  // reads them — holding the cards for the slower of the two made this page
+  // slower than it was with no loader at all.
+  loader: ({ context: { queryClient, business } }) => {
+    const cards = warm(queryClient, rq.summary(business._id))
+    if (typeof window !== 'undefined') {
+      // Caught because nothing owns this promise yet: the route has not
+      // committed, so React.lazy cannot absorb a failed chunk fetch. It asks
+      // again, and reports it, when the charts actually render.
+      void import('#/components/analytics/AnalyticsCharts').catch(() => {})
+      // After the cards' query, not beside it: Convex answers queries asked
+      // for together in one transition, so the cards would wait on the
+      // charts' slower scan — measured at 442 ms against 660 ms. This way the
+      // charts' data is already on its way while the cards draw.
+      void cards.then(() => warm(queryClient, rq.analytics(business._id)))
+    }
+    return cards
+  },
   component: AnalyticsPage,
 })
 
@@ -27,9 +45,7 @@ function AnalyticsPage() {
   const mode = useViewMode()
   const setView = useSetView(business._id)
   const hydrated = useHydrated()
-  const { data: summary } = useSuspenseQuery(
-    convexQuery(api.dashboard.summary, { businessId: business._id }),
-  )
+  const { data: summary } = useSuspenseQuery(rq.summary(business._id))
 
   if (!summary) return null
 

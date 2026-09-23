@@ -1,10 +1,8 @@
 import { useDeferredValue, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { usePrefetchQuery, useSuspenseQuery } from '@tanstack/react-query'
-import { convexQuery } from '@convex-dev/react-query'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
 import { z } from 'zod'
-import { api } from '../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { WeekStrip } from '#/components/schedule/WeekStrip'
 import { JobCard } from '#/components/schedule/JobCard'
@@ -30,6 +28,7 @@ import { useWeather, weatherKeyOf } from '#/lib/weather'
 import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useActing, useCan, useViewMode } from '#/lib/access'
+import { rq, searchParam, warm } from '#/lib/routeQueries'
 import type { ScheduleView } from '#/components/schedule/DayAgendaPanel'
 
 // A list, not a pair of branches: the section is meant to hold more views
@@ -57,6 +56,42 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute('/$businessSlug/schedule')({
   validateSearch: searchSchema,
+  // The day's jobs, its week and the roster together, instead of one after
+  // another as the page reads them. No `loaderDeps` on the day: that would
+  // make every tap on the strip a new match, and a new match is a placeholder
+  // rather than the day you are leaving.
+  loader: ({ context: { queryClient, business }, location }) => {
+    const asked = searchParam(location, 'date')
+    const day = /^\d{4}-\d{2}-\d{2}$/.test(asked ?? '')
+      ? (asked as string)
+      : todayKeyIn(business.timezone)
+    const month = day.slice(0, 7)
+    const desktop =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(min-width: 1024px)').matches
+
+    // Asked for without holding the page: what the sheets behind a tap need,
+    // and — on a desktop — the month grid beside the agenda, which draws a
+    // cell-exact placeholder of its own and a legend it is happy to render
+    // without. Waiting for those would hold the header, the strip and the
+    // agenda for the slowest of five queries rather than of three.
+    if (typeof window !== 'undefined') {
+      void warm(
+        queryClient,
+        rq.properties(business._id),
+        ...(desktop
+          ? [rq.month(business._id, month), rq.monthTeam(business._id, month)]
+          : []),
+      )
+    }
+
+    return warm(
+      queryClient,
+      rq.week(business._id, startOfWeekKey(day)),
+      rq.day(business._id, day),
+      rq.roster(business._id),
+    )
+  },
   component: SchedulePage,
 })
 
@@ -104,27 +139,10 @@ function SchedulePage() {
   // Asked for first, and not waited on here: read in the order they are
   // needed, the day's jobs went out only once the week had come back, so
   // every cold week change paid two round trips instead of one.
-  usePrefetchQuery(
-    convexQuery(api.jobs.listDay, {
-      businessId: business._id,
-      dayKey: selectedKey,
-    }),
-  )
-  const { data: week } = useSuspenseQuery(
-    convexQuery(api.jobs.listWeek, {
-      businessId: business._id,
-      startKey: weekStart,
-    }),
-  )
-  const { data: jobs } = useSuspenseQuery(
-    convexQuery(api.jobs.listDay, {
-      businessId: business._id,
-      dayKey: selectedKey,
-    }),
-  )
-  const { data: members } = useSuspenseQuery(
-    convexQuery(api.memberships.listForBusiness, { businessId: business._id }),
-  )
+  usePrefetchQuery(rq.day(business._id, selectedKey))
+  const { data: week } = useSuspenseQuery(rq.week(business._id, weekStart))
+  const { data: jobs } = useSuspenseQuery(rq.day(business._id, selectedKey))
+  const { data: members } = useSuspenseQuery(rq.roster(business._id))
   /**
    * The phone opens on your own jobs — for everyone but the owner looking at
    * his business, whose God view means everyone on the phone as on the

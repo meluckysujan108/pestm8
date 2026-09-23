@@ -1,11 +1,12 @@
 import { useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
-import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { authClient } from '#/lib/auth-client'
 import { forgetCachedPages } from '#/lib/rootState'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
+import { rq } from '#/lib/routeQueries'
 
 /** Licence field labelling is state-based, so the label follows the tenant. */
 const LICENCE_LABEL: Record<string, string> = {
@@ -33,7 +34,7 @@ export function ProfileSection({
   state: string
 }) {
   const { data: user } = useSuspenseQuery(
-    convexQuery(api.auth.getCurrentUser, {}),
+    rq.currentUser(),
   )
 
   const [name, setName] = useState(user.name)

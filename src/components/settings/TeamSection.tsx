@@ -1,16 +1,13 @@
 import { useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
-import {
-  convexQuery,
-  useConvexAction,
-  useConvexMutation,
-} from '@convex-dev/react-query'
+import { useConvexAction, useConvexMutation } from '@convex-dev/react-query'
 import { Check, Copy, Mail, RefreshCw, Share2, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { MemberAccessRow } from './MemberAccessRow'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Role } from '../../../convex/lib/capabilities'
 import { useHydrated } from '#/lib/useHydrated'
+import { rq } from '#/lib/routeQueries'
 
 /**
  * Inviting used to mean recording an email address and hoping. The button said
@@ -26,11 +23,9 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
     // The management view, not the shared roster: grants are access
     // settings, and the roster six other screens read has no business
     // carrying them.
-    convexQuery(api.team.roster, { businessId }),
+    rq.team(businessId),
   )
-  const { data: invitations } = useSuspenseQuery(
-    convexQuery(api.invitations.listForBusiness, { businessId }),
-  )
+  const { data: invitations } = useSuspenseQuery(rq.invitations(businessId))
 
   const [email, setEmail] = useState('')
   const [freshLink, setFreshLink] = useState<{

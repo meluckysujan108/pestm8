@@ -21,13 +21,13 @@ export function getRouter() {
     // Only for a navigation still unresolved this long (a cold route chunk,
     // a loader); from cache is a few frames and shows nothing.
     defaultPendingMs: 200,
-    // No floor. These pages fetch their own data, so a route that showed
-    // pending commits into a page that suspends straight into the same
-    // placeholder — there is no flash to guard against — and the router
-    // holding the commit for a minimum would only postpone the fetch the page
-    // is about to start. That reasoning is for loader-less routes only: the
-    // one route with a loader (reports/$reportId) opts out of pending, and a
-    // route that gains a loader needs a floor or an opt-out of its own.
+    // No floor. A route whose loader is still out shows this placeholder and
+    // then commits straight into the page, with no second wait to flash past:
+    // measured, the tabs' loaders answer in one Convex round (~430-670 ms
+    // cold) or from cache (~10-25 ms warm), so they land either side of the
+    // 200 ms above rather than just after it. A floor would only postpone the
+    // commit — and for a page that fetches in render, the fetch with it.
+    // Revisit if a loader ever settles reliably around 200-300 ms.
     defaultPendingMinMs: 0,
     Wrap: ({ children }) => (
       <ConvexProvider client={context.convexQueryClient.convexClient}>

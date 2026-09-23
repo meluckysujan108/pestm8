@@ -16,8 +16,10 @@ import type { ReactNode } from 'react'
  * loaded, and a placeholder carrying one would pass that check early. The one
  * exception is a sheet's own title, which `SheetPending` is handed: it is the
  * dialog's accessible name and is known before anything else in the sheet.
- * Only the page-level placeholder is a `status` region — deliveries.spec.ts
- * reads a sheet's `status` as its search results.
+ * The `status` regions are the page-level placeholder and `ListPending`, the
+ * one used inside a page that is already on screen; a sheet's placeholder is
+ * not one, because deliveries.spec.ts reads a sheet's `status` as its search
+ * results.
  *
  * Sized to what they stand in for, so nothing jumps when the content lands.
  * `PagePending` is in the entry chunk (the router imports it), so it stays
@@ -59,22 +61,51 @@ export function PagePending() {
   )
 }
 
-/** List or board rows, as the schedule and clients draw them. */
+/**
+ * List or board rows. Two columns from `md` like the schedule and clients
+ * boards, unless the list it stands in for is a single column — the reports
+ * and notes libraries are, and `md:` is a viewport query, so inside the notes
+ * column it would otherwise lay two half-width bones side by side.
+ */
 export function CardRows({
   count,
   className = '',
+  columns = 2,
 }: {
   count: number
   className?: string
+  columns?: 1 | 2
 }) {
   return (
     <div
       aria-hidden
-      className={`flex flex-col gap-2.5 md:grid md:grid-cols-2 ${className}`}
+      className={`flex flex-col gap-2.5 ${columns === 2 ? 'md:grid md:grid-cols-2' : ''} ${className}`}
     >
       {Array.from({ length: count }, (_, i) => (
         <Bone key={i} className="h-[88px] rounded-2xl" />
       ))}
+    </div>
+  )
+}
+
+/**
+ * A list loading inside a page that is already on screen, announced because
+ * the page-level placeholder — the only other `status` region — is not there
+ * to do it.
+ */
+export function ListPending({
+  label,
+  count,
+  className = '',
+}: {
+  label: string
+  count: number
+  className?: string
+}) {
+  return (
+    <div role="status">
+      <span className="sr-only">{label}</span>
+      <CardRows count={count} columns={1} className={className} />
     </div>
   )
 }
