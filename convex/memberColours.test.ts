@@ -351,18 +351,70 @@ describe('the one-off re-deal for businesses from before the palette (memberColo
     expect(await colourOf(s, s.kevinId)).toBe('#16A34A')
   })
 
-  test('another business already on the new deal is not touched', async () => {
-    const s = await setup()
-    await asBeforePhase42(s)
-    const other = await createActor(s.t, { email: 'other@elsewhere.test' })
-    await other.as.mutation(api.businesses.create, {
-      name: 'Elsewhere Pest',
+  /** A second business in the same deployment: its owner and one person who
+   * joined through a real invitation, dealt as a new business deals. */
+  async function anotherBusiness(s: Setup, domain: string) {
+    const owner = await createActor(s.t, { email: `owner@${domain}` })
+    const { businessId } = await owner.as.mutation(api.businesses.create, {
+      name: `Pest ${domain}`,
       state: 'WA',
       timezone: 'Australia/Perth',
     })
+    const tech = await createActor(s.t, { email: `tech@${domain}` })
+    const { url } = await owner.as.action(api.invitations.create, {
+      businessId,
+      email: tech.email,
+      role: 'subcontractor',
+    })
+    await tech.as.action(api.invitations.redeem, {
+      token: url.split('/join/')[1],
+    })
+    const rows = await s.t.run((ctx) =>
+      ctx.db
+        .query('memberships')
+        .withIndex('by_business', (q) => q.eq('businessId', businessId))
+        .collect(),
+    )
+    return {
+      businessId,
+      ownerId: rows.find((m) => m.role === 'owner')!._id,
+      techId: rows.find((m) => m.userId === tech.userId)!._id,
+    }
+  }
+
+  test('every business on the old deal is dealt afresh, each from blue', async () => {
+    const s = await setup()
+    await asBeforePhase42(s)
+    const other = await anotherBusiness(s, 'elsewhere.test')
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(other.ownerId, { colour: '#FF3B30' })
+      await ctx.db.patch(other.techId, { colour: '#0A84FF' })
+    })
+    expect(await remaining(s)).toBe(2)
+
+    await redeal(s)
+    for (const [owner, tech] of [
+      [s.ownerId, s.kevinId],
+      [other.ownerId, other.techId],
+    ]) {
+      expect(await colourOf(s, owner)).toBe('#0A84FF')
+      expect(await colourOf(s, tech)).toBe('#DC2626')
+    }
+  })
+
+  test('a business not on the old deal is not touched, even where a re-deal would change it', async () => {
+    const s = await setup()
+    await asBeforePhase42(s)
+    // Its owner is not on the old red, so it is not due — though its second
+    // person holds teal, which a re-deal would turn red.
+    const other = await anotherBusiness(s, 'elsewhere.test')
+    await s.t.run((ctx) => ctx.db.patch(other.techId, { colour: '#0F766E' }))
+
     const { changes } = await redeal(s)
     expect(new Set(changes.map((c) => c.businessId))).toEqual(
       new Set([s.businessId]),
     )
+    expect(await colourOf(s, other.ownerId)).toBe('#0A84FF')
+    expect(await colourOf(s, other.techId)).toBe('#0F766E')
   })
 })

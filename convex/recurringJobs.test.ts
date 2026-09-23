@@ -2,7 +2,13 @@
 import { describe, expect, test } from 'vitest'
 import { api, internal } from './_generated/api'
 import { createActor, createBusiness, testApp } from '../test/harness'
-import { addDaysToKey, dayKeyOf } from './lib/dates'
+import {
+  addDaysToKey,
+  dayKeyOf,
+  startOfDayInZone,
+  todayKeyInZone,
+} from './lib/dates'
+import { HORIZON_DAYS } from './lib/recurrence'
 import type { Id } from './_generated/dataModel'
 import type { TestActor, TestApp } from '../test/harness'
 
@@ -377,6 +383,37 @@ describe('projected visits stay out of every job total', () => {
       status: 'booked',
     })
     expect(await count()).toBe(1)
+  })
+
+  test('whatever the badge counts, the Recurring Job view lists — even the oldest, on its last day', async () => {
+    // The badge and the Job tab's link send people to the Recurring Job view,
+    // so the view has to reach back exactly as far. A visit a minute into the
+    // first day of the lookback was counted from the start of today but read
+    // from `now`, so for the rest of the day it was counted and not listed.
+    const s = await setup()
+    const recurrenceId = await series(s, { count: 1, unit: 'week' })
+    const oldest = (
+      await s.t.run(async (ctx) =>
+        ctx.db
+          .query('jobs')
+          .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
+          .collect(),
+      )
+    ).filter((j) => j.status === 'recurring')[0]
+    const startOfToday = startOfDayInZone(todayKeyInZone(TZ), TZ)
+    await s.t.run((ctx) =>
+      ctx.db.patch(oldest._id, {
+        scheduledAt: startOfToday - HORIZON_DAYS * DAY + 60_000,
+      }),
+    )
+
+    expect(
+      await s.owner.as.query(api.jobs.overdueRecurringCount, {
+        businessId: s.businessId,
+      }),
+    ).toBe(1)
+    const view = await recurringView(s)
+    expect(view.jobs.map((j) => j._id)).toContain(oldest._id)
   })
 
   test('overdue projections are still counted in no total', async () => {

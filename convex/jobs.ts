@@ -333,16 +333,26 @@ export const listRecurring = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
     const env = await requireActor(ctx, businessId)
+    const business = await ctx.db.get(businessId)
+    if (!business)
+      return { jobs: [], seriesCount: 0, horizonDays: HORIZON_DAYS }
 
     const now = Date.now()
+    const startOfToday = startOfDayInZone(
+      todayKeyInZone(business.timezone),
+      business.timezone,
+    )
     const visits = (
       await jobsInScope(ctx, env.listScope, {
         businessId,
         // Reaches BACKWARDS as well, so a projection nobody actioned is
         // listed here for as long as today's schedule carries it forward.
         // This view is the backstop: nothing should ever be invisible in
-        // both places at once.
-        from: now - OVERDUE_LOOKBACK_DAYS * DAY_MS,
+        // both places at once. From the start of today, exactly as
+        // `overdueRecurring` reads: measured from `now`, a visit at 09:00 on
+        // the last day of the lookback was still counted by the nav badge and
+        // the Job tab's link all afternoon, but gone from the view they open.
+        from: startOfToday - OVERDUE_LOOKBACK_DAYS * DAY_MS,
         // One day's slack past the horizon: the cron projects from its own
         // "now", which is up to a day ahead of this query's.
         to: now + (HORIZON_DAYS + 1) * DAY_MS,
