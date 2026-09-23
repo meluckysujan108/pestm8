@@ -315,24 +315,26 @@ export const redeemByHash = internalMutation({
       // Rejoining starts from the invitation, not from whatever this person
       // held last time: a former owner re-invited as a subcontractor must come
       // back as a subcontractor, with no grants carried over. Their colour
-      // comes back too — unless it is one no longer offered (a colour from
-      // before Phase 4.2's palette), when they are dealt a current one.
+      // comes back too, when it still can: it must be one the palette offers
+      // (not a colour from before Phase 4.2's), and nobody active may have
+      // been dealt it while they were away — two people with one colour are
+      // two jobs nobody can tell apart on the schedule. Otherwise they are
+      // dealt afresh, like anyone joining.
+      const others = (
+        await ctx.db
+          .query('memberships')
+          .withIndex('by_business', (q) =>
+            q.eq('businessId', invitation.businessId),
+          )
+          .collect()
+      ).filter((m) => m._id !== existing._id && m.status !== 'removed')
       const keptColour = normaliseColour(existing.colour)
       const colour =
-        keptColour && isMemberColour(keptColour)
+        keptColour &&
+        isMemberColour(keptColour) &&
+        !others.some((m) => normaliseColour(m.colour) === keptColour)
           ? keptColour
-          : nextColour(
-              (
-                await ctx.db
-                  .query('memberships')
-                  .withIndex('by_business', (q) =>
-                    q.eq('businessId', invitation.businessId),
-                  )
-                  .collect()
-              )
-                .filter((m) => m.status !== 'removed')
-                .map((m) => m.colour),
-            )
+          : nextColour(others.map((m) => m.colour))
       await ctx.db.patch(existing._id, {
         status: 'active',
         role: invitation.role,

@@ -400,11 +400,19 @@ test('the week view lists the week’s jobs and counts recurring visits apart', 
   ).toBeVisible()
   await expect(tuesday.getByText('Rodent Baiting')).toHaveCount(0)
 
-  // On a phone the strip says the same, as the day's description.
+  // Nowhere is the week, or a day, one summed number.
+  await expect(page.getByText(/\b8 jobs\b/)).toHaveCount(0)
+  await expect(tuesday.getByText('2 jobs', { exact: true })).toHaveCount(0)
+
+  // On a phone the strip says the same: the job count and the recurring
+  // number drawn apart, and read out as a sentence.
   if (test.info().project.name === 'mobile') {
-    await expect(
-      page.getByRole('button', { name: s.tuesday, exact: true }),
-    ).toHaveAccessibleDescription('1 job, 1 recurring visit not yet booked')
+    const cell = page.getByRole('button', { name: s.tuesday, exact: true })
+    await expect(cell.getByTestId('strip-jobs')).toHaveText('1')
+    await expect(cell.getByTestId('strip-recurring')).toHaveText('1')
+    await expect(cell).toHaveAccessibleDescription(
+      '1 job, 1 recurring visit not yet booked',
+    )
   }
 })
 
@@ -465,9 +473,10 @@ test('the week is kept in the URL, and a view that does not exist falls back', a
 /**
  * The strip sits under a sticky header whose height viewMenu.spec.ts pins, at
  * a hard-coded offset — so a strip that grew to hold the recurring number
- * would slide under it. Same height in the week as in the day.
+ * would slide under it. Measured on a week that has recurring numbers and on
+ * one that has none, so the number's own height is what is compared.
  */
-test('the phone’s sticky strip is the same height in the week as in the day', async ({
+test('the phone’s sticky strip is no taller for holding recurring numbers', async ({
   page,
 }) => {
   test.skip(test.info().project.name !== 'mobile', 'phone layout only')
@@ -475,13 +484,19 @@ test('the phone’s sticky strip is the same height in the week as in the day', 
   await signInViaUi(page, s.email)
 
   const chrome = page.locator('[data-schedule-chrome]')
-  await page.goto(`/${s.slug}/schedule?view=job&date=${s.monday}`)
-  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
-  const dayHeight = (await chrome.boundingBox())!.height
+  const heightOf = async (dayKey: string) => {
+    await page.goto(`/${s.slug}/schedule?view=week&date=${dayKey}`)
+    await expect(page.locator(`#week-day-${dayKey}`)).toBeVisible()
+    return (await chrome.boundingBox())!.height
+  }
 
-  await page.goto(`/${s.slug}/schedule?view=week&date=${s.monday}`)
-  await expect(page.locator(`#week-day-${s.monday}`)).toBeVisible()
-  const weekHeight = (await chrome.boundingBox())!.height
+  const withRecurring = await heightOf(s.monday)
+  await expect(page.getByTestId('strip-recurring').first()).toBeVisible()
+  // Thirty weeks out is past the six-month projection horizon: no jobs and
+  // no projected visits, so no numbers in the strip at all.
+  const empty = plusDays(s.monday, 30 * 7)
+  const without = await heightOf(empty)
+  await expect(page.getByTestId('strip-recurring')).toHaveCount(0)
 
-  expect(Math.abs(weekHeight - dayHeight)).toBeLessThanOrEqual(0.5)
+  expect(Math.abs(withRecurring - without)).toBeLessThanOrEqual(0.5)
 })

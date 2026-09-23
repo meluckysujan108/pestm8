@@ -7,7 +7,12 @@ import { addDaysToKey, formatShortDayLabel, formatTime } from '#/lib/format'
 import { computeStaffLoad } from '#/lib/scheduleFilters'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { rq } from '#/lib/routeQueries'
-import { dayPhase, splitDayRows, weekDayKeys } from '#/lib/weekView'
+import {
+  carriedFromBefore,
+  dayPhase,
+  splitDayRows,
+  weekDayKeys,
+} from '#/lib/weekView'
 import { HORIZON_DAYS } from '../../../convex/lib/recurrence'
 import type { DayPhase } from '#/lib/weekView'
 import type { DayLoad } from './WeekStrip'
@@ -33,6 +38,7 @@ export function WeekView({
   weekStart,
   todayKey,
   focusKey,
+  focusTick = 0,
   week,
   showTeam,
   onOpenJob,
@@ -45,6 +51,8 @@ export function WeekView({
   todayKey: string
   /** The day to bring into view — the one tapped on the strip or the grid. */
   focusKey: string
+  /** Bumped on every pick, so picking the same day again still scrolls. */
+  focusTick?: number
   /** `listWeek`'s days: where the recurring numbers come from, future days
    * included, since `listDay` does not return a projection ahead of its day. */
   week: Array<DayLoad & { dayKey?: string }>
@@ -67,7 +75,7 @@ export function WeekView({
   const committedAll = split.flatMap((d) => d.committed)
   const team = computeStaffLoad(committedAll)
 
-  useScrollToDay(focusKey, weekStart)
+  useScrollToDay(focusKey, weekStart, focusTick)
 
   const beyondHorizon = weekStart > addDaysToKey(todayKey, HORIZON_DAYS)
 
@@ -104,13 +112,14 @@ export function WeekView({
       {dayKeys.map((dayKey, i) => (
         <WeekDay
           key={dayKey}
+          initials={showTeam && team.length >= 2}
           dayKey={dayKey}
           phase={dayPhase(dayKey, todayKey)}
           businessSlug={businessSlug}
           timezone={timezone}
           committed={split[i].committed}
           dueHere={split[i].dueHere}
-          carried={split[i].carried}
+          carried={carriedFromBefore(split[i].carried, weekStart, timezone)}
           recurringCount={
             week.find((d) => d.offset === i)?.recurringCount ??
             split[i].dueHere.length
@@ -124,6 +133,7 @@ export function WeekView({
 }
 
 function WeekDay({
+  initials,
   dayKey,
   phase,
   businessSlug,
@@ -135,6 +145,8 @@ function WeekDay({
   onOpenJob,
   onOpenDay,
 }: {
+  /** Whose job each block is, as a letter too — not by colour alone. */
+  initials: boolean
   dayKey: string
   phase: DayPhase
   businessSlug: string
@@ -192,7 +204,12 @@ function WeekDay({
         <ul className="mt-2 flex flex-col gap-1.5">
           {committed.map((job) => (
             <li key={job._id}>
-              <JobBlock job={job} timezone={timezone} onOpen={onOpenJob} />
+              <JobBlock
+                job={job}
+                timezone={timezone}
+                onOpen={onOpenJob}
+                initial={initials}
+              />
             </li>
           ))}
         </ul>
@@ -221,15 +238,17 @@ function WeekDay({
                 timezone={timezone}
                 onOpen={onOpenJob}
                 overdue={phase === 'past'}
+                initial={initials}
               />
             </li>
           ))}
         </ul>
       )}
 
-      {/* Visits missed on earlier days — the week shows each on its own day,
-          but a missed one from last week is on no day of this one. Today's
-          Job view carries them; this says so and goes there. */}
+      {/* Visits missed before this week began. The week shows each missed
+          visit on its own day, so one from earlier this week is already
+          there; one from last week is on no day of this one. Today's Job
+          view carries them; this says so and goes there. */}
       {phase === 'today' && carried.length > 0 && (
         <button
           type="button"
@@ -306,11 +325,17 @@ function JobBlock({
   timezone,
   onOpen,
   overdue = false,
+  initial = false,
 }: {
   job: JobRow
   timezone: string
   onOpen: (jobId: string) => void
   overdue?: boolean
+  /** The technician's initial beside the time. With two or more people in
+   * the week, colour alone is not enough to tell their jobs apart (WCAG
+   * 1.4.1) — some pairs merge for colour-blind readers — so the letter says
+   * it too, and the team key above reads the letters. */
+  initial?: boolean
 }) {
   const projected = job.status === 'recurring'
   return (
@@ -334,6 +359,15 @@ function JobBlock({
           className="absolute inset-y-0 left-0 w-1"
           style={{ backgroundColor: job.assigneeColour }}
         />
+      )}
+      {initial && job.assigneeName && (
+        <span
+          aria-hidden
+          className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full border-2 bg-surface text-[11px] font-bold text-ink"
+          style={{ borderColor: job.assigneeColour }}
+        >
+          {job.assigneeName.trim().charAt(0).toUpperCase()}
+        </span>
       )}
       <span className="w-[4.5rem] shrink-0 pt-px font-mono text-caption tabular-nums text-ink-2">
         {formatTime(job.scheduledAt, timezone)}
@@ -365,17 +399,20 @@ function JobBlock({
 
 /**
  * Brings the focused day into view: when the week first opens on a day other
- * than its Monday, and whenever another day is tapped on the strip or grid.
+ * than its Monday, and whenever a day is picked on the strip or grid.
  * Measured against whatever sticky chrome covers the top of the page — the
  * page header everywhere, and the week strip (`data-schedule-chrome`) on a
  * phone — so the day's heading lands just under it rather than behind it.
  */
-function useScrollToDay(focusKey: string, weekStart: string) {
+function useScrollToDay(focusKey: string, weekStart: string, tick: number) {
   const first = useRef(true)
   useEffect(() => {
     const isFirst = first.current
     first.current = false
-    if (isFirst && focusKey === weekStart) return
+    // On arrival: nothing to do on the week's own Monday, and nothing when
+    // the router has just put the reader back where they were (Back from a
+    // day opened here) — that position is theirs, not ours to move.
+    if (isFirst && (focusKey === weekStart || window.scrollY > 0)) return
 
     const section = document.getElementById(`week-day-${focusKey}`)
     if (!section) return
@@ -391,5 +428,5 @@ function useScrollToDay(focusKey: string, weekStart: string) {
       top: section.getBoundingClientRect().top + window.scrollY - offset - 8,
       behavior: isFirst || reduce ? 'auto' : 'smooth',
     })
-  }, [focusKey, weekStart])
+  }, [focusKey, weekStart, tick])
 }

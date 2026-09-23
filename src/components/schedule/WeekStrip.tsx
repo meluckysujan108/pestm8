@@ -92,9 +92,14 @@ export function WeekStrip({
               aria-hidden
               className="flex h-3.5 items-center gap-1 text-[11px] font-semibold tabular-nums text-ink-2"
             >
-              {day && day.count > 0 ? day.count : ''}
+              <span data-testid="strip-jobs">
+                {day && day.count > 0 ? day.count : ''}
+              </span>
               {day?.recurringCount ? (
-                <span className="inline-flex items-center gap-px rounded-[4px] border border-dashed border-muted px-0.5 leading-3">
+                <span
+                  data-testid="strip-recurring"
+                  className="inline-flex items-center gap-px rounded-[4px] border border-dashed border-muted px-0.5 leading-3"
+                >
                   <Repeat size={8} strokeWidth={2.4} />
                   {day.recurringCount}
                 </span>

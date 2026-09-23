@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { RadioGroup } from 'radix-ui'
@@ -12,7 +13,7 @@ import {
 import type { Id } from '../../../convex/_generated/dataModel'
 
 const SWATCH =
-  'group flex size-11 items-center justify-center rounded-full outline-none transition active:scale-[.95] focus-visible:ring-2 focus-visible:ring-blue disabled:opacity-60'
+  'group flex size-11 items-center justify-center rounded-full outline-none transition active:scale-[.95] focus-visible:ring-2 focus-visible:ring-blue'
 // The ring follows the item's own checked state, which Radix keeps.
 const CHIP =
   'flex size-8 items-center justify-center rounded-full ring-offset-2 ring-offset-surface group-data-[state=checked]:ring-2 group-data-[state=checked]:ring-ink'
@@ -27,6 +28,12 @@ const CHIP =
  * two identical rails on one day are two people nobody can tell apart. A
  * colour from before the palette (the old red, say) stays selected and shown
  * until the owner picks another, rather than silently vanishing from the row.
+ *
+ * A radio group moves its selection with the arrow keys, so arrowing across
+ * to Cyan passes through every colour between. The choice shows at once and
+ * is saved a moment after the last move — one change and one audit row, not
+ * eight — and the group is never disabled meanwhile: a disabled radio cannot
+ * hold focus, and the keyboard user would be dropped back to the page.
  */
 export function ColourPicker({
   businessId,
@@ -50,8 +57,32 @@ export function ColourPicker({
 
   const current = normaliseColour(colour) ?? colour
   const offered = isMemberColour(current)
-  // Shown as chosen while the save is in flight, so the tap lands at once.
-  const selected = save.isPending && save.variables ? save.variables : current
+
+  // The choice not yet confirmed by the server. Cleared once the save
+  // settles: on success the roster already carries the new colour (a Convex
+  // mutation resolves after its reads have updated), and on failure the
+  // stored colour shows again beside the error.
+  const [chosen, setChosen] = useState<string | null>(null)
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current)
+    },
+    [],
+  )
+  const choose = (next: string) => {
+    setChosen(next)
+    if (timer.current) clearTimeout(timer.current)
+    timer.current = setTimeout(() => {
+      timer.current = null
+      // Only its own choice: a newer one made meanwhile stays shown until
+      // its own save settles.
+      save.mutate(next, {
+        onSettled: () => setChosen((shown) => (shown === next ? null : shown)),
+      })
+    }, 500)
+  }
+  const selected = chosen ?? current
 
   const holders = (swatch: string) =>
     others
@@ -66,8 +97,7 @@ export function ColourPicker({
       <RadioGroup.Root
         aria-label={`Colour for ${name}`}
         value={selected}
-        disabled={save.isPending}
-        onValueChange={(next) => save.mutate(next)}
+        onValueChange={choose}
         className="mt-1 flex flex-wrap gap-0.5"
       >
         {!offered && (

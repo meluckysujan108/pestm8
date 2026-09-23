@@ -1,4 +1,4 @@
-import { useDeferredValue, useRef, useState } from 'react'
+import { useDeferredValue, useEffect, useRef, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { usePrefetchQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react'
@@ -118,8 +118,24 @@ function SchedulePage() {
   // (dimmed) until then — so switching to a week not yet loaded keeps the
   // page up rather than swapping it for the route's placeholder.
   const shownView = useDeferredValue(activeView)
-  const setView = (next: ScheduleView) =>
+  // On a desktop, the week and the day draw their View control in different
+  // places, so switching between them remounts it and a keyboard user's
+  // focus would fall to the page. Put it back on the view just chosen.
+  const restoreViewFocus = useRef(false)
+  const setView = (next: ScheduleView) => {
+    restoreViewFocus.current =
+      document.activeElement?.closest('[role="tablist"]') != null
     navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
+  }
+  useEffect(() => {
+    if (!restoreViewFocus.current) return
+    restoreViewFocus.current = false
+    document
+      .querySelector<HTMLElement>(
+        '[role="tablist"][aria-label="View"] [role="tab"][aria-selected="true"]',
+      )
+      ?.focus()
+  }, [shownView])
   // The way this person last read a single day, for opening one from the
   // week — the cards if they have not chosen.
   const lastDayView = useRef<DayView>('job')
@@ -193,8 +209,20 @@ function SchedulePage() {
 
   // `jobId` is deliberately dropped rather than carried: moving to another day
   // should close a sheet showing a job that day no longer contains.
-  const setDay = (dayKey: string) =>
-    navigate({ search: (prev) => ({ view: prev.view, date: dayKey }), replace: true })
+  //
+  // In the week, a day picked on the strip or the grid is scrolled to rather
+  // than the page jumping back to the top — and picked again (Today, say)
+  // it is scrolled to again, which the count below is for.
+  const [weekFocusTick, setWeekFocusTick] = useState(0)
+  const setDay = (dayKey: string) => {
+    const inWeek = activeView === 'week'
+    if (inWeek) setWeekFocusTick((tick) => tick + 1)
+    navigate({
+      search: (prev) => ({ view: prev.view, date: dayKey }),
+      replace: true,
+      resetScroll: !inWeek,
+    })
+  }
   // From the week to one of its days. A push, unlike `setDay`: Back returns
   // to the week the day was opened from.
   const openDay = (dayKey: string) =>
@@ -227,7 +255,8 @@ function SchedulePage() {
       timezone={business.timezone}
       weekStart={weekStart}
       todayKey={today}
-      focusKey={selectedKey}
+      focusKey={requestedKey}
+      focusTick={weekFocusTick}
       week={week}
       showTeam={mode !== 'mine'}
       onOpenJob={setOpenJobId}

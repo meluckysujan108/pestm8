@@ -1,6 +1,6 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
-import { startOfDayInZone, todayKeyInZone } from './lib/dates'
+import { endOfDayInZone, startOfDayInZone, todayKeyInZone } from './lib/dates'
 import { requireActor } from './lib/actor'
 import { jobsInScope, wireScope } from './lib/jobScope'
 import { NOT_STARTED_STATUSES } from './lib/jobStatus'
@@ -21,7 +21,10 @@ export const summary = query({
 
     const todayKey = todayKeyInZone(business.timezone)
     const dayStart = startOfDayInZone(todayKey, business.timezone)
-    const dayEnd = dayStart + 24 * 60 * 60 * 1000
+    // The day's own end, not start + 24h: the Schedule ends a day the same
+    // way, so on a daylight-saving Sunday the two cannot disagree about
+    // which jobs are today's.
+    const dayEnd = endOfDayInZone(todayKey, business.timezone)
     const monthStart = startOfDayInZone(
       `${todayKey.slice(0, 7)}-01`,
       business.timezone,

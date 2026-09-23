@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  carriedFromBefore,
   dayPhase,
   describeDayLoad,
   splitDayRows,
@@ -108,5 +109,18 @@ describe('naming a week', () => {
 
   test('a day inside it', () => {
     expect(formatShortDayLabel('2026-09-21')).toBe('Mon 21')
+  })
+})
+
+describe('what today carries from earlier days', () => {
+  test('only visits from before the week began — the week already shows its own', () => {
+    const carried = [
+      row('lastWeek', 'recurring', '2026-09-19T09:00:00'),
+      row('monday', 'recurring', '2026-09-21T09:00:00'),
+      row('tuesday', 'recurring', '2026-09-22T09:00:00'),
+    ]
+    expect(
+      carriedFromBefore(carried, '2026-09-21', PERTH).map((r) => r._id),
+    ).toEqual(['lastWeek'])
   })
 })

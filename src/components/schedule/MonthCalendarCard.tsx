@@ -176,8 +176,10 @@ function MonthDays({
             aria-pressed={isSelected}
             onClick={() => onSelect(dayKey)}
             className={`flex flex-col items-center gap-0.5 rounded-xl py-1.5 transition hover:bg-surface-2 active:scale-[.95] ${
+              // An outline, not a fill: a grey fill under the dots took the
+              // lighter technician colours below 3:1 against it.
               weekStart && weekEnd && dayKey >= weekStart && dayKey <= weekEnd
-                ? 'bg-surface-2'
+                ? 'ring-1 ring-inset ring-muted'
                 : ''
             }`}
           >

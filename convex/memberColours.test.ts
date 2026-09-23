@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 import { describe, expect, test } from 'vitest'
 import { api } from './_generated/api'
-import { createActor, testApp } from '../test/harness'
+import { addSession, createActor, testApp } from '../test/harness'
+import type { TestActor } from '../test/harness'
 import { MEMBER_COLOURS } from './lib/colours'
 import type { Id } from './_generated/dataModel'
 
@@ -66,6 +67,74 @@ describe('dealing colours', () => {
     expect(await colourOf(s, s.kevinId)).toBe(MEMBER_COLOURS[1])
     expect(MEMBER_COLOURS[0]).toBe('#0A84FF')
     expect(MEMBER_COLOURS[1]).toBe('#E35F00')
+  })
+})
+
+async function joinAs(s: Setup, actor: TestActor) {
+  const { url } = await s.owner.as.action(api.invitations.create, {
+    businessId: s.businessId,
+    email: actor.email,
+    role: 'subcontractor',
+  })
+  await actor.as.action(api.invitations.redeem, {
+    token: url.split('/join/')[1],
+  })
+  return s.t.run(
+    async (ctx) =>
+      (
+        await ctx.db
+          .query('memberships')
+          .withIndex('by_business', (q) => q.eq('businessId', s.businessId))
+          .collect()
+      ).find((m) => m.userId === actor.userId)!._id,
+  )
+}
+
+function removeKevin(s: Setup) {
+  return s.owner.as.mutation(api.team.remove, {
+    businessId: s.businessId,
+    membershipId: s.kevinId,
+  })
+}
+
+/** Removal ends a person's sessions, so coming back starts with signing in. */
+async function kevinRejoins(s: Setup) {
+  await joinAs(s, await addSession(s.t, s.kevin))
+}
+
+describe('dealing colours as people leave and come back', () => {
+  test('someone who left does not hold a colour back from the next person', async () => {
+    const s = await setup()
+    await removeKevin(s)
+    const priya = await createActor(s.t, { email: 'priya@coastal.test' })
+    const priyaId = await joinAs(s, priya)
+    // Kevin's orange is free again, so it is the next colour dealt.
+    expect(await colourOf(s, priyaId)).toBe(MEMBER_COLOURS[1])
+  })
+
+  test('someone coming back gets their own colour, if it is still theirs to have', async () => {
+    const s = await setup()
+    await removeKevin(s)
+    await kevinRejoins(s)
+    expect(await colourOf(s, s.kevinId)).toBe(MEMBER_COLOURS[1])
+  })
+
+  test('…and a fresh one if it was dealt to someone else while they were away', async () => {
+    const s = await setup()
+    await removeKevin(s)
+    const priya = await createActor(s.t, { email: 'priya@coastal.test' })
+    const priyaId = await joinAs(s, priya)
+    await kevinRejoins(s)
+    expect(await colourOf(s, priyaId)).toBe(MEMBER_COLOURS[1])
+    expect(await colourOf(s, s.kevinId)).toBe(MEMBER_COLOURS[2])
+  })
+
+  test('a colour from before the palette is replaced when they come back', async () => {
+    const s = await setup()
+    await s.t.run((ctx) => ctx.db.patch(s.kevinId, { colour: '#FF3B30' }))
+    await removeKevin(s)
+    await kevinRejoins(s)
+    expect(MEMBER_COLOURS).toContain(await colourOf(s, s.kevinId))
   })
 })
 

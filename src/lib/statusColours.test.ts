@@ -37,6 +37,9 @@ const THEMES = {
   dark: block(":root[data-theme='dark'],\n[data-theme='dark'] {"),
 }
 
+/** The theme-independent contract block, where --overdue is declared. */
+const CONTRACT = block(':root,\n[data-theme] {')
+
 const TONES: Array<StatusTone> = [
   'orange',
   'red',
@@ -66,9 +69,16 @@ describe('status colours in the stylesheet', () => {
         },
       )
 
-      test('overdue — ink on its own background — is far past AA', () => {
-        // --overdue is --ink and --overdue-ink is --surface in both themes.
-        expect(contrastRatio(vars.ink, vars.surface)).toBeGreaterThanOrEqual(7)
+      test('overdue — its own two tokens, resolved — is far past AA', () => {
+        const resolve = (token: string) => {
+          const ref = /^var\(--([\w-]+)\)$/.exec(CONTRACT[token])
+          if (!ref)
+            throw new Error(`--${token} is not a var(): ${CONTRACT[token]}`)
+          return vars[ref[1]]
+        }
+        expect(
+          contrastRatio(resolve('overdue-ink'), resolve('overdue')),
+        ).toBeGreaterThanOrEqual(7)
       })
     })
   }
@@ -85,6 +95,11 @@ describe('status colours in the stylesheet', () => {
     }
     expect(css).toContain('--color-overdue: var(--overdue);')
     expect(css).toContain('--color-overdue-ink: var(--overdue-ink);')
+  })
+
+  test('overdue carries no hue: it is ink on the surface, in every theme', () => {
+    expect(CONTRACT.overdue).toBe('var(--ink)')
+    expect(CONTRACT['overdue-ink']).toBe('var(--surface)')
   })
 
   test('amber keeps meaning "warning" and is none of the status hues', () => {

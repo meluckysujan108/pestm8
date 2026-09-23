@@ -51,6 +51,22 @@ export function splitDayRows<
   return { committed, dueHere, carried }
 }
 
+/**
+ * Of the visits `listDay` carries onto today, the ones the week does not
+ * already show: those from before it began. A missed visit from earlier this
+ * week is on its own day in the week, marked overdue, so counting it again
+ * on today would show one missed visit as two.
+ */
+export function carriedFromBefore<T extends { scheduledAt: number }>(
+  carried: Array<T>,
+  weekStart: string,
+  timezone: string,
+): Array<T> {
+  return carried.filter(
+    (row) => dayKeyOf(row.scheduledAt, timezone) < weekStart,
+  )
+}
+
 /** The week's two totals, side by side. */
 export function weekTotals(
   days: Array<{ count: number; recurringCount?: number }>,

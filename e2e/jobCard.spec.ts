@@ -71,8 +71,12 @@ test('on the Schedule a card shows the suburb, Call and Map, and not the technic
   await expect(card).toBeVisible()
   await expect(card).toContainText('Morley')
   await expect(card).not.toContainText('7 Banksia Road')
-  await expect(card).not.toContainText('Technician')
-  await expect(card).not.toContainText('Kevin')
+  // No Technician row: its label and the name as they show on screen...
+  await expect(card.getByText('Technician', { exact: true })).toHaveCount(0)
+  await expect(card.getByText('Kevin', { exact: true })).toHaveCount(0)
+  // ...while a screen reader, which cannot see the rail's colour, is still
+  // told whose job it is (Phase 4.3).
+  await expect(card.getByText('Technician: Kevin')).toHaveCount(1)
 
   // Beside the card's own button, as real controls of their own.
   await expect(page.getByRole('button', { name: CALL })).toBeVisible()
