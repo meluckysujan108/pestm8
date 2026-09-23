@@ -35,6 +35,21 @@ export function useUnreadMentions(businessId: Id<'businesses'>): number {
   return data ?? 0
 }
 
+/**
+ * Projected visits that came due and nobody actioned.
+ *
+ * A badge in the nav, because this is the one number that has to reach
+ * somebody who is not looking for it. Showing an overdue visit on today's
+ * schedule helps whoever opens the schedule; a business that has stopped
+ * opening it is exactly the business quietly failing to treat a customer.
+ */
+export function useOverdueRecurring(businessId: Id<'businesses'>): number {
+  const { data } = useQuery(
+    convexQuery(api.jobs.overdueRecurringCount, { businessId }),
+  )
+  return data ?? 0
+}
+
 export type ShellMembership = {
   role: Role
   colour: string
@@ -67,6 +82,7 @@ export function AppShell({
   children: ReactNode
 }) {
   const unread = useUnreadMentions(business._id)
+  const overdue = useOverdueRecurring(business._id)
 
   return (
     <SidebarProvider>
@@ -124,6 +140,13 @@ export function AppShell({
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
+                    {/* Amber, not blue: unlike an unread mention, this is
+                        work that should already have happened. */}
+                    {item.label === 'Job' && overdue > 0 && (
+                      <SidebarMenuBadge className="rounded-full bg-amber-ink px-1.5 text-[11px] font-bold text-white">
+                        {overdue >= 10 ? '9+' : overdue}
+                      </SidebarMenuBadge>
+                    )}
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>
@@ -163,7 +186,11 @@ export function AppShell({
         </div>
       </SidebarInset>
 
-      <MobileDock businessSlug={business.slug} unreadNotes={unread} />
+      <MobileDock
+        businessSlug={business.slug}
+        unreadNotes={unread}
+        overdueJobs={overdue}
+      />
     </SidebarProvider>
   )
 }

@@ -84,6 +84,9 @@ export function DayAgendaPanel({
     weather.byKey[weatherKeyOf(job.suburb, job.postcode ?? '', selectedKey)],
   )
 
+  const overdue = filteredJobs.filter((j) => j.status === 'recurring')
+  const booked = filteredJobs.filter((j) => j.status !== 'recurring')
+
   return (
     <div className="flex min-w-0 flex-col gap-3">
       <div className="flex items-center justify-between gap-3">
@@ -91,8 +94,19 @@ export function DayAgendaPanel({
           <h2 className="text-sheet-title text-ink">
             {formatDayLabel(selectedKey)}
           </h2>
+          {/* Counted apart, because they are not the same thing. An overdue
+              projection is shown here but is work nobody has committed to —
+              it is in no job total anywhere else either (the month grid, the
+              team legend, the dashboard), and folding it in would make this
+              line the one place that disagrees. */}
           <p className="text-caption tabular-nums text-muted">
-            {filteredJobs.length} {filteredJobs.length === 1 ? 'job' : 'jobs'}
+            {booked.length} {booked.length === 1 ? 'job' : 'jobs'}
+            {overdue.length > 0 && (
+              <span className="text-amber-ink">
+                {' · '}
+                {overdue.length} overdue
+              </span>
+            )}
           </p>
         </div>
         <Segmented label="View" value={view} options={VIEW_OPTIONS} onChange={onViewChange} />

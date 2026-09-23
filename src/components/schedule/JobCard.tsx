@@ -1,9 +1,10 @@
-import { Repeat } from 'lucide-react'
+import { Repeat, TriangleAlert } from 'lucide-react'
 import { formatDuration, formatJobMoney, formatTime } from '#/lib/format'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { WeatherStrip } from './WeatherStrip'
 import type { JobStatus } from '#/components/primitives/StatusPill'
 import type { WeatherCell } from '#/lib/weather'
+import { dayKeyOf } from '../../../convex/lib/dates'
 
 export type JobRow = {
   _id: string
@@ -71,6 +72,22 @@ export function JobCard({
   const shell =
     'flex w-full items-stretch gap-3.5 rounded-2xl border border-hairline bg-surface text-left shadow-elevation transition active:scale-[.99]'
 
+  /**
+   * "19 Sep" when this is a projected visit whose day has passed, otherwise
+   * null. Derived here rather than sent by the server: the card already knows
+   * the tenant's timezone, and the answer changes at midnight without anything
+   * having to re-query.
+   */
+  const overdueSince =
+    job.status === 'recurring' &&
+    dayKeyOf(job.scheduledAt, timezone) < dayKeyOf(Date.now(), timezone)
+      ? new Intl.DateTimeFormat('en-AU', {
+          timeZone: timezone,
+          day: 'numeric',
+          month: 'short',
+        }).format(new Date(job.scheduledAt))
+      : null
+
   return (
     <button
       type="button"
@@ -106,6 +123,16 @@ export function JobCard({
             {formatTime(job.scheduledAt, timezone)}
           </span>
         </span>
+
+        {/* A projection carried forward from a day nobody opened. Its time and
+            date are no longer today's, so the card has to say which day it was
+            due or it reads as work scheduled for now. */}
+        {overdueSince !== null && (
+          <span className="flex items-center gap-1.5 rounded-lg bg-amber-bg px-2 py-1 text-caption font-semibold text-amber-ink">
+            <TriangleAlert size={13} strokeWidth={2} aria-hidden />
+            Overdue since {overdueSince}
+          </span>
+        )}
 
         <span className="block min-w-0">
           <span className="block truncate text-sheet-title text-ink">

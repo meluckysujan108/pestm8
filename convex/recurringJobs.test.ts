@@ -311,6 +311,141 @@ describe('projected visits stay out of every job total', () => {
     expect(summary?.todayCount).toBe(0)
   })
 
+  test('an overdue projection is carried forward onto TODAY, not left on its own day', async () => {
+    const s = await setup()
+    const recurrenceId = await series(s, { count: 1, unit: 'week' })
+    const projected = (
+      await s.t.run(async (ctx) =>
+        ctx.db
+          .query('jobs')
+          .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
+          .collect(),
+      )
+    ).filter((j) => j.status === 'recurring')[0]
+
+    await s.t.run(async (ctx) =>
+      ctx.db.patch(projected._id, { scheduledAt: Date.now() - 4 * DAY }),
+    )
+
+    // THE POINT: it shows on today without anyone navigating to the day it
+    // was due. Left on its own day, the window to catch it is the one day
+    // nobody happened to look.
+    const today = await s.owner.as.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: dayKeyOf(Date.now(), TZ),
+    })
+    expect(today.map((j) => j._id)).toContain(projected._id)
+  })
+
+  test('the overdue badge counts them, and clears when one is actioned', async () => {
+    const s = await setup()
+    const recurrenceId = await series(s, { count: 1, unit: 'week' })
+    const projected = (
+      await s.t.run(async (ctx) =>
+        ctx.db
+          .query('jobs')
+          .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
+          .collect(),
+      )
+    )
+      .filter((j) => j.status === 'recurring')
+      .sort((a, b) => a.scheduledAt - b.scheduledAt)
+
+    const count = () =>
+      s.owner.as.query(api.jobs.overdueRecurringCount, {
+        businessId: s.businessId,
+      })
+
+    expect(await count()).toBe(0)
+
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(projected[0]._id, {
+        scheduledAt: Date.now() - 2 * DAY,
+      })
+      await ctx.db.patch(projected[1]._id, {
+        scheduledAt: Date.now() - 9 * DAY,
+      })
+    })
+    expect(await count()).toBe(2)
+
+    // Actioning one moves it out of `recurring`, so the badge drops.
+    await s.owner.as.mutation(api.jobs.update, {
+      businessId: s.businessId,
+      jobId: projected[0]._id,
+      status: 'booked',
+    })
+    expect(await count()).toBe(1)
+  })
+
+  test('overdue projections are still counted in no total', async () => {
+    const s = await setup()
+    const recurrenceId = await series(s, { count: 1, unit: 'week' })
+    const projected = (
+      await s.t.run(async (ctx) =>
+        ctx.db
+          .query('jobs')
+          .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
+          .collect(),
+      )
+    ).filter((j) => j.status === 'recurring')[0]
+
+    await s.t.run(async (ctx) =>
+      ctx.db.patch(projected._id, { scheduledAt: Date.now() - 4 * DAY }),
+    )
+
+    const summary = await s.owner.as.query(api.dashboard.summary, {
+      businessId: s.businessId,
+    })
+    expect(summary?.todayCount).toBe(0)
+    expect(summary?.upcomingCount).toBe(1) // the hand-booked first visit only
+
+    const today = dayKeyOf(Date.now(), TZ)
+    const month = await s.owner.as.query(api.jobs.listMonth, {
+      businessId: s.businessId,
+      monthKey: today.slice(0, 7),
+    })
+    expect(month.find((d) => d.dayKey === today)?.count ?? 0).toBe(0)
+  })
+
+  test('a subcontractor’s badge counts only their own overdue work', async () => {
+    const s = await setup()
+    const kevin = await createActor(s.t, { email: 'kevin@coastal.test' })
+    const kevinMembershipId = await join(s.t, s.owner, kevin, s.businessId)
+
+    const mine = await series(s, { count: 1, unit: 'week' })
+    const theirs = await series(
+      s,
+      { count: 1, unit: 'week' },
+      Date.now() + 2 * DAY,
+      kevinMembershipId,
+    )
+
+    for (const id of [mine, theirs]) {
+      const visit = (
+        await s.t.run(async (ctx) =>
+          ctx.db
+            .query('jobs')
+            .withIndex('by_recurrence', (q) => q.eq('recurrenceId', id))
+            .collect(),
+        )
+      ).filter((j) => j.status === 'recurring')[0]
+      await s.t.run(async (ctx) =>
+        ctx.db.patch(visit._id, { scheduledAt: Date.now() - 3 * DAY }),
+      )
+    }
+
+    expect(
+      await s.owner.as.query(api.jobs.overdueRecurringCount, {
+        businessId: s.businessId,
+      }),
+    ).toBe(2)
+    expect(
+      await kevin.as.query(api.jobs.overdueRecurringCount, {
+        businessId: s.businessId,
+      }),
+    ).toBe(1)
+  })
+
   test('the week strip counts only the hand-booked visit', async () => {
     const s = await setup()
     const anchor = Date.now() + DAY
