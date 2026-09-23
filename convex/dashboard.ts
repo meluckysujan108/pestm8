@@ -37,7 +37,13 @@ export const summary = query({
       business.timezone,
     )
 
-    const live = all.filter((j) => j.status !== 'cancelled')
+    // The same rule the calendar reads by (`jobsInRange` in jobs.ts): neither
+    // a cancellation nor a projected visit is work on the books. Every number
+    // below is a job total shown to an owner, so a fortnightly series must not
+    // make "12 upcoming" out of one booking and a standing arrangement.
+    const live = all.filter(
+      (j) => j.status !== 'cancelled' && j.status !== 'recurring',
+    )
 
     return {
       todayCount: live.filter(

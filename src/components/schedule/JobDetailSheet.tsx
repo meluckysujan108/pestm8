@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { Suspense, lazy, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
@@ -18,10 +18,9 @@ import { JobNotesSection } from '#/components/notes/JobNotesSection'
 import { Combobox } from '#/components/primitives/Combobox'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
+import { Segmented } from '#/components/primitives/Segmented'
 import {
   JOB_TYPES,
-  REPEAT_LABELS,
-  REPEAT_OPTIONS,
   formatDuration,
   formatJobMoney,
   formatTime,
@@ -37,8 +36,44 @@ import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
+import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
+import type { Interval } from '../../../convex/lib/recurrence'
+import {
+  DEFAULT_INTERVAL,
+  RecurrenceFields,
+  intervalFromDraft,
+} from './RecurrenceFields'
+import type { IntervalDraft } from './RecurrenceFields'
 import type { Id } from '../../../convex/_generated/dataModel'
-import type { RepeatValue } from '#/lib/format'
+
+/**
+ * Loaded on demand, not with the schedule.
+ *
+ * This sheet is reachable only after two taps — open a job, then "Make
+ * recurring" — but a static import pulls it, `RecurrenceFields` and the whole
+ * interval model into the chunk the Schedule route hydrates from. That is
+ * bytes on the critical path of the screen a technician opens most, to render
+ * something almost nobody opens on any given visit, and it measurably delayed
+ * the moment the day's view switcher became clickable.
+ */
+const MakeRecurringSheet = lazy(() =>
+  import('./MakeRecurringSheet').then((m) => ({
+    default: m.MakeRecurringSheet,
+  })),
+)
+
+/**
+ * Saving an edit is two writes: the job's own fields, then — if the person
+ * also asked for it to repeat — the conversion into a series. The second can
+ * fail on its own, and when it does the first has ALREADY committed. There is
+ * no transaction spanning them and nothing to roll back to.
+ *
+ * "Could not save these changes" is then a lie in the one direction that
+ * matters: the changes did save, and only the repeat did not. Someone who
+ * believes the message re-enters edits that are already stored, and never
+ * learns the job is still a one-off. The message has to say which half won.
+ */
+const REPEAT_STEP_FAILED = 'REPEAT_STEP_FAILED'
 
 type SettableStatus =
   | 'pending'
@@ -136,6 +171,7 @@ function JobDetailBody({
   )
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
   const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] = useState(false)
+  const [makeRecurringOpen, setMakeRecurringOpen] = useState(false)
   const [editing, setEditing] = useState(false)
 
   // None of these close the sheet on success — a status change from the
@@ -345,7 +381,7 @@ function JobDetailBody({
                 <div className="flex items-center gap-2">
                   <Repeat size={16} strokeWidth={1.7} className="text-blue" />
                   <p className="text-body text-ink">
-                    {REPEAT_LABELS[job.recurrence.frequency] ?? 'Repeats'}
+                    {describeRepeat(job.recurrence.interval)}
                   </p>
                 </div>
                 {/* Cancelling one visit is not the same as ending a contract,
@@ -365,7 +401,22 @@ function JobDetailBody({
                 )}
               </>
             ) : (
-              <p className="text-body text-ink">One-off</p>
+              <>
+                <p className="text-body text-ink">One-off</p>
+                {/* The way an existing job becomes a Recurring Job. It lives
+                    here rather than only inside the edit form because making
+                    a job repeat is not editing its details — it is setting up
+                    a standing arrangement, and it asks its own question. */}
+                {job.canEdit && job.status !== 'invoiced' && (
+                  <button
+                    type="button"
+                    onClick={() => setMakeRecurringOpen(true)}
+                    className="mt-3 text-caption font-semibold text-blue"
+                  >
+                    Make recurring
+                  </button>
+                )}
+              </>
             )}
           </Section>
 
@@ -448,6 +499,19 @@ function JobDetailBody({
               </AlertDialog.Content>
             </AlertDialog.Portal>
           </AlertDialog.Root>
+
+          {/* Nothing to show while it loads: the sheet is closed until the
+              person asks for it, and its own open animation is the feedback. */}
+          <Suspense fallback={null}>
+            {makeRecurringOpen && (
+              <MakeRecurringSheet
+                open
+                onClose={() => setMakeRecurringOpen(false)}
+                businessId={businessId}
+                jobId={job._id}
+              />
+            )}
+          </Suspense>
 
           <AlertDialog.Root
             open={confirmStopRepeatingOpen}
@@ -532,7 +596,7 @@ function JobEditForm({
     scheduledAt: number
     durationMinutes: number
     assignedMembershipId: Id<'memberships'>
-    recurrence: { _id: Id<'recurrences'>; frequency: string; active: boolean } | null
+    recurrence: { _id: Id<'recurrences'>; interval: Interval; active: boolean } | null
   }
   canReassign: boolean
   onDone: () => void
@@ -555,8 +619,14 @@ function JobEditForm({
   const [price, setPrice] = useState(String(job.price / 100))
   const [assignee, setAssignee] = useState<string>(job.assignedMembershipId)
   const { options: assignees } = useAssigneeOptions(members)
-  const [repeat, setRepeat] = useState<RepeatValue>('once')
+  const [repeats, setRepeats] = useState(false)
+  const [interval, setInterval] = useState<IntervalDraft>(DEFAULT_INTERVAL)
   const hasActiveRecurrence = job.recurrence?.active ?? false
+  // See the same guard in NewJobSheet: an interval that does not parse must
+  // not silently become "leave it a one-off" — Save would report success
+  // having quietly dropped the only change the person came here to make.
+  const recurrence = repeats ? intervalFromDraft(interval) : null
+  const intervalIncomplete = repeats && recurrence === null
 
   const hydrated = useHydrated()
 
@@ -572,19 +642,25 @@ function JobEditForm({
       scheduledAt: number
       durationMinutes: number
       assignedMembershipId: Id<'memberships'>
-      repeat: RepeatValue
+      repeat: Interval | null
     }) => {
       const { repeat: nextRepeat, ...patch } = args
       await convexUpdate(patch)
       // convertJobToRecurring re-reads the job's own fields from the database
       // rather than trusting these client-passed values, so it always anchors
       // on whatever was just saved above, not stale pre-edit values.
-      if (!hasActiveRecurrence && nextRepeat !== 'once') {
-        await convexConvert({
-          businessId: patch.businessId,
-          jobId: patch.jobId,
-          frequency: nextRepeat,
-        })
+      if (!hasActiveRecurrence && nextRepeat) {
+        try {
+          await convexConvert({
+            businessId: patch.businessId,
+            jobId: patch.jobId,
+            intervalCount: nextRepeat.count,
+            intervalUnit: nextRepeat.unit,
+          })
+        } catch {
+          // The patch above is committed. Say so.
+          throw new Error(REPEAT_STEP_FAILED)
+        }
       }
     },
     onSuccess: onDone,
@@ -595,6 +671,7 @@ function JobEditForm({
       className="mt-3 flex flex-col gap-3"
       onSubmit={(e) => {
         e.preventDefault()
+        if (intervalIncomplete) return
         const [hh, mm] = time.split(':').map(Number)
         const scheduledAt = zonedDateTimeToUtc(date, hh, mm, timezone)
 
@@ -607,7 +684,7 @@ function JobEditForm({
           scheduledAt,
           durationMinutes: Number(duration),
           assignedMembershipId: assignee as Id<'memberships'>,
-          repeat,
+          repeat: recurrence,
         })
       }}
     >
@@ -721,12 +798,13 @@ function JobEditForm({
         )}
       </div>
 
-      <EditField label="Repeat">
+      <EditFieldGroup label="Repeat">
         {hasActiveRecurrence ? (
           <>
             <p className="flex h-12 w-full items-center rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink">
-              {REPEAT_OPTIONS.find((o) => o.value === job.recurrence?.frequency)
-                ?.label ?? 'Repeating'}
+              {job.recurrence
+                ? describeInterval(job.recurrence.interval)
+                : 'Repeating'}
             </p>
             <p className="mt-1.5 text-caption text-muted">
               To change how often this repeats, use "Stop repeating" above and
@@ -734,26 +812,38 @@ function JobEditForm({
             </p>
           </>
         ) : (
-          <select
-            value={repeat}
-            onChange={(e) => setRepeat(e.target.value as RepeatValue)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          >
-            {REPEAT_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
+          <>
+            <Segmented
+              label="Repeat"
+              value={repeats ? 'repeats' : 'once'}
+              onChange={(v: string) => setRepeats(v === 'repeats')}
+              disabled={!hydrated}
+              options={[
+                { value: 'once', label: 'One-off' },
+                { value: 'repeats', label: 'Recurring Job' },
+              ]}
+            />
+            {repeats && (
+              <div className="mt-2">
+                <RecurrenceFields
+                  value={interval}
+                  onChange={setInterval}
+                  idPrefix="edit-job-repeat"
+                />
+              </div>
+            )}
+          </>
         )}
-      </EditField>
+      </EditFieldGroup>
 
       {save.isError && (
         <p
           role="alert"
           className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
-          Could not save these changes.
+          {save.error.message === REPEAT_STEP_FAILED
+            ? 'Your changes were saved, but this job was not made recurring. Use “Make recurring” on the job to try again.'
+            : 'Could not save these changes.'}
         </p>
       )}
 
@@ -767,7 +857,7 @@ function JobEditForm({
         </button>
         <button
           type="submit"
-          disabled={save.isPending || !hydrated}
+          disabled={save.isPending || !hydrated || intervalIncomplete}
           className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
         >
           {save.isPending ? 'Saving…' : 'Save'}
@@ -789,6 +879,34 @@ function EditField({
       <span className="section-label">{label}</span>
       {children}
     </label>
+  )
+}
+/**
+ * Like `EditField`, but for a composite control rather than a single input.
+ *
+ * A `<label>` names exactly ONE control. Wrapping a group of them — a
+ * segmented toggle, a number box, a unit select and a line of help text —
+ * makes every descendant inherit the group's entire text as its accessible
+ * name: the "One-off" tab came out called "Repeat Repeat Every 3 weeks,
+ * starting from this job's date", which is both wrong for a screen reader and
+ * ambiguous for anything matching controls by name. A labelled group is what
+ * this shape actually is.
+ */
+function EditFieldGroup({
+  label,
+  children,
+}: {
+  label: string
+  children: React.ReactNode
+}) {
+  return (
+    <div role="group" aria-label={label} className="flex flex-col gap-1.5">
+      {/* Already announced by the group's own name. */}
+      <span className="section-label" aria-hidden="true">
+        {label}
+      </span>
+      {children}
+    </div>
   )
 }
 

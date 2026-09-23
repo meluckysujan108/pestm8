@@ -11,6 +11,16 @@ import {
 
 const DAY = 24 * 60 * 60 * 1000
 
+/** The tenant's own day, not the runner's — as calendar.spec.ts does it. */
+function perthDayKey(ts: number) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Australia/Perth',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date(ts))
+}
+
 async function setup(label: string) {
   const owner = await signUpActor(
     uniqueEmail(label),
@@ -52,7 +62,8 @@ test('a quarterly recurrence books a run of future visits', async () => {
     businessId: s.businessId,
     propertyId: s.propertyId,
     assignedMembershipId: s.membershipId,
-    frequency: 'quarterly',
+    intervalCount: 3,
+    intervalUnit: 'month',
     jobType: 'General Pest Control',
     price: 22000,
     anchorDate: Date.now() + DAY,
@@ -86,7 +97,8 @@ test('materialising twice does not double-book the property', async () => {
     businessId: s.businessId,
     propertyId: s.propertyId,
     assignedMembershipId: s.membershipId,
-    frequency: 'monthly',
+    intervalCount: 1,
+    intervalUnit: 'month',
     jobType: 'Rodents',
     price: 18000,
     anchorDate: Date.now() + DAY,
@@ -120,7 +132,8 @@ test('ending a recurrence clears future visits but keeps history', async () => {
     businessId: s.businessId,
     propertyId: s.propertyId,
     assignedMembershipId: s.membershipId,
-    frequency: 'monthly',
+    intervalCount: 1,
+    intervalUnit: 'month',
     jobType: 'Rodents',
     price: 18000,
     anchorDate: Date.now() + DAY,
@@ -168,7 +181,8 @@ test('a subcontractor cannot set up work on another calendar', async () => {
         businessId: s.businessId,
         propertyId: s.propertyId,
         assignedMembershipId: s.ownerMembershipId,
-        frequency: 'quarterly',
+        intervalCount: 3,
+        intervalUnit: 'month',
         jobType: 'General Pest Control',
         price: 22000,
         anchorDate: Date.now() + DAY,
@@ -193,7 +207,12 @@ test('converting a one-off job to recurring anchors on the converted job itself'
 
   const recurrenceId = await s.owner.client.mutation(
     api.recurrences.convertJobToRecurring,
-    { businessId: s.businessId, jobId, frequency: 'monthly' },
+    {
+      businessId: s.businessId,
+      jobId,
+      intervalCount: 1,
+      intervalUnit: 'month',
+    },
   )
 
   // Same _id, now attached to the new series — not replaced by a fresh job.
@@ -202,7 +221,7 @@ test('converting a one-off job to recurring anchors on the converted job itself'
     jobId,
   })
   expect(converted?.recurrence?._id).toBe(recurrenceId)
-  expect(converted?.recurrence?.frequency).toBe('monthly')
+  expect(converted?.recurrence?.interval).toEqual({ count: 1, unit: 'month' })
 
   const jobs = await s.owner.client.query(api.properties.jobHistory, {
     businessId: s.businessId,
@@ -224,7 +243,8 @@ test('stopping a series from one job preserves that job but cancels its still-bo
     businessId: s.businessId,
     propertyId: s.propertyId,
     assignedMembershipId: s.membershipId,
-    frequency: 'monthly',
+    intervalCount: 1,
+    intervalUnit: 'month',
     jobType: 'Rodents',
     price: 18000,
     anchorDate: Date.now() + DAY,
@@ -296,7 +316,12 @@ test('recurrence mutations follow the same edit gate as every other job field', 
   // A subcontractor may act on their OWN job...
   const recurrenceId = await s.sub.client.mutation(
     api.recurrences.convertJobToRecurring,
-    { businessId: s.businessId, jobId: subJobId, frequency: 'monthly' },
+    {
+      businessId: s.businessId,
+      jobId: subJobId,
+      intervalCount: 1,
+      intervalUnit: 'month',
+    },
   )
   expect(recurrenceId).toBeTruthy()
   await s.sub.client.mutation(api.recurrences.stopFromJob, {
@@ -310,7 +335,8 @@ test('recurrence mutations follow the same edit gate as every other job field', 
       s.sub.client.mutation(api.recurrences.convertJobToRecurring, {
         businessId: s.businessId,
         jobId: s.ownerJobId,
-        frequency: 'monthly',
+        intervalCount: 1,
+        intervalUnit: 'month',
       }),
     'NO_ACCESS',
   )
@@ -346,16 +372,73 @@ test('booking a repeating job from the schedule shows it as recurring', async ({
   await page
     .getByRole('button', { name: 'General Pest Control', exact: true })
     .click()
-  await sheet.getByLabel('Repeat').selectOption('quarterly')
+  await sheet.getByRole('tab', { name: 'Recurring Job' }).click()
+  await sheet.getByLabel('Repeat every').fill('3')
+  await sheet.getByLabel('Repeat unit').selectOption('month')
   await sheet.getByLabel('Start').fill('09:30')
   await sheet.getByLabel('Price (AUD)').fill('220')
   await sheet.getByRole('button', { name: 'Book job' }).click()
 
+  // The FIRST visit is on the schedule because a person booked it: it is
+  // `pending`, like any hand-booked job. Its projected siblings are not — the
+  // schedule and its counts leave `recurring` out entirely (Phase 3).
   const card = page.getByRole('button', { name: /General Pest Control/ })
   await expect(card).toBeVisible()
   await card.click()
 
-  await expect(page.getByText('Repeats quarterly')).toBeVisible()
+  await expect(page.getByText('Repeats every 3 months')).toBeVisible()
+})
+
+test('a custom interval the old fixed list could not express', async ({
+  page,
+}) => {
+  const email = uniqueEmail('recur-custom')
+  const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
+  const { businessId, slug } = await owner.client.mutation(
+    api.businesses.create,
+    {
+      name: `RecurCustom ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
+  )
+  await owner.client.mutation(api.properties.create, {
+    businessId,
+    clientName: 'J. Nguyen',
+    addressLine: '12 Wattle Street',
+    suburb: 'Bayswater',
+    state: 'WA',
+    postcode: '6053',
+  })
+
+  await signInViaUi(page, email)
+  await page.goto(`/${slug}/schedule`)
+
+  const newJob = page.getByRole('button', { name: 'New job' })
+  await expect(newJob).toBeEnabled()
+  await newJob.click()
+
+  // Every 2 weeks: a fortnightly rodent program, which the four fixed
+  // intervals (monthly/quarterly/sixMonthly/yearly) had no way to book.
+  const sheet = page.getByRole('dialog')
+  await sheet.getByLabel('Job type').click()
+  await page.getByRole('button', { name: 'Rodents', exact: true }).click()
+  await sheet.getByRole('tab', { name: 'Recurring Job' }).click()
+  await sheet.getByLabel('Repeat every').fill('2')
+  await sheet.getByLabel('Repeat unit').selectOption('week')
+  await sheet.getByLabel('Start').fill('08:00')
+  await sheet.getByLabel('Price (AUD)').fill('95')
+  await sheet.getByRole('button', { name: 'Book job' }).click()
+
+  const card = page.getByRole('button', { name: /Rodents/ })
+  await expect(card).toBeVisible()
+  await card.click()
+  await expect(page.getByText('Repeats every 2 weeks')).toBeVisible()
+
+  // And the Recurring Job view counts the ARRANGEMENT, not the thirteen
+  // visits a fortnightly series projects inside the horizon.
+  await page.goto(`/${slug}/job/recurring`)
+  await expect(page.getByText('1 Recurring Job', { exact: true })).toBeVisible()
 })
 
 test('editing a one-off job into a recurring one, then stopping it, from its own detail sheet', async ({
@@ -404,10 +487,12 @@ test('editing a one-off job into a recurring one, then stopping it, from its own
 
   // Edit the job and turn it into a monthly series.
   await detail.getByRole('button', { name: 'Edit job details' }).click()
-  await detail.getByLabel('Repeat').selectOption('monthly')
+  await detail.getByRole('tab', { name: 'Recurring Job' }).click()
+  await detail.getByLabel('Repeat every').fill('1')
+  await detail.getByLabel('Repeat unit').selectOption('month')
   await detail.getByRole('button', { name: 'Save' }).click()
 
-  await expect(detail.getByText('Repeats monthly')).toBeVisible()
+  await expect(detail.getByText('Repeats every month')).toBeVisible()
 
   // Stop repeating — confirm via the dialog, scoped by its distinct role so
   // it doesn't collide with the trigger button of the same name underneath.
@@ -416,4 +501,76 @@ test('editing a one-off job into a recurring one, then stopping it, from its own
   await confirm.getByRole('button', { name: 'Stop repeating' }).click()
 
   await expect(detail.getByText('One-off')).toBeVisible()
+})
+
+test('"Make recurring" on a one-off job, from the job detail sheet', async ({
+  page,
+}) => {
+  const email = uniqueEmail('recur-make')
+  const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
+  const { businessId, slug } = await owner.client.mutation(
+    api.businesses.create,
+    {
+      name: `RecurMake ${Date.now()}`,
+      state: 'WA',
+      timezone: 'Australia/Perth',
+    },
+  )
+  const propertyId = await owner.client.mutation(api.properties.create, {
+    businessId,
+    clientName: 'J. Nguyen',
+    addressLine: '12 Wattle Street',
+    suburb: 'Bayswater',
+    state: 'WA',
+    postcode: '6053',
+  })
+  const scheduledAt = Date.now() + DAY
+  await owner.client.mutation(api.jobs.create, {
+    businessId,
+    propertyId,
+    assignedMembershipId: (
+      await owner.client.query(api.memberships.listForBusiness, { businessId })
+    )[0]._id,
+    jobType: 'Termite Inspection',
+    price: 45000,
+    scheduledAt,
+    durationMinutes: 90,
+  })
+
+  await signInViaUi(page, email)
+  // Open the schedule on the job's own day (`?date=`, as calendar.spec.ts and
+  // weather-ui.spec.ts do) rather than on today, since the job is booked for
+  // tomorrow. Deliberately WITHOUT `?jobId=`: the detail sheet is a vaul
+  // Drawer, and an open Drawer marks the rest of the page `aria-hidden`, so
+  // arriving with it already open hides the hydration signal below.
+  await page.goto(`/${slug}/schedule?date=${perthDayKey(scheduledAt)}`)
+
+  // "New job" is disabled until hydrated, and a click that lands on
+  // server-rendered markup is swallowed silently. Every other test here waits
+  // on the same signal.
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+
+  const card = page.getByRole('button', { name: /Termite Inspection/ })
+  await expect(card).toBeVisible()
+  await card.click()
+
+  // The action lives on the job itself, beside "One-off", rather than only
+  // inside the edit form.
+  const detail = page.getByRole('dialog')
+  await expect(detail.getByText('One-off')).toBeVisible()
+  await detail.getByRole('button', { name: 'Make recurring' }).click()
+
+  // A 15-year warranty inspection: no visit is projected at all, because the
+  // next one falls far outside the engine's 180-day horizon. The Recurring
+  // Job view must still count it as one.
+  const recurrenceSetup = page.getByRole('dialog').last()
+  await recurrenceSetup.getByLabel('Repeat every').fill('15')
+  await recurrenceSetup.getByLabel('Repeat unit').selectOption('year')
+  await recurrenceSetup.getByRole('button', { name: 'Make recurring' }).click()
+
+  await expect(page.getByText('Repeats every 15 years')).toBeVisible()
+
+  await page.goto(`/${slug}/job/recurring`)
+  await expect(page.getByText('1 Recurring Job', { exact: true })).toBeVisible()
+  await expect(page.getByText(/0 visits booked/)).toBeVisible()
 })

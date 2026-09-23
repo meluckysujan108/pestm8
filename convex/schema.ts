@@ -201,11 +201,26 @@ export const reportContextSnapshot = v.object({
   ),
 })
 
+/**
+ * The four fixed intervals a Recurring Job could be sold on before custom
+ * ones existed. Retired by convex/migrations/recurringIntervalV1.ts, which
+ * rewrites every row as an `intervalCount`/`intervalUnit` pair; kept here
+ * only so rows written before that migration still validate, and so the
+ * migration itself has a name for what it is reading. Nothing writes it.
+ */
 export const frequency = v.union(
   v.literal('monthly'),
   v.literal('quarterly'),
   v.literal('sixMonthly'),
   v.literal('yearly'),
+)
+
+/** How a Recurring Job's repeat interval is counted. */
+export const intervalUnit = v.union(
+  v.literal('day'),
+  v.literal('week'),
+  v.literal('month'),
+  v.literal('year'),
 )
 
 export const clientKind = v.union(v.literal('person'), v.literal('business'))
@@ -488,6 +503,22 @@ export default defineSchema({
     status: jobStatus,
     recurrenceId: v.optional(v.id('recurrences')),
     /**
+     * For a visit of a Recurring Job: the instant the engine PROJECTED it
+     * onto, which stops being `scheduledAt` the moment anybody moves it.
+     *
+     * The engine has to answer "does this occurrence already exist?" on every
+     * cron run, and it used to ask by matching `scheduledAt` exactly. Move a
+     * projected visit two hours later — an ordinary edit, and the job detail
+     * sheet offers it — and the original instant is free again, so the next
+     * run books a second visit there. The property is double-booked and the
+     * series grows a phantom visit per reschedule. Matching on this instead
+     * means a moved visit still occupies its occurrence.
+     *
+     * Optional: visits projected before this field existed have none, and
+     * `?? scheduledAt` reads them exactly as the old code did.
+     */
+    occurrenceAt: v.optional(v.number()),
+    /**
      * When work actually began, stamped the moment a job moved to the retired
      * `inProgress` status. A report started from the job seeds its "Start
      * Time:" from this as a fact; without it the report offers `scheduledAt`
@@ -520,16 +551,32 @@ export default defineSchema({
     // this occurrence already exist" on every cron run.
     .index('by_recurrence', ['recurrenceId']),
 
+  // A Recurring Job: the standing arrangement, of which each `jobs` row
+  // carrying this row's id is one visit.
   recurrences: defineTable({
     businessId: v.id('businesses'),
     propertyId: v.id('properties'),
     assignedMembershipId: v.id('memberships'),
-    frequency,
+    /**
+     * How often it repeats, as a whole number of `intervalUnit`s — "every 2
+     * weeks", "every 15 years". Optional only for the expand phase of
+     * convex/migrations/recurringIntervalV1.ts; every row written since
+     * carries both, and `intervalOf` (convex/lib/recurrence.ts) is what reads
+     * them so no caller has to know about the gap.
+     */
+    intervalCount: v.optional(v.number()),
+    intervalUnit: v.optional(intervalUnit),
+    /** Retired. See `frequency` above and the migration's header. */
+    frequency: v.optional(frequency),
     jobType: v.string(),
     price: v.number(),
     anchorDate: v.number(),
     active: v.boolean(),
-  }).index('by_business', ['businessId']),
+  })
+    .index('by_business', ['businessId'])
+    // The Recurring Job view counts active series, not projected visits, so
+    // it asks this question on every load for every business.
+    .index('by_business_active', ['businessId', 'active']),
 
   reports: defineTable({
     businessId: v.id('businesses'),

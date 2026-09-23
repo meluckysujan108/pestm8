@@ -70,7 +70,8 @@ function monthlySeries(s: Setup, anchorDate = Date.now() + DAY) {
     businessId: s.businessId,
     propertyId: s.propertyId,
     assignedMembershipId: s.ownerMembershipId,
-    frequency: 'monthly',
+    intervalCount: 1,
+    intervalUnit: 'month',
     jobType: 'Rodents',
     price: 18000,
     anchorDate,
@@ -162,7 +163,8 @@ describe('recurring is written only by the recurrence engine', () => {
         businessId: s.businessId,
         propertyId: s.propertyId,
         assignedMembershipId: s.ownerMembershipId,
-        frequency: 'monthly',
+        intervalCount: 1,
+        intervalUnit: 'month',
         jobType: 'Rodents',
         price: 18000,
         anchorDate: Date.now() + DAY,
@@ -187,7 +189,12 @@ describe('recurring is written only by the recurrence engine', () => {
 
     const recurrenceId = await s.owner.as.mutation(
       api.recurrences.convertJobToRecurring,
-      { businessId: s.businessId, jobId, frequency: 'monthly' },
+      {
+        businessId: s.businessId,
+        jobId,
+        intervalCount: 1,
+        intervalUnit: 'month',
+      },
     )
 
     const visits = await visitsOf(s, recurrenceId)
@@ -474,17 +481,24 @@ describe('work ahead that the rest of the app counts', () => {
     ])
   })
 
-  test('the dashboard counts pending and recurring visits as upcoming', async () => {
+  test('the dashboard counts pending visits as upcoming and projected ones not at all', async () => {
     const s = await setup()
     // Two days out: clear of "today" in any timezone.
     await book(s, Date.now() + 2 * DAY)
     const recurrenceId = await monthlySeries(s, Date.now() + 2 * DAY)
     const visits = await visitsOf(s, recurrenceId)
 
+    // The series contributes exactly one: the first visit, which the person
+    // booked by hand and which is `pending`. Its projected siblings are the
+    // engine's guess about dates nobody has confirmed (Phase 3), so counting
+    // them would report six months of work an owner has not actually sold.
+    const projected = visits.filter((v) => v.status === 'recurring')
+    expect(projected.length).toBeGreaterThan(0)
+
     const summary = await s.owner.as.query(api.dashboard.summary, {
       businessId: s.businessId,
     })
-    expect(summary?.upcomingCount).toBe(1 + visits.length)
+    expect(summary?.upcomingCount).toBe(2)
   })
 })
 

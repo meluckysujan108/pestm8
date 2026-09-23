@@ -1,7 +1,12 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
-import { dayKeyOf, endOfDayInZone, startOfDayInZone } from './lib/dates'
+import {
+  dayKeyOf,
+  endOfDayInZone,
+  startOfDayInZone,
+  todayKeyInZone,
+} from './lib/dates'
 import {
   clientNameOf,
   newClientFields,
@@ -21,6 +26,7 @@ import {
   setJobStatus,
 } from './lib/jobStatus'
 import { hidePrices, redactJob } from './lib/prices'
+import { HORIZON_DAYS, intervalOf } from './lib/recurrence'
 import type { RowScope } from './lib/capabilities'
 import type { ActorEnvelope, WriteEnvelope } from './lib/actor'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -64,7 +70,22 @@ export async function jobsInRange(
   to: number,
 ): Promise<Array<Doc<'jobs'>>> {
   const jobs = await jobsInScope(ctx, scope, { businessId, from, to })
-  return jobs.filter((j) => j.status !== 'cancelled')
+  // Neither a cancellation nor a projection is work that has been BOOKED.
+  //
+  // This is the counting read: the week strip's dots, the month grid's
+  // counts, the desktop team legend, analytics. A projected visit is the
+  // engine's guess about a date nobody has confirmed, and folding it into
+  // those totals tells an owner they have a fortnight's work booked when they
+  // have one job and a standing arrangement.
+  //
+  // `listDay` deliberately does NOT read through here — it shows a projection
+  // whose day has arrived, because a due visit nobody can see is a service
+  // silently missed. Shown there, counted nowhere. The distinction is
+  // future-vs-due, and it lives in `listDay` because this function has no day
+  // to compare against.
+  return jobs.filter(
+    (j) => j.status !== 'cancelled' && j.status !== 'recurring',
+  )
 }
 
 async function decorate(
@@ -130,16 +151,35 @@ export const listDay = query({
     const from = startOfDayInZone(dayKey, business.timezone)
     const to = endOfDayInZone(dayKey, business.timezone)
 
+    /**
+     * The one place a projected visit IS shown on the schedule: its own day,
+     * once that day has arrived.
+     *
+     * Hiding `recurring` is about not burying the calendar under six months
+     * of machine-generated work — a visit ninety days out is noise. A visit
+     * due TODAY is the opposite: for a pest business, recurring treatments
+     * happening on time IS the product, and a due visit that appears on no
+     * schedule is a service silently missed. There is no empty slot to notice
+     * and no card to chase, just a customer who did not get treated.
+     *
+     * So the rule is future-vs-due, not recurring-vs-not. It stays out of
+     * every COUNT either way (`jobsInRange` above, which is what the week
+     * strip, the month grid, the team legend and the dashboard read): a
+     * projection is not work anybody has committed to until it is actioned,
+     * and the count is of real bookings. Shown, not counted.
+     */
+    const dayHasArrived = dayKey <= todayKeyInZone(business.timezone)
+    const jobs = (
+      await jobsInScope(ctx, env.listScope, { businessId, from, to })
+    ).filter(
+      (j) =>
+        j.status !== 'cancelled' && (j.status !== 'recurring' || dayHasArrived),
+    )
+
     // Completed work sinks to the bottom of the day (lib/jobStatus.ts), so
     // the card that moves when a job is finished moves for every viewer at
     // once — the card and table views both render this order as given.
-    return orderForDay(
-      await decorate(
-        ctx,
-        env,
-        await jobsInRange(ctx, env.listScope, businessId, from, to),
-      ),
-    )
+    return orderForDay(await decorate(ctx, env, jobs))
   },
 })
 
@@ -156,6 +196,21 @@ const JOB_LIST_LIMIT = 200
  * its status and whatever day it is on. Cancelled jobs are included — the
  * status filter is the reader's to set, and a list that silently omits them
  * would make "Cancelled" an empty filter.
+ *
+ * Projected `recurring` visits ARE included here, unlike on the calendar
+ * (`jobsInRange` above) and unlike in every count the dashboard shows. That
+ * is deliberate, and it is a limit of the index rather than a preference:
+ * this list is the newest `JOB_LIST_LIMIT` by creation, and a business
+ * running a few active series has thousands of projected visits inserted in
+ * bulk by the nightly cron — so they are exactly the newest rows. Filtering
+ * them out AFTER an indexed read of a fixed size returns a page that is
+ * mostly, and sometimes entirely, empty. Doing it properly needs a
+ * status-aware index per scope (`by_business_status` exists; `by_assignee`
+ * has no status counterpart) and a merge of one descending scan per status.
+ *
+ * Until then the reader has the status filter, and the Recurring Job view
+ * one tab across is the place projections are read on purpose — counted as
+ * series rather than as records (`listRecurring`).
  */
 export const list = query({
   args: { businessId: v.id('businesses') },
@@ -175,6 +230,67 @@ export const list = query({
       jobs: jobs.sort((a, b) => b._creationTime - a._creationTime),
       capped: found.length > JOB_LIST_LIMIT,
       limit: JOB_LIST_LIMIT,
+    }
+  },
+})
+
+/**
+ * The Recurring Job view: the projected visits in scope, and how many
+ * Recurring Jobs they belong to.
+ *
+ * THE COUNT IS OF SERIES, NOT OF VISITS, and that distinction is the whole
+ * reason this returns two things. The engine only materialises visits inside
+ * HORIZON_DAYS, so counting `recurring` job records answers "how many
+ * projected visits fall in the next six months" — a number that says 26 for a
+ * fortnightly contract, 0 for a job set to repeat every 15 years, and changes
+ * every night as the cron runs. Neither is what an owner means by "how many
+ * recurring jobs do I have". `seriesCount` is the arrangements; the UI labels
+ * it as such.
+ *
+ * No row limit on the visits: the horizon bounds the scan already, and a
+ * limit would silently truncate a busy schedule's projections rather than
+ * capping anything unbounded.
+ */
+export const listRecurring = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const env = await requireActor(ctx, businessId)
+
+    const now = Date.now()
+    const visits = (
+      await jobsInScope(ctx, env.listScope, {
+        businessId,
+        from: now,
+        // One day's slack past the horizon: the cron projects from its own
+        // "now", which is up to a day ahead of this query's.
+        to: now + (HORIZON_DAYS + 1) * 24 * 60 * 60 * 1000,
+      })
+    ).filter((j) => j.status === 'recurring')
+
+    // `listScope`, exactly as the visits above — NOT `scope`.
+    //
+    // The two differ whenever the owner is in "Just my jobs": `scope` is
+    // everything they may read, `listScope` is what the view they chose is
+    // showing (lib/actor.ts). Counting series by `scope` while listing visits
+    // by `listScope` puts a bar reading "12 Recurring Jobs" over a handful of
+    // the owner's own cards, which is not a summary of anything on screen. It
+    // is also the stricter of the two, so a subcontractor still cannot learn
+    // the size of the owner's book from it.
+    const series = await ctx.db
+      .query('recurrences')
+      .withIndex('by_business_active', (q) =>
+        q.eq('businessId', businessId).eq('active', true),
+      )
+      .collect()
+
+    return {
+      jobs: await decorate(ctx, env, visits),
+      seriesCount: series.filter((r) =>
+        isInScope(env.listScope, {
+          assignedMembershipId: r.assignedMembershipId,
+        }),
+      ).length,
+      horizonDays: HORIZON_DAYS,
     }
   },
 })
@@ -372,7 +488,10 @@ export const get = query({
       property,
       recurrence: recurrence && {
         _id: recurrence._id,
-        frequency: recurrence.frequency,
+        // The shape the UI renders, resolved here so no client has to know
+        // that rows written before the custom-interval migration carry a
+        // `frequency` enum instead.
+        interval: intervalOf(recurrence),
         active: recurrence.active,
       },
       // No licence number: nothing renders it, and it is exactly the detail
