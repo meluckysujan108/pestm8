@@ -1,5 +1,4 @@
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { convexQuery } from '@convex-dev/react-query'
 import {
   Bar,
   BarChart,
@@ -14,8 +13,8 @@ import {
   XAxis,
   YAxis,
 } from 'recharts'
-import { api } from '../../../convex/_generated/api'
 import { formatMoney } from '#/lib/format'
+import { rq } from '#/lib/routeQueries'
 import { jobStatusLabel } from '#/components/primitives/StatusPill'
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -50,7 +49,7 @@ const TOOLTIP_STYLE = {
  */
 export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }) {
   const { data } = useSuspenseQuery(
-    convexQuery(api.analytics.overview, { businessId }),
+    rq.analytics(businessId),
   )
   if (!data) return null
 

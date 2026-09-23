@@ -14,6 +14,7 @@ import { personLabel } from '#/lib/assignees'
 import { NoteEditor } from './NoteEditor'
 import { NoteEditorHeader } from './NoteEditorHeader'
 import { NoteList } from './NoteList'
+import { rq } from '#/lib/routeQueries'
 import { LIBRARY_FILTERS, NotesRail } from './NotesRail'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { NoteTemplateKey } from '../../../convex/lib/noteTemplates'
@@ -55,7 +56,7 @@ export function NotesLibrary({
   const [attachOnOpen, setAttachOnOpen] = useState<Id<'notes'> | null>(null)
 
   const { data: roster } = useSuspenseQuery(
-    convexQuery(api.memberships.listForBusiness, { businessId: business._id }),
+    rq.roster(business._id),
   )
   const members = roster
     .filter((m) => m.status === 'active')

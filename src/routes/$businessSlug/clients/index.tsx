@@ -1,10 +1,8 @@
 import { useMemo, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { convexQuery } from '@convex-dev/react-query'
 import { Plus } from 'lucide-react'
 import { z } from 'zod'
-import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
@@ -17,6 +15,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
 import { useClientFilters } from '#/lib/clientFilters'
 import { useCan } from '#/lib/access'
+import { rq, warm } from '#/lib/routeQueries'
 
 const VIEW_OPTIONS: Array<{
   value: 'list' | 'board' | 'table'
@@ -35,6 +34,10 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
     q: z.string().optional(),
     view: z.enum(['list', 'board', 'table']).optional(),
   }),
+  // Both lists together, before the page renders: read in order, the
+  // properties were not asked for until the clients had come back.
+  loader: ({ context: { queryClient, business } }) =>
+    warm(queryClient, rq.clients(business._id), rq.properties(business._id)),
   component: ClientsPage,
 })
 
@@ -54,12 +57,8 @@ function ClientsPage() {
   // Reports dashboard already established) — fetched once, unpaginated, and
   // filtered client-side, which is what lets search match name OR address in
   // one pass rather than needing two Convex search indexes merged.
-  const { data: clients } = useSuspenseQuery(
-    convexQuery(api.clients.list, { businessId: business._id }),
-  )
-  const { data: properties } = useSuspenseQuery(
-    convexQuery(api.properties.list, { businessId: business._id }),
-  )
+  const { data: clients } = useSuspenseQuery(rq.clients(business._id))
+  const { data: properties } = useSuspenseQuery(rq.properties(business._id))
 
   const rows = useMemo(() => {
     const propertiesByClient = new Map<string, typeof properties>()

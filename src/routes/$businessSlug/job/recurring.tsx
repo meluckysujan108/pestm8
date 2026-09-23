@@ -1,18 +1,19 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { convexQuery } from '@convex-dev/react-query'
 import { Repeat } from 'lucide-react'
 import { z } from 'zod'
-import { api } from '../../../../convex/_generated/api'
 import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { useCan } from '#/lib/access'
+import { rq, warm } from '#/lib/routeQueries'
 
 export const Route = createFileRoute('/$businessSlug/job/recurring')({
   validateSearch: z.object({
     jobId: z.string().optional(),
   }),
+  loader: ({ context: { queryClient, business } }) =>
+    warm(queryClient, rq.recurringJobs(business._id)),
   component: RecurringJobPage,
 })
 
@@ -34,9 +35,7 @@ function RecurringJobPage() {
   const { jobId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
-  const { data } = useSuspenseQuery(
-    convexQuery(api.jobs.listRecurring, { businessId: business._id }),
-  )
+  const { data } = useSuspenseQuery(rq.recurringJobs(business._id))
 
   const { jobs, seriesCount, horizonDays } = data
   const months = Math.round(horizonDays / 30)

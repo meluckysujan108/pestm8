@@ -7,6 +7,8 @@ import { Clock, Lock, RotateCcw, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
+import { ListPending } from '#/components/shell/Pending'
+import { REPORTS_PAGE, reportsFirstPage, rq } from '#/lib/routeQueries'
 import { Segmented } from '#/components/primitives/Segmented'
 import { Sheet } from '#/components/primitives/Sheet'
 import { useHydrated } from '#/lib/useHydrated'
@@ -45,7 +47,9 @@ type Row = {
   templateName: string
 }
 
-const PAGE_SIZE = 25
+/** The warmed first page has to ask for the same number of rows, or the list
+ *  grows or shrinks the moment the paginator takes over. */
+const PAGE_SIZE = REPORTS_PAGE
 
 export function ReportsLibrary({
   businessId,
@@ -73,18 +77,41 @@ export function ReportsLibrary({
     { initialNumItems: PAGE_SIZE },
   )
 
+  /**
+   * The same first page, asked for as a plain query so it lands in the cache.
+   *
+   * The paginator mints a new pagination id on every mount and unsubscribes
+   * on unmount, so nothing it fetched is ever reused: coming back to this
+   * list waited on its first page again, every time. This copy is warmed by
+   * the route's loader and read until the paginator has caught up, which it
+   * does within one round trip.
+   */
+  const first = useQuery(
+    searching
+      ? convexQuery(api.reports.list, 'skip')
+      : reportsFirstPage(businessId, segment),
+  )
+  const cold = !searching && paged.status === 'LoadingFirstPage'
+
   const { data: found } = useQuery({
-    ...convexQuery(api.reports.search, {
-      businessId,
-      term: query,
-      // Searching inside a segment means searching that segment: a search
-      // that quietly changed which tab you were on would be a worse search.
-      filter: segment,
-    }),
-    enabled: searching,
+    // 'skip' rather than `enabled`: a disabled query still holds its Convex
+    // subscription open, and this one is per typed term.
+    ...(searching
+      ? convexQuery(api.reports.search, {
+          businessId,
+          term: query,
+          // Searching inside a segment means searching that segment: a search
+          // that quietly changed which tab you were on would be a worse search.
+          filter: segment,
+        })
+      : convexQuery(api.reports.search, 'skip')),
+    // Every term typed would otherwise keep a live subscription for the
+    // cache's lifetime; a search is worth re-running.
+    gcTime: 60_000,
   })
 
-  const rows: Array<Row> = searching ? (found ?? []) : paged.results
+  const pageRows = cold ? (first.data?.page ?? []) : paged.results
+  const rows: Array<Row> = searching ? (found ?? []) : pageRows
 
   /**
    * A page can come back empty with more still behind it.
@@ -105,8 +132,13 @@ export function ReportsLibrary({
 
   const loading = searching
     ? found === undefined
-    : paged.status === 'LoadingFirstPage' ||
-      (paged.results.length === 0 && paged.status === 'LoadingMore')
+    : // `isDone` matters: a first page can come back empty with more behind
+      // it, and calling that "no reports yet" would be a lie (see above).
+      (cold &&
+        (first.data === undefined ||
+          (first.data.page.length === 0 && !first.data.isDone))) ||
+      (pageRows.length === 0 &&
+        (paged.status === 'CanLoadMore' || paged.status === 'LoadingMore'))
 
   return (
     <>
@@ -137,7 +169,7 @@ export function ReportsLibrary({
 
       <section className="px-4 pb-6 pt-4">
         {loading ? (
-          <p className="py-8 text-center text-caption text-muted">Loading…</p>
+          <ListPending label="Loading reports" count={3} />
         ) : rows.length === 0 ? (
           <EmptyState
             title={emptyTitle(segment, searching)}
@@ -193,9 +225,7 @@ function StaleDrafts({
   businessSlug: string
   onShowDrafts: () => void
 }) {
-  const { data } = useQuery(
-    convexQuery(api.reports.staleDrafts, { businessId }),
-  )
+  const { data } = useQuery(rq.staleDrafts(businessId))
   if (!data || data.count === 0) return null
 
   return (

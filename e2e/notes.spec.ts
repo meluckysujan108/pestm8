@@ -93,7 +93,9 @@ test('team notes are shared knowledge; job notes follow job visibility', async (
     filter: 'all',
     paginationOpts: page,
   })
-  expect(subNotes.page.map((n) => n.title)).toEqual(['Mix ratios for the truck'])
+  expect(subNotes.page.map((n) => n.title)).toEqual([
+    'Mix ratios for the truck',
+  ])
 
   const ownerNotes = await s.owner.client.query(api.notes.list, {
     businessId: s.businessId,
@@ -101,4 +103,43 @@ test('team notes are shared knowledge; job notes follow job visibility', async (
     paginationOpts: page,
   })
   expect(ownerNotes.page).toHaveLength(2)
+})
+
+test('a folder whose first page is all someone else’s does not read as empty', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('notes-firstpage')
+
+  // One note of the technician's own, then a full page of the owner's on top
+  // of it. `notes.list` applies visibility AFTER paginating, so the
+  // technician's first page comes back empty with theirs still behind it —
+  // and an empty page is not an empty folder.
+  const mine = await s.sub.client.mutation(api.notes.create, {
+    businessId: s.businessId,
+    title: 'Wattle Street follow-up',
+  })
+  await s.sub.client.mutation(api.notes.softDelete, {
+    businessId: s.businessId,
+    noteId: mine,
+  })
+  for (let i = 0; i < 30; i++) {
+    const id = await s.owner.client.mutation(api.notes.create, {
+      businessId: s.businessId,
+      title: `Owner note ${i}`,
+    })
+    await s.owner.client.mutation(api.notes.softDelete, {
+      businessId: s.businessId,
+      noteId: id,
+    })
+  }
+
+  await signInViaUi(page, s.sub.email)
+  const document = await page.goto(`/${s.slug}/notes?filter=trash`)
+
+  // Asserted against the server-rendered markup, because the false empty
+  // state heals a moment later when the list asks for the next page: by the
+  // time the note is on screen there is nothing left to catch.
+  expect(await document!.text()).not.toContain('Recently Deleted is empty')
+  await expect(page.getByText('Wattle Street follow-up')).toBeVisible()
+  await expect(page.getByText('Recently Deleted is empty')).toHaveCount(0)
 })

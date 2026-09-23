@@ -1,7 +1,9 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
 import { NotesLibrary } from '#/components/notes/NotesLibrary'
+import { notesFirstPage, rq, searchParam, warm } from '#/lib/routeQueries'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { LibraryFilter } from '#/components/notes/NoteList'
 
 const searchSchema = z.object({
   // Which "folder" is open, the open note and the search term all live in
@@ -14,6 +16,22 @@ const searchSchema = z.object({
 
 export const Route = createFileRoute('/$businessSlug/notes')({
   validateSearch: searchSchema,
+  // The roster the library suspends on, the folder's first page, and whatever
+  // that folder draws above it.
+  loader: ({ context: { queryClient, business }, location }) => {
+    const filter = (searchParam(location, 'filter') ?? 'all') as LibraryFilter
+    const searching = (searchParam(location, 'q') ?? '') !== ''
+    const paged = !searching && filter !== 'mentions'
+    return warm(
+      queryClient,
+      rq.roster(business._id),
+      ...(paged ? [notesFirstPage(business._id, filter)] : []),
+      ...(paged && filter === 'all' ? [rq.notesPinned(business._id)] : []),
+      ...(!searching && filter === 'mentions'
+        ? [rq.notesMentions(business._id)]
+        : []),
+    )
+  },
   component: NotesPage,
 })
 
