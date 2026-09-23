@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
@@ -28,6 +28,7 @@ import {
 import { WeatherGlyph } from './WeatherGlyph'
 import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
+import { propertyOptions } from '#/lib/propertyOptions'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
@@ -610,8 +611,10 @@ function JobDetailBody({
 /**
  * Every job field except status (that stays on the dropdown above — a quick
  * toggle, not a form field). Reuses `NewJobSheet.tsx`'s exact widgets rather
- * than inventing new ones: native `<select>` for property/job type/assignee,
- * `date`+`time` inputs, plain number inputs for duration/price.
+ * than inventing new ones: the searchable `Combobox` for property and job
+ * type, a native `<select>` for the assignee, `date`+`time` inputs, plain
+ * number inputs for duration/price. Unlike a new job, the property starts on
+ * the job's own — that is context, not a default.
  */
 function JobEditForm({
   businessId,
@@ -644,6 +647,10 @@ function JobEditForm({
   )
 
   const [propertyId, setPropertyId] = useState<string>(job.propertyId)
+  const propertyOptionList = useMemo(
+    () => propertyOptions(properties ?? []),
+    [properties],
+  )
   const [jobType, setJobType] = useState(job.jobType)
   // Seeded from the tenant's own timezone, not the viewer's browser zone —
   // matching what `formatTime` already displays elsewhere in this sheet, so
@@ -727,10 +734,7 @@ function JobEditForm({
         <Combobox
           value={propertyId}
           onChange={setPropertyId}
-          options={(properties ?? []).map((p) => ({
-            value: p._id,
-            label: `${p.client?.name} — ${p.addressLine}, ${p.suburb}`,
-          }))}
+          options={propertyOptionList}
           placeholder="Search by name or address"
           noMatchLabel="No properties match"
           ariaLabel="Property"

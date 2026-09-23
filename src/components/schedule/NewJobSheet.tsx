@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
@@ -20,12 +20,15 @@ import type { NewClientFieldsValue } from '#/components/clients/NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { IntervalUnit } from '../../../convex/lib/recurrence'
 import { useHydrated } from '#/lib/useHydrated'
+import { propertyOptions } from '#/lib/propertyOptions'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 
 type ClientMode = 'existing' | 'new'
+
+const PROPERTY_ERROR_ID = 'new-job-property-error'
 
 export function NewJobSheet({
   businessId,
@@ -132,8 +135,22 @@ function NewJobForm({
   const chosenInterval = repeats ? intervalFromDraft(interval) : null
   const intervalIncomplete = repeats && chosenInterval === null
 
+  // No client is chosen until the person chooses one. This used to fill in
+  // the business's oldest property on open, so a job booked in a hurry went
+  // to whoever happened to be first in the list — and nothing on the form
+  // said so.
+  const propertyOptionList = useMemo(
+    () => propertyOptions(properties),
+    [properties],
+  )
+  const [propertyMissing, setPropertyMissing] = useState(false)
+  const propertyTrigger = useRef<HTMLButtonElement>(null)
+  // A choice that stops being offered while the sheet is open (the property
+  // was deleted) is dropped rather than submitted as an id the list no longer
+  // shows.
   useEffect(() => {
-    if (!propertyId && properties.length > 0) setPropertyId(properties[0]._id)
+    if (propertyId && !properties.some((p) => p._id === propertyId))
+      setPropertyId('')
   }, [properties, propertyId])
   // Held to the options, not just seeded once: a switch starting or ending
   // while the sheet is open changes who may be booked, and a stale id would
@@ -207,6 +224,17 @@ function NewJobForm({
       onSubmit={(e) => {
         e.preventDefault()
         if (intervalIncomplete) return
+        // Checked here rather than by disabling "Book job": the button sits at
+        // the foot of a long sheet, and a greyed-out button tells someone on
+        // the phone to a customer nothing about what is missing.
+        if (
+          mode === 'existing' &&
+          !properties.some((p) => p._id === propertyId)
+        ) {
+          setPropertyMissing(true)
+          propertyTrigger.current?.focus()
+          return
+        }
         const [hh, mm] = time.split(':').map(Number)
         // The picker gives a wall-clock time on the selected day, in the
         // tenant's own timezone — not the viewer's browser zone, which may
@@ -246,19 +274,36 @@ function NewJobForm({
       )}
 
       {mode === 'existing' ? (
-        <Field label="Property">
-          <Combobox
-            value={propertyId}
-            onChange={setPropertyId}
-            options={properties.map((p) => ({
-              value: p._id,
-              label: `${p.client?.name} — ${p.addressLine}, ${p.suburb}`,
-            }))}
-            placeholder="Search by name or address"
-            noMatchLabel="No properties match"
-            ariaLabel="Property"
-          />
-        </Field>
+        <>
+          <Field label="Property">
+            <Combobox
+              value={propertyId}
+              onChange={(next) => {
+                setPropertyId(next)
+                setPropertyMissing(false)
+              }}
+              options={propertyOptionList}
+              placeholder="Search by name or address"
+              emptyLabel="Choose a client and address"
+              noMatchLabel="No client or address matches. Use New client above to add them."
+              ariaLabel="Property"
+              invalid={propertyMissing}
+              errorId={PROPERTY_ERROR_ID}
+              triggerRef={propertyTrigger}
+            />
+          </Field>
+          {/* Outside the <label>: inside it, this sentence would become part
+              of the field's name. */}
+          {propertyMissing && (
+            <p
+              id={PROPERTY_ERROR_ID}
+              role="alert"
+              className="mt-1.5 text-caption text-red"
+            >
+              Choose the client and address for this job.
+            </p>
+          )}
+        </>
       ) : (
         <NewClientFields
           value={newClient}

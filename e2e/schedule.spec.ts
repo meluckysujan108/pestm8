@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  chooseProperty,
   clickUntil,
   inviteAndJoin,
   signInViaUi,
@@ -63,6 +64,7 @@ test('an owner can add a property, book a job, and complete it', async ({
   const jobSheet = page.getByRole('dialog')
   await expect(jobSheet.getByText('New job')).toBeVisible()
 
+  await chooseProperty(page, jobSheet, 'Nguyen', /J\. Nguyen/)
   await jobSheet.getByLabel('Job type').click()
   await page
     .getByRole('button', { name: 'Termite Inspection', exact: true })
