@@ -486,6 +486,8 @@ src/components/
   schedule/
     WeekStrip.tsx  DayDots.tsx  MonthPickerSheet.tsx
     JobCard.tsx                   one card, four surfaces; Call + Map beside the open button (§2.3)
+    JobTable.tsx                  the day as a table, one row per job — a card rule may apply here too
+    WeekView.tsx                  the Week View's own job blocks, not JobCard — check card rules here too
     WeatherStrip.tsx              per-card forecast: values, never advice
     JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx
     WeekGrid.tsx                  desktop-only
