@@ -359,6 +359,17 @@
   }
 }
 
+/* The same guard for a hold inside a list the thumb scrolls (a job card's
+   Call). A vertical drag is left to the browser, which cancels the pointer
+   when it takes it, and a cancelled pointer ends the hold — so the list still
+   scrolls from here and a scroll can never dial. */
+@utility hold-target-scroll {
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
 /* The note body (Tiptap). Deliberately the phone's Notes look: one big
    title line, plain 17px body, round yellow checklist circles. Not the
    typography plugin's `prose` — that is a reading style, this is a

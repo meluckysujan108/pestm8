@@ -7,12 +7,7 @@ import {
   startOfDayInZone,
   todayKeyInZone,
 } from './lib/dates'
-import {
-  clientNameOf,
-  newClientFields,
-  resolvePropertyId,
-  withClient,
-} from './properties'
+import { newClientFields, resolvePropertyId, withClient } from './properties'
 import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
 import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
@@ -119,16 +114,22 @@ async function decorate(
       .sort((a, b) => a.scheduledAt - b.scheduledAt)
       .map(async (job) => {
         const property = await ctx.db.get(job.propertyId)
+        const client = property ? await ctx.db.get(property.clientId) : null
         const assignee = await ctx.db.get(job.assignedMembershipId)
         return {
           ...redactJob(env.caps, job),
-          // The job card shows the full street address; the table row shows
-          // the suburb alone, per §2.3's reasoning that scanning a day wants
-          // the suburb.
+          // Card and table row both SHOW the suburb alone (§2.3: scanning a
+          // day wants the suburb). The street address still rides along for
+          // the card's Map link.
           addressLine: property?.addressLine ?? '',
           suburb: property?.suburb ?? '',
           postcode: property?.postcode ?? '',
-          clientName: await clientNameOf(ctx, property),
+          clientName: client?.name ?? '',
+          // For the card's Call. The same number the job detail sheet dials
+          // (`get` embeds the whole client), read off a document this row
+          // loads anyway — and the client book is open to everyone who can
+          // see the job (`clients.directory` is 'always' for every role).
+          clientPhone: client?.phone ?? '',
           assigneeColour: assignee?.colour ?? '#8E8E93',
           assigneeName: assignee
             ? await nameOf(job.assignedMembershipId, assignee.userId)

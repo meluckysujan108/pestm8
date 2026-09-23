@@ -1,6 +1,9 @@
 import { Repeat, TriangleAlert } from 'lucide-react'
 import { formatDuration, formatJobMoney, formatTime } from '#/lib/format'
 import { StatusPill } from '#/components/primitives/StatusPill'
+import { ContactButtons } from '#/components/primitives/ContactButtons'
+import { cardActionsFor } from '#/lib/jobCardActions'
+import { mapsUrl } from '#/lib/maps'
 import { WeatherStrip } from './WeatherStrip'
 import type { JobStatus } from '#/components/primitives/StatusPill'
 import type { WeatherCell } from '#/lib/weather'
@@ -18,6 +21,9 @@ export type JobRow = {
   suburb: string
   postcode?: string
   clientName: string
+  /** Absent from a backend older than the card's Call — then there is no
+   * Call, rather than a broken one. */
+  clientPhone?: string
   assigneeColour: string
   assigneeName?: string
   assignedMembershipId: string
@@ -55,6 +61,7 @@ export function JobCard({
   travel,
   onOpen,
   hideTechnician = false,
+  hideActions = false,
 }: {
   job: JobRow
   /** The day's forecast where there is one. The Job tab lists work across
@@ -65,9 +72,16 @@ export function JobCard({
   /** Hop from the previous job in the day, e.g. "≈ 8 km → Morley". */
   travel?: string | null
   onOpen: (jobId: string) => void
-  /** "Just my jobs": every card is the viewer's, so naming him on each one is
-   * noise rather than information. */
+  /** The Schedule. Its side strip is already the technician's colour, and a
+   * day is scanned for where and when, not who — in every view mode, not
+   * only "Just my jobs" as before. The Job tab and the Recurring Job view
+   * keep the name: a list across months without an assignee is less use. */
   hideTechnician?: boolean
+  /** The Recurring Job view. Its cards are projections nobody has
+   * committed to — no one to ring about them as arranged work, nowhere to
+   * drive — so it offers no Call or Map at all, even on one whose day has
+   * come. Everywhere else the job's own status decides (`cardActionsFor`). */
+  hideActions?: boolean
 }) {
   /**
    * The card is a frame, not a button. Opening the job is one button inside
@@ -86,15 +100,25 @@ export function JobCard({
    * the tenant's timezone, and the answer changes at midnight without anything
    * having to re-query.
    */
+  const now = Date.now()
   const overdueSince =
     job.status === 'recurring' &&
-    dayKeyOf(job.scheduledAt, timezone) < dayKeyOf(Date.now(), timezone)
+    dayKeyOf(job.scheduledAt, timezone) < dayKeyOf(now, timezone)
       ? new Intl.DateTimeFormat('en-AU', {
           timeZone: timezone,
           day: 'numeric',
           month: 'short',
         }).format(new Date(job.scheduledAt))
       : null
+
+  // What sits beside the open button: Call and Map on committed work, a
+  // call to book a projection whose day has come, nothing otherwise. Worked
+  // out here as well as inside ContactButtons so a card with nothing to
+  // offer renders no empty row.
+  const actions = hideActions ? 'none' : cardActionsFor(job, timezone, now)
+  const phone = job.clientPhone || undefined
+  const offersCall = actions !== 'none' && phone !== undefined
+  const offersMap = actions === 'visit' && mapsUrl(job) !== null
 
   return (
     <div className={shell}>
@@ -147,12 +171,11 @@ export function JobCard({
             <span className="block truncate text-sheet-title text-ink">
               {job.clientName}
             </span>
-            {/* The full street address: a card this size is being read, not
-                scanned past. */}
+            {/* The suburb alone, as the table row shows it: a day is scanned
+                for where. The street address rides with the Map button, and
+                the detail sheet prints it in full. */}
             <span className="mt-0.5 block truncate text-caption text-muted">
-              {[job.addressLine, job.suburb, job.postcode]
-                .filter(Boolean)
-                .join(', ')}
+              {job.suburb}
             </span>
           </span>
 
@@ -184,6 +207,19 @@ export function JobCard({
             </span>
           </span>
         </button>
+
+        {(offersCall || offersMap) && (
+          <div className="px-4 pb-4 pl-1">
+            <ContactButtons
+              name={job.clientName}
+              phone={phone}
+              address={job}
+              show={actions === 'visit' ? ['call', 'map'] : ['call']}
+              callToBook={actions === 'book'}
+              variant="card"
+            />
+          </div>
+        )}
       </div>
     </div>
   )

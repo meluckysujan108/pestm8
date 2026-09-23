@@ -157,7 +157,7 @@ export function DayAgendaPanel({
               weather={weather.cell(job.suburb, job.postcode ?? '', selectedKey)}
               timezone={timezone}
               onOpen={onOpenJob}
-              hideTechnician={mode === 'mine'}
+              hideTechnician
             />
           ))}
         </div>

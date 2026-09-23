@@ -340,7 +340,7 @@ function SchedulePage() {
                     weather={weather.cell(job.suburb, job.postcode, selectedKey)}
                     timezone={business.timezone}
                     onOpen={setOpenJobId}
-                    hideTechnician={mode === 'mine'}
+                    hideTechnician
                   />
                 ))}
               </div>

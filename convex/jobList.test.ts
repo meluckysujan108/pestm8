@@ -2,6 +2,7 @@
 import { describe, expect, test } from 'vitest'
 import { api } from './_generated/api'
 import { createActor, createBusiness, testApp } from '../test/harness'
+import { dayKeyOf } from './lib/dates'
 import type { Id } from './_generated/dataModel'
 import type { TestActor } from '../test/harness'
 
@@ -181,5 +182,53 @@ describe('the Job tab list', () => {
 
     const { jobs } = await listFor(s.owner, s.businessId)
     expect(jobs).toHaveLength(0)
+  })
+})
+
+/**
+ * What the job card needs from a row, on every query that feeds one. The card
+ * shows the suburb alone but maps the street address, and calls the client on
+ * the number the detail sheet already dials.
+ */
+describe('what a job row carries for the card', () => {
+  async function withPhone(s: Setup, phone: string | undefined) {
+    await s.t.run(async (ctx) => {
+      const property = await ctx.db.get(s.propertyId)
+      await ctx.db.patch(property!.clientId, { phone })
+    })
+  }
+
+  test("carries the client's phone and the full address, on the Job tab and the day", async () => {
+    const s = await setup()
+    await withPhone(s, '0412 345 678')
+    const at = Date.now() + 2 * DAY
+    await book(s, at)
+
+    const { jobs } = await listFor(s.owner, s.businessId)
+    expect(jobs[0]).toMatchObject({
+      clientName: 'J. Nguyen',
+      clientPhone: '0412 345 678',
+      addressLine: '12 Wattle Street',
+      suburb: 'Bayswater',
+      postcode: '6053',
+    })
+
+    const timezone = await s.t.run(
+      async (ctx) => (await ctx.db.get(s.businessId))!.timezone,
+    )
+    const day = await s.owner.as.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: dayKeyOf(at, timezone),
+    })
+    expect(day[0]).toMatchObject({ clientPhone: '0412 345 678' })
+  })
+
+  test('a client with no number gives an empty one, so the card offers no Call', async () => {
+    const s = await setup()
+    await withPhone(s, undefined)
+    await book(s, Date.now() + DAY)
+
+    const { jobs } = await listFor(s.owner, s.businessId)
+    expect(jobs[0].clientPhone).toBe('')
   })
 })

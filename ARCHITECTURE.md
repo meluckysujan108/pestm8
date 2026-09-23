@@ -126,10 +126,10 @@ activity timeline with actor names.
 **Cross-cutting:** preview-as banner (sticky, dark, top), toast (bottom centre)
 
 ## 2.3 Interaction patterns worth naming
-- **Hold-to-call / hold-to-email** — pointer-down starts a fill animation, pointer-up before completion cancels. Prevents pocket-dialling a client mid-job. Uses `onPointerDown/Up/Leave/Cancel`, `touch-action:none`, `user-select:none`.
+- **Hold-to-call / hold-to-email** — pointer-down starts a fill animation, pointer-up before completion cancels. Prevents pocket-dialling a client mid-job. Uses `onPointerDown/Up/Leave/Cancel`, `touch-action:none`, `user-select:none`. *Amended (Phase 4):* on a job card the same hold sits in a list the thumb scrolls, so there it uses `touch-action:pan-y` instead — the browser may take a vertical drag, and when it does it cancels the pointer, which cancels the hold. A scroll never dials; a still thumb still has to hold. The sheets keep `touch-action:none`.
 - **Segmented controls** for all binary/ternary filters — never dropdowns.
 - **Week strip with per-subcontractor dots** — colour-coded, so the Owner sees whose day is loaded at a glance.
-- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. *Amended:* the schedule's job card now has two variants, and the rule holds per-variant rather than per-surface — the compact **list** row still shows suburb alone, while the richer **board** card shows the full street address. A board card is being read, not scanned past, and at that size the address is the fastest way to recognise a job. `JobCard.tsx` is the only place this applies; every other list row is unchanged.
+- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. *Amended:* the schedule's job card now has two variants, and the rule holds per-variant rather than per-surface — the compact **list** row still shows suburb alone, while the richer **board** card shows the full street address. A board card is being read, not scanned past, and at that size the address is the fastest way to recognise a job. `JobCard.tsx` is the only place this applies; every other list row is unchanged. *Amended again (Phase 4):* the card is back to the suburb alone, matching the table row — the card now carries a Map button, which takes the full street address to the maps app, so the address no longer has to be read off the card to be used. The job detail sheet and the report still print it in full.
 - **Locked boilerplate blocks** — report disclaimers render in a grey inset card, visibly non-editable.
 - **A delivery is a record, not an event** — every attempt to send a report is a `reportDeliveries` row, written before the provider is called and naming the `reportPdfs` row it attached, so "which file did the client receive?" has an answer after the renderer has moved on. `sent` means the provider accepted it; the Resend webhook moves a row to `bounced` later, and the report's Sent bucket with it.
 - **Who a report may be sent to** — a technician may send to addresses already on the client record; anywhere else is `pendingApproval` until an owner says yes, unless the business turns the restriction off. The held row IS the request, so approving is a decision about something real. Twenty sends an hour per member, counted from the delivery rows rather than a separate token bucket.
@@ -470,7 +470,7 @@ src/components/
     HoldButton.tsx                pointer-driven fill; click-through on desktop
   schedule/
     WeekStrip.tsx  DayDots.tsx  MonthPickerSheet.tsx
-    JobCard.tsx                   list | board variants (§2.3)
+    JobCard.tsx                   one card, four surfaces; Call + Map beside the open button (§2.3)
     WeatherStrip.tsx              per-card forecast: values, never advice
     JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx
     WeekGrid.tsx                  desktop-only

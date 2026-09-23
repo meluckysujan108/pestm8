@@ -80,6 +80,7 @@ function RecurringJobPage() {
                 key={job._id}
                 job={job}
                 timezone={business.timezone}
+                hideActions
                 onOpen={(id) =>
                   navigate({
                     search: (prev) => ({ ...prev, jobId: id }),

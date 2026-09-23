@@ -192,12 +192,12 @@ async function seedOneJob(prefix: string) {
 }
 
 /**
- * Pins the amended §2.3 rule: the job card carries the full street address,
- * the table row carries the suburb alone. The distinction is deliberate and
- * easy to erase by accident, so it is asserted rather than trusted to the
- * comment in `JobCard.tsx`.
+ * Pins §2.3 as amended in Phase 4: the card and the table row both show the
+ * suburb alone. The street address is not lost — the card's Map button takes
+ * it to the maps app, and the detail sheet prints it in full — but it is no
+ * longer read off the card.
  */
-test('the job card shows the full address and the table row shows only the suburb', async ({
+test('the job card and the table row both show the suburb alone', async ({
   page,
 }) => {
   const { email, slug } = await seedOneJob('cardvariant')
@@ -215,17 +215,24 @@ test('the job card shows the full address and the table row shows only the subur
     'true',
   )
   await expect(view.getByRole('tab', { name: 'List' })).toHaveCount(0)
-  await expect(page.getByText('12 Wattle Street')).toBeVisible()
-
-  await view.getByRole('tab', { name: 'Table' }).click()
+  await expect(card).toContainText('Bayswater')
   await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
-  // The suburb survives the switch — it is the address line that is dropped,
-  // not location information altogether. Scoped to the table: the desktop day
-  // panel prints the same suburb in its weather banner.
-  await expect(page.getByRole('table').getByText('Bayswater')).toBeVisible()
+  // Not dropped: one tap from the card, in the maps app.
+  await expect(
+    page.getByRole('link', {
+      name: 'Open 12 Wattle Street, Bayswater in Maps',
+    }),
+  ).toBeVisible()
 
-  await view.getByRole('tab', { name: 'Job' }).click()
-  await expect(page.getByText('12 Wattle Street')).toBeVisible()
+  // A tab click that lands on server-rendered markup is swallowed, and the
+  // view never switches — "New job" enables on hydration, the signal the
+  // other schedule tests wait on too.
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  await view.getByRole('tab', { name: 'Table' }).click()
+  // Scoped to the table: the desktop day panel prints the same suburb in its
+  // weather banner.
+  await expect(page.getByRole('table').getByText('Bayswater')).toBeVisible()
+  await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
 })
 
 /**
@@ -251,13 +258,17 @@ test('the chosen card view is kept in the URL and survives a reload', async ({
   await expect(
     page.getByRole('button', { name: /Termite Inspection/ }),
   ).toBeVisible()
-  // Still the table: the address line is the card's, not the row's.
-  await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
+  // Still the table. Card and row both show the suburb alone now, so the
+  // table itself is what tells the two views apart.
+  await expect(page.getByRole('table')).toBeVisible()
 
   // A link to the retired List view must not leave the page blank; it opens
   // the default view instead.
   await page.goto(`/${slug}/schedule?view=list`)
-  await expect(page.getByText('12 Wattle Street')).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: /Termite Inspection/ }),
+  ).toBeVisible()
+  await expect(page.getByRole('table')).toHaveCount(0)
 })
 
 /**
