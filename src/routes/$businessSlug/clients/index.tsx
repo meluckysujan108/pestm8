@@ -100,14 +100,14 @@ function ClientsPage() {
       <div className="flex px-4 pt-3">
         {/* The shared box, not a bare input bound to the URL: that navigated
             on every keystroke and, while a navigation was in flight, put the
-            committed term back over whatever had been typed since. */}
+            committed term back over whatever had been typed since. The
+            search is `q` alone now — the only thing this page keeps in the
+            URL — which also drops a retired `?view=` an old link brought in,
+            since the router carries unknown keys along otherwise. */}
         <SearchBox
           value={q ?? ''}
           onChange={(term) =>
-            navigate({
-              search: (prev) => ({ ...prev, q: term || undefined }),
-              replace: true,
-            })
+            navigate({ search: { q: term || undefined }, replace: true })
           }
           label="Search by name or address"
           placeholder="Search by name or address"

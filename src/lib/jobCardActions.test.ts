@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { cardActionsFor, isOverdueProjection } from './jobCardActions'
+import {
+  cardActionsFor,
+  cardButtonsFor,
+  isOverdueProjection,
+} from './jobCardActions'
 import type { JobStatus } from '#/components/primitives/StatusPill'
 
 const PERTH = 'Australia/Perth'
@@ -16,7 +20,7 @@ function job(status: JobStatus, at: string) {
 }
 
 describe('what a job card offers besides opening the job', () => {
-  test('committed work offers Call and Map, whatever stage it is at', () => {
+  test('committed work offers Call, Text, Email and Map, whatever stage it is at', () => {
     for (const status of [
       'pending',
       'booked',
@@ -108,5 +112,31 @@ describe('what counts as overdue', () => {
     expect(
       isOverdueProjection(visit, PERTH, perth('2026-09-23T00:00:30')),
     ).toBe(true)
+  })
+})
+
+describe('the buttons each offer means', () => {
+  test('committed work: every contact button and the Map', () => {
+    expect(cardButtonsFor('visit')).toEqual({
+      contact: true,
+      map: true,
+      toBook: false,
+    })
+  })
+
+  test('a due visit: contact to book it, and nowhere to drive yet', () => {
+    expect(cardButtonsFor('book')).toEqual({
+      contact: true,
+      map: false,
+      toBook: true,
+    })
+  })
+
+  test('nothing to offer: no buttons at all', () => {
+    expect(cardButtonsFor('none')).toEqual({
+      contact: false,
+      map: false,
+      toBook: false,
+    })
   })
 })

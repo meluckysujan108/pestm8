@@ -1,13 +1,22 @@
 import { CalendarClock, Repeat } from 'lucide-react'
 import { formatDuration, formatJobMoney, formatTime } from '#/lib/format'
 import { StatusPill } from '#/components/primitives/StatusPill'
-import { ContactButtons } from '#/components/primitives/ContactButtons'
-import { cardActionsFor, isOverdueProjection } from '#/lib/jobCardActions'
+import {
+  ContactButtons,
+  MapHoldButton,
+} from '#/components/primitives/ContactButtons'
+import {
+  cardActionsFor,
+  cardButtonsFor,
+  isOverdueProjection,
+} from '#/lib/jobCardActions'
 import { mapsUrl } from '#/lib/maps'
+import { describeInterval } from '../../../convex/lib/recurrence'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { WeatherStrip } from './WeatherStrip'
 import type { JobStatus } from '#/components/primitives/StatusPill'
 import type { WeatherCell } from '#/lib/weather'
+import type { Interval } from '../../../convex/lib/recurrence'
 
 export type JobRow = {
   _id: string
@@ -24,10 +33,15 @@ export type JobRow = {
   /** Absent from a backend older than the card's Call — then there is no
    * Call, rather than a broken one. */
   clientPhone?: string
+  /** Absent from a backend older than the card's Email — then no Email. */
+  clientEmail?: string
   assigneeColour: string
   assigneeName?: string
   assignedMembershipId: string
   recurrenceId?: string
+  /** How often the visit's series repeats, while it runs. Absent for a
+   * one-off, a stopped series, and on a backend older than the indicator. */
+  repeats?: Interval
 }
 
 /** "9:30am – 11:00am · 1 hr" — the span, not just the start. */
@@ -113,14 +127,21 @@ export function JobCard({
       }).format(new Date(job.scheduledAt))
     : null
 
-  // What sits beside the open button: Call and Map on committed work, a
-  // call to book a projection whose day has come, nothing otherwise. Worked
-  // out here as well as inside ContactButtons so a card with nothing to
-  // offer renders no empty row.
-  const actions = hideActions ? 'none' : cardActionsFor(job, timezone, now)
+  // What sits beside the open button (cardActionsFor, cardButtonsFor): on
+  // committed work, Call, Text and Email along the bottom and the Map in the
+  // corner; on a projection whose day has come, the three to book it;
+  // otherwise nothing. Worked out here as well as inside ContactButtons so a
+  // card with nothing to offer renders no empty row.
+  const buttons = cardButtonsFor(
+    hideActions ? 'none' : cardActionsFor(job, timezone, now),
+  )
   const phone = job.clientPhone || undefined
-  const offersCall = actions !== 'none' && phone !== undefined
-  const offersMap = actions === 'visit' && mapsUrl(job) !== null
+  const email = job.clientEmail || undefined
+  const offersContact =
+    buttons.contact && (phone !== undefined || email !== undefined)
+  // Never beside the "Overdue since" chip: that marks a projection, and a
+  // projection has no Map. So the corner can sit at a fixed height below.
+  const offersMap = buttons.map && mapsUrl(job) !== null
 
   return (
     <div className={shell}>
@@ -136,7 +157,9 @@ export function JobCard({
           onClick={() => onOpen(job._id)}
           className="job-card-open flex min-w-0 flex-1 flex-col gap-3 rounded-2xl p-4 pl-6 text-left"
         >
-          <span className="flex items-center justify-between gap-2">
+          {/* A fixed height, so the corner Map below lines up with the suburb
+              whatever the row holds. */}
+          <span className="flex h-7 items-center justify-between gap-2">
             <span className="flex min-w-0 items-center gap-2">
               {job.jobNumber !== undefined && (
                 <span className="shrink-0 font-mono text-caption font-bold tabular-nums text-muted">
@@ -144,21 +167,24 @@ export function JobCard({
                 </span>
               )}
               <StatusPill status={job.status} />
-              {job.recurrenceId !== undefined && (
+            </span>
+            {/* Where the start time was: the time is in the Time row below,
+                and the corner says instead whether this comes round again.
+                Ink, not a hue — blue is Invoiced, and this marks a series,
+                not a status. */}
+            {job.repeats !== undefined && (
+              <span className="inline-flex min-w-0 items-center gap-1 text-caption font-semibold text-ink-2">
                 <Repeat
                   size={13}
-                  strokeWidth={1.7}
-                  role="img"
-                  aria-label="Recurring job"
-                  // Not blue: blue is Invoiced now (src/lib/statusColours.ts),
-                  // and this marks a series, not a status.
-                  className="shrink-0 text-ink-2"
+                  strokeWidth={1.8}
+                  aria-hidden
+                  className="shrink-0"
                 />
-              )}
-            </span>
-            <span className="shrink-0 font-mono text-caption tabular-nums text-muted">
-              {formatTime(job.scheduledAt, timezone)}
-            </span>
+                <span className="truncate">
+                  {describeInterval(job.repeats)}
+                </span>
+              </span>
+            )}
           </span>
 
           {/* A projection carried forward from a day nobody opened. Its time and
@@ -174,13 +200,14 @@ export function JobCard({
             </span>
           )}
 
-          <span className="block min-w-0">
+          {/* Room on the right for the corner Map, which sits over this. */}
+          <span className={`block min-w-0 ${offersMap ? 'pr-24' : ''}`}>
             <span className="block truncate text-sheet-title text-ink">
               {job.clientName}
             </span>
-            {/* The suburb alone, as the table row shows it: a day is scanned
-                for where. The street address rides with the Map button, and
-                the detail sheet prints it in full. */}
+            {/* The suburb alone: a day is scanned for where. The street
+                address rides with the Map, and the detail sheet prints it in
+                full. */}
             <span className="mt-0.5 block truncate text-caption text-muted">
               {job.suburb}
             </span>
@@ -220,14 +247,35 @@ export function JobCard({
           </span>
         </button>
 
-        {(offersCall || offersMap) && (
+        {/* The Map, top right beside the name and suburb. A sibling laid over
+            the open button, never inside it: a button in a button is invalid,
+            and the outer one would swallow the hold. The spacer is the header
+            row's fixed height, so it lands level with the name block. Here in the
+            markup, between the two, so focus meets it where the eye does. */}
+        {offersMap && (
+          <div className="pointer-events-none absolute inset-x-0 top-0 flex flex-col gap-3 p-4 pl-6">
+            <span aria-hidden className="h-7" />
+            <div className="flex justify-end">
+              <span className="pointer-events-auto">
+                <MapHoldButton address={job} />
+              </span>
+            </div>
+          </div>
+        )}
+
+        {offersContact && (
           <div className="px-4 pb-4 pl-6">
+            {buttons.toBook && (
+              <p className="mb-2 text-caption text-muted">
+                Not booked yet — contact to book
+              </p>
+            )}
             <ContactButtons
               name={job.clientName}
               phone={phone}
-              address={job}
-              show={actions === 'visit' ? ['call', 'map'] : ['call']}
-              callToBook={actions === 'book'}
+              email={email}
+              show={['call', 'text', 'email']}
+              toBook={buttons.toBook}
               variant="card"
             />
           </div>
