@@ -91,9 +91,9 @@ export function ContactButtons({
     <div className="flex gap-2">
       {call && (
         <HoldButton
-          ariaLabel={
-            callToBook ? `Call ${name} to book this visit` : `Call ${name}`
-          }
+          // Each name starts with the words on the button (WCAG 2.5.3), so
+          // "tap Call to book" works for someone driving the phone by voice.
+          ariaLabel={callToBook ? `Call to book: ${name}` : `Call ${name}`}
           onComplete={() => {
             window.location.href = `tel:${phone}`
           }}
@@ -132,7 +132,7 @@ export function ContactButtons({
           href={map}
           target="_blank"
           rel="noopener noreferrer"
-          aria-label={`Open ${place || 'the address'} in Maps`}
+          aria-label={`Map of ${place || 'the address'}`}
           className={tile}
         >
           {label(MapPin, 'Map')}

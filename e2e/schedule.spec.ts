@@ -219,9 +219,7 @@ test('the job card and the table row both show the suburb alone', async ({
   await expect(page.getByText('12 Wattle Street')).toHaveCount(0)
   // Not dropped: one tap from the card, in the maps app.
   await expect(
-    page.getByRole('link', {
-      name: 'Open 12 Wattle Street, Bayswater in Maps',
-    }),
+    page.getByRole('link', { name: 'Map of 12 Wattle Street, Bayswater' }),
   ).toBeVisible()
 
   // A tab click that lands on server-rendered markup is swallowed, and the

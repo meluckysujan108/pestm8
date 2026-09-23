@@ -44,7 +44,7 @@ async function seed(label: string) {
 }
 
 const CALL = 'Call M. Roberts'
-const MAP = 'Open 7 Banksia Road, Morley in Maps'
+const MAP = 'Map of 7 Banksia Road, Morley'
 
 test('on the Schedule a card shows the suburb, Call and Map, and not the technician', async ({
   page,
@@ -84,12 +84,11 @@ test('on the Schedule a card shows the suburb, Call and Map, and not the technic
     'https://www.google.com/maps/search/?api=1&query=7%20Banksia%20Road%2C%20Morley%2C%206062%2C%20Australia',
   )
 
-  // And the card body still opens the job.
-  await clickUntil(card, () =>
-    expect(page.getByRole('dialog').getByText('Property')).toBeVisible({
-      timeout: 2_000,
-    }),
-  )
+  // And the card body still opens the job. Settled on the sheet itself,
+  // which appears the moment the click lands; what it shows waits on a query.
+  const detail = page.getByRole('dialog')
+  await clickUntil(card, () => expect(detail).toBeVisible({ timeout: 2_000 }))
+  await expect(detail.getByText('Property', { exact: true })).toBeVisible()
 })
 
 test('the Job tab keeps the technician, with Call and Map', async ({
@@ -150,7 +149,7 @@ test('a series: the hand-booked visit offers Call and Map, its future projection
     page.getByRole('button', { name: /Rodent Baiting/ }).first(),
   ).toBeVisible()
   await expect(page.getByRole('button', { name: /^Call / })).toHaveCount(0)
-  await expect(page.getByRole('link', { name: /in Maps$/ })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /^Map of / })).toHaveCount(0)
 })
 
 test('a projection due today offers a call to book it, and no map', async ({
@@ -187,11 +186,19 @@ test('a projection due today offers a call to book it, and no map', async ({
   await expect(card).toBeVisible()
   await expect(card).toContainText('Recurring')
 
-  const book = page.getByRole('button', {
-    name: 'Call M. Roberts to book this visit',
-  })
+  const book = page.getByRole('button', { name: 'Call to book: M. Roberts' })
   await expect(book).toBeVisible()
   await expect(book).toContainText('Call to book')
   // Nobody has agreed to it, so there is nowhere to drive yet.
   await expect(page.getByRole('link', { name: MAP })).toHaveCount(0)
+
+  // The same visit on the Recurring Job view offers nothing at all. This is
+  // the case that proves the view's own rule: on a future projection the
+  // status alone would already offer nothing.
+  await page.goto(`/${s.slug}/job/recurring`)
+  await expect(
+    page.getByRole('button', { name: /Cockroach Treatment/ }).first(),
+  ).toBeVisible()
+  await expect(page.getByRole('button', { name: /^Call / })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /^Map of / })).toHaveCount(0)
 })

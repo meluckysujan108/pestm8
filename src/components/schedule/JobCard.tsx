@@ -90,9 +90,13 @@ export function JobCard({
    * nested inside another (invalid HTML, and the outer click swallows the
    * inner one). The frame shrinks when that button is pressed, as the whole
    * card did when it was the button.
+   *
+   * The button runs to the frame's left edge, under the colour rail: the rail
+   * is drawn over it and lets presses through, so the rail and the space
+   * beside it still open the job, as they did when the card was one button.
    */
   const shell =
-    'flex h-full w-full items-stretch gap-3.5 rounded-2xl border border-hairline bg-surface shadow-elevation transition has-[.job-card-open:active]:scale-[.99]'
+    'relative flex h-full w-full flex-col rounded-2xl border border-hairline bg-surface shadow-elevation transition has-[.job-card-open:active]:scale-[.99]'
 
   /**
    * "19 Sep" when this is a projected visit whose day has passed, otherwise
@@ -124,7 +128,7 @@ export function JobCard({
     <div className={shell}>
       <span
         aria-hidden
-        className="w-1.5 shrink-0 rounded-l-2xl"
+        className="pointer-events-none absolute inset-y-0 left-0 w-1.5 rounded-l-2xl"
         style={{ backgroundColor: job.assigneeColour }}
       />
 
@@ -132,7 +136,7 @@ export function JobCard({
         <button
           type="button"
           onClick={() => onOpen(job._id)}
-          className="job-card-open flex min-w-0 flex-1 flex-col gap-3 rounded-r-2xl p-4 pl-1 text-left"
+          className="job-card-open flex min-w-0 flex-1 flex-col gap-3 rounded-2xl p-4 pl-6 text-left"
         >
           <span className="flex items-center justify-between gap-2">
             <span className="flex min-w-0 items-center gap-2">
@@ -209,7 +213,7 @@ export function JobCard({
         </button>
 
         {(offersCall || offersMap) && (
-          <div className="px-4 pb-4 pl-1">
+          <div className="px-4 pb-4 pl-6">
             <ContactButtons
               name={job.clientName}
               phone={phone}
