@@ -284,7 +284,7 @@ export const listDay = query({
 
     // Completed work sinks to the bottom of the day (lib/jobStatus.ts), so
     // the card that moves when a job is finished moves for every viewer at
-    // once — the card and table views both render this order as given.
+    // once — the day's cards and the Week View render this order as given.
     return orderForDay(await decorate(ctx, env, jobs))
   },
 })

@@ -371,29 +371,41 @@ export async function licenceSelf(
 }
 
 /**
- * A finger held on `locator` for `ms`, then lifted — a real touch, sent
- * through the Chrome DevTools Protocol. The hold buttons (HoldButton) hold
- * only a touch or a pen: `page.mouse` would arrive as a mouse and act at once,
- * and Playwright's own touchscreen can only tap. Both projects are Chromium.
+ * A finger put down on `locator` — a real touch, sent through the Chrome
+ * DevTools Protocol — and a way to lift it. The hold buttons (HoldButton)
+ * hold only a touch or a pen: `page.mouse` would arrive as a mouse and act at
+ * once, and Playwright's own touchscreen can only tap. Both projects are
+ * Chromium. Split in two so a test can look at the page with the finger
+ * still down.
  */
-export async function touchHold(page: Page, locator: Locator, ms: number) {
+export async function touchDown(page: Page, locator: Locator) {
   const box = await locator.boundingBox()
-  if (!box) throw new Error('touchHold: the element is not on screen')
+  if (!box) throw new Error('touchDown: the element is not on screen')
   const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
   const cdp = await page.context().newCDPSession(page)
-  try {
-    await cdp.send('Input.dispatchTouchEvent', {
-      type: 'touchStart',
-      touchPoints: [point],
-    })
-    await page.waitForTimeout(ms)
-    await cdp.send('Input.dispatchTouchEvent', {
-      type: 'touchEnd',
-      touchPoints: [],
-    })
-  } finally {
-    await cdp.detach()
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [point],
+  })
+  return {
+    async up() {
+      try {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchEnd',
+          touchPoints: [],
+        })
+      } finally {
+        await cdp.detach()
+      }
+    },
   }
+}
+
+/** A finger held on `locator` for `ms`, then lifted. */
+export async function touchHold(page: Page, locator: Locator, ms: number) {
+  const finger = await touchDown(page, locator)
+  await page.waitForTimeout(ms)
+  await finger.up()
 }
 
 /**

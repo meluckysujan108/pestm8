@@ -160,7 +160,9 @@ export function JobCard({
           {/* A fixed height, so the corner Map below lines up with the suburb
               whatever the row holds. */}
           <span className="flex h-7 items-center justify-between gap-2">
-            <span className="flex min-w-0 items-center gap-2">
+            {/* Keeps its width: on a narrow card the indicator gives way, and
+                truncates, rather than the status pill running over it. */}
+            <span className="flex shrink-0 items-center gap-2">
               {job.jobNumber !== undefined && (
                 <span className="shrink-0 font-mono text-caption font-bold tabular-nums text-muted">
                   #{job.jobNumber}

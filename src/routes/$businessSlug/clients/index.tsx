@@ -18,8 +18,8 @@ import { rq, warm } from '#/lib/routeQueries'
 export const Route = createFileRoute('/$businessSlug/clients/')({
   // One way to read clients: the cards. The List and Table views were
   // retired, and `view` with them — the key is gone rather than narrowed, so
-  // an old `?view=list` or `?view=table` link is stripped and opens the cards
-  // instead of failing validation.
+  // an old `?view=list` or `?view=table` link passes validation and opens the
+  // cards. The stale key stays in the address bar until the first search.
   validateSearch: z.object({
     q: z.string().optional(),
   }),

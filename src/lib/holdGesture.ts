@@ -12,8 +12,10 @@
  * lift-to-act exactly as the Map does.
  *
  * Only touch and pen are held. A mouse click and a keyboard press are
- * deliberate by nature, as is a screen reader's double-tap (a click with no
- * touch before it), so those act at once — see `acceptsClick`.
+ * deliberate by nature, so a click with no touch anywhere on the page just
+ * before it acts at once — see `acceptsClick`. That includes a screen
+ * reader's activation where it arrives as a plain click (Android's does; how
+ * iOS VoiceOver delivers a double-tap here is still to be checked on a device).
  */
 
 export const HOLD_MS = 650
@@ -23,7 +25,9 @@ export const HOLD_MS = 650
 export const TOUCH_CLICK_WINDOW_MS = 700
 
 /** Lifting this far outside the button still counts as on it; further is a
- * deliberate slide-off, which cancels (WCAG 2.5.2). */
+ * deliberate slide-off, which cancels (WCAG 2.5.2). Moving the finger this far
+ * from where it went down cancels too — the sheets move with a drag, so the
+ * button can stay under a finger that is dismissing it. */
 export const RELEASE_SLOP_PX = 16
 
 export type HoldPhase =
@@ -32,7 +36,7 @@ export type HoldPhase =
 export type HoldEvent =
   | { type: 'down'; at: number }
   | { type: 'frame'; at: number }
-  | { type: 'up'; inside: boolean }
+  | { type: 'up'; at: number; inside: boolean }
   | { type: 'cancel' }
 
 /**
@@ -59,7 +63,12 @@ export function holdStep(
       }
       return { phase, effect: 'none' }
     case 'up':
-      if (phase.name === 'armed') {
+      // Held long enough counts even if the frame that would have armed it
+      // never ran — a busy phone can deliver the lift before the next frame.
+      if (
+        phase.name === 'armed' ||
+        (phase.name === 'filling' && event.at - phase.startedAt >= HOLD_MS)
+      ) {
         return { phase: IDLE, effect: event.inside ? 'act' : 'none' }
       }
       if (phase.name === 'filling') {
@@ -85,17 +94,33 @@ export function holdProgress(phase: HoldPhase, now: number): number {
 /**
  * Whether a click should act. A click that belongs to a touch — the one the
  * browser sends after a finger lifts — is ignored: the touch already acted,
- * or was a tap too short to. Any other click is a mouse, a keyboard or a
- * screen reader, and acts.
+ * or was a tap too short to. Any other click is a mouse or a keyboard, and
+ * acts.
+ *
+ * `lastTouchAt` is the last touch ANYWHERE on the page, not only on this
+ * button: an iPhone moves a near miss onto the nearest button — a thumb in
+ * the gap between Call and Text sends its click to one of them, though
+ * neither saw the finger — and that click must not dial either.
  */
 export function acceptsClick(
-  touch: { down: boolean; lastUpAt: number | null },
+  touch: { down: boolean; lastTouchAt: number | null },
   now: number,
 ): boolean {
   if (touch.down) return false
   return (
-    touch.lastUpAt === null || now - touch.lastUpAt >= TOUCH_CLICK_WINDOW_MS
+    touch.lastTouchAt === null ||
+    now - touch.lastTouchAt >= TOUCH_CLICK_WINDOW_MS
   )
+}
+
+/** Whether a finger has moved far enough from where it went down to stop
+ * counting as a hold. */
+export function movedAway(
+  start: { x: number; y: number },
+  x: number,
+  y: number,
+): boolean {
+  return Math.hypot(x - start.x, y - start.y) > RELEASE_SLOP_PX
 }
 
 /** Whether a finger lifted at (x, y) is on the button, give or take the slop. */

@@ -227,6 +227,40 @@ test('the job card shows the suburb alone, and the views are Job and Week', asyn
 })
 
 /**
+ * The switch itself, clicked: the view lives in a search param rather than
+ * component state (§5.1), so it goes into the URL and survives a reload, and
+ * switching back returns the cards.
+ */
+test('the Job | Week switch is kept in the URL and survives a reload', async ({
+  page,
+}) => {
+  const { email, slug } = await seedOneJob('viewswitch')
+
+  await signInViaUi(page, email)
+  await page.goto(`/${slug}/schedule`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+
+  const view = page.getByRole('tablist', { name: 'View' })
+  await clickUntil(view.getByRole('tab', { name: 'Week' }), () =>
+    expect(page).toHaveURL(/view=week/, { timeout: 2_000 }),
+  )
+
+  await page.reload()
+  await expect(view.getByRole('tab', { name: 'Week' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+
+  await clickUntil(view.getByRole('tab', { name: 'Job' }), () =>
+    expect(page).toHaveURL(/view=job/, { timeout: 2_000 }),
+  )
+  await expect(view.getByRole('tab', { name: 'Job' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
+})
+
+/**
  * A bookmark or a shared link to a retired view must not leave the page blank
  * or fail validation: it opens the cards.
  */

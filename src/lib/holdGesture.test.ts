@@ -6,6 +6,7 @@ import {
   acceptsClick,
   holdProgress,
   holdStep,
+  movedAway,
   releasedInside,
 } from './holdGesture'
 import type { HoldEvent, HoldPhase } from './holdGesture'
@@ -28,7 +29,7 @@ describe('a touch on a hold button', () => {
       { type: 'down', at: 0 },
       { type: 'frame', at: 300 },
       { type: 'frame', at: HOLD_MS },
-      { type: 'up', inside: true },
+      { type: 'up', at: HOLD_MS + 50, inside: true },
     ])
     expect(effects).toEqual(['none', 'none', 'armed', 'act'])
     expect(phase).toEqual(IDLE)
@@ -47,16 +48,25 @@ describe('a touch on a hold button', () => {
     const { effects } = run([
       { type: 'down', at: 0 },
       { type: 'frame', at: 120 },
-      { type: 'up', inside: true },
+      { type: 'up', at: 130, inside: true },
     ])
     expect(effects).toEqual(['none', 'none', 'hint'])
+  })
+
+  test('held long enough acts even if no frame got to arm it — a busy phone', () => {
+    const { effects } = run([
+      { type: 'down', at: 0 },
+      { type: 'frame', at: 100 },
+      { type: 'up', at: HOLD_MS + 10, inside: true },
+    ])
+    expect(effects).toEqual(['none', 'none', 'act'])
   })
 
   test('held to full and slid off before lifting: cancelled, silently', () => {
     const { effects } = run([
       { type: 'down', at: 0 },
       { type: 'frame', at: HOLD_MS },
-      { type: 'up', inside: false },
+      { type: 'up', at: HOLD_MS + 50, inside: false },
     ])
     expect(effects).toEqual(['none', 'armed', 'none'])
   })
@@ -67,7 +77,7 @@ describe('a touch on a hold button', () => {
         { type: 'down', at: 0 },
         { type: 'frame', at },
         { type: 'cancel' },
-        { type: 'up', inside: true },
+        { type: 'up', at: HOLD_MS + 50, inside: true },
       ])
       expect(effects).not.toContain('act')
       expect(phase).toEqual(IDLE)
@@ -75,7 +85,9 @@ describe('a touch on a hold button', () => {
   })
 
   test('a lift with no touch down before it does nothing', () => {
-    expect(run([{ type: 'up', inside: true }]).effects).toEqual(['none'])
+    expect(
+      run([{ type: 'up', at: HOLD_MS + 50, inside: true }]).effects,
+    ).toEqual(['none'])
   })
 })
 
@@ -91,19 +103,28 @@ describe('the fill', () => {
 })
 
 describe('a click', () => {
-  test('from a mouse, a keyboard or a screen reader acts at once', () => {
-    expect(acceptsClick({ down: false, lastUpAt: null }, 10_000)).toBe(true)
+  test('from a mouse or a keyboard, with no touch before it, acts at once', () => {
+    expect(acceptsClick({ down: false, lastTouchAt: null }, 10_000)).toBe(true)
   })
 
   test('that belongs to a touch is ignored — while it is down, and just after', () => {
-    expect(acceptsClick({ down: true, lastUpAt: null }, 10_000)).toBe(false)
-    expect(acceptsClick({ down: false, lastUpAt: 10_000 }, 10_050)).toBe(false)
+    expect(acceptsClick({ down: true, lastTouchAt: null }, 10_000)).toBe(false)
+    expect(acceptsClick({ down: false, lastTouchAt: 10_000 }, 10_050)).toBe(
+      false,
+    )
     expect(
       acceptsClick(
-        { down: false, lastUpAt: 10_000 },
+        { down: false, lastTouchAt: 10_000 },
         10_000 + TOUCH_CLICK_WINDOW_MS,
       ),
     ).toBe(true)
+  })
+
+  test('sent to a button the finger never touched — a near miss the phone moved onto it — is ignored too', () => {
+    // The button saw no pointer at all; the page saw a touch 50ms ago.
+    expect(acceptsClick({ down: false, lastTouchAt: 9_950 }, 10_000)).toBe(
+      false,
+    )
   })
 })
 
@@ -118,5 +139,18 @@ describe('where the finger lifts', () => {
   test('well off it does not', () => {
     expect(releasedInside(rect, 150, 200)).toBe(false)
     expect(releasedInside(rect, 40, 120)).toBe(false)
+  })
+})
+
+describe('moving the finger', () => {
+  const start = { x: 100, y: 100 }
+
+  test('a wobble while holding still counts as holding', () => {
+    expect(movedAway(start, 108, 106)).toBe(false)
+  })
+
+  test('a drag — a scroll, or a sheet being pulled down — stops counting', () => {
+    expect(movedAway(start, 100, 130)).toBe(true)
+    expect(movedAway(start, 80, 88)).toBe(true)
   })
 })

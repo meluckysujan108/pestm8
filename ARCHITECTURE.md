@@ -485,7 +485,7 @@ src/components/
     HoldButton.tsx                pointer-driven fill; click-through on desktop
   schedule/
     WeekStrip.tsx  DayDots.tsx  MonthPickerSheet.tsx
-    JobCard.tsx                   one card, four surfaces; Call + Map beside the open button (§2.3)
+    JobCard.tsx                   one card, four surfaces; Map top right, Call/Text/Email below, all holds (§2.3)
     WeekView.tsx                  the Week View's own job blocks, not JobCard — check card rules here too
     WeatherStrip.tsx              per-card forecast: values, never advice
     JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx

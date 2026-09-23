@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Mail, MapPin, MessageSquareText, Phone } from 'lucide-react'
 import { HoldButton } from './HoldButton'
 import { mapsUrl, openMapTab } from '#/lib/maps'
+import { TOUCH_CLICK_WINDOW_MS } from '#/lib/holdGesture'
 import type { LucideIcon } from 'lucide-react'
 import type { ReactNode } from 'react'
 
@@ -185,7 +186,20 @@ export function MapHoldButton({
   inScrollingList?: boolean
 }) {
   const url = mapsUrl(address)
+  const [refused, setRefused] = useState(false)
   const [blocked, setBlocked] = useState(false)
+
+  // The link appears only once the lift's own trailing click has passed: put
+  // in the button's place at once, it would take that click and open the
+  // map a second time where the first did open (an installed iPhone app).
+  useEffect(() => {
+    if (!refused) return
+    const timer = window.setTimeout(() => {
+      setRefused(false)
+      setBlocked(true)
+    }, TOUCH_CLICK_WINDOW_MS)
+    return () => clearTimeout(timer)
+  }, [refused])
 
   useEffect(() => {
     if (!blocked) return
@@ -215,7 +229,7 @@ export function MapHoldButton({
     <HoldButton
       ariaLabel={`Map of ${place}`}
       onComplete={() => {
-        if (!openMapTab(url)) setBlocked(true)
+        if (!openMapTab(url)) setRefused(true)
       }}
       hint={tileLabel(variant, MapPin, 'Hold')}
       className={className}

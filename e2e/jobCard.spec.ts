@@ -6,6 +6,7 @@ import {
   recordOpenedTabs,
   setupBusinessWithSub,
   signInViaUi,
+  touchDown,
   touchHold,
 } from './fixtures'
 
@@ -287,13 +288,27 @@ test('the Map opens only on the lift after a full hold, as the user’s own gest
   const map = page.getByRole('button', { name: MAP })
   await expect(map).toBeVisible()
 
-  // A brush of a thumb: nothing opens, and the button says to hold it.
+  // A brush of a thumb: nothing opens, and the button's own label says to
+  // hold it (the label, not the screen-reader status beside the button).
   await touchHold(page, map, 60)
   await expect(map).toContainText('Hold')
+  await expect(map).not.toContainText('Map')
   expect(await openedTabs(page)).toEqual([])
 
-  // Held past the fill, then lifted: the map, once, from a real gesture.
-  await touchHold(page, map, 900)
+  // A fresh page, so that tap's gesture is not still live: the browser keeps
+  // a gesture for a few seconds, and a Map that opened mid-hold would borrow
+  // it here and pass. On a phone nothing would lend it one.
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  await expect(map).toBeVisible()
+
+  // Held well past the fill, finger still down: nothing yet.
+  const finger = await touchDown(page, map)
+  await page.waitForTimeout(900)
+  expect(await openedTabs(page)).toEqual([])
+
+  // Lifted: the map, once, from a gesture the browser counts.
+  await finger.up()
   await expect.poll(() => openedTabs(page)).toHaveLength(1)
   expect(await openedTabs(page)).toEqual([{ url: MAP_URL, active: true }])
 })
