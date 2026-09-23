@@ -1,4 +1,4 @@
-import { Suspense, lazy, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
@@ -14,7 +14,6 @@ import {
   X,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { JobNotesSection } from '#/components/notes/JobNotesSection'
 import { Combobox } from '#/components/primitives/Combobox'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
@@ -29,10 +28,6 @@ import {
 import { WeatherGlyph } from './WeatherGlyph'
 import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
-import {
-  InlineReportsSection,
-  StartReportButtons,
-} from '#/components/reports/InlineReports'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
@@ -61,6 +56,33 @@ const MakeRecurringSheet = lazy(() =>
   import('./MakeRecurringSheet').then((m) => ({
     default: m.MakeRecurringSheet,
   })),
+)
+
+/**
+ * A job's notes and reports, loaded on demand for the same reason, by a far
+ * wider margin. The notes bring the rich-text editor (`NoteEditor`, ~411 KB
+ * of ProseMirror) and the reports bring every report template (~116 KB).
+ * The sheet itself mounts with the Schedule even when no job is open, so as
+ * static imports both sat in the route's import graph. The server's preload
+ * hints stop a level short of them, so the browser only found them once the
+ * route's code ran, and the whole page waited on a second round of fetches:
+ * on a production build it hydrated ~0.7 s after `load`, right as
+ * `NoteEditor` landed, to draw a screen with neither on it. Now it is ~70 ms.
+ *
+ * `JobDetailBody` asks for both as a job opens, so they load while the job
+ * itself is still on its way rather than after it arrives.
+ */
+const loadNotes = () => import('#/components/notes/JobNotesSection')
+const loadReports = () => import('#/components/reports/InlineReports')
+
+const JobNotesSection = lazy(() =>
+  loadNotes().then((m) => ({ default: m.JobNotesSection })),
+)
+const InlineReportsSection = lazy(() =>
+  loadReports().then((m) => ({ default: m.InlineReportsSection })),
+)
+const StartReportButtons = lazy(() =>
+  loadReports().then((m) => ({ default: m.StartReportButtons })),
 )
 
 /**
@@ -168,6 +190,13 @@ function JobDetailBody({
   const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] = useState(false)
   const [makeRecurringOpen, setMakeRecurringOpen] = useState(false)
   const [editing, setEditing] = useState(false)
+
+  // The notes and reports sections render only once `job` has arrived. Asking
+  // for their code now lets it load alongside the job rather than after it.
+  useEffect(() => {
+    void loadNotes()
+    void loadReports()
+  }, [])
 
   // None of these close the sheet on success — a status change from the
   // dropdown is a quick in-place toggle now, not a "finish and leave"
@@ -432,15 +461,26 @@ function JobDetailBody({
             timezone={timezone}
           />
 
-          <JobNotesSection
-            businessId={businessId}
-            businessSlug={businessSlug}
-            timezone={timezone}
-            jobId={job._id}
-            jobType={job.jobType}
-            propertyId={job.propertyId}
-            addressLine={job.property?.addressLine ?? ''}
-          />
+          {/* Its own boundary, so the rest of the sheet draws while the
+              editor's code arrives, and in the sections' own loading state. */}
+          <Suspense
+            fallback={
+              <>
+                <SectionLoading label="Before you arrive" />
+                <SectionLoading label="Notes for this visit" />
+              </>
+            }
+          >
+            <JobNotesSection
+              businessId={businessId}
+              businessSlug={businessSlug}
+              timezone={timezone}
+              jobId={job._id}
+              jobType={job.jobType}
+              propertyId={job.propertyId}
+              addressLine={job.property?.addressLine ?? ''}
+            />
+          </Suspense>
 
           <JobPhotos businessId={businessId} jobId={job._id} canEdit={job.canEdit} />
 
@@ -1081,8 +1121,10 @@ function JobReports({
   const forThisJob = data?.filter((r) => r.jobId === jobId)
   const elsewhere = data?.filter((r) => r.jobId !== jobId)
 
+  // The boundary sits inside, not around this component, so the query above
+  // is already out while the sections' code loads.
   return (
-    <>
+    <Suspense fallback={<SectionLoading label="Reports for this visit" />}>
       <InlineReportsSection
         businessSlug={businessSlug}
         timezone={timezone}
@@ -1109,7 +1151,23 @@ function JobReports({
           empty=""
         />
       )}
-    </>
+    </Suspense>
+  )
+}
+
+/**
+ * A notes or reports section while its code is still on the way: the heading
+ * and card each draws while its own query is out, so the sheet neither blanks
+ * nor reads "nothing yet" before the section has looked.
+ */
+function SectionLoading({ label }: { label: string }) {
+  return (
+    <section className="mt-6">
+      <h3 className="section-label mb-2">{label}</h3>
+      <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
+        <p className="px-3.5 py-3 text-caption text-muted">Loading…</p>
+      </div>
+    </section>
   )
 }
 
