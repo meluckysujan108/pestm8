@@ -33,9 +33,7 @@ export function ProfileSection({
   phone?: string
   state: string
 }) {
-  const { data: user } = useSuspenseQuery(
-    rq.currentUser(),
-  )
+  const { data: user } = useSuspenseQuery(rq.currentUser())
 
   const [name, setName] = useState(user.name)
   const [phone, setPhone] = useState(initialPhone ?? '')

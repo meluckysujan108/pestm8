@@ -38,9 +38,7 @@ export const Route = createFileRoute('/$businessSlug/settings')({
     return warm(
       queryClient,
       ...(seg === 'profile' ? [rq.currentUser()] : []),
-      ...(team
-        ? [rq.team(business._id), rq.invitations(business._id)]
-        : []),
+      ...(team ? [rq.team(business._id), rq.invitations(business._id)] : []),
     )
   },
   component: SettingsPage,
