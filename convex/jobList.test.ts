@@ -231,4 +231,96 @@ describe('what a job row carries for the card', () => {
     const { jobs } = await listFor(s.owner, s.businessId)
     expect(jobs[0].clientPhone).toBe('')
   })
+
+  test("carries the client's email for the card's Email, or an empty one", async () => {
+    const s = await setup()
+    await book(s, Date.now() + DAY)
+    expect((await listFor(s.owner, s.businessId)).jobs[0].clientEmail).toBe('')
+
+    await s.t.run(async (ctx) => {
+      const property = await ctx.db.get(s.propertyId)
+      await ctx.db.patch(property!.clientId, { email: 'jn@example.test' })
+    })
+    expect((await listFor(s.owner, s.businessId)).jobs[0].clientEmail).toBe(
+      'jn@example.test',
+    )
+  })
+})
+
+/**
+ * The card's recurring indicator ("Every 2 weeks") reads the series off the
+ * row, on every query that feeds a card — and says nothing once the series
+ * has stopped, as the job sheet does.
+ */
+describe('how often a visit repeats, for the card', () => {
+  function everyTwoWeeks(s: Setup) {
+    return s.owner.as.mutation(api.recurrences.create, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+      assignedMembershipId: s.ownerMembershipId,
+      intervalCount: 2,
+      intervalUnit: 'week',
+      jobType: 'Rodent Baiting',
+      price: 16000,
+      anchorDate: Date.now() + DAY,
+      durationMinutes: 45,
+    })
+  }
+
+  test('every visit of a running series carries its interval, and a one-off none', async () => {
+    const s = await setup()
+    await everyTwoWeeks(s)
+    await book(s, Date.now() + 3 * DAY)
+
+    const { jobs } = await listFor(s.owner, s.businessId)
+    const firstVisit = jobs.find((j) => j.jobType === 'Rodent Baiting')!
+    const oneOff = jobs.find((j) => j.jobType === 'General Pest Control')!
+    expect(firstVisit.repeats).toEqual({ count: 2, unit: 'week' })
+    expect(oneOff.repeats).toBeUndefined()
+
+    const timezone = await s.t.run(
+      async (ctx) => (await ctx.db.get(s.businessId))!.timezone,
+    )
+    const day = await s.owner.as.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: dayKeyOf(firstVisit.scheduledAt, timezone),
+    })
+    expect(day.find((j) => j._id === firstVisit._id)?.repeats).toEqual({
+      count: 2,
+      unit: 'week',
+    })
+
+    const recurring = await s.owner.as.query(api.jobs.listRecurring, {
+      businessId: s.businessId,
+    })
+    expect(recurring.jobs.length).toBeGreaterThan(0)
+    for (const visit of recurring.jobs) {
+      expect(visit.repeats).toEqual({ count: 2, unit: 'week' })
+    }
+  })
+
+  test('once the series stops, what is left of it no longer says it repeats', async () => {
+    const s = await setup()
+    const recurrenceId = await everyTwoWeeks(s)
+    // A visit already past stays after the stop; the future ones are
+    // cancelled. Neither should still claim to come round again.
+    const [past] = await s.t.run(async (ctx) =>
+      ctx.db
+        .query('jobs')
+        .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
+        .collect(),
+    )
+    await s.t.run((ctx) =>
+      ctx.db.patch(past._id, { scheduledAt: Date.now() - 2 * DAY }),
+    )
+    await s.owner.as.mutation(api.recurrences.setActive, {
+      businessId: s.businessId,
+      recurrenceId,
+      active: false,
+    })
+
+    const { jobs } = await listFor(s.owner, s.businessId)
+    expect(jobs.length).toBeGreaterThan(0)
+    for (const job of jobs) expect(job.repeats).toBeUndefined()
+  })
 })
