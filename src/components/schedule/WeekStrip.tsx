@@ -87,7 +87,8 @@ export function WeekStrip({
             {/* Below the assignee dots so the two never compete: whose day it
                 is, then how loaded it is — booked work, then, apart, the
                 projected visits. Neutral on purpose: blue is Invoiced and
-                orange a technician, and a dashed edge says "not confirmed". */}
+                red or orange could be a technician, and a dashed edge says
+                "not confirmed". */}
             <span
               aria-hidden
               className="flex h-3.5 items-center gap-1 text-[11px] font-semibold tabular-nums text-ink-2"

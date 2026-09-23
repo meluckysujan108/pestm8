@@ -61,12 +61,12 @@ const colourAudits = (s: Setup) =>
   )
 
 describe('dealing colours', () => {
-  test('a business started by Terence, with Kevin joining, comes out Terence blue and Kevin orange', async () => {
+  test('a business started by Terence, with Kevin joining, comes out Terence blue and Kevin red', async () => {
     const s = await setup()
     expect(await colourOf(s, s.ownerId)).toBe(MEMBER_COLOURS[0])
     expect(await colourOf(s, s.kevinId)).toBe(MEMBER_COLOURS[1])
     expect(MEMBER_COLOURS[0]).toBe('#0A84FF')
-    expect(MEMBER_COLOURS[1]).toBe('#E35F00')
+    expect(MEMBER_COLOURS[1]).toBe('#DC2626')
   })
 })
 
@@ -108,7 +108,7 @@ describe('dealing colours as people leave and come back', () => {
     await removeKevin(s)
     const priya = await createActor(s.t, { email: 'priya@coastal.test' })
     const priyaId = await joinAs(s, priya)
-    // Kevin's orange is free again, so it is the next colour dealt.
+    // Kevin's red is free again, so it is the next colour dealt.
     expect(await colourOf(s, priyaId)).toBe(MEMBER_COLOURS[1])
   })
 

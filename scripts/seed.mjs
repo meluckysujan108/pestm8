@@ -179,12 +179,12 @@ const priyaMembership = members.find((m) => m.email === priyaEmail)
 
 // Colours are dealt in palette order (convex/lib/colours.ts): the owner the
 // first, the first to join the second. That is how the demo comes out Terence
-// blue and Kevin orange (Phase 4.2) without a name anywhere in the app — so a
+// blue and Kevin red (Phase 4.2) without a name anywhere in the app — so a
 // palette reorder that breaks it should stop the seed, not ship a demo in
 // the wrong colours.
 for (const [who, member, want] of [
   ['Terence', members.find((m) => m.role === 'owner'), '#0A84FF'],
-  ['Kevin', kevinMembership, '#E35F00'],
+  ['Kevin', kevinMembership, '#DC2626'],
 ]) {
   if (member.colour !== want) {
     throw new Error(`${who} was dealt ${member.colour}, expected ${want}`)

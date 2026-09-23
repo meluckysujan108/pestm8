@@ -9,14 +9,14 @@ import {
 import { contrastRatio } from '../../src/lib/contrast'
 
 describe('the technician palette', () => {
-  test('deals the owner blue and the first to join orange — Terence and Kevin, by order alone', () => {
+  test('deals the owner blue and the first to join red — Terence and Kevin, by order alone', () => {
     expect(nextColour([])).toBe('#0A84FF')
-    expect(nextColour(['#0A84FF'])).toBe('#E35F00')
+    expect(nextColour(['#0A84FF'])).toBe('#DC2626')
     expect(COLOUR_NAME[MEMBER_COLOURS[0]]).toBe('Blue')
-    expect(COLOUR_NAME[MEMBER_COLOURS[1]]).toBe('Orange')
+    expect(COLOUR_NAME[MEMBER_COLOURS[1]]).toBe('Red')
   })
 
-  test('never offers red (the brand, and Pending) or yellow (Booked)', () => {
+  test('never offers the brand’s own red (the accent, and destructive actions) or yellow (Booked)', () => {
     for (const taken of ['#FF3B30', '#FF453A', '#FFCC00', '#FFD60A']) {
       expect(isMemberColour(taken)).toBe(false)
     }
@@ -38,7 +38,7 @@ describe('the technician palette', () => {
 
 describe('dealing the next colour', () => {
   test('a lower-case copy of a taken colour still counts as taken', () => {
-    expect(nextColour(['#0a84ff'])).toBe('#E35F00')
+    expect(nextColour(['#0a84ff'])).toBe('#DC2626')
   })
 
   test('colours from before the palette are not counted against anything', () => {
@@ -55,7 +55,7 @@ describe('dealing the next colour', () => {
 
 describe('normalising a colour', () => {
   test('trims and upper-cases a #rrggbb colour', () => {
-    expect(normaliseColour(' #e35f00 ')).toBe('#E35F00')
+    expect(normaliseColour(' #dc2626 ')).toBe('#DC2626')
   })
 
   test('refuses anything that is not #rrggbb', () => {
