@@ -125,6 +125,9 @@ function SyncedEditor({
   membersRef.current = members
   const mentionsRef = useRef(mentions)
   mentionsRef.current = mentions
+  // Read once, at mount: the parent clears it as soon as focus is taken, and
+  // a changed option would make the editor drop the focus it just took.
+  const [focusOnMount] = useState(autoFocus)
 
   const extensions = useMemo(
     () => [
@@ -144,7 +147,7 @@ function SyncedEditor({
     content: initialContent,
     editable,
     // The first block is the title.
-    autofocus: autoFocus && editable ? 'start' : false,
+    autofocus: focusOnMount && editable ? 'start' : false,
     immediatelyRender: false,
     editorProps: {
       attributes: { class: 'note-editor', 'aria-label': 'Note body' },
@@ -156,8 +159,8 @@ function SyncedEditor({
   }, [editor, editable])
 
   useEffect(() => {
-    if (editor && autoFocus) onAutoFocused?.()
-  }, [editor, autoFocus, onAutoFocused])
+    if (editor && focusOnMount) onAutoFocused?.()
+  }, [editor, focusOnMount, onAutoFocused])
 
   if (inline) {
     return (
