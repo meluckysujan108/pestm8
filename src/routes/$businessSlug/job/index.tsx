@@ -46,8 +46,9 @@ function JobListPage() {
   // Recurring Job view. So the tab says where they are.
   const overdue = useOverdueRecurring(business._id)
   // The forecast for each job on its own day, where there is one (the next
-  // two weeks); further out a card simply has none.
-  const weather = useJobsWeather(business, shown)
+  // two weeks); further out a card simply has none. Asked for the whole list,
+  // not the filtered one, so changing the filter asks nothing again.
+  const weather = useJobsWeather(business, data.jobs)
 
   return (
     <>
@@ -124,7 +125,7 @@ function JobListPage() {
             ))}
           </div>
         )}
-        {weather.any && <WeatherCredit className="mt-4" />}
+        {weather.showsAny(shown) && <WeatherCredit className="mt-4" />}
       </section>
 
       <JobDetailSheet

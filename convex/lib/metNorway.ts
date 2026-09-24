@@ -1,13 +1,24 @@
-import { dayKeyOf } from './dates'
+import {
+  addDaysToKey,
+  dayKeyOf,
+  endOfDayInZone,
+  startOfDayInZone,
+} from './dates'
 
 /**
  * MET Norway's Locationforecast (api.met.no), read into the same daily shape
  * the card and the cache use for Open-Meteo. It is the fallback source for
  * when Open-Meteo refuses us (convex/weather.ts): free, licensed for any use
  * including commercial (NLOD 2.0 / CC BY 4.0), and for Australia it runs the
- * same ECMWF model at about 9 km, so the numbers barely move when it steps in.
- * It forecasts about 9–10 days out, hourly for the first ~60 hours and
- * 6-hourly after that; days beyond it are simply left out.
+ * same ECMWF model at about 9 km, so a whole day's numbers barely move when it
+ * steps in.
+ *
+ * What it cannot do is look back. Its forecast starts at the current hour and
+ * runs about 9–10 days, hourly for the first ~60 hours and 6-hourly after, so
+ * it has no past days, only the rest of today, and a last day it stops part
+ * way through. Today comes back marked `partial`, and the card says "rest of
+ * day"; a past day, or one it only half reaches, is left out rather than
+ * passed off as a whole day's weather.
  */
 
 type Summary = { symbol_code?: string }
@@ -29,6 +40,19 @@ export type DailyFromMet = {
   rainMm?: number
   windKmh?: number
   code?: number
+  /** Only the hours still to come today: the forecast began part way
+   * through it. */
+  partial?: boolean
+}
+
+/** The furthest day ahead MET is asked about. Its forecast ends 9–10 days
+ * out, and a day it only half reaches is dropped anyway. */
+const MET_REACH_DAYS = 10
+
+/** Whether MET's forecast can hold `dayKey` at all: from today (in the
+ * place's zone) to its horizon. Past days are never in it. */
+export function metCanForecast(dayKey: string, todayKey: string): boolean {
+  return dayKey >= todayKey && dayKey <= addDaysToKey(todayKey, MET_REACH_DAYS)
 }
 
 /** The IANA zone for each state, so MET's UTC steps fall on the right local
@@ -73,6 +97,15 @@ export function symbolToWmo(symbol: string): number {
 
 const HOUR_MS = 60 * 60 * 1000
 
+/** How far into a day its first step, or before its end its last covered
+ * hour, may fall for it to still count as the whole day. Six hours, because
+ * that is the gap between steps once they go 6-hourly, and a local day's
+ * first step then lands anywhere up to six hours after midnight. */
+const WHOLE_DAY_SLACK_MS = 6 * 60 * 60 * 1000
+
+/** Today, when the forecast began more than this into it, is only its rest. */
+const PARTIAL_START_MS = 60 * 60 * 1000
+
 /**
  * The days asked for, each from the steps that start on it in `timezone`:
  * the highest and lowest temperature, the strongest wind (m/s to km/h), the
@@ -81,6 +114,11 @@ const HOUR_MS = 60 * 60 * 1000
  * Rain is counted once. Each step carries a 1-hour and a 6-hour total that
  * overlap; a step counts the one matching the gap to the next step (an hour
  * while the steps are hourly, six after), and nothing already counted.
+ *
+ * Only whole days come back — the steps reach from near its start to near its
+ * end — with one exception: the day the forecast begins on (today), which is
+ * returned as `partial` when it began more than an hour in. A day the
+ * forecast stops part way through is left out.
  */
 export function dailyFromMetNorway(
   timeseries: Array<MetTimestep>,
@@ -96,6 +134,10 @@ export function dailyFromMetNorway(
       rain: number
       rainSeen: boolean
       worst: { code: number; severity: number } | null
+      /** The first step's time, and the end of the last hour the steps
+       * account for. */
+      from: number
+      until: number
     }
   >()
 
@@ -119,6 +161,8 @@ export function dailyFromMetNorway(
       rain: 0,
       rainSeen: false,
       worst: null,
+      from: at,
+      until: at,
     }
     days.set(dayKey, day)
 
@@ -146,6 +190,7 @@ export function dailyFromMetNorway(
       }
       coveredUntil = at + hours * HOUR_MS
     }
+    day.until = Math.max(day.until, at + hours * HOUR_MS)
 
     const symbol = (
       step.data.next_1_hours ??
@@ -158,21 +203,32 @@ export function dailyFromMetNorway(
     }
   }
 
-  return dayKeys
-    .filter((dayKey) => days.has(dayKey))
-    .map((dayKey) => {
-      const day = days.get(dayKey)!
-      return [
-        dayKey,
-        {
-          maxTempC: day.temps.length ? Math.max(...day.temps) : undefined,
-          minTempC: day.temps.length ? Math.min(...day.temps) : undefined,
-          rainMm: day.rainSeen ? Math.round(day.rain * 10) / 10 : undefined,
-          windKmh: day.winds.length
-            ? Math.round(Math.max(...day.winds) * 10) / 10
-            : undefined,
-          code: day.worst?.code,
-        },
-      ]
-    })
+  const firstDay =
+    steps.length > 0 ? dayKeyOf(Date.parse(steps[0].time), timezone) : null
+
+  const out: Array<[string, DailyFromMet]> = []
+  for (const dayKey of dayKeys) {
+    const day = days.get(dayKey)
+    if (!day) continue
+    const late = day.from - startOfDayInZone(dayKey, timezone)
+    const early = endOfDayInZone(dayKey, timezone) - day.until
+    if (early > WHOLE_DAY_SLACK_MS) continue
+    const partial = dayKey === firstDay && late > PARTIAL_START_MS
+    if (!partial && late > WHOLE_DAY_SLACK_MS) continue
+
+    out.push([
+      dayKey,
+      {
+        maxTempC: day.temps.length ? Math.max(...day.temps) : undefined,
+        minTempC: day.temps.length ? Math.min(...day.temps) : undefined,
+        rainMm: day.rainSeen ? Math.round(day.rain * 10) / 10 : undefined,
+        windKmh: day.winds.length
+          ? Math.round(Math.max(...day.winds) * 10) / 10
+          : undefined,
+        code: day.worst?.code,
+        ...(partial ? { partial: true } : {}),
+      },
+    ])
+  }
+  return out
 }

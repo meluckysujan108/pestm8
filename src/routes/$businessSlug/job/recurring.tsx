@@ -96,7 +96,7 @@ function RecurringJobPage() {
             ))}
           </div>
         )}
-        {weather.any && <WeatherCredit className="mt-4" />}
+        {weather.showsAny(jobs) && <WeatherCredit className="mt-4" />}
       </section>
 
       <JobDetailSheet

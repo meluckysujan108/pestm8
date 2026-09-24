@@ -1567,7 +1567,9 @@ async function cachedForecast(
       q.eq('suburbKey', suburbKeyOf(property.suburb, property.postcode)).eq('dayKey', dayKey),
     )
     .unique()
-  return row ? { rainMm: row.rainMm, windKmh: row.windKmh, code: row.code } : null
+  // The rest of a day is not the day's weather: left to be fetched whole.
+  if (!row || row.partial) return null
+  return { rainMm: row.rainMm, windKmh: row.windKmh, code: row.code }
 }
 
 export const create = mutation({

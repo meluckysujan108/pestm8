@@ -923,6 +923,10 @@ export default defineSchema({
     rainMm: v.optional(v.number()),
     windKmh: v.optional(v.number()),
     code: v.optional(v.number()),
+    // Only the rest of that day: MET Norway, standing in for Open-Meteo,
+    // forecasts from the current hour. Shown on the card as such, refetched
+    // sooner, and never used as a report's weather (reports.cachedForecast).
+    partial: v.optional(v.boolean()),
     fetchedAt: v.number(),
   }).index('by_suburb_day', ['suburbKey', 'dayKey']),
 

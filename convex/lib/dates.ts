@@ -73,13 +73,33 @@ export function endOfDayInZone(dayKey: string, timezone: string): number {
   return startOfDayInZone(addDaysToKey(dayKey, 1), timezone)
 }
 
+const formats = new Map<string, Intl.DateTimeFormat>()
+
+/**
+ * An Intl.DateTimeFormat, built once per locale and options and then reused.
+ * Building one costs tens of microseconds, and a list of a few hundred visits
+ * asks for a day key several times per card on every render.
+ */
+export function dateTimeFormat(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = `${locale}|${JSON.stringify(options)}`
+  let format = formats.get(key)
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, options)
+    formats.set(key, format)
+  }
+  return format
+}
+
 function pad(n: number): string {
   return String(n).padStart(2, '0')
 }
 
 /** "YYYY-MM-DD" for an instant, as seen in `timezone`. */
 export function dayKeyOf(ts: number, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = dateTimeFormat('en-CA', {
     timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
@@ -92,7 +112,7 @@ export function dayKeyOf(ts: number, timezone: string): string {
 
 /** "HH:MM" (24-hour) for an instant, as seen in `timezone`. */
 export function timeKeyOf(ts: number, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-GB', {
+  const parts = dateTimeFormat('en-GB', {
     timeZone: timezone,
     hour: '2-digit',
     minute: '2-digit',
@@ -104,7 +124,7 @@ export function timeKeyOf(ts: number, timezone: string): string {
 }
 
 function offsetMs(ts: number, timezone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  const parts = dateTimeFormat('en-US', {
     timeZone: timezone,
     hour12: false,
     year: 'numeric',

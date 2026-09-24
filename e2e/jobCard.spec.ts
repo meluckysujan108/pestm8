@@ -387,10 +387,52 @@ test('the Job tab and the Recurring view say each card’s date; the Schedule, w
 })
 
 /**
+ * The one card on the Schedule that says its date: an overdue visit, carried
+ * forward onto today from the day it was due. Its chip says only "Overdue",
+ * so the Date row is the only place that says since when.
+ */
+test('an overdue visit carried onto today’s Schedule says the day it was due', async ({
+  page,
+}) => {
+  const now = Date.now()
+  // A daily series begun two days ago. The engine never backfills more than
+  // a day, so its one past visit is the one 23 hours ago: yesterday, unless
+  // it is past 11pm in Perth.
+  const due = now - 23 * 60 * MINUTE
+  test.skip(
+    perthDayKey(due) === perthDayKey(now),
+    'past 11pm in Perth, 23 hours ago is still today',
+  )
+  const s = await seed('card-overdue')
+  await s.owner.client.mutation(api.recurrences.create, {
+    businessId: s.businessId,
+    propertyId: s.propertyId,
+    assignedMembershipId: s.ownerMembershipId,
+    intervalCount: 1,
+    intervalUnit: 'day',
+    jobType: 'Possum Check',
+    price: 9000,
+    anchorDate: now - 47 * 60 * MINUTE,
+    durationMinutes: 30,
+  })
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/schedule?date=${perthDayKey(now)}`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  const carried = page
+    .getByRole('button', { name: /Possum Check/ })
+    .filter({ hasText: 'Overdue' })
+  await expect(carried).toHaveCount(1)
+  await expect(carried.getByText('Date', { exact: true })).toBeVisible()
+  await expect(carried).toContainText(cardDate(due))
+})
+
+/**
  * The Job tab used to draw no forecast at all: only the Schedule asked for
  * one. A job in the next two weeks now shows its own day's weather, with the
- * sources credited. Tolerant of a live forecast that has nothing for the
- * suburb, as the other weather specs are — the point is that it was asked.
+ * sources credited. Strict, not "a number or No forecast": with MET Norway
+ * standing in for Open-Meteo, a Perth suburb tomorrow always has one, and a
+ * forecast that fails entirely is what this is here to catch.
  */
 test('the Job tab shows each job’s forecast, and credits it', async ({
   page,
@@ -402,11 +444,6 @@ test('the Job tab shows each job’s forecast, and credits it', async ({
   await page.goto(`/${s.slug}/job`)
   const card = page.getByRole('button', { name: /Spider Treatment/ })
   await expect(card).toBeVisible()
-  await expect(card.getByTestId('weather-pending')).toHaveCount(0, {
-    timeout: 20_000,
-  })
-  await expect(card).toContainText(/\d+°|No forecast/)
-  if (/\d+°/.test((await card.textContent()) ?? '')) {
-    await expect(page.getByText(/Weather data by/)).toBeVisible()
-  }
+  await expect(card).toContainText(/\d+°/, { timeout: 20_000 })
+  await expect(page.getByText(/Weather data by/)).toBeVisible()
 })

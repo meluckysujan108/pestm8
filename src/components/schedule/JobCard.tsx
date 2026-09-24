@@ -77,9 +77,11 @@ export function JobCard({
   dayShown,
 }: {
   job: JobRow
-  /** The forecast for the job's own day and suburb, where there is one —
-   * within the next two weeks. Without one (further out, or not asked for)
-   * the card draws no strip. */
+  /** The forecast for the job's suburb, where there is one — within the
+   * next two weeks. It is for the job's own day on the Job tab and the
+   * Recurring Job view, and for the day on screen on the Schedule, which
+   * includes an overdue visit carried forward to today. Without one
+   * (further out, or not asked for) the card draws no strip. */
   weather?: WeatherCell
   timezone: string
   /** Hop from the previous job in the day, e.g. "≈ 8 km → Morley". */

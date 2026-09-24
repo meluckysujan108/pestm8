@@ -1002,6 +1002,7 @@ function JobWeather({
         <WeatherGlyph weather={day} size={18} />
         <p className="text-body text-ink">
           {day.suburb}
+          {day.partial && ' · rest of today'}
           {day.maxTempC !== undefined && ` · ${Math.round(day.maxTempC)}°`}
           {day.minTempC !== undefined && ` / ${Math.round(day.minTempC)}°`}
           {day.rainMm !== undefined && ` · ${day.rainMm.toFixed(1)} mm`}

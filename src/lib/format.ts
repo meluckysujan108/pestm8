@@ -1,4 +1,4 @@
-import { dayKeyOf } from '../../convex/lib/dates'
+import { dateTimeFormat, dayKeyOf } from '../../convex/lib/dates'
 
 /**
  * Cents in, dollars out. Money is stored as integer cents everywhere (§4.2).
@@ -18,7 +18,7 @@ export function formatMoney(cents: number | null): string {
 }
 
 export function formatTime(ts: number, timezone: string): string {
-  return new Intl.DateTimeFormat('en-AU', {
+  return dateTimeFormat('en-AU', {
     timeZone: timezone,
     hour: 'numeric',
     minute: '2-digit',
@@ -39,7 +39,7 @@ export function formatTime(ts: number, timezone: string): string {
  * whether the year needs saying.
  */
 export function formatJobDate(dayKey: string, thisDayKey: string): string {
-  const parts = new Intl.DateTimeFormat('en-AU', {
+  const parts = dateTimeFormat('en-AU', {
     timeZone: 'UTC',
     weekday: 'short',
     day: 'numeric',
@@ -72,7 +72,7 @@ export function formatTimeRange(
 }
 
 function formatShortWeekday(dayKey: string): string {
-  return new Intl.DateTimeFormat('en-AU', {
+  return dateTimeFormat('en-AU', {
     timeZone: 'UTC',
     weekday: 'short',
   }).format(dayKeyToDate(dayKey))

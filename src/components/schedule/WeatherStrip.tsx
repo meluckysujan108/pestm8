@@ -105,6 +105,13 @@ export function WeatherStrip({ cell }: { cell: WeatherCell }) {
   const { weather } = cell
   const { Icon, label, tint } = describe(weather.code)
   const { maxTempC, minTempC, rainMm, windKmh } = weather
+  // Said, because the numbers are then only the hours still to come: at 3pm
+  // the "high" is the evening's, and the morning's rain is not in the total.
+  const caption = weather.partial
+    ? label
+      ? `${label} · rest of today`
+      : 'Rest of today'
+    : label
 
   return (
     // Wraps rather than shrinks: the temperature is 26px and does not
@@ -119,9 +126,9 @@ export function WeatherStrip({ cell }: { cell: WeatherCell }) {
               {Math.round(maxTempC)}°
             </span>
           )}
-          {label && (
+          {caption && (
             <span className="mt-0.5 block text-caption text-muted">
-              {label}
+              {caption}
             </span>
           )}
         </span>
