@@ -1,6 +1,7 @@
 import { createFileRoute, redirect } from '@tanstack/react-router'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../convex/_generated/api'
+import { isMfaEnrolmentError } from '#/lib/twoStep'
 
 export const Route = createFileRoute('/')({
   beforeLoad: async ({ context }) => {
@@ -10,9 +11,15 @@ export const Route = createFileRoute('/')({
     // the signed-in email address — which is how anyone who registered an
     // invited address ended up inside the business. Joining now happens once,
     // deliberately, by redeeming a link (`/join/$token`).
-    const businesses = await context.queryClient.ensureQueryData(
-      convexQuery(api.businesses.listForUser, {}),
-    )
+    const businesses = await context.queryClient
+      .ensureQueryData(convexQuery(api.businesses.listForUser, {}))
+      .catch((error: unknown) => {
+        // Signed in without two-step sign-in set up — at the first sign-in
+        // after it became compulsory, or after the owner reset it. The server
+        // refuses everything until it is done, so that is where to go.
+        if (isMfaEnrolmentError(error)) throw redirect({ to: '/two-step' })
+        throw error
+      })
 
     if (businesses.length === 0) throw redirect({ to: '/onboarding' })
 

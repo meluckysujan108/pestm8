@@ -6,6 +6,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { SectionPending } from '#/components/shell/Pending'
 import { TeamSection } from '#/components/settings/TeamSection'
 import { ProfileSection } from '#/components/settings/ProfileSection'
+import { TwoStepSection } from '#/components/settings/TwoStepSection'
 import { PrefsSection } from '#/components/settings/PrefsSection'
 import { BrandingSection } from '#/components/settings/BrandingSection'
 import { OptionLibrariesSection } from '#/components/settings/OptionLibrariesSection'
@@ -99,6 +100,11 @@ function SettingsPage() {
               phone={membership.phone}
               state={business.state}
             />
+          )}
+          {active === 'profile' && (
+            <div className="mt-6">
+              <TwoStepSection />
+            </div>
           )}
           {active === 'team' && canManageTeam && (
             <TeamSection businessId={business._id} />

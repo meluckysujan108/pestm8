@@ -16,6 +16,7 @@ export type SaveErrorCode =
   | 'NOT_FOUND'
   | 'NO_ACCESS'
   | 'UNAUTHENTICATED'
+  | 'MFA_ENROLMENT_REQUIRED'
   | 'JOB_INVOICED'
 
 /**
@@ -43,6 +44,11 @@ export const ERROR_COPY: Readonly<
     'Could not save: your access does not cover this. Ask the business owner.',
   UNAUTHENTICATED:
     'Could not save: you have been signed out. Sign in again, then try again.',
+  // Normally never read: the query client sends the person to the set-up
+  // screen the moment this comes back (integrations/tanstack-query). For the
+  // form that shows its error first.
+  MFA_ENROLMENT_REQUIRED:
+    'Could not save: set up two-step sign-in first. Taking you there now.',
   JOB_INVOICED:
     'Could not save: this job has been invoiced, so it can no longer be changed.',
   offline:

@@ -1,6 +1,6 @@
 import { useId, useState } from 'react'
 import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
-import { useConvexMutation } from '@convex-dev/react-query'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useMutation } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { AbnInput } from '#/components/clients/AbnInput'
@@ -9,8 +9,17 @@ import { AU_STATES, TIMEZONE_BY_STATE } from '#/lib/au'
 import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/onboarding')({
-  beforeLoad: ({ context }) => {
+  beforeLoad: async ({ context }) => {
     if (!context.isAuthenticated) throw redirect({ to: '/login' })
+    // Creating a business comes after two-step sign-in, like everything
+    // else the server does for a signed-in person — asked here rather than
+    // discovered on Create, so nobody fills the form in first.
+    const status = await context.queryClient.ensureQueryData(
+      convexQuery(api.auth.twoFactorStatus, {}),
+    )
+    if (status.required && !status.enabled) {
+      throw redirect({ to: '/two-step', search: { next: '/onboarding' } })
+    }
   },
   component: OnboardingPage,
 })

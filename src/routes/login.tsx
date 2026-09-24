@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
-import { authClient } from '#/lib/auth-client'
+import { SecondStepForm } from '#/components/auth/SecondStepForm'
+import { authClient, needsSecondStep } from '#/lib/auth-client'
 import { forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
 
@@ -27,6 +28,10 @@ function LoginPage() {
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  // The password was right and the account has two-step sign-in: the code
+  // step replaces the form in place (see src/lib/auth-client.ts for why this
+  // is not a redirect).
+  const [secondStep, setSecondStep] = useState(false)
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -45,6 +50,17 @@ function LoginPage() {
       return
     }
 
+    if (needsSecondStep(result.data)) {
+      setPending(false)
+      setPassword('')
+      setSecondStep(true)
+      return
+    }
+
+    await enterApp()
+  }
+
+  async function enterApp() {
     // A full load, not a client navigation. This page can be opened over
     // someone else's live session — a shared tablet — and the Convex client
     // keeps the token it was handed for that page load until a refresh swaps
@@ -61,45 +77,58 @@ function LoginPage() {
     <main className="mx-auto flex min-h-dvh w-full max-w-[460px] flex-col justify-center px-6">
       <div className="mb-8">
         <p className="section-label mb-2">PestM8</p>
-        <h1 className="text-page-title text-ink">Sign in</h1>
+        <h1 className="text-page-title text-ink">
+          {secondStep ? 'Two-step sign-in' : 'Sign in'}
+        </h1>
         <p className="mt-2 text-body text-muted">
           Scheduling and compliance reporting for Australian pest control.
         </p>
       </div>
 
-      <form onSubmit={onSubmit} className="flex flex-col gap-3">
-        <Field
-          label="Email"
-          type="email"
-          value={email}
-          onChange={setEmail}
-          autoComplete="email"
+      {secondStep ? (
+        <SecondStepForm
+          disabled={!hydrated}
+          onVerified={enterApp}
+          onRestart={(message) => {
+            setSecondStep(false)
+            setError(message)
+          }}
         />
-        <Field
-          label="Password"
-          type="password"
-          value={password}
-          onChange={setPassword}
-          autoComplete="current-password"
-        />
+      ) : (
+        <form onSubmit={onSubmit} className="flex flex-col gap-3">
+          <Field
+            label="Email"
+            type="email"
+            value={email}
+            onChange={setEmail}
+            autoComplete="email"
+          />
+          <Field
+            label="Password"
+            type="password"
+            value={password}
+            onChange={setPassword}
+            autoComplete="current-password"
+          />
 
-        {error && (
-          <p
-            role="alert"
-            className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+          {error && (
+            <p
+              role="alert"
+              className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+            >
+              {error}
+            </p>
+          )}
+
+          <button
+            type="submit"
+            disabled={pending || !hydrated}
+            className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
           >
-            {error}
-          </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={pending || !hydrated}
-          className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
-        >
-          {pending ? 'Just a moment…' : 'Sign in'}
-        </button>
-      </form>
+            {pending ? 'Just a moment…' : 'Sign in'}
+          </button>
+        </form>
+      )}
     </main>
   )
 }

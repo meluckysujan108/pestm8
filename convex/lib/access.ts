@@ -1,10 +1,52 @@
 import { ConvexError } from 'convex/values'
 import { authComponent } from '../auth'
+import { MFA_ENROLMENT_REQUIRED, isMfaRequired } from './mfa'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { QueryCtx, MutationCtx } from '../_generated/server'
 
 export type Ctx = QueryCtx | MutationCtx
 export type Membership = Doc<'memberships'>
+export type AuthUser = Awaited<ReturnType<typeof authComponent.getAuthUser>>
+
+/**
+ * The signed-in person, for every app function — and the one place compulsory
+ * two-step sign-in is enforced on the server.
+ *
+ * The sign-in screen asking for a code is not the control. Anyone signed in
+ * before this shipped still holds a live session that never saw a code, and a
+ * brand-new account is signed in the moment it is created. So the rule is
+ * enforced where the data is: every query and mutation resolves the caller
+ * through here, and an account without two-step sign-in set up gets
+ * MFA_ENROLMENT_REQUIRED instead of an answer. The client turns that code into
+ * the set-up screen, not an error.
+ *
+ * Deliberately NOT used by (the enrolment allow-list — everything an
+ * un-enrolled person needs to reach the set-up screen and nothing more):
+ *
+ * - `auth.getCurrentUser` — name and email for the set-up screen and the
+ *   account menu; reveals nothing they did not type themselves.
+ * - `auth.twoFactorStatus` — whether they still have to enrol, which is how
+ *   the client knows where to send them.
+ * - `invitations.preview` — works signed out by design, so there is nothing
+ *   to gate.
+ *
+ * Joining a business (`invitations.redeem`) and creating one
+ * (`businesses.create`) are gated like everything else, on purpose: the order
+ * is sign up, set up two-step sign-in, then join. Letting someone join first
+ * would put an account with only a password on the team, which is exactly
+ * what this exists to stop.
+ *
+ * Throws ConvexError('Unauthenticated') with no live session, exactly as
+ * `getAuthUser` does — the session row is re-read every call, which is what
+ * makes offboarding and an owner's two-step reset take effect.
+ */
+export async function requireAuthUser(ctx: Ctx): Promise<AuthUser> {
+  const user = await authComponent.getAuthUser(ctx)
+  if (isMfaRequired() && user.twoFactorEnabled !== true) {
+    throw new ConvexError(MFA_ENROLMENT_REQUIRED)
+  }
+  return user
+}
 
 /**
  * ARCHITECTURE.md §4.1: every query and mutation resolves the caller's
@@ -15,9 +57,9 @@ export async function requireMembership(
   ctx: Ctx,
   businessId: Id<'businesses'>,
 ): Promise<Membership> {
-  // getAuthUser throws ConvexError('Unauthenticated') when there is no live
-  // session, so there is no null case to handle here.
-  const user = await authComponent.getAuthUser(ctx)
+  // requireAuthUser throws ConvexError('Unauthenticated') when there is no
+  // live session, so there is no null case to handle here.
+  const user = await requireAuthUser(ctx)
 
   const membership = await ctx.db
     .query('memberships')
@@ -113,6 +155,6 @@ export async function requireAssignableMember(
 }
 
 export async function getAuthUserId(ctx: Ctx): Promise<string> {
-  const user = await authComponent.getAuthUser(ctx)
+  const user = await requireAuthUser(ctx)
   return user._id
 }

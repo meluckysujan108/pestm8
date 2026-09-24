@@ -44,12 +44,22 @@ run. Before turning `AUTH_RATE_LIMIT` on, check what client IP actually reaches
 Convex through the Vercel proxy — if it resolves to nothing, every request
 shares one bucket and a tight limit locks out the whole business at once.
 
-One switch runs the other way — **on unless set**, because a security check
+Two switches run the other way — **on unless set**, because a security check
 should not disappear when an environment variable goes missing:
 
 | Env var                 | Effect                                                                                                                  |
 | ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
 | `AUTH_BREACH_CHECK=off` | Stops checking passwords against Have I Been Pwned. Set on the e2e deployment only.                                     |
+| `AUTH_MFA_REQUIRED=off` | Two-step sign-in (authenticator app + recovery codes) stops being compulsory. Set on the e2e deployment only.           |
+
+With `AUTH_MFA_REQUIRED` unset, every app function refuses a signed-in account
+that has not set up two-step sign-in (`MFA_ENROLMENT_REQUIRED`, which the client
+turns into the `/two-step` set-up screen), nobody can switch it off, and a code
+is asked for at every sign-in — there is no "trust this device". A technician
+who loses their phone signs in with a recovery code; one who has lost both is
+reset by the business owner from Settings → Team. The e2e suite signs up
+accounts that cannot read an authenticator app, so that deployment needs
+`off`.
 
 Every password set or changed otherwise costs one live HTTPS call to
 `api.pwnedpasswords.com`, and the e2e suite makes ~120 of them per run — an
