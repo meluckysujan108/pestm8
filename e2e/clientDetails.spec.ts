@@ -93,12 +93,12 @@ test('a business client has an ABN and a contact person; a person client is neve
 
   const card = page.getByRole('button', { name: /Mahal Mart/ })
   await expect(card).toBeVisible()
+  // Settled on the sheet itself, which appears the moment the click lands:
+  // what it shows waits on a query, and a retried click would land on the
+  // card behind it.
   const detail = page.getByRole('dialog')
-  await clickUntil(card, () =>
-    expect(detail.getByText('Contact person: Jan Morris')).toBeVisible({
-      timeout: 2_000,
-    }),
-  )
+  await clickUntil(card, () => expect(detail).toBeVisible({ timeout: 2_000 }))
+  await expect(detail.getByText('Contact person: Jan Morris')).toBeVisible()
   await expect(detail.getByText('ABN 51 824 753 556')).toBeVisible()
 
   // Stored as its digits, the contact person as the primary contact.
@@ -228,11 +228,8 @@ test('a business site’s own contact is who the card calls; head office keeps i
 
   // The job sheet shows both, the site first.
   const detail = page.getByRole('dialog')
-  await clickUntil(card, () =>
-    expect(detail.getByText('Site contact', { exact: true })).toBeVisible({
-      timeout: 2_000,
-    }),
-  )
+  await clickUntil(card, () => expect(detail).toBeVisible({ timeout: 2_000 }))
+  await expect(detail.getByText('Site contact', { exact: true })).toBeVisible()
   await expect(detail.getByText('Head office', { exact: true })).toBeVisible()
   await expect(
     detail.getByRole('button', { name: 'Call Jan Morris' }),
