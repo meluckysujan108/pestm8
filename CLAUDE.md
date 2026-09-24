@@ -56,8 +56,19 @@ Useful for read-only inspection of a deployment, including prod:
 Add `--component betterAuth` or `--component prosemirrorSync` to read a
 component's own tables (Better Auth users live there, not in the app's).
 
-`RESEND_API_KEY` / `RESEND_FROM_EMAIL` / `RESEND_WEBHOOK_SECRET` are unset on
-every deployment, so emailing a report throws `EMAIL_NOT_CONFIGURED` by design
-(`convex/email.ts`) and the webhook at `POST /resend/webhook` answers 404.
+Report email is **live on prod** (since 2026-09-24): `RESEND_API_KEY` and
+`RESEND_FROM_EMAIL=onboarding@resend.dev` are set there. That is Resend's test
+sender, which only delivers to the Resend account owner's own address, so
+real customers get nothing until a domain is verified in Resend and
+`RESEND_FROM_EMAIL` moves to an address on it. Every other deployment (dev,
+e2e) still has neither, so emailing a report there throws
+`EMAIL_NOT_CONFIGURED` by design (`convex/email.ts`).
+`RESEND_WEBHOOK_SECRET` is unset everywhere, so `POST /resend/webhook` answers
+404 and a delivery's status stops at "sent" — delivered/bounced never arrive.
+
 `RESEND_FROM_EMAIL` is required rather than optional — Resend rejects a `from`
-that is a bare display name. See `docs/reports/README.md` for what each does.
+that is a bare display name. Set it to a **bare address** (`x@domain`), never
+`Name <x@domain>`: `convex/email.ts` wraps it as `${sender} <${fromEmail}>`,
+so brackets in the variable produce a malformed `from`. Check what a
+deployment has with `npx convex env list --prod` (it prints the key — don't
+paste its output anywhere). See `docs/reports/README.md` for what each does.
