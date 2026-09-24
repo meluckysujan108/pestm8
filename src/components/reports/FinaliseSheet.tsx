@@ -1,11 +1,4 @@
-import {
-  Check,
-  Clock,
-  FileText,
-  Loader2,
-  Lock,
-  TriangleAlert,
-} from 'lucide-react'
+import { Check, Clock, FileText, Lock, TriangleAlert } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { sectionsOf } from '#/lib/reportTemplates'
 import { visibleSections } from '#/lib/reportTemplates/visibility'
@@ -39,7 +32,7 @@ export function FinaliseSheet({
   photoCount,
   onAnswer,
   onPreview,
-  previewing,
+  previewTrouble,
 }: {
   open: boolean
   onClose: () => void
@@ -53,9 +46,14 @@ export function FinaliseSheet({
   photoCount: number
   /** Answers a question from here — the finish time, which is known now. */
   onAnswer: (key: string, value: unknown) => void
-  /** Opens a watermarked PDF of the draft. Absent while one is being drawn. */
+  /**
+   * Opens a watermarked PDF of the draft in the app's viewer. The page closes
+   * this sheet while the preview is up and puts it back after, so the viewer
+   * shows its own progress and nothing here waits on the render.
+   */
   onPreview?: () => void
-  previewing?: boolean
+  /** Why the last preview could not be drawn, in plain words. */
+  previewTrouble?: string | null
 }) {
   const fields = visibleSections(sectionsOf(template), data).flatMap(
     (section) => section.fields,
@@ -84,21 +82,25 @@ export function FinaliseSheet({
       footer={
         <>
           {/* Read it before you lock it. Everything above is a summary; this
-              is the document itself, stamped DRAFT so a copy that escapes
-              cannot be mistaken for the real one. */}
+              is the document itself, stamped DRAFT, and opened in the app —
+              view only, with nothing to share or save, so no copy of a
+              document that is not finished can leave the phone. */}
+          {onPreview && previewTrouble && (
+            <p
+              role="alert"
+              className="mb-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+            >
+              {previewTrouble}
+            </p>
+          )}
           {onPreview && (
             <button
               type="button"
-              disabled={previewing}
               onClick={onPreview}
               className="mb-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink disabled:opacity-50"
             >
-              {previewing ? (
-                <Loader2 size={15} strokeWidth={2} className="animate-spin" />
-              ) : (
-                <FileText size={15} strokeWidth={1.9} />
-              )}
-              {previewing ? 'Preparing…' : 'Preview the document'}
+              <FileText size={15} strokeWidth={1.9} />
+              Preview the document
             </button>
           )}
           <button

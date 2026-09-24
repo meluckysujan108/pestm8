@@ -10,12 +10,9 @@ import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewProductSheet } from '#/components/products/NewProductSheet'
 import { ProductCard } from '#/components/products/ProductCard'
 import { ProductSheet } from '#/components/products/ProductSheet'
-import { ViewerHost, ViewerStatusPill } from '#/components/products/ViewerHost'
-import {
-  useOnline,
-  useShareSupport,
-  useStillPendingAfter,
-} from '#/components/products/hooks'
+import { ViewerHost, ViewerStatusPill } from '#/components/pdf/host/ViewerHost'
+import { useShareSupport } from '#/components/pdf/host/useShareSupport'
+import { useOnline, useStillPendingAfter } from '#/components/products/hooks'
 import {
   baselineOf,
   fromKept,

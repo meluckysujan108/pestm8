@@ -22,6 +22,12 @@ import {
   signReport,
   versionOf,
 } from './fixtures/reportPayloads'
+import {
+  downloadFromViewer,
+  drawOnPage,
+  openReportPdf,
+  reportViewer,
+} from './fixtures/reportViewer'
 import { getTemplate } from '../src/lib/reportTemplates'
 import type { Id } from '../convex/_generated/dataModel'
 
@@ -218,14 +224,11 @@ test.describe('report document', () => {
     await expect(page.getByText('12 Wattle Street').first()).toBeVisible()
 
     // §6.5 counts a report as delivered only if it leaves the app, so the
-    // export is asserted as a real file rather than an enabled button. The
-    // download lives behind the action bar's "PDF" tab (Phase 6), which stays
-    // disabled until the page hydrates.
-    await expect(page.getByRole('tab', { name: 'PDF' })).toBeEnabled()
-    await page.getByRole('tab', { name: 'PDF' }).click()
-    const downloadPromise = page.waitForEvent('download')
-    await page.getByRole('button', { name: 'Download PDF' }).click()
-    const download = await downloadPromise
+    // export is asserted as a real file rather than an enabled button. It
+    // leaves from the app's viewer: the action bar's "PDF" tab, View PDF,
+    // then Save in the viewer's More menu.
+    const viewer = await openReportPdf(page)
+    const download = await downloadFromViewer(page, viewer)
 
     expect(download.suggestedFilename()).toMatch(/\.pdf$/)
 
@@ -263,8 +266,94 @@ test.describe('report document', () => {
     await page.goto(`/${slug}/reports/${reportId}`)
 
     // A PDF of a draft would circulate as though it were the finished record.
+    // A draft is a form: no action bar, so no PDF tab and no way to the viewer.
     await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Download PDF' })).toHaveCount(0)
+    await expect(page.getByRole('tab', { name: 'PDF' })).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'View PDF' })).toHaveCount(0)
+
+    // Nor does the address open one: `?view=pdf` belongs to a finalised
+    // report, and a draft's page ignores it.
+    await page.goto(`/${slug}/reports/${reportId}?view=pdf`)
+    await builderReady(page)
+    await expect(reportViewer(page)).toHaveCount(0)
+  })
+
+  test('a mark drawn in the viewer is kept on the page it was drawn on, for the team only', async ({
+    page,
+  }) => {
+    const email = uniqueEmail('markup-owner')
+    const owner = await signUpActor(email, FIXTURE_PASSWORD, 'Terence')
+
+    const { businessId, slug } = await owner.client.mutation(
+      api.businesses.create,
+      { name: `Markup ${Date.now()}`, state: 'WA', timezone: 'Australia/Perth' },
+    )
+    await licenceSelf(owner, businessId)
+    const propertyId = await owner.client.mutation(api.properties.create, {
+      businessId,
+      clientName: 'J. Nguyen',
+      addressLine: '4 Jarrah Close',
+      suburb: 'Bassendean',
+      state: 'WA',
+      postcode: '6054',
+    })
+    const reportId = await createReport(
+      owner.client,
+      { businessId, propertyId },
+      'termiteManagementCert',
+    )
+    await finaliseReport(
+      owner.client,
+      { businessId },
+      reportId,
+      'termiteManagementCert',
+    )
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    const viewer = await openReportPdf(page)
+
+    // The pen appears once the marks have loaded, and says who sees them.
+    await viewer.getByRole('button', { name: 'Markup', exact: true }).click()
+    const palette = viewer.getByRole('group', { name: 'Markup' })
+    await expect(
+      palette.getByText(
+        'Marks are for your team. Share sends the report without them.',
+      ),
+    ).toBeVisible()
+    // Nothing of yours yet: nothing to take back.
+    await expect(
+      palette.getByRole('button', { name: 'Undo my last mark' }),
+    ).toBeDisabled()
+
+    await drawOnPage(page, viewer, 1)
+    await expect(viewer.locator('[data-markup-stroke="mine"]')).toHaveCount(1)
+
+    // Stored on page 1 — the viewer counts its pages from 0 and the table
+    // from 1, and a slip there moves every mark onto the next page.
+    await expect
+      .poll(async () => {
+        const marks = await owner.client.query(
+          api.reportAnnotations.listForReport,
+          { businessId, reportId },
+        )
+        return marks.map((mark) => ({ page: mark.page, mine: mark.mine }))
+      })
+      .toEqual([{ page: 1, mine: true }])
+
+    // Undo takes it back, on the screen and on the server.
+    await palette.getByRole('button', { name: 'Undo my last mark' }).click()
+    await expect(viewer.locator('[data-markup-stroke="mine"]')).toHaveCount(0)
+    await expect
+      .poll(async () =>
+        (
+          await owner.client.query(api.reportAnnotations.listForReport, {
+            businessId,
+            reportId,
+          })
+        ).length,
+      )
+      .toBe(0)
   })
 })
 

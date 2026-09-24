@@ -1,4 +1,10 @@
-import { createFileRoute, notFound, useNavigate } from '@tanstack/react-router'
+import { useCallback, useEffect, useRef } from 'react'
+import {
+  createFileRoute,
+  notFound,
+  useNavigate,
+  useRouter,
+} from '@tanstack/react-router'
 import { z } from 'zod'
 import { restartingReports } from '#/lib/restartingReports'
 import { useSuspenseQuery } from '@tanstack/react-query'
@@ -14,6 +20,7 @@ import {
 import { documentIdentity } from '#/lib/reportTemplates/documentModel'
 import { ReportActionBar } from '#/components/reports/ReportActionBar'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
+import type { HistoryState } from '@tanstack/react-router'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
@@ -22,7 +29,16 @@ export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
    * phone's back gesture leaves a section rather than the report, and so a
    * refresh mid-job comes back to the same screen.
    */
-  validateSearch: z.object({ s: z.string().optional() }),
+  validateSearch: z.object({
+    s: z.string().optional(),
+    /**
+     * The finalised report's PDF, open full-screen. In the URL for the same
+     * reason as `s`: the back gesture closes the viewer rather than leaving
+     * the report, and a refresh comes back to the document. Lenient, so a
+     * stale or mistyped link opens the report rather than an error page.
+     */
+    view: z.literal('pdf').optional().catch(undefined),
+  }),
   // Without a loader the page suspends while it renders, and on an in-app
   // navigation that suspension blanks the whole app shell until the report
   // arrives. "Start again" navigates to a report no query has seen yet, so it
@@ -43,11 +59,82 @@ export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
   component: ReportPage,
 })
 
+/** Marks a history entry as pushed by this page — see `usePdfEntry`. */
+const PUSHED_KEY = 'reportPdfPushed'
+const pushedState = () => ({ [PUSHED_KEY]: true }) as HistoryState
+
+/**
+ * Opening and closing the PDF viewer through the address bar, the way the
+ * Products page opens its PDFs.
+ *
+ * Opening PUSHES `?view=pdf`, so the phone's back gesture closes the viewer
+ * first. Closing from the app (Done) goes back the same way — but only
+ * through an entry this page pushed, which it marks in the history state: a
+ * link or a refresh that landed straight on the viewer has nothing of ours
+ * behind it, and going back there would leave the report, or the app. That
+ * one closes by replacing the entry instead.
+ */
+function usePdfEntry(viewing: boolean) {
+  const navigate = useNavigate({ from: Route.fullPath })
+  const router = useRouter()
+
+  // A second tap before the first has landed (View PDF twice) must not push
+  // twice, or Done would only go back to the viewer again. Forgotten once the
+  // page shows the change — not when the history moves, which the push itself
+  // does, a render before `viewing` catches up.
+  const opening = useRef(false)
+  useEffect(() => {
+    opening.current = false
+  }, [viewing])
+
+  // Nor may a second close (Done and Escape together) go back twice, out of
+  // the page altogether. Forgotten once the history moves: the browser's
+  // Forward can bring back the very entry that was closed, and it must close
+  // again.
+  const backingOutOf = useRef<string | null>(null)
+  useEffect(
+    () =>
+      router.history.subscribe(() => {
+        backingOutOf.current = null
+      }),
+    [router],
+  )
+
+  const open = useCallback(() => {
+    if (viewing || opening.current) return
+    opening.current = true
+    void navigate({
+      search: (prev) => ({ ...prev, view: 'pdf' as const }),
+      state: pushedState,
+    })
+  }, [navigate, viewing])
+
+  const close = useCallback(() => {
+    const { state, href } = router.history.location
+    if ((state as { [PUSHED_KEY]?: unknown })[PUSHED_KEY] === true) {
+      // Keyed by the history entry, not the address: reopening pushes a new
+      // entry with the same address, and that one must close too.
+      const entry = state.__TSR_key ?? state.key ?? href
+      if (backingOutOf.current === entry) return
+      backingOutOf.current = entry
+      router.history.back()
+    } else {
+      void navigate({
+        search: (prev) => ({ ...prev, view: undefined }),
+        replace: true,
+      })
+    }
+  }, [navigate, router])
+
+  return { open, close }
+}
+
 function ReportPage() {
   const { business } = Route.useRouteContext()
   const { reportId } = Route.useParams()
-  const { s: section } = Route.useSearch()
+  const { s: section, view } = Route.useSearch()
   const navigate = useNavigate()
+  const pdfEntry = usePdfEntry(view === 'pdf')
 
   const { data: report } = useSuspenseQuery(
     convexQuery(api.reports.get, {
@@ -69,26 +156,42 @@ function ReportPage() {
       template: report.template,
       templateVersion: report.templateVersion,
       customTemplate: report.customTemplate,
-      // The finalised branch names the downloaded file. Resolving from the
-      // live module here would give a client a file named after wording their
-      // document does not contain.
+      // The finalised branch names the shared file and titles the viewer.
+      // Resolving from the live module here would give a client a file named
+      // after wording their document does not contain.
       templateSnapshot: report.templateSnapshot,
+    })
+    const identity = documentIdentity({
+      template,
+      property: report.property,
+      businessName: report.businessName,
+      finalisedAt: report.finalisedAt,
     })
     return (
       <ReportActionBar
+        // A different report is a different PDF: its render, its tab and its
+        // failure words start afresh ("Open the current version" stays on
+        // this route and only changes the id).
+        key={report._id}
         businessId={business._id}
         businessSlug={business.slug}
         reportId={report._id}
         pdfUrl={report.pdfUrl ?? null}
         report={report}
-        fileName={
-          documentIdentity({
-            template,
-            property: report.property,
-            businessName: report.businessName,
-            finalisedAt: report.finalisedAt,
-          }).fileName
+        title={identity.title}
+        fileName={identity.fileName}
+        replaced={
+          report.supersededByReportId
+            ? {
+                supersededBy: report.supersededByReportId,
+                reportNumber: report.reportNumber,
+                version: report.version,
+              }
+            : undefined
         }
+        viewing={view === 'pdf'}
+        onView={pdfEntry.open}
+        onCloseView={pdfEntry.close}
       >
         <AmendmentNotice
           businessSlug={business.slug}
@@ -158,7 +261,9 @@ function ReportPage() {
           navigate({
             to: '/$businessSlug/reports/$reportId',
             params: { businessSlug: business.slug, reportId: report._id },
-            search: (prev) => ({ ...prev, s: next }),
+            // A draft has no PDF viewer to keep open (its preview is local
+            // to the finalise sheet), so `view` is never carried along.
+            search: (prev) => ({ ...prev, s: next, view: undefined }),
           })
         }
         roster={report.roster}

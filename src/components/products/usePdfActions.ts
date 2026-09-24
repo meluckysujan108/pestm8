@@ -24,7 +24,7 @@ import type { LoadProgress } from '#/components/pdf/types'
 import type { KeepOutcome } from '#/lib/keptProducts'
 import type { ShareOutcome } from '#/lib/pdfFiles'
 import type { HeldPdf } from '#/lib/shareGesture'
-import type { ShareSupport } from './hooks'
+import type { ShareSupport } from '#/components/pdf/host/useShareSupport'
 import type { ShownProduct } from './model'
 
 /**
