@@ -23,7 +23,7 @@ import { formatBytes, uploadToStorage } from '#/lib/pdfFiles'
 import { rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import { LicenceViewer } from './LicenceViewer'
-import { holdLicence, licenceKeyOf } from './licenceSource'
+import { heldLicence, holdLicence, licenceKeyOf } from './licenceSource'
 import type { ChangeEvent } from 'react'
 import type { KeptLicence } from '#/lib/keptLicence'
 import type { LicenceView } from './licenceSource'
@@ -52,6 +52,26 @@ const LICENCE_ERRORS = {
   NO_ACCESS: 'You can only change your own licence.',
   offline: 'This phone is offline. Try again when you have signal.',
   default: 'Could not upload your licence. Check your signal and try again.',
+}
+
+/** How long to wait for an upload URL before calling it no signal. */
+const UPLOAD_URL_WAIT_MS = 20_000
+
+/** `promise`, or a "timed out" error once `ms` has passed without it. */
+function withinMs<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error('Timed out')), ms)
+    promise.then(
+      (value) => {
+        clearTimeout(timer)
+        resolve(value)
+      },
+      (error: unknown) => {
+        clearTimeout(timer)
+        reject(error instanceof Error ? error : new Error(String(error)))
+      },
+    )
+  })
 }
 
 export function LicenceDocument({
@@ -122,7 +142,15 @@ export function LicenceDocument({
         })
       }
       const { type } = checked
-      const uploadUrl = await convexUploadUrl({ businessId })
+      // With no signal a Convex mutation waits for the socket rather than
+      // failing, and the button would say "Uploading…" for as long as the
+      // phone is out of range. Say so now instead, and give up on a URL that
+      // has not come back in a while — describeError words both as offline.
+      if (!online) throw new Error('offline')
+      const uploadUrl = await withinMs(
+        convexUploadUrl({ businessId }),
+        UPLOAD_URL_WAIT_MS,
+      )
       const storageId = await uploadToStorage(uploadUrl, file, type.contentType)
       const uploadedAt = await convexSetFile({
         businessId,
@@ -170,15 +198,22 @@ export function LicenceDocument({
 
   const busy = upload.isPending || remove.isPending
 
-  // The thumbnail: the kept copy of a photo when it is this version, else the
-  // live URL. Never for a PDF, which has a plain tile.
-  const keptPhoto =
-    shown?.kind === 'image' && kept?.meta.uploadedAt === shown.uploadedAt
-      ? kept.blob
+  // The thumbnail: bytes this phone already has for this version — the kept
+  // copy, or what this page load uploaded or opened — else the plain photo
+  // tile. Never the file's own URL, for two reasons. An <img> of it is an
+  // image request, which the service worker's 'images' rule stores (opaque,
+  // cross-origin and all) in a cache nothing clears at sign-out — so on a
+  // shared tablet the card, with its date of birth and home address, stayed
+  // behind for the next person, under a storage URL that never stops working.
+  // And it pulled a photo of up to 10 MB over mobile data to draw 56 pixels.
+  // Never for a PDF, which has a plain tile.
+  const photo =
+    shown?.kind === 'image'
+      ? kept?.meta.uploadedAt === shown.uploadedAt
+        ? kept.blob
+        : heldLicence(licenceKeyOf(membershipId, shown.uploadedAt))
       : null
-  const keptPhotoUrl = useObjectUrl(keptPhoto)
-  const thumbnail =
-    shown?.kind === 'image' ? (keptPhotoUrl ?? shown.url ?? null) : null
+  const thumbnail = useObjectUrl(photo)
 
   return (
     <div className="mt-3 border-t border-hairline-2 pt-3">
@@ -281,12 +316,12 @@ export function LicenceDocument({
                   )}`}
               </span>
               {live.data === undefined && (
-                <span className="block text-caption text-amber-ink">
+                <span className="block text-caption text-orange-ink">
                   Showing the copy on this phone
                 </span>
               )}
               {live.data && live.data.url === null && (
-                <span className="block text-caption text-amber-ink">
+                <span className="block text-caption text-orange-ink">
                   The file is missing — upload it again.
                 </span>
               )}

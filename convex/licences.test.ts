@@ -338,6 +338,20 @@ describe('who may read a licence', () => {
     expect(await view(s, s.owner, s.priyaMembershipId)).toBeNull()
   })
 
+  test('not once the holder has left: the owner cannot read a former worker’s card', async () => {
+    const s = await setup()
+    await setFile(s, s.kevin, s.kevinMembershipId, await upload(s))
+    await s.owner.as.mutation(api.team.remove, {
+      businessId: s.businessId,
+      membershipId: s.kevinMembershipId,
+    })
+
+    // The id is in any roster the owner loaded before; it must not still work.
+    await expect(view(s, s.owner, s.kevinMembershipId)).rejects.toThrow(
+      /NO_ACCESS/,
+    )
+  })
+
   test('the owner’s roster says who has one; nobody else’s does', async () => {
     const s = await setup()
     await setFile(s, s.kevin, s.kevinMembershipId, await upload(s))

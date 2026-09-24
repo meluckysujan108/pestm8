@@ -40,7 +40,7 @@ export function MemberLicenceButton({
           if (licence.isError) void licence.refetch()
         }}
         disabled={open && licence.isPending}
-        className="flex h-9 items-center gap-1.5 rounded-xl bg-surface-2 px-3 text-body font-semibold text-blue transition active:scale-[.975] disabled:opacity-50"
+        className="flex h-11 items-center gap-1.5 rounded-xl bg-surface-2 px-3 text-body font-semibold text-blue transition active:scale-[.975] disabled:opacity-50"
       >
         <FileText aria-hidden size={16} strokeWidth={1.8} />
         {open && licence.isPending ? 'Opening…' : 'View licence'}

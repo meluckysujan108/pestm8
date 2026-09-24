@@ -59,7 +59,25 @@ is asked for at every sign-in — there is no "trust this device". A technician
 who loses their phone signs in with a recovery code; one who has lost both is
 reset by the business owner from Settings → Team. The e2e suite signs up
 accounts that cannot read an authenticator app, so that deployment needs
-`off`.
+`off` (`e2e/globalSetup.ts` refuses to run the suite without it). Setting up
+two-step sign-in signs the account out on every other device, and ten wrong
+codes in a row lock the account's code check for 15 minutes.
+
+**Releasing compulsory two-step sign-in to a deployment that has users.**
+Enforcement starts the moment the backend deploys, for every open app — so
+stage it rather than let it land on a stale frontend or mid-shift:
+
+1. `npx convex env set AUTH_MFA_REQUIRED off` on that deployment, BEFORE
+   deploying the backend. Nothing is refused yet.
+2. Deploy the backend, then the frontend, and confirm Vercel's newest
+   _successful_ build is this commit (the frontend must have `/two-step` and
+   the set-up prompt before anyone is refused; see CLAUDE.md on stale builds).
+3. Give open apps time to pick up the new bundle — the service worker only
+   offers a reload, it never forces one. Out of hours is best.
+4. `npx convex env remove AUTH_MFA_REQUIRED`. Anyone already inside the app
+   sees a "Set up two-step sign-in" card over the page they are on (nothing
+   they typed is thrown away); everyone else is sent to set-up at their next
+   sign-in. Tell the team beforehand that they will need an authenticator app.
 
 Every password set or changed otherwise costs one live HTTPS call to
 `api.pwnedpasswords.com`, and the e2e suite makes ~120 of them per run — an

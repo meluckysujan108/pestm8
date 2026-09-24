@@ -124,6 +124,10 @@ describe('the server-side gate', () => {
     ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
   })
 
+  // The flag is what this gate reads; that a session opened before the flag
+  // turned on does not survive to be let through is Better Auth's side — the
+  // set-up signs the account out everywhere else (twoStepFlow.test.ts,
+  // "sessions that never saw a code"). This session stands for one that did.
   test('the same account, once enrolled, gets its answers', async () => {
     const { t, businessId, kevin } = await business()
     await setEnrolled(t, kevin.person.userId, false)
@@ -356,6 +360,44 @@ describe("the owner's reset", () => {
 
     // The owner's own sign-in is untouched.
     expect(await owner.as.query(api.auth.getCurrentUser, {})).toBeTruthy()
+  })
+
+  test('signs out every session, not just the first page of them', async () => {
+    // A password on an account that is not set up opens a session per
+    // sign-in, so a script can leave hundreds. The component deletes one page
+    // at a time; one page of 200 used to be all the reset took.
+    const { t, owner, businessId, kevin } = await business()
+    const now = Date.now()
+    await t.run(async (ctx) => {
+      for (let i = 0; i < 205; i++) {
+        await ctx.runMutation(components.betterAuth.adapter.create, {
+          input: {
+            model: 'session',
+            data: {
+              userId: kevin.person.userId,
+              token: `stale-${i}`,
+              expiresAt: now + 60 * 60 * 1000,
+              createdAt: now,
+              updatedAt: now,
+            },
+          },
+        })
+      }
+    })
+
+    await owner.as.mutation(api.team.resetTwoFactor, {
+      businessId,
+      membershipId: kevin.membershipId,
+    })
+
+    const left = await t.run(async (ctx): Promise<{ page: Array<unknown> }> =>
+      ctx.runQuery(components.betterAuth.adapter.findMany, {
+        model: 'session',
+        where: [{ field: 'userId', value: kevin.person.userId }],
+        paginationOpts: { numItems: 300, cursor: null },
+      }),
+    )
+    expect(left.page).toHaveLength(0)
   })
 
   test('the roster says who has it on', async () => {

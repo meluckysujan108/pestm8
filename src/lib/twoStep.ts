@@ -46,6 +46,64 @@ export function safeNext(next: unknown): string {
   return next
 }
 
+/*
+ * "This session has been refused for want of two-step sign-in" — set by the
+ * query client (integrations/tanstack-query) whenever a query or a save comes
+ * back MFA_ENROLMENT_REQUIRED, read by the prompt that asks the person to set
+ * it up (components/auth/TwoStepPrompt). A plain store rather than React
+ * state because the query client lives outside React.
+ *
+ * Only ever turns on: the way out of it is the set-up screen, which is a full
+ * page load, and that starts the module again.
+ */
+let twoStepNeededNow = false
+const twoStepListeners = new Set<() => void>()
+
+/** Turns the prompt on if `error` is the two-step refusal. */
+export function flagIfTwoStepNeeded(error: unknown): void {
+  if (twoStepNeededNow || !isMfaEnrolmentError(error)) return
+  twoStepNeededNow = true
+  for (const listener of twoStepListeners) listener()
+}
+
+export function isTwoStepNeeded(): boolean {
+  return twoStepNeededNow
+}
+
+export function subscribeTwoStepNeeded(listener: () => void): () => void {
+  twoStepListeners.add(listener)
+  return () => twoStepListeners.delete(listener)
+}
+
+/**
+ * Watches a query cache for the refusal arriving as a PUSH to a live query —
+ * @convex-dev/react-query delivers those with `query.setState`, which never
+ * reaches the cache's `onError` (that only runs inside a fetch). Only entries
+ * something is showing: a guard's `ensureQueryData` has no observers, and
+ * redirects on its own. Returns the unsubscribe.
+ */
+export function watchForTwoStepRefusals(queryClient: {
+  getQueryCache: () => {
+    subscribe: (
+      listener: (event: {
+        type: string
+        query: {
+          state: { error: unknown }
+          getObserversCount: () => number
+        }
+      }) => void,
+    ) => () => void
+  }
+}): () => void {
+  return queryClient.getQueryCache().subscribe((event) => {
+    if (event.type !== 'updated') return
+    const { error } = event.query.state
+    if (error && event.query.getObserversCount() > 0) {
+      flagIfTwoStepNeeded(error)
+    }
+  })
+}
+
 /** The set-up screen, coming back to `from` afterwards. */
 export function twoStepHref(from: string): string {
   const next = safeNext(from)
@@ -117,6 +175,15 @@ export function describeTwoFactorError(error: {
       }
     case 'INVALID_PASSWORD':
       return { message: 'That password is not right.', restart: false }
+    // The per-account cap (convex/twoStepAttempts.ts): ten wrong codes in a
+    // row, over any number of sign-ins. Waiting is the only way through, so
+    // back to the password — the next sign-in after the wait works.
+    case 'TWO_STEP_LOCKED':
+      return {
+        message:
+          'Too many wrong codes on this account. Wait 15 minutes, then sign in again. If you keep getting codes wrong, check the time on your phone is set automatically.',
+        restart: true,
+      }
     default:
       if (error.status === 429) {
         return {

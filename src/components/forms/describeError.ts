@@ -44,11 +44,12 @@ export const ERROR_COPY: Readonly<
     'Could not save: your access does not cover this. Ask the business owner.',
   UNAUTHENTICATED:
     'Could not save: you have been signed out. Sign in again, then try again.',
-  // Normally never read: the query client sends the person to the set-up
-  // screen the moment this comes back (integrations/tanstack-query). For the
-  // form that shows its error first.
+  // The query client also puts up the "Set up two-step sign-in" card
+  // (components/auth/TwoStepPrompt) the moment this comes back; this is the
+  // form's own line, which says the save did not happen and that nothing
+  // typed has been lost.
   MFA_ENROLMENT_REQUIRED:
-    'Could not save: set up two-step sign-in first. Taking you there now.',
+    'Could not save: set up two-step sign-in first (the button at the bottom of the screen). What you typed is still here.',
   JOB_INVOICED:
     'Could not save: this job has been invoiced, so it can no longer be changed.',
   offline:

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { ShieldCheck } from 'lucide-react'
@@ -6,6 +6,10 @@ import { RecoveryCodes } from '#/components/auth/RecoveryCodes'
 import { authClient } from '#/lib/auth-client'
 import { rq } from '#/lib/routeQueries'
 import { describeTwoFactorError } from '#/lib/twoStep'
+import {
+  markRecoveryCodesUnsaved,
+  recoveryCodesUnsaved,
+} from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
 
 /**
@@ -35,11 +39,23 @@ export function TwoStepSection() {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [codes, setCodes] = useState<Array<string> | null>(null)
+  // Codes shown at set-up but never confirmed saved — a reload between the
+  // code and "I've saved these" (lib/twoStepReminders). Read after hydration:
+  // the server has no browser storage to agree with.
+  const [unsaved, setUnsaved] = useState(false)
+  useEffect(() => {
+    if (on) setUnsaved(recoveryCodesUnsaved(user._id))
+  }, [on, user._id])
 
   function close() {
     setOpen(false)
     setPassword('')
     setError(null)
+    // Done on a fresh set means they have been saved.
+    if (codes !== null) {
+      markRecoveryCodesUnsaved(user._id, false)
+      setUnsaved(false)
+    }
     setCodes(null)
   }
 
@@ -94,6 +110,17 @@ export function TwoStepSection() {
           </Link>
         )}
 
+        {on && !open && unsaved && (
+          <p
+            role="status"
+            className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+          >
+            Your recovery codes were never confirmed as saved. Make new ones now
+            and keep them somewhere other than this phone — without them, a lost
+            phone means waiting for the business owner.
+          </p>
+        )}
+
         {on && !open && (
           <button
             type="button"
@@ -127,7 +154,7 @@ export function TwoStepSection() {
             {error && (
               <p
                 role="alert"
-                className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+                className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
               >
                 {error}
               </p>

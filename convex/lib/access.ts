@@ -20,6 +20,12 @@ export type AuthUser = Awaited<ReturnType<typeof authComponent.getAuthUser>>
  * MFA_ENROLMENT_REQUIRED instead of an answer. The client turns that code into
  * the set-up screen, not an error.
  *
+ * The flag is per account, not per session, and that is only safe because of
+ * the other half, in convex/auth.ts: setting up two-step sign-in deletes every
+ * session the account had (`databaseHooks.user.update`). So once the flag is
+ * on, every live session is one that was opened with a code — a password-only
+ * session from before never lives to be let through.
+ *
  * Deliberately NOT used by (the enrolment allow-list — everything an
  * un-enrolled person needs to reach the set-up screen and nothing more):
  *

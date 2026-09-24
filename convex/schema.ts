@@ -1622,4 +1622,28 @@ export default defineSchema({
     // claims one, so one upload can never end up on two products.
     .index('by_pdfStorageId', ['pdfStorageId'])
     .index('by_photoStorageId', ['photoStorageId']),
+
+  /**
+   * Wrong two-step codes per ACCOUNT, across every sign-in — the cap Better
+   * Auth's own lockout would keep, if it could run here (see `twoStep()` in
+   * convex/auth.ts: its two columns are not in the auth component's schema).
+   *
+   * Without it the only limit is five codes per password sign-in, and a new
+   * sign-in costs one request to someone holding the password: about 67,000
+   * sign-ins find a code by chance, which is an hour's scripting. With it, ten
+   * codes in a row that are not right lock the account's code check for 15
+   * minutes, however many sign-ins and IP addresses they are spread over.
+   *
+   * One row per account that has got a code wrong since its last right one;
+   * a right code deletes it. `userId` is the Better Auth user's id, a string
+   * (that table lives in the component). New table, so nothing to migrate.
+   */
+  twoStepAttempts: defineTable({
+    userId: v.string(),
+    /** Codes tried since the last right one — counted as each check starts,
+     * so parallel guesses cannot all slip in under the limit. */
+    attempts: v.number(),
+    /** Set once `attempts` reaches the limit; ms since epoch. */
+    lockedUntil: v.optional(v.number()),
+  }).index('by_userId', ['userId']),
 })

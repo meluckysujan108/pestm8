@@ -12,6 +12,7 @@ import {
   recomputeGrants,
 } from './lib/capabilities'
 import { factsFromMembership } from './lib/membershipFacts'
+import { clearTwoStepAttempts } from './twoStepAttempts'
 import { NOT_STARTED_STATUSES } from './lib/jobStatus'
 import type { JobStatus } from './lib/jobStatus'
 import type { Doc, Id } from './_generated/dataModel'
@@ -269,13 +270,7 @@ async function offboard(
     (m) => m._id !== target._id && m.status === 'active',
   )
   if (!stillMemberElsewhere) {
-    await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
-      input: {
-        model: 'session',
-        where: [{ field: 'userId', value: target.userId }],
-      },
-      paginationOpts: { numItems: 200, cursor: null },
-    })
+    await deleteAllAuthRows(ctx, 'session', target.userId)
   }
 
   await recordAudit(ctx, forSelf(actor._id), {
@@ -640,13 +635,7 @@ export const resetTwoFactorForEmail = internalMutation({
  * failure part-way rolls all of it back rather than leaving it half-done.
  */
 async function clearTwoFactor(ctx: MutationCtx, userId: string): Promise<void> {
-  await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
-    input: {
-      model: 'twoFactor',
-      where: [{ field: 'userId', value: userId }],
-    },
-    paginationOpts: { numItems: 200, cursor: null },
-  })
+  await deleteAllAuthRows(ctx, 'twoFactor', userId)
   await ctx.runMutation(components.betterAuth.adapter.updateOne, {
     input: {
       model: 'user',
@@ -656,11 +645,35 @@ async function clearTwoFactor(ctx: MutationCtx, userId: string): Promise<void> {
   })
   // Signed out everywhere: a session opened with the old authenticator must
   // not outlive it, and the next sign-in has to land on the set-up screen.
-  await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
-    input: {
-      model: 'session',
-      where: [{ field: 'userId', value: userId }],
-    },
-    paginationOpts: { numItems: 200, cursor: null },
-  })
+  await deleteAllAuthRows(ctx, 'session', userId)
+  // And no lock carried over from wrong codes against the old authenticator.
+  await clearTwoStepAttempts(ctx, userId)
+}
+
+/**
+ * Every row of one of the auth component's per-user tables, for one user —
+ * ALL of them, page after page. The component's `deleteMany` deletes one page
+ * and says whether there is more; taking a single page of 200 meant an account
+ * with more sessions than that (a password on an account not yet set up opens
+ * one per sign-in, and a script can open hundreds) kept the rest, and "signed
+ * out everywhere" was not true. One transaction, so a reset is still
+ * all-or-nothing; a person has nowhere near enough sessions to reach the
+ * transaction's limits legitimately, and if a script has made that many the
+ * reset failing loudly is better than it half-working.
+ */
+async function deleteAllAuthRows(
+  ctx: MutationCtx,
+  model: 'session' | 'twoFactor',
+  userId: string,
+): Promise<void> {
+  let cursor: string | null = null
+  for (;;) {
+    const page: { isDone: boolean; continueCursor: string } =
+      await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+        input: { model, where: [{ field: 'userId', value: userId }] },
+        paginationOpts: { numItems: 200, cursor },
+      })
+    if (page.isDone) return
+    cursor = page.continueCursor
+  }
 }

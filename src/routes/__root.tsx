@@ -14,6 +14,7 @@ import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react'
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
 import { NavProgress } from '#/components/shell/NavProgress'
 import { ServiceWorker } from '#/components/shell/ServiceWorker'
+import { TwoStepPromptHost } from '#/components/auth/TwoStepPrompt'
 import { useHydrated } from '#/lib/useHydrated'
 import { authClient } from '#/lib/auth-client'
 import { getInitialState } from '#/lib/initialState'
@@ -218,6 +219,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
       <body>
         {children}
         <ServiceWorker />
+        <TwoStepPromptHost />
         <Devtools />
         <Scripts />
       </body>

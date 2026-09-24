@@ -269,7 +269,7 @@ export function MoreMenu({
               icon={<FileUp size={18} strokeWidth={1.8} />}
               onSelect={replace}
             >
-              Replace PDF…
+              {actions.replaceLabel ?? 'Replace PDF…'}
             </MenuItem>
           )}
           {keep && (

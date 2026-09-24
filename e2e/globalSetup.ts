@@ -1,3 +1,6 @@
+import { ConvexHttpClient } from 'convex/browser'
+import { api } from '../convex/_generated/api'
+
 /**
  * Check the suite is pointed at a server that actually works, before 119 tests
  * discover it one confusing failure at a time.
@@ -14,6 +17,8 @@
  * writing to the wrong place, this one stops it reading from the wrong place.
  */
 export default async function globalSetup() {
+  await assertTwoStepOff()
+
   const baseURL = process.env.E2E_BASE_URL ?? 'http://localhost:3000'
 
   let html: string
@@ -54,6 +59,34 @@ export default async function globalSetup() {
         `Nothing will hydrate, so every test fails on whatever control it ` +
         `touches first. Free the port, or set E2E_BASE_URL to the port the ` +
         `preview actually bound.`,
+    )
+  }
+}
+
+/**
+ * Two-step sign-in is compulsory by default (convex/lib/mfa.ts), and every
+ * account this suite makes signs up with a password and nothing else — it
+ * cannot read an authenticator app. On a deployment without
+ * `AUTH_MFA_REQUIRED=off`, the first app call of every spec is refused and
+ * the whole run fails with errors that look like anything but this.
+ *
+ * `auth.twoFactorStatus` answers a signed-out caller, so asking costs no
+ * account. Skipped when there is no VITE_CONVEX_URL: fixtures.ts refuses that
+ * on its own, with its own message.
+ */
+async function assertTwoStepOff() {
+  const url = process.env.VITE_CONVEX_URL
+  if (!url) return
+  const status = await new ConvexHttpClient(url).query(
+    api.auth.twoFactorStatus,
+    {},
+  )
+  if (status.required) {
+    throw new Error(
+      `Two-step sign-in is compulsory on the e2e deployment (${url}), and the ` +
+        `suite's accounts cannot use an authenticator app, so every spec ` +
+        `would fail. Set it off on THAT deployment — never prod:\n` +
+        `  npx convex env set AUTH_MFA_REQUIRED off   (against the e2e deployment)`,
     )
   }
 }

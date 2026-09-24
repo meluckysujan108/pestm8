@@ -58,6 +58,9 @@ export type ViewerActions = {
    * reloads on its own.
    */
   replace?: () => void
+  /** The menu's words for `replace`. "Replace PDF…" unless the picker
+   * takes more than a PDF — a licence can be replaced with a photo. */
+  replaceLabel?: string
   /** A copy kept on this phone, for sites with no signal. */
   keep?: {
     kept: boolean

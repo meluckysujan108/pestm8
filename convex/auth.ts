@@ -3,12 +3,7 @@ import { createClient } from '@convex-dev/better-auth'
 import { convex } from '@convex-dev/better-auth/plugins'
 import { haveIBeenPwned } from 'better-auth/plugins/haveibeenpwned'
 import { twoFactor } from 'better-auth/plugins/two-factor'
-import {
-  APIError,
-  createAuthMiddleware,
-  getSessionFromCtx,
-  isAPIError,
-} from 'better-auth/api'
+import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api'
 import authConfig from './auth.config'
 import { components, internal } from './_generated/api'
 import { query } from './_generated/server'
@@ -259,12 +254,27 @@ export function generateRecoveryCodes(): Array<string> {
  * lockout is off, which is the only way to run this plugin against this
  * component without a schema the component would reject.
  *
- * What still stands between a stolen password and a guessed code: each
- * password sign-in allows five code attempts before the challenge dies and the
- * password has to be entered again (the plugin's per-challenge counter, which
- * lives in the `verification` table the component does have), the sign-in rate
- * limit when AUTH_RATE_LIMIT is on, and a 10-minute challenge. Bring lockout
- * back when the component's schema carries the two columns.
+ * What stands between a stolen password and a guessed code instead: five
+ * codes per password sign-in (the plugin's per-challenge counter, in the
+ * `verification` table the component does have), and ten per ACCOUNT across
+ * all of them before a 15-minute lock (`twoStepAttempts`, an app table, via
+ * `codeAttemptGate` below). The per-account cap is the one that matters: a
+ * new challenge costs one request to someone holding the password, and the
+ * rate limit is per IP, and off unless AUTH_RATE_LIMIT says otherwise.
+ *
+ * Two endpoints also get a check the plugin does not make, run after its own
+ * session middleware so it sees the session however it was sent — a cookie
+ * or an `Authorization: Bearer` token (see `refuseOnceEnabled`):
+ *
+ * - `/two-factor/enable` over a working set-up. The plugin would swap the
+ *   secret and mark the new one verified at once, without a code from it, so
+ *   anyone holding a session and the password could take over the account's
+ *   second factor — and a double tap on the set-up screen would leave the
+ *   authenticator on the phone out of step. A lost phone is the owner's reset,
+ *   which clears it properly first.
+ * - `/two-factor/get-totp-uri` once set up. The secret is shown while setting
+ *   up and never again; a copy read later is a second authenticator nobody
+ *   knows about.
  */
 function twoStep() {
   const plugin = twoFactor({
@@ -285,6 +295,15 @@ function twoStep() {
     lockedUntil: _lockedUntil,
     ...fields
   } = plugin.schema.twoFactor.fields
+  refuseOnceEnabled(plugin.endpoints.enableTwoFactor, {
+    message: 'Two-step sign-in is already set up on this account.',
+    code: 'MFA_ALREADY_ENABLED',
+  })
+  refuseOnceEnabled(plugin.endpoints.getTOTPURI, {
+    message:
+      'The set-up key is only shown while setting up. Ask the business owner to reset two-step sign-in if you need to add it again.',
+    code: 'MFA_ALREADY_ENABLED',
+  })
   return {
     ...plugin,
     schema: {
@@ -292,6 +311,73 @@ function twoStep() {
       twoFactor: { ...plugin.schema.twoFactor, fields },
     },
   }
+}
+
+/**
+ * Adds a check to a two-factor endpoint that runs AFTER its own
+ * `sessionMiddleware`, and refuses an account that already has two-step
+ * sign-in set up.
+ *
+ * Not a before-hook, which is where this used to be, because a before-hook
+ * cannot see every session. Better Auth runs `hooks.before` first and the
+ * plugins' before-hooks after it; the bearer hook that turns
+ * `Authorization: Bearer <token>` into a session cookie belongs to the
+ * `convex` plugin, and what it changes is only applied once every before-hook
+ * has run. So a request carrying the token as a header rather than a cookie
+ * looked signed out to the check, went through, and the endpoint's own
+ * middleware then found the session and did the thing the check was there to
+ * stop. The endpoint's middleware list is the one place that sees the session
+ * the endpoint itself will act on.
+ *
+ * The list is read when the endpoint is called (better-call's
+ * `createInternalContext` reads `options.use` per request), so extending it
+ * here takes effect; each `createAuth` builds a fresh plugin, so nothing is
+ * shared between requests. `twoStepFlow.test.ts` sends a Bearer-only request
+ * to prove it.
+ */
+function refuseOnceEnabled(
+  endpoint: { options: { use?: Array<unknown> } },
+  refusal: { message: string; code: string },
+): void {
+  const guard = createAuthMiddleware(async (ctx) => {
+    const session = ctx.context.session as {
+      user?: { twoFactorEnabled?: boolean | null }
+    } | null
+    if (session?.user?.twoFactorEnabled === true) {
+      throw new APIError('BAD_REQUEST', refusal)
+    }
+  })
+  endpoint.options.use = [...(endpoint.options.use ?? []), guard]
+}
+
+/** The code checks the per-account cap counts (`twoStepAttempts`). */
+const CODE_CHECK_PATHS = new Set([
+  `${TWO_FACTOR_PREFIX}verify-totp`,
+  `${TWO_FACTOR_PREFIX}verify-backup-code`,
+  `${TWO_FACTOR_PREFIX}verify-otp`,
+])
+
+/** Better Auth's own name for the challenge cookie (two-factor/constant). */
+const TWO_FACTOR_COOKIE_NAME = 'two_factor'
+
+/**
+ * Whose sign-in a code check belongs to, from the challenge cookie the
+ * password step set — or null when there is no challenge, which is a
+ * signed-in person confirming a code while setting up (the per-account cap is
+ * about sign-in; set-up already needed a session and the password).
+ *
+ * The challenge cookie only ever travels as a cookie, so reading it here, in
+ * a before-hook, is not the Bearer problem `refuseOnceEnabled` works around.
+ */
+async function challengeUserId(
+  h: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0],
+): Promise<string | null> {
+  const cookie = h.context.createAuthCookie(TWO_FACTOR_COOKIE_NAME)
+  const identifier = await h.getSignedCookie(cookie.name, h.context.secret)
+  if (!identifier) return null
+  const challenge =
+    await h.context.internalAdapter.findVerificationValue(identifier)
+  return challenge?.value ?? null
 }
 
 export const authComponent = createClient<DataModel>(components.betterAuth)
@@ -321,20 +407,26 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
       before: createAuthMiddleware(async (h) => {
         twoFactorPolicy(h.path, h.body, isMfaRequired())
 
-        // Setting up again over a working set-up would swap the secret
-        // without checking a code from the new one — the plugin marks the
-        // replacement verified at once — so a double tap, or a back button
-        // into the set-up screen, would leave the authenticator on the phone
-        // out of step and the person locked out at their next sign-in. A
-        // lost phone is the owner's reset, which clears it properly first.
-        if (h.path === `${TWO_FACTOR_PREFIX}enable`) {
-          const session = await getSessionFromCtx(h)
-          if (session?.user.twoFactorEnabled === true) {
-            throw new APIError('BAD_REQUEST', {
-              message: 'Two-step sign-in is already set up on this account.',
-              code: 'MFA_ALREADY_ENABLED',
-            })
+        // The per-account cap on codes (`twoStepAttempts`): counted before
+        // the check runs, refused while locked. `/two-factor/enable` and
+        // `get-totp-uri` are guarded inside the endpoints instead — see
+        // `refuseOnceEnabled` for why a before-hook cannot do it.
+        if (CODE_CHECK_PATHS.has(h.path)) {
+          const userId = await challengeUserId(h)
+          if (userId !== null && 'runMutation' in ctx) {
+            const attempt = await ctx.runMutation(
+              internal.twoStepAttempts.beginAttempt,
+              { userId },
+            )
+            if (!attempt.ok) {
+              throw new APIError('TOO_MANY_REQUESTS', {
+                message:
+                  'Too many wrong codes on this account. Wait 15 minutes, then sign in again.',
+                code: 'TWO_STEP_LOCKED',
+              })
+            }
           }
+          return
         }
 
         if (!inviteOnly || h.path !== SIGN_UP_PATH) return
@@ -364,9 +456,68 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
           })
         }
       }),
+      // A right code at sign-in resets the per-account count. The plugin
+      // hands out a session only for a right code, so a new session on a
+      // code-check path is the success signal; a wrong one stays counted.
+      after: createAuthMiddleware(async (h) => {
+        if (!CODE_CHECK_PATHS.has(h.path)) return
+        const signedIn = h.context.newSession?.user.id
+        if (signedIn && 'runMutation' in ctx) {
+          await ctx.runMutation(internal.twoStepAttempts.recordSuccess, {
+            userId: signedIn,
+          })
+        }
+      }),
     },
     databaseHooks: {
       user: {
+        /**
+         * Setting up two-step sign-in signs the account out everywhere else.
+         *
+         * `requireAuthUser` checks the account's flag, not how each session
+         * was opened, so without this every session opened with the password
+         * alone — before release, or by someone holding a leaked password
+         * while the account was not yet set up, kept alive by using it —
+         * would start passing the gate the moment the real person set up
+         * two-step sign-in on their own phone. The plugin replaces only the
+         * session on the device doing the set-up, and deletes nothing else.
+         *
+         * So: the moment the flag turns on, every session the account has is
+         * deleted — the old ones, and the set-up device's own, which the
+         * plugin replaces with a fresh one immediately after this update. The
+         * office PC signed in before release signs in again, with a code.
+         *
+         * `before` rather than `after`, deliberately. If this fails, the flag
+         * has not changed, the set-up fails, and it can be tried again. An
+         * `after` that failed would leave the flag on and the secret never
+         * marked verified — an account that can no longer sign in at all.
+         *
+         * Only `twoFactorEnabled: true` is the switch turning on; nothing else
+         * writes it (`/two-factor/disable` writes false and is refused here
+         * anyway). The user comes from the session the request carried, which
+         * the plugin only turns the flag on from.
+         */
+        update: {
+          before: async (data, endpointCtx) => {
+            if (
+              (data as { twoFactorEnabled?: unknown }).twoFactorEnabled !== true
+            )
+              return
+            const userId = (
+              endpointCtx?.context.session as { user?: { id?: string } } | null
+            )?.user?.id
+            if (!userId || !endpointCtx) {
+              // Not a path this app reaches (set-up always has a session). Refuse
+              // rather than turn two-step sign-in on and leave password-only
+              // sessions standing.
+              throw new APIError('BAD_REQUEST', {
+                message: 'Sign in again, then set up two-step sign-in.',
+                code: 'MFA_SETUP_NEEDS_SESSION',
+              })
+            }
+            await endpointCtx.context.internalAdapter.deleteUserSessions(userId)
+          },
+        },
         create: {
           // Backstop for any future path that creates users (social sign-in,
           // email OTP, the admin plugin): the gate above only covers the one

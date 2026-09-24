@@ -1,6 +1,7 @@
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { components } from './_generated/api'
+import { MAX_TWO_STEP_ATTEMPTS } from './twoStepAttempts'
 import { testApp } from '../test/harness'
 import { pickAuthCookie } from '../src/lib/authCookies'
 import type { TestApp } from '../test/harness'
@@ -77,6 +78,12 @@ class Browser {
 
   has(fragment: string) {
     return [...this.jar.keys()].some((k) => k.includes(fragment))
+  }
+
+  /** A cookie's value as the jar holds it (still URL-encoded). */
+  value(fragment: string): string | undefined {
+    for (const [k, v] of this.jar) if (k.includes(fragment)) return v
+    return undefined
   }
 
   private cookieHeader() {
@@ -318,5 +325,212 @@ describe('two-step sign-in, end to end', () => {
     // Not enrolled, so `requireAuthUser` refuses this session everything and
     // the client sends it to /two-step.
     expect(user?.twoFactorEnabled).not.toBe(true)
+  })
+})
+
+async function userIdOf(t: TestApp, email: string): Promise<string> {
+  const user = await t.run(async (ctx): Promise<{ _id: string } | null> =>
+    ctx.runQuery(components.betterAuth.adapter.findOne, {
+      model: 'user',
+      where: [{ field: 'email', value: email }],
+    }),
+  )
+  return user!._id
+}
+
+async function sessionTokensOf(
+  t: TestApp,
+  userId: string,
+): Promise<Array<string>> {
+  const page = await t.run(
+    async (ctx): Promise<{ page: Array<{ token: string }> }> =>
+      ctx.runQuery(components.betterAuth.adapter.findMany, {
+        model: 'session',
+        where: [{ field: 'userId', value: userId }],
+        paginationOpts: { numItems: 100, cursor: null },
+      }),
+  )
+  return page.page.map((s) => s.token)
+}
+
+describe('sessions that never saw a code', () => {
+  test('setting up two-step sign-in signs the account out everywhere else', async () => {
+    const t = testApp()
+    const email = 'kevin@kevinspest.test'
+    // The office PC, signed in with the password before release...
+    const officePc = await signUp(t, email)
+    // ...and someone else who has the password, signed in while the account
+    // was not yet set up — no code was asked of either.
+    const stranger = new Browser(t)
+    const theirs = await stranger.post('/sign-in/email', {
+      email,
+      password: PASSWORD,
+    })
+    expect(theirs.json.twoFactorRedirect).toBeUndefined()
+    expect(stranger.has('session_token')).toBe(true)
+    const userId = await userIdOf(t, email)
+    expect(await sessionTokensOf(t, userId)).toHaveLength(2)
+
+    // The real person sets it up on their phone.
+    const phone = new Browser(t)
+    await phone.post('/sign-in/email', { email, password: PASSWORD })
+    const { totpURI } = await enrol(phone)
+
+    // Only the phone's fresh session is left. `requireAuthUser` reads the
+    // session row on every call, so the other two are refused everything.
+    const left = await sessionTokensOf(t, userId)
+    expect(left).toHaveLength(1)
+    expect(decodeURIComponent(phone.value('session_token') ?? '')).toContain(
+      left[0],
+    )
+
+    // And with the password alone, the stranger cannot read the new secret
+    // or mint recovery codes: they have no session left to ask with.
+    for (const path of [
+      '/two-factor/get-totp-uri',
+      '/two-factor/generate-backup-codes',
+    ]) {
+      const res = await stranger.post(path, { password: PASSWORD })
+      expect(res.status).toBe(401)
+    }
+
+    // The phone carries on, and a new sign-in on the office PC needs a code.
+    const fresh = await phone.post('/two-factor/generate-backup-codes', {
+      password: PASSWORD,
+    })
+    expect(fresh.status).toBe(200)
+    const again = await officePc.post('/sign-in/email', {
+      email,
+      password: PASSWORD,
+    })
+    expect(again.json.twoFactorRedirect).toBe(true)
+    const code = await officePc.post('/two-factor/verify-totp', {
+      code: await totp(totpURI),
+    })
+    expect(code.status).toBe(200)
+  })
+
+  test('the set-up key is never shown again once set up', async () => {
+    const t = testApp()
+    const browser = await signUp(t, 'ann@example.test')
+    await enrol(browser)
+
+    const res = await browser.post('/two-factor/get-totp-uri', {
+      password: PASSWORD,
+    })
+    expect(res.status).toBe(400)
+    expect(res.json.code).toBe('MFA_ALREADY_ENABLED')
+  })
+
+  test('the "already set up" check holds for a session sent as a Bearer token', async () => {
+    const t = testApp()
+    const browser = await signUp(t, 'bea@example.test')
+    await enrol(browser)
+    const token = browser.value('session_token')
+    expect(token).toBeTruthy()
+
+    const bearer = (path: string) =>
+      t.fetch(`/api/auth${path}`, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: ORIGIN,
+          authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ password: PASSWORD }),
+      })
+
+    // The control: a Bearer-only request IS signed in here, so the refusal
+    // below is the check working, not the request being anonymous.
+    expect((await bearer('/two-factor/generate-backup-codes')).status).toBe(200)
+
+    for (const path of ['/two-factor/enable', '/two-factor/get-totp-uri']) {
+      const res = await bearer(path)
+      expect(res.status).toBe(400)
+      expect(((await res.json()) as { code?: string }).code).toBe(
+        'MFA_ALREADY_ENABLED',
+      )
+    }
+  })
+})
+
+describe('the per-account cap on codes', () => {
+  async function wrongCodes(t: TestApp, email: string, count: number) {
+    const browser = new Browser(t)
+    await browser.post('/sign-in/email', { email, password: PASSWORD })
+    for (let i = 0; i < count; i++) {
+      const res = await browser.post('/two-factor/verify-totp', {
+        code: '000000',
+      })
+      expect(res.status).toBe(401)
+    }
+  }
+
+  test('ten wrong codes over any number of sign-ins lock the code check', async () => {
+    const t = testApp()
+    const email = 'sam@example.test'
+    const { totpURI } = await enrol(await signUp(t, email))
+    expect(MAX_TWO_STEP_ATTEMPTS).toBe(10)
+
+    // Five per sign-in is the plugin's own limit; a new sign-in is cheap.
+    await wrongCodes(t, email, 5)
+    await wrongCodes(t, email, 5)
+
+    const phone = new Browser(t)
+    await phone.post('/sign-in/email', { email, password: PASSWORD })
+    const locked = await phone.post('/two-factor/verify-totp', {
+      code: await totp(totpURI),
+    })
+    expect(locked.status).toBe(429)
+    expect(locked.json.code).toBe('TWO_STEP_LOCKED')
+    expect(phone.has('session_token')).toBe(false)
+    // Recovery codes share the budget.
+    const recovery = await phone.post('/two-factor/verify-backup-code', {
+      code: 'aaaaa-aaaaa',
+    })
+    expect(recovery.status).toBe(429)
+
+    // Fifteen minutes later — moved rather than waited for.
+    const userId = await userIdOf(t, email)
+    await t.run(async (ctx) => {
+      const row = await ctx.db
+        .query('twoStepAttempts')
+        .withIndex('by_userId', (q) => q.eq('userId', userId))
+        .unique()
+      await ctx.db.patch(row!._id, { lockedUntil: Date.now() - 1 })
+    })
+    const later = new Browser(t)
+    await later.post('/sign-in/email', { email, password: PASSWORD })
+    const right = await later.post('/two-factor/verify-totp', {
+      code: await totp(totpURI),
+    })
+    expect(right.status).toBe(200)
+  })
+
+  test('a right code starts the count again', async () => {
+    const t = testApp()
+    const email = 'priya@example.test'
+    const { totpURI } = await enrol(await signUp(t, email))
+
+    await wrongCodes(t, email, 5)
+    await wrongCodes(t, email, 4)
+    const phone = new Browser(t)
+    await phone.post('/sign-in/email', { email, password: PASSWORD })
+    expect(
+      (
+        await phone.post('/two-factor/verify-totp', {
+          code: await totp(totpURI),
+        })
+      ).status,
+    ).toBe(200)
+
+    const userId = await userIdOf(t, email)
+    const row = await t.run(async (ctx) =>
+      ctx.db
+        .query('twoStepAttempts')
+        .withIndex('by_userId', (q) => q.eq('userId', userId))
+        .unique(),
+    )
+    expect(row).toBeNull()
   })
 })

@@ -61,7 +61,9 @@ export function ResetTwoStepButton({
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          className="text-caption font-semibold text-blue"
+          // 44 px tall however small the words: pressed in a driveway, with
+          // gloves on.
+          className="inline-flex min-h-11 items-center text-caption font-semibold text-blue"
         >
           Reset two-step sign-in
         </button>
@@ -78,7 +80,7 @@ export function ResetTwoStepButton({
         working, and at their next sign-in they set it up again on their new
         phone. Their password is not changed or shown to you.
       </p>
-      <p className="mt-2 text-caption text-amber-ink">
+      <p className="mt-2 text-caption text-orange-ink">
         Until they set it up again, their password alone gets into their
         account. Check it is really them asking — in person, or on a call to the
         number you know.
@@ -87,7 +89,7 @@ export function ResetTwoStepButton({
       {reset.isError && (
         <p
           role="alert"
-          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
         >
           {resetError(reset.error)}
         </p>

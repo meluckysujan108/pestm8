@@ -152,7 +152,7 @@ export function SecondStepForm({
       {error && (
         <p
           role="alert"
-          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
         >
           {error}
         </p>
@@ -173,7 +173,9 @@ export function SecondStepForm({
           setCode('')
           setError(null)
         }}
-        className="mt-1 text-body text-blue"
+        // 44 px tall: the way in for someone who has lost their phone, so
+        // it must not be the button a thumb misses.
+        className="mt-1 min-h-11 text-body text-blue"
       >
         {mode === 'app'
           ? 'Use a recovery code instead'
@@ -183,7 +185,9 @@ export function SecondStepForm({
       {mode === 'recovery' && (
         <p className="text-caption leading-relaxed text-muted">
           Lost your phone and your recovery codes? The business owner can reset
-          your two-step sign-in from Settings → Team.
+          your two-step sign-in from Settings → Team. If you are the business
+          owner, or you work for more than one business on PestM8, contact
+          PestM8 support instead — an owner cannot reset their own.
         </p>
       )}
     </form>

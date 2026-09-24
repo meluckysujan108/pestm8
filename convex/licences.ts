@@ -183,7 +183,16 @@ export const file = query({
       throw new ConvexError('NO_ACCESS')
     }
     const holder = await ctx.db.get(membershipId)
-    if (!holder || holder.businessId !== businessId) {
+    // Not for someone who has left: the owner's roster no longer shows them,
+    // and they can no longer take their own card down (`removeFile` needs an
+    // active membership), so the owner keeping a way to read it would be
+    // holding a former worker's date of birth and home address with no end.
+    // The pointer stays on the row, like every other file here.
+    if (
+      !holder ||
+      holder.businessId !== businessId ||
+      holder.status !== 'active'
+    ) {
       throw new ConvexError('NO_ACCESS')
     }
     const licence = holder.licenceFile

@@ -54,6 +54,10 @@ export type ImageViewerProps = {
   onClose: () => void
   /** The system share sheet, for the file itself. Absent: no Share. */
   share?: (file: File) => Promise<void>
+  /** What to say when the bytes arrive but are not a picture a browser can
+   * draw — worded by the opener, who knows whether the person looking can
+   * do anything about it. */
+  brokenMessage?: string
 }
 
 type Phase =
@@ -71,6 +75,7 @@ export function ImageViewer({
   source,
   onClose,
   share,
+  brokenMessage = 'This picture can’t be shown.',
 }: ImageViewerProps) {
   const [state, setState] = useState<Phase>({
     phase: 'loading',
@@ -192,9 +197,34 @@ export function ImageViewer({
     pan.current = null
   }
 
+  /*
+   * `will-change: transform` only while something is moving. Left on, the
+   * browser keeps the layer's bitmap at the size it was first painted — the
+   * picture fitted to the screen — and a zoom only scales that bitmap up: a
+   * licence number photographed at arm's length stays a blur at 4× on an
+   * Android phone. Off once the fingers lift, the layer is redrawn from the
+   * full-size picture at the zoom it came to rest at. The PDF viewer's page
+   * scroller does the same.
+   */
+  const settleTimer = useRef<ReturnType<typeof setTimeout> | undefined>(
+    undefined,
+  )
+  const moving = (on: boolean) => {
+    clearTimeout(settleTimer.current)
+    const layer = layerRef.current
+    if (layer) layer.style.willChange = on ? 'transform' : ''
+  }
+  // For a wheel or trackpad, which has no "lift": at rest after a pause.
+  const movingBriefly = () => {
+    moving(true)
+    settleTimer.current = setTimeout(() => moving(false), 200)
+  }
+  useEffect(() => () => clearTimeout(settleTimer.current), [])
+
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return
     event.currentTarget.setPointerCapture(event.pointerId)
+    moving(true)
     const point = local(event)
     pointers.current.set(event.pointerId, point)
     if (pointers.current.size === 2 && !pageIsZoomed()) {
@@ -255,6 +285,7 @@ export function ImageViewer({
     // One finger left of a pinch carries on as a pan from where it is.
     pan.current =
       pointers.current.size > 0 ? [...pointers.current.values()][0] : null
+    if (pointers.current.size === 0) moving(false)
 
     const pressed = tap.current
     tap.current = null
@@ -290,6 +321,7 @@ export function ImageViewer({
     if (!element) return
     const onWheel = (event: WheelEvent) => {
       event.preventDefault()
+      movingBriefly()
       const { stage: size, fitted: box } = geometry.current
       if (event.ctrlKey) {
         apply(
@@ -314,12 +346,14 @@ export function ImageViewer({
     }
     element.addEventListener('wheel', onWheel, { passive: false })
     return () => element.removeEventListener('wheel', onWheel)
+    // `movingBriefly` only touches refs, so it need not re-bind this.
   }, [apply])
 
   // ---- The page behind --------------------------------------------------
 
   const pageZoomed = usePageZoomed()
   useBodyLock(root)
+  useModalFocus(root)
 
   const done = useRef<HTMLButtonElement>(null)
   useEffect(() => {
@@ -411,10 +445,7 @@ export function ImageViewer({
         onPointerCancel={onPointerUp}
       >
         {src && !broken && (
-          <div
-            ref={layerRef}
-            className="absolute inset-0 origin-top-left will-change-transform"
-          >
+          <div ref={layerRef} className="absolute inset-0 origin-top-left">
             <img
               src={src}
               alt={title}
@@ -472,7 +503,7 @@ export function ImageViewer({
                 />
                 <p role="alert" className="max-w-[300px] text-body text-ink-2">
                   {broken
-                    ? 'This picture can’t be shown. Upload it again as a JPG or PNG.'
+                    ? brokenMessage
                     : state.phase === 'failed'
                       ? state.message
                       : ''}
@@ -504,7 +535,7 @@ export function ImageViewer({
       {shareProblem && (
         <p
           role="alert"
-          className="chrome-blur pointer-events-none absolute inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+16px)] mx-auto max-w-sm rounded-2xl px-3.5 py-2 text-center text-caption font-semibold text-amber-ink shadow-elevation"
+          className="chrome-blur pointer-events-none absolute inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+16px)] mx-auto max-w-sm rounded-2xl px-3.5 py-2 text-center text-caption font-semibold text-orange-ink shadow-elevation"
         >
           {shareProblem}
         </p>
@@ -512,6 +543,42 @@ export function ImageViewer({
     </div>,
     document.body,
   )
+}
+
+/**
+ * What the PDF viewer gets from Radix Dialog, for this hand-rolled one: the
+ * page behind can be neither tabbed to nor read out while the picture is open
+ * (every other child of <body> is made `inert` — Tab and Switch Control stay
+ * in the viewer, and VoiceOver does not wander into Profile behind it), and
+ * closing puts focus back on whatever opened it, so VoiceOver keeps its place
+ * instead of starting again from the top of the page.
+ */
+function useModalFocus(root: HTMLElement | null) {
+  // Read while rendering the first time, before the viewer moves focus to
+  // its own Done button: by the time `root` is known, that has happened.
+  const openerRef = useRef<HTMLElement | null | undefined>(undefined)
+  if (openerRef.current === undefined && typeof document !== 'undefined') {
+    openerRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null
+  }
+  useEffect(() => {
+    if (typeof document === 'undefined' || !root) return
+    const opener = openerRef.current
+    const made: Array<HTMLElement> = []
+    for (const child of Array.from(document.body.children)) {
+      if (child === root || !(child instanceof HTMLElement) || child.inert) {
+        continue
+      }
+      child.inert = true
+      made.push(child)
+    }
+    return () => {
+      for (const child of made) child.inert = false
+      if (opener?.isConnected) opener.focus({ preventScroll: true })
+    }
+  }, [root])
 }
 
 /**

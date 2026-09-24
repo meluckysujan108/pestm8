@@ -1,8 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import { ConvexError } from 'convex/values'
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import {
   describeTwoFactorError,
   isMfaEnrolmentError,
+  isTwoStepNeeded,
+  watchForTwoStepRefusals,
   normaliseRecoveryCode,
   normaliseTotpCode,
   safeNext,
@@ -92,5 +95,53 @@ describe('two-factor errors in plain words', () => {
     const wrong = describeTwoFactorError({ code: 'INVALID_CODE' })
     expect(wrong.restart).toBe(false)
     expect(wrong.message).toMatch(/30 seconds/)
+  })
+})
+
+describe('a refusal pushed to a live query', () => {
+  // How @convex-dev/react-query delivers a query the server now refuses:
+  // `setState` on the entry, which the cache's onError never sees.
+  function push(client: QueryClient, key: Array<string>, error: Error) {
+    client
+      .getQueryCache()
+      .find({ queryKey: key })
+      ?.setState({ error, status: 'error', fetchStatus: 'idle' })
+  }
+
+  test('turns the set-up prompt on, but only for this refusal on a query on screen', () => {
+    const client = new QueryClient()
+    const stop = watchForTwoStepRefusals(client)
+    client.setQueryData(['shown'], 'the job sheet')
+    client.setQueryData(['guard'], 'cached for a guard')
+    const observer = new QueryObserver(client, {
+      queryKey: ['shown'],
+      queryFn: () => 'the job sheet',
+      enabled: false,
+    })
+    const unsubscribe = observer.subscribe(() => {})
+
+    // Nothing is showing the guard's entry: its own redirect handles it.
+    push(client, ['guard'], new ConvexError('MFA_ENROLMENT_REQUIRED'))
+    expect(isTwoStepNeeded()).toBe(false)
+    // Any other refusal is the page's to report.
+    push(client, ['shown'], new ConvexError('NO_ACCESS'))
+    expect(isTwoStepNeeded()).toBe(false)
+
+    push(client, ['shown'], new ConvexError('MFA_ENROLMENT_REQUIRED'))
+    expect(isTwoStepNeeded()).toBe(true)
+
+    unsubscribe()
+    stop()
+  })
+})
+
+describe('the per-account lock', () => {
+  test('is worded, and goes back to the password', () => {
+    const words = describeTwoFactorError({
+      code: 'TWO_STEP_LOCKED',
+      status: 429,
+    })
+    expect(words.restart).toBe(true)
+    expect(words.message).toMatch(/15 minutes/)
   })
 })

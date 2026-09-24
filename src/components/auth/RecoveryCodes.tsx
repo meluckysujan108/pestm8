@@ -100,7 +100,7 @@ export function RecoveryCodes({
         )}
       </div>
 
-      {note && <p className="text-caption text-amber-ink">{note}</p>}
+      {note && <p className="text-caption text-orange-ink">{note}</p>}
 
       <label
         htmlFor={checkId}

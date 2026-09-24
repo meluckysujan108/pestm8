@@ -57,6 +57,8 @@ export function LicenceViewer({
         actions={{
           share,
           replace: licence.mine ? onReplace : undefined,
+          // The picker takes a photo as well as a PDF.
+          replaceLabel: 'Replace licence…',
         }}
         onClose={onClose}
       />
@@ -69,6 +71,11 @@ export function LicenceViewer({
       contentType={licence.contentType}
       source={source}
       share={share}
+      brokenMessage={
+        licence.mine
+          ? 'This picture can’t be shown. Upload it again as a JPG or PNG.'
+          : 'This picture can’t be shown. They need to upload it again as a JPG or PNG.'
+      }
       onClose={onClose}
     />
   )

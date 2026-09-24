@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { createFileRoute, redirect } from '@tanstack/react-router'
+import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Check, Copy } from 'lucide-react'
 import { z } from 'zod'
@@ -14,6 +15,11 @@ import {
   safeNext,
   setupKeyOf,
 } from '#/lib/twoStep'
+import {
+  markRecoveryCodesUnsaved,
+  markSetUpStarted,
+  setUpStartedBefore,
+} from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
 
 /**
@@ -51,12 +57,24 @@ export const Route = createFileRoute('/two-step')({
   component: TwoStepPage,
 })
 
-type Setup = { totpURI: string; backupCodes: Array<string> }
+type Setup = {
+  totpURI: string
+  backupCodes: Array<string>
+  /** A set-up was started on this device before and never finished. */
+  restarted: boolean
+}
 
 function TwoStepPage() {
   const { next } = Route.useSearch()
   const [setup, setSetup] = useState<Setup | null>(null)
   const [verified, setVerified] = useState(false)
+  // Whose set-up this is, for the reminders (lib/twoStepReminders). Held once
+  // known: checking the code replaces the session, after which this query is
+  // refused until the page reloads.
+  const user = useQuery(convexQuery(api.auth.getCurrentUser, {})).data
+  const userIdRef = useRef<string | null>(null)
+  if (user?._id && userIdRef.current === null) userIdRef.current = user._id
+  const userId = userIdRef.current
 
   /**
    * A full load into the app, as sign-in does. Checking the code replaces the
@@ -86,11 +104,32 @@ function TwoStepPage() {
       </div>
 
       {verified && setup ? (
-        <RecoveryCodes codes={setup.backupCodes} onDone={() => void finish()} />
+        <RecoveryCodes
+          codes={setup.backupCodes}
+          onDone={() => {
+            if (userId) markRecoveryCodesUnsaved(userId, false)
+            void finish()
+          }}
+        />
       ) : setup ? (
-        <ScanStep setup={setup} onVerified={() => setVerified(true)} />
+        <ScanStep
+          setup={setup}
+          onVerified={() => {
+            // On from here, whether or not the codes below are ever saved:
+            // until "I've saved these", Profile asks for new ones.
+            if (userId) {
+              markSetUpStarted(userId, false)
+              markRecoveryCodesUnsaved(userId, true)
+            }
+            setVerified(true)
+          }}
+        />
       ) : (
-        <PasswordStep onReady={setSetup} onAlreadyOn={() => void finish()} />
+        <PasswordStep
+          userId={userId}
+          onReady={setSetup}
+          onAlreadyOn={() => void finish()}
+        />
       )}
 
       {!verified && (
@@ -104,7 +143,7 @@ function TwoStepPage() {
               .then(forgetCachedPages)
               .then(() => window.location.replace('/login'))
           }
-          className="mt-8 text-body text-blue"
+          className="mt-8 min-h-11 text-body text-blue"
         >
           Sign out
         </button>
@@ -114,9 +153,11 @@ function TwoStepPage() {
 }
 
 function PasswordStep({
+  userId,
   onReady,
   onAlreadyOn,
 }: {
+  userId: string | null
   onReady: (setup: Setup) => void
   onAlreadyOn: () => void
 }) {
@@ -147,9 +188,12 @@ function PasswordStep({
       setError(describeTwoFactorError(result.error).message)
       return
     }
+    const restarted = userId !== null && setUpStartedBefore(userId)
+    if (userId) markSetUpStarted(userId, true)
     onReady({
       totpURI: result.data.totpURI,
       backupCodes: result.data.backupCodes,
+      restarted,
     })
   }
 
@@ -224,6 +268,16 @@ function ScanStep({
     <div className="flex flex-col gap-5">
       <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4">
         <p className="section-label">1 · Add PestM8 to your authenticator</p>
+        {setup.restarted && (
+          // Starting again made a new secret: the entry from the first try
+          // will never give a right code, and a dead entry beside a live one
+          // is a wrong code at every sign-in.
+          <Alert>
+            You started setting this up before. If PestM8 is already in your
+            authenticator app, delete that entry first — only the one you add
+            now will work.
+          </Alert>
+        )}
         <p className="text-body text-muted">
           Use Google Authenticator, Microsoft Authenticator, or the iPhone's own
           Passwords app. On this phone, tap the button — it opens the app with
@@ -323,7 +377,7 @@ function Alert({ children }: { children: React.ReactNode }) {
   return (
     <p
       role="alert"
-      className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+      className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
     >
       {children}
     </p>

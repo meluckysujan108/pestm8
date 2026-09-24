@@ -29,6 +29,11 @@ export function licenceKeyOf(membershipId: string, uploadedAt: number): string {
  */
 const held = new Map<string, Blob>()
 
+/** The bytes held for `key` this page load, if any — for the Profile tile. */
+export function heldLicence(key: string): Blob | null {
+  return held.get(key) ?? null
+}
+
 export function holdLicence(key: string, blob: Blob): void {
   held.delete(key)
   held.set(key, blob)
@@ -83,8 +88,12 @@ export function licenceSourceFor(
         return kept.blob
       }
       if (url === null) {
+        // Worded for whoever is looking: the owner cannot upload someone
+        // else's licence, so telling them to would be a dead end.
         throw new Error(
-          'This file is no longer available. Upload the licence again.',
+          mine
+            ? 'This file is no longer available. Upload your licence again.'
+            : 'This file is no longer available. They need to upload their licence again.',
         )
       }
 
