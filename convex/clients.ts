@@ -1,6 +1,8 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
+import { normaliseAbn } from './lib/abn'
+import { setContactPerson } from './clientContacts'
 import { INLINE_LIMIT, decorate as decorateReports } from './reports'
 import { isInScope, reportReadable } from './lib/capabilities'
 import { clientKind } from './schema'
@@ -64,21 +66,40 @@ export const update = mutation({
     suburb: v.optional(v.string()),
     state: v.optional(v.string()),
     postcode: v.optional(v.string()),
+    // Prompt 6.1. A blank string clears it; leaving it out leaves it alone.
+    // Validated whatever the kind: the form sends it only for a business, and
+    // a flipped client keeps it hidden rather than losing it.
+    abn: v.optional(v.string()),
+    // The name to make this client's primary contact — see
+    // `setContactPerson`. Blank takes the star off; nobody is deleted.
+    contactPerson: v.optional(v.string()),
   },
-  handler: async (ctx, { businessId, clientId, ...patch }) => {
+  handler: async (
+    ctx,
+    { businessId, clientId, abn: rawAbn, contactPerson, ...patch },
+  ) => {
     await requireMembership(ctx, businessId)
-    await requireClient(ctx, businessId, clientId)
+    const client = await requireClient(ctx, businessId, clientId)
 
     // Typed explicitly: the optional args really can arrive absent, but
     // `Object.entries` infers them away, which made the filter below read as
     // dead code to the linter while doing necessary work at runtime.
-    const fields = Object.fromEntries(
+    const fields: Record<string, string | undefined> = Object.fromEntries(
       Object.entries<string | undefined>(patch).filter(
         ([, value]) => value !== undefined,
       ),
     )
+    // Refused before anything is written. Stored as `undefined` when cleared —
+    // how a patch removes a field — and left out when unchanged.
+    if (rawAbn !== undefined) {
+      const abn = normaliseAbn(rawAbn)
+      if (abn !== client.abn) fields.abn = abn
+    }
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(clientId, { ...fields, updatedAt: Date.now() })
+    }
+    if (contactPerson !== undefined) {
+      await setContactPerson(ctx, businessId, clientId, contactPerson)
     }
   },
 })
