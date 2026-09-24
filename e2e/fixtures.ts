@@ -340,6 +340,19 @@ export type RejectionCode =
   | 'NOT_YOUR_SIGNATURE'
   // A custom form's wording could not be frozen with the report it locks.
   | 'TEMPLATE_NOT_FROZEN'
+  // Products (Phase 7.1): a second product by the same name (case and spacing
+  // ignored), one past the business's limit, a blank or over-long name or
+  // description, and a link that is not http(s) to a real host.
+  | 'PRODUCT_EXISTS'
+  | 'TOO_MANY_PRODUCTS'
+  | 'INVALID_PRODUCT'
+  | 'INVALID_URL'
+  // A product's photo or PDF: not a fresh upload, already on a product, over
+  // the size limit, or not a PDF / not an image.
+  | 'FILE_NOT_FOUND'
+  | 'ALREADY_ATTACHED'
+  | 'FILE_TOO_LARGE'
+  | 'WRONG_FILE_TYPE'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

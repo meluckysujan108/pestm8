@@ -1524,4 +1524,58 @@ export default defineSchema({
     lastUsedAt: v.optional(v.number()),
     createdAt: v.number(),
   }).index('by_business_field', ['businessId', 'fieldKey']),
+
+  /**
+   * The Products page (Phase 7.1): the tins, drums and baits a business
+   * keeps, each with the things a technician reaches for on site — a photo of
+   * the label, the maker's page, and one PDF (the safety data sheet, usually)
+   * to open, save or send to a client who asks what went in their roof.
+   *
+   * Reference material and nothing more. A product links to no job, report or
+   * stock level, and is NOT the `products` option set (`optionSets`, key
+   * 'products'): that one is a vocabulary a report prints as an answer, owned
+   * by the owner and frozen into signed documents. Renaming or deleting a row
+   * here changes no report, and nothing a report says depends on this table.
+   *
+   * One list for the whole business. Any active member may add to it — a
+   * product is something a technician has in the van, and the person who
+   * found the new SDS is the one who should save it. Changing or removing one
+   * is its creator's, or the owner's (`templates.manage`, as for a phrase in
+   * `reportSnippets`): someone else's product is someone else's work.
+   *
+   * Files are never deleted with a row, or when replaced; see the note at the
+   * top of `convex/products.ts` for why that cannot be done safely here.
+   */
+  products: defineTable({
+    businessId: v.id('businesses'),
+    /** As typed, trimmed. Shown as the product's title. */
+    name: v.string(),
+    /**
+     * `name` folded (`nameKeyOf` in lib/products.ts): the list's order, and
+     * the duplicate check — "Termidor" and "termidor " are one product.
+     */
+    nameKey: v.string(),
+    description: v.optional(v.string()),
+    /** Always http(s), canonical (`normaliseProductUrl`). */
+    url: v.optional(v.string()),
+    photoStorageId: v.optional(v.id('_storage')),
+    pdfStorageId: v.optional(v.id('_storage')),
+    /** The PDF's name as offered when it is saved or shared; always ends in
+     * `.pdf`. Present exactly when `pdfStorageId` is. */
+    pdfFileName: v.optional(v.string()),
+    /** Bytes, from the stored file — so the page can say "2.4 MB" before
+     * anyone commits a phone's data to opening it. */
+    pdfSize: v.optional(v.number()),
+    /** The REAL person who added it — never an account they were switched
+     * into — which is also who may change it. */
+    createdByMembershipId: v.id('memberships'),
+    updatedByMembershipId: v.id('memberships'),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  })
+    .index('by_businessId_and_nameKey', ['businessId', 'nameKey'])
+    // "Does any product already hold this file?" — asked before a product
+    // claims one, so one upload can never end up on two products.
+    .index('by_pdfStorageId', ['pdfStorageId'])
+    .index('by_photoStorageId', ['photoStorageId']),
 })

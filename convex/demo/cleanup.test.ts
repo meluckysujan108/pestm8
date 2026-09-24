@@ -159,6 +159,12 @@ async function realSide(t: TestApp, businessId: Id<'businesses'>) {
       .query('reports')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .collect(),
+    products: await ctx.db
+      .query('products')
+      .withIndex('by_businessId_and_nameKey', (q) =>
+        q.eq('businessId', businessId),
+      )
+      .collect(),
     snapshots: await ctx.db.query('reportTemplateSnapshots').collect(),
     weather: await ctx.db.query('weatherCache').collect(),
     geocache: await ctx.db.query('suburbGeocache').collect(),
@@ -186,6 +192,13 @@ describe('removing a demo', () => {
   let realOnDemoDraft: Id<'_storage'>
   /** Issues of a real business's form, published after the demo was made. */
   let realVersions: Array<Id<'customReportTemplateVersions'>>
+  /** A demo photo a real business's product holds. */
+  let inRealProduct: Id<'_storage'>
+  /** What someone uploaded to the demo's Products page while trying it out:
+   * never the seed's, so never cleanup's to delete. */
+  let demoProductUploads: Array<Id<'_storage'>>
+  /** A PDF rendered for a demo report, which a demo product also holds. */
+  let demoRendered: Id<'_storage'>
   let removal: Removal
 
   beforeAll(async () => {
@@ -199,6 +212,7 @@ describe('removing a demo', () => {
     // and a demo photo in a real report's gallery. All three must survive.
     sharedWithReal = base.images.photos[4].storageId
     inRealGallery = base.images.photos[5].storageId
+    inRealProduct = base.images.photos[6].storageId
     const crossed = await t.run(async (ctx) => {
       const now = Date.now()
       const ownerHere = await ctx.db
@@ -323,12 +337,55 @@ describe('removing a demo', () => {
           }),
         )
       }
+      // Products, which the seed makes none of. On the demo: one with files
+      // somebody uploaded, one with none, and one holding a demo report's
+      // rendered PDF. On the real business: one holding a demo photo (a
+      // claim within the window can take any fresh upload's id).
+      const productOf = (
+        businessId: Id<'businesses'>,
+        membershipId: Id<'memberships'>,
+        name: string,
+        fields: Partial<Doc<'products'>> = {},
+      ) =>
+        ctx.db.insert('products', {
+          businessId,
+          name,
+          nameKey: name.toLowerCase(),
+          createdByMembershipId: membershipId,
+          updatedByMembershipId: membershipId,
+          createdAt: now,
+          updatedAt: now,
+          ...fields,
+        })
+      const uploads = [await store(), await store()]
+      // The rendered PDF is the demo's, and so is the product holding it:
+      // both go, so the file does too.
+      const rendered = await store()
+      await ctx.db.patch(demoReport._id, { pdfStorageId: rendered })
+      await productOf(base.businessId, base.members.contractor, 'Rendered', {
+        pdfStorageId: rendered,
+        pdfFileName: 'Report.pdf',
+        pdfSize: 3,
+      })
+      await productOf(base.businessId, base.members.sub, 'Termidor', {
+        photoStorageId: uploads[0],
+        pdfStorageId: uploads[1],
+        pdfFileName: 'Termidor SDS.pdf',
+        pdfSize: 3,
+      })
+      await productOf(base.businessId, base.members.owner, 'Coopex')
+      await productOf(run.fromBusinessId, ownerHere._id, 'Real product', {
+        photoStorageId: inRealProduct,
+      })
+
       return {
         logo,
         photo: await ctx.db.get(photoId),
         onJob,
         onDraft,
         versions,
+        uploads,
+        rendered,
       }
     })
     realLogo = crossed.logo
@@ -336,6 +393,8 @@ describe('removing a demo', () => {
     realOnDemoJob = crossed.onJob
     realOnDemoDraft = crossed.onDraft
     realVersions = crossed.versions
+    demoProductUploads = crossed.uploads
+    demoRendered = crossed.rendered
 
     slug = await t.query(internal.demo.seed.slugOf, {
       businessId: base.businessId,
@@ -387,6 +446,7 @@ describe('removing a demo', () => {
       'optionSets',
       'reportSnippets',
       'noteMentions',
+      'products',
     ]) {
       expect(before[table], table).toBeGreaterThan(0)
     }
@@ -466,9 +526,11 @@ describe('removing a demo', () => {
       'templateSettings',
       'optionSets',
       'reportSnippets',
+      'products',
     ]) {
       expect(totals[table] ?? 0, table).toBe(before[table])
     }
+    expect(totals.products).toBe(3)
     expect(totals.noteBodies).toBe(run.notes)
     expect(totals.authUsers).toBe(2)
   })
@@ -489,6 +551,7 @@ describe('removing a demo', () => {
       sharedWithReal,
       realLogo,
       inRealGallery,
+      inRealProduct,
       realOnDemoJob,
       realOnDemoDraft,
     ])
@@ -502,6 +565,12 @@ describe('removing a demo', () => {
         files.seeded.filter((id) => !kept.has(id)),
       ),
     ).toEqual([])
+    // A product's files are uploads, and outlive it here as they do in
+    // products.remove.
+    expect(await filesStillStored(t, demoProductUploads)).toEqual(
+      demoProductUploads,
+    )
+    expect(await filesStillStored(t, [demoRendered])).toEqual([])
 
     // The note bodies in the component. Their edit history is removed by
     // the component's own scheduled job; the seed wrote none.

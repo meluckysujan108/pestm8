@@ -57,6 +57,7 @@ import type * as lib_noteTemplates from "../lib/noteTemplates.js";
 import type * as lib_optionSets from "../lib/optionSets.js";
 import type * as lib_postcodes from "../lib/postcodes.js";
 import type * as lib_prices from "../lib/prices.js";
+import type * as lib_products from "../lib/products.js";
 import type * as lib_recipients from "../lib/recipients.js";
 import type * as lib_recurrence from "../lib/recurrence.js";
 import type * as lib_reportContext from "../lib/reportContext.js";
@@ -81,6 +82,7 @@ import type * as migrations_reportsLibrary from "../migrations/reportsLibrary.js
 import type * as notes from "../notes.js";
 import type * as notesSync from "../notesSync.js";
 import type * as optionSets from "../optionSets.js";
+import type * as products from "../products.js";
 import type * as properties from "../properties.js";
 import type * as recurrences from "../recurrences.js";
 import type * as reportAnnotations from "../reportAnnotations.js";
@@ -150,6 +152,7 @@ declare const fullApi: ApiFromModules<{
   "lib/optionSets": typeof lib_optionSets;
   "lib/postcodes": typeof lib_postcodes;
   "lib/prices": typeof lib_prices;
+  "lib/products": typeof lib_products;
   "lib/recipients": typeof lib_recipients;
   "lib/recurrence": typeof lib_recurrence;
   "lib/reportContext": typeof lib_reportContext;
@@ -174,6 +177,7 @@ declare const fullApi: ApiFromModules<{
   notes: typeof notes;
   notesSync: typeof notesSync;
   optionSets: typeof optionSets;
+  products: typeof products;
   properties: typeof properties;
   recurrences: typeof recurrences;
   reportAnnotations: typeof reportAnnotations;
