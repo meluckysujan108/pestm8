@@ -607,6 +607,42 @@ export async function requireWriteActor(
 }
 
 /**
+ * A member's write envelope, for code that runs with nobody signed in: the
+ * demo seeder (convex/demo), which writes as the member each record says
+ * wrote it. Built by the same `envelope` a request uses, from that member's
+ * own row, exactly as `requireWriteActor` would find them on a device with no
+ * switch, no chosen view and no legacy lens.
+ *
+ * Only for internal functions. Handing one to a public function would let a
+ * caller write as anyone, which is the whole of what `requireWriteActor`
+ * exists to prevent.
+ */
+export async function writeEnvelopeForMember(
+  ctx: MutationCtx,
+  membershipId: Id<'memberships'>,
+): Promise<WriteEnvelope> {
+  const membership = await ctx.db.get(membershipId)
+  if (!membership || membership.status !== 'active') {
+    throw new ConvexError('NO_ACCESS')
+  }
+  const real = factsFromMembership(membership)
+  const rows: ActorRows = {
+    real,
+    realParent: await parentOf(ctx, real),
+    target: null,
+    session: null,
+    legacyTarget: null,
+    view: 'everyone',
+  }
+  const result = resolveActorForWrite(real, null, null, Date.now())
+  if (!result.ok) throw new ConvexError(result.reason)
+  const env = await envelope(ctx, membership.businessId, rows, result.actor, {
+    forWrite: true,
+  })
+  return { ...env, actor: result.actor, viewingAsLegacy: false }
+}
+
+/**
  * The clock, read only where it is allowed to be read.
  *
  * Convex's own guidance is blunt: do not read the wall clock inside a query. A

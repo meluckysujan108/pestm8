@@ -680,7 +680,7 @@ export const remove = mutation({
   },
 })
 
-async function purgeNote(ctx: MutationCtx, note: Note) {
+export async function purgeNote(ctx: MutationCtx, note: Note) {
   const mentions = await ctx.db
     .query('noteMentions')
     .withIndex('by_note', (q) => q.eq('noteId', note._id))
