@@ -1,0 +1,133 @@
+/**
+ * Client half of compulsory two-step sign-in. The server refuses an account
+ * that has not set it up (convex/lib/access.ts, `requireAuthUser`) with
+ * MFA_ENROLMENT_REQUIRED; everything here is about turning that refusal into
+ * the set-up screen instead of an error, and back to where the person was
+ * going once they are done.
+ *
+ * Kept free of React and of anything heavy: the route guards import it, and
+ * guards run before a route's chunk loads.
+ */
+
+export const TWO_STEP_PATH = '/two-step'
+
+export const MFA_ENROLMENT_REQUIRED = 'MFA_ENROLMENT_REQUIRED'
+
+/**
+ * A ConvexError carries the code as `data`; the same refusal reaching a
+ * server-rendered guard, or wrapped by a library on the way, may only have it
+ * in the message. Not `describeError`'s `errorCode`, which would pull the
+ * address-lookup module into every guard that imports this one.
+ */
+export function isMfaEnrolmentError(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false
+  if ((error as { data?: unknown }).data === MFA_ENROLMENT_REQUIRED) return true
+  const message = (error as { message?: unknown }).message
+  return (
+    typeof message === 'string' &&
+    new RegExp(`\\b${MFA_ENROLMENT_REQUIRED}\\b`).test(message)
+  )
+}
+
+/**
+ * Where to go after setting up, from a `next` search param — but only a path
+ * on this site. Anything else (another origin, `//evil.example`, `javascript:`)
+ * becomes `/`: a sign-in flow is exactly where an open redirect gets used for
+ * phishing, and a standalone iPhone PWA sent off-site leaves the app for good.
+ * Never back to /two-step itself, or /login, which would loop.
+ */
+export function safeNext(next: unknown): string {
+  if (typeof next !== 'string') return '/'
+  if (!next.startsWith('/') || next.startsWith('//') || next.includes('\\')) {
+    return '/'
+  }
+  const path = next.split(/[?#]/)[0]
+  if (path === TWO_STEP_PATH || path === '/login') return '/'
+  return next
+}
+
+/** The set-up screen, coming back to `from` afterwards. */
+export function twoStepHref(from: string): string {
+  const next = safeNext(from)
+  return next === '/'
+    ? TWO_STEP_PATH
+    : `${TWO_STEP_PATH}?next=${encodeURIComponent(next)}`
+}
+
+/**
+ * What someone typed as a recovery code, in the form the server stores:
+ * lowercase `xxxxx-xxxxx`. The codes are generated lowercase with no
+ * look-alike characters (convex/auth.ts), so a code copied off paper as
+ * "ABCDE FGHJK" or "abcdefghjk" still matches.
+ */
+export function normaliseRecoveryCode(input: string): string {
+  const compact = input.toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (compact.length === 10) return `${compact.slice(0, 5)}-${compact.slice(5)}`
+  return input.trim().toLowerCase()
+}
+
+/** Six digits from whatever was pasted: "123 456", "123-456". */
+export function normaliseTotpCode(input: string): string {
+  return input.replace(/\D/g, '').slice(0, 6)
+}
+
+/** The setup key out of an otpauth:// URI, grouped in fours for reading. */
+export function setupKeyOf(totpURI: string): string {
+  try {
+    const secret = new URL(totpURI).searchParams.get('secret') ?? ''
+    return secret.replace(/(.{4})/g, '$1 ').trim()
+  } catch {
+    return ''
+  }
+}
+
+/**
+ * Better Auth's two-factor codes, in words for someone on a phone in a
+ * driveway. Unknown codes fall back to the message the server sent.
+ */
+export function describeTwoFactorError(error: {
+  code?: string
+  message?: string
+  status?: number
+}): { message: string; restart: boolean } {
+  switch (error.code) {
+    case 'INVALID_CODE':
+      return {
+        message:
+          'That code did not match. Codes change every 30 seconds — use the one showing now.',
+        restart: false,
+      }
+    case 'INVALID_BACKUP_CODE':
+      return {
+        message:
+          'That recovery code did not match, or it has already been used. Each one works once.',
+        restart: false,
+      }
+    case 'INVALID_TWO_FACTOR_COOKIE':
+      return {
+        message:
+          'That sign-in took too long, so it has expired. Enter your password again.',
+        restart: true,
+      }
+    case 'TOO_MANY_ATTEMPTS_REQUEST_NEW_CODE':
+      return {
+        message:
+          'Too many wrong codes. Enter your password again to get another go.',
+        restart: true,
+      }
+    case 'INVALID_PASSWORD':
+      return { message: 'That password is not right.', restart: false }
+    default:
+      if (error.status === 429) {
+        return {
+          message:
+            'Too many tries in a row. Wait a few seconds, then try again.',
+          restart: false,
+        }
+      }
+      return {
+        message: error.message ?? 'Something went wrong. Try again.',
+        restart: false,
+      }
+  }
+}

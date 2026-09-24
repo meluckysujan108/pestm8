@@ -5,6 +5,7 @@ import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { ColourPicker } from './ColourPicker'
+import { ResetTwoStepButton } from './ResetTwoStepButton'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Grants, Role } from '../../../convex/lib/capabilities'
 
@@ -23,6 +24,9 @@ export type Member = {
   /** From the roster: whether this viewer may set this person's colour. Absent
    * from an older backend, which means no picker. */
   canSetColour?: boolean
+  /** From the roster: whether they have two-step sign-in set up. Absent from
+   * an older backend, which means no reset is offered. */
+  twoStepOn?: boolean
 }
 
 export function MemberAccessRow({
@@ -305,6 +309,15 @@ export function MemberAccessRow({
             <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
           </Switch.Root>
         </label>
+      )}
+
+      {!isOwner && (
+        <ResetTwoStepButton
+          businessId={businessId}
+          membershipId={member._id}
+          name={member.name || member.email}
+          twoStepOn={member.twoStepOn}
+        />
       )}
 
       {!isOwner && (

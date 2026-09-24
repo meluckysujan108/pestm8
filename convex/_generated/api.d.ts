@@ -53,6 +53,7 @@ import type * as lib_jobScope from "../lib/jobScope.js";
 import type * as lib_jobStatus from "../lib/jobStatus.js";
 import type * as lib_membershipFacts from "../lib/membershipFacts.js";
 import type * as lib_metNorway from "../lib/metNorway.js";
+import type * as lib_mfa from "../lib/mfa.js";
 import type * as lib_noteAccess from "../lib/noteAccess.js";
 import type * as lib_noteTemplates from "../lib/noteTemplates.js";
 import type * as lib_optionSets from "../lib/optionSets.js";
@@ -150,6 +151,7 @@ declare const fullApi: ApiFromModules<{
   "lib/jobStatus": typeof lib_jobStatus;
   "lib/membershipFacts": typeof lib_membershipFacts;
   "lib/metNorway": typeof lib_metNorway;
+  "lib/mfa": typeof lib_mfa;
   "lib/noteAccess": typeof lib_noteAccess;
   "lib/noteTemplates": typeof lib_noteTemplates;
   "lib/optionSets": typeof lib_optionSets;

@@ -1,5 +1,29 @@
-import { QueryClient } from '@tanstack/react-query'
+import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 import { ConvexQueryClient } from '@convex-dev/react-query'
+import { TWO_STEP_PATH, isMfaEnrolmentError, twoStepHref } from '#/lib/twoStep'
+
+/**
+ * The global answer to MFA_ENROLMENT_REQUIRED: the set-up screen, not a
+ * "Server Error".
+ *
+ * The route guards already send an un-enrolled person there before a page
+ * loads (`/`, `$businessSlug`, `/onboarding`). This is for the moment they
+ * cannot: a person already inside the app when two-step sign-in became
+ * compulsory, whose live queries start being refused mid-screen. A full load
+ * rather than a router navigation, because this module has no router — and
+ * because the set-up ends in one anyway.
+ *
+ * Only queries something is showing (`observers > 0`): a guard's
+ * `ensureQueryData` has none, and handles the refusal itself with a proper
+ * redirect that this would otherwise race.
+ */
+function sendToTwoStep(error: unknown): void {
+  if (typeof window === 'undefined' || !isMfaEnrolmentError(error)) return
+  if (window.location.pathname === TWO_STEP_PATH) return
+  window.location.replace(
+    twoStepHref(window.location.pathname + window.location.search),
+  )
+}
 
 export function getContext() {
   const convexUrl = import.meta.env.VITE_CONVEX_URL
@@ -23,6 +47,14 @@ export function getContext() {
   const convexQueryClient = new ConvexQueryClient(convexUrl)
 
   const queryClient = new QueryClient({
+    queryCache: new QueryCache({
+      onError: (error, query) => {
+        if (query.getObserversCount() > 0) sendToTwoStep(error)
+      },
+    }),
+    mutationCache: new MutationCache({
+      onError: (error) => sendToTwoStep(error),
+    }),
     defaultOptions: {
       queries: {
         queryKeyHashFn: convexQueryClient.hashFn(),

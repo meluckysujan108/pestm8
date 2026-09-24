@@ -8,6 +8,7 @@ import { requireActor, requireCapability } from './lib/actor'
 import { abnDigits, formatAbn, normaliseAbn } from './lib/abn'
 import { normaliseEmail } from './lib/email'
 import { normalisePhone } from './lib/phone'
+import { MFA_ENROLMENT_REQUIRED } from './lib/mfa'
 
 /**
  * The business's own ABN as stored: checked by the ATO's rule (INVALID_ABN)
@@ -114,11 +115,19 @@ export const getBySlug = query({
           phone: membership.phone,
         },
       }
-    } catch {
+    } catch (error) {
+      // Not an answer about this business, so not folded into "no such
+      // business": the layout has to send this person to set up two-step
+      // sign-in, and a null here would show them "Not found" instead.
+      if (isMfaEnrolmentError(error)) throw error
       return null
     }
   },
 })
+
+function isMfaEnrolmentError(error: unknown): boolean {
+  return error instanceof ConvexError && error.data === MFA_ENROLMENT_REQUIRED
+}
 
 export const create = mutation({
   args: {

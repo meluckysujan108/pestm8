@@ -1,5 +1,5 @@
 import { ConvexError, v } from 'convex/values'
-import { mutation, query } from './_generated/server'
+import { internalMutation, mutation, query } from './_generated/server'
 import { components } from './_generated/api'
 import { authComponent } from './auth'
 import { requireMembership } from './lib/access'
@@ -403,6 +403,10 @@ export const roster = query({
              * for anyone including themselves (`canSetColour`). An added
              * field, so an older client simply shows no picker. */
             canSetColour: canSetColour(env.actor, facts),
+            /** Whether this person has two-step sign-in set up — what the
+             * owner's "Reset two-step sign-in" is offered on. An added field,
+             * so an older client simply shows no reset. */
+            twoStepOn: user?.twoFactorEnabled === true,
           }
         }),
     )
@@ -492,3 +496,159 @@ export const assignTo = mutation({
     return nextGrants
   },
 })
+
+/**
+ * The business owner resets someone's two-step sign-in — for the technician
+ * who has lost their phone AND their recovery codes, which is otherwise a
+ * locked account with nobody able to open it.
+ *
+ * What it does: deletes their authenticator secret and recovery codes, marks
+ * the account as not set up, and signs them out everywhere. Their next sign-in
+ * is password only, straight into the set-up screen, and the app refuses them
+ * everything until they have set it up again. It does not reveal or change
+ * their password.
+ *
+ * That last point is also the risk, and why the rules are narrow: in the
+ * window between the reset and the person setting it up again, their password
+ * alone gets into the set-up screen. So the owner is told to confirm it really
+ * is them (in person, or on a call) before pressing it.
+ *
+ * - Only the owner, as themselves. `team.manage` alone is not enough: a
+ *   contractor holds it for their own team, and should not be able to weaken
+ *   a subcontractor's sign-in. And not from inside someone else's account —
+ *   a switch drops `team.manage`, as it does all administration.
+ * - Only an active member of THIS business, and never the caller themselves.
+ * - Refused outright when the person is also an active member of another
+ *   business. Two-step sign-in belongs to the account, not the membership, so
+ *   business A's owner resetting it would weaken that person's sign-in into
+ *   business B, whose owner never agreed to it. That account is reset by the
+ *   operator instead (`resetTwoFactorForEmail`).
+ * - Audit-logged, against the member.
+ */
+export const resetTwoFactor = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    membershipId: v.id('memberships'),
+  },
+  handler: async (ctx, { businessId, membershipId }) => {
+    // Administration, so the capability model's rule: `team.manage` drops
+    // while a switch is open (nobody administers on anyone's behalf), and the
+    // REAL person must be the owner — a contractor holds `team.manage` for
+    // their own team, and this is not theirs to do.
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'team.manage')
+    const owner = env.actor.real
+    if (owner.role !== 'owner') throw new ConvexError('NO_ACCESS')
+
+    const target = await ctx.db.get(membershipId)
+    if (
+      !target ||
+      target.businessId !== businessId ||
+      target.status !== 'active'
+    ) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    if (target._id === owner._id) throw new ConvexError('CANNOT_RESET_SELF')
+    if (target.role === 'owner') throw new ConvexError('NO_ACCESS')
+
+    const memberships = await ctx.db
+      .query('memberships')
+      .withIndex('by_user', (q) => q.eq('userId', target.userId))
+      .collect()
+    if (
+      memberships.some(
+        (m) => m.businessId !== businessId && m.status === 'active',
+      )
+    ) {
+      throw new ConvexError('MEMBER_OF_ANOTHER_BUSINESS')
+    }
+
+    await clearTwoFactor(ctx, target.userId)
+
+    await recordAudit(ctx, forSelf(owner._id), {
+      businessId,
+      action: 'membership.twoFactorReset',
+      entityType: 'memberships',
+      entityId: target._id,
+    })
+
+    return null
+  },
+})
+
+/**
+ * For the operator, not the app: the owner themselves, or someone who works
+ * for two businesses, has lost their phone and their recovery codes, and no
+ * owner may reset them (`resetTwoFactor`). Internal, so nothing a browser
+ * sends can reach it; run with
+ * `npx convex run --prod team:resetTwoFactorForEmail '{"email":"…"}'` once the
+ * person's identity has been confirmed outside the app. Writes an audit row
+ * into every business they are an active member of, attributed to their own
+ * membership (there is no acting member) with `meta.by: 'operator'`.
+ */
+export const resetTwoFactorForEmail = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const user: { _id: string } | null = await ctx.runQuery(
+      components.betterAuth.adapter.findOne,
+      {
+        model: 'user',
+        where: [{ field: 'email', value: email.trim().toLowerCase() }],
+      },
+    )
+    if (!user) throw new ConvexError('NOT_FOUND')
+
+    await clearTwoFactor(ctx, user._id)
+
+    const memberships = await ctx.db
+      .query('memberships')
+      .withIndex('by_user', (q) => q.eq('userId', user._id))
+      .collect()
+    for (const m of memberships) {
+      if (m.status !== 'active') continue
+      await recordAudit(ctx, forSelf(m._id), {
+        businessId: m.businessId,
+        action: 'membership.twoFactorReset',
+        entityType: 'memberships',
+        entityId: m._id,
+        meta: { by: 'operator' },
+      })
+    }
+    return null
+  },
+})
+
+/**
+ * The reset itself, shared by the two doors above. Reaches into the Better
+ * Auth component the way `offboard` does for sessions: the component's tables
+ * are its own, so its adapter functions are the only way in.
+ *
+ * Order: the secret first, then the flag, then the sessions. Every step makes
+ * the account less usable, never more — and it is one transaction, so a
+ * failure part-way rolls all of it back rather than leaving it half-done.
+ */
+async function clearTwoFactor(ctx: MutationCtx, userId: string): Promise<void> {
+  await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+    input: {
+      model: 'twoFactor',
+      where: [{ field: 'userId', value: userId }],
+    },
+    paginationOpts: { numItems: 200, cursor: null },
+  })
+  await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+    input: {
+      model: 'user',
+      where: [{ field: '_id', value: userId }],
+      update: { twoFactorEnabled: false, updatedAt: Date.now() },
+    },
+  })
+  // Signed out everywhere: a session opened with the old authenticator must
+  // not outlive it, and the next sign-in has to land on the set-up screen.
+  await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+    input: {
+      model: 'session',
+      where: [{ field: 'userId', value: userId }],
+    },
+    paginationOpts: { numItems: 200, cursor: null },
+  })
+}

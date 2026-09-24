@@ -1,5 +1,5 @@
 import { ConvexError } from 'convex/values'
-import { authComponent } from '../auth'
+import { requireAuthUser } from './access'
 import { factsFromMembership } from './membershipFacts'
 import {
   canChooseView,
@@ -191,8 +191,10 @@ async function readActorRows(
   // Throws ConvexError('Unauthenticated') when there is no live session. It
   // also re-reads the Better Auth session row and checks it has not expired,
   // which is the check that makes offboarding work: `team.offboard` deletes a
-  // removed person's sessions, and this is where that takes effect.
-  const user = await authComponent.getAuthUser(ctx)
+  // removed person's sessions, and this is where that takes effect. And it
+  // refuses an account without two-step sign-in (MFA_ENROLMENT_REQUIRED) —
+  // see `requireAuthUser`.
+  const user = await requireAuthUser(ctx)
 
   const membership = await ctx.db
     .query('memberships')

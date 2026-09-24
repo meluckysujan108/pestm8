@@ -8,7 +8,7 @@ import {
 } from './_generated/server'
 import { internal } from './_generated/api'
 import { authComponent } from './auth'
-import { getAuthUserId, requireMembership } from './lib/access'
+import { getAuthUserId, requireAuthUser, requireMembership } from './lib/access'
 import { isMemberColour, nextColour, normaliseColour } from './lib/colours'
 import { isValidEmail } from './lib/email'
 import {
@@ -275,9 +275,11 @@ export const redeem = action({
 export const redeemByHash = internalMutation({
   args: { tokenHash: v.string() },
   handler: async (ctx, { tokenHash }) => {
-    // getAuthUser throws ConvexError('Unauthenticated') itself when there is
-    // no live session, so there is nothing to null-check here.
-    const user = await authComponent.getAuthUser(ctx)
+    // requireAuthUser throws ConvexError('Unauthenticated') itself when there
+    // is no live session, so there is nothing to null-check here. It also
+    // refuses an account that has not set up two-step sign-in: joining comes
+    // after enrolment, never before (see `requireAuthUser`).
+    const user = await requireAuthUser(ctx)
 
     const invitation = await ctx.db
       .query('invitations')
