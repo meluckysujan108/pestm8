@@ -5,9 +5,22 @@ export function getContext() {
   const convexUrl = import.meta.env.VITE_CONVEX_URL
   if (!convexUrl) throw new Error('VITE_CONVEX_URL is not set')
 
-  const convexQueryClient = new ConvexQueryClient(convexUrl, {
-    expectAuth: true,
-  })
+  // `expectAuth: true` holds every query/action back until the first auth
+  // token is sent — meant for apps where every page needs a signed-in
+  // client. This one has an exception: `/join/$token` deliberately works
+  // signed out (see its own header comment), and asks for its preview
+  // before anyone has signed in. `ConvexProviderWithAuth` only calls
+  // `client.setAuth(...)` on the AUTHENTICATED branch (convex/react's
+  // ConvexAuthStateFirstEffect), so for a genuinely signed-out visitor no
+  // token is ever sent — and with `expectAuth: true`, that queue never
+  // opens. The join page hung on "Checking your invitation…" forever,
+  // for every invite, for anyone who was not already signed in somewhere
+  // else in the same browser. Every route past `/join` still enforces its
+  // own membership check server-side, so an early, unauthenticated request
+  // firing here is a non-issue — it either succeeds against a function that
+  // needs no auth (this one) or is refused and quietly refetched once the
+  // real token lands.
+  const convexQueryClient = new ConvexQueryClient(convexUrl)
 
   const queryClient = new QueryClient({
     defaultOptions: {
