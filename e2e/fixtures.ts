@@ -269,6 +269,25 @@ export async function clickUntil(
   }).toPass({ timeout })
 }
 
+/**
+ * Picks the client and address on an open New Job sheet. The form starts with
+ * nothing chosen and will not book until something is, so every test that
+ * books through it says who the job is for.
+ */
+export async function chooseProperty(
+  page: Page,
+  sheet: Locator,
+  search: string,
+  option: RegExp,
+) {
+  await sheet.getByLabel('Property').click()
+  await page
+    .getByRole('textbox', { name: 'Search by name or address' })
+    .fill(search)
+  await page.getByRole('button', { name: option }).click()
+  await expect(sheet.getByLabel('Property')).toContainText(option)
+}
+
 export function uniqueEmail(label: string) {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@pestm8.test`
 }

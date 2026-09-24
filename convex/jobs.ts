@@ -35,6 +35,7 @@ import {
   requireEditableJob,
 } from './lib/jobAccess'
 import { UNASSIGNED_COLOUR } from './lib/colours'
+import { normaliseWorkOrder } from './lib/workOrder'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -674,12 +675,21 @@ export const create = mutation({
     price: v.number(),
     scheduledAt: v.number(),
     durationMinutes: v.number(),
+    workOrder: v.optional(v.string()),
   },
   handler: async (
     ctx,
-    { propertyId: existingPropertyId, newClient, ...args },
+    {
+      propertyId: existingPropertyId,
+      newClient,
+      workOrder: rawWorkOrder,
+      ...args
+    },
   ) => {
     const env = await requireWriteActor(ctx, args.businessId)
+    // Refused before any other work: a throw rolls the whole booking back,
+    // new client included, so nothing is left half-made either way.
+    const workOrder = normaliseWorkOrder(rawWorkOrder)
 
     // Who the ACTING account may put work onto (`canDispatchTo`): the owner
     // anyone, a contractor their team, anyone else themselves. The roster's
@@ -704,6 +714,7 @@ export const create = mutation({
       status: initialJobStatus('manual'),
       createdAt: Date.now(),
       jobNumber,
+      ...(workOrder !== undefined && { workOrder }),
     })
 
     await recordOnBehalf(ctx, writeAttribution(env.actor), {
@@ -747,6 +758,8 @@ export const update = mutation({
     scheduledAt: v.optional(v.number()),
     durationMinutes: v.optional(v.number()),
     assignedMembershipId: v.optional(v.id('memberships')),
+    // A blank string clears it; leaving it out leaves it alone.
+    workOrder: v.optional(v.string()),
     // Deliberately not `jobStatus`: 'recurring' is system-only
     // (lib/jobStatus.ts), refused here at the door so a client that sends it
     // fails argument validation before any handler code runs.
@@ -791,11 +804,20 @@ export const update = mutation({
       }
     }
 
-    const fields = Object.fromEntries(
+    const fields: Record<string, unknown> = Object.fromEntries(
       Object.entries(patch as Record<string, unknown>).filter(
         ([, value]) => value !== undefined,
       ),
     )
+
+    // Written only when it changes, and as `undefined` when cleared — which
+    // is how a patch removes a field. Without this a blank would be stored as
+    // an empty string, and a work order could never be taken off again.
+    if (patch.workOrder !== undefined) {
+      const workOrder = normaliseWorkOrder(patch.workOrder)
+      if (workOrder === job.workOrder) delete fields.workOrder
+      else fields.workOrder = workOrder
+    }
 
     /**
      * Someone who cannot see a price cannot change one — and this is the half

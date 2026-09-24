@@ -1,5 +1,10 @@
 import { expect, test } from '@playwright/test'
-import { api, setupBusinessWithSub, signInViaUi } from './fixtures'
+import {
+  api,
+  chooseProperty,
+  setupBusinessWithSub,
+  signInViaUi,
+} from './fixtures'
 
 /**
  * The owner works jobs himself, so he is a person on everyone's roster rather
@@ -75,6 +80,7 @@ test('a subcontractor’s new job is theirs, with no one else to pick', async ({
 
   const sheet = page.getByRole('dialog')
   await expect(sheet.getByText('Assigned to you')).toBeVisible()
+  await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
   await sheet.getByLabel('Job type').click()
   await page
     .getByRole('button', { name: 'Termite Inspection', exact: true })

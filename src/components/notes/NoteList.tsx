@@ -4,26 +4,36 @@ import { convexQuery } from '@convex-dev/react-query'
 import { usePaginatedQuery } from 'convex/react'
 import { ListPending } from '#/components/shell/Pending'
 import { NOTES_PAGE, notesFirstPage, rq } from '#/lib/routeQueries'
-import { Briefcase, ListChecks, MapPin, Pin, User } from 'lucide-react'
+import { Briefcase, ListChecks, Lock, MapPin, Pin, User } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { EmptyState } from '#/components/primitives/EmptyState'
+import { useAccess } from '#/lib/access'
 import { editedLabel, noteGroupLabel, noteGroupOf } from '#/lib/noteDates'
 import { LIBRARY_FILTERS } from './NotesRail'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { DecoratedNote } from '../../../convex/notes'
 
 export type LibraryFilter =
-  'all' | 'mentions' | 'jobs' | 'sites' | 'team' | 'trash'
+  'mine' | 'all' | 'mentions' | 'jobs' | 'sites' | 'team' | 'everyone' | 'trash'
 
 const folderLabel = (filter: LibraryFilter) =>
-  LIBRARY_FILTERS.find((f) => f.value === filter)?.label ?? 'All Notes'
+  LIBRARY_FILTERS.find((f) => f.value === filter)?.label ?? 'My notes'
 
 type Row = DecoratedNote & { unread?: boolean }
 
 const EMPTY: Record<LibraryFilter, { title: string; body: string }> = {
+  mine: {
+    title: 'No notes of your own yet',
+    // Said to staff with the owner in it (see `emptyFor`).
+    body: 'Press + for a blank page. Nobody else can see your notes.',
+  },
   all: {
     title: 'No notes yet',
-    body: 'Gate codes, dogs on site, where the key lives — anything the team should know.',
+    body: 'Your own notes, and what the team shares — gate codes, dogs on site, where the key lives.',
+  },
+  everyone: {
+    title: 'Nobody has written a note of their own yet',
+    body: 'The team’s personal notes land here. Only you can see them, and only to read.',
   },
   mentions: {
     title: 'Nobody has tagged you',
@@ -31,7 +41,7 @@ const EMPTY: Record<LibraryFilter, { title: string; body: string }> = {
   },
   jobs: {
     title: 'No job notes',
-    body: 'Attach a note to a job and it shows up on that job too.',
+    body: 'Notes attached to a job. They also show on the client’s sheet.',
   },
   sites: {
     title: 'No site or client notes',
@@ -45,6 +55,18 @@ const EMPTY: Record<LibraryFilter, { title: string; body: string }> = {
     title: 'Recently Deleted is empty',
     body: 'Deleted notes stay here for 30 days.',
   },
+}
+
+/** The empty folder's words. My notes tells staff, before they write a thing,
+ * that the owner can read what they put there. */
+function emptyFor(filter: LibraryFilter, isOwner: boolean) {
+  if (filter === 'mine' && !isOwner) {
+    return {
+      title: EMPTY.mine.title,
+      body: 'Press + for a blank page. Only you and the owner can see your notes.',
+    }
+  }
+  return EMPTY[filter]
 }
 
 /**
@@ -69,6 +91,7 @@ export function NoteList({
 }) {
   const searching = query.trim() !== ''
   const paging = !searching && filter !== 'mentions'
+  const isOwner = useAccess().role === 'owner'
 
   const paged = usePaginatedQuery(
     api.notes.list,
@@ -192,7 +215,7 @@ export function NoteList({
             body={`Nothing in ${folderLabel(filter)} mentions “${query.trim()}”.`}
           />
         ) : (
-          <EmptyState title={EMPTY[filter].title} body={EMPTY[filter].body} />
+          <EmptyState {...emptyFor(filter, isOwner)} />
         )}
       </div>
     )
@@ -212,6 +235,7 @@ export function NoteList({
                 note={note}
                 timezone={timezone}
                 now={now}
+                showAuthor={filter === 'everyone'}
                 selected={note._id === selectedId}
                 onSelect={() => onSelect(note._id)}
               />
@@ -238,12 +262,15 @@ function NoteRow({
   note,
   timezone,
   now,
+  showAuthor,
   selected,
   onSelect,
 }: {
   note: Row
   timezone: string
   now: number
+  /** Everyone's notes: whose note it is is the first thing to know. */
+  showAuthor: boolean
   selected: boolean
   onSelect: () => void
 }) {
@@ -283,6 +310,14 @@ function NoteRow({
           <span className="truncate text-row-title text-ink">
             {note.title || 'New note'}
           </span>
+          {note.private && (
+            <Lock
+              size={12}
+              strokeWidth={2.4}
+              aria-label="Personal"
+              className="shrink-0 text-muted"
+            />
+          )}
           {note.pinnedAt !== undefined && (
             <Pin
               size={12}
@@ -292,6 +327,11 @@ function NoteRow({
             />
           )}
         </span>
+        {showAuthor && (
+          <span className="mt-0.5 block truncate text-caption font-semibold text-ink-2">
+            {note.authorName || 'A former member'}
+          </span>
+        )}
         <span className="mt-0.5 flex gap-1.5 text-caption">
           <span className="shrink-0 text-ink-2">
             {editedLabel(note.updatedAt, timezone, now)}

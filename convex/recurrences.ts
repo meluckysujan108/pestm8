@@ -15,6 +15,7 @@ import {
   setJobStatus,
 } from './lib/jobStatus'
 import { redactJob } from './lib/prices'
+import { normaliseWorkOrder } from './lib/workOrder'
 import {
   HORIZON_DAYS,
   assertInterval,
@@ -85,6 +86,7 @@ export const create = mutation({
     price: v.number(),
     anchorDate: v.number(),
     durationMinutes: v.number(),
+    workOrder: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -95,6 +97,7 @@ export const create = mutation({
     // Before anything is written: `v.number()` admits 0, -3 and 2.5, none of
     // which describe a repeat.
     assertInterval({ count: args.intervalCount, unit: args.intervalUnit })
+    const workOrder = normaliseWorkOrder(args.workOrder)
 
     // Same rule as jobs.create, and it matters more here: the daily cron keeps
     // booking a series onto its assignee for as long as it runs.
@@ -115,6 +118,7 @@ export const create = mutation({
       price: args.price,
       anchorDate: args.anchorDate,
       active: true,
+      ...(workOrder !== undefined && { workOrder }),
     })
 
     // The first visit is the one the person just booked by hand, so it is
@@ -250,6 +254,11 @@ async function insertVisit(
     recurrenceId: recurrence._id,
     createdAt: Date.now(),
     jobNumber: await allocateJobNumber(ctx, recurrence.businessId),
+    // Every visit carries the series' work order, so the office invoicing
+    // any one of them has it without looking the series up.
+    ...(recurrence.workOrder !== undefined && {
+      workOrder: recurrence.workOrder,
+    }),
   })
 }
 
@@ -391,6 +400,9 @@ export const convertJobToRecurring = mutation({
       price: job.price,
       anchorDate: job.scheduledAt,
       active: true,
+      // The job's work order becomes the series', so the visits projected
+      // from it are booked under it too.
+      ...(job.workOrder !== undefined && { workOrder: job.workOrder }),
     })
 
     // Attach the EXISTING job to the new series before materialising —
