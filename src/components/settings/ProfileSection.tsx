@@ -15,6 +15,7 @@ import { forgetCachedPages } from '#/lib/rootState'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 import { rq } from '#/lib/routeQueries'
+import { LicenceDocument } from './LicenceDocument'
 import { saveUserName } from './saveUserName'
 
 /** Licence field labelling is state-based, so the label follows the tenant. */
@@ -198,6 +199,9 @@ export function ProfileSection({
               ? 'Saved'
               : 'Save'}
         </button>
+        {/* Its own buttons (type="button"), none of which submit the number:
+            a file is saved the moment it is picked. */}
+        <LicenceDocument businessId={businessId} membershipId={membershipId} />
       </form>
 
       <button

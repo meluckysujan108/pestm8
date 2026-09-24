@@ -6,6 +6,7 @@ import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { ColourPicker } from './ColourPicker'
 import { ResetTwoStepButton } from './ResetTwoStepButton'
+import { MemberLicenceButton } from './MemberLicenceButton'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Grants, Role } from '../../../convex/lib/capabilities'
 
@@ -27,6 +28,9 @@ export type Member = {
   /** From the roster: whether they have two-step sign-in set up. Absent from
    * an older backend, which means no reset is offered. */
   twoStepOn?: boolean
+  /** From the roster: a licence document this viewer (the owner) may open.
+   * Absent from an older backend, which means no button. */
+  hasLicenceFile?: boolean
 }
 
 export function MemberAccessRow({
@@ -170,6 +174,17 @@ export function MemberAccessRow({
           Without this they cannot finalise a termite certificate, timber pest
           inspection or treatment record.
         </p>
+      )}
+
+      {/* Phase 8.1: the licence document they uploaded, read-only. */}
+      {member.hasLicenceFile && (
+        <div className="mt-2 flex flex-wrap items-center">
+          <MemberLicenceButton
+            businessId={businessId}
+            membershipId={member._id}
+            name={member.name || member.email || 'This person'}
+          />
+        </div>
       )}
 
       {!isOwner && (

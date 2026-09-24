@@ -255,13 +255,15 @@ export function MoreMenu({
           {/* Every item acts inside the tap that chose it: Safari opens the
               share sheet (Save to Files) and the file picker (Replace) only
               from a user gesture. */}
-          <MenuItem
-            icon={<Download size={18} strokeWidth={1.8} />}
-            disabled={!canSave}
-            onSelect={onSave}
-          >
-            {actions.saveLabel}
-          </MenuItem>
+          {actions.save && (
+            <MenuItem
+              icon={<Download size={18} strokeWidth={1.8} />}
+              disabled={!canSave}
+              onSelect={onSave}
+            >
+              {actions.saveLabel ?? 'Save'}
+            </MenuItem>
+          )}
           {replace && (
             <MenuItem
               icon={<FileUp size={18} strokeWidth={1.8} />}

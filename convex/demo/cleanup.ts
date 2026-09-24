@@ -3,6 +3,7 @@ import { components, internal } from '../_generated/api'
 import { internalMutation, internalQuery } from '../_generated/server'
 import { authComponent } from '../auth'
 import { purgeNote } from '../notes'
+import { heldAsLicence } from '../lib/fileClaims'
 import { DEMO_PLAN, PLACEHOLDER_EMAIL_DOMAIN } from './shared'
 import type { Doc, Id, TableNames } from '../_generated/dataModel'
 import type { MutationCtx, QueryCtx } from '../_generated/server'
@@ -786,6 +787,11 @@ async function spared(run: Run, file: Id<'_storage'>): Promise<boolean> {
       return true
     }
   }
+
+  // Someone's licence document (Phase 8.1), in any business: a licence
+  // claims only an upload nothing holds, but a hand-made row can break that,
+  // and a person's licence is not the demo's to delete.
+  if (await heldAsLicence(ctx, file)) return true
   return false
 }
 

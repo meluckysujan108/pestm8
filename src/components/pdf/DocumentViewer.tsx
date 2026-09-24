@@ -329,8 +329,8 @@ export function DocumentViewer({
     run(() => actions.share?.(file), "Couldn't share this PDF", showToast)
   }
   const save = () => {
-    if (!file) return
-    run(() => actions.save(file), "Couldn't save this PDF", showToast)
+    if (!file || !actions.save) return
+    run(() => actions.save?.(file), "Couldn't save this PDF", showToast)
   }
 
   // ---- Keys ---------------------------------------------------------------
@@ -531,7 +531,13 @@ export function DocumentViewer({
             title={title}
             pages={pages}
             onDone={onClose}
-            menu={<MoreMenu actions={actions} canSave={!!file} onSave={save} />}
+            menu={
+              // No menu at all when it would be empty — a licence opened by
+              // the owner offers nothing but reading it.
+              actions.save || actions.replace || actions.keep ? (
+                <MoreMenu actions={actions} canSave={!!file} onSave={save} />
+              ) : null
+            }
           />
 
           {noText && (

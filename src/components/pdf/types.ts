@@ -44,10 +44,14 @@ export type ViewerActions = {
    * Saves a copy outside the app — an `<a download>` where that works, the
    * share sheet's "Save to Files" on an iPhone or iPad, where a download from
    * an installed app has nowhere sensible to land.
+   *
+   * Absent where a file is to be read inside the app and nowhere else — a
+   * licence document (Phase 8.1) — which leaves the menu without Save.
    */
-  save: (file: File) => Promise<void> | void
-  /** "Save to Files" on Apple phones and tablets, "Download" elsewhere. */
-  saveLabel: string
+  save?: (file: File) => Promise<void> | void
+  /** "Save to Files" on Apple phones and tablets, "Download" elsewhere.
+   * Shown only with `save`. */
+  saveLabel?: string
   /**
    * Offered only to the product's creator and the owner. Opens the file
    * picker; once the new file is saved, `source.key` changes and the viewer

@@ -27,10 +27,11 @@ export const Route = createFileRoute('/$businessSlug/settings')({
   validateSearch: z.object({
     seg: z.enum(['profile', 'team', 'prefs', 'reports']).optional(),
   }),
-  // Profile's user and, for whoever may see it, Team's two lists — which the
-  // section reads one after the other. `access.me` is already in the cache:
-  // the layout's beforeLoad warms it, so reading the capability here costs
-  // nothing and keeps a technician from asking for a roster they cannot have.
+  // Profile's user and licence document and, for whoever may see it, Team's
+  // two lists — which the section reads one after the other. `access.me` is
+  // already in the cache: the layout's beforeLoad warms it, so reading the
+  // capability here costs nothing and keeps a technician from asking for a
+  // roster they cannot have.
   loader: ({ context: { queryClient, business }, location }) => {
     const seg = searchParam(location, 'seg') ?? 'profile'
     const access = queryClient.getQueryData<Access>(
@@ -39,7 +40,12 @@ export const Route = createFileRoute('/$businessSlug/settings')({
     const team = seg === 'team' && access?.caps['team.manage'] === true
     return warm(
       queryClient,
-      ...(seg === 'profile' ? [rq.currentUser()] : []),
+      ...(seg === 'profile'
+        ? [
+            rq.currentUser(),
+            rq.licenceFile(business._id, business.membership._id),
+          ]
+        : []),
       ...(team ? [rq.team(business._id), rq.invitations(business._id)] : []),
     )
   },
