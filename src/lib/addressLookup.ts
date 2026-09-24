@@ -346,11 +346,36 @@ export function parsePhotonResponse(
  * refused or broken reply, or the request being aborted because more was
  * typed. The field works exactly as a plain input without them.
  */
+/**
+ * Set to 'on' in localStorage to let a browser under automation reach Photon.
+ * See `lookupAllowed`.
+ */
+export const LOOKUP_UNDER_AUTOMATION_KEY = 'pestm8:address-lookup'
+
+/**
+ * Off when the browser is being driven by a test runner (`navigator.webdriver`
+ * — Playwright sets it), unless the test opts in.
+ *
+ * The e2e suite types dozens of street addresses a run. Left on, every one of
+ * them would reach a free public service that asks to be used fairly, and the
+ * suite's results would hang on that service being up. A spec that is ABOUT the
+ * lookup opts in and answers the requests itself (`page.route`).
+ */
+function lookupAllowed(): boolean {
+  if (typeof navigator === 'undefined' || !navigator.webdriver) return true
+  try {
+    return localStorage.getItem(LOOKUP_UNDER_AUTOMATION_KEY) === 'on'
+  } catch {
+    return false
+  }
+}
+
 export async function searchAddresses(
   query: string,
   opts: { signal: AbortSignal; biasState?: string },
 ): Promise<Array<AddressSuggestion>> {
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return []
+  if (!lookupAllowed()) return []
   if (photonQueryOf(query) === null) return []
   try {
     const res = await fetch(photonUrl(query, opts.biasState), {

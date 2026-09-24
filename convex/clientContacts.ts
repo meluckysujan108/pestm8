@@ -35,38 +35,39 @@ export async function setContactPerson(
     .collect()
   const primary = contacts.find((c) => c.isPrimary)
 
+  let contactId: Id<'clientContacts'> | null
   if (name === '') {
-    if (primary) await ctx.db.patch(primary._id, { isPrimary: false })
-    return
-  }
-  if (primary && sameName(primary.name, name)) {
+    contactId = null
+  } else if (primary && sameName(primary.name, name)) {
     if (primary.name !== name) await ctx.db.patch(primary._id, { name })
-    return
-  }
-
-  const named = contacts.find((c) => sameName(c.name, name))
-  let contactId: Id<'clientContacts'>
-  if (named) {
-    contactId = named._id
-  } else if (primary && !primary.role && !primary.phone && !primary.email) {
-    await ctx.db.patch(primary._id, { name })
-    return
+    contactId = primary._id
   } else {
-    contactId = await ctx.db.insert('clientContacts', {
-      businessId,
-      clientId,
-      name,
-      createdAt: Date.now(),
-    })
+    const named = contacts.find((c) => sameName(c.name, name))
+    if (named) {
+      contactId = named._id
+    } else if (primary && !primary.role && !primary.phone && !primary.email) {
+      await ctx.db.patch(primary._id, { name })
+      contactId = primary._id
+    } else {
+      contactId = await ctx.db.insert('clientContacts', {
+        businessId,
+        clientId,
+        name,
+        createdAt: Date.now(),
+      })
+    }
   }
 
-  // Exclusive per client, as `setPrimary` keeps it.
+  // Exclusive per client, as `setPrimary` keeps it — and on every path, so a
+  // client whose rows have somehow drifted to two stars comes out with one.
   await Promise.all(
     contacts
       .filter((c) => c.isPrimary && c._id !== contactId)
       .map((c) => ctx.db.patch(c._id, { isPrimary: false })),
   )
-  await ctx.db.patch(contactId, { isPrimary: true })
+  if (contactId !== null && contactId !== primary?._id) {
+    await ctx.db.patch(contactId, { isPrimary: true })
+  }
 }
 
 export const list = query({

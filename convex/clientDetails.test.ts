@@ -501,6 +501,27 @@ describe('changing a client’s contact person', () => {
     expect(primaries(contacts)).toEqual(['Jan Morris'])
   })
 
+  test.each([
+    ['renames the bare one', 'John', ['John']],
+    ['keeps the same one', 'Jhon', ['Jhon']],
+    ['moves to a new one', 'Priya Shah', ['Priya Shah']],
+    ['clears both', '', []],
+  ])(
+    'rows drifted to two primaries come out with one: %s',
+    async (_, name, expected) => {
+      const s = await setup()
+      const { clientId } = await insertClient(s)
+      await addContact(s, clientId, { name: 'Jhon', isPrimary: true })
+      await addContact(s, clientId, {
+        name: 'Jan Morris',
+        role: 'Owner',
+        isPrimary: true,
+      })
+      await setContactPerson(s, clientId, name)
+      expect(primaries(await contactsOf(s, clientId))).toEqual(expected)
+    },
+  )
+
   test('never deletes anyone, and never leaves two primaries', async () => {
     const s = await setup()
     const { clientId } = await insertClient(s)
