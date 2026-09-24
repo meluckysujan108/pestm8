@@ -24,12 +24,14 @@ test('an owner can write a note, see it in the list, and move it to Recently Del
   await signInViaUi(page, email)
   await page.goto(`/${slug}/notes`)
 
-  await expect(page.getByText('No notes yet')).toBeVisible()
+  // The section opens on the owner's own notebook.
+  await expect(page.getByText('No notes of your own yet')).toBeVisible()
 
+  // One tap, a blank page: no menu of templates to choose from first.
   const add = page.getByRole('button', { name: 'New note' })
   await expect(add).toBeEnabled()
   await add.click()
-  await page.getByRole('menuitem', { name: /Blank note/ }).click()
+  await expect(page.getByRole('menuitem')).toHaveCount(0)
 
   // No save button: the first line is the title, and the list follows the
   // body as it is typed.
@@ -46,7 +48,7 @@ test('an owner can write a note, see it in the list, and move it to Recently Del
 
   await page.getByRole('button', { name: 'More' }).click()
   await page.getByRole('menuitem', { name: 'Delete' }).click()
-  await expect(page.getByText('No notes yet')).toBeVisible()
+  await expect(page.getByText('No notes of your own yet')).toBeVisible()
 })
 
 test('a subcontractor cannot delete a note they did not write', async () => {

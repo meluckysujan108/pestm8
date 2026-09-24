@@ -158,7 +158,9 @@ function InlineNote({
               <Link
                 to="/$businessSlug/notes"
                 params={{ businessSlug }}
-                search={{ noteId: note._id }}
+                // All Notes: the library opens on My notes, which never
+                // lists a note from a job or client sheet.
+                search={{ noteId: note._id, filter: 'all' }}
                 aria-label="Open in Notes"
                 className="flex size-9 items-center justify-center rounded-lg text-blue"
               >

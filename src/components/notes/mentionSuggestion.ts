@@ -8,12 +8,17 @@ type Props = SuggestionProps<MentionItem, MentionItem>
 /**
  * `getMembers` is read on every keystroke rather than captured once, so the
  * roster a note was opened with never goes stale while it stays open.
+ * `isAllowed` likewise: a note can turn personal — and stop taking tags —
+ * while it is open, without the editor being rebuilt.
  */
 export function mentionSuggestion(
   getMembers: () => Array<MentionItem>,
+  isAllowed: () => boolean = () => true,
 ): Omit<SuggestionOptions<MentionItem, MentionItem>, 'editor'> {
   return {
     char: '@',
+    // Off, "@" is just a character: no list opens, so nobody is offered.
+    allow: () => isAllowed(),
     // Inside a vaul sheet the body has pointer-events:none and sits under
     // the sheet's overlay, so the list must live inside the sheet itself.
     // No sheet on the page → the plugin falls back to document.body.

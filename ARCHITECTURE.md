@@ -302,9 +302,17 @@ reports: {
 .index("by_property", ["propertyId"])       // "find the 2024 report for this address"
 .index("by_job", ["jobId"])
 
+// Superseded by the Field Notes rebuild; the live shape is convex/schema.ts.
+// The body lives in the prosemirror-sync component; the row holds links
+// (job / property / client — what the note is about) and derived metadata.
+// `visibility: 'private'` (Phase 5.3, 2026-09-24) makes a PERSONAL note:
+// read and written by its author, read only by the business owner, by
+// nobody else whatever their job scope, lens or @mentions; never linked,
+// never tagging. Absent = shared (knowledge-first), as every older note is.
 notes: {
   businessId, authorMembershipId,
-  jobId?, propertyId?,
+  jobId?, propertyId?, clientId?,
+  visibility?,
   text, createdAt
 }
 .index("by_business", ["businessId"])
@@ -389,7 +397,8 @@ convex/
   long-answer boxes, writable by any member. `reports.ts` gained
   `lastAtProperty`/`copyFromLastVisit`, which fill a return visit in from the
   last report at the same address.
-  notes.ts                   list, create, listForJob
+  notes.ts                   list (folders incl. mine / everyone), search, create,
+                             setVisibility, listForProperty, listForJob (legacy)
   tasks.ts                   NOT BUILT — see the `tasks` table note in §4.2
   xero.ts                    [action] beginOAuth, completeOAuth, refresh, pushInvoice
   invoices.ts                createFromJob, syncStatus
@@ -508,7 +517,8 @@ src/components/
     pdf/                          ONE painter (ReportPdf) + CoverPage, layout,
                                   tables, theme, RichTextPdf, PdfViewer
   notes/
-    NoteComposer.tsx  NoteCard.tsx  JobPill.tsx
+    NotesLibrary.tsx  NotesRail.tsx  NoteList.tsx  NoteEditor.tsx
+    NoteEditorHeader.tsx  JobNotesSection.tsx ("Before you arrive" only)
   settings/
     ProfileSection.tsx  TeamSection.tsx  MemberAccessRow.tsx  PrefsSection.tsx
 

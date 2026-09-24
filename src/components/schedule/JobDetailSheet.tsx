@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
@@ -30,12 +30,14 @@ import { WeatherGlyph } from './WeatherGlyph'
 import { WeatherCredit } from './WeatherCredit'
 import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
+import { propertyOptions } from '#/lib/propertyOptions'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
+import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import {
   DEFAULT_INTERVAL,
   RecurrenceFields,
@@ -388,6 +390,23 @@ function JobDetailBody({
                 )}
               </Section>
 
+              {/* The client's reference, read out at a site's sign-in desk
+                  and needed on the invoice. A business client without one is
+                  said so, so a missing PO is noticed before the job is
+                  invoiced rather than when the invoice bounces. */}
+              {(job.workOrder !== undefined ||
+                job.property?.client?.kind === 'business') && (
+                <Section label="Work order">
+                  {job.workOrder !== undefined ? (
+                    <p className="select-text text-row-title text-ink">
+                      {job.workOrder}
+                    </p>
+                  ) : (
+                    <p className="text-body text-muted">None recorded</p>
+                  )}
+                </Section>
+              )}
+
               <Section label="Price">
                 <p className="text-metric-sm text-ink">{formatJobMoney(job)}</p>
               </Section>
@@ -470,19 +489,12 @@ function JobDetailBody({
           {/* Its own boundary, so the rest of the sheet draws while the
               editor's code arrives, and in the sections' own loading state. */}
           <Suspense
-            fallback={
-              <>
-                <SectionLoading label="Before you arrive" />
-                <SectionLoading label="Notes for this visit" />
-              </>
-            }
+            fallback={<SectionLoading label="Before you arrive" />}
           >
             <JobNotesSection
               businessId={businessId}
               businessSlug={businessSlug}
               timezone={timezone}
-              jobId={job._id}
-              jobType={job.jobType}
               propertyId={job.propertyId}
               addressLine={job.property?.addressLine ?? ''}
             />
@@ -616,8 +628,10 @@ function JobDetailBody({
 /**
  * Every job field except status (that stays on the dropdown above — a quick
  * toggle, not a form field). Reuses `NewJobSheet.tsx`'s exact widgets rather
- * than inventing new ones: native `<select>` for property/job type/assignee,
- * `date`+`time` inputs, plain number inputs for duration/price.
+ * than inventing new ones: the searchable `Combobox` for property and job
+ * type, a native `<select>` for the assignee, `date`+`time` inputs, plain
+ * number inputs for duration/price. Unlike a new job, the property starts on
+ * the job's own — that is context, not a default.
  */
 function JobEditForm({
   businessId,
@@ -637,6 +651,7 @@ function JobEditForm({
     scheduledAt: number
     durationMinutes: number
     assignedMembershipId: Id<'memberships'>
+    workOrder?: string
     recurrence: { _id: Id<'recurrences'>; interval: Interval; active: boolean } | null
   }
   canReassign: boolean
@@ -650,6 +665,10 @@ function JobEditForm({
   )
 
   const [propertyId, setPropertyId] = useState<string>(job.propertyId)
+  const propertyOptionList = useMemo(
+    () => propertyOptions(properties ?? []),
+    [properties],
+  )
   const [jobType, setJobType] = useState(job.jobType)
   // Seeded from the tenant's own timezone, not the viewer's browser zone —
   // matching what `formatTime` already displays elsewhere in this sheet, so
@@ -659,6 +678,11 @@ function JobEditForm({
   const [duration, setDuration] = useState(String(job.durationMinutes))
   const [price, setPrice] = useState(String(job.price / 100))
   const [assignee, setAssignee] = useState<string>(job.assignedMembershipId)
+  // What the form opened with, held still: `job` is live, and comparing
+  // against it would send this form's stale value over a work order someone
+  // else set while it was open.
+  const [openedWorkOrder] = useState(job.workOrder ?? '')
+  const [workOrder, setWorkOrder] = useState(openedWorkOrder)
   const { options: assignees } = useAssigneeOptions(members)
   const [repeats, setRepeats] = useState(false)
   const [interval, setInterval] = useState<IntervalDraft>(DEFAULT_INTERVAL)
@@ -683,6 +707,7 @@ function JobEditForm({
       scheduledAt: number
       durationMinutes: number
       assignedMembershipId: Id<'memberships'>
+      workOrder: string | undefined
       repeat: Interval | null
     }) => {
       const { repeat: nextRepeat, ...patch } = args
@@ -725,6 +750,13 @@ function JobEditForm({
           scheduledAt,
           durationMinutes: Number(duration),
           assignedMembershipId: assignee as Id<'memberships'>,
+          // Sent only when changed ('' clears it). Every other edit then
+          // leaves it out entirely, so rescheduling a job never depends on
+          // the server knowing this field.
+          workOrder:
+            workOrder.trim() === openedWorkOrder
+              ? undefined
+              : workOrder.trim(),
           repeat: recurrence,
         })
       }}
@@ -733,13 +765,24 @@ function JobEditForm({
         <Combobox
           value={propertyId}
           onChange={setPropertyId}
-          options={(properties ?? []).map((p) => ({
-            value: p._id,
-            label: `${p.client?.name} — ${p.addressLine}, ${p.suburb}`,
-          }))}
+          options={propertyOptionList}
           placeholder="Search by name or address"
           noMatchLabel="No properties match"
           ariaLabel="Property"
+        />
+      </EditField>
+
+      <EditField label="Work order">
+        <input
+          value={workOrder}
+          onChange={(e) => setWorkOrder(e.target.value)}
+          maxLength={MAX_WORK_ORDER_LENGTH}
+          autoCapitalize="characters"
+          autoCorrect="off"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="None"
+          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
         />
       </EditField>
 

@@ -38,6 +38,14 @@ export type NoteViewer = {
    * jobs when they have chosen "Just my jobs". A choice of what to be shown,
    * so it is read by the picker and by nothing that decides what is allowed. */
   pickerRows: RowScope
+  /**
+   * The owner, standing in God view as himself: not in "Just my jobs", not
+   * switched into an account, not looking through anyone. Only this LISTS
+   * other people's personal notes ("Everyone's notes"). It never decides
+   * whether one may be read — `canReadNote` asks the real role for that — so
+   * a note opened by link reads the same in any view.
+   */
+  godView: boolean
 }
 
 export async function noteViewer(
@@ -49,6 +57,11 @@ export async function noteViewer(
   // question, and two answers that could disagree.
   const env = await requireActor(ctx, businessId)
   return {
+    godView:
+      env.actor.real.role === 'owner' &&
+      env.view === 'everyone' &&
+      env.actor.session === null &&
+      !env.viewingAsLegacy,
     real: env.actor.real,
     scope: env.readScope,
     readRows: env.scope,
@@ -61,12 +74,21 @@ export async function noteViewer(
   }
 }
 
+export function isPrivate(note: Pick<Note, 'visibility'>): boolean {
+  return note.visibility === 'private'
+}
+
 /**
  * Knowledge-first policy: site, client and team notes are the business's
  * shared knowledge and every active member can read them — a gate code or
  * "dog on site" is exactly what a subcontractor turning up needs. Job notes
  * follow job visibility (the assignee, or anyone with business-wide scope),
  * and being @mentioned in a note always grants read on that note.
+ *
+ * A personal note is the exception, and it is decided on the REAL person
+ * before any of that: its author, and the owner of the business. Not a
+ * contractor over the author, not anyone looking through the author's
+ * account, and not an @mention — job scope and lenses say nothing about it.
  */
 export async function canReadNote(
   ctx: Ctx,
@@ -76,6 +98,7 @@ export async function canReadNote(
   if (note.businessId !== viewer.real.businessId) return false
 
   const mine = note.authorMembershipId === viewer.real._id
+  if (isPrivate(note)) return mine || viewer.real.role === 'owner'
   if (note.deletedAt !== undefined) return mine || viewer.real.role === 'owner'
 
   if (noteKind(note) !== 'job') return true
@@ -98,6 +121,9 @@ export async function canWriteNote(
   note: Note,
 ): Promise<boolean> {
   if (note.deletedAt !== undefined) return false
+  // Personal notes are written by their author alone. The owner reads them;
+  // an employer editing someone's own notes is not what was agreed.
+  if (isPrivate(note)) return note.authorMembershipId === viewer.real._id
   // Re-asked as the real person, looking through nobody: "view as" is a lens,
   // and a lens has never granted the right to write what it shows you.
   return canReadNote(
@@ -108,12 +134,15 @@ export async function canWriteNote(
       readRows: viewer.ownRows,
       ownRows: viewer.ownRows,
       pickerRows: viewer.ownRows,
+      godView: false,
     },
     note,
   )
 }
 
-/** Deletion keeps today's rule: what you wrote, or anything if you own the business. */
+/** Deletion keeps today's rule: what you wrote, or anything if you own the
+ * business — personal notes included, so an owner can clear out what a
+ * departed member left behind. */
 export function canDeleteNote(real: MembershipFacts, note: Note): boolean {
   return real.role === 'owner' || note.authorMembershipId === real._id
 }

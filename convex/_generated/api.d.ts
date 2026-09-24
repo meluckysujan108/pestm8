@@ -64,6 +64,7 @@ import type * as lib_reportSearch from "../lib/reportSearch.js";
 import type * as lib_richText from "../lib/richText.js";
 import type * as lib_svix from "../lib/svix.js";
 import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
+import type * as lib_workOrder from "../lib/workOrder.js";
 import type * as memberships from "../memberships.js";
 import type * as migrations_accessV3 from "../migrations/accessV3.js";
 import type * as migrations_jobStatusV1 from "../migrations/jobStatusV1.js";
@@ -153,6 +154,7 @@ declare const fullApi: ApiFromModules<{
   "lib/richText": typeof lib_richText;
   "lib/svix": typeof lib_svix;
   "lib/templateSnapshot": typeof lib_templateSnapshot;
+  "lib/workOrder": typeof lib_workOrder;
   memberships: typeof memberships;
   "migrations/accessV3": typeof migrations_accessV3;
   "migrations/jobStatusV1": typeof migrations_jobStatusV1;

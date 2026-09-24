@@ -1,6 +1,7 @@
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
@@ -20,12 +21,16 @@ import type { NewClientFieldsValue } from '#/components/clients/NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { IntervalUnit } from '../../../convex/lib/recurrence'
 import { useHydrated } from '#/lib/useHydrated'
+import { propertyOptions } from '#/lib/propertyOptions'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
+import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 
 type ClientMode = 'existing' | 'new'
+
+const PROPERTY_ERROR_ID = 'new-job-property-error'
 
 export function NewJobSheet({
   businessId,
@@ -114,6 +119,9 @@ function NewJobForm({
   const [time, setTime] = useState('09:00')
   const [price, setPrice] = useState('')
   const [duration, setDuration] = useState('60')
+  const [workOrder, setWorkOrder] = useState('')
+  const [addingWorkOrder, setAddingWorkOrder] = useState(false)
+  const workOrderInput = useRef<HTMLInputElement>(null)
   // "Does it repeat" and "how often" are two questions, so they are two
   // controls: the interval fields stay mounted but disabled when it does not,
   // rather than appearing and reflowing the form under the person's thumb.
@@ -132,8 +140,34 @@ function NewJobForm({
   const chosenInterval = repeats ? intervalFromDraft(interval) : null
   const intervalIncomplete = repeats && chosenInterval === null
 
+  // No client is chosen until the person chooses one. This used to fill in
+  // the business's oldest property on open, so a job booked in a hurry went
+  // to whoever happened to be first in the list — and nothing on the form
+  // said so.
+  const propertyOptionList = useMemo(
+    () => propertyOptions(properties),
+    [properties],
+  )
+  const [propertyMissing, setPropertyMissing] = useState(false)
+  // A work order is mostly a business client's — a facilities company, an
+  // agency — so for them the field is simply there. Anyone else can still
+  // add one; a landlord's managing agent issues them too.
+  const clientKind =
+    mode === 'existing'
+      ? properties.find((p) => p._id === propertyId)?.client?.kind
+      : newClient.kind
+  // Kept open while it holds anything, so a value typed for one client is
+  // never sent unseen after switching to another.
+  const showWorkOrder =
+    clientKind === 'business' || addingWorkOrder || workOrder !== ''
+  const propertyTrigger = useRef<HTMLButtonElement>(null)
+  // A choice the list stops offering while the sheet is open is dropped
+  // rather than submitted as an id nobody can see. Nothing removes a property
+  // today, but the list is scoped to the client directory (clientScope.ts),
+  // and a narrower scope would take rows away mid-booking.
   useEffect(() => {
-    if (!propertyId && properties.length > 0) setPropertyId(properties[0]._id)
+    if (propertyId && !properties.some((p) => p._id === propertyId))
+      setPropertyId('')
   }, [properties, propertyId])
   // Held to the options, not just seeded once: a switch starting or ending
   // while the sheet is open changes who may be booked, and a stale id would
@@ -164,6 +198,7 @@ function NewJobForm({
       price: number
       scheduledAt: number
       durationMinutes: number
+      workOrder: string | undefined
       repeat: { count: number; unit: IntervalUnit } | null
       // Returns a job id or a recurrence id depending on the branch, and the
       // caller needs neither — void keeps them from being conflated.
@@ -196,6 +231,9 @@ function NewJobForm({
             price: job.price,
             anchorDate: job.scheduledAt,
             durationMinutes: job.durationMinutes,
+            // Listed by hand, like everything in this branch: a field left
+            // off here is silently dropped from every visit of the series.
+            workOrder: job.workOrder,
           }).then(() => undefined)
     },
     onSuccess: onClose,
@@ -207,6 +245,17 @@ function NewJobForm({
       onSubmit={(e) => {
         e.preventDefault()
         if (intervalIncomplete) return
+        // Checked here rather than by disabling "Book job": the button sits at
+        // the foot of a long sheet, and a greyed-out button tells someone on
+        // the phone to a customer nothing about what is missing.
+        if (
+          mode === 'existing' &&
+          !properties.some((p) => p._id === propertyId)
+        ) {
+          setPropertyMissing(true)
+          propertyTrigger.current?.focus()
+          return
+        }
         const [hh, mm] = time.split(':').map(Number)
         // The picker gives a wall-clock time on the selected day, in the
         // tenant's own timezone — not the viewer's browser zone, which may
@@ -225,6 +274,7 @@ function NewJobForm({
           price: Math.round(Number(price || '0') * 100),
           scheduledAt,
           durationMinutes: Number(duration),
+          workOrder: workOrder.trim() || undefined,
           repeat: chosenInterval,
         })
       }}
@@ -246,24 +296,76 @@ function NewJobForm({
       )}
 
       {mode === 'existing' ? (
-        <Field label="Property">
-          <Combobox
-            value={propertyId}
-            onChange={setPropertyId}
-            options={properties.map((p) => ({
-              value: p._id,
-              label: `${p.client?.name} — ${p.addressLine}, ${p.suburb}`,
-            }))}
-            placeholder="Search by name or address"
-            noMatchLabel="No properties match"
-            ariaLabel="Property"
-          />
-        </Field>
+        <>
+          <Field label="Property">
+            <Combobox
+              value={propertyId}
+              onChange={(next) => {
+                setPropertyId(next)
+                setPropertyMissing(false)
+              }}
+              options={propertyOptionList}
+              placeholder="Search by name or address"
+              emptyLabel="Choose a client and address"
+              noMatchLabel="No client or address matches. Use New client above to add them."
+              ariaLabel="Property"
+              invalid={propertyMissing}
+              errorId={PROPERTY_ERROR_ID}
+              triggerRef={propertyTrigger}
+            />
+          </Field>
+          {/* Outside the <label>: inside it, this sentence would become part
+              of the field's name. */}
+          {propertyMissing && (
+            <p
+              id={PROPERTY_ERROR_ID}
+              role="alert"
+              className="mt-1.5 text-caption text-red-ink"
+            >
+              Choose the client and address for this job.
+            </p>
+          )}
+        </>
       ) : (
         <NewClientFields
           value={newClient}
           onChange={(patch) => setNewClient((v) => ({ ...v, ...patch }))}
         />
+      )}
+
+      {showWorkOrder ? (
+        <Field label="Work Order (Optional)">
+          <input
+            ref={workOrderInput}
+            value={workOrder}
+            onChange={(e) => setWorkOrder(e.target.value)}
+            maxLength={MAX_WORK_ORDER_LENGTH}
+            // Work-order numbers are codes, not words: capitals on the phone
+            // keyboard, and nothing "corrected" into a dictionary word.
+            autoCapitalize="characters"
+            autoCorrect="off"
+            autoComplete="off"
+            spellCheck={false}
+            placeholder="e.g. WO-448120"
+            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          />
+        </Field>
+      ) : (
+        // A button, not a Field: inside a <label> it would take the label's
+        // name. type="button" so it can never be the form's submit.
+        <button
+          type="button"
+          onClick={() => {
+            // Rendered now, and focused while the tap is still being handled:
+            // iOS opens the keyboard only for a focus inside the tap, so a
+            // focus deferred to the next frame leaves a ring and no keyboard.
+            flushSync(() => setAddingWorkOrder(true))
+            workOrderInput.current?.focus()
+          }}
+          className="mt-3 text-[15px] font-semibold text-blue"
+        >
+          + Add work order
+        </button>
       )}
 
       <Field label="Job type">
