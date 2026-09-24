@@ -1,7 +1,7 @@
 import { postcodeStateHint } from '#/lib/addressLookup'
 
 /**
- * A quiet line under the state and postcode when the postcode is another
+ * A line under the state and postcode when the postcode is another
  * state's (Prompt 6.2), with a one-tap fix. Prod has "Darwin 2209" and
  * "Fannybay WA 0810": the state is a dropdown that starts on the business's
  * own, and nobody looks at it while typing an address.
@@ -21,7 +21,7 @@ export function PostcodeStateHint({
   const hint = postcodeStateHint(postcode, state)
   if (!hint) return null
   return (
-    <p className="mt-1.5 text-caption text-muted">
+    <p className="mt-1.5 text-caption text-ink-2">
       {hint.message}{' '}
       <button
         type="button"

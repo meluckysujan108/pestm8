@@ -20,7 +20,9 @@ import { editDistance } from './contactNames'
 /** RFC 5321's limit on a whole address. */
 export const MAX_EMAIL_LENGTH = 254
 
-const LABEL = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i
+// Letters in any script: "münchen.de" is a real domain as typed, not only
+// in its xn-- form.
+const LABEL = /^[\p{L}\p{N}](?:[\p{L}\p{N}-]*[\p{L}\p{N}])?$/u
 
 /**
  * Why an address can never be delivered to, in words for the person typing,
@@ -48,7 +50,7 @@ export function emailProblem(raw: string): string | null {
     return 'The part after the @ is not a real domain.'
   }
   const tld = labels[labels.length - 1]
-  if (!/^(?:[a-z]{2,}|xn--[a-z0-9-]+)$/i.test(tld)) {
+  if (!/^(?:\p{L}{2,}|xn--[a-z0-9-]+)$/iu.test(tld)) {
     return `".${tld}" is not a real ending for an email address.`
   }
   return null
@@ -112,7 +114,25 @@ export const COMMON_EMAIL_DOMAINS = [
   'proton.me',
 ] as const
 
-/** Endings typed a slip away from the real one. */
+/**
+ * Real providers a letter or two from a common one, which must never be
+ * "corrected": mail.com is not a slip of gmail.com.
+ */
+const REAL_LOOKALIKES = new Set([
+  'mail.com',
+  'email.com',
+  'ymail.com',
+  'aol.com',
+  'gmx.com',
+  'gmx.net',
+  'live.net',
+  'outlook.net',
+  'iinet.com.au',
+  'fastmail.com',
+  'zoho.com',
+])
+
+/** Endings typed a slip away from the real one. (Not "om": that is Oman.) */
 const TLD_SLIPS: Record<string, string> = {
   con: 'com',
   cmo: 'com',
@@ -120,7 +140,6 @@ const TLD_SLIPS: Record<string, string> = {
   comm: 'com',
   vom: 'com',
   xom: 'com',
-  om: 'com',
   'com.u': 'com.au',
   'com.aus': 'com.au',
   'con.au': 'com.au',
@@ -142,7 +161,8 @@ export function emailTypoFix(raw: string): string | null {
   const domain = email.slice(at + 1).toLowerCase()
   if (
     domain === '' ||
-    (COMMON_EMAIL_DOMAINS as ReadonlyArray<string>).includes(domain)
+    (COMMON_EMAIL_DOMAINS as ReadonlyArray<string>).includes(domain) ||
+    REAL_LOOKALIKES.has(domain)
   ) {
     return null
   }

@@ -127,7 +127,10 @@ export function checkPhone(
       message: '05 numbers are not in use in Australia yet. Check it.',
     }
   }
-  if (/^\d{8}$/.test(digits)) {
+  // A local number never starts with 0 or 1: "0412 3456" is a mobile missing
+  // two digits, not a Perth landline, and an area code in front would make
+  // it a wrong number rather than a fixed one.
+  if (/^[2-9]\d{7}$/.test(digits)) {
     const area = AREA_CODE[opts.businessState?.toUpperCase() ?? ''] ?? '08'
     return {
       level: 'warning',

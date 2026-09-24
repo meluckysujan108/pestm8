@@ -1,9 +1,18 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
+  LOOKUP_UNDER_AUTOMATION_KEY,
+  addressLookupWanted,
+  getJsonWithin,
+  isOffline,
+  lookUpAddresses,
+  networkLookupsAllowed,
   parsePhotonResponse,
+  photonFeaturesOf,
   photonUrl,
   postcodeStateHint,
+  readPhotonStreet,
   searchAddresses,
+  splitHouseToken,
 } from './addressLookup'
 import { PHOTON } from './addressLookup.fixtures'
 import type { PhotonFixture } from './addressLookup.fixtures'
@@ -494,5 +503,226 @@ describe('the postcode and state hint', () => {
   test('still hints for a border town, where the person may know better', () => {
     // Barooga NSW really is 3644: the hint offers VIC, it does not insist.
     expect(postcodeStateHint('3644', 'NSW')?.state).toBe('VIC')
+  })
+})
+
+describe('splitHouseToken', () => {
+  test.each([
+    ['12 Walcott St', '12', 'Walcott St'],
+    ['12a walcott st', '12A', 'walcott st'],
+    ['3/12 Walcott St', '3/12', 'Walcott St'],
+    ['u3/12 Walcott St', 'Unit 3/12', 'Walcott St'],
+    ['Suite 4, 100 Hay St', 'Suite 4, 100', 'Hay St'],
+    ['Lot 50 Whitewood Rd', 'Lot 50', 'Whitewood Rd'],
+    ['12-14 Walcott St', '12-14', 'Walcott St'],
+    ['12', '12', ''],
+    ['3rd Avenue', null, '3rd Avenue'],
+    ['Walcott St', null, 'Walcott St'],
+    // A comma with no unit word before it is not read as a unit.
+    ['3, 12 Walcott St', '3', '12 Walcott St'],
+  ])('%j is %j and %j', (typed, token, street) => {
+    expect(splitHouseToken(typed)).toEqual({ token, street })
+  })
+})
+
+describe('readPhotonStreet', () => {
+  test('reads a street in a suburb, with every name for the place', () => {
+    expect(
+      readPhotonStreet(feature({ locality: 'Inglewood Triangle' })),
+    ).toEqual({
+      street: 'Walcott Street',
+      suburb: 'Mount Lawley',
+      places: ['Mount Lawley', 'Perth', 'Inglewood Triangle'],
+      state: 'WA',
+      postcode: '6050',
+    })
+  })
+
+  test('a shop is read as the street it is on', () => {
+    expect(
+      readPhotonStreet(
+        feature({ type: 'house', name: 'Il Lido', street: 'Marine Parade' }),
+      )?.street,
+    ).toBe('Marine Parade')
+  })
+
+  test.each([
+    ['another country', { countrycode: 'NZ' }],
+    ['a footpath', { osm_value: 'footway' }],
+    ['no name', { name: '' }],
+    ['no place', { district: '', city: '', locality: '' }],
+    ['no state', { state: '', postcode: '' }],
+    ['a town or suburb on its own', { type: 'city' }],
+  ])('is null for %s', (_why, properties) => {
+    expect(readPhotonStreet(feature(properties))).toBeNull()
+  })
+
+  test.each([null, 'x', 12, {}, { properties: null }])(
+    'is null for %j, never thrown on',
+    (junk) => {
+      expect(readPhotonStreet(junk)).toBeNull()
+    },
+  )
+
+  test("a reply's features, or none for anything else", () => {
+    expect(photonFeaturesOf(reply(feature({})))).toHaveLength(1)
+    expect(photonFeaturesOf(null)).toEqual([])
+    expect(photonFeaturesOf({ features: 'x' })).toEqual([])
+    expect(photonFeaturesOf([])).toEqual([])
+  })
+})
+
+describe('networkLookupsAllowed', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  function driven(webdriver: boolean, stored: string | null | Error) {
+    vi.stubGlobal('navigator', { webdriver, onLine: true })
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => {
+        if (stored instanceof Error) throw stored
+        return key === LOOKUP_UNDER_AUTOMATION_KEY ? stored : null
+      },
+    })
+  }
+
+  test('on for a person, off for a test runner unless it opts in', () => {
+    driven(false, null)
+    expect(networkLookupsAllowed()).toBe(true)
+    driven(true, null)
+    expect(networkLookupsAllowed()).toBe(false)
+    driven(true, 'on')
+    expect(networkLookupsAllowed()).toBe(true)
+    driven(true, 'yes')
+    expect(networkLookupsAllowed()).toBe(false)
+  })
+
+  test('off under automation when storage cannot be read', () => {
+    driven(true, new Error('SecurityError'))
+    expect(networkLookupsAllowed()).toBe(false)
+  })
+
+  test('offline only when the browser says so', () => {
+    vi.stubGlobal('navigator', { onLine: false })
+    expect(isOffline()).toBe(true)
+    vi.stubGlobal('navigator', { onLine: true })
+    expect(isOffline()).toBe(false)
+  })
+})
+
+describe('getJsonWithin', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('sends no headers unless asked, so no preflight', async () => {
+    const fetchFake = vi.fn(() => Promise.resolve(Response.json({ a: 1 })))
+    vi.stubGlobal('fetch', fetchFake)
+    expect(await getJsonWithin('https://x.test/', { timeoutMs: 1000 })).toEqual(
+      { ok: true, json: { a: 1 } },
+    )
+    const [, plain] = fetchFake.mock.calls[0] as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(plain.headers).toBeUndefined()
+
+    const headers = { accept: 'application/dns-json' }
+    await getJsonWithin('https://x.test/', { timeoutMs: 1000, headers })
+    const [, asked] = fetchFake.mock.calls[1] as unknown as [
+      string,
+      RequestInit,
+    ]
+    expect(asked.headers).toEqual(headers)
+  })
+
+  test('an already-aborted signal asks nothing that is waited on', async () => {
+    const caller = new AbortController()
+    caller.abort()
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: unknown, init?: RequestInit) =>
+        init?.signal?.aborted
+          ? Promise.reject(new DOMException('Aborted', 'AbortError'))
+          : Promise.resolve(Response.json({})),
+      ),
+    )
+    expect(
+      await getJsonWithin('https://x.test/', {
+        signal: caller.signal,
+        timeoutMs: 1000,
+      }),
+    ).toEqual({ ok: false })
+  })
+})
+
+describe('lookUpAddresses: what the line under the field says', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  const signal = new AbortController().signal
+
+  function answer(respond: () => Promise<Response>) {
+    vi.stubGlobal('navigator', { onLine: true })
+    vi.stubGlobal('fetch', vi.fn(respond))
+  }
+
+  test('found, none, failed', async () => {
+    answer(() => Promise.resolve(Response.json(PHOTON.walcottStMtLawley.json)))
+    expect(
+      (await lookUpAddresses('12 Walcott St Mt Lawley', { signal })).status,
+    ).toBe('found')
+
+    answer(() => Promise.resolve(Response.json(PHOTON.nothing.json)))
+    expect(await lookUpAddresses('12 Zyxwv St', { signal })).toEqual({
+      status: 'none',
+      suggestions: [],
+    })
+
+    // Streets came back, none of them the one typed: also none.
+    answer(() => Promise.resolve(Response.json(PHOTON.walcottStreet.json)))
+    expect((await lookUpAddresses('12 Zyxwv St', { signal })).status).toBe(
+      'none',
+    )
+
+    answer(() => Promise.reject(new TypeError('Failed to fetch')))
+    expect((await lookUpAddresses('12 Walcott', { signal })).status).toBe(
+      'failed',
+    )
+
+    // Not a FeatureCollection at all: a captive portal, say.
+    answer(() => Promise.resolve(Response.json({ message: 'odd' })))
+    expect((await lookUpAddresses('12 Walcott', { signal })).status).toBe(
+      'failed',
+    )
+  })
+
+  test('failed while offline, without asking', async () => {
+    const fetchFake = vi.fn()
+    vi.stubGlobal('fetch', fetchFake)
+    vi.stubGlobal('navigator', { onLine: false })
+    expect((await lookUpAddresses('12 Walcott', { signal })).status).toBe(
+      'failed',
+    )
+    expect(fetchFake).not.toHaveBeenCalled()
+  })
+
+  test('skipped before three letters of street, or under a test runner', async () => {
+    const fetchFake = vi.fn()
+    vi.stubGlobal('fetch', fetchFake)
+    vi.stubGlobal('navigator', { onLine: true })
+    expect(addressLookupWanted('12 Wa')).toBe(false)
+    expect((await lookUpAddresses('12 Wa', { signal })).status).toBe('skipped')
+    expect(addressLookupWanted('12 Wal')).toBe(true)
+
+    vi.stubGlobal('navigator', { onLine: false, webdriver: true })
+    vi.stubGlobal('localStorage', { getItem: () => null })
+    expect(addressLookupWanted('12 Walcott')).toBe(false)
+    expect((await lookUpAddresses('12 Walcott', { signal })).status).toBe(
+      'skipped',
+    )
+    expect(fetchFake).not.toHaveBeenCalled()
   })
 })

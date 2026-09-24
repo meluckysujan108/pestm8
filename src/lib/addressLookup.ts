@@ -520,7 +520,13 @@ export async function lookUpAddresses(
     signal: opts.signal,
     timeoutMs: REQUEST_TIMEOUT_MS,
   })
-  if (!reply.ok || !Array.isArray(photonFeaturesOf(reply.json))) {
+  // A reply that is not a FeatureCollection at all (a proxy's error page, a
+  // captive portal's JSON) is a failure, not "no matching street".
+  const features =
+    reply.ok && typeof reply.json === 'object' && reply.json !== null
+      ? (reply.json as { features?: unknown }).features
+      : undefined
+  if (!reply.ok || !Array.isArray(features)) {
     return { status: 'failed', suggestions: [] }
   }
   const suggestions = parsePhotonResponse(reply.json, query, opts.biasState)
