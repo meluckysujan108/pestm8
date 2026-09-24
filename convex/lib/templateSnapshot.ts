@@ -109,7 +109,7 @@ async function contentFor(
   const overlaid = applyOptionSets(
     {
       id: 'custom',
-      version: report.templateVersion ?? 1,
+      version: report.templateVersion,
       name: source.name,
       shortName: source.shortName,
       legalBasis: source.legalBasis,
@@ -133,7 +133,7 @@ async function contentFor(
 
   return {
     template: 'custom',
-    version: report.templateVersion ?? 1,
+    version: report.templateVersion,
     name: source.name,
     shortName: source.shortName,
     legalBasis: source.legalBasis,

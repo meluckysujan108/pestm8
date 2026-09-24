@@ -58,6 +58,7 @@ export const rq = {
   team: (businessId: B) => convexQuery(api.team.roster, { businessId }),
   invitations: (businessId: B) =>
     convexQuery(api.invitations.listForBusiness, { businessId }),
+  products: (businessId: B) => convexQuery(api.products.list, { businessId }),
 }
 
 /** How many rows the paginated libraries ask for first. */

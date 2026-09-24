@@ -58,6 +58,7 @@ export function seedRootState(state: RootState): void {
   if (seeded || typeof window === 'undefined') return
   seeded = true
   if (state.token) token = state.token
+  checkKeptFiles()
 }
 
 /** The root `beforeLoad`'s answer on the client: cached once signed in. */
@@ -71,6 +72,9 @@ export async function resolveRootState(): Promise<RootState> {
     if (asked === generation) {
       token = fresh.token
       askedAt = Date.now()
+      // Signing in on the join page lands here, with no page load between
+      // the last person and this one.
+      checkKeptFiles()
     }
     return fresh
   } finally {
@@ -128,6 +132,12 @@ export function forgetRootState(): void {
  * previous person's business, whose cached document also carries their token.
  * The cache is keyed by URL and knows nothing about who asked, so the only
  * safe move is to drop it when the person changes.
+ *
+ * Product PDFs kept on this phone for sites with no signal are NOT dropped
+ * here, though this runs at every sign-in as well as every sign-out. They are
+ * labelled with who kept them, and go when someone else signs in
+ * (`checkKeptFiles` below) — so the same technician signing back in after a
+ * week-old session lapsed still has them in the roof void.
  */
 export async function forgetCachedPages(): Promise<void> {
   try {
@@ -135,6 +145,74 @@ export async function forgetCachedPages(): Promise<void> {
   } catch {
     // A browser that refuses the cache has nothing stale to serve from it.
   }
+}
+
+/**
+ * Who is signed in, by user id: the `sub` claim of the cached token, which
+ * Better Auth's JWT plugin sets to the user's id. Null when nobody is (as far
+ * as this page load knows), on the server, or when the token cannot be read.
+ *
+ * Read without checking the signature, and that is fine for what it is used
+ * for: deciding whose files kept on this phone to show, never what anyone may
+ * do — the server checks the token properly on every request.
+ */
+export function signedInUserId(): string | null {
+  return userIdOfToken(token)
+}
+
+/** The `sub` claim of a JWT, or null. Exported for its test. */
+export function userIdOfToken(jwt: string | undefined): string | null {
+  const payload = jwt?.split('.')[1]
+  if (!payload) return null
+  try {
+    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
+    const sub = (JSON.parse(atob(padded)) as { sub?: unknown } | null)?.sub
+    return typeof sub === 'string' && sub !== '' ? sub : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * The cache src/lib/keptProducts.ts keeps product PDFs in, named here rather
+ * than imported so this module does not pull that one in (see below). Its
+ * test holds the two names together.
+ */
+const KEPT_CACHE = 'pestm8-kept-products-v1'
+
+// Who the kept files were last checked against, this page load.
+let keptCheckedFor: string | null = null
+
+/**
+ * Drops the product PDFs kept on this phone if someone else kept them — run
+ * as soon as a page load knows who is signed in, however they signed in (the
+ * sign-in page reloads into here; the join page signs in without a reload).
+ * src/lib/keptProducts.ts makes the same check before every read, which is
+ * what actually keeps them off screen; this is so a phone that changes hands
+ * is cleared even if the next person never opens a product.
+ *
+ * This module is in the root route's import graph, which every page waits
+ * on, and keptProducts.ts brings React hooks and the PDF helpers with it. So
+ * it is loaded only when there are kept files to check, which one
+ * `caches.has` answers. If it cannot load (a deploy since this page opened
+ * replaced its chunk), nothing here can show the files either, and the check
+ * runs again at the next page load.
+ */
+function checkKeptFiles(): void {
+  const userId = signedInUserId()
+  if (!userId || userId === keptCheckedFor) return
+  keptCheckedFor = userId
+  void (async () => {
+    try {
+      if (typeof caches === 'undefined') return
+      if (!(await caches.has(KEPT_CACHE))) return
+      const { claimKept } = await import('#/lib/keptProducts')
+      await claimKept(userId)
+    } catch {
+      // See above: checked again before anything is read.
+    }
+  })()
 }
 
 export function hasRootState(): boolean {

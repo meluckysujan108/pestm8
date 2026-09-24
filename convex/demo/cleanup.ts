@@ -36,7 +36,9 @@ import type { MutationCtx, QueryCtx } from '../_generated/server'
  *    demo is left in storage — a few kilobytes, and never a guess: a demo row
  *    can be pointed at any storage id by hand, including a real business's,
  *    and a file deleted on a guess cannot be brought back. Even a seed file
- *    is kept if a real business is found using it (see `spared`).
+ *    is kept if a real business is found using it (see `spared`). A
+ *    product's photo and PDF are always someone's upload, so its rows go and
+ *    its files stay, exactly as `products.remove` leaves them.
  *
  * A PDF render still in flight when its report goes (the seed queues one per
  * finalised report) deletes its own file: reports.setPdf finds no report.
@@ -398,6 +400,22 @@ const clearReportSettings: Step = async (run) => {
   )
 }
 
+/**
+ * The Products page's rows. Only the rows: every photo and PDF on them was
+ * uploaded by a person, never stored by the seed, so none is this call's to
+ * delete — and products.ts explains why nothing may delete a file a product
+ * points at.
+ */
+const clearProducts: Step = (run) =>
+  sweep(run, 'products', (n) =>
+    run.ctx.db
+      .query('products')
+      .withIndex('by_businessId_and_nameKey', (q) =>
+        q.eq('businessId', run.business._id),
+      )
+      .take(n),
+  )
+
 /** Jobs, every status, each after its photos and their files
  * (jobs.removePhoto never deleted a file, so nothing else will). */
 const clearJobs: Step = (run) =>
@@ -629,6 +647,7 @@ const STEPS: Array<Step> = [
   clearReports,
   clearCustomTemplates,
   clearReportSettings,
+  clearProducts,
   clearJobs,
   clearClients,
   clearSessions,
@@ -720,8 +739,9 @@ async function dropFile(
  * and points only at those, but a demo row can be pointed at any storage id
  * by hand, and deleting a real report's photo or a real member's signature
  * would be unrecoverable. So: the demo people's saved signatures and logos in
- * their other businesses, and any gallery photo or note image of another
- * business (the two tables that can be asked which rows hold a file).
+ * their other businesses, and any gallery photo, note image or product photo
+ * or PDF of another business (the tables that can be asked which rows hold a
+ * file).
  */
 async function spared(run: Run, file: Id<'_storage'>): Promise<boolean> {
   const { ctx, business } = run
@@ -746,6 +766,25 @@ async function spared(run: Run, file: Id<'_storage'>): Promise<boolean> {
   if (attachment) {
     const note = await ctx.db.get(attachment.noteId)
     if (note && note.businessId !== business._id) return true
+  }
+
+  // A product claims only an upload no product holds yet, so one row at most
+  // should have it in each place; a few are read in case a hand-made row
+  // broke that. The demo's own do not count — `clearProducts` has not reached
+  // them yet when a report's files go.
+  for (const held of [
+    await ctx.db
+      .query('products')
+      .withIndex('by_photoStorageId', (q) => q.eq('photoStorageId', file))
+      .take(10),
+    await ctx.db
+      .query('products')
+      .withIndex('by_pdfStorageId', (q) => q.eq('pdfStorageId', file))
+      .take(10),
+  ]) {
+    if (held.some((product) => product.businessId !== business._id)) {
+      return true
+    }
   }
   return false
 }
@@ -873,6 +912,14 @@ export const status = internalQuery({
         await ctx.db
           .query('reportSnippets')
           .withIndex('by_business_field', (q) => q.eq('businessId', businessId))
+          .take(STATUS_CAP)
+      ).length,
+      products: (
+        await ctx.db
+          .query('products')
+          .withIndex('by_businessId_and_nameKey', (q) =>
+            q.eq('businessId', businessId),
+          )
           .take(STATUS_CAP)
       ).length,
       reportDeliveries: (

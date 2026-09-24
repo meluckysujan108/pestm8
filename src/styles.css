@@ -90,6 +90,23 @@
 
   --elevation: 0 1px 2px rgba(16, 17, 26, 0.04), 0 10px 24px -16px rgba(16, 17, 26, 0.26);
   --elevation-red: 0 1px 2px rgba(255, 59, 48, 0.22), 0 8px 18px -10px rgba(255, 59, 48, 0.55);
+
+  /* The in-app PDF viewer (Phase 7.1), after iOS Quick Look: white sheets on
+     the grouped-background grey. Paper stays white in dark mode too — a PDF
+     is drawn for white paper, and a safety data sheet's colours mean
+     something — so only what surrounds it changes. */
+  --viewer-backdrop: #f2f2f7;
+  --paper: #ffffff;
+  --paper-shadow:
+    0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.1),
+    0 8px 18px -8px rgba(0, 0, 0, 0.16);
+  /* Find in the PDF: systemYellow for every match, systemOrange for the one
+     being looked at. Translucent and multiplied over the page, so the words
+     beneath stay black. */
+  --search-hit: rgba(255, 214, 10, 0.5);
+  --search-hit-current: rgba(255, 149, 0, 0.7);
+  /* Text on a solid tint (a blue badge): white in both themes. */
+  --on-tint: #ffffff;
 }
 
 /*
@@ -168,6 +185,17 @@
      The token stays defined so `shadow-elevation` keeps resolving. */
   --elevation: 0 0 0 0.5px rgba(235, 235, 245, 0.09), 0 8px 20px -12px rgba(0, 0, 0, 0.9);
   --elevation-red: 0 0 0 0.5px rgba(255, 69, 58, 0.35), 0 8px 18px -10px rgba(255, 69, 58, 0.5);
+
+  /* Near-black rather than --canvas's pure black, so the bars' blur has
+     something to show and a white page does not glare against a void. */
+  --viewer-backdrop: #0c0c0d;
+  --paper: #ffffff;
+  --paper-shadow:
+    0 0 0 0.5px rgba(235, 235, 245, 0.1), 0 10px 24px -12px rgba(0, 0, 0, 0.9);
+  /* The same as light: they sit on white paper either way. */
+  --search-hit: rgba(255, 214, 10, 0.5);
+  --search-hit-current: rgba(255, 149, 0, 0.7);
+  --on-tint: #ffffff;
 }
 
 /* Geometry — never themed. */
@@ -276,6 +304,11 @@
   --color-grey-ink: var(--grey-ink);
   --color-overdue: var(--overdue);
   --color-overdue-ink: var(--overdue-ink);
+  --color-viewer-backdrop: var(--viewer-backdrop);
+  --color-paper: var(--paper);
+  --color-search-hit: var(--search-hit);
+  --color-search-hit-current: var(--search-hit-current);
+  --color-on-tint: var(--on-tint);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -312,6 +345,7 @@
 
   --shadow-elevation: var(--elevation);
   --shadow-red: var(--elevation-red);
+  --shadow-paper: var(--paper-shadow);
 
   --text-metric-lg: 36px;
   --text-metric-lg--line-height: 1.05;

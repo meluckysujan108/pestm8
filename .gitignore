@@ -19,3 +19,7 @@ playwright-report
 .claude/scheduled_tasks.lock
 .vercel
 .env*
+
+# pdf.js runtime files, copied from node_modules/pdfjs-dist by
+# scripts/copy-pdfjs-assets.mjs before every dev server and build.
+public/pdfjs
