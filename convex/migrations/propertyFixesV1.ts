@@ -11,7 +11,10 @@ import type { MutationCtx } from '../_generated/server'
  *
  *   - "Fannybay", saved as WA 0810, at 38 George Cre: Fannie Bay, NT 0820
  *     (George Crescent is in Fannie Bay).
- *   - Darwin, NT, saved with postcode 2209, a Sydney postcode: 0800.
+ *   - "Darwin" NT 2209 (a Sydney postcode) at 6/79 progress drive: Nightcliff
+ *     NT 0810. Progress Drive runs between Nightcliff and Coconut Grove, both
+ *     0810; Darwin 0800 (the CBD, the first thought) has no Progress Drive,
+ *     and a certificate would print an address that does not exist.
  *   - "Test", "Tedt test", a junk entry under the client Mahal Mart, whose
  *     real property (Kewdale) stays. Nothing refers to it — no job, series,
  *     report or note — so it is deleted. Properties have no archive; the
@@ -62,7 +65,7 @@ export const FIXES: Array<Fix> = [
       postcode: '2209',
       addressLine: '6/79 progress drive',
     },
-    set: { postcode: '0800' },
+    set: { suburb: 'Nightcliff', postcode: '0810' },
   },
   {
     kind: 'delete',

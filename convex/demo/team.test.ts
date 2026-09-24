@@ -233,7 +233,8 @@ describe('the demo team', () => {
     const sub = member('sub')
     const contractor = member('contractor')
     expect(sub.parentMembershipId).toBe(contractor._id)
-    expect(sub.grants).toEqual({ ...NO_GRANTS, switchInto: contractor._id })
+    // No "can work in my account": no screen can give it.
+    expect(sub.grants).toEqual(NO_GRANTS)
     // Stable under the rule assignTo and setRole re-derive with.
     expect(
       recomputeGrants(
@@ -265,8 +266,8 @@ describe('the demo team', () => {
       [members.contractor, members.sub, members.dana].sort(),
     )
     expect(await targets(run.contractor)).toEqual([members.sub])
-    // Upward, on the grant the contractor gave.
-    expect(await targets(run.sub)).toEqual([members.contractor])
+    // Never upward: that takes a grant no screen can give.
+    expect(await targets(run.sub)).toEqual([])
   })
 
   test('the former technician is removed, and off every team list', async () => {
@@ -442,7 +443,7 @@ describe('the demo team', () => {
         ...Array<string>(3).fill('membership.setLicence'),
         'membership.setRole',
         'membership.assignTo',
-        ...Array<string>(2).fill('membership.setGrants'),
+        'membership.setGrants',
         'membership.remove',
         'demo.seed',
       ].sort(),
@@ -743,12 +744,6 @@ async function appMadeTeam(t: TestApp, logo: Id<'_storage'>) {
     membershipId: subId,
     parentMembershipId: contractorId,
   })
-  await contractor.as.mutation(api.memberships.setGrants, {
-    businessId,
-    membershipId: subId,
-    grants: { ...NO_GRANTS, switchInto: contractorId },
-  })
-
   const danaId = await join(whole)
   await owner.as.mutation(api.memberships.setGrants, {
     businessId,

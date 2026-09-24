@@ -180,6 +180,37 @@ describe('the PDF a report hands out', () => {
     })
   })
 
+  test('a render that lands after its report has gone deletes its own file', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const ids = await seed(ctx)
+      const reportId = await finalisedReport(ctx, ids)
+      const pdf = await storeSomething(ctx)
+      const preview = await storeSomething(ctx)
+      // Purged, or its demo removed, while the renderer was drawing it.
+      await ctx.db.delete(reportId)
+
+      await ctx.runMutation(internal.reports.setPdf, {
+        reportId,
+        storageId: pdf,
+        bytes: 8,
+      })
+      await ctx.runMutation(internal.reports.setPreview, {
+        reportId,
+        storageId: preview,
+      })
+
+      expect(await ctx.db.system.get('_storage', pdf)).toBeNull()
+      expect(await ctx.db.system.get('_storage', preview)).toBeNull()
+      expect(
+        await ctx.db
+          .query('reportPdfs')
+          .withIndex('by_report', (q) => q.eq('reportId', reportId))
+          .collect(),
+      ).toEqual([])
+    })
+  })
+
   test('a second claim on a running render waits rather than starting another', async () => {
     const t = convexTest(schema, modules)
     await t.run(async (ctx) => {

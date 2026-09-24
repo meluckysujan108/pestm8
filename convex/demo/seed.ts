@@ -31,6 +31,11 @@ import type { ActionCtx } from '../_generated/server'
  *
  * The steps run as separate transactions, in order. If one fails part-way,
  * what came before stays: remove the partial business and run again.
+ *
+ * While a demo exists, its three real people belong to it too. Removing one
+ * of them from the source business (Settings → Team) then does not sign them
+ * out, since they still have a business, and they land in the demo: remove
+ * the demo — or their membership in it — before offboarding anyone.
  */
 export const run = internalAction({
   args: {

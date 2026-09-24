@@ -424,7 +424,14 @@ function seedOneOffs(
   }
 
   // ── Today, added as written: the 10am clash is the point ─────────────
-  for (const row of TODAY) plan.add(fromRow(0, row))
+  // Except that nothing is done before it ends: seeded at 7am, this
+  // morning's later finished work is still booked.
+  for (const row of TODAY) {
+    const job = fromRow(0, row)
+    const over = job.scheduledAt + job.durationMinutes * MINUTE <= now
+    const done = job.status === 'completed' || job.status === 'invoiced'
+    plan.add(done && !over ? { ...job, status: 'booked' } : job)
+  }
 
   // ── A quiet weekday in each of the next two weeks ────────────────────
   // Chosen before anything movable is placed, and kept clear of it: not a

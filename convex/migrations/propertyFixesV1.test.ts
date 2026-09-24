@@ -34,8 +34,7 @@ async function setup() {
   const fixes: Array<Fix> = FIXES.map((fix, i) => ({ ...fix, id: ids.rows[i] }))
   const apply = (dryRun: boolean) =>
     t.run((ctx) => applyPropertyFixes(ctx, fixes, dryRun))
-  const get = (i: number) =>
-    t.run((ctx) => ctx.db.get(ids.rows[i] as Id<'properties'>))
+  const get = (i: number) => t.run((ctx) => ctx.db.get(ids.rows[i]))
   return { t, businessId, ownerMembershipId, ids, apply, get }
 }
 
@@ -45,7 +44,7 @@ describe('the three production property fixes', () => {
     const outcomes = await s.apply(true)
     expect(outcomes.map((o) => o.result)).toEqual([
       'would set {"suburb":"Fannie Bay","state":"NT","postcode":"0820"}',
-      'would set {"postcode":"0800"}',
+      'would set {"suburb":"Nightcliff","postcode":"0810"}',
       'would delete',
     ])
     expect(await s.get(0)).toMatchObject({ suburb: 'Fannybay' })
@@ -61,7 +60,11 @@ describe('the three production property fixes', () => {
       postcode: '0820',
       addressLine: '38 George Cre',
     })
-    expect(await s.get(1)).toMatchObject({ suburb: 'Darwin', postcode: '0800' })
+    expect(await s.get(1)).toMatchObject({
+      suburb: 'Nightcliff',
+      state: 'NT',
+      postcode: '0810',
+    })
     expect(await s.get(2)).toBeNull()
 
     const again = await s.apply(false)
@@ -77,7 +80,7 @@ describe('the three production property fixes', () => {
     const reportId = await s.t.run((ctx) =>
       ctx.db.insert('reports', {
         businessId: s.businessId,
-        propertyId: s.ids.rows[0] as Id<'properties'>,
+        propertyId: s.ids.rows[0],
         authorMembershipId: s.ownerMembershipId,
         template: 'serviceReport',
         legalBasis: 'APVMA · AEPMA',
@@ -98,11 +101,12 @@ describe('the three production property fixes', () => {
   test('a record corrected by hand in the meantime is left as it is', async () => {
     const s = await setup()
     await s.t.run((ctx) =>
-      ctx.db.patch(s.ids.rows[1] as Id<'properties'>, { postcode: '0810' }),
+      // As the owner might have, to the postcode first suggested.
+      ctx.db.patch(s.ids.rows[1], { postcode: '0800' }),
     )
     const [, darwin] = await s.apply(false)
     expect(darwin.result).toMatch(/^skipped: changed since/)
-    expect(await s.get(1)).toMatchObject({ postcode: '0810' })
+    expect(await s.get(1)).toMatchObject({ suburb: 'Darwin', postcode: '0800' })
   })
 
   test('the junk property is kept if anything has come to refer to it', async () => {
@@ -110,7 +114,7 @@ describe('the three production property fixes', () => {
     await s.t.run((ctx) =>
       ctx.db.insert('jobs', {
         businessId: s.businessId,
-        propertyId: s.ids.rows[2] as Id<'properties'>,
+        propertyId: s.ids.rows[2],
         assignedMembershipId: s.ownerMembershipId,
         jobType: 'Inspection',
         price: 0,

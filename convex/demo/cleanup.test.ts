@@ -180,6 +180,12 @@ describe('removing a demo', () => {
   /** A demo photo a real report's gallery holds. */
   let inRealGallery: Id<'_storage'>
   let realPhoto: Doc<'reportPhotos'> | null
+  /** Real files a hand-made call put on demo rows: a job photo, and a PDF
+   * on a demo draft's photo slot. */
+  let realOnDemoJob: Id<'_storage'>
+  let realOnDemoDraft: Id<'_storage'>
+  /** Issues of a real business's form, published after the demo was made. */
+  let realVersions: Array<Id<'customReportTemplateVersions'>>
   let removal: Removal
 
   beforeAll(async () => {
@@ -255,10 +261,81 @@ describe('removing a demo', () => {
         isCover: false,
         createdAt: now,
       })
-      return { logo, photo: await ctx.db.get(photoId) }
+      // jobs.addPhoto and reports.attachPhoto take any storage id, so a real
+      // file can end up on a demo row. Cleanup deletes only files it made.
+      const store = () =>
+        ctx.storage.store(
+          new Blob([new Uint8Array([4, 5, 6])], { type: 'image/png' }),
+        )
+      const onJob = await store()
+      const onDraft = await store()
+      const demoJob = await ctx.db
+        .query('jobs')
+        .withIndex('by_business', (q) => q.eq('businessId', base.businessId))
+        .first()
+      if (!demoJob) throw new Error('no demo job')
+      await ctx.db.insert('jobPhotos', {
+        jobId: demoJob._id,
+        storageId: onJob,
+        order: 9,
+        createdAt: now,
+      })
+      const demoDraft = (
+        await ctx.db
+          .query('reports')
+          .withIndex('by_business', (q) => q.eq('businessId', base.businessId))
+          .collect()
+      ).find((r) => r.status === 'draft')
+      if (!demoDraft) throw new Error('no demo draft')
+      await ctx.db.patch(demoDraft._id, {
+        photoSlots: { ...(demoDraft.photoSlots ?? {}), Other: onDraft },
+      })
+
+      // A real business's form, issued twice after the demo existed: the
+      // stray-version sweep reads them and must leave them.
+      const templateId = await ctx.db.insert('customReportTemplates', {
+        businessId: run.fromBusinessId,
+        name: 'Real form',
+        shortName: 'Real',
+        legalBasis: 'APVMA',
+        blurb: '',
+        sections: [],
+        boilerplate: '',
+        createdByMembershipId: ownerHere._id,
+        createdAt: now,
+        updatedAt: now,
+      })
+      const versions: Array<Id<'customReportTemplateVersions'>> = []
+      for (const version of [2, 3]) {
+        versions.push(
+          await ctx.db.insert('customReportTemplateVersions', {
+            businessId: run.fromBusinessId,
+            templateId,
+            version,
+            name: 'Real form',
+            shortName: 'Real',
+            legalBasis: 'APVMA',
+            blurb: '',
+            sections: [],
+            boilerplate: '',
+            publishedByMembershipId: ownerHere._id,
+            publishedAt: now,
+          }),
+        )
+      }
+      return {
+        logo,
+        photo: await ctx.db.get(photoId),
+        onJob,
+        onDraft,
+        versions,
+      }
     })
     realLogo = crossed.logo
     realPhoto = crossed.photo
+    realOnDemoJob = crossed.onJob
+    realOnDemoDraft = crossed.onDraft
+    realVersions = crossed.versions
 
     slug = await t.query(internal.demo.seed.slugOf, {
       businessId: base.businessId,
@@ -406,8 +483,15 @@ describe('removing a demo', () => {
     }
     expect(Object.keys(after).sort()).toEqual(Object.keys(before).sort())
 
-    // Every file, bar the three a real business uses too.
-    const kept = new Set([sharedWithReal, realLogo, inRealGallery])
+    // Every file, bar those a real business uses too, and those the seed did
+    // not make.
+    const kept = new Set([
+      sharedWithReal,
+      realLogo,
+      inRealGallery,
+      realOnDemoJob,
+      realOnDemoDraft,
+    ])
     expect(files.files).toEqual(expect.arrayContaining([...kept]))
     expect(await filesStillStored(t, files.files)).toEqual(
       files.files.filter((id) => kept.has(id)),
@@ -443,6 +527,10 @@ describe('removing a demo', () => {
   test('leaves the real business, the real logins and the shared snapshots', async () => {
     const { t } = run
     expect(await realSide(t, run.fromBusinessId)).toEqual(real)
+    const versionsLeft = await t.run(async (ctx) =>
+      Promise.all(realVersions.map((id) => ctx.db.get(id))),
+    )
+    expect(versionsLeft.every((row) => row !== null)).toBe(true)
     expect(
       await t.run(async (ctx) =>
         realPhoto ? ctx.db.get(realPhoto._id) : null,

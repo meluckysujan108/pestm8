@@ -30,12 +30,16 @@ import type { MutationCtx, QueryCtx } from '../_generated/server'
  *  - The three real people's logins. Only a placeholder login (the
  *    `demo.pestm8.invalid` domain) is removed, and only when no other
  *    business has a membership for it: a second demo reuses the same two.
- *  - Any file a real business still points at (see `spared`).
+ *  - Every file it did not make. It deletes only the files the seed stored
+ *    (listed in the 'demo.seed' audit row) and the PDFs the server rendered
+ *    for demo reports. A photo or signature someone uploaded while trying the
+ *    demo is left in storage — a few kilobytes, and never a guess: a demo row
+ *    can be pointed at any storage id by hand, including a real business's,
+ *    and a file deleted on a guess cannot be brought back. Even a seed file
+ *    is kept if a real business is found using it (see `spared`).
  *
- * One race it cannot close: a PDF render already in flight when its report is
- * deleted stores its file and then finds no report to attach it to
- * (reports.setPdf), leaving the file unreferenced. The seed renders nothing
- * itself, so this only happens if someone opens a report as it is removed.
+ * A PDF render still in flight when its report goes (the seed queues one per
+ * finalised report) deletes its own file: reports.setPdf finds no report.
  */
 
 /** Deletes per call, files and component documents included. Well inside a
@@ -56,6 +60,9 @@ const TEMPLATES_PER_CALL = 10
 /** How far the sweep for stray template versions may read; see
  * `strayVersions`. */
 const VERSION_SCAN = 100
+/** Bytes left unread when the stray-version scan stops, for the rest of the
+ * call. */
+const STRAY_READ_RESERVE = 6 * 1024 * 1024
 
 type Run = {
   ctx: MutationCtx
@@ -67,6 +74,8 @@ type Run = {
   members: Array<Doc<'memberships'>> | null
   /** Files already dealt with in this call, deleted or spared. */
   filesSeen: Set<Id<'_storage'>>
+  /** The files the seed stored, from its audit row, read once per call. */
+  seedMade: Set<Id<'_storage'>> | null
   /** Files the demo's people hold in their other businesses; see `spared`. */
   theirs: Set<Id<'_storage'>> | null
   /** Which business each report looked at by `spared` belongs to. */
@@ -102,6 +111,7 @@ export const remove = internalMutation({
       deleted: {},
       members: null,
       filesSeen: new Set(),
+      seedMade: null,
       theirs: null,
       reportBusiness: new Map(),
     }
@@ -248,7 +258,7 @@ async function dropReport(run: Run, report: Doc<'reports'>): Promise<boolean> {
             .take(n),
         {
           drop: (pdf) =>
-            dropWithFile(run, 'reportPdfs', pdf._id, pdf.storageId),
+            dropWithFile(run, 'reportPdfs', pdf._id, pdf.storageId, true),
         },
       ),
     () =>
@@ -271,22 +281,25 @@ async function dropReport(run: Run, report: Doc<'reports'>): Promise<boolean> {
   }
   if (run.left <= 0) return false
   for (const file of filesOfReport(report)) await dropFile(run, file)
+  // Made by the server for this report (reports.setPdf / setPreview), never
+  // from an id a person supplied.
+  for (const file of [report.pdfStorageId, report.previewStorageId]) {
+    if (file) await dropFile(run, file, true)
+  }
   return dropRow(run, 'reports', reportId)
 }
 
 /**
- * Every file the report row itself points at. An amendment shares its
- * original's photos and a saved signature is one file on many reports, hence
- * `dropFile`'s de-duplication. The frozen logo is the business's own, or one
- * it has since replaced — the demo's either way.
+ * Every file the report row points at that a person could have supplied. An
+ * amendment shares its original's photos and a saved signature is one file on
+ * many reports, hence `dropFile`'s de-duplication. The frozen logo is the
+ * business's own, or one it has since replaced.
  */
 function filesOfReport(report: Doc<'reports'>): Array<Id<'_storage'>> {
   return [
     ...report.photoIds,
     ...Object.values(report.photoSlots ?? {}),
     ...Object.values(report.signatureSlots ?? {}).map((slot) => slot.storageId),
-    ...(report.pdfStorageId ? [report.pdfStorageId] : []),
-    ...(report.previewStorageId ? [report.previewStorageId] : []),
     ...(report.contextSnapshot?.business?.logoStorageId
       ? [report.contextSnapshot.business.logoStorageId]
       : []),
@@ -349,6 +362,10 @@ async function strayVersions(run: Run): Promise<boolean> {
       await dropRow(run, 'customReportTemplateVersions', row._id)
     }
     if (++scanned >= VERSION_SCAN) break
+    // These are other businesses' forms, each up to a megabyte: stop well
+    // before the read limit rather than fail every retry at the same row.
+    const { bytesRead } = await ctx.meta.getTransactionMetrics()
+    if (bytesRead.remaining < STRAY_READ_RESERVE) break
   }
   return true
 }
@@ -670,19 +687,29 @@ async function dropWithFile<T extends TableNames>(
   table: T,
   id: Id<T>,
   file: Id<'_storage'>,
+  rendered = false,
 ): Promise<boolean> {
-  await dropFile(run, file)
+  await dropFile(run, file, rendered)
   return dropRow(run, table, id)
 }
 
 /**
- * Deletes a stored file, once, if it is still there and nothing outside the
- * demo points at it.
+ * Deletes a stored file, once, if it is still there, it is the demo's own —
+ * one the seed stored, or (`rendered`) a PDF the server made for a demo
+ * report — and no real business is found using it.
  */
-async function dropFile(run: Run, file: Id<'_storage'>): Promise<void> {
+async function dropFile(
+  run: Run,
+  file: Id<'_storage'>,
+  rendered = false,
+): Promise<void> {
   if (run.filesSeen.has(file)) return
   run.filesSeen.add(file)
   if (!(await run.ctx.db.system.get('_storage', file))) return
+  if (!rendered) {
+    run.seedMade ??= new Set(await seedFiles(run.ctx, run.business._id))
+    if (!run.seedMade.has(file)) return
+  }
   if (await spared(run, file)) return
   await run.ctx.storage.delete(file)
   tally(run, 'storage')

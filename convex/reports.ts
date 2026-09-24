@@ -2731,7 +2731,13 @@ export const setPdf = internalMutation({
   },
   handler: async (ctx, { reportId, storageId, bytes }) => {
     const report = await ctx.db.get(reportId)
-    if (!report) return
+    // Gone while it rendered (purged from the bin, or its demo removed): the
+    // file was stored for this report alone, and nothing will ever point at
+    // it, so it goes too rather than sitting in storage unreferenced.
+    if (!report) {
+      await ctx.storage.delete(storageId)
+      return
+    }
 
     await ctx.db.insert('reportPdfs', {
       businessId: report.businessId,
@@ -2762,7 +2768,11 @@ export const setPreview = internalMutation({
   args: { reportId: v.id('reports'), storageId: v.id('_storage') },
   handler: async (ctx, { reportId, storageId }) => {
     const report = await ctx.db.get(reportId)
-    if (!report) return
+    // As setPdf: a preview of a report that has gone is nobody's.
+    if (!report) {
+      await ctx.storage.delete(storageId)
+      return
+    }
     if (report.previewStorageId) {
       await ctx.storage.delete(report.previewStorageId)
     }

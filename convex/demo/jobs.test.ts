@@ -314,6 +314,17 @@ describe('the demo jobs', () => {
     const today = oneOffs().filter(
       (j) => j.scheduledAt >= when(0, 0) && j.scheduledAt < when(1, 0),
     )
+    // Nothing today is done before it ends, whatever hour it was seeded.
+    for (const j of today) {
+      if (j.status === 'completed' || j.status === 'invoiced') {
+        expect(j.scheduledAt + j.durationMinutes * MINUTE).toBeLessThanOrEqual(
+          seededBy,
+        )
+      }
+    }
+    // Once the morning's finished work is over (it all ends by 9:30), every
+    // person has every status.
+    const morningOver = seededBy >= when(0, 9, 30)
     for (const who of PEOPLE) {
       const statuses = new Set(
         today
@@ -327,11 +338,17 @@ describe('the demo jobs', () => {
         'invoiced',
         'cancelled',
       ] as const) {
+        if (!morningOver && (status === 'completed' || status === 'invoiced')) {
+          continue
+        }
         expect(statuses.has(status), `${who} ${status}`).toBe(true)
       }
     }
     const at7 = today.filter((j) => j.scheduledAt === when(0, 7))
-    expect(at7.some((j) => j.status === 'completed')).toBe(true)
+    expect(at7.length).toBeGreaterThan(0)
+    if (seededBy >= when(0, 7, 45)) {
+      expect(at7.some((j) => j.status === 'completed')).toBe(true)
+    }
 
     const at10 = today.filter((j) => j.scheduledAt === when(0, 10))
     const doubled = PEOPLE.filter(

@@ -204,19 +204,10 @@ export const seed = internalMutation({
       joinedAt: when(-120, 6, 50),
       tokenHash: nextHash(),
     })
+    // Only what a screen can set: "can work in my account" (grants.switchInto)
+    // has no toggle anywhere, so the demo leaves it off rather than show a
+    // state the app cannot produce.
     await assignTo(ctx, owner, sub, contractor, when(-120, 9, 15))
-    // "Can work in my account" has no toggle on any screen; setGrants is the
-    // only way in, and the contractor is the one opening their account.
-    const subGrants = await setGrants(
-      ctx,
-      contractor,
-      sub,
-      { switchInto: contractor },
-      when(-118, 19, 40),
-    )
-    if (subGrants.switchInto !== contractor) {
-      throw new Error('demo: the switch grant did not survive clampGrants')
-    }
 
     // ── Dana: directly under the owner, sees the whole schedule ─────────
     const danaUser = await placeholderUser(ctx, {
