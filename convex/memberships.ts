@@ -4,6 +4,7 @@ import { authComponent } from './auth'
 import { canViewAs, getAuthUserId, requireMembership } from './lib/access'
 import { isMemberColour, nextColour, normaliseColour } from './lib/colours'
 import { inviteState } from './lib/inviteTokens'
+import { normalisePhone } from './lib/phone'
 import { grants, role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
 import {
@@ -616,7 +617,16 @@ export const setProfile = mutation({
     const actor = await requireMembership(ctx, args.businessId)
     if (actor._id !== args.membershipId) throw new ConvexError('NO_ACCESS')
 
-    await ctx.db.patch(args.membershipId, { phone: args.phone })
+    // Printed on the reports this person signs ("Contact the Inspector"), so
+    // a new number that can never be dialled is refused (INVALID_PHONE). One
+    // saved before the rule and sent back unchanged is left as it is — the
+    // form sends it with every save. Absent (as before) clears it.
+    const phone =
+      args.phone === undefined ||
+      args.phone.trim() === (actor.phone ?? '').trim()
+        ? args.phone
+        : normalisePhone(args.phone)
+    await ctx.db.patch(args.membershipId, { phone })
   },
 })
 

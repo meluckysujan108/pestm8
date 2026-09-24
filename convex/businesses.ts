@@ -5,6 +5,23 @@ import { DEFAULT_GRANTS } from './lib/capabilities'
 import { MEMBER_COLOURS } from './lib/colours'
 import { forSelf, recordAudit } from './lib/audit'
 import { requireActor, requireCapability } from './lib/actor'
+import { formatAbn, normaliseAbn } from './lib/abn'
+import { normaliseEmail } from './lib/email'
+import { normalisePhone } from './lib/phone'
+
+/**
+ * The business's own ABN as stored: checked by the ATO's rule (INVALID_ABN)
+ * and written the way the ATO prints it, "51 824 753 556", because this one
+ * is printed as stored on every report and certificate — unlike a client's,
+ * which is kept as digits and formatted where it is shown. Absent when blank.
+ */
+function businessAbn(raw: string | undefined): string | undefined {
+  const digits = normaliseAbn(raw)
+  return digits === undefined ? undefined : formatAbn(digits)
+}
+
+/** Every digit, so "51 824 753 556" and "51824753556" are the same ABN. */
+const abnKey = (raw: string | undefined) => (raw ?? '').replace(/\D/g, '')
 
 function slugify(name: string) {
   return name
@@ -115,13 +132,17 @@ export const create = mutation({
       slug = `${base}-${++n}`
     }
 
+    // Refused before anything is written: it goes on the header of every
+    // compliance document this business issues.
+    const abn = businessAbn(args.abn)
+
     const now = Date.now()
     const businessId = await ctx.db.insert('businesses', {
       name: args.name,
       slug,
       state: args.state,
       timezone: args.timezone,
-      abn: args.abn,
+      ...(abn !== undefined && { abn }),
       subscriptionStatus: 'trialing',
       createdAt: now,
     })
@@ -206,6 +227,26 @@ export const update = mutation({
         ([, value]) => value !== undefined,
       ),
     )
+
+    // The printed contact details are checked only when this save changes
+    // them. The settings forms send every field on every save, and a
+    // business whose ABN or number was saved before these rules (the seed's
+    // ABNs fail the ATO's check) must still be able to change its name.
+    const business = await ctx.db.get(businessId)
+    if (!business) throw new ConvexError('NOT_FOUND')
+    if (patch.abn !== undefined && abnKey(patch.abn) !== abnKey(business.abn)) {
+      fields.abn = businessAbn(patch.abn)
+    }
+    for (const key of ['email', 'reportCopyEmail'] as const) {
+      const raw = patch[key]
+      if (raw !== undefined && edited(raw, business[key])) {
+        fields[key] = normaliseEmail(raw)
+      }
+    }
+    if (patch.phone !== undefined && edited(patch.phone, business.phone)) {
+      fields.phone = normalisePhone(patch.phone)
+    }
+
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(businessId, fields)
 
@@ -222,6 +263,11 @@ export const update = mutation({
     }
   },
 })
+
+/** Whether a saved detail is being changed, not just sent back as it was. */
+function edited(raw: string, stored: string | undefined): boolean {
+  return raw.trim() !== (stored ?? '').trim()
+}
 
 /** Short-lived upload URL for the business logo — owner-gated, since only the
  * owner can change branding via `update` above. */

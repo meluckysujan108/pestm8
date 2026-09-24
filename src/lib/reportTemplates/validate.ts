@@ -1,6 +1,7 @@
 import { fieldsOf, sectionsOf } from './index'
 import { pruneHidden, visibleSections } from './visibility'
 import { isEmptyRow } from './present'
+import { emailProblem } from '../../../convex/lib/email'
 import type { PrefillMap } from './seed'
 import type { ReportTemplate } from './types'
 
@@ -114,6 +115,24 @@ export function validateReport(input: ValidationInput): ValidationResult {
       // unavailable would lock a technician out of their own work.
       if (count !== undefined && count === 0)
         add(field.key, `${field.label} is required`)
+    }
+
+    // Every address here is sent the finalised document. One that can never
+    // be delivered to would otherwise be queued as a send that cannot arrive,
+    // found out only when the client says they never got it — by which time
+    // the technician has left. Named here, it is fixed while they are on site.
+    if (field.kind === 'emails') {
+      const value = payload[field.key]
+      for (const entry of Array.isArray(value) ? value : [value]) {
+        if (typeof entry !== 'string') continue
+        const problem = emailProblem(entry)
+        if (problem) {
+          add(
+            field.key,
+            `Check ${field.label.replace(/:$/, '')} — ${entry.trim()}: ${problem}`,
+          )
+        }
+      }
     }
   }
 
