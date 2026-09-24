@@ -42,6 +42,7 @@ import type * as lib_metNorway from "../lib/metNorway.js";
 import type * as lib_noteAccess from "../lib/noteAccess.js";
 import type * as lib_noteTemplates from "../lib/noteTemplates.js";
 import type * as lib_optionSets from "../lib/optionSets.js";
+import type * as lib_postcodes from "../lib/postcodes.js";
 import type * as lib_prices from "../lib/prices.js";
 import type * as lib_recipients from "../lib/recipients.js";
 import type * as lib_recurrence from "../lib/recurrence.js";
@@ -118,6 +119,7 @@ declare const fullApi: ApiFromModules<{
   "lib/noteAccess": typeof lib_noteAccess;
   "lib/noteTemplates": typeof lib_noteTemplates;
   "lib/optionSets": typeof lib_optionSets;
+  "lib/postcodes": typeof lib_postcodes;
   "lib/prices": typeof lib_prices;
   "lib/recipients": typeof lib_recipients;
   "lib/recurrence": typeof lib_recurrence;
