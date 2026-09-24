@@ -60,7 +60,11 @@ const { count, size, warnings } = await injectManifest({
   // viewer needs a live connection on every device's first use.
   globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg,webmanifest,woff2}'],
   // Skip the worker itself and anything already content-hashed by the router.
-  globIgnores: ['sw.js', '**/*.map'],
+  // `pdfjs/` is pdf.js's fetch-when-asked files (scripts/copy-pdfjs-assets.mjs):
+  // its no-WebAssembly JPEG 2000 decoder is a 450 KB `.js` the pattern above
+  // would otherwise hand every installed phone. src/sw.ts caches that folder
+  // on first use instead, and keptProducts warms it once a product is kept.
+  globIgnores: ['sw.js', '**/*.map', 'pdfjs/**'],
   injectionPoint: 'self.__SW_MANIFEST',
 })
 
