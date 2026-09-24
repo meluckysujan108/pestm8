@@ -18,9 +18,12 @@ export function BusinessSwitcher({
     convexQuery(api.businesses.listForUser, {}),
   )
   // Live, not the route-context snapshot beside it: that is resolved once in
-  // `beforeLoad` and cannot follow a role change or a switch. The colour still
-  // comes from the snapshot because it is the person's own and does not move.
+  // `beforeLoad` and cannot follow a role change or a switch. The colour is
+  // live too since the owner can change it (Settings → Team); the snapshot is
+  // the fallback for a backend that does not send it yet.
   const { role } = useAccess()
+  const colour =
+    businesses.find((b) => b.slug === current.slug)?.colour ?? membership.colour
 
   const trigger = (
     // Collapsed, this reduces to the membership colour dot centred in the
@@ -30,7 +33,7 @@ export function BusinessSwitcher({
       <span
         aria-hidden
         className="size-2.5 shrink-0 rounded-full"
-        style={{ backgroundColor: membership.colour }}
+        style={{ backgroundColor: colour }}
       />
       <span className="min-w-0 flex-1 group-data-[collapsible=icon]:sr-only">
         <span className="block truncate text-row-title text-ink">

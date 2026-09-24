@@ -4,6 +4,7 @@ import {
   api,
   expectRejected,
   setupBusinessWithSub,
+  signInViaUi,
   signUpActor,
   uniqueEmail,
 } from './fixtures'
@@ -89,7 +90,9 @@ test('only one contact is ever primary at a time', async () => {
     clientId,
   })
   expect(contacts.find((c) => c._id === contactB)?.isPrimary).toBe(true)
-  expect(contacts.find((c) => c._id === contactC)?.isPrimary ?? false).toBe(false)
+  expect(contacts.find((c) => c._id === contactC)?.isPrimary ?? false).toBe(
+    false,
+  )
 
   await s.owner.client.mutation(api.clientContacts.setPrimary, {
     businessId: s.businessId,
@@ -99,7 +102,9 @@ test('only one contact is ever primary at a time', async () => {
     businessId: s.businessId,
     clientId,
   })
-  expect(contacts.find((c) => c._id === contactB)?.isPrimary ?? false).toBe(false)
+  expect(contacts.find((c) => c._id === contactB)?.isPrimary ?? false).toBe(
+    false,
+  )
   expect(contacts.find((c) => c._id === contactC)?.isPrimary).toBe(true)
 })
 
@@ -165,4 +170,49 @@ test('a non-member cannot set a business address or a primary contact', async ()
       }),
     'NO_ACCESS',
   )
+})
+
+test('typing in the client search keeps every character, and an old view link opens the cards', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('client-search')
+  for (const [clientName, addressLine] of [
+    ['Wattle Grove Strata', '3 Wattle Grove'],
+    ['Banksia Rise', '8 Banksia Rise'],
+  ]) {
+    await s.owner.client.mutation(api.properties.create, {
+      businessId: s.businessId,
+      clientName,
+      kind: 'business',
+      addressLine,
+      suburb: 'Perth',
+      state: 'WA',
+      postcode: '6000',
+    })
+  }
+
+  await signInViaUi(page, s.owner.email)
+  // A bookmark to the retired Table view: the page opens the cards, with no
+  // view switch left to show, rather than failing search validation.
+  await page.goto(`/${s.slug}/clients?view=table`)
+  await expect(page.getByRole('button', { name: 'New client' })).toBeEnabled()
+  await expect(page.getByRole('tablist', { name: 'View' })).toHaveCount(0)
+  await expect(page.getByRole('table')).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: /Wattle Grove Strata/ }),
+  ).toBeVisible()
+
+  // Typed at a person's pace. The box used to be bound to the URL and
+  // navigate on every key, so whenever a navigation was slower than the gap
+  // between two keys it put the committed term back over what came after —
+  // "wattle" arrived as "e". Found by label, which the old bare input had
+  // too, so the old page fails on the value rather than on finding the box.
+  const search = page.getByLabel('Search by name or address')
+  await search.pressSequentially('wattle', { delay: 120 })
+
+  await expect(search).toHaveValue('wattle')
+  await expect(page).toHaveURL(/[?&]q=wattle(&|$)/)
+  await expect(page).not.toHaveURL(/[?&]view=/)
+  await expect(page.getByText('Wattle Grove Strata')).toBeVisible()
+  await expect(page.getByText('Banksia Rise')).toHaveCount(0)
 })

@@ -5,6 +5,9 @@ import {
 } from '../../src/lib/reportTemplates/snapshot'
 import { templateFor } from '../../src/lib/reportTemplates'
 import { applyOptionSets } from '../../src/lib/reportTemplates/optionSets'
+import { applyTemplateSettings } from '../../src/lib/reportTemplates/settings'
+import { settingsFor } from '../templateSettings'
+import { templateRefOf } from '../reports'
 import type { TemplateSnapshotContent } from '../../src/lib/reportTemplates/snapshot'
 import { loadOverrides } from './optionSets'
 import type { PrintSpec, RichDoc, SectionDef } from '../../src/lib/reportTemplates'
@@ -74,7 +77,16 @@ async function contentFor(
     // built-ins declare a flat `fields` list, and the synthetic "Details"
     // wrapper that function adds is printed output, not plumbing.
     const template = templateFor(report.template, report.templateVersion)
-    return snapshotOf(applyOptionSets(template, await overridesFor(ctx, report)))
+    // With the business's own lists AND its own settings applied, exactly as
+    // the draft showed them. Freezing the bare module would hand the signed
+    // report the form's own cover title back — the settings would apply to
+    // every draft and then silently vanish the moment one was locked.
+    return snapshotOf(
+      applyTemplateSettings(
+        applyOptionSets(template, await overridesFor(ctx, report)),
+        await settingsFor(ctx, report.businessId, templateRefOf(report)),
+      ),
+    )
   }
 
   // The inline copy first — it is what this report has been rendering from all
@@ -111,6 +123,13 @@ async function contentFor(
     },
     await overridesFor(ctx, report),
   )
+  // And the business's own settings on top, for the same reason: a signed
+  // report freezes the document the technician was looking at, chrome and
+  // signing rule included.
+  const settled = applyTemplateSettings(
+    { ...overlaid, print: source.print },
+    await settingsFor(ctx, report.businessId, templateRefOf(report)),
+  )
 
   return {
     template: 'custom',
@@ -119,10 +138,10 @@ async function contentFor(
     shortName: source.shortName,
     legalBasis: source.legalBasis,
     blurb: source.blurb,
-    sections: overlaid.sections ?? [],
+    sections: settled.sections ?? [],
     boilerplate: source.boilerplate,
     terms: source.terms as RichDoc | undefined,
-    print: source.print,
+    print: settled.print,
   }
 }
 

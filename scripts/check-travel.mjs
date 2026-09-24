@@ -21,7 +21,12 @@
  *      (or `npm run check:travel`)
  */
 
-import { distanceKm, travelHint, travelHintsFor } from '../src/lib/travel.ts'
+import {
+  distanceKm,
+  jobsAhead,
+  travelHint,
+  travelHintsFor,
+} from '../src/lib/travel.ts'
 
 let failures = 0
 
@@ -159,6 +164,19 @@ check(
   reversed.a,
   '≈ 16 km → Perth',
 )
+
+// --- jobsAhead -------------------------------------------------------------
+// `jobs.listDay` sinks completed work to the bottom, so a completed card must
+// not measure a hop from whatever now sits above it, and the work still ahead
+// chains among itself.
+const day = [
+  { _id: 'next', suburb: 'Perth', status: 'pending' },
+  { _id: 'later', suburb: 'Fremantle', status: 'booked' },
+  { _id: 'done', suburb: 'Morley', status: 'completed' },
+]
+const aheadHints = travelHintsFor(jobsAhead(day), coordsFor)
+check('a completed job gets no hint', aheadHints.done, undefined)
+check('the work ahead still chains', aheadHints.later, '≈ 16 km → Fremantle')
 
 if (failures > 0) {
   console.error(`\n${failures} check(s) failed.`)

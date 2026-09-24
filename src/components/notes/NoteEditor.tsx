@@ -23,6 +23,9 @@ export function NoteEditor({
   noteId,
   members,
   editable,
+  mentions = true,
+  autoFocus = false,
+  onAutoFocused,
   trailingTools,
   inline = false,
 }: {
@@ -30,6 +33,12 @@ export function NoteEditor({
   noteId: Id<'notes'>
   members: Array<MentionItem>
   editable: boolean
+  /** Whether @ tags a teammate. Off in a personal note. */
+  mentions?: boolean
+  /** Put the cursor in the title: a page just made with + is for typing on. */
+  autoFocus?: boolean
+  /** Told once the editor has taken focus, so it is done only the once. */
+  onAutoFocused?: () => void
   trailingTools?: ReactNode
   /** Embedded in a sheet: toolbar in the flow, no floating bar, no own scroll. */
   inline?: boolean
@@ -79,6 +88,9 @@ export function NoteEditor({
         syncExtension={sync.extension}
         members={members}
         editable={editable && !revoked}
+        mentions={mentions}
+        autoFocus={autoFocus}
+        onAutoFocused={onAutoFocused}
         trailingTools={trailingTools}
         inline={inline}
       />
@@ -91,6 +103,9 @@ function SyncedEditor({
   syncExtension,
   members,
   editable,
+  mentions,
+  autoFocus,
+  onAutoFocused,
   trailingTools,
   inline,
 }: {
@@ -98,16 +113,32 @@ function SyncedEditor({
   syncExtension: AnyExtension
   members: Array<MentionItem>
   editable: boolean
+  mentions: boolean
+  autoFocus: boolean
+  onAutoFocused?: () => void
   trailingTools?: ReactNode
   inline: boolean
 }) {
-  // Read through a ref so the suggestion's `items()` sees roster changes
-  // without rebuilding the editor (which would drop its collab state).
+  // Read through refs so the suggestion sees roster and personal/shared
+  // changes without rebuilding the editor (which would drop its collab state).
   const membersRef = useRef(members)
   membersRef.current = members
+  const mentionsRef = useRef(mentions)
+  mentionsRef.current = mentions
+  // Read once, at mount: the parent clears it as soon as focus is taken, and
+  // a changed option would make the editor drop the focus it just took.
+  const [focusOnMount] = useState(autoFocus)
 
   const extensions = useMemo(
-    () => [...noteExtensions(mentionSuggestion(() => membersRef.current)), syncExtension],
+    () => [
+      ...noteExtensions(
+        mentionSuggestion(
+          () => membersRef.current,
+          () => mentionsRef.current,
+        ),
+      ),
+      syncExtension,
+    ],
     [syncExtension],
   )
 
@@ -115,6 +146,8 @@ function SyncedEditor({
     extensions,
     content: initialContent,
     editable,
+    // The first block is the title.
+    autofocus: focusOnMount && editable ? 'start' : false,
     immediatelyRender: false,
     editorProps: {
       attributes: { class: 'note-editor', 'aria-label': 'Note body' },
@@ -125,11 +158,22 @@ function SyncedEditor({
     editor?.setEditable(editable)
   }, [editor, editable])
 
+  useEffect(() => {
+    if (editor && focusOnMount) onAutoFocused?.()
+  }, [editor, focusOnMount, onAutoFocused])
+
   if (inline) {
     return (
       <div className="flex flex-col gap-2">
         <EditorContent editor={editor} className="px-1 py-1" />
-        {editable && <FormatBar editor={editor} trailing={trailingTools} inline />}
+        {editable && (
+          <FormatBar
+            editor={editor}
+            mentions={mentions}
+            trailing={trailingTools}
+            inline
+          />
+        )}
       </div>
     )
   }
@@ -138,7 +182,7 @@ function SyncedEditor({
     <div className="flex min-h-0 flex-1 flex-col">
       {editable && (
         <div className="order-2 lg:order-1 lg:mb-2">
-          <FormatBar editor={editor} trailing={trailingTools} />
+          <FormatBar editor={editor} mentions={mentions} trailing={trailingTools} />
         </div>
       )}
       <div className="order-1 min-h-0 flex-1 overflow-y-auto pb-24 lg:order-2 lg:pb-8">

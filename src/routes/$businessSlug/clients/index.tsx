@@ -1,61 +1,51 @@
 import { useMemo, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { convexQuery } from '@convex-dev/react-query'
-import { Plus, Search } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { z } from 'zod'
-import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
+import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { ClientCard } from '#/components/clients/ClientCard'
-import { ClientTable } from '#/components/clients/ClientTable'
 import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
-import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
-import { useClientFilters } from '#/lib/clientFilters'
+import { matchesClientSearch, useClientFilters } from '#/lib/clientFilters'
 import { useCan } from '#/lib/access'
-
-const VIEW_OPTIONS: Array<{ value: 'list' | 'board' | 'table'; label: string }> = [
-  { value: 'list', label: 'List' },
-  { value: 'board', label: 'Board' },
-  { value: 'table', label: 'Table' },
-]
+import { rq, warm } from '#/lib/routeQueries'
 
 export const Route = createFileRoute('/$businessSlug/clients/')({
-  // `view` mirrors the Schedule route exactly: the way an operator prefers
-  // to read their client list should survive a refresh, same as the way
-  // they prefer to read their day.
+  // One way to read clients: the cards. The List and Table views were
+  // retired, and `view` with them — the key is gone rather than narrowed, so
+  // an old `?view=list` or `?view=table` link passes validation and opens the
+  // cards. The stale key stays in the address bar until the first search.
   validateSearch: z.object({
     q: z.string().optional(),
-    view: z.enum(['list', 'board', 'table']).optional(),
   }),
+  // Both lists together, before the page renders: read in order, the
+  // properties were not asked for until the clients had come back.
+  loader: ({ context: { queryClient, business } }) =>
+    warm(queryClient, rq.clients(business._id), rq.properties(business._id)),
   component: ClientsPage,
 })
 
 function ClientsPage() {
   const { business } = Route.useRouteContext()
   const canManageClients = useCan('clients.manage')
-  const { q, view } = Route.useSearch()
+  const { q } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
-  const activeView = view ?? 'board'
-  const setView = (next: 'list' | 'board' | 'table') =>
-    navigate({ search: (prev) => ({ ...prev, view: next }), replace: true })
   const [newOpen, setNewOpen] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
   const hydrated = useHydrated()
 
   // Both lists are per-business and small (matches the same precedent the
   // Reports dashboard already established) — fetched once, unpaginated, and
-  // filtered client-side, which is what lets search match name OR address in
-  // one pass rather than needing two Convex search indexes merged.
-  const { data: clients } = useSuspenseQuery(
-    convexQuery(api.clients.list, { businessId: business._id }),
-  )
-  const { data: properties } = useSuspenseQuery(
-    convexQuery(api.properties.list, { businessId: business._id }),
-  )
+  // filtered client-side, which is what lets search match name, address, ABN
+  // or site contact in one pass rather than needing Convex search indexes
+  // merged.
+  const { data: clients } = useSuspenseQuery(rq.clients(business._id))
+  const { data: properties } = useSuspenseQuery(rq.properties(business._id))
 
   const rows = useMemo(() => {
     const propertiesByClient = new Map<string, typeof properties>()
@@ -70,21 +60,13 @@ function ClientsPage() {
       properties: propertiesByClient.get(client._id) ?? [],
     }))
 
-    const query = (q ?? '').trim().toLowerCase()
-    if (query === '') return withProperties
-
-    return withProperties.filter(({ client, properties: owned }) => {
-      const haystack = [
-        client.name,
-        ...owned.flatMap((p) => [p.addressLine, p.suburb]),
-      ]
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(query)
-    })
+    const term = q ?? ''
+    if (term.trim() === '') return withProperties
+    return withProperties.filter((row) => matchesClientSearch(row, term))
   }, [clients, properties, q])
 
-  const { kind, setKind, suburb, setSuburb, filteredRows } = useClientFilters(rows)
+  const { kind, setKind, suburb, setSuburb, filteredRows } =
+    useClientFilters(rows)
   const filtersActive = kind !== 'all' || suburb !== 'all'
 
   return (
@@ -93,7 +75,7 @@ function ClientsPage() {
         businessId={business._id}
         businessSlug={business.slug}
         kicker={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}`}
-        title="Clients"
+        title="Client"
         action={
           <button
             type="button"
@@ -107,32 +89,25 @@ function ClientsPage() {
         }
       />
 
-      <div className="px-4 pt-3">
-        <label className="flex items-center gap-2 rounded-xl bg-surface-3 px-3">
-          <Search size={17} strokeWidth={1.7} className="text-muted" />
-          <span className="sr-only">Search by name or address</span>
-          <input
-            value={q ?? ''}
-            onChange={(e) =>
-              navigate({
-                search: { q: e.target.value || undefined },
-                replace: true,
-              })
-            }
-            placeholder="Search by name or address"
-            className="h-11 flex-1 bg-transparent text-[16px] text-ink outline-none"
-          />
-        </label>
+      <div className="flex px-4 pt-3">
+        {/* The shared box, not a bare input bound to the URL: that navigated
+            on every keystroke and, while a navigation was in flight, put the
+            committed term back over whatever had been typed since. The
+            search is `q` alone now — the only thing this page keeps in the
+            URL — which also drops a retired `?view=` an old link brought in,
+            since the router carries unknown keys along otherwise. */}
+        <SearchBox
+          value={q ?? ''}
+          onChange={(term) =>
+            navigate({ search: { q: term || undefined }, replace: true })
+          }
+          label="Search by name or address"
+          placeholder="Search by name or address"
+        />
       </div>
 
       <section className="px-4 pt-4 pb-6">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <Segmented
-            label="View"
-            value={activeView}
-            options={VIEW_OPTIONS}
-            onChange={setView}
-          />
           <ClientFilterBar
             rows={rows}
             kind={kind}
@@ -151,8 +126,6 @@ function ClientsPage() {
                 : 'Add a client to start booking work for them.'
             }
           />
-        ) : activeView === 'table' ? (
-          <ClientTable rows={filteredRows} onOpenClient={setOpenId} />
         ) : (
           <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
             {filteredRows.map(({ client, properties: owned }) => (
@@ -160,7 +133,6 @@ function ClientsPage() {
                 key={client._id}
                 client={client}
                 properties={owned}
-                variant={activeView}
                 onOpen={setOpenId}
               />
             ))}
@@ -178,6 +150,7 @@ function ClientsPage() {
         businessId={business._id}
         timezone={business.timezone}
         businessSlug={business.slug}
+        businessState={business.state}
         isOwner={canManageClients}
         clientId={openId}
         onClose={() => setOpenId(null)}

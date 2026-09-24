@@ -1,13 +1,35 @@
 import { useState } from 'react'
+import { JOB_STATUS } from '#/lib/statusColours'
 import type { JobStatus } from '#/components/primitives/StatusPill'
+import { UNASSIGNED_COLOUR } from '../../convex/lib/colours'
 
 export type StatusFilter = 'all' | JobStatus
 
-export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = [
-  { value: 'booked', label: 'Booked' },
-  { value: 'inProgress', label: 'In Progress' },
-  { value: 'completed', label: 'Completed' },
-  { value: 'invoiced', label: 'Invoiced' },
+// Pending is here because every job booked by hand now starts there — without
+// it "Booked" would quietly stop matching new work.
+//
+// No Cancelled: `jobs.listDay` never returns a cancelled job, so the filter
+// could only ever empty the day. No Recurring either, though `listDay` does
+// return projections once their day has come, and carries overdue ones onto
+// today (convex/jobs.ts): they are work nobody has booked, marked as such on
+// their cards and counted apart in the day's header, and read in full in the
+// Recurring Job view.
+export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = (
+  ['pending', 'booked', 'completed', 'invoiced'] as const
+).map((value) => ({ value, label: JOB_STATUS[value].label }))
+
+/**
+ * The Job tab's filter. That list holds every job somebody booked, whatever
+ * its status, so unlike the schedule's it can offer Cancelled. It holds no
+ * projected visits (`jobs.list` in convex/jobs.ts), so there is no Recurring:
+ * those are the Recurring Job view's (src/lib/jobViews.ts).
+ */
+export const JOB_LIST_STATUS_OPTIONS: Array<{
+  value: JobStatus
+  label: string
+}> = [
+  ...STATUS_OPTIONS,
+  { value: 'cancelled', label: JOB_STATUS.cancelled.label },
 ]
 
 export type StaffLoad = {
@@ -21,37 +43,42 @@ export type StaffLoad = {
  * "Who's on today, and how many jobs each of them has" — mirrors
  * `monthTeamLoad`'s accumulation/sort shape (convex/jobs.ts), but pure and
  * client-side since a single day's jobs are already fully loaded. Only staff
- * present in `jobs` are included, so someone with zero jobs today never
+ * present in `jobs` are included, so someone with nothing on today never
  * shows up as "(0)".
  *
- * The name comes off the job rather than from a join against the roster, and
- * that is not a simplification — it is the fix for a real regression. The
- * roster hides the owner from everyone else, so joining against it dropped
- * owner-assigned jobs into a bucket labelled "Unassigned": a label that is
- * both wrong and conspicuous, since every job has an assignee. `jobs.decorate`
- * already resolves the name through `displayPerson`, which shows the business
- * where a hidden person would be — so reading it from the job inherits the
- * right answer instead of recomputing a worse one.
+ * The count is of booked jobs only. The day's list also holds projected
+ * visits once their day has come, and those are in no job count anywhere
+ * (brief §2, and `jobsInRange` in convex/jobs.ts) — this is the team legend's
+ * number for one day, so it keeps the same rule. Someone whose only visit
+ * today is a projection is still listed, at 0, so the filter can still find
+ * it.
+ *
+ * The name comes off the job rather than from a join against the roster: the
+ * job carries its assignee's name already (`jobs.decorate`), and a join would
+ * put anyone missing from the roster — someone removed since — into a bucket
+ * labelled "Unassigned", which is wrong, since every job has an assignee.
  */
 export function computeStaffLoad(
   jobs: Array<{
     assignedMembershipId: string
     assigneeName?: string
     assigneeColour?: string
+    status?: JobStatus
   }>,
 ): Array<StaffLoad> {
   const byId = new Map<string, StaffLoad>()
   for (const job of jobs) {
+    const counts = job.status !== 'recurring' ? 1 : 0
     const row = byId.get(job.assignedMembershipId)
     if (row) {
-      row.count += 1
+      row.count += counts
       continue
     }
     byId.set(job.assignedMembershipId, {
       membershipId: job.assignedMembershipId,
       name: job.assigneeName || 'Unassigned',
-      colour: job.assigneeColour ?? '#8E8E93',
-      count: 1,
+      colour: job.assigneeColour ?? UNASSIGNED_COLOUR,
+      count: counts,
     })
   }
   return [...byId.values()].sort((a, b) => b.count - a.count)
@@ -59,7 +86,7 @@ export function computeStaffLoad(
 
 export function useScheduleFilters<
   T extends { status: JobStatus; assignedMembershipId: string },
->(jobs: Array<T>, defaultStaffId: string = 'all') {
+>(jobs: Array<T>, defaultStaffId: string = 'all', resetKey: string = '') {
   const [status, setStatus] = useState<StatusFilter>('all')
   // Defaults to the viewer's own jobs, not everyone's — "All staff" is a
   // deliberate switch, not the starting point.
@@ -81,6 +108,20 @@ export function useScheduleFilters<
     setStaffId(defaultStaffId)
   }
 
+  /**
+   * And start over when the view changes. Filtered to Kevin in God view, then
+   * switched to "Just my jobs", the list would hold only the owner's jobs and
+   * the filter would still want Kevin's — "No matching jobs", with the staff
+   * picker hidden in that view and so no way to see why. A different view is
+   * a different question; its filters begin from nothing.
+   */
+  const [lastKey, setLastKey] = useState(resetKey)
+  if (lastKey !== resetKey) {
+    setLastKey(resetKey)
+    setStaffId(defaultStaffId)
+    setStatus('all')
+  }
+
   const filteredJobs = jobs.filter(
     (job) =>
       (status === 'all' || job.status === status) &&
@@ -88,4 +129,17 @@ export function useScheduleFilters<
   )
 
   return { status, setStatus, staffId, setStaffId, filteredJobs }
+}
+
+/**
+ * The dots under a day. One per person, so the owner sees whose day is loaded
+ * — except in "Just my jobs", where every job is his and the colours would
+ * only repeat one another; there a single neutral dot says there is work.
+ */
+export function dayDots(
+  colours: Array<string>,
+  monochrome: boolean,
+): Array<string> {
+  if (!monochrome) return colours
+  return colours.length > 0 ? ['var(--color-muted)'] : []
 }

@@ -54,6 +54,35 @@
   --amber-bg: #fff8ec;
   --amber-line: #ffe2b8;
 
+  /* Job status hues (Phase 4.3): a tinted fill, a mid-tone border and a
+     text colour each, as the amber warning pair already has. Every -ink
+     clears 7:1 on its -bg (grey 6.3:1), and every -line 3:1 on the card, so a
+     pill still reads when sun washes out its fill. Amber stays the warning
+     colour and is not one of these. */
+  --orange-bg: #ffe0c7;
+  --orange-line: #d9560a;
+  --orange-ink: #7d2f00;
+  --red-bg: #ffdcd9;
+  --red-line: #ff3b30;
+  --red-ink: #930a05;
+  --yellow-bg: #ffeb99;
+  --yellow-line: #a88100;
+  --yellow-ink: #5c4500;
+  --green-bg: #d3f0dc;
+  --green-line: #22963f;
+  --green-ink: #045620;
+  --blue-bg: #d6e8ff;
+  --blue-line: #0a84ff;
+  --blue-ink: #024596;
+  --grey-bg: #ebebf0;
+  --grey-line: #8e8e93;
+  --grey-ink: #545458;
+
+  /* How much of a technician's colour fills a job block in the Week View:
+     enough to say whose it is, little enough that ink on it stays far past
+     AA. Dark needs more of the colour to show against #1c1c1e. */
+  --block-tint: 14%;
+
   /* Sticky headers and the mobile dock, behind a backdrop-filter. */
   --chrome: rgba(255, 255, 255, 0.92);
   /* Dimmer behind sheets and dialogs. */
@@ -108,6 +137,27 @@
   --amber-ink: #ffb340;
   --amber-bg: #2a1e0a;
   --amber-line: #4d3712;
+
+  --orange-bg: #47260f;
+  --orange-line: #ff8a3d;
+  --orange-ink: #ffb787;
+  --red-bg: #4a1b17;
+  --red-line: #ff453a;
+  --red-ink: #ffa39c;
+  --yellow-bg: #413507;
+  --yellow-line: #ffd60a;
+  --yellow-ink: #ffe270;
+  --green-bg: #133b20;
+  --green-line: #30d158;
+  --green-ink: #7de39a;
+  --blue-bg: #0d3160;
+  --blue-line: #0a84ff;
+  --blue-ink: #99cbff;
+  --grey-bg: #2c2c2e;
+  --grey-line: #8e8e93;
+  --grey-ink: #aeaeb2;
+
+  --block-tint: 24%;
 
   --chrome: rgba(28, 28, 30, 0.82);
   /* 30% black over a black canvas barely dims; a sheet needs its backdrop to
@@ -169,6 +219,16 @@
   --sidebar-accent-foreground: var(--ink);
   --sidebar-border: var(--hairline);
   --sidebar-ring: var(--blue);
+
+  /*
+   * Overdue carries no hue (Phase 4.3). Hue on a job card already means two
+   * things — a solid unlabelled mark is a person, a bordered tinted pill with
+   * a word is a status — and amber means "warning" across the app. An
+   * unactioned visit is neither, so it is ink: black in light, white in dark,
+   * 17:1 either way.
+   */
+  --overdue: var(--ink);
+  --overdue-ink: var(--surface);
 }
 
 @theme inline {
@@ -196,6 +256,26 @@
   --color-amber-ink: var(--amber-ink);
   --color-amber-bg: var(--amber-bg);
   --color-amber-line: var(--amber-line);
+  --color-orange-bg: var(--orange-bg);
+  --color-orange-line: var(--orange-line);
+  --color-orange-ink: var(--orange-ink);
+  --color-red-bg: var(--red-bg);
+  --color-red-line: var(--red-line);
+  --color-red-ink: var(--red-ink);
+  --color-yellow-bg: var(--yellow-bg);
+  --color-yellow-line: var(--yellow-line);
+  --color-yellow-ink: var(--yellow-ink);
+  --color-green-bg: var(--green-bg);
+  --color-green-line: var(--green-line);
+  --color-green-ink: var(--green-ink);
+  --color-blue-bg: var(--blue-bg);
+  --color-blue-line: var(--blue-line);
+  --color-blue-ink: var(--blue-ink);
+  --color-grey-bg: var(--grey-bg);
+  --color-grey-line: var(--grey-line);
+  --color-grey-ink: var(--grey-ink);
+  --color-overdue: var(--overdue);
+  --color-overdue-ink: var(--overdue-ink);
 
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -324,6 +404,52 @@
   -webkit-touch-callout: none;
 }
 
+/* The navigation progress bar (NavProgress.tsx). Transparent for its first
+   150 ms, so a navigation that answers from cache never flashes it; after
+   that, a crawl that slows as it goes and never finishes, because the bar
+   knows nothing about how much is left. Removed, not completed, on arrival. */
+@layer components {
+  .nav-progress {
+    opacity: 0;
+    animation: nav-progress-in 120ms ease-out 150ms forwards;
+  }
+  .nav-progress-bar {
+    transform: scaleX(0.05);
+    transform-origin: left;
+    animation: nav-progress-crawl 8s cubic-bezier(0.1, 0.6, 0.2, 1) 150ms
+      forwards;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .nav-progress-bar {
+      animation: none;
+      transform: scaleX(0.6);
+    }
+  }
+}
+
+@keyframes nav-progress-in {
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes nav-progress-crawl {
+  to {
+    transform: scaleX(0.9);
+  }
+}
+
+/* The same guard for a hold inside a list the thumb scrolls (a job card's
+   Call). A vertical drag is left to the browser, which cancels the pointer
+   when it takes it, and a cancelled pointer ends the hold — so the list still
+   scrolls from here and a scroll can never dial. */
+@utility hold-target-scroll {
+  touch-action: pan-y;
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-touch-callout: none;
+}
+
 /* The note body (Tiptap). Deliberately the phone's Notes look: one big
    title line, plain 17px body, round yellow checklist circles. Not the
    typography plugin's `prose` — that is a reading style, this is a
@@ -415,13 +541,21 @@
     text-decoration: line-through;
     text-decoration-color: var(--hairline);
   }
+  /* The person's colour as a mark — a tint and a 2px rail — and the name in
+     ink. Drawn in the colour itself, most technician colours fell under AA on
+     their own tint (Phase 4.2's rule: a person is a mark, never the text). */
   .note-editor .mention {
     display: inline-block;
     padding: 0 6px;
     border-radius: 6px;
     font-weight: 600;
-    color: var(--mention-colour, var(--blue));
-    background: color-mix(in srgb, var(--mention-colour, var(--blue)) 14%, transparent);
+    color: var(--ink);
+    background: color-mix(
+      in srgb,
+      var(--mention-colour, var(--blue)) 18%,
+      transparent
+    );
+    box-shadow: inset 2px 0 0 var(--mention-colour, var(--blue));
   }
   .note-editor .is-empty::before {
     content: attr(data-placeholder);

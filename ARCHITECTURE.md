@@ -55,11 +55,26 @@ re-declared per theme, so nothing else in the system is themed twice.
   --scrim        rgba(0,0,0,.30)        rgba(0,0,0,.60)        sheet backdrop
   --red          #FF3B30                #FF453A    primary action, brand
   --blue         #0A84FF                #0A84FF    links, contact actions
-  --green        #34C759                #30D158    invoiced / success
-  --amber        #FF9F0A                #FF9F0A    completed-awaiting-invoice
+  --green        #34C759                #30D158    success
+  --amber        #FF9F0A                #FF9F0A    warning accent
   --amber-ink    #B26B00                #FFB340    warning text
   --amber-bg     #FFF8EC                #2A1E0A    warning surface
   --amber-line   #FFE2B8                #4D3712    warning border
+
+  Job status ramps (Phase 4.3), one per hue, each a -bg / -line / -ink triple:
+  --orange-*  Recurring   --red-*   Pending    --yellow-*  Booked
+  --green-*   Completed   --blue-*  Invoiced   --grey-*    Cancelled
+  Every -ink clears 7:1 on its -bg (grey 6.3:1) and every -line 3:1 on the
+  card, in both themes — checked against this file by statusColours.test.ts.
+  Which status takes which hue is decided once, in src/lib/statusColours.ts.
+  --overdue / --overdue-ink = --ink / --surface: overdue carries no hue.
+
+  Three signals share a job card, so each keeps its own form: a solid mark
+  with no text is a PERSON (the technician colour, convex/lib/colours.ts —
+  the owner sets it in Settings → Team); a bordered tinted pill with a word is
+  a STATUS; ink with no hue is OVERDUE; and amber with a pale border stays a
+  WARNING. Completed is green since 4.3 — the "raise the invoice" prompt
+  lives on Analytics' Awaiting invoice figure, which links to those jobs.
 
   Dark inverts the elevation model: --canvas is black and cards sit *above* it,
   where light has white cards on a grey canvas. --blue and --amber do not move
@@ -94,6 +109,8 @@ Shell      max-width 460px centred on canvas
 
 **Settings:** reached via avatar in header (not a tab), 3 segments — Profile / Team / Preferences
 
+*Amended (reports Phase 6):* a fourth segment, **Reports**, owner-only. It holds the business's option libraries — the nineteen vocabularies the forms draw on — one card per list opening a sheet that adds, renames, reorders, stars the usual few, archives and restores. The forms' wording is reproduced verbatim and is not the business's to change; the lists of answers ARE, and until this existed changing one needed a developer.
+
 **Modal sheets (5):**
 1. Month picker — bottom sheet, month grid, job-count dots, "Today"
 2. Job detail — bottom sheet, 92vh max, property/assignment/recurrence/actions
@@ -102,14 +119,39 @@ Shell      max-width 460px centred on canvas
 5. Report builder — full-screen, dynamic field renderer, Save draft / Finalise & lock
 6. Report document — full-screen, rendered document preview + PDF export
 
+*Amended (reports Phase 3):* the builder is no longer one scroll. A report opens
+on an **overview** of its sections and is filled **one section at a time**, with
+the open section in the URL (`?s=<section id>`) so the phone's back gesture
+leaves a section rather than the report. On `lg` a standing section rail sits
+beside a 720px content column — the page had been stretching every field across
+the whole 1280px shell. A seventh sheet joined the list: the **answer picker**,
+which a list of more than twelve options opens instead of stacking rows, and
+which every cell of a repeating row uses whatever its length.
+
+*Amended (reports Phases 4–5):* three more sheets, all from
+`primitives/Sheet.tsx`: the **finalise sheet**, which reads a report back
+before it locks; the **send sheet**, which offers the recipients the form
+itself asked for; and the **template settings sheet**, where an owner changes
+the parts of a built-in form that are theirs. The reports list became a
+library — server-paginated, server-searched (client, street, form name or
+report number), with a Recently Deleted segment for drafts. The report page's
+Email tab is now the send sheet plus a delivery history, and its Logs tab an
+activity timeline with actor names.
+
 **Cross-cutting:** preview-as banner (sticky, dark, top), toast (bottom centre)
 
 ## 2.3 Interaction patterns worth naming
-- **Hold-to-call / hold-to-email** — pointer-down starts a fill animation, pointer-up before completion cancels. Prevents pocket-dialling a client mid-job. Uses `onPointerDown/Up/Leave/Cancel`, `touch-action:none`, `user-select:none`.
+- **Hold-to-call / hold-to-email** — pointer-down starts a fill animation, pointer-up before completion cancels. Prevents pocket-dialling a client mid-job. Uses `onPointerDown/Up/Leave/Cancel`, `touch-action:none`, `user-select:none`. *Amended (Phase 4):* on a job card the same hold sits in a list the thumb scrolls, so there it uses `touch-action:pan-y` instead — the browser may take a vertical drag, and when it does it cancels the pointer, which cancels the hold. A scroll never dials; a still thumb still has to hold. The sheets keep `touch-action:none`.
 - **Segmented controls** for all binary/ternary filters — never dropdowns.
 - **Week strip with per-subcontractor dots** — colour-coded, so the Owner sees whose day is loaded at a glance.
-- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. *Amended:* the schedule's job card now has two variants, and the rule holds per-variant rather than per-surface — the compact **list** row still shows suburb alone, while the richer **board** card shows the full street address. A board card is being read, not scanned past, and at that size the address is the fastest way to recognise a job. `JobCard.tsx` is the only place this applies; every other list row is unchanged.
+- **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. The job card follows it too. *History:* a list/board split once had the board card print the full street address; the variants went in Phase 2, and in Phase 4 the card went back to the suburb alone, as the day table's row showed it (the table itself was retired later). Its Map button carries the street address to the maps app, so the address no longer has to be read off the card to be used. The job detail sheet and the report still print it in full.
 - **Locked boilerplate blocks** — report disclaimers render in a grey inset card, visibly non-editable.
+- **A delivery is a record, not an event** — every attempt to send a report is a `reportDeliveries` row, written before the provider is called and naming the `reportPdfs` row it attached, so "which file did the client receive?" has an answer after the renderer has moved on. `sent` means the provider accepted it; the Resend webhook moves a row to `bounced` later, and the report's Sent bucket with it.
+- **Who a report may be sent to** — a technician may send to addresses already on the client record; anywhere else is `pendingApproval` until an owner says yes, unless the business turns the restriction off. The held row IS the request, so approving is a decision about something real. Twenty sends an hour per member, counted from the delivery rows rather than a separate token bucket.
+- **Suggested answers** — an answer the app worked out (the forecast, the booked start time) is marked "Suggested" and blocks finalising until the technician confirms it, which pressing Next on that section does. Facts read off a record are never marked: a technician confirming what their own client record says is a tax on being helpful.
+- **One tap for a clean group** — a section or heading may declare `quick`, offering a single explicit tap that answers a whole group with its "nothing found" values. Never a stored default, never over an existing answer, and never over the form's mandatory gate (`semantic: 'safetyGate'`).
+- **The lock is two acts, not one** — `Finalise & lock` opens a sheet that reads the report back (what was applied, whether it was safe, who signed, how many photos, who the form says gets a copy) before anything is locked. Which answers are read back is the template's call, via `summary: true` on a field or a repeater column. Not a hold-to-confirm gesture: long presses misfire through gloves, and the guard a technician needs is knowing what is about to be locked, not being asked whether they are sure. The button is never greyed for an *incomplete* report — pressing it is how you find out what is missing — but it does wait for the report's evidence to load, because signatures and photos live outside `data` and a check run before they arrive reads "not loaded" as "not there".
+- **Bottom sheets come from `primitives/Sheet.tsx`** — seven screens had each hand-rolled the same root/portal/overlay/content/handle/close block before the pickers needed an eighth.
 
 ## 2.4 Responsive strategy
 The design file is a 460px mobile shell. Desktop is an adaptive re-layout of the same components, not a separate app:
@@ -214,7 +256,11 @@ jobs: {
   jobType,                              // "General Pest Control" | "Rodents" | "Termite Inspection" | ...
   price,                                // cents
   scheduledAt, durationMinutes,
-  status: "booked" | "completed" | "invoiced" | "cancelled",
+  status: "recurring" | "pending" | "booked"
+        | "completed" | "invoiced" | "cancelled",
+                                        // new by hand = pending; "recurring" only
+                                        // from the recurrence engine, one-way out
+                                        // (convex/lib/jobStatus.ts)
   recurrenceId?,                        // null = one-off
   completedAt?, createdAt
 }
@@ -230,9 +276,21 @@ recurrences: {
 }
 .index("by_business", ["businessId"])
 
+// *Amended (reports Phases 1-6).* The row below is the v1 design; the live
+// shape is convex/schema.ts. What was added, and why, in one line each:
+//   templateSnapshotId, templateVersion  what this report was SIGNED against
+//   contextSnapshot                      the client/site/business facts, frozen
+//   prefill                              which answers the app guessed
+//   signatureSlots                       the drawn images, outside `data`
+//   reportNumber, version                the "Submission ID:" the client quotes
+//   pdfStatus/StorageId/RenderVersion    the render claim and its current file
+//   deletedAt, updatedAt, searchText     Recently Deleted, ordering, search
+//   + by_business_updated, by_deletedAt, by_business_status_template, search
+// `photoIds` survives as a write-only array nothing reads (see migrations.md).
 reports: {
   businessId, jobId, propertyId, authorMembershipId,
-  template: "treatmentRecord" | "timberPestInspection" | "termiteManagementCert",
+  template: "serviceReport" | "timberPestInspection" | "termiteManagementCert"
+          | "treatmentRecord" | "custom",
   legalBasis,                           // "APVMA" | "AS 4349.3-2010" | "AS 3660.2-2017"
   status: "draft" | "finalised",
   data: v.any(),                        // template-shaped, validated by Zod at the edge
@@ -244,14 +302,28 @@ reports: {
 .index("by_property", ["propertyId"])       // "find the 2024 report for this address"
 .index("by_job", ["jobId"])
 
+// Superseded by the Field Notes rebuild; the live shape is convex/schema.ts.
+// The body lives in the prosemirror-sync component; the row holds links
+// (job / property / client — what the note is about) and derived metadata.
+// `visibility: 'private'` (Phase 5.3, 2026-09-24) makes a PERSONAL note:
+// read and written by its author, read only by the business owner, by
+// nobody else whatever their job scope, lens or @mentions; never linked,
+// never tagging. Absent = shared (knowledge-first), as every older note is.
 notes: {
   businessId, authorMembershipId,
-  jobId?, propertyId?,
+  jobId?, propertyId?, clientId?,
+  visibility?,
   text, createdAt
 }
 .index("by_business", ["businessId"])
 .index("by_job", ["jobId"])
 
+// NOT BUILT (reports Phase 7 note). No `tasks` table exists in
+// convex/schema.ts and no convex/tasks.ts exists. The durable-notice
+// follow-up it was designed for became `features: ['durableNotice']`, an
+// optional printed extra; the SGAR 35-day evaluation became an offer on the
+// finished report (`sgarFollowUp`) rather than a queued task. Kept here
+// because a follow-up table is still the right home if one is ever wanted.
 tasks: {                                 // manual follow-ups (durable notice etc.)
   businessId, jobId?, reportId?,
   kind: "durableNotice" | "other",
@@ -309,8 +381,25 @@ convex/
   recurrences.ts             create, materialise, skipOccurrence, reschedule
   reports.ts                 create, saveDraft, finalise, get, listByProperty, search
   reportPdf.ts               [action] render via react-pdf, store, return storageId
-  notes.ts                   list, create, listForJob
-  tasks.ts                   listOpen, complete, createDurableNoticeTask
+  *Amended (reports Phases 4–5):* `reports.ts` also owns the paginated
+  `list`/`search`/`counts` the library reads, the soft-delete trio
+  (`softDelete`/`restore`/`remove`) and its nightly `purgeExpired`, the
+  render claim (`claimPdf`/`setPdf`/`failPdf`) and the caller-less projections
+  scheduled work reads (`getForRender`, `photosForRender`). `reportPdf.ts` is
+  now a thin wrapper over `reportPipeline.tsx`, which owns the single render
+  path. `deliveries.ts` and `templateSettings.ts` are new; `http.ts` gained
+  its first hand-written route, the Resend webhook.
+  *Amended (reports Phase 6):* `optionSets.ts` gained the owner mutations the
+  settings screen needs and two queries a technician's builder reads —
+  `editable` for the editor, `usual` for what a picker offers first (the
+  business's starred options unioned with this member's own recents, kept in
+  `memberships.reportPrefs`). `snippets.ts` is new: saved wording for the
+  long-answer boxes, writable by any member. `reports.ts` gained
+  `lastAtProperty`/`copyFromLastVisit`, which fill a return visit in from the
+  last report at the same address.
+  notes.ts                   list (folders incl. mine / everyone), search, create,
+                             setVisibility, listForProperty, listForJob (legacy)
+  tasks.ts                   NOT BUILT — see the `tasks` table note in §4.2
   xero.ts                    [action] beginOAuth, completeOAuth, refresh, pushInvoice
   invoices.ts                createFromJob, syncStatus
   sms.ts                     [action] sendReminder, sendReceipt
@@ -381,9 +470,10 @@ src/routes/
       $propertyId.tsx
     invoices.tsx                  ?seg=
     reports/
-      index.tsx                   ?q=
+      index.tsx                   ?q= &seg=  (all|draft|finalised|sent|trash)
       new.tsx                     template picker
-      $reportId.tsx               builder (draft) or document (finalised)
+      $reportId.tsx               builder (draft) or document (finalised); ?s= section
+      templates/                  owner-only: built-in settings, custom templates
     notes.tsx                     ?filter=
     settings.tsx                  ?seg=profile|team|prefs
 ```
@@ -404,7 +494,8 @@ src/components/
     HoldButton.tsx                pointer-driven fill; click-through on desktop
   schedule/
     WeekStrip.tsx  DayDots.tsx  MonthPickerSheet.tsx
-    JobCard.tsx                   list | board variants (§2.3)
+    JobCard.tsx                   one card, four surfaces; Map top right, Call/Text/Email below, all holds (§2.3)
+    WeekView.tsx                  the Week View's own job blocks, not JobCard — check card rules here too
     WeatherStrip.tsx              per-card forecast: values, never advice
     JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx
     WeekGrid.tsx                  desktop-only
@@ -415,59 +506,98 @@ src/components/
   invoicing/
     InvoiceCard.tsx  XeroRouteRow.tsx  ScopeNotice.tsx
   reports/
-    TemplatePicker.tsx
     ReportBuilder.tsx             renders from template definition
-    fields/                       Text Area Select Chips AreasChecklist Photos
+    ReportOverview.tsx            the hub: sections, progress, last-visit offer
+    fields/                       registry + one control per kind, PickerSheet,
+                                  RowSheet, SignSheet, PhrasesSheet, RepeaterGrid
+    FinaliseSheet.tsx  SendSheet.tsx  InlineReports.tsx  ReportsLibrary.tsx
     BoilerplateBlock.tsx          locked disclaimer
-    DurableNoticePreview.tsx      mono label + manual-task warning
+    DurableNoticePreview.tsx      an optional extra behind `features`
     ReportDocument.tsx            on-screen rendered document
-    pdf/                          @react-pdf templates ×3
+    pdf/                          ONE painter (ReportPdf) + CoverPage, layout,
+                                  tables, theme, RichTextPdf, PdfViewer
   notes/
-    NoteComposer.tsx  NoteCard.tsx  JobPill.tsx
+    NotesLibrary.tsx  NotesRail.tsx  NoteList.tsx  NoteEditor.tsx
+    NoteEditorHeader.tsx  JobNotesSection.tsx ("Before you arrive" only)
   settings/
     ProfileSection.tsx  TeamSection.tsx  MemberAccessRow.tsx  PrefsSection.tsx
 
 src/lib/
   reportTemplates/                THE compliance layer — see §5.3
-    treatmentRecord.ts  timberPestInspection.ts  termiteManagementCert.ts
+    serviceReport.ts  timberPestInspection.ts  termiteManagementCert.ts
+    treatmentRecord.ts            retired from the picker; kept so old reports render
+    legacy/                       v1 modules a pre-rewrite report resolves to
+    documentModel.ts  present.ts  visibility.ts  validate.ts  progress.ts
+    seed.ts  optionSets.ts  lastVisit.ts  snippets.ts  settings.ts  resolve.ts
     index.ts                      registry + shared Zod fragments
   access.ts                       client-side mirror of server rules (UI only)
   format.ts  useMediaQuery.ts  toast.ts
 ```
 
 ## 5.3 Report templates as data (the most important frontend decision)
-Each template is a declarative definition — field list, Zod schema, locked boilerplate, PDF component. The builder UI is a generic renderer over it. Adding a state-specific variant or a fourth document type becomes a new file, not a UI rewrite.
+Each template is a declarative definition — sections of typed fields, with the
+printed framing beside them. The builder UI is a generic renderer over it.
+Adding a state-specific variant or a fourth document type becomes a new file,
+not a UI rewrite.
+
+*Rewritten (reports Phase 7).* The shape below had drifted so far from the code
+that it described a different system: a `pdf` component per template, an
+`onFinalise` hook returning `tasks` rows, three template ids, and six field
+kinds. None of those exist. The authoring guide is
+`docs/reports/templates.md`; this is the contract.
 
 ```ts
 export type ReportTemplate = {
-  id: "treatmentRecord" | "timberPestInspection" | "termiteManagementCert";
-  name: string;
-  shortName: string;
-  legalBasis: string;                    // shown as a tag in the picker
-  blurb: string;
-  fields: FieldDef[];                    // drives the builder
-  schema: z.ZodType;                     // validates draft → finalise
-  boilerplate: string;                   // locked, rendered read-only
-  pdf: React.ComponentType<{ report; property; author; business }>;
-  onFinalise?: (ctx) => TaskSpec[];      // TMC returns the durable-notice task
-};
-
-type FieldDef =
-  | { kind: "text";   key; label; placeholder?; required? }
-  | { kind: "area";   key; label; placeholder?; rows? }
-  | { kind: "select"; key; label; options: {value,label}[] }
-  | { kind: "chips";  key; label; options: {value,label}[] }   // multi-select
-  | { kind: "areas";  key; label; rows: string[]; note? }      // inspected / no-access + reason
-  | { kind: "photos"; key; label; slots: string[] };
+  id: TemplateId | 'custom'        // 4 built-ins + business-authored
+  version: number                  // bump on ANY wording change
+  name, shortName, legalBasis, blurb: string
+  sections: SectionDef[]           // not a flat field list
+  terms?: RichDoc                  // the printed terms pages
+  print?: PrintSpec                // cover, headings, footer name, numbering
+  features?: Array<'durableNotice'>
+  corrections?: Correction[]       // every deliberate departure from the source
+  validationNotes?: string[]
+}
 ```
 
-**Template field content (from the compliance research):**
+Four things about it are load-bearing, and each replaces something the old
+shape got wrong:
 
-*Treatment Record (APVMA):* product, active constituent, APVMA reg no., batch number, dilution rate, target pest, treated areas (chips), weather conditions, technician + licence (auto), before/after photos.
+**There is no `pdf` component.** One pure `buildReportModel()` holds no React,
+so the Convex Node action, the browser and a vitest build the identical model;
+`ReportDocument.tsx` and `pdf/ReportPdf.tsx` do nothing but draw it. Two
+painters deciding layout separately is how a PDF comes to disagree with the
+screen it was approved on.
 
-*Timber Pest Inspection (AS 4349.3-2010):* areas checklist — roof void, subfloor, interior, exterior cladding, decking/fencing, grounds — each Inspected or No access **with a required reason**; evidence of activity; evidence of damage; conducive conditions; re-inspection interval; photos. Boilerplate: visual inspection only, ~7-day validity, not a structural inspection, not a safety or compliance inspection.
+**There is no `schema` property and no `onFinalise` hook.** Validation is
+derived from the fields (`deriveSchema`), and the Certificate's durable notice
+is a `features` flag no template currently sets rather than a callback that
+writes a `tasks` row — there is no `tasks` table.
 
-*Termite Management Certificate (AS 3660.2-2017 / NCC):* system type (chemical barrier / physical barrier / baiting), product, APVMA reg no., batch, life expectancy per label, install date, installer + licence (auto), re-inspection interval. Generates the durable-notice label preview and, on finalise, a `tasks` row: *"Fix durable notice in meter box"*.
+**22 field kinds, in three classes.** Answered-and-stored-in-`data`; answered
+but stored in `reportPhotos` / `signatureSlots` (`photos`, `gallery`, `cover`,
+`signature`); and not questions at all (`note`, `heading`, `derived`).
+`isDataField()` is the one guard every data-handling walk runs — `pruneHidden`,
+`deriveSchema`, `sectionProgress`, `seedData`, `present`. Miss it and a printed
+paragraph is treated as an unanswered question, and the report becomes
+permanently unfinalisable with an error pointing at nothing.
+
+**A finalised report never resolves the live template.** It dereferences
+`reportTemplateSnapshots` through `templateSnapshotId`, which is why correcting
+`Chemical Aplication Method` to `Application` does not alter a document signed
+last year. `resolveReportTemplate` merges, in order: the built-in module →
+the business's option libraries → its template settings — or a frozen snapshot,
+which wins and ignores both overlays.
+
+Business-authored templates additionally split **saving from issuing**:
+`saveDraft` keeps unvalidated work in progress, `publish` validates it and
+bumps `publishedVersion`, and `reports.create` reads only what is published.
+
+The per-template content that used to sit here was a research note from before
+the forms were transcribed, and it described fields the real documents do not
+have. What the three Pest M8 forms actually say, clause by clause, is
+`docs/reports/fidelity.md`; what the standards require of them is
+`docs/reports/compliance.md`.
 
 ## 5.4 Data-fetching pattern
 - Route loaders `ensureQueryData` for anything needed to render (schedule day, report being opened) — no loading spinner on first paint.
@@ -479,6 +609,7 @@ type FieldDef =
 - **Serwist** service worker: precache the app shell, `NetworkFirst` for navigation, `StaleWhileRevalidate` for static assets.
 - Convex caches last-known query results client-side, so **today's schedule renders offline** — the realistic field case (someone's backyard, no signal).
 - **Mutations require connectivity.** There is no offline mutation queue in v1. A tech can read the schedule offline and submit the report when back in range. Do not market this as fully offline-capable.
+- *Amended (reports Phase 4):* **a report draft's answers also live on the device that typed them.** `src/lib/draftMirror.ts` keeps one IndexedDB record per report, written as soon as an answer differs from the server's copy and deleted the moment the server acknowledges it — so what is left behind is exactly the work a tab killed mid-save would otherwise lose. On the next open the builder offers it back; it is never applied on its own, because another device may have saved since. This is still not an offline queue: nothing retries, photos are not queued, and a second device editing the same draft is last-writer-wins by design. Every call is best-effort, since IndexedDB is unavailable in a private window and can refuse a write on quota, and none of that should cost a technician the network path that works.
 - Install prompt: `manifest.webmanifest`, maskable icons, `display: standalone`, `theme-color: #FF3B30`.
 - **Build gate:** `pnpm build` fails if `sw.js` is missing or empty (`scripts/build-sw.ts`), and then fails again unless the built server actually *serves* it (`scripts/check-sw.mjs` boots `.output/server` and requests `/sw.js`). Both halves are needed: a worker written after Nitro baked its static-asset manifest existed on disk while every local production run answered `/sw.js` with a redirect to /login, so nothing about the worker could be tested before it reached Vercel.
 

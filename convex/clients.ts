@@ -1,13 +1,18 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
-import { summarise } from './reports'
-import { isInScope, reportScope } from './lib/capabilities'
+import { normaliseAbn } from './lib/abn'
+import { normaliseEmail } from './lib/email'
+import { normalisePhone } from './lib/phone'
+import { edited, setContactPerson } from './clientContacts'
+import { INLINE_LIMIT, decorate as decorateReports } from './reports'
+import { isInScope, reportReadable } from './lib/capabilities'
 import { clientKind } from './schema'
 import type { Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
 import { requireActor, requireCapability } from './lib/actor'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
+import { redactJobs } from './lib/prices'
 
 async function requireClient(
   ctx: QueryCtx,
@@ -51,6 +56,15 @@ export const get = query({
   },
 })
 
+const CLEARABLE = [
+  'phone',
+  'email',
+  'addressLine',
+  'suburb',
+  'state',
+  'postcode',
+] as const
+
 export const update = mutation({
   args: {
     businessId: v.id('businesses'),
@@ -63,21 +77,58 @@ export const update = mutation({
     suburb: v.optional(v.string()),
     state: v.optional(v.string()),
     postcode: v.optional(v.string()),
+    // Prompt 6.1. A blank string clears it; leaving it out leaves it alone.
+    // Validated whatever the kind: the form sends it only for a business, and
+    // a flipped client keeps it hidden rather than losing it.
+    abn: v.optional(v.string()),
+    // The name to make this client's primary contact — see
+    // `setContactPerson`. Blank takes the star off; nobody is deleted.
+    contactPerson: v.optional(v.string()),
   },
-  handler: async (ctx, { businessId, clientId, ...patch }) => {
+  handler: async (
+    ctx,
+    { businessId, clientId, abn: rawAbn, contactPerson, ...patch },
+  ) => {
     await requireMembership(ctx, businessId)
-    await requireClient(ctx, businessId, clientId)
+    const client = await requireClient(ctx, businessId, clientId)
 
     // Typed explicitly: the optional args really can arrive absent, but
     // `Object.entries` infers them away, which made the filter below read as
     // dead code to the linter while doing necessary work at runtime.
-    const fields = Object.fromEntries(
+    const fields: Record<string, string | undefined> = Object.fromEntries(
       Object.entries<string | undefined>(patch).filter(
         ([, value]) => value !== undefined,
       ),
     )
+    // A blank contact detail or head-office line clears it: written as
+    // `undefined`, which is how a patch removes a field. The edit form used to
+    // have no way to take a number or an address off at all, and saved as if
+    // it had. (Earlier frontends never send a blank: they leave a field out.)
+    for (const key of CLEARABLE) {
+      if (fields[key]?.trim() === '') fields[key] = undefined
+    }
+    // Checked only when this save changes it: the edit form sends every
+    // field, and a client saved before these rules must stay editable without
+    // first having an old address or number fixed. A new email is also
+    // stored the one way (`normaliseEmail`), since it becomes a report
+    // recipient.
+    if (fields.email !== undefined && edited(fields.email, client.email)) {
+      fields.email = normaliseEmail(fields.email)
+    }
+    if (fields.phone !== undefined && edited(fields.phone, client.phone)) {
+      fields.phone = normalisePhone(fields.phone)
+    }
+    // Refused before anything is written. Stored as `undefined` when cleared —
+    // how a patch removes a field — and left out when unchanged.
+    if (rawAbn !== undefined) {
+      const abn = normaliseAbn(rawAbn)
+      if (abn !== client.abn) fields.abn = abn
+    }
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(clientId, { ...fields, updatedAt: Date.now() })
+    }
+    if (contactPerson !== undefined) {
+      await setContactPerson(ctx, businessId, clientId, contactPerson)
     }
   },
 })
@@ -114,7 +165,7 @@ export const unarchive = mutation({
 export const jobHistory = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { scope, caps } = await requireActor(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -132,21 +183,29 @@ export const jobHistory = query({
     )
     const jobs = jobsByProperty.flat()
 
-    return jobs
-      .filter((j) => isInScope(scope, j))
-      .sort((a, b) => b.scheduledAt - a.scheduledAt)
+    // Redacted like every other job read. These went out raw, so anyone who
+    // could open a client could read what each of their own visits was
+    // charged at whether or not they may see prices — and with the client
+    // book open to everyone, that is anyone.
+    return redactJobs(
+      caps,
+      jobs
+        .filter((j) => isInScope(scope, j))
+        .sort((a, b) => b.scheduledAt - a.scheduledAt),
+    )
   },
 })
 
 /**
- * Reports across every property this client owns, reusing the exact
- * `canSeeReport` gate and `summarise()` shape `reports.listByProperty`
- * already uses for one property.
+ * Reports across every property this client owns, through the same
+ * `reportReadable` gate and `decorate()` row shape `reports.listByProperty` uses
+ * for one property — so the client sheet and the property sheet can never
+ * disagree about which reports someone may see.
  */
 export const reports = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
-    const { scope } = await requireActor(ctx, businessId)
+    const { actor, scope } = await requireActor(ctx, businessId)
     await requireClient(ctx, businessId, clientId)
 
     const properties = await ctx.db
@@ -163,15 +222,20 @@ export const reports = query({
       ),
     )
 
-    return reportsByProperty
+    const visible = reportsByProperty
       .flat()
       .filter(
         (r) =>
           r.businessId === businessId &&
           r.deletedAt === undefined &&
-          reportScope(scope, r),
+          reportReadable(scope, actor.real._id, r),
       )
-      .map(summarise)
       .sort((a, b) => (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt))
+      // Bounded: this is a section inside a sheet. The library holds the rest.
+      .slice(0, INLINE_LIMIT)
+
+    // The same decoration the library gives a row, so a report is named the
+    // same thing wherever it is listed.
+    return decorateReports(ctx, visible)
   },
 })

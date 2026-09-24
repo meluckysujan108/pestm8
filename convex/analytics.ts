@@ -5,9 +5,9 @@ import { dayKeyOf, startOfDayInZone, todayKeyInZone } from './lib/dates'
 import { jobsInRange } from './jobs'
 import type { Id } from './_generated/dataModel'
 import { requireActor } from './lib/actor'
-import { displayPerson } from './lib/capabilities'
 import { wireScope } from './lib/jobScope'
 import { hidePrices, redactTotal } from './lib/prices'
+import { UNASSIGNED_COLOUR } from './lib/colours'
 
 /** Shifts a `"YYYY-MM"` key by `offset` months (either direction). */
 function monthKeyOffset(monthKey: string, offset: number): string {
@@ -54,9 +54,9 @@ export const overview = query({
 
     // `jobsInRange` already excludes cancelled jobs, so a true cancellation
     // rate would need a second, unfiltered scan — not worth it for a first
-    // cut. `statusBreakdown` below can therefore only ever show
-    // booked/inProgress/completed/invoiced.
-    const jobs = await jobsInRange(ctx, env.scope, businessId, from, to)
+    // cut. `statusBreakdown` below can therefore show every status except
+    // cancelled.
+    const jobs = await jobsInRange(ctx, env.listScope, businessId, from, to)
 
     const revenueByMonth = new Map(monthKeys.map((k) => [k, 0]))
     const volumeByMonth = new Map(monthKeys.map((k) => [k, 0]))
@@ -94,23 +94,10 @@ export const overview = query({
         const user = assignee
           ? await authComponent.getAnyUserById(ctx, assignee.userId)
           : null
-        // Keeps the owner's work in the chart's totals, against the business's
-        // name. Dropping the row would quietly make the numbers disagree with
-        // the revenue above them.
-        const shown = assignee
-          ? displayPerson(
-              env.actor,
-              { _id: assignee._id, role: assignee.role },
-              {
-                personName: user?.name ?? 'Unassigned',
-                businessName: business.name,
-              },
-            )
-          : { name: 'Unassigned' }
         return {
           membershipId,
-          name: shown.name,
-          colour: assignee?.colour ?? '#8E8E93',
+          name: user?.name ?? 'Unassigned',
+          colour: assignee?.colour ?? UNASSIGNED_COLOUR,
           count,
         }
       }),
@@ -122,7 +109,7 @@ export const overview = query({
       // subcontractor's technicianLoad always degenerates to one row
       // (themselves), so that chart is skipped entirely rather than shown
       // as a meaningless single bar.
-      scope: wireScope(env.scope),
+      scope: wireScope(env.listScope),
       months: monthKeys,
       // Null rather than zero: a total of zero is a claim about the business,
       // and this is the absence of one.

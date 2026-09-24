@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 import { Serwist, NetworkFirst, StaleWhileRevalidate } from 'serwist'
 import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist'
+import { APP_VERSION } from './lib/appVersion'
+import { answerVersionRequest } from './lib/workerVersion'
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -45,3 +47,10 @@ const serwist = new Serwist({
 })
 
 serwist.addEventListeners()
+
+// Which build this worker is, for a page deciding whether it is out of date
+// (src/lib/workerVersion.ts). scripts/build-sw.ts writes in the same commit
+// the app is built with, so a page and a worker from one deploy agree.
+self.addEventListener('message', (event) => {
+  answerVersionRequest(event.data, event.ports, APP_VERSION)
+})

@@ -1,13 +1,15 @@
 /// <reference types="vite/client" />
 import { convexTest } from 'convex-test'
 import betterAuthTest from '@convex-dev/better-auth/test'
+import prosemirrorSyncTest from '@convex-dev/prosemirror-sync/test'
 import schema from '../convex/schema'
+import { MEMBER_COLOURS } from '../convex/lib/colours'
 import { components } from '../convex/_generated/api'
 import type { Id } from '../convex/_generated/dataModel'
 
 /**
- * A test deployment with the Better Auth component registered, plus the two
- * seeding helpers every access test needs.
+ * A test deployment with the Better Auth and prosemirror-sync components
+ * registered, plus the two seeding helpers every access test needs.
  *
  * Lives outside `convex/` on purpose: anything in that directory is analysed
  * and pushed as a Convex module, and `@convex-dev/better-auth/test` uses
@@ -33,6 +35,9 @@ const modules = import.meta.glob('../convex/**/*.ts')
 function makeTestApp() {
   const t = convexTest(schema, modules)
   betterAuthTest.register(t)
+  // Note bodies live in this component, so creating or sharing a note can
+  // only be tested with it registered.
+  prosemirrorSyncTest.register(t)
   return t
 }
 
@@ -169,7 +174,9 @@ export async function createBusiness(
       businessId,
       role: 'owner',
       canViewAllJobs: true,
-      colour: '#FF3B30',
+      // What businesses.create deals the owner, so tests stand on the same
+      // colour a real business starts with.
+      colour: MEMBER_COLOURS[0],
       status: 'active',
       createdAt: now,
     })

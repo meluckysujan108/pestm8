@@ -7,6 +7,7 @@ import {
   Sidebar,
   SidebarContent,
   SidebarGroup,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarInset,
   SidebarMenu,
@@ -18,9 +19,11 @@ import {
 } from '#/components/ui/sidebar.tsx'
 import { BusinessSwitcher } from './BusinessSwitcher'
 import { MobileDock } from './MobileDock'
-import { NAV_ITEMS, SETTINGS_ITEM } from './navItems'
+import { MORE_NAV, PRIMARY_NAV, SETTINGS_ITEM } from './navItems'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
+import { OVERDUE_CHIP } from '#/lib/statusColours'
+import { useOverdueRecurring } from '#/lib/useOverdueRecurring'
 
 export type ShellBusiness = {
   _id: Id<'businesses'>
@@ -66,6 +69,7 @@ export function AppShell({
   children: ReactNode
 }) {
   const unread = useUnreadMentions(business._id)
+  const overdue = useOverdueRecurring(business._id)
 
   return (
     <SidebarProvider>
@@ -82,7 +86,7 @@ export function AppShell({
           <nav aria-label="Primary" className="flex min-h-0 flex-1 flex-col">
             <SidebarGroup>
               <SidebarMenu>
-                {NAV_ITEMS.map((item) => (
+                {PRIMARY_NAV.map((item) => (
                   <SidebarMenuItem key={item.to}>
                     <SidebarMenuButton asChild tooltip={item.label}>
                       <Link
@@ -97,6 +101,41 @@ export function AppShell({
                     {item.label === 'Notes' && unread > 0 && (
                       <SidebarMenuBadge className="rounded-full bg-blue px-1.5 text-[11px] font-bold text-white">
                         {unread >= 10 ? '9+' : unread}
+                      </SidebarMenuBadge>
+                    )}
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroup>
+
+            {/* What the phone hides behind its burger. A sidebar has the room
+                to show them, so it does: the grouping is the same statement
+                about which sections are daily ones, without making a desktop
+                user open a menu to reach Analytics. */}
+            <SidebarGroup>
+              <SidebarGroupLabel>More</SidebarGroupLabel>
+              <SidebarMenu>
+                {MORE_NAV.map((item) => (
+                  <SidebarMenuItem key={item.to}>
+                    <SidebarMenuButton asChild tooltip={item.label}>
+                      <Link
+                        to={item.to}
+                        params={{ businessSlug: business.slug }}
+                        activeProps={{ 'data-active': 'true' }}
+                      >
+                        <item.icon size={20} strokeWidth={1.7} />
+                        <span>{item.label}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                    {/* Ink, not blue and not amber: unlike an unread mention
+                        this is work that should already have happened, and
+                        overdue carries no hue anywhere (`--overdue`). */}
+                    {item.label === 'Job' && overdue > 0 && (
+                      <SidebarMenuBadge
+                        className={`rounded-full px-1.5 text-[11px] font-bold ${OVERDUE_CHIP}`}
+                      >
+                        {overdue >= 10 ? '9+' : overdue}
+                        <span className="sr-only"> overdue</span>
                       </SidebarMenuBadge>
                     )}
                   </SidebarMenuItem>
@@ -138,7 +177,11 @@ export function AppShell({
         </div>
       </SidebarInset>
 
-      <MobileDock businessSlug={business.slug} unreadNotes={unread} />
+      <MobileDock
+        businessSlug={business.slug}
+        unreadNotes={unread}
+        overdueJobs={overdue}
+      />
     </SidebarProvider>
   )
 }

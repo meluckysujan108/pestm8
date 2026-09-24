@@ -52,7 +52,7 @@ export function FilterDropdown({
         <Popover.Content
           align="start"
           sideOffset={6}
-          className="z-50 max-h-72 w-56 overflow-y-auto rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
+          className="z-50 max-h-96 w-56 overflow-y-auto rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
         >
           {options.map((option) => (
             <button

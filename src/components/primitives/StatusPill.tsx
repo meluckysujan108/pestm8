@@ -1,29 +1,24 @@
-export type JobStatus =
-  | 'booked'
-  | 'inProgress'
-  | 'completed'
-  | 'invoiced'
-  | 'cancelled'
+import { jobStatusStyle } from '#/lib/statusColours'
 
-const STYLES: Record<JobStatus, { label: string; className: string }> = {
-  booked: { label: 'Booked', className: 'bg-surface-2 text-ink-2' },
-  inProgress: { label: 'In Progress', className: 'bg-blue/12 text-blue' },
-  // Amber flags this as the state the owner still needs to act on (raise the
-  // invoice) — a prompt, not a success — even though the label itself just
-  // says "Completed" now.
-  completed: {
-    label: 'Completed',
-    className: 'bg-amber-bg text-amber-ink border border-amber-line',
-  },
-  invoiced: { label: 'Invoiced', className: 'bg-green/12 text-green' },
-  cancelled: { label: 'Cancelled', className: 'bg-surface-2 text-muted' },
+/** The schema's own union, re-exported under the name this file always had,
+ * so its importers need not change. */
+export type { JobStatus } from '../../../convex/lib/jobStatus'
+
+/** The display name for a job status, for places that are not a pill. */
+export function jobStatusLabel(status: string): string {
+  return jobStatusStyle(status).label
 }
 
-export function StatusPill({ status }: { status: JobStatus }) {
-  const { label, className } = STYLES[status]
+/**
+ * A job's status, as a tinted pill that always says its word. The colour is
+ * decided in one place (src/lib/statusColours.ts); a status this build has
+ * never heard of shows its raw name in grey rather than crashing the list.
+ */
+export function StatusPill({ status }: { status: string }) {
+  const { label, pill } = jobStatusStyle(status)
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-semibold ${className}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-[3px] text-[12px] font-semibold ${pill}`}
     >
       {label}
     </span>

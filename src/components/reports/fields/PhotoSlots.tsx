@@ -4,6 +4,7 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Camera, Check } from 'lucide-react'
 import { api } from '../../../../convex/_generated/api'
 import { useHydrated } from '#/lib/useHydrated'
+import { prepareUpload } from '#/lib/images/prepareUpload'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 /**
@@ -72,18 +73,13 @@ function PhotoSlot({
     setBusy(true)
     setFailed(false)
     try {
-      const { default: compress } = await import('browser-image-compression')
-      const compressed = await compress(file, {
-        maxSizeMB: 1,
-        maxWidthOrHeight: 2000,
-        useWebWorker: true,
-      })
+      const image = await prepareUpload(file)
 
       const uploadUrl = await getUploadUrl({ businessId })
       const res = await fetch(uploadUrl, {
         method: 'POST',
-        headers: { 'Content-Type': compressed.type },
-        body: compressed,
+        headers: { 'Content-Type': image.blob.type },
+        body: image.blob,
       })
       if (!res.ok) throw new Error('upload failed')
 
@@ -102,7 +98,9 @@ function PhotoSlot({
   }
 
   return (
-    <span className="flex flex-col items-center gap-1">
+    // Test-only hook, matching the gallery's: a form has several slots, and a
+    // selector for one of them must not depend on DOM order.
+    <span data-photo-slot={slot} className="flex flex-col items-center gap-1">
       <button
         type="button"
         // The button's label replaces its subtree in the accessibility tree,

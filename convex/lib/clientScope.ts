@@ -6,8 +6,14 @@ import type { ActorEnvelope } from './actor'
 /**
  * Which clients someone may see when they cannot see all of them.
  *
+ * Nobody takes the narrow branch today: the owner opened the client book to
+ * everyone in the business, and the policy table grants `clients.directory`
+ * to every role. It is kept, with its reasoning, as the tested path back if a
+ * business ever wants the book restricted again — re-deriving it would mean
+ * re-learning both points below the hard way.
+ *
  * "The clients whose properties you have jobs at" — the rule the toggle
- * promises. Two things about how it is computed matter more than the rule
+ * promised. Two things about how it is computed matter more than the rule
  * itself.
  *
  * FIRST: it is derived from the person's OWN jobs, never from `env.scope`.

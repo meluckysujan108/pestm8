@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
 import { useEditorState } from '@tiptap/react'
+import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { AtSign, Bold, Heading, Italic, List, ListChecks } from 'lucide-react'
 import type { Editor } from '@tiptap/core'
 import type { ReactNode } from 'react'
@@ -12,10 +12,13 @@ import type { ReactNode } from 'react'
  */
 export function FormatBar({
   editor,
+  mentions = true,
   trailing,
   inline = false,
 }: {
   editor: Editor | null
+  /** Off in a personal note, which tags nobody. */
+  mentions?: boolean
   trailing?: ReactNode
   /** A plain row in the flow (inside a sheet) instead of floating over the keyboard. */
   inline?: boolean
@@ -100,27 +103,9 @@ export function FormatBar({
       {button('Bullet list', <List size={18} strokeWidth={2} />, active?.bulletList ?? false, () =>
         editor.chain().focus().toggleBulletList().run(),
       )}
-      {button('Mention a teammate', <AtSign size={18} strokeWidth={2} />, false, startMention)}
+      {mentions &&
+        button('Mention a teammate', <AtSign size={18} strokeWidth={2} />, false, startMention)}
       {trailing && <div className="ml-auto flex items-center gap-0.5">{trailing}</div>}
     </div>
   )
-}
-
-/** Pixels the software keyboard currently covers at the bottom of the window. */
-function useKeyboardInset(): number {
-  const [inset, setInset] = useState(0)
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
-    const update = () =>
-      setInset(Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)))
-    update()
-    vv.addEventListener('resize', update)
-    vv.addEventListener('scroll', update)
-    return () => {
-      vv.removeEventListener('resize', update)
-      vv.removeEventListener('scroll', update)
-    }
-  }, [])
-  return inset
 }

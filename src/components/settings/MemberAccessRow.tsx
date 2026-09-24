@@ -3,6 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { ColourPicker } from './ColourPicker'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Grants, Role } from '../../../convex/lib/capabilities'
 
@@ -18,6 +20,9 @@ export type Member = {
   licenceNumber?: string
   colour: string
   status: string
+  /** From the roster: whether this viewer may set this person's colour. Absent
+   * from an older backend, which means no picker. */
+  canSetColour?: boolean
 }
 
 export function MemberAccessRow({
@@ -103,6 +108,18 @@ export function MemberAccessRow({
         </div>
       </div>
 
+      {member.canSetColour && (
+        <div className="mt-3 border-t border-hairline-2 pt-3">
+          <ColourPicker
+            businessId={businessId}
+            membershipId={member._id}
+            name={member.name || member.email || 'this person'}
+            colour={member.colour}
+            others={others}
+          />
+        </div>
+      )}
+
       {/*
         Here, and not only on each person's own Profile page.
         A regulated report cannot be finalised without a licence number on the
@@ -139,6 +156,11 @@ export function MemberAccessRow({
           {saveLicence.isPending ? 'Saving…' : saveLicence.isSuccess ? 'Saved' : 'Save'}
         </button>
       </form>
+      {/* A failed save used to leave only the button saying "Save" again. */}
+      <FormAlert
+        error={saveLicence.isError ? saveLicence.error : null}
+        className="mt-2"
+      />
       {!member.licenceNumber && (
         <p className="mt-1.5 text-caption text-amber-ink">
           Without this they cannot finalise a termite certificate, timber pest
@@ -218,35 +240,6 @@ export function MemberAccessRow({
                 businessId,
                 membershipId: member._id,
                 grants: { ...member.grants, otherSchedules: checked },
-              })
-            }
-            className="relative mt-0.5 h-[31px] w-[51px] shrink-0 rounded-full bg-fill-track transition data-[state=checked]:bg-green disabled:opacity-50"
-          >
-            <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
-          </Switch.Root>
-        </label>
-      )}
-
-      {!isOwner && (
-        <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
-          <span className="min-w-0">
-            <span className="block text-body text-ink">
-              Can see all clients
-            </span>
-            <span className="block text-caption text-muted">
-              The whole client list and their contact details. With this off
-              they see the clients they have worked for — and can still search
-              an address to book at.
-            </span>
-          </span>
-          <Switch.Root
-            checked={member.grants.clientDirectory}
-            disabled={setGrants.isPending}
-            onCheckedChange={(checked) =>
-              setGrants.mutate({
-                businessId,
-                membershipId: member._id,
-                grants: { ...member.grants, clientDirectory: checked },
               })
             }
             className="relative mt-0.5 h-[31px] w-[51px] shrink-0 rounded-full bg-fill-track transition data-[state=checked]:bg-green disabled:opacity-50"

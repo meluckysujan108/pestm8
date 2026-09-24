@@ -20,14 +20,14 @@ export type RosterEntry = {
   phone?: string
 }
 
-const MAX_MEMBERS = 100
+export const MAX_MEMBERS = 100
 
 /**
  * A member's name from the auth component, or '' when it cannot be read. A
  * report page must never fail to open because one identity lookup did; the
  * member then prints by licence alone.
  */
-async function memberName(
+export async function memberName(
   ctx: QueryCtx | MutationCtx,
   userId: string,
 ): Promise<string> {
@@ -60,6 +60,92 @@ async function fieldsForReport(
   return sections.flatMap((section) => section.fields)
 }
 
+/** The keys of the form's `member` fields, in form order. */
+export async function memberFieldKeys(
+  ctx: QueryCtx | MutationCtx,
+  report: Doc<'reports'>,
+): Promise<Array<string>> {
+  return (await fieldsForReport(ctx, report))
+    .filter((field) => field.kind === 'member')
+    .map((field) => field.key)
+}
+
+/**
+ * The slots of the form's technician signatures — the ones a licence holder
+ * draws, as against the client's acknowledgement, which is drawn on the
+ * technician's device by whoever is standing there.
+ */
+export async function technicianSignatureSlots(
+  ctx: QueryCtx | MutationCtx,
+  report: Doc<'reports'>,
+): Promise<Array<string>> {
+  return (await fieldsForReport(ctx, report)).flatMap((field) =>
+    field.kind === 'signature' && field.role === 'technician'
+      ? [field.slot]
+      : [],
+  )
+}
+
+/**
+ * Who the document says did the work: whoever the form's first member field
+ * names. The author stands in ONLY on a form with no member field at all: on a
+ * form that asks who did the work and got no answer, printing the author's
+ * licence would credit someone the document never named.
+ *
+ * One function for both readers — the context a report prints, and the check
+ * `reports.finalise` makes before it may be signed — so the person whose
+ * licence is checked is the person whose licence prints.
+ */
+export async function namedTechnician(
+  ctx: QueryCtx | MutationCtx,
+  report: Doc<'reports'>,
+  data: Record<string, unknown>,
+  memberKeys: ReadonlyArray<string>,
+): Promise<Doc<'memberships'> | null> {
+  if (memberKeys.length === 0) return ctx.db.get(report.authorMembershipId)
+
+  for (const key of memberKeys) {
+    const value = data[key]
+    if (typeof value !== 'string') continue
+    const id = ctx.db.normalizeId('memberships', value)
+    const member = id ? await ctx.db.get(id) : null
+    // A removed member still counts: they print on a report that chose them.
+    if (member && member.businessId === report.businessId) return member
+  }
+  return null
+}
+
+/**
+ * Everyone the form names, across ALL its member fields — distinct, and only
+ * members of this business.
+ *
+ * `namedTechnician` answers "who is the technician" for the printed context,
+ * and that is the first member field. This answers a different question for
+ * `reports.finalise`: whose name and licence will this document print at all.
+ * A termite certificate names two people — the installer and the certifying
+ * installer — each beside their own licence, so checking only the first would
+ * let the second name anyone.
+ */
+export async function namedMembers(
+  ctx: QueryCtx | MutationCtx,
+  report: Doc<'reports'>,
+  data: Record<string, unknown>,
+  memberKeys: ReadonlyArray<string>,
+): Promise<Array<Doc<'memberships'>>> {
+  const named = new Map<Id<'memberships'>, Doc<'memberships'>>()
+  for (const key of memberKeys) {
+    const value = data[key]
+    if (typeof value !== 'string') continue
+    const id = ctx.db.normalizeId('memberships', value)
+    if (!id || named.has(id)) continue
+    const member = await ctx.db.get(id)
+    if (member && member.businessId === report.businessId) {
+      named.set(id, member)
+    }
+  }
+  return [...named.values()]
+}
+
 /**
  * Everything a report prints from a record rather than a typed answer, read
  * live: the client, the site, the business, the technician and the names of
@@ -79,9 +165,7 @@ export async function buildReportContext(
   const business = await ctx.db.get(report.businessId)
   const author = await ctx.db.get(report.authorMembershipId)
 
-  const memberKeys = (await fieldsForReport(ctx, report))
-    .filter((field) => field.kind === 'member')
-    .map((field) => field.key)
+  const memberKeys = await memberFieldKeys(ctx, report)
 
   // Only a form that can name a team member pays for identity lookups.
   let roster: Array<RosterEntry> = []
@@ -113,22 +197,12 @@ export async function buildReportContext(
     )
   }
 
-  // The technician is whoever the form's first member field names — the person
-  // the document says did the work. The author stands in ONLY on a form with no
-  // member field at all: on a form that asks who did the work and got no
-  // answer, printing the author's licence would credit someone the document
-  // never named.
-  const technicianId = memberKeys
-    .map((key) => data[key])
-    .find(
-      (value): value is Id<'memberships'> =>
-        typeof value === 'string' && roster.some((m) => m._id === value),
-    )
-  const technicianMembership = technicianId
-    ? await ctx.db.get(technicianId)
-    : memberKeys.length === 0
-      ? author
-      : null
+  const technicianMembership = await namedTechnician(
+    ctx,
+    report,
+    data,
+    memberKeys,
+  )
   const technicianEntry = roster.find((m) => m._id === technicianMembership?._id)
 
   const businessAddress = business
@@ -159,14 +233,20 @@ export async function buildReportContext(
           phone: property.client.phone,
           email: property.client.email,
           // A business-kind client's own mailing address, not the service
-          // site — a form asking for both means both.
+          // site — a form asking for both means both. Only when there is a
+          // street or suburb to it, as the client sheet shows it: the edit
+          // form used to save a State on its own, and a report printed "ACT"
+          // as the client's address.
           address:
-            joined(
-              property.client.addressLine,
-              property.client.suburb,
-              property.client.state,
-              property.client.postcode,
-            ) || undefined,
+            property.client.addressLine?.trim() ||
+            property.client.suburb?.trim()
+              ? joined(
+                  property.client.addressLine,
+                  property.client.suburb,
+                  property.client.state,
+                  property.client.postcode,
+                ) || undefined
+              : undefined,
         }
       : null,
     property: property
@@ -186,9 +266,13 @@ export async function buildReportContext(
     business: business
       ? {
           name: business.name,
-          // No separate trading-name column yet; the business name is what it
-          // trades as until one exists.
-          tradingName: business.name,
+          // Each falls back to the one above it: a business that has never
+          // opened the branding settings still prints a coherent header and a
+          // coherent title band, both reading its own name.
+          tradingName: business.tradingName ?? business.name,
+          brandName:
+            business.reportBrandName ?? business.tradingName ?? business.name,
+          website: business.website,
           address: businessAddress || undefined,
           addressLine: business.addressLine,
           suburb: business.suburb,
@@ -215,6 +299,10 @@ export async function buildReportContext(
       : null,
     author: {
       membershipId: report.authorMembershipId,
+      // The footer's "Submitted by:" — who pressed Finalise, which on this
+      // form is often not who the document names as the technician. Frozen,
+      // because a person who leaves the business still submitted it.
+      name: author ? await memberName(ctx, author.userId) : undefined,
       licenceNumber: author?.licenceNumber,
     },
     roster: Object.fromEntries(

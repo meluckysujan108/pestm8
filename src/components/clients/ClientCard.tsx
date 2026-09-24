@@ -12,14 +12,6 @@ export type ClientPropertyRow = {
   suburb: string
 }
 
-/**
- * `list` is the compact row for scanning many clients; `board` is the richer
- * card for reading one — same split as `JobCardVariant`, same reason: one
- * component so a field added to one variant cannot quietly go missing from
- * the other.
- */
-export type ClientCardVariant = 'list' | 'board'
-
 const KIND_STYLE: Record<ClientKind, { label: string; className: string; Icon: typeof Building2 }> = {
   business: { label: 'Business', className: 'bg-surface-2 text-ink-2', Icon: Building2 },
   person: { label: 'Person', className: 'bg-surface-2 text-ink-2', Icon: User },
@@ -40,9 +32,8 @@ export function ClientKindPill({ kind }: { kind: ClientKind }) {
 }
 
 /** "12 Wattle Street, Bayswater" for one property, a suburb summary for
- * several, or an explicit "no properties" — mirrors the original flat
- * client card's exact branching, just split across a primary/secondary line
- * so both card variants can use it. */
+ * several, or an explicit "no properties", split across a primary and a
+ * secondary line. */
 function propertySummary(properties: Array<ClientPropertyRow>): {
   primary: string
   secondary: string
@@ -60,58 +51,24 @@ function propertySummary(properties: Array<ClientPropertyRow>): {
   }
 }
 
+/**
+ * A client, as the Clients page shows it: the one way that page reads (its
+ * List and Table views were retired). No colour rail, unlike JobCard — a
+ * client has no per-row identity dimension the way a job's assignee does.
+ */
 export function ClientCard({
   client,
   properties,
-  variant = 'list',
   onOpen,
 }: {
   client: ClientRow
   properties: Array<ClientPropertyRow>
-  variant?: ClientCardVariant
   onOpen: (clientId: string) => void
 }) {
-  // No colour rail (unlike JobCard) — a client has no per-row identity
-  // dimension the way a job's assignee does. `items-start`/`flex-col` are set
-  // per variant below rather than baked in here, since the two need
-  // different flex-direction and gap values.
   const shell =
     'flex w-full rounded-2xl border border-hairline bg-surface text-left shadow-elevation transition active:scale-[.99]'
   const { Icon } = KIND_STYLE[client.kind]
   const { primary, secondary } = propertySummary(properties)
-
-  if (variant === 'list') {
-    return (
-      <button
-        type="button"
-        onClick={() => onOpen(client._id)}
-        className={`${shell} items-start gap-3 p-4`}
-      >
-        <Icon
-          size={17}
-          strokeWidth={1.7}
-          aria-hidden
-          className="mt-0.5 shrink-0 text-muted"
-        />
-        <span className="min-w-0 flex-1">
-          <span className="truncate text-sheet-title text-ink">
-            {client.name}
-          </span>
-
-          <span className="mt-1 block truncate text-body text-ink-2">
-            {primary}
-          </span>
-
-          <span className="mt-0.5 flex items-center justify-between gap-2">
-            <span className="truncate text-caption text-muted">
-              {secondary}
-            </span>
-            <ClientKindPill kind={client.kind} />
-          </span>
-        </span>
-      </button>
-    )
-  }
 
   return (
     <button

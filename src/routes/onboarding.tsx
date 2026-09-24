@@ -1,8 +1,10 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useMutation } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
+import { AbnInput } from '#/components/clients/AbnInput'
+import { FormAlert } from '#/components/forms/FormAlert'
 import { AU_STATES, TIMEZONE_BY_STATE } from '#/lib/au'
 import { useHydrated } from '#/lib/useHydrated'
 
@@ -13,10 +15,20 @@ export const Route = createFileRoute('/onboarding')({
   component: OnboardingPage,
 })
 
+/** Nothing is saved yet here, so "Could not create", not "Could not save". */
+const CREATE_COPY = {
+  INVALID_ABN:
+    'Could not create the business: the ABN does not pass the ATO check. Check its 11 digits.',
+  offline:
+    'Could not create the business: this device is offline. Try again when you have signal.',
+  default: 'Could not create the business. Check the name and try again.',
+}
+
 function OnboardingPage() {
   const hydrated = useHydrated()
 
   const router = useRouter()
+  const abnId = useId()
   const [name, setName] = useState('')
   const [state, setState] = useState<string>('WA')
   const [abn, setAbn] = useState('')
@@ -90,24 +102,22 @@ function OnboardingPage() {
           </span>
         </label>
 
-        <label className="flex flex-col gap-1.5">
-          <span className="section-label">ABN (optional)</span>
-          <input
-            value={abn}
-            inputMode="numeric"
-            onChange={(e) => setAbn(e.target.value)}
-            className="h-12 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </label>
+        {/* Checked as it is typed, with the rule businesses.create enforces:
+            it heads every compliance document, and a wrong one here used to
+            come back only as "Could not create the business". */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={abnId} className="section-label">
+            ABN (optional)
+          </label>
+          <div>
+            <AbnInput id={abnId} value={abn} onChange={setAbn} />
+          </div>
+        </div>
 
-        {createBusiness.isError && (
-          <p
-            role="alert"
-            className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
-            Could not create the business. Check the name and try again.
-          </p>
-        )}
+        <FormAlert
+          error={createBusiness.isError ? createBusiness.error : null}
+          copy={CREATE_COPY}
+        />
 
         <button
           type="submit"

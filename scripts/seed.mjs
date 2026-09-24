@@ -16,13 +16,12 @@
  *
  * Creates real accounts through the actual sign-up endpoint (there is no
  * other way to get a membership — every table is gated on requireMembership),
- * so this only works against a dev deployment. Safe to run more than once:
- * each run's accounts are unique.
+ * and refuses to run against anything but a dev deployment (see the guard
+ * below). Safe to run more than once: each run's accounts are unique.
  *
  * Deliberately cannot seed: a "Sent" report (needs a real Resend send —
- * `RESEND_API_KEY` isn't set in dev) or an "invoiced" job (no mutation
- * exists yet; Xero/invoicing is unbuilt, per `e2e/access-control.spec.ts`'s
- * own `test.fixme` notes).
+ * `RESEND_API_KEY` isn't set in dev). Every job status is seeded, so each of
+ * the six status colours (Phase 4.3) renders somewhere real.
  */
 process.loadEnvFile('.env.local')
 
@@ -32,6 +31,40 @@ if (!CONVEX_URL) {
   console.error('VITE_CONVEX_URL is not set — is `npx convex dev` running?')
   process.exit(1)
 }
+
+/**
+ * A run creates three real accounts and a business, and never cleans up. The
+ * target comes from whichever .env.local happens to be present, and CLAUDE.md
+ * records that a checkout has pointed at the wrong project before — so this
+ * holds the same line `e2e/fixtures.ts` does: production deployments are
+ * refused by name, and anything that isn't a dev deployment by shape.
+ */
+const FORBIDDEN_DEPLOYMENTS = ['rare-retriever-156', 'joyous-otter-223']
+const DEPLOYMENT = process.env.CONVEX_DEPLOYMENT ?? ''
+
+function refuse(message) {
+  console.error(`Refusing to seed: ${message}`)
+  process.exit(1)
+}
+
+for (const name of FORBIDDEN_DEPLOYMENTS) {
+  if (`${DEPLOYMENT} ${CONVEX_URL}`.includes(name)) {
+    refuse(`${name} is production. This script creates real accounts and never removes them.`)
+  }
+}
+// Stricter than the e2e fixtures, which let an unset CONVEX_DEPLOYMENT through:
+// with nothing saying "dev", nothing vouches for VITE_CONVEX_URL either.
+if (!DEPLOYMENT.startsWith('dev:')) {
+  refuse(`CONVEX_DEPLOYMENT is "${DEPLOYMENT}", not a dev deployment. Point .env.local at one first.`)
+}
+// CONVEX_DEPLOYMENT is what says "dev"; VITE_CONVEX_URL is what this script
+// actually writes to. Unless they name the same deployment, the check above
+// vouches for one this script never touches.
+const deploymentName = DEPLOYMENT.slice('dev:'.length)
+if (new URL(CONVEX_URL).hostname.split('.')[0] !== deploymentName) {
+  refuse(`VITE_CONVEX_URL (${CONVEX_URL}) is not ${DEPLOYMENT}.`)
+}
+console.log(`Seeding ${DEPLOYMENT} (${CONVEX_URL}) via ${SITE}`)
 
 const { ConvexHttpClient } = await import('convex/browser')
 const { api } = await import('../convex/_generated/api.js')
@@ -102,7 +135,7 @@ const { businessId, slug } = await owner.mutation(api.businesses.create, {
   name: 'Bayside Pest Control',
   state: 'WA',
   timezone: 'Australia/Perth',
-  abn: '54 123 456 789',
+  abn: '48 123 123 124',
 })
 
 console.log('Setting up branding…')
@@ -143,6 +176,30 @@ const members = await owner.query(api.memberships.listForBusiness, { businessId 
 const ownerMembershipId = members.find((m) => m.role === 'owner')._id
 const kevinMembership = members.find((m) => m.email === kevinEmail)
 const priyaMembership = members.find((m) => m.email === priyaEmail)
+
+// Colours are dealt in palette order (convex/lib/colours.ts): the owner the
+// first, the first to join the second. That is how the demo comes out Terence
+// blue and Kevin red (Phase 4.2) without a name anywhere in the app — so a
+// palette reorder that breaks it should stop the seed, not ship a demo in
+// the wrong colours.
+for (const [who, member, want] of [
+  ['Terence', members.find((m) => m.role === 'owner'), '#0A84FF'],
+  ['Kevin', kevinMembership, '#DC2626'],
+]) {
+  if (member.colour !== want) {
+    throw new Error(`${who} was dealt ${member.colour}, expected ${want}`)
+  }
+}
+
+// Terence signs the certificate and the inspection below himself, and
+// `finalise` refuses a regulated report whose holder has no licence of their
+// own on file (`HOLDER_LICENCE_MISSING`). The business's licence set above is
+// the company's; this is the one that prints beside his signature.
+await owner.mutation(api.memberships.setLicence, {
+  businessId,
+  membershipId: ownerMembershipId,
+  licenceNumber: 'TECH-7102',
+})
 
 // Kevin is the senior tech — sees the whole schedule, the closest thing to a
 // "manager" this app's two-role model has. Priya stays scoped to her own day,
@@ -224,6 +281,8 @@ for (let day = -14; day < 0; day++) {
       scheduledAt: at(day, 8 + n * 3, 0),
       durationMinutes,
       complete: true,
+      // The oldest job was billed, so Invoiced renders too.
+      invoice: day === -14 && n === 0,
     })
   }
 }
@@ -248,7 +307,8 @@ const cancelledDraft = {
 }
 jobs.push(cancelledDraft)
 
-// The rest of this week and all of next week, still booked.
+// The rest of this week and all of next week. New work starts Pending; the
+// next two days' are confirmed, so Booked renders beside it.
 for (let day = 1; day <= 10; day++) {
   const date = new Date(today.getTime() + day * DAY)
   if (date.getDay() === 0) continue
@@ -260,13 +320,21 @@ for (let day = 1; day <= 10; day++) {
     price,
     scheduledAt: at(day, 9 + (day % 3) * 2, 0),
     durationMinutes,
+    book: day <= 2,
   })
 }
 
-for (const { complete, cancel, ...job } of jobs) {
+for (const { complete, cancel, invoice, book, ...job } of jobs) {
   const jobId = await owner.mutation(api.jobs.create, { businessId, ...job })
   if (complete) await owner.mutation(api.jobs.complete, { businessId, jobId })
   if (cancel) await owner.mutation(api.jobs.cancel, { businessId, jobId })
+  if (invoice || book) {
+    await owner.mutation(api.jobs.update, {
+      businessId,
+      jobId,
+      status: invoice ? 'invoiced' : 'booked',
+    })
+  }
 }
 
 console.log('Setting up recurring services…')
@@ -274,7 +342,9 @@ await owner.mutation(api.recurrences.create, {
   businessId,
   propertyId: nguyen,
   assignedMembershipId: ownerMembershipId,
-  frequency: 'quarterly',
+  // Any interval since Phase 3: a count and a unit, not a named frequency.
+  intervalCount: 3,
+  intervalUnit: 'month',
   jobType: 'General Pest Control',
   price: 22000,
   anchorDate: at(15, 9, 0),
@@ -284,7 +354,8 @@ await owner.mutation(api.recurrences.create, {
   businessId,
   propertyId: okafor,
   assignedMembershipId: kevinMembership._id,
-  frequency: 'monthly',
+  intervalCount: 1,
+  intervalUnit: 'month',
   jobType: 'Rodent Bait Top-Up',
   price: 12000,
   anchorDate: at(20, 10, 0),
@@ -328,11 +399,20 @@ const certId = await owner.mutation(api.reports.create, {
   legalBasis: 'AS 3660.2-2017',
   data: {},
 })
+// Signed before it is issued — and `finalise` now checks, as it should: the
+// signature is an image in storage, not a timestamp in the answers.
+await owner.mutation(api.reports.attachSignature, {
+  businessId,
+  reportId: certId,
+  storageId: await uploadPng(owner, businessId, certId),
+  slot: 'installer',
+})
 await owner.mutation(api.reports.finalise, {
   businessId,
   reportId: certId,
   templateVersion: FORM_VERSION,
   data: {
+    installerSignature: { signedAt: Date.now() },
     installDate: new Date().toISOString().slice(0, 10),
     systemType: 'Chemical Soil Barrier',
     product: 'Termidor HE',
@@ -404,11 +484,21 @@ const inspectionId = await owner.mutation(api.reports.create, {
   legalBasis: 'AS 4349.3-2010',
   data: {},
 })
+await owner.mutation(api.reports.attachSignature, {
+  businessId,
+  reportId: inspectionId,
+  storageId: await uploadPng(owner, businessId, inspectionId),
+  slot: 'technician',
+})
 await owner.mutation(api.reports.finalise, {
   businessId,
   reportId: inspectionId,
   templateVersion: FORM_VERSION,
   data: {
+    inspectorSignature: { signedAt: Date.now() },
+    // The AS form asks for the date beside the inspector's signature in its
+    // own right, and `finalise` refuses the report without it.
+    inspectorSignedDate: new Date().toISOString().slice(0, 10),
     inspectionDate: new Date().toISOString().slice(0, 10),
     clientAgreesToInspection: 'Yes',
     inspectionTypeWarranty: ['12 Monthly Timber Pest Visual Inspection to maintain Warranty', 'Year 2'],
@@ -528,6 +618,5 @@ template ("Six-Monthly Termite Check") with a draft and a finalised report,
 a gallery photo + cover flag + technician signature on one finalised report,
 business branding (logo/address/phone/email/licence), and 3 notes.
 
-Not seedable: a "Sent" report (needs RESEND_API_KEY) or an "invoiced" job
-(no mutation exists yet — invoicing/Xero isn't built).
+Not seedable: a "Sent" report (needs RESEND_API_KEY).
 `)

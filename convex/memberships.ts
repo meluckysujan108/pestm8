@@ -2,20 +2,23 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import { canViewAs, getAuthUserId, requireMembership } from './lib/access'
-import { nextColour } from './lib/colours'
+import { isMemberColour, nextColour, normaliseColour } from './lib/colours'
 import { inviteState } from './lib/inviteTokens'
+import { normalisePhone } from './lib/phone'
 import { grants, role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
 import {
+  hasCapability,
   requireActor,
   requireAssignableRole,
   requireCapability,
   requireWriteActor,
 } from './lib/actor'
 import {
+  canDispatchTo,
   canManageMember,
+  canSetColour,
   clampGrants,
-  isVisiblePerson,
   NO_GRANTS,
   recomputeGrants,
 } from './lib/capabilities'
@@ -35,40 +38,65 @@ export const listForBusiness = query({
       .collect()
 
     /**
-     * The owner is not on anyone else's roster.
+     * Everyone, the owner included — and the caller's own row first.
      *
-     * This query feeds six screens — the schedule's filter bar, the assignee
-     * picker, the job detail sheet, both note surfaces and Team settings — and
-     * returned every member's name, email, licence number and phone to anyone
-     * who asked. That is the single place the owner was most visible, and the
-     * switch-target list would have inherited it directly.
-     *
-     * It hides the PERSON, not the work: an owner-assigned job stays on the
-     * calendar and in the revenue totals, with the business's name where the
-     * technician's would be (`displayPerson`). Dropping the work instead would
-     * silently change what the numbers mean.
+     * First because every client older than the assignee-picker fix defaults
+     * the "Assigned to" field to row 0. By creation order that is the owner,
+     * whom nobody else may book onto, so a phone still running that build
+     * would preselect a refused assignee on every booking. Leading with the
+     * caller makes such a phone book onto its own holder instead, which is
+     * always allowed.
      */
+    const me = env.actor.real._id
     const visible = members
       .filter((m) => m.status !== 'removed')
-      .filter((m) => isVisiblePerson(env.actor, { _id: m._id, role: m.role }))
+      .sort((a, b) => Number(b._id === me) - Number(a._id === me))
+
+    /**
+     * Who someone is, for everyone; how to reach them, for the people who
+     * manage the team.
+     *
+     * This feeds the schedule's filter bar, the assignee pickers, the job
+     * detail sheet and both note surfaces, so every member reads it. Name,
+     * role and colour are what those need. Email, phone and licence number
+     * are management information — and with the owner on everyone's roster,
+     * his login email and licence would otherwise reach every phone in the
+     * business. Your own row always carries yours.
+     *
+     * `team.manage` is the effective capability, so an owner working inside
+     * someone else's account gets the plain roster, like everything else
+     * administrative while switched.
+     */
+    const manages = hasCapability(env, 'team.manage')
 
     return Promise.all(
       visible.map(async (m) => {
         // A team list showing user ids would be unusable; the auth component
         // owns identity, so the name and email are resolved from there.
         const user = await authComponent.getAnyUserById(ctx, m.userId)
+        const detailed = manages || m._id === me
         return {
           _id: m._id,
-          userId: m.userId,
           name: user?.name ?? '',
-          email: user?.email ?? '',
           role: m.role,
-          canViewAllJobs: m.canViewAllJobs,
-          canViewOtherAccounts: m.canViewOtherAccounts ?? false,
-          licenceNumber: m.licenceNumber,
-          phone: m.phone,
           colour: m.colour,
           status: m.status,
+          email: detailed ? (user?.email ?? '') : undefined,
+          phone: detailed ? m.phone : undefined,
+          licenceNumber: detailed ? m.licenceNumber : undefined,
+          canViewAllJobs: detailed ? m.canViewAllJobs : undefined,
+          canViewOtherAccounts: detailed
+            ? (m.canViewOtherAccounts ?? false)
+            : undefined,
+          /**
+           * Whether the caller may put work onto this person — `canDispatchTo`
+           * on the account being worked in, the function `jobs.create`,
+           * `jobs.update` and `recurrences.create` enforce. The assignee
+           * pickers filter by this and nothing else, so the two cannot drift:
+           * computed here, the client never has to hold a copy of the rule,
+           * nor the team structure the rule reads.
+           */
+          bookable: canDispatchTo(env.actor, factsFromMembership(m)),
         }
       }),
     )
@@ -193,7 +221,10 @@ export const invite = mutation({
       .query('memberships')
       .withIndex('by_business', (q) => q.eq('businessId', args.businessId))
       .collect()
-    const colour = nextColour(members.map((m) => m.colour))
+    // Someone who left does not keep a colour from the next person.
+    const colour = nextColour(
+      members.filter((m) => m.status !== 'removed').map((m) => m.colour),
+    )
 
     const membershipId = existing
       ? (await ctx.db.patch(existing._id, {
@@ -519,6 +550,58 @@ export const setLicence = mutation({
 })
 
 /**
+ * A technician's colour (Phase 4.2), set by the owner from Settings → Team —
+ * for anyone, their own row included (`canSetColour`). Only the palette's
+ * colours are accepted: the picker offers nothing else, and each was chosen
+ * to stay visible as a rail on both themes, which an arbitrary colour need
+ * not be. Two people may share one; the picker says when they would.
+ */
+export const setColour = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    membershipId: v.id('memberships'),
+    colour: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const env = await requireWriteActor(ctx, args.businessId)
+    requireCapability(env, 'business.manage')
+
+    const target = await ctx.db.get(args.membershipId)
+    if (
+      !target ||
+      target.businessId !== args.businessId ||
+      target.status === 'removed'
+    ) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    if (!canSetColour(env.actor, factsFromMembership(target))) {
+      throw new ConvexError('NO_ACCESS')
+    }
+
+    const colour = normaliseColour(args.colour)
+    if (colour === null || !isMemberColour(colour)) {
+      throw new ConvexError('INVALID_COLOUR')
+    }
+
+    const previous = target.colour
+    if (normaliseColour(previous) === colour) return
+
+    await ctx.db.patch(args.membershipId, { colour })
+
+    // Whose work is whose on every calendar the team shares: worth a trace
+    // when it changes, as a licence number is.
+    await recordAudit(ctx, forSelf(env.actor.real._id), {
+      businessId: args.businessId,
+      action: 'membership.setColour',
+      entityType: 'memberships',
+      entityId: args.membershipId,
+      meta: { from: previous, to: colour },
+      at: Date.now(),
+    })
+  },
+})
+
+/**
  * Self-service only — no owner-on-behalf override, unlike setLicence. Name
  * and email live in the Better Auth user record and are edited directly via
  * authClient's own update methods; phone has no home there, so it lives on
@@ -534,7 +617,16 @@ export const setProfile = mutation({
     const actor = await requireMembership(ctx, args.businessId)
     if (actor._id !== args.membershipId) throw new ConvexError('NO_ACCESS')
 
-    await ctx.db.patch(args.membershipId, { phone: args.phone })
+    // Printed on the reports this person signs ("Contact the Inspector"), so
+    // a new number that can never be dialled is refused (INVALID_PHONE). One
+    // saved before the rule and sent back unchanged is left as it is — the
+    // form sends it with every save. Absent (as before) clears it.
+    const phone =
+      args.phone === undefined ||
+      args.phone.trim() === (actor.phone ?? '').trim()
+        ? args.phone
+        : normalisePhone(args.phone)
+    await ctx.db.patch(args.membershipId, { phone })
   },
 })
 

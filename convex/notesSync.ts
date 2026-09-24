@@ -2,7 +2,12 @@ import { ProsemirrorSync } from '@convex-dev/prosemirror-sync'
 import { ConvexError } from 'convex/values'
 import { components } from './_generated/api'
 import { requireMembership } from './lib/access'
-import { canReadNote, canWriteNote, noteViewer } from './lib/noteAccess'
+import {
+  canReadNote,
+  canWriteNote,
+  isPrivate,
+  noteViewer,
+} from './lib/noteAccess'
 import { deriveNoteFields } from './lib/richText'
 import type { DataModel, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -76,7 +81,26 @@ export async function applyDerived(
     updatedAt: Date.now(),
     lastEditedByMembershipId: actor._id,
   })
-  await syncMentions(ctx, note, actor, derived.mentionIds)
+  // A personal note tags nobody. A mention row would either hand the note to
+  // the person tagged or light a badge for a note they cannot open, so none
+  // is kept; the tags come back into force if the note is shared.
+  await syncMentions(
+    ctx,
+    note,
+    actor,
+    isPrivate(note) ? [] : derived.mentionIds,
+  )
+}
+
+/** The note's newest body, or null before its first snapshot. */
+export async function latestDoc(
+  ctx: QueryCtx,
+  noteId: Id<'notes'>,
+): Promise<PmNode | null> {
+  const latest = await ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, {
+    id: noteId,
+  })
+  return latest.content === null ? null : (JSON.parse(latest.content) as PmNode)
 }
 
 async function syncMentions(

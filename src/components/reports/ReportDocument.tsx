@@ -1,34 +1,37 @@
 import { useQuery } from '@tanstack/react-query'
+import { REPORT_PILL } from '#/lib/statusColours'
 import { convexQuery } from '@convex-dev/react-query'
 import { Lock } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { BoilerplateBlock } from './BoilerplateBlock'
 import { DurableNoticePreview } from './DurableNoticePreview'
 import { RichTextView } from './RichText'
-import {
-  coverFieldKeys,
-  durableNoticeText,
-  fieldsOf,
-  coverPhotoOf,
-  printHeadingOf,
-  printedGalleryKeys,
-  printsDurableNotice,
-  sectionRuns,
-  sectionsOf,
-} from '#/lib/reportTemplates'
-import { present } from '#/lib/reportTemplates/present'
-import { visibleSections } from '#/lib/reportTemplates/visibility'
+import { buildReportModel } from '#/lib/reportTemplates/documentModel'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
-import type { PresentContext, Presented } from '#/lib/reportTemplates/present'
 import type {
-  FieldDef,
-  ReportTemplate,
-  StaticBlockField,
-  TemplateId,
-} from '#/lib/reportTemplates'
+  DocBar,
+  DocBlock,
+  DocPhoto,
+  DocRow,
+  DocSection,
+  ReportModel,
+} from '#/lib/reportTemplates/documentModel'
+import type { PresentContext, Presented } from '#/lib/reportTemplates/present'
+import type { TemplateId } from '#/lib/reportTemplates'
 import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { OptionSetOverrides } from '#/lib/reportTemplates/optionSets'
+import type { TemplateSettings } from '#/lib/reportTemplates/settings'
 import type { Id } from '../../../convex/_generated/dataModel'
+
+/**
+ * The finished document, on screen.
+ *
+ * The twin of `pdf/ReportPdf.tsx`, and deliberately a twin only in the paint:
+ * both read one `buildReportModel()`, so what prints, under which heading, in
+ * what order and with what value is decided once. This file used to decide all
+ * of that for itself, seven hundred lines of it, beside seven hundred more
+ * doing the same thing for the PDF — and the drift between them is invisible
+ * until a client reads a PDF that disagrees with the screen it was approved on.
+ */
 
 type ReportDoc = {
   _id: Id<'reports'>
@@ -37,8 +40,20 @@ type ReportDoc = {
   legalBasis: string
   status: string
   finalisedAt?: number
+  reportNumber?: number
+  /** Which issue of that number this is — amendments, not resubmissions. */
+  version?: number
   data: unknown
   businessName: string
+  business?: {
+    tradingName?: string
+    brandName?: string
+    website?: string
+    phone?: string
+    email?: string
+    logoUrl?: string | null
+    licenceNumber?: string
+  } | null
   property: {
     client: { name: string } | null
     addressLine: string
@@ -46,12 +61,13 @@ type ReportDoc = {
     state: string
     postcode: string
   } | null
-  author?: { licenceNumber?: string } | null
+  author?: { name?: string; licenceNumber?: string } | null
   pdfUrl?: string | null
   templateVersion?: number
   /** The frozen wording, once this report is signed. See `reports.get`. */
   templateSnapshot?: CustomTemplateShape | null
   optionSets?: OptionSetOverrides | null
+  settings?: TemplateSettings | null
   /** The records this document prints from without asking. */
   context?: PresentContext | null
 }
@@ -69,495 +85,362 @@ export function ReportDocument({
     templateVersion: report.templateVersion,
     customTemplate: report.customTemplate,
     templateSnapshot: report.templateSnapshot,
-    // Only a draft carries these; a finalised report's lists are frozen.
+    // Only a draft carries these; a finalised report's lists and its chrome
+    // were frozen with its wording.
     optionSets: report.optionSets,
+    settings: report.settings,
   })
-  const data = (report.data ?? {}) as Record<string, unknown>
-  // The answers ride along so a row bound to a member field can see who was
-  // chosen there.
-  const context = report.context
-    ? { ...report.context, answers: data }
-    : undefined
-  const finalised = report.status === 'finalised'
 
-  const noticeText =
-    printsDurableNotice(template) && report.property
-      ? durableNoticeText({
-          businessName: report.businessName,
-          licenceNumber: report.author?.licenceNumber,
-          systemType: String(data.systemType ?? '—'),
-          product: String(data.product ?? '—'),
-          apvmaNumber: String(data.apvmaNumber ?? '—'),
-          installDate: String(data.installDate ?? '—'),
-          lifeExpectancy: String(data.lifeExpectancy ?? '—'),
-          reinspectionInterval: String(data.reinspectionInterval ?? '—'),
-          addressLine: report.property.addressLine,
-          suburb: report.property.suburb,
-        })
-      : null
+  // Photos live in their own table rather than in the answers, so the document
+  // has to ask for them. One subscription each, shared by every set on the
+  // page: a Timber report has seven.
+  const { data: galleryPhotos } = useQuery(
+    convexQuery(api.reports.galleryPhotos, {
+      businessId,
+      reportId: report._id,
+    }),
+  )
+  const { data: slotPhotos } = useQuery(
+    convexQuery(api.reports.photoUrls, { businessId, reportId: report._id }),
+  )
+
+  const finalised = report.status === 'finalised'
+  const model = buildReportModel({
+    template,
+    data: (report.data ?? {}) as Record<string, unknown>,
+    context: report.context,
+    business: {
+      name: report.businessName,
+      tradingName: report.business?.tradingName,
+      brandName: report.business?.brandName,
+      website: report.business?.website,
+      phone: report.business?.phone,
+      email: report.business?.email,
+      logoUrl: report.business?.logoUrl,
+      licenceNumber: report.business?.licenceNumber,
+    },
+    property: report.property,
+    slotPhotos: slotPhotos as Record<string, string> | undefined,
+    galleryPhotos,
+    submittedBy: report.author?.name,
+    finalisedAt: report.finalisedAt,
+    reportNumber: report.reportNumber,
+    version: report.version,
+    finalised,
+    licenceNumber: report.author?.licenceNumber,
+  })
 
   return (
     // Pinned light in both themes. What this shows must match what
     // reports/pdf/* prints on white paper, so it does not follow the app.
     // data-theme re-declares the light palette for this subtree — the same
     // rule that themes the document root; see src/styles.css.
-    <article data-theme="light" className="bg-canvas px-4 pt-4 pb-8 text-ink">
+    <article data-theme="light" className="bg-canvas px-4 pb-8 pt-4 text-ink">
       <p className="section-label">{report.legalBasis}</p>
-      <CoverPhoto
-        businessId={businessId}
-        reportId={report._id}
-        template={template}
-        answers={data}
-      />
-      {template.print?.headings?.length ? (
-        // The form's own header lines stand in for the app's picker name, which
-        // would otherwise repeat the title directly above them.
-        <h1 className="sr-only">{template.name}</h1>
+
+      {model.cover?.photo && (
+        <img
+          src={model.cover.photo.url}
+          alt={model.cover.photo.caption || 'Front page photo'}
+          className="mt-3 w-full rounded-2xl border border-hairline bg-surface object-cover"
+          style={{ aspectRatio: '16 / 7' }}
+        />
+      )}
+
+      {model.headings.length > 0 ? (
+        <>
+          {/* The form's own header lines stand in for the app's picker name,
+              which would otherwise print the title twice. */}
+          <h1 className="sr-only">{template.name}</h1>
+          {model.headings.map((line) => (
+            <p key={line} className="mt-1 text-subhead font-semibold text-ink">
+              {line}
+            </p>
+          ))}
+        </>
       ) : (
         <h1 className="mt-1 text-page-title text-ink">{template.name}</h1>
       )}
-      {/* The form's own header lines and standards reference, verbatim. */}
-      {template.print?.headings?.map((line) => (
-        <p key={line} className="mt-1 text-subhead font-semibold text-ink">
-          {line}
-        </p>
-      ))}
-      {template.print?.standardsLine && (
-        <p className="mt-1 text-caption text-muted">
-          {template.print.standardsLine}
-        </p>
+      {model.standardsLine && (
+        <p className="mt-1 text-caption text-muted">{model.standardsLine}</p>
       )}
 
       <span
-        className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold ${
-          finalised
-            ? 'bg-green/12 text-green'
-            : 'border border-amber-line bg-amber-bg text-amber-ink'
-        }`}
+        className={`mt-2 inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] font-semibold ${finalised ? REPORT_PILL.finalised : REPORT_PILL.draft}`}
       >
         {finalised && <Lock size={11} strokeWidth={2.4} />}
         {finalised ? 'Finalised and locked' : 'Draft — read only'}
       </span>
 
-      {/* A verbatim form prints the client and site in its own first section;
-          this card would repeat them. */}
-      {report.property && !template.print && (
+      {model.titleBand && (
+        <div className="mt-4 flex items-stretch overflow-hidden rounded-xl bg-red text-white">
+          <p className="flex-1 px-3 py-2 text-subhead font-semibold">
+            {model.titleBand.text}
+          </p>
+          {model.titleBand.date && (
+            <p className="border-l border-white/40 px-3 py-2 text-subhead font-semibold">
+              {model.titleBand.date}
+            </p>
+          )}
+        </div>
+      )}
+
+      {model.sections.map((section) => (
+        <Section key={section.key} section={section} />
+      ))}
+
+      {model.photoGroups.map((group) => (
+        <section key={group.key} className="mt-6">
+          <h2 className="section-label mb-2">{group.label}</h2>
+          <PhotoGrid photos={group.photos} label={group.label} />
+        </section>
+      ))}
+
+      {model.notice && <DurableNoticePreview text={model.notice} />}
+
+      {model.terms && (
         <section className="mt-6">
-          <h2 className="section-label mb-2">Property</h2>
-          <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
-            <p className="text-row-title text-ink">
-              {report.property.client?.name}
-            </p>
-            {/* Legal documents carry the full street address, always. */}
-            <p className="text-body text-ink-2">
-              {report.property.addressLine}
-            </p>
-            <p className="text-body text-muted">
-              {report.property.suburb} {report.property.state}{' '}
-              {report.property.postcode}
-            </p>
+          <h2 className="section-label mb-2">
+            {model.terms.heading ?? 'Standard terms — not editable'}
+          </h2>
+          <div className="rounded-2xl border border-hairline bg-surface-2 px-3.5 py-3">
+            <RichTextView
+              doc={model.terms.doc}
+              className="text-body text-ink-2"
+            />
           </div>
         </section>
       )}
 
-      {visibleSections(sectionsOf(template), data).map((section) => (
-        <section key={section.title} className="mt-6">
-          {/* The heading the client received. This is the finished document,
-              not the form — the builder keeps showing the section's own title
-              so a technician can find where they are. */}
-          {printHeadingOf(section) !== null && (
-            <h2 className="section-label mb-2">
-              {/* A form that prints its headings unnumbered keeps its numbers
-                  on screen only. */}
-              {section.number && template.print?.numbering !== 'unnumbered'
-                ? `${section.number}. `
-                : ''}
-              {printHeadingOf(section)}
-            </h2>
-          )}
-          {section.preamble && (
-            <p className="mb-2 text-caption text-muted">{section.preamble}</p>
-          )}
-          {sectionRuns(section.fields, {
-            allFields: fieldsOf(template),
-            data,
-            inlineGalleries: Boolean(template.print),
-          }).map((run, runIndex) =>
-            run.type === 'block' ? (
-              <StaticBlockView key={run.field.key} field={run.field} />
-            ) : run.type === 'gallery' ? (
-              <GalleryGroup
-                key={run.field.key}
-                businessId={businessId}
-                reportId={report._id}
-                fieldKey={run.field.key}
-                label={run.field.label}
-              />
-            ) : (
-              <SectionRows
-                key={`rows-${runIndex}`}
-                fields={run.fields}
-                data={data}
-                context={context}
-                sectionHeading={printHeadingOf(section)}
-                // A draft shows the dash so the technician can see what is
-                // still open; the signed document leaves it out.
-                omitEmpty={finalised && template.print?.omitEmpty === true}
-              />
-            ),
-          )}
+      {model.legacyTerms.length > 0 && (
+        <section className="mt-6">
+          <h2 className="section-label mb-2">Standard terms — not editable</h2>
+          <div className="rounded-2xl border border-hairline bg-surface-2 px-3.5 py-3">
+            {model.legacyTerms.map((paragraph, index) => (
+              <p key={index} className="mb-2 text-body text-ink-2 last:mb-0">
+                {paragraph}
+              </p>
+            ))}
+          </div>
         </section>
-      ))}
+      )}
 
-      <ReportPhotos businessId={businessId} reportId={report._id} />
-      <ReportGallery
-        businessId={businessId}
-        reportId={report._id}
-        template={template}
-        data={data}
-      />
-
-      {noticeText && <DurableNoticePreview text={noticeText} />}
-
-      <BoilerplateBlock
-        text={template.boilerplate}
-        terms={template.terms}
-        heading={template.print?.termsHeading}
-      />
-
+      {/* The same provenance the printed footer carries, so the screen and the
+          file a client keeps identify the document the same way. */}
       {finalised && report.finalisedAt && (
-        <p className="mt-4 text-caption text-muted">
-          Finalised{' '}
-          {new Intl.DateTimeFormat('en-AU', {
-            dateStyle: 'long',
-            timeStyle: 'short',
-          }).format(new Date(report.finalisedAt))}
-          . This document can no longer be edited.
+        <p className="mt-6 text-caption text-muted">
+          {model.footer.submittedBy
+            ? `Submitted by: ${model.footer.submittedBy}`
+            : `Finalised ${new Intl.DateTimeFormat('en-AU', { dateStyle: 'long' }).format(new Date(report.finalisedAt))}`}
+          {model.footer.submissionId !== undefined &&
+            ` · Submission ID: ${model.footer.submissionId}`}
+          {` · Version: ${model.footer.version}`}
+          <br />
+          This document can no longer be edited.
         </p>
       )}
     </article>
   )
 }
 
-/**
- * Photos are part of the evidence, so a finished report has to show them
- * rather than only referencing that some exist.
- */
-function ReportPhotos({
-  businessId,
-  reportId,
-}: {
-  businessId: Id<'businesses'>
-  reportId: string
-}) {
-  const { data: urls } = useQuery(
-    convexQuery(api.reports.photoUrls, {
-      businessId,
-      reportId: reportId as Id<'reports'>,
-    }),
-  )
-
-  // `| undefined` is the honest type: this is query data, so it is undefined
-  // while the query is in flight, and the `?? {}` below is what stops
-  // Object.entries throwing on that first render.
-  const entries = Object.entries(
-    (urls as Record<string, string> | undefined) ?? {},
-  )
-  if (entries.length === 0) return null
-
+function Section({ section }: { section: DocSection }) {
   return (
     <section className="mt-6">
-      <h2 className="section-label mb-2">Photos</h2>
-      <div className="grid grid-cols-2 gap-2">
-        {entries.map(([slot, url]) => (
-          <figure
-            key={slot}
-            className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation"
-          >
-            <img src={url} alt={slot} className="h-32 w-full object-cover" />
-            <figcaption className="px-2.5 py-1.5 text-caption text-muted">
-              {slot}
-            </figcaption>
-          </figure>
-        ))}
-      </div>
+      {/* The heading the client received. This is the finished document, not
+          the form — the builder keeps showing the section's own title so a
+          technician can find where they are. */}
+      {section.heading !== null && (
+        <h2 className="section-label mb-2">
+          {section.number !== undefined ? `${section.number}. ` : ''}
+          {section.heading}
+        </h2>
+      )}
+      {section.preamble && (
+        <p className="mb-2 text-caption text-muted">{section.preamble}</p>
+      )}
+      {section.blocks.map((block) => (
+        <Block key={block.key} block={block} />
+      ))}
     </section>
   )
 }
 
-/**
- * `gallery` fields, grouped and labelled by which field they belong to — a
- * report can have more than one (a cover photo and a general set), and a
- * client reading the finished document needs to know which is which.
- */
-/**
- * One photo set, shown inside its section on a verbatim form. Shares its query
- * with every other set on the page, so a Timber report's seven sets are one
- * subscription, not seven.
- */
-function GalleryGroup({
-  businessId,
-  reportId,
-  fieldKey,
-  label,
-}: {
-  businessId: Id<'businesses'>
-  reportId: Id<'reports'>
-  fieldKey: string
-  label: string
-}) {
-  const { data } = useQuery(
-    convexQuery(api.reports.galleryPhotos, { businessId, reportId }),
-  )
-  const photos = (data ?? []).filter((photo) => photo.fieldKey === fieldKey)
-  if (photos.length === 0) return null
+const BAR_CLASS: Record<DocBar, string> = {
+  good: 'bg-green',
+  warn: 'bg-amber-ink',
+  danger: 'bg-red',
+}
+
+function Block({ block }: { block: DocBlock }) {
+  switch (block.type) {
+    case 'rows':
+      return (
+        <dl className="mt-2 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation first:mt-0">
+          {block.rows.map((row) => (
+            <Row key={row.key} row={row} />
+          ))}
+        </dl>
+      )
+
+    case 'heading':
+      return (
+        <div className="mt-4 first:mt-0">
+          <h3 className="text-body font-semibold text-red">{block.text}</h3>
+          {block.note && (
+            <p className="mt-0.5 text-caption text-muted">{block.note}</p>
+          )}
+        </div>
+      )
+
+    case 'note': {
+      const tone = block.tone
+      return (
+        <div
+          className={`mt-3 rounded-2xl border px-3.5 py-3 first:mt-0 ${
+            tone === 'important'
+              ? 'border-red/30 bg-red/5'
+              : tone === 'warning'
+                ? 'border-amber/30 bg-amber/5'
+                : 'border-hairline bg-surface-2'
+          }`}
+        >
+          {block.heading && (
+            <p className="text-subhead font-semibold text-ink">
+              {tone === 'important'
+                ? `IMPORTANT: ${block.heading}`
+                : block.heading}
+            </p>
+          )}
+          <RichTextView
+            doc={block.doc}
+            className={`text-body text-ink-2 ${tone === 'statement' ? 'italic' : ''}`}
+          />
+        </div>
+      )
+    }
+
+    case 'table':
+      return (
+        <div className="mt-2 overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation first:mt-0">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-caption">
+              <thead>
+                <tr className="bg-red text-white">
+                  {block.columns.map((column) => (
+                    <th
+                      key={column.label}
+                      className="px-2.5 py-2 font-semibold"
+                      style={{ width: `${column.width}%` }}
+                    >
+                      {column.label}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {block.rows.map((row, index) => (
+                  <tr
+                    key={index}
+                    className="border-b border-hairline-2 last:border-0"
+                  >
+                    {row.map((cell, cellIndex) => (
+                      <td
+                        key={cellIndex}
+                        className="px-2.5 py-2 align-top text-ink-2"
+                      >
+                        {cell}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )
+
+    case 'photos':
+      return (
+        <div className="mt-3">
+          <p className="section-label mb-2">{block.label}</p>
+          <PhotoGrid photos={block.photos} label={block.label} />
+        </div>
+      )
+
+    default: {
+      // Without this a new block renders as nothing at all, silently dropping
+      // part of a signed document. Fail at build instead.
+      const _exhaustive: never = block
+      void _exhaustive
+      return null
+    }
+  }
+}
+
+function Row({ row }: { row: DocRow }) {
   return (
-    <div className="mt-3">
-      <p className="section-label mb-2">{label}</p>
-      <div className="grid grid-cols-2 gap-2">
-        {photos.map((photo) => (
-          <figure
-            key={photo._id}
-            className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation"
-          >
-            {photo.url && (
-              <img
-                src={photo.url}
-                alt={photo.caption || label}
-                className="h-32 w-full object-cover"
-              />
-            )}
-            {photo.caption && (
-              <figcaption className="truncate px-2.5 py-1.5 text-caption text-muted">
-                {photo.caption}
-              </figcaption>
-            )}
-          </figure>
-        ))}
+    <div className="flex gap-2.5 px-3.5 py-3">
+      {/* The same bar the printed document carries beside an answer that
+          reports a state. */}
+      {row.bar && (
+        <span
+          className={`mt-0.5 w-1 shrink-0 self-stretch rounded-full ${BAR_CLASS[row.bar]}`}
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <dt className="section-label">{row.label}</dt>
+        <dd className="mt-1 text-body text-ink">
+          <FieldValue shown={row.shown} />
+        </dd>
       </div>
     </div>
   )
 }
 
-/**
- * The front-page photo a `cover` field holds, at the top of the document as it
- * opens the PDF. Without it the photo the technician took for the front page
- * appears nowhere on screen.
- */
-function CoverPhoto({
-  businessId,
-  reportId,
-  template,
-  answers,
-}: {
-  businessId: Id<'businesses'>
-  reportId: Id<'reports'>
-  template: ReportTemplate
-  answers: Record<string, unknown>
-}) {
-  const { data } = useQuery(
-    convexQuery(api.reports.galleryPhotos, { businessId, reportId }),
-  )
-  const cover = coverPhotoOf(
-    template,
-    data ?? [],
-    printedGalleryKeys(sectionsOf(template), answers),
-  )
-  if (!cover?.url) return null
-  return (
-    <img
-      src={cover.url}
-      alt={cover.caption || 'Front page photo'}
-      className="mt-4 aspect-[4/3] w-full rounded-2xl border border-hairline bg-surface object-contain"
-    />
-  )
+/** The photo's own aspect, for the browser to reserve space with. */
+function aspectOf(photo: DocPhoto) {
+  return photo.width && photo.height
+    ? { aspectRatio: `${photo.width} / ${photo.height}` }
+    : undefined
 }
 
-function ReportGallery({
-  businessId,
-  reportId,
-  template,
-  data: answers,
+function PhotoGrid({
+  photos,
+  label,
 }: {
-  businessId: Id<'businesses'>
-  reportId: string
-  template: ReportTemplate
-  data: Record<string, unknown>
+  photos: Array<DocPhoto>
+  label: string
 }) {
-  const { data } = useQuery(
-    convexQuery(api.reports.galleryPhotos, {
-      businessId,
-      reportId: reportId as Id<'reports'>,
-    }),
-  )
-
-  const photos = data ?? []
   if (photos.length === 0) return null
-
-  const labelFor = new Map(
-    fieldsOf(template)
-      .filter((field) => field.kind === 'gallery')
-      .map((field) => [field.key, field.label] as const),
-  )
-
-  // A cover photo opens the document. Printing it again down here, captioned
-  // "Cover", is the same image twice for the client and one more thing for the
-  // technician to wonder about.
-  const coverKeys = coverFieldKeys(template)
-  // Only photo sets whose question is showing; a verbatim form has already
-  // shown its sets inside their sections.
-  const printable = printedGalleryKeys(sectionsOf(template), answers)
-  const inline = Boolean(template.print)
-
-  const byField = new Map<string, typeof photos>()
-  for (const photo of photos) {
-    if (coverKeys.has(photo.fieldKey)) continue
-    if (inline && labelFor.has(photo.fieldKey)) continue
-    if (labelFor.has(photo.fieldKey) && !printable.has(photo.fieldKey)) continue
-    const group = byField.get(photo.fieldKey) ?? []
-    group.push(photo)
-    byField.set(photo.fieldKey, group)
-  }
-
   return (
-    <>
-      {[...byField.entries()].map(([fieldKey, group]) => (
-        <section key={fieldKey} className="mt-6">
-          <h2 className="section-label mb-2">
-            {labelFor.get(fieldKey) ?? 'Photos'}
-          </h2>
-          <div className="grid grid-cols-2 gap-2">
-            {group.map((photo) => (
-              <figure
-                key={photo._id}
-                className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation"
-              >
-                {photo.url && (
-                  <img
-                    src={photo.url}
-                    alt={photo.caption || labelFor.get(fieldKey) || 'Photo'}
-                    className="h-32 w-full object-cover"
-                  />
-                )}
-                {(photo.caption || photo.isCover) && (
-                  <figcaption className="flex items-center justify-between gap-2 px-2.5 py-1.5 text-caption text-muted">
-                    <span className="truncate">{photo.caption}</span>
-                    {photo.isCover && (
-                      <span className="shrink-0 font-semibold text-amber-ink">
-                        Cover
-                      </span>
-                    )}
-                  </figcaption>
-                )}
-              </figure>
-            ))}
-          </div>
-        </section>
+    <div className="grid grid-cols-2 gap-2">
+      {photos.map((photo) => (
+        <figure
+          key={photo.key}
+          className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation"
+        >
+          <img
+            src={photo.url}
+            alt={photo.caption || label}
+            // Its own shape where the app knows it, capped so one portrait
+            // photo cannot fill the screen. Evidence is never centre-cropped:
+            // the crop can remove the thing the photo was taken to show. A
+            // photo with no recorded dimensions keeps the old fixed box rather
+            // than having a shape guessed for it.
+            style={aspectOf(photo)}
+            className={
+              photo.width && photo.height
+                ? 'max-h-64 w-full bg-surface-2 object-contain'
+                : 'h-32 w-full object-cover'
+            }
+          />
+          {photo.caption && (
+            <figcaption className="truncate px-2.5 py-1.5 text-caption text-muted">
+              {photo.caption}
+            </figcaption>
+          )}
+        </figure>
       ))}
-    </>
-  )
-}
-
-/** Named so a client can tell two reports apart in their downloads folder. */
-export function pdfFileName(shortName: string, addressLine?: string): string {
-  const place = (addressLine ?? 'report')
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-  return `${shortName.toLowerCase()}-${place}.pdf`
-}
-
-/**
- * One card of answers. Nothing here knows a field kind — `present()` decided
- * that already — so this is only the framing a run of values shares.
- */
-function SectionRows({
-  fields,
-  data,
-  context,
-  sectionHeading,
-  omitEmpty = false,
-}: {
-  fields: Array<FieldDef>
-  data: Record<string, unknown>
-  context?: PresentContext
-  sectionHeading?: string | null
-  omitEmpty?: boolean
-}) {
-  const rows = fields
-    .map((field) => ({
-      field,
-      shown: present(field, data[field.key], context),
-    }))
-    // `omit` covers the kinds that belong to another section — photos have
-    // their own gallery below, and a bare labelled row here would read as a
-    // field the technician forgot to fill in.
-    .filter(({ shown }) => shown.kind !== 'omit')
-    .filter(({ shown }) => !(omitEmpty && shown.kind === 'blank'))
-
-  // A section can be all notes and photos. An empty card is a card that says
-  // the technician skipped something.
-  if (rows.length === 0) return null
-
-  return (
-    <dl className="mt-2 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation first:mt-0">
-      {rows.map(({ field, shown }) => (
-        <div key={field.key} className="px-3.5 py-3">
-          {/* A table whose caption is the section heading itself (the treatment
-              grid) is not captioned twice. */}
-          {/* Also when there is nothing in it yet: an unanswered table in a read-only
-              draft is still captioned by the heading right above it. */}
-          {!(
-            (shown.kind === 'grid' || shown.kind === 'blank') &&
-            field.kind === 'repeater' &&
-            field.label === sectionHeading
-          ) && <dt className="section-label">{field.label}</dt>}
-          <dd className="mt-1 text-body text-ink">
-            <FieldValue shown={shown} />
-          </dd>
-        </div>
-      ))}
-    </dl>
-  )
-}
-
-/**
- * A note or a sub-heading: printed content that asks nothing. Full width, and
- * without the field label — that label is the author's name for the block, not
- * something the client should ever read.
- */
-function StaticBlockView({ field }: { field: StaticBlockField }) {
-  if (field.kind === 'heading') {
-    return (
-      <div className="mt-4 first:mt-0">
-        <h3 className="text-body font-semibold text-ink">{field.text}</h3>
-        {field.note && (
-          <p className="mt-0.5 text-caption text-muted">{field.note}</p>
-        )}
-      </div>
-    )
-  }
-
-  const tone = field.tone ?? 'note'
-  return (
-    <div
-      className={`mt-3 rounded-2xl border px-3.5 py-3 first:mt-0 ${
-        tone === 'important'
-          ? 'border-red/30 bg-red/5'
-          : tone === 'warning'
-            ? 'border-amber/30 bg-amber/5'
-            : 'border-hairline bg-surface-2'
-      }`}
-    >
-      {field.heading && (
-        <p className="text-subhead font-semibold text-ink">
-          {tone === 'important' ? `IMPORTANT: ${field.heading}` : field.heading}
-        </p>
-      )}
-      <RichTextView
-        doc={field.body}
-        className={`text-body text-ink-2 ${tone === 'statement' ? 'italic' : ''}`}
-      />
     </div>
   )
 }
@@ -593,39 +476,10 @@ function FieldValue({ shown }: { shown: Presented }) {
         </span>
       )
 
+    // Lifted out of the row flow by `buildReportModel` — a repeater becomes
+    // its own table block — so this cannot be reached from a value cell.
     case 'grid':
-      return (
-        <span className="-mx-1 block overflow-x-auto">
-          <table className="w-full text-left text-caption">
-            <thead>
-              <tr className="border-b border-hairline">
-                {shown.columns.map((column) => (
-                  <th
-                    key={column}
-                    className="px-1 pb-1 font-semibold text-muted"
-                  >
-                    {column}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {shown.rows.map((row, i) => (
-                <tr
-                  key={i}
-                  className="border-b border-hairline-2 last:border-0"
-                >
-                  {row.map((cell, j) => (
-                    <td key={j} className="px-1 py-1.5 align-top text-ink-2">
-                      {cell}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </span>
-      )
+      return null
 
     case 'lines':
       return (
@@ -676,3 +530,5 @@ function FieldValue({ shown }: { shown: Presented }) {
     }
   }
 }
+
+export type { ReportModel }

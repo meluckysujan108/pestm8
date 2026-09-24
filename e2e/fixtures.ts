@@ -269,6 +269,25 @@ export async function clickUntil(
   }).toPass({ timeout })
 }
 
+/**
+ * Picks the client and address on an open New Job sheet. The form starts with
+ * nothing chosen and will not book until something is, so every test that
+ * books through it says who the job is for.
+ */
+export async function chooseProperty(
+  page: Page,
+  sheet: Locator,
+  search: string,
+  option: RegExp,
+) {
+  await sheet.getByLabel('Property').click()
+  await page
+    .getByRole('textbox', { name: 'Search by name or address' })
+    .fill(search)
+  await page.getByRole('button', { name: option }).click()
+  await expect(sheet.getByLabel('Property')).toContainText(option)
+}
+
 export function uniqueEmail(label: string) {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@pestm8.test`
 }
@@ -296,6 +315,31 @@ export type RejectionCode =
   | 'INVITE_EMAIL_MISMATCH'
   | 'OWNER_INVITE_FORBIDDEN'
   | 'APP_UPDATE_REQUIRED'
+  // A permanent delete that skipped Recently Deleted — the 30-day safety net
+  // is not optional.
+  | 'NOT_IN_TRASH'
+  // Too many sends from one person in an hour.
+  | 'SEND_RATE_LIMITED'
+  // A word the form itself matches on — renaming it would change behaviour,
+  // not wording.
+  | 'OPTION_PINNED'
+  | 'OPTION_EXISTS'
+  | 'INVALID_OPTION'
+  | 'TOO_MANY_SNIPPETS'
+  | 'INVALID_SNIPPET'
+  // The business asks for a finalised report before a job is complete.
+  | 'REPORT_REQUIRED'
+  // Publishing a form when nothing has changed since it was last issued.
+  | 'NOTHING_TO_PUBLISH'
+  // Amending a report that has already been superseded would fork its number.
+  | 'ALREADY_SUPERSEDED'
+  // A second correction of a document while the first is still a draft.
+  | 'AMENDMENT_IN_PROGRESS'
+  | 'AMENDMENT_REASON_REQUIRED'
+  // Applying someone else's saved signature.
+  | 'NOT_YOUR_SIGNATURE'
+  // A custom form's wording could not be frozen with the report it locks.
+  | 'TEMPLATE_NOT_FROZEN'
 
 export async function expectRejected(
   call: () => Promise<unknown>,
@@ -343,4 +387,76 @@ export async function licenceSelf(
     membershipId: mine._id,
     licenceNumber,
   })
+}
+
+/**
+ * A finger put down on `locator` — a real touch, sent through the Chrome
+ * DevTools Protocol — and a way to lift it. The hold buttons (HoldButton)
+ * hold only a touch or a pen: `page.mouse` would arrive as a mouse and act at
+ * once, and Playwright's own touchscreen can only tap. Both projects are
+ * Chromium. Split in two so a test can look at the page with the finger
+ * still down.
+ */
+export async function touchDown(page: Page, locator: Locator) {
+  const box = await locator.boundingBox()
+  if (!box) throw new Error('touchDown: the element is not on screen')
+  const point = { x: box.x + box.width / 2, y: box.y + box.height / 2 }
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [point],
+  })
+  return {
+    async up() {
+      try {
+        await cdp.send('Input.dispatchTouchEvent', {
+          type: 'touchEnd',
+          touchPoints: [],
+        })
+      } finally {
+        await cdp.detach()
+      }
+    },
+  }
+}
+
+/** A finger held on `locator` for `ms`, then lifted. */
+export async function touchHold(page: Page, locator: Locator, ms: number) {
+  const finger = await touchDown(page, locator)
+  await page.waitForTimeout(ms)
+  await finger.up()
+}
+
+/**
+ * Stands in for `window.open` and records each call, with whether the
+ * browser counted it as the user's own gesture at that moment. Playwright
+ * runs Chromium with popups unblocked, so a blocked Map would pass here
+ * unnoticed; `userActivation.isActive` is what a real phone decides by.
+ * Read back with `openedTabs(page)`.
+ */
+export async function recordOpenedTabs(page: Page) {
+  await page.addInitScript(() => {
+    const record: Array<{ url: string; active: boolean | null }> = []
+    Object.assign(window, { __openedTabs: record })
+    window.open = (url?: string | URL) => {
+      record.push({
+        url: String(url),
+        // The suite runs Chromium, which has userActivation.
+        active: navigator.userActivation.isActive,
+      })
+      // A stand-in tab, so the card does not fall back to its link.
+      return { opener: window } as unknown as Window
+    }
+  })
+}
+
+export function openedTabs(page: Page) {
+  return page.evaluate(
+    () =>
+      (
+        window as unknown as {
+          __openedTabs?: Array<{ url: string; active: boolean | null }>
+        }
+      ).__openedTabs ?? [],
+  )
 }

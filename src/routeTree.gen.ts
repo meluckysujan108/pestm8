@@ -14,11 +14,16 @@ import { Route as BusinessSlugRouteRouteImport } from './routes/$businessSlug/ro
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as BusinessSlugAnalyticsRouteImport } from './routes/$businessSlug/analytics'
+import { Route as BusinessSlugJobRouteRouteImport } from './routes/$businessSlug/job/route'
+import { Route as BusinessSlugLeadsRouteImport } from './routes/$businessSlug/leads'
 import { Route as BusinessSlugNotesRouteImport } from './routes/$businessSlug/notes'
+import { Route as BusinessSlugProductsRouteImport } from './routes/$businessSlug/products'
 import { Route as BusinessSlugScheduleRouteImport } from './routes/$businessSlug/schedule'
 import { Route as BusinessSlugSettingsRouteImport } from './routes/$businessSlug/settings'
 import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as BusinessSlugClientsIndexRouteImport } from './routes/$businessSlug/clients/index'
+import { Route as BusinessSlugJobIndexRouteImport } from './routes/$businessSlug/job/index'
+import { Route as BusinessSlugJobRecurringRouteImport } from './routes/$businessSlug/job/recurring'
 import { Route as BusinessSlugReportsIndexRouteImport } from './routes/$businessSlug/reports/index'
 import { Route as BusinessSlugReportsReportIdRouteImport } from './routes/$businessSlug/reports/$reportId'
 import { Route as BusinessSlugReportsNewRouteImport } from './routes/$businessSlug/reports/new'
@@ -51,9 +56,24 @@ const BusinessSlugAnalyticsRoute = BusinessSlugAnalyticsRouteImport.update({
   path: '/analytics',
   getParentRoute: () => BusinessSlugRouteRoute,
 } as any)
+const BusinessSlugJobRouteRoute = BusinessSlugJobRouteRouteImport.update({
+  id: '/job',
+  path: '/job',
+  getParentRoute: () => BusinessSlugRouteRoute,
+} as any)
+const BusinessSlugLeadsRoute = BusinessSlugLeadsRouteImport.update({
+  id: '/leads',
+  path: '/leads',
+  getParentRoute: () => BusinessSlugRouteRoute,
+} as any)
 const BusinessSlugNotesRoute = BusinessSlugNotesRouteImport.update({
   id: '/notes',
   path: '/notes',
+  getParentRoute: () => BusinessSlugRouteRoute,
+} as any)
+const BusinessSlugProductsRoute = BusinessSlugProductsRouteImport.update({
+  id: '/products',
+  path: '/products',
   getParentRoute: () => BusinessSlugRouteRoute,
 } as any)
 const BusinessSlugScheduleRoute = BusinessSlugScheduleRouteImport.update({
@@ -76,6 +96,17 @@ const BusinessSlugClientsIndexRoute =
     id: '/clients/',
     path: '/clients/',
     getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
+const BusinessSlugJobIndexRoute = BusinessSlugJobIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => BusinessSlugJobRouteRoute,
+} as any)
+const BusinessSlugJobRecurringRoute =
+  BusinessSlugJobRecurringRouteImport.update({
+    id: '/recurring',
+    path: '/recurring',
+    getParentRoute: () => BusinessSlugJobRouteRoute,
   } as any)
 const BusinessSlugReportsIndexRoute =
   BusinessSlugReportsIndexRouteImport.update({
@@ -117,15 +148,20 @@ export interface FileRoutesByFullPath {
   '/$businessSlug': typeof BusinessSlugRouteRouteWithChildren
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
   '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
+  '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
+  '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/$businessSlug/settings': typeof BusinessSlugSettingsRoute
   '/join/$token': typeof JoinTokenRoute
+  '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
+  '/$businessSlug/job/': typeof BusinessSlugJobIndexRoute
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
   '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
   '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
@@ -136,14 +172,18 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
+  '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
+  '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/$businessSlug/settings': typeof BusinessSlugSettingsRoute
   '/join/$token': typeof JoinTokenRoute
+  '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients': typeof BusinessSlugClientsIndexRoute
+  '/$businessSlug/job': typeof BusinessSlugJobIndexRoute
   '/$businessSlug/reports': typeof BusinessSlugReportsIndexRoute
   '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
   '/$businessSlug/reports/templates': typeof BusinessSlugReportsTemplatesIndexRoute
@@ -154,15 +194,20 @@ export interface FileRoutesById {
   '/$businessSlug': typeof BusinessSlugRouteRouteWithChildren
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
   '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
+  '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
+  '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/$businessSlug/settings': typeof BusinessSlugSettingsRoute
   '/join/$token': typeof JoinTokenRoute
+  '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
+  '/$businessSlug/job/': typeof BusinessSlugJobIndexRoute
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
   '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
   '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
@@ -174,15 +219,20 @@ export interface FileRouteTypes {
     | '/$businessSlug'
     | '/login'
     | '/onboarding'
+    | '/$businessSlug/job'
     | '/$businessSlug/analytics'
+    | '/$businessSlug/leads'
     | '/$businessSlug/notes'
+    | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/$businessSlug/settings'
     | '/join/$token'
+    | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
     | '/api/auth/$'
     | '/$businessSlug/clients/'
+    | '/$businessSlug/job/'
     | '/$businessSlug/reports/'
     | '/$businessSlug/reports/templates/$templateId'
     | '/$businessSlug/reports/templates/'
@@ -193,14 +243,18 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/$businessSlug/analytics'
+    | '/$businessSlug/leads'
     | '/$businessSlug/notes'
+    | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/$businessSlug/settings'
     | '/join/$token'
+    | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
     | '/api/auth/$'
     | '/$businessSlug/clients'
+    | '/$businessSlug/job'
     | '/$businessSlug/reports'
     | '/$businessSlug/reports/templates/$templateId'
     | '/$businessSlug/reports/templates'
@@ -210,15 +264,20 @@ export interface FileRouteTypes {
     | '/$businessSlug'
     | '/login'
     | '/onboarding'
+    | '/$businessSlug/job'
     | '/$businessSlug/analytics'
+    | '/$businessSlug/leads'
     | '/$businessSlug/notes'
+    | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/$businessSlug/settings'
     | '/join/$token'
+    | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
     | '/api/auth/$'
     | '/$businessSlug/clients/'
+    | '/$businessSlug/job/'
     | '/$businessSlug/reports/'
     | '/$businessSlug/reports/templates/$templateId'
     | '/$businessSlug/reports/templates/'
@@ -270,11 +329,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessSlugAnalyticsRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
+    '/$businessSlug/job': {
+      id: '/$businessSlug/job'
+      path: '/job'
+      fullPath: '/$businessSlug/job'
+      preLoaderRoute: typeof BusinessSlugJobRouteRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/leads': {
+      id: '/$businessSlug/leads'
+      path: '/leads'
+      fullPath: '/$businessSlug/leads'
+      preLoaderRoute: typeof BusinessSlugLeadsRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
     '/$businessSlug/notes': {
       id: '/$businessSlug/notes'
       path: '/notes'
       fullPath: '/$businessSlug/notes'
       preLoaderRoute: typeof BusinessSlugNotesRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/products': {
+      id: '/$businessSlug/products'
+      path: '/products'
+      fullPath: '/$businessSlug/products'
+      preLoaderRoute: typeof BusinessSlugProductsRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
     '/$businessSlug/schedule': {
@@ -304,6 +384,20 @@ declare module '@tanstack/react-router' {
       fullPath: '/$businessSlug/clients/'
       preLoaderRoute: typeof BusinessSlugClientsIndexRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/job/': {
+      id: '/$businessSlug/job/'
+      path: '/'
+      fullPath: '/$businessSlug/job/'
+      preLoaderRoute: typeof BusinessSlugJobIndexRouteImport
+      parentRoute: typeof BusinessSlugJobRouteRoute
+    }
+    '/$businessSlug/job/recurring': {
+      id: '/$businessSlug/job/recurring'
+      path: '/recurring'
+      fullPath: '/$businessSlug/job/recurring'
+      preLoaderRoute: typeof BusinessSlugJobRecurringRouteImport
+      parentRoute: typeof BusinessSlugJobRouteRoute
     }
     '/$businessSlug/reports/': {
       id: '/$businessSlug/reports/'
@@ -350,9 +444,25 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface BusinessSlugJobRouteRouteChildren {
+  BusinessSlugJobRecurringRoute: typeof BusinessSlugJobRecurringRoute
+  BusinessSlugJobIndexRoute: typeof BusinessSlugJobIndexRoute
+}
+
+const BusinessSlugJobRouteRouteChildren: BusinessSlugJobRouteRouteChildren = {
+  BusinessSlugJobRecurringRoute: BusinessSlugJobRecurringRoute,
+  BusinessSlugJobIndexRoute: BusinessSlugJobIndexRoute,
+}
+
+const BusinessSlugJobRouteRouteWithChildren =
+  BusinessSlugJobRouteRoute._addFileChildren(BusinessSlugJobRouteRouteChildren)
+
 interface BusinessSlugRouteRouteChildren {
+  BusinessSlugJobRouteRoute: typeof BusinessSlugJobRouteRouteWithChildren
   BusinessSlugAnalyticsRoute: typeof BusinessSlugAnalyticsRoute
+  BusinessSlugLeadsRoute: typeof BusinessSlugLeadsRoute
   BusinessSlugNotesRoute: typeof BusinessSlugNotesRoute
+  BusinessSlugProductsRoute: typeof BusinessSlugProductsRoute
   BusinessSlugScheduleRoute: typeof BusinessSlugScheduleRoute
   BusinessSlugSettingsRoute: typeof BusinessSlugSettingsRoute
   BusinessSlugReportsReportIdRoute: typeof BusinessSlugReportsReportIdRoute
@@ -364,8 +474,11 @@ interface BusinessSlugRouteRouteChildren {
 }
 
 const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
+  BusinessSlugJobRouteRoute: BusinessSlugJobRouteRouteWithChildren,
   BusinessSlugAnalyticsRoute: BusinessSlugAnalyticsRoute,
+  BusinessSlugLeadsRoute: BusinessSlugLeadsRoute,
   BusinessSlugNotesRoute: BusinessSlugNotesRoute,
+  BusinessSlugProductsRoute: BusinessSlugProductsRoute,
   BusinessSlugScheduleRoute: BusinessSlugScheduleRoute,
   BusinessSlugSettingsRoute: BusinessSlugSettingsRoute,
   BusinessSlugReportsReportIdRoute: BusinessSlugReportsReportIdRoute,

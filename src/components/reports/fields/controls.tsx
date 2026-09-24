@@ -1,17 +1,21 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { MapPin } from 'lucide-react'
 import { PhotoSlots } from './PhotoSlots'
-import { SignaturePad } from './SignaturePad'
+import { SignatureRow } from './SignatureRow'
 import {
   retainedOptions,
   toggleCheck,
   withLocked,
 } from '#/lib/reportTemplates/choices'
-import type { EditorProps } from './registry'
+import { PickerSheet, PickerTrigger } from './PickerSheet'
+import { PhrasesSheet } from './PhrasesSheet'
+import { withSnippet } from '#/lib/reportTemplates/snippets'
+import type { EditorCtx, EditorProps } from './registry'
 import type {
   AreaResult,
   FieldDef,
   GpsValue,
+  OptionSetKey,
   SignatureValue,
 } from '#/lib/reportTemplates'
 
@@ -39,19 +43,128 @@ export function TextControl({ field, value, onChange }: Of<'text'>) {
   )
 }
 
-export function AreaControl({ field, value, onChange }: Of<'area'>) {
+export function AreaControl({ field, value, onChange, ctx }: Of<'area'>) {
+  const [picking, setPicking] = useState(false)
+  const text = (value as string | undefined) ?? ''
+  const phrases = ctx.phrases
+  const saved = phrases?.forField(field.key) ?? []
+
   return (
-    <textarea
-      value={(value as string | undefined) ?? ''}
-      placeholder={field.placeholder}
-      rows={field.rows ?? 3}
-      onChange={(e) => onChange(e.target.value)}
-      className="w-full rounded-xl bg-surface-3 p-3.5 text-[16px] leading-relaxed text-ink outline-none focus:ring-2 focus:ring-blue"
-    />
+    <span className="flex flex-col gap-1.5">
+      <textarea
+        value={text}
+        placeholder={field.placeholder}
+        rows={field.rows ?? 3}
+        onChange={(e) => onChange(e.target.value)}
+        className="w-full rounded-xl bg-surface-3 p-3.5 text-[16px] leading-relaxed text-ink outline-none focus:ring-2 focus:ring-blue"
+      />
+
+      {/* Offered once there is something to offer OR something to keep, so a
+          business that has never saved one never sees the button. */}
+      {phrases && (saved.length > 0 || text.trim() !== '') && (
+        <button
+          type="button"
+          onClick={() => setPicking(true)}
+          className="self-start rounded-lg px-1 py-0.5 text-caption font-semibold text-blue transition active:scale-[.97]"
+        >
+          {saved.length > 0 ? `Phrases (${saved.length})` : 'Save as a phrase'}
+        </button>
+      )}
+
+      {phrases && (
+        <PhrasesSheet
+          open={picking}
+          onClose={() => setPicking(false)}
+          label={field.label}
+          phrases={saved}
+          current={text}
+          onPick={(phrase) => {
+            onChange(withSnippet(text, phrase.text))
+            phrases.used(phrase.id)
+          }}
+          onSave={(written) => phrases.save(field.key, written)}
+          onRemove={(phrase) => phrases.remove(phrase.id)}
+        />
+      )}
+    </span>
   )
 }
 
-export function SelectControl({ field, value, onChange }: Of<'select'>) {
+/**
+ * Where a list stops being quicker to read in place than to search.
+ *
+ * Twelve is the Service Report's "Your Next Pest Control Visit is due in:"
+ * list, which reads fine as rows; thirteen is its product list, where every
+ * entry carries an active constituent in brackets and the one you use daily is
+ * somewhere in the middle. The line falls between them.
+ */
+const LIST_LIMIT = 12
+
+/**
+ * The few options this business actually reaches for, for whichever library
+ * this field draws on.
+ *
+ * A field with its options written into the template has no library behind it
+ * and therefore no preference to express — the form's own order is the answer.
+ */
+function usualFor(
+  field: { optionsFrom?: OptionSetKey },
+  ctx: EditorCtx,
+): Array<string> {
+  return field.optionsFrom ? (ctx.usual?.[field.optionsFrom] ?? []) : []
+}
+
+/**
+ * Says this member just reached for these answers, so the next picker on the
+ * same list offers them first.
+ *
+ * A checklist reports on close rather than on each tap — a technician who
+ * opens a sheet, looks, changes their mind and closes it has taught the app
+ * nothing — while a single choice reports the tap itself, which is both the
+ * answer and the moment the sheet closes.
+ */
+function remember(
+  field: { optionsFrom?: OptionSetKey },
+  ctx: EditorCtx,
+  chosen: Array<string>,
+) {
+  if (field.optionsFrom && chosen.length > 0) {
+    ctx.remember?.(field.optionsFrom, chosen)
+  }
+}
+
+export function SelectControl({ field, value, onChange, ctx }: Of<'select'>) {
+  const [picking, setPicking] = useState(false)
+  const options = retainedOptions(field.options, value)
+  const chosen = typeof value === 'string' && value !== '' ? [value] : []
+
+  if (options.length > LIST_LIMIT || ctx.inRow) {
+    return (
+      <>
+        <PickerTrigger
+          label={field.label}
+          values={chosen}
+          placeholder={field.blankOption ?? 'Choose…'}
+          onOpen={() => setPicking(true)}
+        />
+        <PickerSheet
+          open={picking}
+          onClose={() => setPicking(false)}
+          title={field.label}
+          options={options}
+          selected={chosen}
+          multiple={false}
+          usual={usualFor(field, ctx)}
+          onToggle={(next: string) => {
+            onChange(next)
+            remember(field, ctx, [next])
+          }}
+          onClear={() => onChange(undefined)}
+        />
+      </>
+    )
+  }
+
   return (
     <select
       value={(value as string | undefined) ?? ''}
@@ -61,7 +174,7 @@ export function SelectControl({ field, value, onChange }: Of<'select'>) {
       {/* The source form's own placeholder when it has one (`-`), never
           stored: choosing it clears the answer. */}
       <option value="">{field.blankOption ?? 'Choose…'}</option>
-      {retainedOptions(field.options, value).map((o) => (
+      {options.map((o) => (
         <option key={o.value} value={o.value}>
           {o.label}
         </option>
@@ -286,9 +399,10 @@ export function NumberControl({ field, value, onChange }: Of<'number'>) {
  * lists print straight onto a signed document, and a code with no matching
  * option would render as gibberish there.
  */
-export function ChecksControl({ field, value, onChange }: Of<'checks'>) {
+export function ChecksControl({ field, value, onChange, ctx }: Of<'checks'>) {
   const selected = (value as Array<string> | undefined) ?? []
   const [draft, setDraft] = useState('')
+  const [picking, setPicking] = useState(false)
 
   const custom = selected.filter(
     (v) => !field.options.some((o) => o.value === v),
@@ -311,12 +425,41 @@ export function ChecksControl({ field, value, onChange }: Of<'checks'>) {
     setDraft('')
   }
 
+  const all = [...field.options, ...custom.map((c) => ({ value: c, label: c }))]
+
+  if (all.length > LIST_LIMIT || ctx.inRow) {
+    return (
+      <>
+        <PickerTrigger
+          label={field.label}
+          values={shown}
+          placeholder={field.addLabel ?? 'Choose…'}
+          onOpen={() => setPicking(true)}
+        />
+        <PickerSheet
+          open={picking}
+          onClose={() => {
+            setPicking(false)
+            // What was chosen, not what the form keeps ticked on its own.
+            remember(field, ctx, selected.filter((v) => !locked.has(v)))
+          }}
+          title={field.label}
+          options={all}
+          selected={shown}
+          multiple
+          disabledValues={[...locked]}
+          usual={usualFor(field, ctx)}
+          onToggle={toggle}
+          addLabel={field.extensible ? field.addLabel : undefined}
+          onAdd={field.extensible ? (item: string) => toggle(item) : undefined}
+        />
+      </>
+    )
+  }
+
   return (
     <span className="flex flex-col gap-1.5">
-      {[
-        ...field.options,
-        ...custom.map((c) => ({ value: c, label: c })),
-      ].map((option) => (
+      {all.map((option) => (
         <label
           key={option.value}
           className="flex items-center gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5"
@@ -363,13 +506,29 @@ export function ChecksControl({ field, value, onChange }: Of<'checks'>) {
   )
 }
 
+/** `10:25 am` — when the reading was taken, in the phone's own timezone. */
+function formatClock(at: number): string {
+  return new Intl.DateTimeFormat('en-AU', {
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(at))
+}
+
 /**
- * Captures the device's location once, on demand.
+ * Captures the device's location.
  *
- * Never automatic: a coordinate on a report asserts the technician was at the
- * property, so it is recorded by a deliberate act rather than by the page
- * happening to load somewhere. A refusal is shown plainly instead of leaving
- * the button looking broken.
+ * A coordinate on a report asserts the technician was at the property, so this
+ * never prompts: a permission dialog that appears because a section scrolled
+ * into view is one people dismiss without reading, and an answer obtained that
+ * way is not evidence of anything. A field marked `auto` takes the reading by
+ * itself ONLY where the browser already holds a granted permission — a
+ * decision this person made once, deliberately, on this device — and only
+ * while the question is still unanswered, so it can never overwrite a reading
+ * someone took on purpose.
+ *
+ * The reading shows when it was taken and how good it is. Eight metres and
+ * three hundred metres look identical on a printed page, and only the person
+ * standing there can decide whether to take it again.
  */
 export function GpsControl({ field, value, onChange }: Of<'gps'>) {
   const [state, setState] = useState<'idle' | 'locating' | 'denied' | 'failed'>(
@@ -377,7 +536,7 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
   )
   const gps = value as GpsValue | undefined
 
-  function capture() {
+  const capture = useCallback(() => {
     setState('locating')
     navigator.geolocation.getCurrentPosition(
       (position) => {
@@ -385,6 +544,7 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
           lat: position.coords.latitude,
           lng: position.coords.longitude,
           altitude: position.coords.altitude ?? undefined,
+          accuracy: position.coords.accuracy,
           at: Date.now(),
         })
         setState('idle')
@@ -394,7 +554,28 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
       },
       { enableHighAccuracy: true, timeout: 15_000 },
     )
-  }
+  }, [onChange])
+
+  const answered = gps !== undefined
+  useEffect(() => {
+    if (!field.auto || answered) return
+    if (typeof navigator === 'undefined') return
+    let live = true
+    // Not every browser reports on this permission — Safari did not for years
+    // — and a rejection here is a reason to leave it to the button, never to
+    // ask.
+    void Promise.resolve()
+      .then(() => navigator.permissions.query({ name: 'geolocation' }))
+      .then((status) => {
+        // Anything but an existing grant leaves the button to do its job.
+        // `prompt` in particular must not be turned into a prompt.
+        if (live && status.state === 'granted') capture()
+      })
+      .catch(() => {})
+    return () => {
+      live = false
+    }
+  }, [field.auto, answered, capture])
 
   return (
     <span className="flex flex-col gap-1.5">
@@ -418,9 +599,15 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
       </button>
 
       {gps && (
-        <span className="text-caption tabular-nums text-muted">
-          {gps.lat.toFixed(6)}, {gps.lng.toFixed(6)}
-          {gps.altitude !== undefined && ` · ${gps.altitude.toFixed(1)} m`}
+        <span className="flex flex-col text-caption tabular-nums text-muted">
+          <span>
+            {gps.lat.toFixed(6)}, {gps.lng.toFixed(6)}
+            {gps.altitude !== undefined && ` · ${gps.altitude.toFixed(1)} m`}
+          </span>
+          <span>
+            captured {formatClock(gps.at)}
+            {gps.accuracy !== undefined && ` · ±${Math.round(gps.accuracy)} m`}
+          </span>
         </span>
       )}
 
@@ -442,13 +629,18 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
 export function SignatureControl({ field, value, onChange, ctx }: Of<'signature'>) {
   const signed = value as SignatureValue | undefined
   return (
-    <SignaturePad
+    <SignatureRow
       businessId={ctx.businessId}
       reportId={ctx.reportId}
       slot={field.slot}
       label={field.label}
+      statement={field.statement}
+      askName={field.askName ?? field.role === 'client'}
+      // The technician's own slot is the only one their saved signature may
+      // ever fill. A client's is signed by the client, on this phone, now.
+      ownSignature={field.role === 'technician'}
       signedAt={signed?.signedAt}
-      onSigned={(signedAt) =>
+      onSigned={(signedAt: number | undefined) =>
         onChange(signedAt === undefined ? undefined : { signedAt })
       }
     />

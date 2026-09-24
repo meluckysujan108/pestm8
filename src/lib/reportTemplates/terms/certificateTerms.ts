@@ -79,6 +79,7 @@ export const CERTIFICATE_TERMS: RichDoc = {
       content: [
         {
           type: 'text',
+          // FLAG: `company, are liable` (stray comma) and `the disclosed Building Owner that instructed the Client` — the Certificate has no Building Owner field to disclose one in.
           text: 'Neither the Installer nor the Installation company, are liable for any reliance placed on this Certificate by any third party other than the disclosed Building Owner that instructed the Client.',
         },
       ],
@@ -268,6 +269,7 @@ export const CERTIFICATE_TERMS: RichDoc = {
               content: [
                 {
                   type: 'text',
+                  // FLAG: `manage them on behalf of owners` — `them` has no antecedent; the source means the properties.
                   text: 'A client is a person for whom or an entity for which, the termite management services are undertaken. Clients may either own the property or manage them on behalf of owners.',
                 },
               ],
@@ -414,6 +416,7 @@ export const CERTIFICATE_TERMS: RichDoc = {
               content: [
                 {
                   type: 'text',
+                  // FLAG: `licenced`, kept as the source spells it.
                   text: 'A person licenced to undertake pest management services under relevant legislation and qualified to undertake relevant termite treatments.',
                 },
               ],
@@ -726,6 +729,7 @@ export const CERTIFICATE_TERMS: RichDoc = {
               content: [
                 {
                   type: 'text',
+                  // FLAG: `the buildings sub-floor areas` — missing possessive apostrophe.
                   text: 'Inadequate ventilation of the buildings sub-floor areas and inadequate drainage:',
                   marks: ['bold'],
                 },
@@ -771,6 +775,7 @@ export const CERTIFICATE_TERMS: RichDoc = {
                 },
                 {
                   type: 'text',
+                  // FLAG: `the systems ability` — missing possessive apostrophe.
                   text: ' It is essential that owners follow all written and verbal recommendations. Failure to act on these recommendations may limit the systems ability to achieve successful treatment outcomes.',
                 },
               ],

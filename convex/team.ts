@@ -5,8 +5,15 @@ import { authComponent } from './auth'
 import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
-import { canManageMember, NO_GRANTS, recomputeGrants } from './lib/capabilities'
+import {
+  canManageMember,
+  canSetColour,
+  NO_GRANTS,
+  recomputeGrants,
+} from './lib/capabilities'
 import { factsFromMembership } from './lib/membershipFacts'
+import { NOT_STARTED_STATUSES } from './lib/jobStatus'
+import type { JobStatus } from './lib/jobStatus'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { requireActor, requireCapability, requireWriteActor } from './lib/actor'
@@ -25,7 +32,13 @@ import { requireActor, requireCapability, requireWriteActor } from './lib/actor'
  * Doing any of that separately leaves a business in a worse state than before.
  */
 
-const FUTURE_JOB_STATUSES = new Set(['booked', 'inProgress'])
+// Every visit still to be done: a projected `recurring` visit and a `pending`
+// one are as much this person's upcoming work as a `booked` one — and so is
+// one already `invoiced`, since a visit can be billed before it happens.
+const FUTURE_JOB_STATUSES: ReadonlySet<JobStatus> = new Set<JobStatus>([
+  ...NOT_STARTED_STATUSES,
+  'invoiced',
+])
 
 async function futureJobsOf(
   ctx: QueryCtx | MutationCtx,
@@ -205,6 +218,14 @@ async function offboard(
     for (const row of rows) await ctx.db.delete(row._id)
   }
 
+  // Their chosen views go the same way, for the same reason: a row naming a
+  // membership that has ended should not be waiting if the ids come back.
+  const views = await ctx.db
+    .query('sessionViews')
+    .withIndex('by_real', (q) => q.eq('realMembershipId', target._id))
+    .collect()
+  for (const row of views) await ctx.db.delete(row._id)
+
   // Anyone currently looking through this person's eyes stops doing so.
   const siblings = await ctx.db
     .query('memberships')
@@ -378,6 +399,10 @@ export const roster = query({
             /** Whether this caller may change any of it — an owner may manage
              * anyone but themselves; a contractor, only their own team. */
             canManage: canManageMember(env.actor, facts),
+            /** Whether this caller may set this person's colour — the owner,
+             * for anyone including themselves (`canSetColour`). An added
+             * field, so an older client simply shows no picker. */
+            canSetColour: canSetColour(env.actor, facts),
           }
         }),
     )

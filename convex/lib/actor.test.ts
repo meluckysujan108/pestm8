@@ -10,6 +10,7 @@ import {
   teamOf,
 } from './actor'
 import { DEFAULT_GRANTS, NO_GRANTS, SWITCH_TTL_MS } from './capabilities'
+import { getTemplate } from '../../src/lib/reportTemplates'
 import {
   addSession,
   createActor,
@@ -534,8 +535,9 @@ describe('a contractor is a ceiling on their own team', () => {
 
     const env = await read(f, f.kevin)
     expect(env.caps['prices.see']).toBe(false)
-    expect(env.caps['clients.directory']).toBe(false)
     expect(env.caps['schedules.seeOthers']).toBe(false)
+    // Not a toggle any more, so there is nothing for the ceiling to take.
+    expect(env.caps['clients.directory']).toBe(true)
   })
 
   test('and keeps the ones their contractor still holds', async () => {
@@ -834,32 +836,76 @@ describe('administering the business', () => {
   })
 })
 
-describe('the owner is not on anyone else’s roster', () => {
+describe('everyone is on the roster, the owner included', () => {
   /**
-   * `memberships.listForBusiness` feeds six screens — the schedule filter bar,
-   * the assignee picker, the job detail sheet, both note surfaces and Team
-   * settings — and returned every member's name, email, licence number and
-   * phone to anyone who asked. It is also what a switch-target list would be
-   * built from, so it would have inherited the leak directly.
+   * `memberships.listForBusiness` feeds the schedule filter bar, the assignee
+   * pickers, the job detail sheet and both note surfaces, so every member
+   * reads it. It used to leave the owner out; now the owner works jobs
+   * himself and is on it like anyone else — which is only safe because the
+   * contact details and licence numbers it used to hand out went with it.
    */
-  test('a subcontractor’s roster does not contain them', async () => {
+  async function seedDetails(f: Fixture) {
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.ownerMembershipId, {
+        phone: '0400 111 222',
+        licenceNumber: 'PMT-OWNER',
+      })
+      await ctx.db.patch(f.priyaId, {
+        phone: '0400 333 444',
+        licenceNumber: 'PMT-PRIYA',
+      })
+    })
+  }
+
+  test('a subcontractor sees the owner — by name, role and colour only', async () => {
+    const f = await scenario()
+    await seedDetails(f)
+    const roster = await f.priya.as.query(api.memberships.listForBusiness, {
+      businessId: f.businessId,
+    })
+
+    const owner = roster.find((m) => m._id === f.ownerMembershipId)
+    expect(owner).toMatchObject({ name: 'Terence', role: 'owner' })
+    expect(owner?.email).toBeUndefined()
+    expect(owner?.phone).toBeUndefined()
+    expect(owner?.licenceNumber).toBeUndefined()
+    expect(owner).not.toHaveProperty('userId')
+  })
+
+  test('but their own row still carries their own details', async () => {
+    const f = await scenario()
+    await seedDetails(f)
+    const roster = await f.priya.as.query(api.memberships.listForBusiness, {
+      businessId: f.businessId,
+    })
+    expect(roster.find((m) => m._id === f.priyaId)).toMatchObject({
+      email: 'priya@ex.test',
+      phone: '0400 333 444',
+      licenceNumber: 'PMT-PRIYA',
+    })
+  })
+
+  test('and it leads with them, so an old form defaulting to row 0 books its own holder', async () => {
     const f = await scenario()
     const roster = await f.priya.as.query(api.memberships.listForBusiness, {
       businessId: f.businessId,
     })
-    expect(roster.map((m) => m._id)).not.toContain(f.ownerMembershipId)
-    expect(roster.map((m) => m.role)).not.toContain('owner')
+    expect(roster[0]._id).toBe(f.priyaId)
   })
 
-  test('nor a contractor’s', async () => {
+  test('a contractor manages a team, so sees the details', async () => {
     const f = await scenario()
+    await seedDetails(f)
     const roster = await f.jo.as.query(api.memberships.listForBusiness, {
       businessId: f.businessId,
     })
-    expect(roster.map((m) => m._id)).not.toContain(f.ownerMembershipId)
+    expect(roster.find((m) => m._id === f.ownerMembershipId)).toMatchObject({
+      email: 'terence@coastalpest.test',
+      licenceNumber: 'PMT-OWNER',
+    })
   })
 
-  test('the owner still sees everyone, including themselves', async () => {
+  test('the owner sees everyone, including themselves', async () => {
     const f = await scenario()
     const roster = await f.terence.as.query(api.memberships.listForBusiness, {
       businessId: f.businessId,
@@ -870,19 +916,168 @@ describe('the owner is not on anyone else’s roster', () => {
   })
 
   /**
-   * Hides the person, not the work. Switched into a subcontractor, the owner
-   * is looking through eyes that cannot see them — including at their own
-   * row, which is the point: the disguise has to hold from the inside, or the
-   * first thing anyone does with a borrowed account is check.
+   * Switched, the owner is still on the roster — his own row most of all —
+   * but administration is dropped while working in someone's account, and
+   * other people's details with it.
    */
-  test('and cannot see themselves while working in someone else’s account', async () => {
+  test('working in someone else’s account, the owner is still there but details are not', async () => {
     const f = await scenario()
+    await seedDetails(f)
     await openSwitch(f, f.terence, f.ownerMembershipId, f.kevinId)
 
     const roster = await f.terence.as.query(api.memberships.listForBusiness, {
       businessId: f.businessId,
     })
-    expect(roster.map((m) => m._id)).not.toContain(f.ownerMembershipId)
+    expect(roster.find((m) => m._id === f.ownerMembershipId)).toMatchObject({
+      licenceNumber: 'PMT-OWNER',
+    })
+    expect(roster.find((m) => m._id === f.priyaId)?.phone).toBeUndefined()
+  })
+})
+
+describe('a certificate is finalised by the person it names', () => {
+  /**
+   * Once the owner's licence is on file, naming him as the inspector on a
+   * certificate someone else wrote would print his name and licence over a
+   * signature he never drew. `reports.finalise` now resolves everyone the form
+   * names from the answers being signed — through the same lookup the printed
+   * context
+   * uses — and refuses when that is not the writer.
+   */
+  async function certificate(
+    template:
+      'timberPestInspection' | 'termiteManagementCert' = 'timberPestInspection',
+  ) {
+    const f = await scenario()
+    const reportId = await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.ownerMembershipId, { licenceNumber: 'PMT-OWNER' })
+      await ctx.db.patch(f.kevinId, { licenceNumber: 'PMT-KEVIN' })
+      const clientId = await ctx.db.insert('clients', {
+        businessId: f.businessId,
+        kind: 'person',
+        name: 'J. Nguyen',
+        createdAt: 0,
+        updatedAt: 0,
+      })
+      const propertyId = await ctx.db.insert('properties', {
+        businessId: f.businessId,
+        clientId,
+        addressLine: '12 Wattle Street',
+        suburb: 'Bayswater',
+        state: 'WA',
+        postcode: '6053',
+        createdAt: 0,
+      })
+      return ctx.db.insert('reports', {
+        businessId: f.businessId,
+        propertyId,
+        authorMembershipId: f.kevinId,
+        template,
+        // Current: v1 of the inspection had no inspector field and credits
+        // its writer.
+        templateVersion: getTemplate(template).version,
+        legalBasis: 'AS 4349.3-2010',
+        status: 'draft',
+        data: {},
+        photoIds: [],
+        createdAt: 0,
+      })
+    })
+    return { ...f, reportId }
+  }
+
+  test('naming the owner on your own certificate is refused', async () => {
+    const f = await certificate()
+    await expect(
+      f.kevin.as.mutation(api.reports.finalise, {
+        businessId: f.businessId,
+        reportId: f.reportId,
+        data: { inspectorName: f.ownerMembershipId },
+        templateVersion: getTemplate('timberPestInspection').version,
+      }),
+    ).rejects.toThrow('TECHNICIAN_NOT_SIGNER')
+  })
+
+  /** Two people on one termite certificate, each beside their own licence:
+   * naming yourself as installer does not license naming the owner as the
+   * certifying installer. */
+  test('the second person a certificate names counts too', async () => {
+    const f = await certificate('termiteManagementCert')
+    await expect(
+      f.kevin.as.mutation(api.reports.finalise, {
+        businessId: f.businessId,
+        reportId: f.reportId,
+        data: {
+          installer: f.kevinId,
+          certifyingInstaller: f.ownerMembershipId,
+        },
+        templateVersion: getTemplate('termiteManagementCert').version,
+      }),
+    ).rejects.toThrow('TECHNICIAN_NOT_SIGNER')
+  })
+
+  /**
+   * The draft carries the team for its picker, and with it each member's
+   * licence and phone — the details the roster keeps to managers. A
+   * subcontractor's draft names them, and no more, unless the report already
+   * names them: then they print, and are no secret from its writer.
+   */
+  test('a subcontractor’s draft tells them teammates’ names, not their licences', async () => {
+    const f = await certificate()
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.ownerMembershipId, { phone: '0400 111 222' }),
+    )
+
+    const asKevin = await f.kevin.as.query(api.reports.get, {
+      businessId: f.businessId,
+      reportId: f.reportId,
+    })
+    const members = asKevin?.context.members ?? {}
+    expect(members[f.ownerMembershipId]).not.toHaveProperty('licence')
+    expect(members[f.ownerMembershipId]).not.toHaveProperty('phone')
+    expect(members[f.kevinId]).toMatchObject({ licence: 'PMT-KEVIN' })
+    expect(
+      asKevin?.roster.find((m) => m.id === f.ownerMembershipId)?.name,
+    ).toBe('Terence')
+
+    const asOwner = await f.terence.as.query(api.reports.get, {
+      businessId: f.businessId,
+      reportId: f.reportId,
+    })
+    expect(asOwner?.context.members?.[f.ownerMembershipId]?.licence).toBe(
+      'PMT-OWNER',
+    )
+
+    // Named on the report, the owner's details print — so the writer sees them.
+    await f.t.run((ctx) =>
+      ctx.db.patch(f.reportId, {
+        data: { inspectorName: f.ownerMembershipId },
+      }),
+    )
+    const named = await f.kevin.as.query(api.reports.get, {
+      businessId: f.businessId,
+      reportId: f.reportId,
+    })
+    expect(named?.context.members?.[f.ownerMembershipId]?.licence).toBe(
+      'PMT-OWNER',
+    )
+  })
+
+  /**
+   * Past the signer check, finalising goes on to ask whether the form is
+   * complete — so an empty draft naming its own writer is refused for THAT,
+   * which is the proof it got past this one.
+   */
+  test('naming yourself gets past it, to the next question', async () => {
+    const f = await certificate()
+    await expect(
+      f.kevin.as.mutation(api.reports.finalise, {
+        businessId: f.businessId,
+        reportId: f.reportId,
+        data: { inspectorName: f.kevinId },
+        templateVersion: getTemplate('timberPestInspection').version,
+      }),
+    ).rejects.toThrow('REPORT_INCOMPLETE')
   })
 })
 
@@ -913,6 +1108,7 @@ describe('two people on one draft', () => {
         propertyId,
         authorMembershipId: f.kevinId,
         template: 'serviceReport',
+        templateVersion: 1,
         legalBasis: 'APVMA',
         status: 'draft',
         data: { findings: 'ants under sink' },
@@ -1731,7 +1927,6 @@ describe('a contractor and their team', () => {
       },
     })
     expect(clamped.prices).toBe(false)
-    expect(clamped.clientDirectory).toBe(false)
     expect(clamped.otherSchedules).toBe(true)
   })
 
@@ -1829,8 +2024,15 @@ describe('a contractor and their team', () => {
   })
 })
 
-describe('someone who cannot see the whole client book', () => {
-  /** Two clients: one Priya has a job at, one she has never been near. */
+describe('the client book is open to everyone in the business', () => {
+  /**
+   * The owner's call: one business, one client book. It used to be a
+   * per-person toggle, and a subcontractor without it saw only the clients
+   * they had worked for. The toggle is retired, so every combination of the
+   * grants still stored on a row must now read the same way.
+   *
+   * Two clients: one Priya has a job at, one she has never been near.
+   */
   async function book() {
     const f = await scenario()
     const make = (name: string) =>
@@ -1880,54 +2082,39 @@ describe('someone who cannot see the whole client book', () => {
     return { ...f, mine, theirs, grants }
   }
 
-  test('sees the clients they have worked for, and no others', async () => {
-    const f = await book()
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.priyaId, { grants: f.grants(true, false, false) }),
-    )
+  const EVERY_COMBINATION = [
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ] as const
 
-    const clients = await f.priya.as.query(api.clients.list, {
-      businessId: f.businessId,
-    })
-    expect(clients.map((c) => c.name)).toEqual(['Mine'])
+  test('a subcontractor sees every client, whatever the old toggle is set to', async () => {
+    for (const [directory, others] of EVERY_COMBINATION) {
+      const f = await book()
+      await f.t.run((ctx) =>
+        ctx.db.patch(f.priyaId, { grants: f.grants(false, directory, others) }),
+      )
+
+      const clients = await f.priya.as.query(api.clients.list, {
+        businessId: f.businessId,
+      })
+      expect(clients.map((c) => c.name).sort()).toEqual(['Mine', 'Theirs'])
+
+      const properties = await f.priya.as.query(api.properties.list, {
+        businessId: f.businessId,
+      })
+      expect(properties.map((p) => p.client?.name).sort()).toEqual([
+        'Mine',
+        'Theirs',
+      ])
+    }
   })
 
-  /**
-   * The trap this was built around. `env.scope` is widened by "can see
-   * everyone's schedule", so anyone holding that has RowScope 'business' — and
-   * "the clients behind every job you can see" is the whole book. Built on it,
-   * this toggle would compute, cost reads, and hide nothing from exactly the
-   * people it is aimed at.
-   */
-  test('even when they can see everyone’s schedule', async () => {
+  test('including one they have never worked for, opened directly', async () => {
     const f = await book()
     await f.t.run((ctx) =>
-      ctx.db.patch(f.priyaId, { grants: f.grants(true, false, true) }),
-    )
-
-    const clients = await f.priya.as.query(api.clients.list, {
-      businessId: f.businessId,
-    })
-    expect(clients.map((c) => c.name)).toEqual(['Mine'])
-  })
-
-  test('and the toggle on gives them the book back', async () => {
-    const f = await book()
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.priyaId, { grants: f.grants(true, true, false) }),
-    )
-
-    const clients = await f.priya.as.query(api.clients.list, {
-      businessId: f.businessId,
-    })
-    expect(clients.map((c) => c.name).sort()).toEqual(['Mine', 'Theirs'])
-  })
-
-  /** A client they may not see reads as absent, not as refused. */
-  test('a client they may not see is indistinguishable from one that is gone', async () => {
-    const f = await book()
-    await f.t.run((ctx) =>
-      ctx.db.patch(f.priyaId, { grants: f.grants(true, false, false) }),
+      ctx.db.patch(f.priyaId, { grants: f.grants(false, false, false) }),
     )
 
     expect(
@@ -1935,7 +2122,7 @@ describe('someone who cannot see the whole client book', () => {
         businessId: f.businessId,
         clientId: f.theirs.clientId,
       }),
-    ).toBeNull()
+    ).toMatchObject({ name: 'Theirs' })
     expect(
       await f.priya.as.query(api.clientContacts.list, {
         businessId: f.businessId,
@@ -1944,39 +2131,45 @@ describe('someone who cannot see the whole client book', () => {
     ).toEqual([])
   })
 
-  /**
-   * `properties.list` embeds the whole client document on every row, so an
-   * unscoped one hands back the same directory plus every service address.
-   */
-  test('nor through the property list, which carries clients inside it', async () => {
+  /** Seeing the client is not seeing the work: history still follows the
+   * schedule scope, and prices still follow the prices toggle. */
+  test('but a client’s history is still only the work they may see, without prices they may not', async () => {
     const f = await book()
     await f.t.run((ctx) =>
-      ctx.db.patch(f.priyaId, { grants: f.grants(true, false, false) }),
+      ctx.db.patch(f.priyaId, { grants: f.grants(false, false, false) }),
     )
 
-    const properties = await f.priya.as.query(api.properties.list, {
+    const mine = await f.priya.as.query(api.clients.jobHistory, {
       businessId: f.businessId,
+      clientId: f.mine.clientId,
     })
-    expect(properties.map((p) => p.client?.name)).toEqual(['Mine'])
+    expect(mine).toHaveLength(1)
+    expect(mine[0]).toMatchObject({ price: 0, pricesHidden: true })
+
+    const property = await f.priya.as.query(api.properties.jobHistory, {
+      businessId: f.businessId,
+      propertyId: f.mine.propertyId,
+    })
+    expect(property[0]).toMatchObject({ price: 0, pricesHidden: true })
+
+    expect(
+      await f.priya.as.query(api.clients.jobHistory, {
+        businessId: f.businessId,
+        clientId: f.theirs.clientId,
+      }),
+    ).toEqual([])
   })
 
-  /**
-   * Deliberately still open. Hiding an address does not stop someone booking
-   * there — it stops them finding it, so they type it again and the business
-   * gets a second property record for the same house, with its own job history
-   * and its own reports.
-   */
-  test('but can still find an address to book at', async () => {
+  test('and someone who may see prices sees them there', async () => {
     const f = await book()
     await f.t.run((ctx) =>
       ctx.db.patch(f.priyaId, { grants: f.grants(true, false, false) }),
     )
-
-    const found = await f.priya.as.query(api.properties.search, {
+    const mine = await f.priya.as.query(api.clients.jobHistory, {
       businessId: f.businessId,
-      q: 'Theirs',
+      clientId: f.mine.clientId,
     })
-    expect(found.map((p) => p.addressLine)).toContain('Theirs Street')
+    expect(mine[0]).toMatchObject({ price: 19500, pricesHidden: false })
   })
 })
 
@@ -2109,5 +2302,678 @@ describe('what a new membership is created with', () => {
       ),
     )
     expect(row?.grants).toEqual(DEFAULT_GRANTS.owner)
+  })
+})
+
+/**
+ * The job, recurrence and report mutations resolved the caller with the
+ * legacy `requireMembership`, which never reads a switch. So inside someone
+ * else's account they wrote with the REAL person's reach, recorded nothing
+ * about whose account it was, kept writing after the switch's twelve hours,
+ * and stamped reports with the real person — a report the owner wrote in
+ * Kevin's account was the owner's, and gone from Kevin's.
+ */
+describe('writing inside someone else’s account', () => {
+  async function place(f: Fixture) {
+    return f.t.run(async (ctx) => {
+      const clientId = await ctx.db.insert('clients', {
+        businessId: f.businessId,
+        kind: 'person',
+        name: 'J. Nguyen',
+        createdAt: 0,
+        updatedAt: 0,
+      })
+      return ctx.db.insert('properties', {
+        businessId: f.businessId,
+        clientId,
+        addressLine: '12 Wattle Street',
+        suburb: 'Bayswater',
+        state: 'WA',
+        postcode: '6053',
+        createdAt: 0,
+      })
+    })
+  }
+
+  async function booked() {
+    const f = await scenario()
+    const propertyId = await place(f)
+    const job = (assignedMembershipId: Id<'memberships'>, jobType: string) =>
+      f.t.run((ctx) =>
+        ctx.db.insert('jobs', {
+          businessId: f.businessId,
+          propertyId,
+          assignedMembershipId,
+          jobType,
+          price: 20000,
+          scheduledAt: Date.now() + 86_400_000,
+          durationMinutes: 60,
+          status: 'booked',
+          createdAt: 0,
+        }),
+      )
+    return {
+      ...f,
+      propertyId,
+      kevinJob: await job(f.kevinId, 'Kevin visit'),
+      priyaJob: await job(f.priyaId, 'Priya visit'),
+    }
+  }
+  type Booked = Awaited<ReturnType<typeof booked>>
+
+  const book = (
+    f: Booked,
+    who: TestActor,
+    assignedMembershipId: Id<'memberships'>,
+  ) =>
+    who.as.mutation(api.jobs.create, {
+      businessId: f.businessId,
+      propertyId: f.propertyId,
+      assignedMembershipId,
+      jobType: 'General Pest Control',
+      price: 20000,
+      scheduledAt: Date.now() + 86_400_000,
+      durationMinutes: 60,
+    })
+
+  const series = (
+    f: Booked,
+    who: TestActor,
+    assignedMembershipId: Id<'memberships'>,
+  ) =>
+    who.as.mutation(api.recurrences.create, {
+      businessId: f.businessId,
+      propertyId: f.propertyId,
+      assignedMembershipId,
+      intervalCount: 3,
+      intervalUnit: 'month',
+      jobType: 'General Pest Control',
+      price: 20000,
+      anchorDate: Date.now() + 86_400_000,
+      durationMinutes: 60,
+    })
+
+  const switchInto = (f: Fixture, who: TestActor, to: Id<'memberships'>) =>
+    who.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: to,
+    })
+
+  const history = (f: Fixture, entityType: string, entityId: string) =>
+    f.t.run((ctx) =>
+      ctx.db
+        .query('auditLog')
+        .withIndex('by_entity', (q) =>
+          q.eq('entityType', entityType).eq('entityId', entityId),
+        )
+        .collect(),
+    )
+
+  test('an owner inside a subcontractor’s account books what they could, and no more', async () => {
+    const f = await booked()
+    await switchInto(f, f.terence, f.kevinId)
+
+    const jobId = await book(f, f.terence, f.kevinId)
+    expect(
+      (await f.t.run((ctx) => ctx.db.get(jobId)))?.assignedMembershipId,
+    ).toBe(f.kevinId)
+    await expect(book(f, f.terence, f.priyaId)).rejects.toThrow('NO_ACCESS')
+    await expect(book(f, f.terence, f.ownerMembershipId)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+    // A series is booking too — and the cron would go on booking it.
+    await expect(series(f, f.terence, f.priyaId)).rejects.toThrow('NO_ACCESS')
+
+    // Back in his own account, he dispatches anyone again.
+    await f.terence.as.mutation(api.accountSwitches.stop, {
+      businessId: f.businessId,
+    })
+    await expect(book(f, f.terence, f.priyaId)).resolves.toBeDefined()
+  })
+
+  test('and changes only that account’s work', async () => {
+    const f = await booked()
+    // Kevin may see everyone's schedule — and so may Jo, whose grant is the
+    // ceiling on his — so Priya's job is in front of the owner while he is in
+    // Kevin's account. Seeing it must not be editing it.
+    await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.joId, { grants: DEFAULT_GRANTS.contractor })
+      await ctx.db.patch(f.kevinId, {
+        grants: { ...DEFAULT_GRANTS.contractor, switchInto: null },
+      })
+    })
+    await switchInto(f, f.terence, f.kevinId)
+
+    const seen = await f.terence.as.query(api.jobs.get, {
+      businessId: f.businessId,
+      jobId: f.priyaJob,
+    })
+    expect(seen?.canEdit).toBe(false)
+    await expect(
+      f.terence.as.mutation(api.jobs.update, {
+        businessId: f.businessId,
+        jobId: f.priyaJob,
+        jobType: 'Moved by someone else',
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+    await expect(
+      f.terence.as.mutation(api.jobs.cancel, {
+        businessId: f.businessId,
+        jobId: f.priyaJob,
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+
+    // Kevin's own job he may edit — but not hand to someone Kevin cannot book.
+    await f.terence.as.mutation(api.jobs.update, {
+      businessId: f.businessId,
+      jobId: f.kevinJob,
+      jobType: 'Rescheduled',
+    })
+    await expect(
+      f.terence.as.mutation(api.jobs.update, {
+        businessId: f.businessId,
+        jobId: f.kevinJob,
+        assignedMembershipId: f.priyaId,
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+    expect((await f.t.run((ctx) => ctx.db.get(f.kevinJob)))?.jobType).toBe(
+      'Rescheduled',
+    )
+  })
+
+  test('what he does there is recorded against the account, and nothing when he is himself', async () => {
+    const f = await booked()
+    await switchInto(f, f.terence, f.kevinId)
+
+    const jobId = await book(f, f.terence, f.kevinId)
+    await f.terence.as.mutation(api.jobs.update, {
+      businessId: f.businessId,
+      jobId,
+      durationMinutes: 90,
+    })
+
+    const rows = await history(f, 'jobs', jobId)
+    expect(rows.map((r) => r.action).sort()).toEqual([
+      'job.create',
+      'job.update',
+    ])
+    for (const row of rows) {
+      expect(row.actorMembershipId).toBe(f.ownerMembershipId)
+      expect(row.onBehalfOfMembershipId).toBe(f.kevinId)
+    }
+
+    await f.terence.as.mutation(api.accountSwitches.stop, {
+      businessId: f.businessId,
+    })
+    await f.terence.as.mutation(api.jobs.update, {
+      businessId: f.businessId,
+      jobId,
+      durationMinutes: 120,
+    })
+    expect(await history(f, 'jobs', jobId)).toHaveLength(2)
+  })
+
+  /**
+   * Reads treat a stored switch as live until the sweep deletes it — they read
+   * no clock. Writes read one, and a forgotten switch on a shared phone must
+   * not be able to book, move or fill anything after its twelve hours.
+   */
+  test('a switch past its twelve hours writes nothing', async () => {
+    const f = await booked()
+    await openSwitch(f, f.terence, f.ownerMembershipId, f.kevinId, {
+      expiresAt: Date.now() - 1,
+    })
+    const draft = await f.t.run((ctx) =>
+      ctx.db.insert('reports', {
+        businessId: f.businessId,
+        propertyId: f.propertyId,
+        authorMembershipId: f.kevinId,
+        template: 'serviceReport',
+        templateVersion: 1,
+        legalBasis: 'APVMA',
+        status: 'draft',
+        data: {},
+        photoIds: [],
+        createdAt: 0,
+      }),
+    )
+
+    await expect(book(f, f.terence, f.kevinId)).rejects.toThrow(
+      'SWITCH_EXPIRED',
+    )
+    await expect(series(f, f.terence, f.kevinId)).rejects.toThrow(
+      'SWITCH_EXPIRED',
+    )
+    await expect(
+      f.terence.as.mutation(api.jobs.update, {
+        businessId: f.businessId,
+        jobId: f.kevinJob,
+        jobType: 'Too late',
+      }),
+    ).rejects.toThrow('SWITCH_EXPIRED')
+    await expect(
+      f.terence.as.mutation(api.reports.saveDraft, {
+        businessId: f.businessId,
+        reportId: draft,
+        data: { findings: 'too late' },
+      }),
+    ).rejects.toThrow('SWITCH_EXPIRED')
+  })
+
+  /** The pickers filter by this flag and nothing else, so it has to be the
+   * rule the mutations above enforce — in every account someone can be in. */
+  test('the roster marks exactly who the server will accept', async () => {
+    const f = await booked()
+    const bookable = async (who: TestActor) =>
+      (
+        await who.as.query(api.memberships.listForBusiness, {
+          businessId: f.businessId,
+        })
+      )
+        .filter((m) => m.bookable)
+        .map((m) => m._id)
+        .sort()
+
+    expect(await bookable(f.terence)).toEqual(
+      [f.ownerMembershipId, f.joId, f.kevinId, f.priyaId].sort(),
+    )
+    expect(await bookable(f.jo)).toEqual([f.joId, f.kevinId].sort())
+    expect(await bookable(f.priya)).toEqual([f.priyaId])
+
+    await switchInto(f, f.terence, f.kevinId)
+    expect(await bookable(f.terence)).toEqual([f.kevinId])
+  })
+})
+
+/**
+ * `canDispatchTo` lets a contractor dispatch to their own team; the rule the
+ * mutations used to enforce did not — owner onto anyone, everyone else onto
+ * themselves. Moving the mutations moves this with them.
+ */
+describe('a contractor books their own team', () => {
+  async function jos() {
+    const f = await scenario()
+    const propertyId = await f.t.run(async (ctx) => {
+      const clientId = await ctx.db.insert('clients', {
+        businessId: f.businessId,
+        kind: 'person',
+        name: 'J. Nguyen',
+        createdAt: 0,
+        updatedAt: 0,
+      })
+      return ctx.db.insert('properties', {
+        businessId: f.businessId,
+        clientId,
+        addressLine: '12 Wattle Street',
+        suburb: 'Bayswater',
+        state: 'WA',
+        postcode: '6053',
+        createdAt: 0,
+      })
+    })
+    return { ...f, propertyId }
+  }
+
+  const bookAs = (
+    f: Awaited<ReturnType<typeof jos>>,
+    who: TestActor,
+    assignedMembershipId: Id<'memberships'>,
+  ) =>
+    who.as.mutation(api.jobs.create, {
+      businessId: f.businessId,
+      propertyId: f.propertyId,
+      assignedMembershipId,
+      jobType: 'General Pest Control',
+      price: 20000,
+      scheduledAt: Date.now() + 86_400_000,
+      durationMinutes: 60,
+    })
+
+  test('onto Kevin, who is on it, and not onto Priya, who is not', async () => {
+    const f = await jos()
+    const jobId = await bookAs(f, f.jo, f.kevinId)
+    await expect(bookAs(f, f.jo, f.priyaId)).rejects.toThrow('NO_ACCESS')
+    await expect(bookAs(f, f.jo, f.ownerMembershipId)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+
+    // And moves it around the team — onto herself, and back.
+    await f.jo.as.mutation(api.jobs.update, {
+      businessId: f.businessId,
+      jobId,
+      assignedMembershipId: f.joId,
+    })
+    await f.jo.as.mutation(api.jobs.update, {
+      businessId: f.businessId,
+      jobId,
+      assignedMembershipId: f.kevinId,
+    })
+    await expect(
+      f.jo.as.mutation(api.jobs.update, {
+        businessId: f.businessId,
+        jobId,
+        assignedMembershipId: f.priyaId,
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+  })
+
+  test('and may stop a series she booked for them', async () => {
+    const f = await jos()
+    const recurrenceId = await f.jo.as.mutation(api.recurrences.create, {
+      businessId: f.businessId,
+      propertyId: f.propertyId,
+      assignedMembershipId: f.kevinId,
+      intervalCount: 3,
+      intervalUnit: 'month',
+      jobType: 'General Pest Control',
+      price: 20000,
+      anchorDate: Date.now() + 86_400_000,
+      durationMinutes: 60,
+    })
+    await f.jo.as.mutation(api.recurrences.setActive, {
+      businessId: f.businessId,
+      recurrenceId,
+      active: false,
+    })
+    expect((await f.t.run((ctx) => ctx.db.get(recurrenceId)))?.active).toBe(
+      false,
+    )
+
+    // Priya's series is not Jo's to stop.
+    const priyas = await f.terence.as.mutation(api.recurrences.create, {
+      businessId: f.businessId,
+      propertyId: f.propertyId,
+      assignedMembershipId: f.priyaId,
+      intervalCount: 3,
+      intervalUnit: 'month',
+      jobType: 'General Pest Control',
+      price: 20000,
+      anchorDate: Date.now() + 86_400_000,
+      durationMinutes: 60,
+    })
+    await expect(
+      f.jo.as.mutation(api.recurrences.setActive, {
+        businessId: f.businessId,
+        recurrenceId: priyas,
+        active: false,
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+  })
+})
+
+describe('reports written inside someone else’s account', () => {
+  const SERVICE = getTemplate('serviceReport').version
+
+  async function site() {
+    const f = await scenario()
+    const propertyId = await f.t.run(async (ctx) => {
+      await ctx.db.patch(f.kevinId, { licenceNumber: 'PMT-KEVIN' })
+      const clientId = await ctx.db.insert('clients', {
+        businessId: f.businessId,
+        kind: 'person',
+        name: 'J. Nguyen',
+        createdAt: 0,
+        updatedAt: 0,
+      })
+      return ctx.db.insert('properties', {
+        businessId: f.businessId,
+        clientId,
+        addressLine: '12 Wattle Street',
+        suburb: 'Bayswater',
+        state: 'WA',
+        postcode: '6053',
+        createdAt: 0,
+      })
+    })
+    const draftBy = (
+      authorMembershipId: Id<'memberships'>,
+      template: 'serviceReport' | 'timberPestInspection' = 'serviceReport',
+    ) =>
+      f.t.run((ctx) =>
+        ctx.db.insert('reports', {
+          businessId: f.businessId,
+          propertyId,
+          authorMembershipId,
+          template,
+          templateVersion: getTemplate(template).version,
+          legalBasis: 'APVMA',
+          status: 'draft',
+          data: {},
+          photoIds: [],
+          createdAt: 0,
+        }),
+      )
+    return { ...f, propertyId, draftBy }
+  }
+  type Site = Awaited<ReturnType<typeof site>>
+
+  const switchInto = (f: Site, who: TestActor, to: Id<'memberships'>) =>
+    who.as.mutation(api.accountSwitches.start, {
+      businessId: f.businessId,
+      targetMembershipId: to,
+    })
+
+  const save = (
+    f: Site,
+    who: TestActor,
+    reportId: Id<'reports'>,
+    data: Record<string, unknown>,
+    templateVersion = SERVICE,
+  ) =>
+    who.as.mutation(api.reports.saveDraft, {
+      businessId: f.businessId,
+      reportId,
+      data,
+      templateVersion,
+    })
+
+  const history = (f: Site, reportId: Id<'reports'>) =>
+    f.t.run((ctx) =>
+      ctx.db
+        .query('auditLog')
+        .withIndex('by_entity', (q) =>
+          q.eq('entityType', 'reports').eq('entityId', reportId),
+        )
+        .collect(),
+    )
+
+  test('are the account’s, so it has them and the writer can go on editing', async () => {
+    const f = await site()
+    await switchInto(f, f.terence, f.kevinId)
+
+    const reportId = await f.terence.as.mutation(api.reports.create, {
+      businessId: f.businessId,
+      propertyId: f.propertyId,
+      template: 'serviceReport',
+      legalBasis: 'APVMA',
+      data: {},
+    })
+    expect(
+      (await f.t.run((ctx) => ctx.db.get(reportId)))?.authorMembershipId,
+    ).toBe(f.kevinId)
+
+    // Edits changed together with `create`: without that, this is NO_ACCESS
+    // on the draft he has just made.
+    await save(f, f.terence, reportId, { findings: 'ants under sink' })
+    expect(
+      (
+        await f.terence.as.query(api.reports.get, {
+          businessId: f.businessId,
+          reportId,
+        })
+      )?.canEdit,
+    ).toBe(true)
+
+    // Kevin has it, and can finish it.
+    const asKevin = await f.kevin.as.query(api.reports.get, {
+      businessId: f.businessId,
+      reportId,
+    })
+    expect(asKevin?.canEdit).toBe(true)
+    await save(f, f.kevin, reportId, { findings: 'ants under sink, baited' })
+  })
+
+  test('the owner finishes a draft Kevin started, from inside Kevin’s account', async () => {
+    const f = await site()
+    const kevins = await f.draftBy(f.kevinId)
+    const owners = await f.draftBy(f.ownerMembershipId)
+    await switchInto(f, f.terence, f.kevinId)
+
+    await save(f, f.terence, kevins, { findings: 'finished for Kevin' })
+    // In there, he has Kevin's reach — his own drafts wait until he is back.
+    await expect(
+      save(f, f.terence, owners, { findings: 'not from here' }),
+    ).rejects.toThrow('NO_ACCESS')
+    // And bins only what Kevin could.
+    await expect(
+      f.terence.as.mutation(api.reports.softDelete, {
+        businessId: f.businessId,
+        reportId: owners,
+      }),
+    ).rejects.toThrow('NO_ACCESS')
+  })
+
+  test('and the report’s history says who was in it — once per sitting, not per save', async () => {
+    const f = await site()
+    await switchInto(f, f.terence, f.kevinId)
+    const reportId = await f.terence.as.mutation(api.reports.create, {
+      businessId: f.businessId,
+      propertyId: f.propertyId,
+      template: 'serviceReport',
+      legalBasis: 'APVMA',
+      data: {},
+    })
+    for (const findings of [
+      'ants',
+      'ants under sink',
+      'ants under sink, baited',
+    ]) {
+      await save(f, f.terence, reportId, { findings })
+    }
+
+    const rows = await history(f, reportId)
+    expect(rows.map((r) => r.action).sort()).toEqual([
+      'report.create',
+      'report.edit',
+    ])
+    for (const row of rows) {
+      expect(row.actorMembershipId).toBe(f.ownerMembershipId)
+      expect(row.onBehalfOfMembershipId).toBe(f.kevinId)
+    }
+
+    // Kevin's own saves are his, in his own account: nothing to record.
+    await save(f, f.kevin, reportId, { findings: 'checked' })
+    expect(await history(f, reportId)).toHaveLength(2)
+
+    // And what Kevin is shown names both halves.
+    const shown = await f.kevin.as.query(api.auditLog.forEntity, {
+      businessId: f.businessId,
+      entityType: 'reports',
+      entityId: reportId,
+    })
+    expect(shown.map((e) => [e.actorName, e.onBehalfOfName])).toEqual([
+      ['Terence', 'Kevin'],
+      ['Terence', 'Kevin'],
+    ])
+  })
+
+  /**
+   * `canEditReport` lets the owner edit anyone's draft from his own account,
+   * which is not switched — so the old "not while switched" rule alone would
+   * let him finalise Kevin's certificate over Kevin's licence.
+   */
+  test('the owner, as himself, may fill Kevin’s certificate but not sign it', async () => {
+    const f = await site()
+    const TIMBER = getTemplate('timberPestInspection').version
+    const cert = await f.draftBy(f.kevinId, 'timberPestInspection')
+
+    await save(f, f.terence, cert, { inspectorName: f.kevinId }, TIMBER)
+    expect((await history(f, cert)).map((r) => r.action)).toEqual([
+      'report.edit.byOwner',
+    ])
+
+    await expect(
+      f.terence.as.mutation(api.reports.finalise, {
+        businessId: f.businessId,
+        reportId: cert,
+        data: { inspectorName: f.kevinId },
+        templateVersion: TIMBER,
+      }),
+    ).rejects.toThrow('HOLDER_MUST_FINALISE')
+
+    // Kevin, pressing it himself, gets past that to whether it is finished.
+    await expect(
+      f.kevin.as.mutation(api.reports.finalise, {
+        businessId: f.businessId,
+        reportId: cert,
+        data: { inspectorName: f.kevinId },
+        templateVersion: TIMBER,
+      }),
+    ).rejects.toThrow('REPORT_INCOMPLETE')
+  })
+
+  /**
+   * Whoever may edit a draft may attach a signature to it. On a certificate,
+   * the technician's slot is the one that sits beside the licence, so it has
+   * to be the holder's own hand — the client's acknowledgement is drawn on the
+   * technician's device by whoever is standing there, and is not.
+   */
+  test('a certificate carries its holder’s signature, not a helper’s', async () => {
+    const f = await site()
+    const TIMBER = getTemplate('timberPestInspection').version
+    const cert = await f.draftBy(f.kevinId, 'timberPestInspection')
+    const image = () =>
+      f.t.run((ctx) => ctx.storage.store(new Blob(['signature'])))
+    const sign = async (who: TestActor, slot: 'technician' | 'client') =>
+      who.as.mutation(api.reports.attachSignature, {
+        businessId: f.businessId,
+        reportId: cert,
+        storageId: await image(),
+        slot,
+      })
+    const finalise = () =>
+      f.kevin.as.mutation(api.reports.finalise, {
+        businessId: f.businessId,
+        reportId: cert,
+        data: { inspectorName: f.kevinId },
+        templateVersion: TIMBER,
+      })
+
+    // The owner signs the client's acknowledgement for them: fine.
+    await sign(f.terence, 'client')
+    await expect(finalise()).rejects.toThrow('REPORT_INCOMPLETE')
+
+    // And the inspector's line: not fine, even with Kevin pressing Finalise.
+    await sign(f.terence, 'technician')
+    await expect(finalise()).rejects.toThrow('HOLDER_MUST_SIGN')
+
+    // Kevin signing it again himself is the way through.
+    await sign(f.kevin, 'technician')
+    await expect(finalise()).rejects.toThrow('REPORT_INCOMPLETE')
+  })
+
+  test('binning a draft in someone’s account is on their record too', async () => {
+    const f = await site()
+    const kevins = await f.draftBy(f.kevinId)
+    await switchInto(f, f.terence, f.kevinId)
+
+    await f.terence.as.mutation(api.reports.softDelete, {
+      businessId: f.businessId,
+      reportId: kevins,
+    })
+    await f.terence.as.mutation(api.reports.restore, {
+      businessId: f.businessId,
+      reportId: kevins,
+    })
+
+    const rows = await history(f, kevins)
+    expect(rows.map((r) => r.action).sort()).toEqual([
+      'report.delete',
+      'report.restore',
+    ])
+    for (const row of rows) {
+      expect(row.actorMembershipId).toBe(f.ownerMembershipId)
+      expect(row.onBehalfOfMembershipId).toBe(f.kevinId)
+    }
   })
 })

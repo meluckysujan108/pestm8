@@ -9,7 +9,8 @@ import {
 import { internal } from './_generated/api'
 import { authComponent } from './auth'
 import { getAuthUserId, requireMembership } from './lib/access'
-import { nextColour } from './lib/colours'
+import { isMemberColour, nextColour, normaliseColour } from './lib/colours'
+import { isValidEmail } from './lib/email'
 import {
   INVITE_TTL_MS,
   hashInviteToken,
@@ -94,13 +95,15 @@ export const store = internalMutation({
     const actor = env.actor.real
     assertInvitableRole(args.role)
 
+    // Lower-cased whole, not just the domain as a client's email is: the
+    // invitation is matched to the account that redeems it, and sign-in
+    // addresses are compared case-insensitively.
     const email = args.email.trim().toLowerCase()
-    // A deliberately loose check: the binding is what matters, and rejecting
-    // unusual-but-valid addresses is worse than accepting a typo the owner can
-    // see in the pending list.
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      throw new ConvexError('INVALID_EMAIL')
-    }
+    // The app's one rule for an address (lib/email.ts), which refuses only
+    // what can never be delivered to — "kevin@gmail..com", "kevin@kp.c". Still
+    // loose on purpose: the binding is what matters, and an unusual but real
+    // address must not be turned away.
+    if (!isValidEmail(email)) throw new ConvexError('INVALID_EMAIL')
 
     const members = await ctx.db
       .query('memberships')
@@ -314,13 +317,34 @@ export const redeemByHash = internalMutation({
       if (existing.status === 'active') throw new ConvexError('ALREADY_MEMBER')
       // Rejoining starts from the invitation, not from whatever this person
       // held last time: a former owner re-invited as a subcontractor must come
-      // back as a subcontractor, with no grants carried over.
+      // back as a subcontractor, with no grants carried over. Their colour
+      // comes back too, when it still can: it must be one the palette offers
+      // (not a colour from before Phase 4.2's), and nobody active may have
+      // been dealt it while they were away — two people with one colour are
+      // two jobs nobody can tell apart on the schedule. Otherwise they are
+      // dealt afresh, like anyone joining.
+      const others = (
+        await ctx.db
+          .query('memberships')
+          .withIndex('by_business', (q) =>
+            q.eq('businessId', invitation.businessId),
+          )
+          .collect()
+      ).filter((m) => m._id !== existing._id && m.status !== 'removed')
+      const keptColour = normaliseColour(existing.colour)
+      const colour =
+        keptColour &&
+        isMemberColour(keptColour) &&
+        !others.some((m) => normaliseColour(m.colour) === keptColour)
+          ? keptColour
+          : nextColour(others.map((m) => m.colour))
       await ctx.db.patch(existing._id, {
         status: 'active',
         role: invitation.role,
         canViewAllJobs: false,
         canViewOtherAccounts: false,
         viewingAsMembershipId: undefined,
+        colour,
       })
       membershipId = existing._id
     } else {

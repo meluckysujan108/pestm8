@@ -309,7 +309,7 @@ test('a job can be marked completed, cancelled, and reopened as booked', async (
 
   // An ACTIVE member of this business who simply isn't the assignee cannot
   // change the job's status. This is the row that exercises canEditJob; an
-  // outsider would be turned away by requireMembership long before it.
+  // outsider would be turned away by requireWriteActor long before it.
   await expectRejected(
     () =>
       s.sub.client.mutation(api.jobs.update, {
@@ -364,10 +364,10 @@ test('cancelling a job from the status menu asks for confirmation first, with a 
   ).toBeVisible()
   await expect(confirm.getByText(/Nothing is deleted/)).toBeVisible()
 
-  // Backing out changes nothing.
+  // Backing out changes nothing — the job is still where every new job starts.
   await confirm.getByRole('button', { name: 'Keep job' }).click()
   await expect(confirm).toHaveCount(0)
-  await expect(detail.getByText('Booked')).toBeVisible()
+  await expect(detail.getByText('Pending')).toBeVisible()
 
   // Confirming actually cancels it.
   await detail.getByRole('button', { name: 'Change job status' }).click()

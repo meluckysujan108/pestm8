@@ -184,7 +184,9 @@ const TREATMENT_COLUMNS: Array<CellDef> = [
     // src: service-report-submitted.md:44; PDF p3 column header; options spec.md:28-40
     kind: 'checks',
     key: 'treatment',
+    width: 22,
     label: 'Treatment',
+    summary: true,
     optionsFrom: 'treatments',
     options: asOptions(TREATMENTS),
   },
@@ -192,7 +194,9 @@ const TREATMENT_COLUMNS: Array<CellDef> = [
     // src: service-report-submitted.md:45; PDF p3 column header; options spec.md:43-55
     kind: 'checks',
     key: 'product',
+    width: 30,
     label: 'Product & Active Ingredient',
+    summary: true,
     optionsFrom: 'products',
     options: asOptions(PRODUCTS),
   },
@@ -200,6 +204,7 @@ const TREATMENT_COLUMNS: Array<CellDef> = [
     // src: service-report-submitted.md:46 + spec.md:57 (variant pick over PDF p3 "…used")
     kind: 'checks',
     key: 'quantity',
+    width: 22,
     label: 'Quantity of Chemicals Used',
     optionsFrom: 'quantities',
     options: asOptions(QUANTITIES),
@@ -208,6 +213,7 @@ const TREATMENT_COLUMNS: Array<CellDef> = [
     // src: service-report-submitted.md:47 + spec.md:65 (PDF p3 "Aplication" corrected)
     kind: 'checks',
     key: 'method',
+    width: 26,
     label: 'Chemical Application Method',
     optionsFrom: 'methods',
     options: asOptions(METHODS),
@@ -470,6 +476,10 @@ export const serviceReport: ReportTemplate = {
           key: 'location',
           label: 'GPS Coordinates',
           format: 'lines',
+          // The technician is standing at the property when they open §1, and
+          // this is the one question on the form whose answer the phone knows
+          // better than they do. Only where the permission is already granted.
+          auto: true,
         },
         {
           // src: service-report-submitted.md:25 (rule 3; spec.md:10 "Report Cover Photo" superseded)
@@ -496,6 +506,7 @@ export const serviceReport: ReportTemplate = {
           // Form-only: the PDF never prints it (needs BaseField `printed: false`).
           kind: 'toggle',
           key: 'sendCopy',
+          semantic: 'sendCopyToClient',
           // Form-only (rule 3): drives delivery, never printed.
           printed: false,
           label:
@@ -508,12 +519,14 @@ export const serviceReport: ReportTemplate = {
           kind: 'time',
           key: 'startTime',
           label: 'Start Time:',
+          semantic: 'startTime',
         },
         {
           // src: service-report-printed.pdf:p2 "Finish Time:" (rule 1); spec.md:15 time picker
           kind: 'time',
           key: 'finishTime',
           label: 'Finish Time:',
+          semantic: 'finishTime',
         },
         {
           // src: service-report-printed.pdf:p2 "Weather Details" (red sub-heading);
@@ -528,6 +541,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'checks',
           key: 'weather',
           label: 'Weather on the Day',
+          semantic: 'weather',
           options: asOptions(WEATHER),
         },
       ],
@@ -547,6 +561,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'repeater',
           key: 'treatments',
           label: 'Treatment, Product(s) and Quantities Applied',
+          carryOver: true,
           addLabel: 'Add Row',
           removeLabel: 'Delete Row',
           min: 0,
@@ -568,6 +583,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'checks',
           key: 'risks',
           label: 'Risks that were present on or near the treatment site.',
+          carryOver: true,
           extensible: true,
           optionsFrom: 'risks',
           options: asOptions(RISKS),
@@ -577,6 +593,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'checks',
           key: 'riskActions',
           label: 'Action taken to eliminate any risk was',
+          carryOver: true,
           extensible: true,
           optionsFrom: 'riskActions',
           options: asOptions(RISK_ACTIONS),
@@ -585,6 +602,9 @@ export const serviceReport: ReportTemplate = {
           // src: service-report-submitted.md:66 (rule 3). The PDF prints no such heading.
           kind: 'heading',
           key: 'safetyChecklists',
+          // Six yes/no checks a technician answers the same way on almost
+          // every job. "Is it safe to commence work?" is excluded by rule.
+          quick: 'allYes',
           printed: false,
           label: 'Safety checklists heading',
           text: 'Safety & Compliance Checklists',
@@ -656,6 +676,8 @@ export const serviceReport: ReportTemplate = {
           kind: 'toggle',
           key: 'safeToStart',
           label: 'Is it safe to commence work?',
+          semantic: 'safetyGate',
+          summary: true,
           yes: 'Yes',
           no: 'No',
           required: true,
@@ -678,6 +700,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'checks',
           key: 'housekeeping',
           label: 'House Keeping & Cleaning Recommendations to Help eliminate General Pests',
+          carryOver: true,
           extensible: true,
           optionsFrom: 'housekeeping',
           options: asOptions(HOUSEKEEPING),
@@ -687,6 +710,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'area',
           key: 'limitations',
           label: 'Treatment Limitations',
+          carryOver: true,
         },
         {
           // src: service-report-submitted.md:86 + spec.md:123 (variant pick over PDF p4 "Technicians Comments")
@@ -699,6 +723,8 @@ export const serviceReport: ReportTemplate = {
           kind: 'select',
           key: 'nextVisit',
           label: 'Your Next Pest Control Visit is due in',
+          carryOver: true,
+          summary: true,
           optionsFrom: 'nextVisit',
           blankOption: '-',
           options: asOptions(NEXT_VISIT),
@@ -708,6 +734,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'member',
           key: 'technician',
           label: "Technician's Name",
+          summary: true,
           roleWord: 'Technician',
           defaultTo: 'jobAssignee',
         },
@@ -751,6 +778,7 @@ export const serviceReport: ReportTemplate = {
           kind: 'emails',
           key: 'emailReportTo',
           label: 'Email Report To',
+          semantic: 'emailTo',
           // Form-only (rule 3): a delivery instruction, not document content.
           printed: false,
         },
@@ -785,6 +813,10 @@ export const serviceReport: ReportTemplate = {
   print: {
     // Fidelity rule 8: unanswered fields are omitted from the printed document.
     omitEmpty: true,
+    // The warranty and the conditions are pages of their own on both source
+    // documents, and a page break here stops the last answered row of the
+    // last section from being stranded above them.
+    termsBreak: true,
     // The footer and title band print "{brand} Service Report for {year}"
     // (PDF footer "Pest M8 Service Report for 2026"); the form's own name is the
     // cover title, and the brand and year come from the business and the date.

@@ -56,7 +56,8 @@ export default defineConfig({
       // mobile failure is a layout bug rather than an engine difference — and
       // one browser to install.
       use: { ...devices['iPhone 13'], browserName: 'chromium' },
-      testMatch: /(shell|schedule)\.spec\.ts/,
+      testMatch:
+        /(shell|schedule|job|jobCard|ownerTechnician|viewMenu|navigation|clientDetails)\.spec\.ts/,
     },
   ],
   /**
@@ -69,11 +70,19 @@ export default defineConfig({
    * `--strictPort` is the load-bearing flag. Without it `vite preview` prints
    * "Port 3000 is in use, trying another one", binds 3001, and leaves whatever
    * was already on 3000 to answer the suite. Fail on a taken port instead.
+   *
+   * Skipped entirely when `E2E_BASE_URL` is set. That variable means "the
+   * build is already being served over there". If :3000 happened to be free,
+   * the server block would still run `pnpm build`, which overwrites the
+   * `.output` the other port is serving partway through the run. It would
+   * also take :3000 away from the session that owns it.
    */
-  webServer: {
-    command: 'pnpm build && npx vite preview --port 3000 --strictPort',
-    url: 'http://localhost:3000',
-    reuseExistingServer: !process.env.CI,
-    timeout: 240_000,
-  },
+  webServer: process.env.E2E_BASE_URL
+    ? undefined
+    : {
+        command: 'pnpm build && npx vite preview --port 3000 --strictPort',
+        url: 'http://localhost:3000',
+        reuseExistingServer: !process.env.CI,
+        timeout: 240_000,
+      },
 })

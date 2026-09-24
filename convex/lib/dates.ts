@@ -62,8 +62,35 @@ export function startOfDayInZone(dayKey: string, timezone: string): number {
   return zonedDateTimeToUtc(dayKey, 0, 0, timezone)
 }
 
+/**
+ * The start of the next local day — not start + 24h. A day is 23 or 25 hours
+ * long when the clocks change, and a fixed 24h window then drops the last
+ * hour of a 25-hour Sunday from every day's list (and adds the next day's
+ * first hour to a 23-hour one). No change for Perth, which has no daylight
+ * saving; it matters for every tenant in NSW, VIC, SA, TAS and the ACT.
+ */
 export function endOfDayInZone(dayKey: string, timezone: string): number {
-  return startOfDayInZone(dayKey, timezone) + 24 * 60 * 60 * 1000
+  return startOfDayInZone(addDaysToKey(dayKey, 1), timezone)
+}
+
+const formats = new Map<string, Intl.DateTimeFormat>()
+
+/**
+ * An Intl.DateTimeFormat, built once per locale and options and then reused.
+ * Building one costs tens of microseconds, and a list of a few hundred visits
+ * asks for a day key several times per card on every render.
+ */
+export function dateTimeFormat(
+  locale: string,
+  options: Intl.DateTimeFormatOptions,
+): Intl.DateTimeFormat {
+  const key = `${locale}|${JSON.stringify(options)}`
+  let format = formats.get(key)
+  if (!format) {
+    format = new Intl.DateTimeFormat(locale, options)
+    formats.set(key, format)
+  }
+  return format
 }
 
 function pad(n: number): string {
@@ -72,7 +99,7 @@ function pad(n: number): string {
 
 /** "YYYY-MM-DD" for an instant, as seen in `timezone`. */
 export function dayKeyOf(ts: number, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
+  const parts = dateTimeFormat('en-CA', {
     timeZone: timezone,
     year: 'numeric',
     month: '2-digit',
@@ -85,7 +112,7 @@ export function dayKeyOf(ts: number, timezone: string): string {
 
 /** "HH:MM" (24-hour) for an instant, as seen in `timezone`. */
 export function timeKeyOf(ts: number, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-GB', {
+  const parts = dateTimeFormat('en-GB', {
     timeZone: timezone,
     hour: '2-digit',
     minute: '2-digit',
@@ -97,7 +124,7 @@ export function timeKeyOf(ts: number, timezone: string): string {
 }
 
 function offsetMs(ts: number, timezone: string): number {
-  const parts = new Intl.DateTimeFormat('en-US', {
+  const parts = dateTimeFormat('en-US', {
     timeZone: timezone,
     hour12: false,
     year: 'numeric',

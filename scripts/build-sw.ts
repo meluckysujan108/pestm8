@@ -27,12 +27,37 @@
  * not been read yet. `scripts/check-sw.mjs` then proves, after the build, that
  * the file is actually served.
  */
+import { execSync } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { build } from 'vite'
 import type { Plugin } from 'vite'
 import { injectManifest } from '@serwist/build'
 import type { Nitro, NitroModule } from 'nitro/types'
+
+/**
+ * The build's short commit. The app shows it in Settings so "which version
+ * are you on?" has an answer, and the worker answers a page with it — the
+ * page offers "a new version is ready" only when the two differ
+ * (src/lib/workerVersion.ts). Both therefore read it from here: were the
+ * worker's copy to drift from the app's, every page would be told it was out
+ * of date on every launch. Vercel says which commit it is building; a local
+ * build asks git; anything else is 'dev'.
+ */
+export function appVersion(): string {
+  const vercel = process.env.VERCEL_GIT_COMMIT_SHA
+  if (vercel) return vercel.slice(0, 7)
+  try {
+    const sha = execSync('git rev-parse --short=7 HEAD', {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString()
+      .trim()
+    return sha || 'dev'
+  } catch {
+    return 'dev'
+  }
+}
 
 export async function buildServiceWorker(publicDir: string) {
   const swDest = resolve(publicDir, 'sw.js')
@@ -42,6 +67,7 @@ export async function buildServiceWorker(publicDir: string) {
   await build({
     configFile: false,
     logLevel: 'warn',
+    define: { __APP_VERSION__: JSON.stringify(appVersion()) },
     build: {
       outDir: publicDir,
       emptyOutDir: false,

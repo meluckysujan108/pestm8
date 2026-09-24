@@ -8,6 +8,8 @@ import { api } from '../../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
+import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
+import { FormAlert } from '#/components/forms/FormAlert'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -103,6 +105,7 @@ function BuiltinRow({
   blurb: string
 }) {
   const [sheetOpen, setSheetOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
 
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
@@ -113,13 +116,31 @@ function BuiltinRow({
         </span>
       </div>
       <p className="mt-1 text-body text-muted">{blurb}</p>
-      <button
-        type="button"
-        onClick={() => setSheetOpen(true)}
-        className="mt-3 h-10 w-full rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
-      >
-        Clone &amp; edit
-      </button>
+      <div className="mt-3 flex gap-2">
+        {/* Settings first: it is the answer to almost every reason an owner
+            opens this page, and cloning forks the wording they are required
+            to reproduce. */}
+        <button
+          type="button"
+          onClick={() => setSettingsOpen(true)}
+          className="h-10 flex-1 rounded-xl bg-ink text-[15px] font-semibold text-surface transition active:scale-[.98]"
+        >
+          Settings
+        </button>
+        <button
+          type="button"
+          onClick={() => setSheetOpen(true)}
+          className="h-10 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
+        >
+          Clone &amp; edit
+        </button>
+      </div>
+      <TemplateSettingsSheet
+        open={settingsOpen}
+        onClose={() => setSettingsOpen(false)}
+        businessId={businessId}
+        templateId={templateId}
+      />
       <CloneBuiltinSheet
         businessId={businessId}
         sourceTemplateId={templateId}
@@ -129,6 +150,17 @@ function BuiltinRow({
       />
     </div>
   )
+}
+
+/** Clone and duplicate make something new, so they say "copy", not "save". */
+const COPY_ERROR = {
+  TEMPLATE_RETIRED:
+    'This template has been retired, so it can no longer be copied.',
+  NOT_FOUND:
+    'Could not copy: this template has been deleted since the page opened.',
+  offline:
+    'Could not make the copy: this device is offline. Try again when you have signal.',
+  default: 'Could not make the copy. Check your connection and try again.',
 }
 
 function CloneBuiltinSheet({
@@ -194,6 +226,12 @@ function CloneBuiltinSheet({
                 className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
               />
             </label>
+            {/* A failed clone used to leave the sheet open with nothing said. */}
+            <FormAlert
+              error={clone.isError ? clone.error : null}
+              copy={COPY_ERROR}
+              className="mt-4"
+            />
             <button
               type="submit"
               disabled={clone.isPending || !hydrated}
@@ -383,6 +421,11 @@ function DuplicateSheet({
                 className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
               />
             </label>
+            <FormAlert
+              error={duplicate.isError ? duplicate.error : null}
+              copy={COPY_ERROR}
+              className="mt-4"
+            />
             <button
               type="submit"
               disabled={duplicate.isPending || !hydrated}

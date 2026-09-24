@@ -42,6 +42,16 @@ function themeState(page: Page) {
   })
 }
 
+/**
+ * Waits for hydration, using the signal `src/lib/useHydrated.ts` nominates: a
+ * control that is disabled until React has attached. The Schedule heading is
+ * server-rendered and is visible well before that, so it says nothing about
+ * whether the client is listening yet.
+ */
+async function waitForHydration(page: Page) {
+  await expect(page.getByRole('button', { name: 'Account menu' })).toBeEnabled()
+}
+
 /** Opens the header account menu and returns its Appearance radios. */
 async function openAppearance(page: Page) {
   // The trigger is disabled until hydrated (src/lib/useHydrated.ts), so this
@@ -144,6 +154,11 @@ test('System follows the OS, live, in both directions', async ({ page }) => {
   await page.goto(`/${s.slug}/schedule`)
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
 
+  // Hydration, not the heading: this asserts on the `change` listener in
+  // src/lib/useTheme.ts, and a listener that is not attached yet cannot hear
+  // the flip below. Waiting on the heading alone made this test a coin toss.
+  await waitForHydration(page)
+
   // No reload between these: this is the matchMedia listener in
   // src/lib/useTheme.ts, and nothing else covers it.
   await page.emulateMedia({ colorScheme: 'dark' })
@@ -151,6 +166,38 @@ test('System follows the OS, live, in both directions', async ({ page }) => {
 
   await page.emulateMedia({ colorScheme: 'light' })
   await expect.poll(async () => (await themeState(page)).theme).toBe('light')
+})
+
+/**
+ * The other half of `useSystemThemeSync`, and the bug the test above used to
+ * report as flake: `themeInitScript` resolves the OS while <head> is parsing,
+ * and the listener is only attached once React hydrates. An OS flip inside that
+ * window fires a `change` nobody is listening for, so unless the effect
+ * reconciles on mount the page stays light — not for a moment, but for as long
+ * as it stays open.
+ *
+ * The flip is sent as early as a flip can be sent: the heading is up, which is
+ * server-rendered markup, so hydration has usually not finished. It converges
+ * either way, so this cannot flake — it just stops being a test of the mount
+ * reconcile on the runs that hydrate first.
+ */
+test('System catches up on an OS flip the listener was mounted too late to hear', async ({
+  page,
+}) => {
+  const s = await setup('theme-premount')
+  await signInViaUi(page, s.email)
+  await page.goto(`/${s.slug}/schedule`)
+  await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
+
+  await page.emulateMedia({ colorScheme: 'dark' })
+  await waitForHydration(page)
+
+  await expect.poll(async () => (await themeState(page)).theme).toBe('dark')
+  expect(await themeState(page)).toMatchObject({
+    theme: 'dark',
+    pref: 'system',
+    bodyBg: 'rgb(0, 0, 0)',
+  })
 })
 
 /**

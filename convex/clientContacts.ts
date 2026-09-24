@@ -3,6 +3,72 @@ import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { requireActor } from './lib/actor'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
+import { isNameCorrection, sameName } from './lib/contactNames'
+import { normaliseEmail } from './lib/email'
+import { normalisePhone } from './lib/phone'
+import type { Id } from './_generated/dataModel'
+import type { MutationCtx } from './_generated/server'
+
+/**
+ * Makes `rawName` a business client's contact person (Prompt 6.1) — its
+ * primary contact, the one "who do we deal with here". There is no separate
+ * contact-person field: a second one would drift from the Contacts list, and
+ * the contacts' emails already feed report recipients.
+ *
+ * Never removes anyone from the list. Blank takes the star off whoever has
+ * it. A name already in the list takes the star. A correction of the contact
+ * person's own name (`isNameCorrection`) renames them in place, keeping their
+ * number and role: adding Jan's surname must not leave two Jans, one without
+ * a phone. Any other name is a different person, added with the star, and
+ * whoever had it stays in the list.
+ */
+export async function setContactPerson(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  clientId: Id<'clients'>,
+  rawName: string,
+) {
+  const name = rawName.trim()
+  const contacts = await ctx.db
+    .query('clientContacts')
+    .withIndex('by_client', (q) => q.eq('clientId', clientId))
+    .collect()
+  const primary = contacts.find((c) => c.isPrimary)
+
+  let contactId: Id<'clientContacts'> | null
+  if (name === '') {
+    contactId = null
+  } else if (primary && sameName(primary.name, name)) {
+    if (primary.name !== name) await ctx.db.patch(primary._id, { name })
+    contactId = primary._id
+  } else {
+    const named = contacts.find((c) => sameName(c.name, name))
+    if (named) {
+      contactId = named._id
+    } else if (primary && isNameCorrection(primary.name, name)) {
+      await ctx.db.patch(primary._id, { name })
+      contactId = primary._id
+    } else {
+      contactId = await ctx.db.insert('clientContacts', {
+        businessId,
+        clientId,
+        name,
+        createdAt: Date.now(),
+      })
+    }
+  }
+
+  // Exclusive per client, as `setPrimary` keeps it — and on every path, so a
+  // client whose rows have somehow drifted to two stars comes out with one.
+  await Promise.all(
+    contacts
+      .filter((c) => c.isPrimary && c._id !== contactId)
+      .map((c) => ctx.db.patch(c._id, { isPrimary: false })),
+  )
+  if (contactId !== null && contactId !== primary?._id) {
+    await ctx.db.patch(contactId, { isPrimary: true })
+  }
+}
 
 export const list = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
@@ -40,14 +106,25 @@ export const create = mutation({
       throw new ConvexError('NOT_FOUND')
     }
 
+    // A contact's email is a report recipient the moment it is saved
+    // (lib/recipients.ts), so one that can never be delivered to is refused
+    // here rather than discovered when a compliance report goes nowhere.
+    const email = normaliseEmail(rest.email)
+    const phone = normalisePhone(rest.phone)
     return ctx.db.insert('clientContacts', {
       businessId,
       clientId,
-      ...rest,
+      name: rest.name,
+      ...(rest.role !== undefined && { role: rest.role }),
+      ...(phone !== undefined && { phone }),
+      ...(email !== undefined && { email }),
       createdAt: Date.now(),
     })
   },
 })
+
+/** The contact details a blank string takes off, as `clients.update` does. */
+const CLEARABLE = ['role', 'phone', 'email'] as const
 
 export const update = mutation({
   args: {
@@ -69,14 +146,36 @@ export const update = mutation({
     // Typed explicitly, as in clients.update and properties.update: the
     // optional args really can arrive absent, but `Object.entries` infers them
     // away, which makes a necessary runtime filter read as dead code.
-    const fields = Object.fromEntries(
+    const fields: Record<string, string | undefined> = Object.fromEntries(
       Object.entries<string | undefined>(patch).filter(
         ([, value]) => value !== undefined,
       ),
     )
+    // A blank clears it, written as `undefined` — how a patch removes a
+    // field. Leaving blanks out, as this did, meant a contact's old number or
+    // a role they no longer hold could never be taken off. (Earlier frontends
+    // never send a blank here: they leave the field out.)
+    for (const key of CLEARABLE) {
+      if (fields[key]?.trim() === '') fields[key] = undefined
+    }
+    // Only what this save changes is checked. The edit form sends every
+    // field, and a contact saved before these rules with a number or address
+    // they would now refuse must stay editable — its name, say — without
+    // first having its old details fixed.
+    if (fields.email !== undefined && edited(fields.email, contact.email)) {
+      fields.email = normaliseEmail(fields.email)
+    }
+    if (fields.phone !== undefined && edited(fields.phone, contact.phone)) {
+      fields.phone = normalisePhone(fields.phone)
+    }
     if (Object.keys(fields).length > 0) await ctx.db.patch(contactId, fields)
   },
 })
+
+/** Whether a saved detail is being changed, not just sent back as it was. */
+export function edited(raw: string, stored: string | undefined): boolean {
+  return raw.trim() !== (stored ?? '').trim()
+}
 
 /** Exclusive per client, mirroring `reports.setGalleryCover` exactly. */
 export const setPrimary = mutation({

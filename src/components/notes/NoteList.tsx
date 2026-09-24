@@ -2,28 +2,71 @@ import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { usePaginatedQuery } from 'convex/react'
-import { Briefcase, ListChecks, MapPin, Pin, User } from 'lucide-react'
+import { ListPending } from '#/components/shell/Pending'
+import { NOTES_PAGE, notesFirstPage, rq } from '#/lib/routeQueries'
+import { Briefcase, ListChecks, Lock, MapPin, Pin, User } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { EmptyState } from '#/components/primitives/EmptyState'
+import { useAccess } from '#/lib/access'
 import { editedLabel, noteGroupLabel, noteGroupOf } from '#/lib/noteDates'
 import { LIBRARY_FILTERS } from './NotesRail'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { DecoratedNote } from '../../../convex/notes'
 
-export type LibraryFilter = 'all' | 'mentions' | 'jobs' | 'sites' | 'team' | 'trash'
+export type LibraryFilter =
+  'mine' | 'all' | 'mentions' | 'jobs' | 'sites' | 'team' | 'everyone' | 'trash'
 
 const folderLabel = (filter: LibraryFilter) =>
-  LIBRARY_FILTERS.find((f) => f.value === filter)?.label ?? 'All Notes'
+  LIBRARY_FILTERS.find((f) => f.value === filter)?.label ?? 'My notes'
 
 type Row = DecoratedNote & { unread?: boolean }
 
 const EMPTY: Record<LibraryFilter, { title: string; body: string }> = {
-  all: { title: 'No notes yet', body: 'Gate codes, dogs on site, where the key lives — anything the team should know.' },
-  mentions: { title: 'Nobody has tagged you', body: 'Notes that @mention you land here.' },
-  jobs: { title: 'No job notes', body: 'Attach a note to a job and it shows up on that job too.' },
-  sites: { title: 'No site or client notes', body: 'Standing knowledge about a property or a client.' },
-  team: { title: 'No team notes', body: 'Procedures, mix ratios, supplier numbers.' },
-  trash: { title: 'Recently Deleted is empty', body: 'Deleted notes stay here for 30 days.' },
+  mine: {
+    title: 'No notes of your own yet',
+    // Said to staff with the owner in it (see `emptyFor`).
+    body: 'Press + for a blank page. Nobody else can see your notes.',
+  },
+  all: {
+    title: 'No notes yet',
+    body: 'Your own notes, and what the team shares — gate codes, dogs on site, where the key lives.',
+  },
+  everyone: {
+    title: 'Nobody has written a note of their own yet',
+    body: 'The team’s personal notes land here. Only you can see them, and only to read.',
+  },
+  mentions: {
+    title: 'Nobody has tagged you',
+    body: 'Notes that @mention you land here.',
+  },
+  jobs: {
+    title: 'No job notes',
+    body: 'Notes attached to a job. They also show on the client’s sheet.',
+  },
+  sites: {
+    title: 'No site or client notes',
+    body: 'Standing knowledge about a property or a client.',
+  },
+  team: {
+    title: 'No team notes',
+    body: 'Procedures, mix ratios, supplier numbers.',
+  },
+  trash: {
+    title: 'Recently Deleted is empty',
+    body: 'Deleted notes stay here for 30 days.',
+  },
+}
+
+/** The empty folder's words. My notes tells staff, before they write a thing,
+ * that the owner can read what they put there. */
+function emptyFor(filter: LibraryFilter, isOwner: boolean) {
+  if (filter === 'mine' && !isOwner) {
+    return {
+      title: EMPTY.mine.title,
+      body: 'Press + for a blank page. Only you and the owner can see your notes.',
+    }
+  }
+  return EMPTY[filter]
 }
 
 /**
@@ -48,58 +91,94 @@ export function NoteList({
 }) {
   const searching = query.trim() !== ''
   const paging = !searching && filter !== 'mentions'
+  const isOwner = useAccess().role === 'owner'
 
   const paged = usePaginatedQuery(
     api.notes.list,
     paging ? { businessId, filter } : 'skip',
-    { initialNumItems: 30 },
+    { initialNumItems: NOTES_PAGE },
   )
+
+  /**
+   * The same first page as a plain query, so returning to a folder does not
+   * wait for it again: the paginator's own copy is thrown away on unmount
+   * (see src/lib/routeQueries.ts). Read only until the paginator catches up.
+   */
+  const first = useQuery(
+    paging
+      ? notesFirstPage(businessId, filter)
+      : convexQuery(api.notes.list, 'skip'),
+  )
+  const cold = paging && paged.status === 'LoadingFirstPage'
   // The server drops rows the viewer may not see AFTER paginating, so a
   // page can legitimately come back empty with more behind it. Keep asking
   // rather than showing an empty state that is not true.
   const { status: pageStatus, results: pageResults, loadMore } = paged
   useEffect(() => {
-    if (paging && pageStatus === 'CanLoadMore' && pageResults.length === 0) loadMore(30)
+    if (paging && pageStatus === 'CanLoadMore' && pageResults.length === 0)
+      loadMore(NOTES_PAGE)
   }, [paging, pageStatus, pageResults.length, loadMore])
 
-  const { data: pinned } = useQuery({
-    ...convexQuery(api.notes.listPinned, { businessId }),
-    enabled: filter === 'all' && !searching,
-  })
-  const { data: mentions } = useQuery({
-    ...convexQuery(api.notes.listMentions, { businessId }),
-    enabled: filter === 'mentions' && !searching,
-  })
+  // 'skip' rather than `enabled`, for the reason the search below gives: a
+  // disabled query still holds its Convex subscription and still runs on the
+  // server — listMentions scans the mentions table twice — for a folder
+  // nobody has open.
+  const { data: pinned } = useQuery(
+    filter === 'all' && !searching
+      ? rq.notesPinned(businessId)
+      : convexQuery(api.notes.listPinned, 'skip'),
+  )
+  const { data: mentions } = useQuery(
+    filter === 'mentions' && !searching
+      ? rq.notesMentions(businessId)
+      : convexQuery(api.notes.listMentions, 'skip'),
+  )
   const { data: hits } = useQuery({
-    ...convexQuery(api.notes.search, {
-      businessId,
-      q: query.trim(),
-      filter: filter === 'mentions' ? 'all' : filter,
-    }),
-    enabled: searching,
+    // 'skip', not `enabled`: a disabled query keeps its Convex subscription.
+    ...(searching
+      ? convexQuery(api.notes.search, {
+          businessId,
+          q: query.trim(),
+          filter: filter === 'mentions' ? 'all' : filter,
+        })
+      : convexQuery(api.notes.search, 'skip')),
+    // One live subscription per term typed is not worth keeping.
+    gcTime: 60_000,
   })
+
+  // The cached first page until the paginator has its own, then the
+  // paginator's, which is the one that grows as you scroll.
+  const pageRows: Array<Row> = cold ? (first.data?.page ?? []) : paged.results
 
   const now = Date.now()
   const sections: Array<{ key: string; label: string; rows: Array<Row> }> = []
 
   if (searching) {
     if (hits && hits.length > 0) {
-      sections.push({ key: 'hits', label: `Results in ${folderLabel(filter)}`, rows: hits })
+      sections.push({
+        key: 'hits',
+        label: `Results in ${folderLabel(filter)}`,
+        rows: hits,
+      })
     }
   } else if (filter === 'mentions') {
     const unread = (mentions ?? []).filter((n) => n.unread)
     const read = (mentions ?? []).filter((n) => !n.unread)
-    if (unread.length) sections.push({ key: 'unread', label: 'New', rows: unread })
-    if (read.length) sections.push({ key: 'read', label: 'Earlier', rows: read })
+    if (unread.length)
+      sections.push({ key: 'unread', label: 'New', rows: unread })
+    if (read.length)
+      sections.push({ key: 'read', label: 'Earlier', rows: read })
   } else {
     const pinnedRows: Array<Row> =
-      filter === 'all' ? (pinned ?? []) : paged.results.filter((n) => n.pinnedAt !== undefined)
+      filter === 'all'
+        ? (pinned ?? [])
+        : pageRows.filter((n) => n.pinnedAt !== undefined)
     const pinnedIds = new Set(pinnedRows.map((n) => n._id))
     if (pinnedRows.length && filter !== 'trash') {
       sections.push({ key: 'pinned', label: 'Pinned', rows: pinnedRows })
     }
     const groups = new Map<string, Array<Row>>()
-    for (const note of paged.results) {
+    for (const note of pageRows) {
       if (pinnedIds.has(note._id) && filter !== 'trash') continue
       const key = noteGroupOf(note.deletedAt ?? note.updatedAt, timezone, now)
       groups.set(key, [...(groups.get(key) ?? []), note])
@@ -112,12 +191,20 @@ export function NoteList({
   const loading =
     (searching && hits === undefined) ||
     (filter === 'mentions' && mentions === undefined) ||
-    (paging && paged.status === 'LoadingFirstPage') ||
+    // A page can come back empty with more behind it — the server applies
+    // visibility after paginating — so an empty warmed page that is not
+    // `isDone` is still loading, not an empty folder. Without this the
+    // subcontractor case renders "No notes yet" over a folder that has notes,
+    // server-side included, until the chase below finds a visible row.
+    (cold &&
+      (first.data === undefined ||
+        (first.data.page.length === 0 && !first.data.isDone))) ||
     (paging &&
-      paged.results.length === 0 &&
+      pageRows.length === 0 &&
       (paged.status === 'CanLoadMore' || paged.status === 'LoadingMore'))
 
-  if (loading) return <p className="px-4 py-8 text-center text-caption text-muted">Loading…</p>
+  if (loading)
+    return <ListPending label="Loading notes" count={4} className="px-4 pt-4" />
 
   if (sections.length === 0) {
     return (
@@ -128,7 +215,7 @@ export function NoteList({
             body={`Nothing in ${folderLabel(filter)} mentions “${query.trim()}”.`}
           />
         ) : (
-          <EmptyState title={EMPTY[filter].title} body={EMPTY[filter].body} />
+          <EmptyState {...emptyFor(filter, isOwner)} />
         )}
       </div>
     )
@@ -138,7 +225,9 @@ export function NoteList({
     <div className="pb-6">
       {sections.map((section) => (
         <section key={section.key}>
-          <h3 className="section-label px-4 pb-1.5 pt-4 lg:px-3">{section.label}</h3>
+          <h3 className="section-label px-4 pb-1.5 pt-4 lg:px-3">
+            {section.label}
+          </h3>
           <div className="mx-4 overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation lg:mx-2 lg:rounded-xl lg:border-0 lg:bg-transparent lg:shadow-none">
             {section.rows.map((note) => (
               <NoteRow
@@ -146,6 +235,7 @@ export function NoteList({
                 note={note}
                 timezone={timezone}
                 now={now}
+                showAuthor={filter === 'everyone'}
                 selected={note._id === selectedId}
                 onSelect={() => onSelect(note._id)}
               />
@@ -153,15 +243,17 @@ export function NoteList({
           </div>
         </section>
       ))}
-      {!searching && filter !== 'mentions' && paged.status === 'CanLoadMore' && (
-        <button
-          type="button"
-          onClick={() => paged.loadMore(30)}
-          className="mx-auto mt-4 block rounded-full bg-surface-2 px-4 py-2 text-[13px] font-semibold text-blue"
-        >
-          Show more
-        </button>
-      )}
+      {!searching &&
+        filter !== 'mentions' &&
+        paged.status === 'CanLoadMore' && (
+          <button
+            type="button"
+            onClick={() => paged.loadMore(NOTES_PAGE)}
+            className="mx-auto mt-4 block rounded-full bg-surface-2 px-4 py-2 text-[13px] font-semibold text-blue"
+          >
+            Show more
+          </button>
+        )}
     </div>
   )
 }
@@ -170,12 +262,15 @@ function NoteRow({
   note,
   timezone,
   now,
+  showAuthor,
   selected,
   onSelect,
 }: {
   note: Row
   timezone: string
   now: number
+  /** Everyone's notes: whose note it is is the first thing to know. */
+  showAuthor: boolean
   selected: boolean
   onSelect: () => void
 }) {
@@ -187,7 +282,8 @@ function NoteRow({
         : note.kind === 'client'
           ? note.clientName
           : null
-  const PlaceIcon = note.kind === 'job' ? Briefcase : note.kind === 'client' ? User : MapPin
+  const PlaceIcon =
+    note.kind === 'job' ? Briefcase : note.kind === 'client' ? User : MapPin
 
   return (
     <button
@@ -205,15 +301,44 @@ function NoteRow({
       />
       <span className="min-w-0 flex-1">
         <span className="flex items-center gap-1.5">
-          {note.unread && <span aria-label="Unread" className="size-2 shrink-0 rounded-full bg-blue" />}
-          <span className="truncate text-row-title text-ink">{note.title || 'New note'}</span>
+          {note.unread && (
+            <span
+              aria-label="Unread"
+              className="size-2 shrink-0 rounded-full bg-blue"
+            />
+          )}
+          <span className="truncate text-row-title text-ink">
+            {note.title || 'New note'}
+          </span>
+          {note.private && (
+            <Lock
+              size={12}
+              strokeWidth={2.4}
+              aria-label="Personal"
+              className="shrink-0 text-muted"
+            />
+          )}
           {note.pinnedAt !== undefined && (
-            <Pin size={12} strokeWidth={2.4} className="shrink-0 text-amber-ink" fill="currentColor" />
+            <Pin
+              size={12}
+              strokeWidth={2.4}
+              className="shrink-0 text-amber-ink"
+              fill="currentColor"
+            />
           )}
         </span>
+        {showAuthor && (
+          <span className="mt-0.5 block truncate text-caption font-semibold text-ink-2">
+            {note.authorName || 'A former member'}
+          </span>
+        )}
         <span className="mt-0.5 flex gap-1.5 text-caption">
-          <span className="shrink-0 text-ink-2">{editedLabel(note.updatedAt, timezone, now)}</span>
-          <span className="truncate text-muted">{note.preview || 'No additional text'}</span>
+          <span className="shrink-0 text-ink-2">
+            {editedLabel(note.updatedAt, timezone, now)}
+          </span>
+          <span className="truncate text-muted">
+            {note.preview || 'No additional text'}
+          </span>
         </span>
         {(place || note.checklistTotal) && (
           <span className="mt-1 flex items-center gap-2 text-caption text-muted">

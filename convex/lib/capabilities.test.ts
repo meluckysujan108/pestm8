@@ -4,23 +4,24 @@ import {
   NO_GRANTS,
   ROLE_POLICY,
   beginSwitch,
+  canBookOnto,
+  canChooseView,
   canDispatchTo,
   canEditJob,
   canFinaliseReport,
   canManageMember,
+  canSetColour,
   canSetLicence,
   canSwitchInto,
   capabilitiesOf,
   clampGrants,
   clientScope,
-  displayPerson,
   effectiveCapabilities,
   isInScope,
   isSwitched,
   jobScope,
   licenceStatus,
   mergeDraft,
-  peopleVisibleTo,
   recomputeGrants,
   resolveActorForRead,
   resolveActorForWrite,
@@ -142,6 +143,46 @@ describe('the policy table', () => {
       ),
     ).toBe(false)
     expect(canDispatchTo(actor, contractor())).toBe(false)
+  })
+})
+
+/**
+ * `canBookOnto` is the rule the job mutations enforced before they moved to
+ * `canDispatchTo`. Nothing server-side reads it now; an assignee picker falls
+ * back to it when the backend it meets sends no `bookable` flag, because that
+ * backend still enforces exactly this. So it must go on meaning what it meant.
+ */
+describe('who a booking could go onto, on a backend from before canDispatchTo', () => {
+  test('the owner books anyone, himself included', () => {
+    for (const assignee of [OWNER, CONTRACTOR, KEVIN, PRIYA]) {
+      expect(canBookOnto(owner(), assignee)).toBe(true)
+    }
+  })
+
+  test('anyone else books themselves and nobody else — the owner least of all', () => {
+    // The case the pickers exist for: once the owner is on everyone's roster,
+    // a form that offered him to a subcontractor would be refused on submit.
+    expect(canBookOnto(sub(), KEVIN)).toBe(true)
+    expect(canBookOnto(sub(), OWNER)).toBe(false)
+    expect(canBookOnto(sub(), PRIYA)).toBe(false)
+    expect(canBookOnto(sub(), CONTRACTOR)).toBe(false)
+  })
+
+  test('a contractor was held to owner-or-yourself there, where canDispatchTo gives them their team', () => {
+    const priya = member(PRIYA, 'subcontractor', {
+      parentMembershipId: CONTRACTOR,
+    })
+    expect(canDispatchTo(self(contractor()), priya)).toBe(true)
+    expect(canBookOnto(contractor(), PRIYA)).toBe(false)
+    expect(canBookOnto(contractor(), CONTRACTOR)).toBe(true)
+  })
+})
+
+describe('who chooses a view', () => {
+  test('the owner, and nobody else yet', () => {
+    expect(canChooseView(owner())).toBe(true)
+    expect(canChooseView(contractor())).toBe(false)
+    expect(canChooseView(sub())).toBe(false)
   })
 })
 
@@ -300,12 +341,19 @@ describe('switching never widens what the person may know', () => {
     )
   })
 
-  test('a subcontractor without the client book still cannot see it while switched', () => {
+  test("the client book is one business's: everyone holds it, whatever the old toggle says", () => {
+    // `clientDirectory` is retired, not merely defaulted on: a row that still
+    // stores `false` must not narrow anything.
     const kevin = sub({ grants: grants({ switchInto: CONTRACTOR }) })
-    const actor = switched(kevin, contractor())
-    const caps = effectiveCapabilities(actor, contractor(), null)
-    expect(caps['clients.directory']).toBe(false)
-    expect(clientScope(caps)).toBe('assigned')
+    expect(kevin.grants.clientDirectory).toBe(false)
+    expect(clientScope(capabilitiesOf(kevin, contractor()))).toBe('directory')
+
+    const stingy = member(CONTRACTOR, 'contractor', {
+      grants: grants({ clientDirectory: false }),
+    })
+    const caps = effectiveCapabilities(switched(kevin, stingy), stingy, null)
+    expect(caps['clients.directory']).toBe(true)
+    expect(clientScope(caps)).toBe('directory')
   })
 
   test('admin actions are dropped entirely while switched, in both directions', () => {
@@ -426,18 +474,7 @@ describe('who gets the credit and who gets the blame', () => {
   })
 })
 
-describe('the owner is hidden as a person, not as work', () => {
-  test('the owner is absent from rosters, pickers and mention lists', () => {
-    const people = [owner(), contractor(), sub()]
-    const visible = peopleVisibleTo(self(sub()), people)
-    expect(visible.map((p) => p._id)).toEqual([CONTRACTOR, KEVIN])
-  })
-
-  test('the owner sees themselves', () => {
-    const people = [owner(), contractor()]
-    expect(peopleVisibleTo(self(owner()), people)).toHaveLength(2)
-  })
-
+describe('the owner is a person like anyone else', () => {
   test("the owner's jobs stay in everyone's scope, so nobody double-books them", () => {
     const actor = self(
       member(PRIYA, 'subcontractor', {
@@ -449,24 +486,17 @@ describe('the owner is hidden as a person, not as work', () => {
     expect(isInScope(scope, { assignedMembershipId: OWNER })).toBe(true)
   })
 
-  test('an owner-authored note keeps its content and loses its name, id included', () => {
-    const shown = displayPerson(self(sub()), owner(), {
-      personName: 'Terence',
-      businessName: 'Coastal Pest',
+  test('visible is not enterable: nobody works inside the owner account', () => {
+    const kevin = sub({ grants: grants({ switchInto: CONTRACTOR }) })
+    expect(canSwitchInto(self(kevin), owner())).toEqual({
+      ok: false,
+      reason: 'OWNER_NOT_SWITCHABLE',
     })
-    expect(shown).toEqual({
-      membershipId: null,
-      name: 'Coastal Pest',
-      anonymised: true,
-    })
+    expect(canSwitchInto(self(contractor()), owner()).ok).toBe(false)
   })
 
-  test('a colleague is shown normally', () => {
-    const shown = displayPerson(self(sub()), contractor(), {
-      personName: 'Jo',
-      businessName: 'Coastal Pest',
-    })
-    expect(shown).toMatchObject({ name: 'Jo', anonymised: false })
+  test('nor administrable, even by a contractor who manages a team', () => {
+    expect(canManageMember(self(contractor()), owner())).toBe(false)
   })
 })
 
@@ -496,6 +526,42 @@ describe('finalising a compliance document', () => {
     expect(decision).toEqual({ ok: true })
   })
 
+  /**
+   * The owner may edit anyone's draft from his own account, and that is not
+   * switched — so "not switched" cannot be the whole rule, or he signs Kevin's
+   * certificate over Kevin's licence without Kevin pressing anything.
+   */
+  test('the owner, as himself, cannot sign a certificate that is not his', () => {
+    expect(
+      canFinaliseReport(self(owner()), regulated, { holder: sub() }, 0),
+    ).toEqual({ ok: false, reason: 'HOLDER_MUST_FINALISE' })
+    // Ordinary paperwork he may finish for them.
+    expect(
+      canFinaliseReport(self(owner()), internal, { holder: sub() }, 0),
+    ).toEqual({ ok: true })
+  })
+
+  test('nor may anyone else’s hand sign it for them', () => {
+    // Kevin presses the button, but the technician's signature on the
+    // certificate was captured by the owner.
+    expect(
+      canFinaliseReport(
+        self(sub()),
+        regulated,
+        { holder: sub(), named: [sub()], signedBy: [OWNER] },
+        0,
+      ),
+    ).toEqual({ ok: false, reason: 'HOLDER_MUST_SIGN' })
+    expect(
+      canFinaliseReport(
+        self(sub()),
+        regulated,
+        { holder: sub(), named: [sub()], signedBy: [KEVIN] },
+        0,
+      ),
+    ).toEqual({ ok: true })
+  })
+
   test('an internal report can still be finalised while switched', () => {
     const actor = switched(contractor(), sub())
     expect(canFinaliseReport(actor, internal, { holder: sub() }, 0)).toEqual({
@@ -517,21 +583,54 @@ describe('finalising a compliance document', () => {
     ).toEqual({ ok: false, reason: 'HOLDER_LICENCE_EXPIRED' })
   })
 
-  test('the technician the form names is checked too, not just the account holder', () => {
-    // The document prints whoever the member field chose. A valid holder does
-    // not make an expired technician's licence acceptable.
-    const technician = member(PRIYA, 'subcontractor', {
-      parentMembershipId: CONTRACTOR,
-      licence: { number: 'PMT-9', expiresAt: 500 },
-    })
+  test('a certificate naming someone else cannot be finalised — not even with their licence valid', () => {
+    // Kevin authors, names the owner as technician, and draws the signature.
+    // The owner's licence is current, which is exactly why this has to fail:
+    // it would print the owner's name and licence over Kevin's signature.
+    const decision = canFinaliseReport(
+      self(sub()),
+      regulated,
+      { holder: sub(), named: [owner()] },
+      1_000,
+    )
+    expect(decision).toEqual({ ok: false, reason: 'TECHNICIAN_NOT_SIGNER' })
+  })
+
+  test('every person the certificate names counts, not only the first', () => {
+    // A termite certificate names its installer AND its certifying installer,
+    // each beside their own licence. Naming yourself once and the owner the
+    // second time is still his licence on your signature.
     expect(
       canFinaliseReport(
         self(sub()),
         regulated,
-        { holder: sub(), technician },
+        { holder: sub(), named: [sub(), owner()] },
         1_000,
       ),
-    ).toEqual({ ok: false, reason: 'TECHNICIAN_LICENCE_EXPIRED' })
+    ).toEqual({ ok: false, reason: 'TECHNICIAN_NOT_SIGNER' })
+  })
+
+  test('naming yourself is the way through, for the owner as much as anyone', () => {
+    const ownerReport = { ...regulated, authorMembershipId: OWNER }
+    expect(
+      canFinaliseReport(
+        self(owner()),
+        ownerReport,
+        { holder: owner(), named: [owner()] },
+        1_000,
+      ),
+    ).toEqual({ ok: true })
+  })
+
+  test('an internal report may still name anyone', () => {
+    expect(
+      canFinaliseReport(
+        self(sub()),
+        internal,
+        { holder: sub(), named: [owner()] },
+        1_000,
+      ),
+    ).toEqual({ ok: true })
   })
 
   test('licence status reads a bare number as valid, since expiry is not recorded yet', () => {
@@ -551,6 +650,33 @@ describe('a licence belongs to its holder', () => {
     expect(canSetLicence(self(sub()), sub())).toBe(true)
     expect(canSetLicence(self(owner()), sub())).toBe(true)
     expect(canSetLicence(self(sub()), contractor())).toBe(false)
+  })
+})
+
+describe('a technician’s colour is the owner’s to set', () => {
+  test('the owner sets anyone’s, their own included — which canManageMember refuses', () => {
+    expect(canSetColour(self(owner()), sub())).toBe(true)
+    expect(canSetColour(self(owner()), contractor())).toBe(true)
+    expect(canSetColour(self(owner()), owner())).toBe(true)
+    expect(canManageMember(self(owner()), owner())).toBe(false)
+  })
+
+  test('nobody else sets a colour, not even their own or their own team’s', () => {
+    expect(canSetColour(self(sub()), sub())).toBe(false)
+    expect(canSetColour(self(contractor()), contractor())).toBe(false)
+    expect(canSetColour(self(contractor()), sub())).toBe(false)
+  })
+
+  test('not while working in someone else’s account', () => {
+    expect(canSetColour(switched(owner(), sub()), sub())).toBe(false)
+    expect(canSetColour(switched(owner(), sub()), owner())).toBe(false)
+  })
+
+  test('not for someone who has left, or who is in another business', () => {
+    expect(canSetColour(self(owner()), sub({ status: 'removed' }))).toBe(false)
+    expect(
+      canSetColour(self(owner()), sub({ businessId: OTHER_BUSINESS })),
+    ).toBe(false)
   })
 })
 

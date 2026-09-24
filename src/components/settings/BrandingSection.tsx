@@ -1,15 +1,33 @@
-import { useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { Camera } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { useHydrated } from '#/lib/useHydrated'
+import { prepareUpload } from '#/lib/images/prepareUpload'
+import { EmailInput } from '#/components/forms/EmailInput'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { fieldInputClass } from '#/components/forms/FormField'
+import { PhoneInput } from '#/components/forms/PhoneInput'
+import {
+  SaveWarningsPanel,
+  SaveWarningsProvider,
+  useLatest,
+  useSaveWarnings,
+} from '#/components/forms/SaveWarnings'
+import { VerifiedAddressFields } from '#/components/forms/VerifiedAddressFields'
+import type { AddressValue } from '#/lib/addressVerify'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
  * Printed on the report PDF header/cover — a business-level licence, distinct
  * from a technician's own licence on `memberships` (see `ProfileSection`).
+ *
+ * The address, phone and email here head every report and certificate the
+ * business issues, so they get the same checks as a client's (field
+ * verification). The address has no State field: a business's state is the
+ * one it registered with (Prefs), and the printed address is in it.
  */
 export function BrandingSection({
   businessId,
@@ -18,6 +36,7 @@ export function BrandingSection({
   businessId: Id<'businesses'>
   business: {
     logoUrl?: string | null
+    state: string
     addressLine?: string
     suburb?: string
     postcode?: string
@@ -36,14 +55,23 @@ export function BrandingSection({
   const [logoPreview, setLogoPreview] = useState<string | null>(null)
   const logoUrl = logoPreview ?? business.logoUrl
 
-  const [addressLine, setAddressLine] = useState(business.addressLine ?? '')
-  const [suburb, setSuburb] = useState(business.suburb ?? '')
-  const [postcode, setPostcode] = useState(business.postcode ?? '')
+  // `state` rides along only for the checks; `businesses.update` has no
+  // address state to write.
+  const savedAddress: AddressValue = {
+    addressLine: business.addressLine ?? '',
+    suburb: business.suburb ?? '',
+    state: business.state,
+    postcode: business.postcode ?? '',
+  }
+  const [address, setAddress] = useState<AddressValue>(savedAddress)
   const [phone, setPhone] = useState(business.phone ?? '')
   const [email, setEmail] = useState(business.email ?? '')
   const [licenceNumber, setLicenceNumber] = useState(
     business.licenceNumber ?? '',
   )
+
+  const id = useId()
+  const warnings = useSaveWarnings()
 
   const convexUpdate = useConvexMutation(api.businesses.update)
   const save = useMutation({
@@ -58,6 +86,20 @@ export function BrandingSection({
     }) => convexUpdate(args),
   })
 
+  // Read when the save goes, after any checks at Save have answered, not
+  // when Save was pressed: a number put right while the address was still
+  // being looked up is what the field shows and what "Saved" claims, so it
+  // is what goes.
+  const latestArgs = useLatest(() => ({
+    businessId,
+    addressLine: address.addressLine,
+    suburb: address.suburb,
+    postcode: address.postcode,
+    phone,
+    email,
+    licenceNumber,
+  }))
+
   const getUploadUrl = useConvexMutation(api.businesses.generateUploadUrl)
   const setLogo = useConvexMutation(api.businesses.update)
 
@@ -65,17 +107,14 @@ export function BrandingSection({
     setLogoBusy(true)
     setLogoFailed(false)
     try {
-      const { default: compress } = await import('browser-image-compression')
-      const compressed = await compress(file, {
-        maxSizeMB: 0.5,
-        maxWidthOrHeight: 800,
-        useWebWorker: true,
-      })
+      // A logo prints a few centimetres wide on a letterhead, so it keeps its
+      // own smaller budget rather than a report photo's.
+      const image = await prepareUpload(file, { maxEdge: 800 })
       const uploadUrl = await getUploadUrl({ businessId })
       const res = await fetch(uploadUrl, {
         method: 'POST',
-        headers: { 'Content-Type': compressed.type },
-        body: compressed,
+        headers: { 'Content-Type': image.blob.type },
+        body: image.blob,
       })
       if (!res.ok) throw new Error('upload failed')
       const { storageId } = (await res.json()) as { storageId: string }
@@ -83,7 +122,7 @@ export function BrandingSection({
         businessId,
         logoStorageId: storageId as Id<'_storage'>,
       })
-      setLogoPreview(URL.createObjectURL(compressed))
+      setLogoPreview(URL.createObjectURL(image.blob))
     } catch {
       setLogoFailed(true)
     } finally {
@@ -120,11 +159,7 @@ export function BrandingSection({
             onClick={() => input.current?.click()}
             className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-50"
           >
-            {logoBusy
-              ? 'Uploading…'
-              : logoUrl
-                ? 'Change logo'
-                : 'Add logo'}
+            {logoBusy ? 'Uploading…' : logoUrl ? 'Change logo' : 'Add logo'}
           </button>
           <input
             ref={input}
@@ -148,94 +183,93 @@ export function BrandingSection({
         </p>
       </div>
 
-      <form
-        className="mt-3 flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation"
-        onSubmit={(e) => {
-          e.preventDefault()
-          save.mutate({
-            businessId,
-            addressLine,
-            suburb,
-            postcode,
-            phone,
-            email,
-            licenceNumber,
-          })
-        }}
-      >
-        <Field label="Address">
-          <input
-            value={addressLine}
-            onChange={(e) => setAddressLine(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </Field>
-
-        <span className="flex gap-3">
-          <span className="flex-1">
-            <Field label="Suburb">
-              <input
-                value={suburb}
-                onChange={(e) => setSuburb(e.target.value)}
-                className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-              />
-            </Field>
-          </span>
-          <span className="w-24 shrink-0">
-            <Field label="Postcode">
-              <input
-                value={postcode}
-                onChange={(e) => setPostcode(e.target.value)}
-                inputMode="numeric"
-                className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-              />
-            </Field>
-          </span>
-        </span>
-
-        <Field label="Phone">
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            type="tel"
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </Field>
-
-        <Field label="Email">
-          <input
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            type="email"
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </Field>
-
-        <Field label="Business licence number">
-          <input
-            value={licenceNumber}
-            onChange={(e) => setLicenceNumber(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </Field>
-
-        <button
-          type="submit"
-          disabled={save.isPending || !hydrated}
-          className="h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+      <SaveWarningsProvider value={warnings}>
+        {/* Spaced like the address block's own fields (mt-4 each), so the
+            form reads as one column rather than two spacings. */}
+        <form
+          className="mt-3 rounded-2xl border border-hairline bg-surface px-3.5 pb-3.5 shadow-elevation"
+          onSubmit={(e) =>
+            warnings.guard(e, () => save.mutateAsync(latestArgs.current()))
+          }
         >
-          {save.isPending ? 'Saving…' : save.isSuccess ? 'Saved' : 'Save'}
-        </button>
-      </form>
+          {/* Optional: plenty of businesses print no street address. */}
+          <VerifiedAddressFields
+            idPrefix={`${id}-business`}
+            value={address}
+            onChange={(patch) => setAddress((prev) => ({ ...prev, ...patch }))}
+            workState={business.state}
+            initial={savedAddress}
+            required={false}
+            showState={false}
+          />
+
+          <Field id={`${id}-phone`} label="Phone">
+            <PhoneInput
+              id={`${id}-phone`}
+              value={phone}
+              onChange={setPhone}
+              initial={business.phone ?? ''}
+              businessState={business.state}
+            />
+          </Field>
+
+          <Field id={`${id}-email`} label="Email">
+            <EmailInput
+              id={`${id}-email`}
+              value={email}
+              onChange={setEmail}
+              initial={business.email ?? ''}
+            />
+          </Field>
+
+          <Field id={`${id}-licence`} label="Business licence number">
+            <input
+              id={`${id}-licence`}
+              value={licenceNumber}
+              onChange={(e) => setLicenceNumber(e.target.value)}
+              className={fieldInputClass()}
+            />
+          </Field>
+
+          <FormAlert
+            error={save.isError ? save.error : null}
+            className="mt-4"
+          />
+          <SaveWarningsPanel className="mt-4" />
+
+          <button
+            type="submit"
+            disabled={save.isPending || !hydrated}
+            className="mt-4 h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+          >
+            {save.isPending
+              ? 'Saving…'
+              : warnings.saveLabel(save.isSuccess ? 'Saved' : 'Save')}
+          </button>
+        </form>
+      </SaveWarningsProvider>
     </>
   )
 }
 
-function Field({ label, children }: { label: string; children: ReactNode }) {
+/** A label and its control. The label names the control by `htmlFor` and
+ * holds only its text: the phone and email lines under their inputs (and
+ * their fix buttons) must not become part of the field's name. */
+function Field({
+  id,
+  label,
+  children,
+}: {
+  id: string
+  label: string
+  children: ReactNode
+}) {
   return (
-    <label className="flex flex-col gap-1.5">
-      <span className="section-label">{label}</span>
-      {children}
-    </label>
+    <div className="mt-4 flex flex-col gap-1.5">
+      <label htmlFor={id} className="section-label">
+        {label}
+      </label>
+      <div>{children}</div>
+    </div>
   )
 }

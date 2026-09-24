@@ -1,18 +1,28 @@
 import { useState } from 'react'
-import { createFileRoute, useRouter } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { authClient } from '#/lib/auth-client'
+import { forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
 
 export const Route = createFileRoute('/login')({ component: LoginPage })
 
-type Mode = 'signIn' | 'signUp'
-
+/**
+ * Sign in only. There is deliberately no "create an account" here.
+ *
+ * PestM8 serves one business and is invite-only: accounts are created by
+ * opening an invitation link, which is what `/join/$token` is for — it carries
+ * the token the server requires. This page offered a sign-up toggle that called
+ * `authClient.signUp.email` with no token, so with `AUTH_INVITE_ONLY=on` every
+ * attempt came back "You need an invitation link to create an account." It was
+ * an invitation to fail, sitting on the first screen anyone sees.
+ *
+ * Removing it changes no behaviour — the door it knocked on was already shut,
+ * server-side, in `convex/auth.ts`. If a sign-up path ever belongs on this page
+ * again, it needs a token to send, not just a form.
+ */
 function LoginPage() {
   const hydrated = useHydrated()
 
-  const router = useRouter()
-  const [mode, setMode] = useState<Mode>('signIn')
-  const [name, setName] = useState('')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -23,43 +33,41 @@ function LoginPage() {
     setError(null)
     setPending(true)
 
-    const result =
-      mode === 'signUp'
-        ? await authClient.signUp.email({ name, email, password })
-        : await authClient.signIn.email({ email, password })
-
-    setPending(false)
+    const result = await authClient.signIn.email({ email, password }).catch(
+      // A dropped connection rejects rather than answering, and without this
+      // the button sits on "Just a moment…" for good.
+      () => ({ error: { message: 'Could not reach PestM8. Try again.' } }),
+    )
 
     if (result.error) {
+      setPending(false)
       setError(result.error.message ?? 'Something went wrong.')
       return
     }
 
-    await router.invalidate()
-    await router.navigate({ to: '/' })
+    // A full load, not a client navigation. This page can be opened over
+    // someone else's live session — a shared tablet — and the Convex client
+    // keeps the token it was handed for that page load until a refresh swaps
+    // it, so the next person's first queries would run as the last one's and
+    // put their business in the shell. A document load starts the client, the
+    // query cache and the cached sign-in (src/lib/rootState.ts) over for
+    // whoever holds the cookie now. `replace`, so Back does not return to a
+    // form they have already used. The button stays pending until it lands.
+    await forgetCachedPages()
+    window.location.replace('/')
   }
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-[460px] flex-col justify-center px-6">
       <div className="mb-8">
         <p className="section-label mb-2">PestM8</p>
-        <h1 className="text-page-title text-ink">
-          {mode === 'signIn' ? 'Sign in' : 'Create your account'}
-        </h1>
+        <h1 className="text-page-title text-ink">Sign in</h1>
         <p className="mt-2 text-body text-muted">
           Scheduling and compliance reporting for Australian pest control.
         </p>
       </div>
 
       <form onSubmit={onSubmit} className="flex flex-col gap-3">
-        {mode === 'signUp' && (
-          <Field
-            label="Full name"
-            value={name}
-            onChange={setName}
-            autoComplete="name"
-          />
-        )}
         <Field
           label="Email"
           type="email"
@@ -72,7 +80,7 @@ function LoginPage() {
           type="password"
           value={password}
           onChange={setPassword}
-          autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
+          autoComplete="current-password"
         />
 
         {error && (
@@ -89,26 +97,9 @@ function LoginPage() {
           disabled={pending || !hydrated}
           className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
         >
-          {pending
-            ? 'Just a moment…'
-            : mode === 'signIn'
-              ? 'Sign in'
-              : 'Create account'}
+          {pending ? 'Just a moment…' : 'Sign in'}
         </button>
       </form>
-
-      <button
-        type="button"
-        onClick={() => {
-          setMode(mode === 'signIn' ? 'signUp' : 'signIn')
-          setError(null)
-        }}
-        className="mt-5 text-body text-blue"
-      >
-        {mode === 'signIn'
-          ? 'No account yet? Create one'
-          : 'Already have an account? Sign in'}
-      </button>
     </main>
   )
 }

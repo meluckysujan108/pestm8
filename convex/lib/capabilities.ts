@@ -23,11 +23,17 @@ import type { Doc, Id } from '../_generated/dataModel'
 export type Role = 'owner' | 'contractor' | 'subcontractor'
 export type MemberStatus = 'active' | 'invited' | 'removed'
 
-/** The four per-person toggles, in the owner's words:
+/** The per-person toggles, in the owner's words:
  *  - `switchInto`      "can work in my account"
- *  - `clientDirectory` "can see all clients"
  *  - `prices`          "can see job prices"
- *  - `otherSchedules`  "can see everyone's schedule" (read-only) */
+ *  - `otherSchedules`  "can see everyone's schedule" (read-only)
+ *
+ * `clientDirectory` ("can see all clients") is retired and INERT: the owner
+ * decided the client book is one business's, open to everyone in it, so the
+ * policy table says `'always'` and never consults it. It stays in the type and
+ * the stored rows until the access-v3 CONTRACT step drops it with the other
+ * legacy columns — removing it first would fail schema validation on every
+ * membership that already carries it. */
 export type GrantKey =
   'switchInto' | 'clientDirectory' | 'prices' | 'otherSchedules'
 
@@ -68,14 +74,6 @@ export type MembershipFacts = {
   parentMembershipId: Id<'memberships'> | null
   grants: Grants
   licence: Licence | null
-}
-
-/** What a roster is allowed to say about someone else. Deliberately not
- * `MembershipFacts`: grants, licence and status are management information,
- * and the roster query is read by every member. */
-export type PersonCard = {
-  _id: Id<'memberships'>
-  role: Role
 }
 
 // ──────────────────────────────────────────────────────── acting as someone
@@ -265,7 +263,7 @@ export const ROLE_POLICY = {
     'clients.manage': 'always',
     'jobs.dispatch': 'always', // own team only — canDispatchTo
     'prices.see': { byGrant: 'prices' },
-    'clients.directory': { byGrant: 'clientDirectory' },
+    'clients.directory': 'always', // one business, one client book
     'schedules.seeOthers': { byGrant: 'otherSchedules' },
     'accounts.switch': 'always', // downward, into their own team
   },
@@ -276,7 +274,7 @@ export const ROLE_POLICY = {
     'clients.manage': 'never',
     'jobs.dispatch': 'always', // onto themselves only — canDispatchTo
     'prices.see': { byGrant: 'prices' },
-    'clients.directory': { byGrant: 'clientDirectory' },
+    'clients.directory': 'always', // one business, one client book
     'schedules.seeOthers': { byGrant: 'otherSchedules' },
     'accounts.switch': { byGrant: 'switchInto' }, // upward, one contractor
   },
@@ -335,14 +333,11 @@ export function capabilitiesOf(
   return out
 }
 
-/** The three data toggles a contractor may pass down. Admin capabilities are
- * role-inherent and not subject to the parent's grants. */
+/** The data toggles a contractor may pass down. Admin capabilities are
+ * role-inherent and not subject to the parent's grants, and the client book is
+ * no longer a toggle at all (see `Grants`). */
 function isCeilinged(capability: Capability): boolean {
-  return (
-    capability === 'prices.see' ||
-    capability === 'clients.directory' ||
-    capability === 'schedules.seeOthers'
-  )
+  return capability === 'prices.see' || capability === 'schedules.seeOthers'
 }
 
 /**
@@ -397,10 +392,9 @@ export function can(caps: CapabilitySet, capability: Capability): boolean {
  * exactly the things that would leak sideways out of the account: prices, the
  * client book, other people's schedules.
  *
- * The owner is not excluded from anyone's scope. Hiding the owner's JOBS would
- * leave their van invisible on a shared calendar and drop their work out of
- * every revenue total; the owner is hidden as a PERSON instead — see
- * `displayPerson` and `peopleVisibleTo`.
+ * The owner is not excluded from anyone's scope: his jobs sit on the shared
+ * calendar like anyone else's, or the rest of the team double-books the van he
+ * is driving and his work drops out of every revenue total.
  */
 export type RowScope =
   | { kind: 'business' }
@@ -451,6 +445,28 @@ export function reportScope(
   return scope.membershipIds.includes(report.authorMembershipId)
 }
 
+/**
+ * `reportScope`, plus every report this person wrote themselves.
+ *
+ * The two differ only while someone is looking through another account. The
+ * report mutations used to attribute to the REAL person, so a report the owner
+ * started while working in Kevin's account was authored by the owner — and
+ * Kevin's scope, the one being looked through, did not contain it: it
+ * disappeared the moment it was created. They attribute to the account now
+ * (`writeAttribution`), but the rows written before that still exist, and
+ * nobody needs a grant to read what they wrote.
+ *
+ * `readerId` is the real person's membership, never the account being worked
+ * in; asked of that, this would widen nothing.
+ */
+export function reportReadable(
+  scope: RowScope,
+  readerId: Id<'memberships'>,
+  report: { authorMembershipId: Id<'memberships'> },
+): boolean {
+  return reportScope(scope, report) || report.authorMembershipId === readerId
+}
+
 export function isInScope(
   scope: RowScope,
   row: { assignedMembershipId: Id<'memberships'> },
@@ -488,8 +504,16 @@ export function canEditJob(
   )
 }
 
-/** Who this actor may put work onto. A subcontractor may book their own next
- * visit, and nobody else's. */
+/**
+ * Who this actor may put work onto — the rule `jobs.create`, `jobs.update` and
+ * `recurrences.create` enforce, and the one the roster's `bookable` flag (and
+ * so every assignee picker) is computed from.
+ *
+ * Decided on the ACTING account. An owner working inside a subcontractor's
+ * account books what that subcontractor could book — their own calendar —
+ * and switches back to dispatch anyone else. A subcontractor may book their
+ * own next visit, and nobody else's; a contractor, their own team.
+ */
 export function canDispatchTo(
   actor: ReadActor,
   assignee: MembershipFacts,
@@ -502,6 +526,25 @@ export function canDispatchTo(
   return (
     acting.role === 'contractor' && assignee.parentMembershipId === acting._id
   )
+}
+
+/**
+ * Who a person could put work onto BEFORE the job mutations moved to
+ * `canDispatchTo` — owner onto anyone, everyone else onto themselves, decided
+ * on the REAL person because the old resolver never read a switch.
+ *
+ * No mutation enforces this any more. It is kept for one reader: an assignee
+ * picker built after the move, meeting a backend from before it (the two
+ * deploy separately — CLAUDE.md). That backend sends no `bookable` flag on the
+ * roster and still enforces this rule, so this is what the picker falls back
+ * to; offering anything wider would offer options that backend refuses on
+ * submit. Delete it once no deployment serves the older job mutations.
+ */
+export function canBookOnto(
+  booker: Pick<MembershipFacts, '_id' | 'role'>,
+  assigneeId: Id<'memberships'>,
+): boolean {
+  return booker.role === 'owner' || assigneeId === booker._id
 }
 
 // ──────────────────────────────────────────────────────────── team authority
@@ -582,8 +625,8 @@ export function clampGrants(
  * `owner` is absent for a different and permanent reason. There is exactly one
  * owner account, it is the key to the business, and it is not handed out from
  * inside the app. The invite paths already refuse it; `setRole` did not, so an
- * owner could promote someone into a second, equally invisible owner — which
- * the model has no way to represent.
+ * owner could promote someone into a second owner — which the model has no way
+ * to represent.
  */
 export const ASSIGNABLE_ROLES = [
   'subcontractor',
@@ -785,32 +828,22 @@ export function writeAttribution(actor: WriteActor): WriteAttribution {
       }
 }
 
-// ───────────────────────────────────────────────────── people & invisibility
+// ─────────────────────────────────────────────────────────────────── people
 
-/**
- * Owner invisibility hides the PERSON, never the RECORD, and never the WORK.
+/*
+ * Everyone in the business is visible to everyone in it, the owner included.
  *
- * The owner does not appear in team lists, assignee pickers, @mention lists,
- * switch menus or activity trails. But their jobs stay on the shared calendar
- * (otherwise everyone else double-books the van the owner is driving) and in
- * revenue totals, and the compliance documents they signed stay readable — see
- * `displayPerson`, which renders them as the business rather than removing
- * them.
+ * The owner used to be hidden as a person — off rosters, pickers and mention
+ * lists, and named as the business on his own jobs. That suited an owner who
+ * only administered, and stopped suiting one who works jobs himself: his own
+ * subcontractor could not see whose van was booked, and a visit he did read as
+ * done by the business. So seeing a PERSON is no longer an access question.
+ *
+ * What someone may learn ABOUT a person still is. Contact details and licence
+ * numbers go only to people who manage the team (`memberships.listForBusiness`),
+ * and the owner remains the one account nobody may work inside or administer
+ * (`switchDecision`, `canManageMember`).
  */
-export function isVisiblePerson(
-  actor: ReadActor,
-  person: MembershipFacts | PersonCard,
-): boolean {
-  if (actor.acting.role === 'owner') return true
-  return person.role !== 'owner'
-}
-
-export function peopleVisibleTo<T extends MembershipFacts | PersonCard>(
-  actor: ReadActor,
-  people: ReadonlyArray<T>,
-): ReadonlyArray<T> {
-  return people.filter((person) => isVisiblePerson(actor, person))
-}
 
 export function peopleAssignableBy(
   actor: ReadActor,
@@ -819,57 +852,39 @@ export function peopleAssignableBy(
   return people.filter((person) => canDispatchTo(actor, person))
 }
 
-export function peopleMentionableBy<T extends MembershipFacts | PersonCard>(
-  actor: ReadActor,
-  people: ReadonlyArray<T>,
-): ReadonlyArray<T> {
-  return peopleVisibleTo(actor, people)
-}
-
-/**
- * How to name someone on a record others can see.
- *
- * An owner-authored site note keeps its gate code visible to the tech standing
- * at the gate; it is simply signed by the business. The membership id is
- * withheld as well, because an id that resolves to nobody on the roster is a
- * reliable way to pick the owner out.
- *
- * REGULATED DOCUMENTS ARE EXEMPT. A certificate names the licensed person who
- * signed it, always — see `technicianDisplay`. Substituting the business name
- * there would produce an invalid document, which is the opposite of protecting
- * anyone.
- */
-export function displayPerson(
-  actor: ReadActor,
-  person: Pick<MembershipFacts, '_id' | 'role'>,
-  names: { personName: string; businessName: string },
-): {
-  membershipId: Id<'memberships'> | null
-  name: string
-  anonymised: boolean
-} {
-  if (isVisiblePerson(actor, person)) {
-    return {
-      membershipId: person._id,
-      name: names.personName,
-      anonymised: false,
-    }
-  }
-  return { membershipId: null, name: names.businessName, anonymised: true }
-}
-
-/** The name a compliance document prints. Never anonymised, for anyone. */
-export function technicianDisplay(names: { personName: string }): string {
-  return names.personName
-}
-
-/** The owner is always selectable as the technician on a report: in a business
- * this size they are usually the principal licence holder. */
+/** Anyone active may be named as the technician while a report is drafted —
+ * including the owner. Naming someone else only matters at finalise, where a
+ * regulated certificate must be finalised by the person it names
+ * (`canFinaliseReport`). */
 export function isSelectableAsTechnician(person: MembershipFacts): boolean {
   return person.status === 'active'
 }
 
-// ───────────────────────────────────────────────────────────────── licences
+// ──────────────────────────────────────────────────────────────────── views
+
+/**
+ * What someone has chosen to look at: the whole of what they may see, or just
+ * the work assigned to them.
+ *
+ * A LENS, not a permission. "Just my jobs" narrows the lists a person looks
+ * through — the schedule, the dashboard, analytics, the reports list — and
+ * nothing else: not the history on a client or a job they open, and never
+ * what they may do. An owner in his own view can still open any job and
+ * administer the business; he has only asked not to be shown everyone else's
+ * day.
+ */
+export type ViewMode = 'everyone' | 'mine'
+
+/**
+ * Who gets the choice. The owner only, for now: he works jobs himself and has
+ * the whole business in view by default. This is the one place to widen it —
+ * a contractor would want "my team" and "me" in the same way.
+ */
+export function canChooseView(real: MembershipFacts): boolean {
+  return real.role === 'owner'
+}
+
+// ───────────────────────────────────────────────────────────────── licences// ───────────────────────────────────────────────────────────────── licences
 
 export type LicenceStatus = 'valid' | 'missing' | 'expired'
 
@@ -896,6 +911,25 @@ export function canSetLicence(
   if (isSwitched(actor)) return false
   if (target._id === actor.real._id) return true
   return canManageMember(actor, target)
+}
+
+/**
+ * A technician's colour is the business's scheduling convention — whose work
+ * is whose, across every calendar the team shares — so the owner sets it, for
+ * anyone including themselves. `canManageMember` is the wrong question here:
+ * it refuses the owner's own row, and the owner's colour is the first one a
+ * new business has to be able to change. Nobody else sets colours, and not
+ * while switched: an owner working in Kevin's account is Kevin for the
+ * moment, and Kevin does not choose the team's colours.
+ */
+export function canSetColour(
+  actor: ReadActor,
+  target: MembershipFacts,
+): boolean {
+  if (isSwitched(actor)) return false
+  if (actor.real.businessId !== target.businessId) return false
+  if (target.status === 'removed') return false
+  return actor.real.role === 'owner'
 }
 
 /** Name and phone always edit the real person: someone working in a colleague's
@@ -959,6 +993,19 @@ export type ReportFacts = {
   regulated: boolean
 }
 
+/**
+ * Who may change a draft: the account it was written in, or the owner.
+ *
+ * Decided on the ACTING account, like everything a switch is for: an owner
+ * inside Kevin's account edits Kevin's drafts, and a report he starts there is
+ * Kevin's (`writeAttribution`), so he can go on editing it. The owner escape
+ * applies only to an owner working as himself — the owner is never a switch
+ * target, so `acting.role === 'owner'` cannot be reached through someone
+ * else's account.
+ *
+ * Editing is not signing. `canFinaliseReport` holds a regulated document for
+ * the person whose licence it prints, whoever may fill it in.
+ */
 export function canEditReport(actor: ReadActor, report: ReportFacts): boolean {
   if (report.status !== 'draft') return false
   if (report.businessId !== actor.acting.businessId) return false
@@ -969,10 +1016,11 @@ export function canEditReport(actor: ReadActor, report: ReportFacts): boolean {
 export type FinaliseRefusal =
   | 'NOT_EDITABLE'
   | 'SWITCHED_REGULATED'
+  | 'HOLDER_MUST_FINALISE'
+  | 'HOLDER_MUST_SIGN'
   | 'HOLDER_LICENCE_MISSING'
   | 'HOLDER_LICENCE_EXPIRED'
-  | 'TECHNICIAN_LICENCE_MISSING'
-  | 'TECHNICIAN_LICENCE_EXPIRED'
+  | 'TECHNICIAN_NOT_SIGNER'
 
 export type FinaliseDecision =
   { ok: true } | { ok: false; reason: FinaliseRefusal }
@@ -986,14 +1034,38 @@ export type FinaliseDecision =
  * holder attested to work another person did, under that holder's licence
  * number. That is what licence-lending looks like to an insurer.
  *
- * Every licensed identity the document will print is checked, not just the
- * account holder: the form's technician field can name somebody else, and that
- * is the name and licence the PDF carries.
+ * The same holds for everyone the form NAMES — the inspector, the installer,
+ * the certifying installer — each of whom the PDF prints beside their own
+ * licence. It used to be allowed to name anyone, provided their licence was
+ * current — so once the owner's licence was on file, anyone could finalise a
+ * certificate in his name over a signature they drew themselves. Now a
+ * regulated certificate is finalised by the person it names: name yourself,
+ * or leave it to them to write. Their licence is then the holder's, which the
+ * checks below already cover.
+ *
+ * And the holder is the person at the keyboard. `canEditReport` lets the owner
+ * edit anyone's draft from his own account, which is not switched — so "not
+ * switched" alone would let him finalise Kevin's certificate over Kevin's
+ * licence without Kevin ever pressing the button. It used to be implied by the
+ * edit gate being author-only; now it is said.
+ *
+ * And the signature above that licence is theirs. Whoever may edit a draft may
+ * attach a signature to it, so without this a helper — or the owner — draws
+ * in the technician's slot, the holder presses Finalise, and the certificate
+ * carries a hand that is not the one its licence belongs to.
  */
 export function canFinaliseReport(
   actor: ReadActor,
   report: ReportFacts,
-  people: { holder: MembershipFacts; technician?: MembershipFacts | null },
+  people: {
+    holder: MembershipFacts
+    /** Everyone the form's member fields name (`namedMembers`). */
+    named?: ReadonlyArray<MembershipFacts>
+    /** Who captured each technician signature the draft holds. Rows from
+     * before signatures recorded it are left out: they could only ever have
+     * been attached by the author. */
+    signedBy?: ReadonlyArray<Id<'memberships'>>
+  },
   now: number,
 ): FinaliseDecision {
   if (!canEditReport(actor, report))
@@ -1003,21 +1075,23 @@ export function canFinaliseReport(
   }
   if (!report.regulated) return { ok: true }
 
+  if (actor.real._id !== people.holder._id) {
+    return { ok: false, reason: 'HOLDER_MUST_FINALISE' }
+  }
+
+  if ((people.named ?? []).some((person) => person._id !== people.holder._id)) {
+    return { ok: false, reason: 'TECHNICIAN_NOT_SIGNER' }
+  }
+
+  if ((people.signedBy ?? []).some((id) => id !== people.holder._id)) {
+    return { ok: false, reason: 'HOLDER_MUST_SIGN' }
+  }
+
   const holder = licenceStatus(people.holder.licence, now)
   if (holder === 'missing')
     return { ok: false, reason: 'HOLDER_LICENCE_MISSING' }
   if (holder === 'expired')
     return { ok: false, reason: 'HOLDER_LICENCE_EXPIRED' }
-
-  if (people.technician && people.technician._id !== people.holder._id) {
-    const tech = licenceStatus(people.technician.licence, now)
-    if (tech === 'missing') {
-      return { ok: false, reason: 'TECHNICIAN_LICENCE_MISSING' }
-    }
-    if (tech === 'expired') {
-      return { ok: false, reason: 'TECHNICIAN_LICENCE_EXPIRED' }
-    }
-  }
   return { ok: true }
 }
 

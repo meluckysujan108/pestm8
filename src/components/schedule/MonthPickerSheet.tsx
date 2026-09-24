@@ -1,9 +1,13 @@
+import { Suspense } from 'react'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
 import { ChevronLeft, ChevronRight, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { WEEKDAY_INITIALS, dayKeyToDate, formatMonthLabel } from '#/lib/format'
+import { useViewMode } from '#/lib/access'
+import { dayDots } from '#/lib/scheduleFilters'
+import { MonthDaysPending } from '#/components/shell/Pending'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 function monthKeyOf(dayKey: string) {
@@ -56,14 +60,71 @@ export function MonthPickerSheet({
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
           {open && (
-            <MonthGrid
-              businessId={businessId}
-              monthKey={monthKey}
-              selectedKey={selectedKey}
-              todayKey={todayKey}
-              onSelect={onSelect}
-              onMonthChange={onMonthChange}
-            />
+            <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-12">
+              <div className="flex items-center justify-between">
+                <button
+                  type="button"
+                  aria-label="Previous month"
+                  onClick={() => onMonthChange(shiftMonth(monthKey, -1))}
+                  className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                >
+                  <ChevronLeft size={20} strokeWidth={1.7} />
+                </button>
+                <Drawer.Title className="text-sheet-title text-ink">
+                  {formatMonthLabel(`${monthKey}-01`)}
+                </Drawer.Title>
+                <button
+                  type="button"
+                  aria-label="Next month"
+                  onClick={() => onMonthChange(shiftMonth(monthKey, 1))}
+                  className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                >
+                  <ChevronRight size={20} strokeWidth={1.7} />
+                </button>
+              </div>
+
+              <div className="mt-4 grid grid-cols-7 gap-1">
+                {WEEKDAY_INITIALS.map((initial, i) => (
+                  <span
+                    key={i}
+                    aria-hidden
+                    className="pb-1 text-center text-[11px] font-semibold text-muted"
+                  >
+                    {initial}
+                  </span>
+                ))}
+              </div>
+
+              {/* Only the days wait on the month's jobs. Everything around
+                  them needs nothing but the month, so the title (the sheet's
+                  accessible name) and the button just pressed stay where they
+                  are while the next month loads, and the schedule behind the
+                  sheet is never swapped for a placeholder. */}
+              <Suspense
+                fallback={<MonthDaysPending cells={gridFor(monthKey)} />}
+              >
+                <MonthDays
+                  businessId={businessId}
+                  monthKey={monthKey}
+                  selectedKey={selectedKey}
+                  todayKey={todayKey}
+                  onSelect={onSelect}
+                />
+              </Suspense>
+
+              <div className="mt-4 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => {
+                    onMonthChange(monthKeyOf(todayKey))
+                    onSelect(todayKey)
+                  }}
+                  className="text-body font-semibold text-blue"
+                >
+                  Today
+                </button>
+              </div>
+            </div>
           )}
           <button
             type="button"
@@ -79,93 +140,62 @@ export function MonthPickerSheet({
   )
 }
 
-function MonthGrid({
+function MonthDays({
   businessId,
   monthKey,
   selectedKey,
   todayKey,
   onSelect,
-  onMonthChange,
 }: {
   businessId: Id<'businesses'>
   monthKey: string
   selectedKey: string
   todayKey: string
   onSelect: (dayKey: string) => void
-  onMonthChange: (monthKey: string) => void
 }) {
   const { data: days } = useSuspenseQuery(
     convexQuery(api.jobs.listMonth, { businessId, monthKey }),
   )
 
   const byDay = new Map(days.map((d) => [d.dayKey, d]))
+  // One neutral dot in "Just my jobs" — see `dayDots`.
+  const mine = useViewMode() === 'mine'
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-12">
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          aria-label="Previous month"
-          onClick={() => onMonthChange(shiftMonth(monthKey, -1))}
-          className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
-        >
-          <ChevronLeft size={20} strokeWidth={1.7} />
-        </button>
-        <Drawer.Title className="text-sheet-title text-ink">
-          {formatMonthLabel(`${monthKey}-01`)}
-        </Drawer.Title>
-        <button
-          type="button"
-          aria-label="Next month"
-          onClick={() => onMonthChange(shiftMonth(monthKey, 1))}
-          className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
-        >
-          <ChevronRight size={20} strokeWidth={1.7} />
-        </button>
-      </div>
+    <div className="mt-1 grid grid-cols-7 gap-1">
+      {gridFor(monthKey).map((dayKey, i) => {
+        if (!dayKey) return <span key={`pad-${i}`} />
 
-      <div className="mt-4 grid grid-cols-7 gap-1">
-        {WEEKDAY_INITIALS.map((initial, i) => (
-          <span
-            key={i}
-            aria-hidden
-            className="pb-1 text-center text-[11px] font-semibold text-muted"
+        const day = byDay.get(dayKey)
+        const isSelected = dayKey === selectedKey
+        const isToday = dayKey === todayKey
+
+        return (
+          <button
+            key={dayKey}
+            type="button"
+            aria-label={dayKey}
+            aria-pressed={isSelected}
+            onClick={() => onSelect(dayKey)}
+            className="flex flex-col items-center gap-0.5 rounded-xl py-1.5 transition active:scale-[.95]"
           >
-            {initial}
-          </span>
-        ))}
-
-        {gridFor(monthKey).map((dayKey, i) => {
-          if (!dayKey) return <span key={`pad-${i}`} />
-
-          const day = byDay.get(dayKey)
-          const isSelected = dayKey === selectedKey
-          const isToday = dayKey === todayKey
-
-          return (
-            <button
-              key={dayKey}
-              type="button"
-              aria-label={dayKey}
-              aria-pressed={isSelected}
-              onClick={() => onSelect(dayKey)}
-              className="flex flex-col items-center gap-0.5 rounded-xl py-1.5 transition active:scale-[.95]"
+            <span
+              className={[
+                'flex size-9 items-center justify-center rounded-full text-[16px] font-semibold tabular-nums transition',
+                isSelected
+                  ? 'bg-red text-white'
+                  : isToday
+                    ? 'text-red'
+                    : 'text-ink',
+              ].join(' ')}
             >
-              <span
-                className={[
-                  'flex size-9 items-center justify-center rounded-full text-[16px] font-semibold tabular-nums transition',
-                  isSelected
-                    ? 'bg-red text-white'
-                    : isToday
-                      ? 'text-red'
-                      : 'text-ink',
-                ].join(' ')}
-              >
-                {dayKeyToDate(dayKey).getUTCDate()}
-              </span>
+              {dayKeyToDate(dayKey).getUTCDate()}
+            </span>
 
-              <span className="flex h-1.5 items-center gap-0.5">
-                {(day?.colours ?? []).slice(0, 3).map((colour) => (
+            <span className="flex h-1.5 items-center gap-0.5">
+              {dayDots(day?.colours ?? [], mine)
+                .slice(0, 3)
+                .map((colour) => (
                   <span
                     key={colour}
                     aria-hidden
@@ -173,28 +203,14 @@ function MonthGrid({
                     style={{ backgroundColor: colour }}
                   />
                 ))}
-              </span>
+            </span>
 
-              <span className="flex h-3.5 items-center text-[11px] font-semibold tabular-nums text-muted">
-                {day && day.count > 0 ? day.count : ''}
-              </span>
-            </button>
-          )
-        })}
-      </div>
-
-      <div className="mt-4 flex justify-center">
-        <button
-          type="button"
-          onClick={() => {
-            onMonthChange(monthKeyOf(todayKey))
-            onSelect(todayKey)
-          }}
-          className="text-body font-semibold text-blue"
-        >
-          Today
-        </button>
-      </div>
+            <span className="flex h-3.5 items-center text-[11px] font-semibold tabular-nums text-muted">
+              {day && day.count > 0 ? day.count : ''}
+            </span>
+          </button>
+        )
+      })}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import { useConvexAction } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { authClient } from '#/lib/auth-client'
+import { forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
 
 /**
@@ -108,7 +109,16 @@ function JoinPage() {
           </button>
           <button
             type="button"
-            onClick={() => authClient.signOut().then(() => router.invalidate())}
+            // A reload, as Settings' sign-out does, rather than invalidating:
+            // the query cache is keyed by business, not by person, so the
+            // account signing in next would otherwise be shown the previous
+            // one's cached answers until Convex re-pushed them.
+            onClick={() =>
+              authClient
+                .signOut()
+                .then(forgetCachedPages)
+                .then(() => window.location.reload())
+            }
             className="mt-4 w-full text-body text-blue"
           >
             Not you? Sign out

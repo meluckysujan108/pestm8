@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import {
   HeadContent,
   Outlet,
@@ -5,18 +6,24 @@ import {
   Scripts,
   createRootRouteWithContext,
   useRouteContext,
+  useRouter,
 } from '@tanstack/react-router'
-import { createServerFn } from '@tanstack/react-start'
-import { getCookie } from '@tanstack/react-start/server'
 import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react'
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
+import { NavProgress } from '#/components/shell/NavProgress'
 import { ServiceWorker } from '#/components/shell/ServiceWorker'
 import { useHydrated } from '#/lib/useHydrated'
 import { authClient } from '#/lib/auth-client'
-import { getToken } from '#/lib/auth-server'
-import { THEME_COOKIE, normaliseThemePref, themeInitScript } from '#/lib/theme'
+import { getInitialState } from '#/lib/initialState'
+import {
+  forgetRootState,
+  hasRootState,
+  resolveRootState,
+  seedRootState,
+} from '#/lib/rootState'
+import { themeInitScript } from '#/lib/theme'
 import { useSystemThemeSync } from '#/lib/useTheme'
 import appCss from '../styles.css?url'
 
@@ -28,13 +35,6 @@ interface RouterContext {
   queryClient: QueryClient
   convexQueryClient: ConvexQueryClient
 }
-
-// One round trip, not two: `beforeLoad` already pays for this on every client
-// navigation, so the theme cookie rides along with the token.
-const getInitialState = createServerFn({ method: 'GET' }).handler(async () => ({
-  token: await getToken(),
-  theme: normaliseThemePref(getCookie(THEME_COOKIE)),
-}))
 
 export const Route = createRootRouteWithContext<RouterContext>()({
   head: () => ({
@@ -55,7 +55,10 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     ],
   }),
   beforeLoad: async ({ context }) => {
-    const { token, theme } = await getInitialState()
+    const { token, theme } =
+      typeof window === 'undefined'
+        ? await getInitialState()
+        : await resolveRootState()
     if (token) {
       context.convexQueryClient.serverHttpClient?.setAuth(token)
     }
@@ -89,7 +92,14 @@ function NotFound() {
 }
 
 function RootComponent() {
-  const { convexQueryClient, token } = useRouteContext({ from: Route.id })
+  const { convexQueryClient, token, theme } = useRouteContext({
+    from: Route.id,
+  })
+
+  // Idempotent and outside React state, so safe during render: the first
+  // client render is the only moment the SSR answer is to hand, because
+  // hydration restores this context without running `beforeLoad`.
+  seedRootState({ token, theme })
 
   // Mounted once, at the root: while the preference is `system`, this is what
   // makes the app follow a phone that flips to dark at sunset.
@@ -103,15 +113,64 @@ function RootComponent() {
   // here. Recheck when the package moves past 0.12.5.
   const providerAuthClient = authClient as unknown as AuthClient
 
+  // Nothing here outside <Outlet /> may suspend. This match has a Suspense
+  // boundary of its own (it has a shellComponent), and its fallback would
+  // replace ConvexBetterAuthProvider — signing the Convex client out.
   return (
     <ConvexBetterAuthProvider
       client={convexQueryClient.convexClient}
       authClient={providerAuthClient}
       initialToken={token}
     >
+      <SessionWatch />
+      <NavProgress />
       <Outlet />
     </ConvexBetterAuthProvider>
   )
+}
+
+/**
+ * Ends the browser's cached sign-in (src/lib/rootState.ts) when the session
+ * ends, by invalidating the router so the guards redirect as they did when
+ * every navigation asked the server.
+ *
+ * Better Auth's session store is the signal. It hears a sign-out in this tab,
+ * and one in another through its storage broadcast. It re-checks the server
+ * only when the tab becomes visible or comes back online, though, so a phone
+ * held in the foreground — or a desktop tab — would never notice an
+ * offboarding or an expiry; hence the re-check below, at most once a minute
+ * and only while the person is navigating, which is when they used to find
+ * out.
+ *
+ * Signed out means the server said so: no session, or a 401. A failed request
+ * keeps the last session and reports an error without a 401, and that is
+ * someone in a backyard with no signal, not someone signed out.
+ */
+function SessionWatch() {
+  const router = useRouter()
+  const session = authClient.useSession()
+  const signedOut =
+    !session.isPending &&
+    session.data == null &&
+    (session.error == null || session.error.status === 401)
+
+  useEffect(() => {
+    if (!signedOut || !hasRootState()) return
+    forgetRootState()
+    void router.invalidate()
+  }, [signedOut, router])
+
+  const { refetch } = session
+  useEffect(() => {
+    let checkedAt = Date.now()
+    return router.subscribe('onResolved', () => {
+      if (!hasRootState() || Date.now() - checkedAt < 60_000) return
+      checkedAt = Date.now()
+      void refetch()
+    })
+  }, [router, refetch])
+
+  return null
 }
 
 /**

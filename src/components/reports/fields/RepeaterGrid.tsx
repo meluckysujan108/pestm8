@@ -97,7 +97,7 @@ export function RepeaterControl({
                   field={cell}
                   value={row[cell.key]}
                   onChange={(cellValue) => update(row._id, cell.key, cellValue)}
-                  ctx={ctx}
+                  ctx={{ ...ctx, inRow: true }}
                 />
               </span>
             )

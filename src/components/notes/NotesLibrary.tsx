@@ -1,31 +1,22 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { DropdownMenu } from 'radix-ui'
-import { ChevronLeft, Plus, Search, X } from 'lucide-react'
+import { ChevronLeft, Plus } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import type { Role } from '../../../convex/lib/capabilities'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { FilterDropdown } from '#/components/primitives/FilterDropdown'
-import { NOTE_TEMPLATES, NOTE_TEMPLATE_KEYS } from '../../../convex/lib/noteTemplates'
+import { SearchBox } from '#/components/primitives/SearchBox'
 import { useHydrated } from '#/lib/useHydrated'
+import { useAccess } from '#/lib/access'
+import { personLabel } from '#/lib/assignees'
 import { NoteEditor } from './NoteEditor'
 import { NoteEditorHeader } from './NoteEditorHeader'
 import { NoteList } from './NoteList'
-import { LIBRARY_FILTERS, NotesRail } from './NotesRail'
+import { rq } from '#/lib/routeQueries'
+import { NotesRail, useLibraryFolders } from './NotesRail'
 import type { Id } from '../../../convex/_generated/dataModel'
-import type { NoteTemplateKey } from '../../../convex/lib/noteTemplates'
 import type { LibraryFilter } from './NoteList'
-
-/** Which template the "+" defaults to, given where you are. */
-const DEFAULT_TEMPLATE: Record<LibraryFilter, NoteTemplateKey> = {
-  all: 'blank',
-  mentions: 'blank',
-  jobs: 'jobVisit',
-  sites: 'siteAccess',
-  team: 'teamMemo',
-  trash: 'blank',
-}
 
 export function NotesLibrary({
   business,
@@ -48,63 +39,52 @@ export function NotesLibrary({
   onQuery: (q: string) => void
 }) {
   const hydrated = useHydrated()
-  // A note started from the Jobs folder is meant to be about a job: open
-  // the picker straight away rather than leaving it stranded as a memo.
-  const [attachOnOpen, setAttachOnOpen] = useState<Id<'notes'> | null>(null)
+  const { godView, folders } = useLibraryFolders()
+  const isOwner = useAccess().role === 'owner'
+  // "Everyone's notes" left in the URL from God view shows My notes in any
+  // other view, rather than a folder the rail no longer lists.
+  const folder: LibraryFilter =
+    filter === 'everyone' && !godView ? 'mine' : filter
 
   const { data: roster } = useSuspenseQuery(
-    convexQuery(api.memberships.listForBusiness, { businessId: business._id }),
+    rq.roster(business._id),
   )
   const members = roster
     .filter((m) => m.status === 'active')
-    .map((m) => ({ id: m._id, label: m.name || m.email, colour: m.colour, role: m.role }))
+    .map((m) => ({ id: m._id, label: personLabel(m), colour: m.colour, role: m.role }))
 
   const { data: unread } = useQuery(
     convexQuery(api.notes.unreadMentionCount, { businessId: business._id }),
   )
 
+  // One tap, a blank page of your own. The template menu that used to sit
+  // here is gone at the owner's request: this section is mainly personal
+  // notes, and site notes are still written from a job's "Before you arrive".
   const convexCreate = useConvexMutation(api.notes.create)
   const create = useMutation({
-    mutationFn: (template: NoteTemplateKey) =>
-      convexCreate({ businessId: business._id, template }),
+    mutationFn: () =>
+      convexCreate({ businessId: business._id, visibility: 'private' }),
+    // A personal note is listed in My notes and All Notes; from anywhere
+    // else, go to My notes to show it.
     onSuccess: (id) => {
-      if (filter === 'jobs') setAttachOnOpen(id)
-      // A new note has no links, so only All Notes and Team can show it.
-      onCreated(id, filter === 'all' || filter === 'team')
+      setJustMade(id)
+      onCreated(id, folder === 'mine' || folder === 'all')
     },
   })
+  // The note + just made opens with the cursor in its title, once; one
+  // opened from the list does not steal focus from wherever the person was.
+  const [justMade, setJustMade] = useState<Id<'notes'> | null>(null)
 
   const newNote = (
-    <DropdownMenu.Root>
-      <DropdownMenu.Trigger
-        aria-label="New note"
-        disabled={!hydrated || create.isPending}
-        className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
-      >
-        <Plus size={20} strokeWidth={2.4} />
-      </DropdownMenu.Trigger>
-      <DropdownMenu.Portal>
-        <DropdownMenu.Content
-          align="end"
-          sideOffset={6}
-          className="z-50 w-60 rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
-        >
-          {NOTE_TEMPLATE_KEYS.map((key) => (
-            <DropdownMenu.Item
-              key={key}
-              onSelect={() => create.mutate(key)}
-              className="flex cursor-default flex-col rounded-xl px-2.5 py-2 outline-none data-[highlighted]:bg-surface-2"
-            >
-              <span className="text-row-title text-ink">
-                {NOTE_TEMPLATES[key].label}
-                {key === DEFAULT_TEMPLATE[filter] && key !== 'blank' ? ' · suggested' : ''}
-              </span>
-              <span className="text-caption text-muted">{NOTE_TEMPLATES[key].blurb}</span>
-            </DropdownMenu.Item>
-          ))}
-        </DropdownMenu.Content>
-      </DropdownMenu.Portal>
-    </DropdownMenu.Root>
+    <button
+      type="button"
+      aria-label="New note"
+      disabled={!hydrated || create.isPending}
+      onClick={() => create.mutate()}
+      className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+    >
+      <Plus size={20} strokeWidth={2.4} />
+    </button>
   )
 
   const editor = noteId && (
@@ -115,7 +95,10 @@ export function NotesLibrary({
       timezone={business.timezone}
       noteId={noteId}
       members={members}
-      attachOnOpen={attachOnOpen === noteId}
+      isOwner={isOwner}
+      autoFocus={justMade === noteId}
+      // Once: reopened later from the list, it must not grab focus again.
+      onAutoFocused={() => setJustMade(null)}
       onBack={() => onOpen(null)}
     />
   )
@@ -138,7 +121,12 @@ export function NotesLibrary({
 
       <div className="flex flex-col lg:h-[calc(100dvh-81px)] lg:flex-row">
         <aside className="hidden w-52 shrink-0 overflow-y-auto border-r border-hairline lg:block">
-          <NotesRail value={filter} unreadMentions={unread ?? 0} onChange={onFilter} />
+          <NotesRail
+            folders={folders}
+            value={folder}
+            unreadMentions={unread ?? 0}
+            onChange={onFilter}
+          />
         </aside>
 
         <div
@@ -148,9 +136,9 @@ export function NotesLibrary({
             <div className="lg:hidden">
               <FilterDropdown
                 label="Folder"
-                value={filter}
-                active={filter !== 'all'}
-                options={LIBRARY_FILTERS.map((f) => ({
+                value={folder}
+                active={folder !== 'mine'}
+                options={folders.map((f) => ({
                   value: f.value,
                   label: f.label,
                   count: f.value === 'mentions' && unread ? unread : undefined,
@@ -158,13 +146,13 @@ export function NotesLibrary({
                 onChange={(v) => onFilter(v as LibraryFilter)}
               />
             </div>
-            <SearchBox value={query} onChange={onQuery} />
+            <SearchBox value={query} onChange={onQuery} label="Search notes" />
           </div>
           <div className="min-h-0 flex-1 lg:overflow-y-auto">
             <NoteList
               businessId={business._id}
               timezone={business.timezone}
-              filter={filter}
+              filter={folder}
               query={query}
               selectedId={noteId}
               onSelect={onOpen}
@@ -178,7 +166,9 @@ export function NotesLibrary({
           {editor || (
             <div className="flex flex-1 items-center justify-center p-8 text-center">
               <p className="max-w-xs text-body text-muted">
-                Pick a note, or press + to start one. What you type is saved as you go and shared with the team.
+                Pick a note, or press + for a blank page. New notes are your
+                own: {isOwner ? 'nobody else can see them' : 'only you and the owner can see them'}.
+                What you type is saved as you go.
               </p>
             </div>
           )}
@@ -194,7 +184,9 @@ function OpenNote({
   timezone,
   noteId,
   members,
-  attachOnOpen,
+  isOwner,
+  autoFocus,
+  onAutoFocused,
   onBack,
 }: {
   businessId: Id<'businesses'>
@@ -202,7 +194,9 @@ function OpenNote({
   timezone: string
   noteId: Id<'notes'>
   members: Array<{ id: string; label: string; colour: string; role: Role }>
-  attachOnOpen: boolean
+  isOwner: boolean
+  autoFocus: boolean
+  onAutoFocused: () => void
   onBack: () => void
 }) {
   const { data: note } = useQuery(convexQuery(api.notes.get, { businessId, noteId }))
@@ -248,7 +242,7 @@ function OpenNote({
         businessSlug={businessSlug}
         timezone={timezone}
         note={note}
-        initialPickerOpen={attachOnOpen}
+        isOwner={isOwner}
         onBack={onBack}
         onGone={onBack}
       />
@@ -257,45 +251,11 @@ function OpenNote({
         noteId={noteId}
         members={members}
         editable={note.canEdit}
+        // A personal note tags nobody: whoever is tagged could not open it.
+        mentions={!note.private}
+        autoFocus={autoFocus}
+        onAutoFocused={onAutoFocused}
       />
     </>
-  )
-}
-
-/** Local state so typing is instant; the URL (and the query) follow after a pause. */
-function SearchBox({ value, onChange }: { value: string; onChange: (q: string) => void }) {
-  const [draft, setDraft] = useState(value)
-  useEffect(() => setDraft(value), [value])
-  useEffect(() => {
-    if (draft === value) return
-    const t = setTimeout(() => onChange(draft), 250)
-    return () => clearTimeout(t)
-  }, [draft, value, onChange])
-
-  return (
-    <label className="flex h-10 flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
-      <Search size={16} strokeWidth={2} className="shrink-0 text-muted" />
-      <span className="sr-only">Search notes</span>
-      <input
-        type="search"
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        placeholder="Search"
-        className="min-w-0 flex-1 bg-transparent text-[16px] text-ink outline-none [&::-webkit-search-cancel-button]:hidden"
-      />
-      {draft && (
-        <button
-          type="button"
-          aria-label="Clear search"
-          onClick={() => {
-            setDraft('')
-            onChange('')
-          }}
-          className="flex size-5 items-center justify-center rounded-full bg-muted-2/40 text-white"
-        >
-          <X size={12} strokeWidth={2.6} />
-        </button>
-      )}
-    </label>
   )
 }

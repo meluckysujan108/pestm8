@@ -10,6 +10,7 @@ import {
   canDeleteNote,
   canReadNote,
   canWriteNote,
+  isPrivate,
   noteKind,
   noteViewer,
   requireNote,
@@ -17,12 +18,13 @@ import {
 } from './lib/noteAccess'
 import { NOTE_TEMPLATE_KEYS, NOTE_TEMPLATES } from './lib/noteTemplates'
 import { deriveNoteFields } from './lib/richText'
-import { prosemirrorSync } from './notesSync'
+import { applyDerived, latestDoc, prosemirrorSync } from './notesSync'
 import { clientNameOf } from './properties'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Note, NoteViewer } from './lib/noteAccess'
 import { requireActor } from './lib/actor'
+import { UNASSIGNED_COLOUR } from './lib/colours'
 
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
 // A photo may only be attached within this long of being uploaded. Convex
@@ -33,6 +35,10 @@ const ATTACH_WINDOW_MS = 15 * 60 * 1000
 
 export const noteFilter = v.union(
   v.literal('all'),
+  // The caller's own personal notes.
+  v.literal('mine'),
+  // Everyone else's personal notes: the owner, in God view, only.
+  v.literal('everyone'),
   v.literal('jobs'),
   v.literal('sites'),
   v.literal('team'),
@@ -58,21 +64,53 @@ async function readable(ctx: QueryCtx, viewer: NoteViewer, notes: Array<Note>) {
   return notes.filter((_, i) => flags[i])
 }
 
-type Folder = 'all' | 'jobs' | 'sites' | 'team' | 'trash'
+type Folder =
+  | 'all'
+  | 'mine'
+  | 'everyone'
+  | 'jobs'
+  | 'sites'
+  | 'team'
+  | 'trash'
 
-/** The library folders, as a predicate on a row already read from the index. */
-function inFolder(note: Note, folder: Folder): boolean {
+/**
+ * The library folders, as a predicate on a row already read from the index.
+ *
+ * Being allowed to read a note and being shown it in a folder are separate
+ * questions. The owner may read anyone's personal note, but it is listed only
+ * in "Everyone's notes" (and Recently Deleted) and only in God view — never
+ * mixed into All Notes or Team, where his own notebook lives.
+ */
+function inFolder(note: Note, folder: Folder, viewer: NoteViewer): boolean {
+  const live = note.deletedAt === undefined
+  if (isPrivate(note)) {
+    const mine = note.authorMembershipId === viewer.real._id
+    switch (folder) {
+      case 'all':
+      case 'mine':
+        return live && mine
+      case 'everyone':
+        return live && !mine && viewer.godView
+      case 'trash':
+        return !live && (mine || viewer.godView)
+      default:
+        return false
+    }
+  }
   switch (folder) {
     case 'all':
-      return note.deletedAt === undefined
+      return live
+    case 'mine':
+    case 'everyone':
+      return false
     case 'jobs':
-      return note.deletedAt === undefined && note.jobId !== undefined
+      return live && note.jobId !== undefined
     case 'sites':
-      return note.deletedAt === undefined && note.jobId === undefined && noteKind(note) !== 'team'
+      return live && note.jobId === undefined && noteKind(note) !== 'team'
     case 'team':
-      return note.deletedAt === undefined && noteKind(note) === 'team'
+      return live && noteKind(note) === 'team'
     case 'trash':
-      return note.deletedAt !== undefined
+      return !live
   }
 }
 
@@ -127,7 +165,7 @@ async function decorate(ctx: QueryCtx, viewer: NoteViewer, notes: Array<Note>) {
         clientName: client?.name ?? '',
         addressLine: property?.addressLine ?? '',
         suburb: property?.suburb ?? '',
-        authorColour: author?.colour ?? '#8E8E93',
+        authorColour: author?.colour ?? UNASSIGNED_COLOUR,
         authorRole: author?.role,
         authorName: await nameOf(note.authorMembershipId),
         editorName: await nameOf(note.lastEditedByMembershipId),
@@ -137,6 +175,7 @@ async function decorate(ctx: QueryCtx, viewer: NoteViewer, notes: Array<Note>) {
         deletedAt: note.deletedAt,
         createdAt: note.createdAt,
         updatedAt: note.updatedAt,
+        private: isPrivate(note),
         // Always the REAL caller: "view as" grants reading, never authorship.
         mine: note.authorMembershipId === viewer.real._id,
         canEdit: await canWriteNote(ctx, viewer, note),
@@ -159,6 +198,42 @@ export const list = query({
   },
   handler: async (ctx, { businessId, filter, paginationOpts }) => {
     const viewer = await noteViewer(ctx, businessId)
+    const me = viewer.real._id
+
+    // Personal notes have indexes of their own. Anyone but the owner in God
+    // view asking for "everyone" gets the same index read that can match
+    // nothing — an empty page with a real cursor, not an error: the folder
+    // lives in the URL and outlasts a change of view.
+    if (filter === 'mine' || filter === 'everyone') {
+      const everyone = filter === 'everyone' && viewer.godView
+      const result = await (
+        everyone
+          ? ctx.db
+              .query('notes')
+              .withIndex('by_businessId_and_visibility_and_updatedAt', (q) =>
+                q.eq('businessId', businessId).eq('visibility', 'private'),
+              )
+          : ctx.db
+              .query('notes')
+              .withIndex(
+                'by_authorMembershipId_and_visibility_and_updatedAt',
+                (q) =>
+                  q.eq('authorMembershipId', me).eq('visibility', 'private'),
+              )
+      )
+        .order('desc')
+        .filter((q) =>
+          q.and(
+            q.eq(q.field('deletedAt'), undefined),
+            filter === 'mine'
+              ? q.eq(q.field('authorMembershipId'), me)
+              : q.neq(q.field('authorMembershipId'), me),
+          ),
+        )
+        .paginate(paginationOpts)
+      const visible = await readable(ctx, viewer, result.page)
+      return { ...result, page: await decorate(ctx, viewer, visible) }
+    }
 
     const result = await ctx.db
       .query('notes')
@@ -167,14 +242,19 @@ export const list = query({
       .filter((q) => {
         const isLive = q.eq(q.field('deletedAt'), undefined)
         const noJob = q.eq(q.field('jobId'), undefined)
+        const shared = q.eq(q.field('visibility'), undefined)
+        // Before paginating, so a page is never emptied by other people's
+        // personal notes the viewer would then have to page past.
+        const sharedOrMine = q.or(shared, q.eq(q.field('authorMembershipId'), me))
         switch (filter) {
           case 'all':
-            return isLive
+            return q.and(isLive, sharedOrMine)
           case 'jobs':
-            return q.and(isLive, q.neq(q.field('jobId'), undefined))
+            return q.and(isLive, shared, q.neq(q.field('jobId'), undefined))
           case 'sites':
             return q.and(
               isLive,
+              shared,
               noJob,
               q.or(
                 q.neq(q.field('propertyId'), undefined),
@@ -184,12 +264,16 @@ export const list = query({
           case 'team':
             return q.and(
               isLive,
+              shared,
               noJob,
               q.eq(q.field('propertyId'), undefined),
               q.eq(q.field('clientId'), undefined),
             )
           case 'trash':
-            return q.neq(q.field('deletedAt'), undefined)
+            return q.and(
+              q.neq(q.field('deletedAt'), undefined),
+              viewer.godView ? q.eq(true, true) : sharedOrMine,
+            )
         }
       })
       .paginate(paginationOpts)
@@ -213,6 +297,11 @@ export const listPinned = query({
         q.and(
           q.eq(q.field('deletedAt'), undefined),
           q.neq(q.field('pinnedAt'), undefined),
+          // All Notes' pinned rows: nobody else's personal notes.
+          q.or(
+            q.eq(q.field('visibility'), undefined),
+            q.eq(q.field('authorMembershipId'), viewer.real._id),
+          ),
         ),
       )
       .take(50)
@@ -247,6 +336,9 @@ export const listMentions = query({
     const out: Array<DecoratedNote & { unread: boolean }> = []
     for (const [i, note] of notes.entries()) {
       if (!note || note.businessId !== businessId || note.deletedAt !== undefined) continue
+      // A personal note keeps no mentions; a row that outlived the switch to
+      // personal must not surface it here (the owner could otherwise read it).
+      if (isPrivate(note)) continue
       if (!(await canReadNote(ctx, viewer, note))) continue
       const [decorated] = await decorate(ctx, viewer, [note])
       out.push({ ...decorated, unread: rows[i].readAt === undefined })
@@ -265,20 +357,42 @@ export const search = query({
   handler: async (ctx, { businessId, q: term, filter = 'all' }) => {
     const viewer = await noteViewer(ctx, businessId)
     if (term.trim() === '') return []
-    // Liveness is applied before the bound so trashed rows cannot crowd
-    // live matches out of the window (or vice versa).
+    const me = viewer.real._id
+    // Liveness and whose personal notes may show are applied before the
+    // bound, so rows the folder will drop cannot crowd its matches out of
+    // the window.
     const hits = await ctx.db
       .query('notes')
       .withSearchIndex('search', (q) =>
         q.search('plainText', term).eq('businessId', businessId),
       )
-      .filter((q) =>
-        filter === 'trash'
-          ? q.neq(q.field('deletedAt'), undefined)
-          : q.eq(q.field('deletedAt'), undefined),
-      )
+      .filter((q) => {
+        const live =
+          filter === 'trash'
+            ? q.neq(q.field('deletedAt'), undefined)
+            : q.eq(q.field('deletedAt'), undefined)
+        const personal = q.eq(q.field('visibility'), 'private')
+        const mine = q.eq(q.field('authorMembershipId'), me)
+        switch (filter) {
+          case 'mine':
+            return q.and(live, personal, mine)
+          case 'everyone':
+            return q.and(live, personal, q.not(mine))
+          case 'trash':
+            return viewer.godView
+              ? live
+              : q.and(live, q.or(q.not(personal), mine))
+          case 'all':
+            return q.and(live, q.or(q.not(personal), mine))
+          default:
+            // Jobs, Sites & clients, Team: shared notes only, the caller's
+            // own personal ones included — or a few dozen of them would fill
+            // the window before the folder is applied.
+            return q.and(live, q.not(personal))
+        }
+      })
       .take(40)
-    const scoped = hits.filter((n) => inFolder(n, filter))
+    const scoped = hits.filter((n) => inFolder(n, filter, viewer))
     return decorate(ctx, viewer, await readable(ctx, viewer, scoped))
   },
 })
@@ -416,7 +530,11 @@ export const unreadMentionCount = query({
       .order('desc')
       .take(10)
     const notes = await Promise.all(rows.map((row) => ctx.db.get(row.noteId)))
-    return notes.filter((n) => n && n.deletedAt === undefined).length
+    // Every mention row grants read on its note, so each counts — except on
+    // a personal note, which the person tagged cannot open.
+    return notes.filter(
+      (n) => n && n.deletedAt === undefined && !isPrivate(n),
+    ).length
   },
 })
 
@@ -435,14 +553,14 @@ export const jobOptions = query({
     const from = now - 90 * day
     const to = now + 60 * day
     const [past, future] = await Promise.all([
-      jobsInScope(ctx, viewer.ownRows, {
+      jobsInScope(ctx, viewer.pickerRows, {
         businessId,
         from,
         to: now,
         order: 'desc',
         limit: 120,
       }),
-      jobsInScope(ctx, viewer.ownRows, { businessId, from: now, to, limit: 120 }),
+      jobsInScope(ctx, viewer.pickerRows, { businessId, from: now, to, limit: 120 }),
     ])
 
     const kept = [...past, ...future]
@@ -547,9 +665,18 @@ export const create = mutation({
     jobId: v.optional(v.id('jobs')),
     propertyId: v.optional(v.id('properties')),
     clientId: v.optional(v.id('clients')),
+    // Absent: shared, as every note was before personal notes existed —
+    // which is what a job or client sheet still makes.
+    visibility: v.optional(v.literal('private')),
   },
   handler: async (ctx, args) => {
     const viewer = await noteViewer(ctx, args.businessId)
+    if (
+      args.visibility === 'private' &&
+      (args.jobId || args.propertyId || args.clientId)
+    ) {
+      throw new ConvexError('PRIVATE_NOTE_LINK')
+    }
     const links = await resolveLinks(ctx, viewer, args)
 
     const doc = NOTE_TEMPLATES[args.template ?? 'blank'].doc(args.title?.trim() ?? '')
@@ -568,6 +695,7 @@ export const create = mutation({
       checklistDone: derived.checklistTotal ? derived.checklistDone : undefined,
       createdAt: now,
       updatedAt: now,
+      ...(args.visibility && { visibility: args.visibility }),
     })
     await prosemirrorSync.create(ctx, noteId, doc)
     return noteId
@@ -587,7 +715,12 @@ async function requireWritableNote(
 export const setLinks = mutation({
   args: { businessId: v.id('businesses'), noteId: v.id('notes'), link: noteLink },
   handler: async (ctx, { businessId, noteId, link }) => {
-    const { viewer } = await requireWritableNote(ctx, businessId, noteId)
+    const { note, viewer } = await requireWritableNote(ctx, businessId, noteId)
+    // A link puts a note on a job or client sheet for everyone who can see
+    // that; a personal note is shared first.
+    if (isPrivate(note) && link.kind !== 'none') {
+      throw new ConvexError('PRIVATE_NOTE_LINK')
+    }
     const links = await resolveLinks(
       ctx,
       viewer,
@@ -616,6 +749,82 @@ export const togglePin = mutation({
     await ctx.db.patch(noteId, {
       pinnedAt: note.pinnedAt === undefined ? Date.now() : undefined,
     })
+  },
+})
+
+/**
+ * Personal ↔ shared, and only the author decides — as themselves, whatever
+ * account or view they are in.
+ *
+ * Making a note personal takes its @mentions off (nobody tagged can open it
+ * now) and needs it unlinked: a note on a job or client sheet is already the
+ * team's. Sharing it puts the mentions in its body back into force, and
+ * shares only what it says now — see below.
+ */
+export const setVisibility = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    noteId: v.id('notes'),
+    visibility: v.union(v.literal('private'), v.literal('shared')),
+  },
+  handler: async (ctx, { businessId, noteId, visibility }) => {
+    const { note, viewer } = await requireReadableNote(ctx, businessId, noteId)
+    if (note.authorMembershipId !== viewer.real._id) {
+      throw new ConvexError('NO_ACCESS')
+    }
+    if (note.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
+
+    if (visibility === 'private') {
+      if (isPrivate(note)) return
+      if (noteKind(note) !== 'team') throw new ConvexError('PRIVATE_NOTE_LINK')
+      await ctx.db.patch(noteId, { visibility: 'private' })
+      const mentions = await ctx.db
+        .query('noteMentions')
+        .withIndex('by_note', (q) => q.eq('noteId', noteId))
+        .collect()
+      for (const row of mentions) await ctx.db.delete(row._id)
+      return
+    }
+
+    if (!isPrivate(note)) return
+
+    // Its history goes no further than this moment. Once shared, anyone who
+    // can read a note can page back through its edits (notesSync.getSteps),
+    // and what was typed and taken out while it was personal must not come
+    // back with it. So the note is shared as its last saved state alone:
+    // older snapshots and every edit up to that save are deleted.
+    //
+    // Refused while an edit is newer than the last save — the editor saves
+    // within a second of typing stopping — since that edit is still history
+    // the team would receive.
+    const sync = components.prosemirrorSync.lib
+    const saved = await ctx.runQuery(sync.getSnapshot, { id: noteId })
+    const newest = await ctx.runQuery(sync.latestVersion, { id: noteId })
+    if (saved.content === null || newest !== saved.version) {
+      throw new ConvexError('NOTE_SAVING')
+    }
+    await ctx.runMutation(sync.deleteSnapshots, {
+      id: noteId,
+      beforeVersion: saved.version,
+    })
+    // The component deletes a hundred edits a call and schedules the rest;
+    // asking until none are left (bounded, for a very long note) removes them
+    // in this transaction, before anyone can read the note at all.
+    for (let i = 0; i < Math.min(Math.ceil(saved.version / 100), 60); i++) {
+      await ctx.runMutation(sync.deleteSteps, {
+        id: noteId,
+        beforeTs: Date.now(),
+      })
+    }
+
+    // A pin on a personal note was its author's; on a shared one it pins it
+    // for everyone.
+    await ctx.db.patch(noteId, { visibility: undefined, pinnedAt: undefined })
+    const doc = await latestDoc(ctx, noteId)
+    if (doc) {
+      const me = await requireMembership(ctx, businessId)
+      await applyDerived(ctx, { ...note, visibility: undefined }, me, doc)
+    }
   },
 })
 
@@ -679,7 +888,7 @@ export const remove = mutation({
   },
 })
 
-async function purgeNote(ctx: MutationCtx, note: Note) {
+export async function purgeNote(ctx: MutationCtx, note: Note) {
   const mentions = await ctx.db
     .query('noteMentions')
     .withIndex('by_note', (q) => q.eq('noteId', note._id))

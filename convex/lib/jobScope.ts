@@ -85,6 +85,72 @@ export async function jobsInScope(
 }
 
 /**
+ * The newest `limit` jobs in scope with one of `statuses`, most recently
+ * created first — what the Job tab lists.
+ *
+ * One indexed scan per status (and, for a team, per member), each already
+ * newest-first and bounded, merged by creation time. Status is part of the
+ * index rather than a filter after it because of what is newest: a business
+ * running a few recurring series has its most recently created rows almost
+ * all projected `recurring` visits, inserted in bulk by the nightly cron. Read
+ * the newest `limit` and drop those afterwards, and the page comes back mostly
+ * — sometimes entirely — empty. Asking only for the statuses wanted never
+ * reads them at all.
+ */
+export async function jobsNewestFirst(
+  ctx: QueryCtx,
+  scope: RowScope,
+  opts: {
+    businessId: Id<'businesses'>
+    limit: number
+    statuses: ReadonlyArray<Doc<'jobs'>['status']>
+  },
+): Promise<Array<Doc<'jobs'>>> {
+  const { businessId, limit, statuses } = opts
+  const newestFirst = (rows: Array<Doc<'jobs'>>) =>
+    rows.sort((a, b) => b._creationTime - a._creationTime).slice(0, limit)
+
+  if (scope.kind === 'business') {
+    const perStatus = await Promise.all(
+      statuses.map((status) =>
+        ctx.db
+          .query('jobs')
+          .withIndex('by_business_status', (q) =>
+            q.eq('businessId', businessId).eq('status', status),
+          )
+          .order('desc')
+          .take(limit),
+      ),
+    )
+    return newestFirst(perStatus.flat())
+  }
+
+  const ids =
+    scope.kind === 'own' ? [scope.membershipId] : [...scope.membershipIds]
+
+  const perScan = await Promise.all(
+    ids.flatMap((membershipId) =>
+      statuses.map((status) =>
+        ctx.db
+          .query('jobs')
+          .withIndex('by_assignee_status', (q) =>
+            q.eq('assignedMembershipId', membershipId).eq('status', status),
+          )
+          .order('desc')
+          // The true newest `limit` can all be one person's, in one status.
+          .take(limit),
+      ),
+    ),
+  )
+
+  // The index is per assignee, not per business: someone who works for two
+  // businesses must not see the other one's jobs in this business's list.
+  return newestFirst(
+    perScan.flat().filter((job) => job.businessId === businessId),
+  )
+}
+
+/**
  * The same decision for a job already loaded — a deep link, a note's job, a
  * property's history. Returns null rather than throwing at the call sites that
  * must not distinguish "not yours" from "does not exist": a subcontractor who

@@ -68,6 +68,7 @@ async function insertReport(
     propertyId: ids.propertyId,
     authorMembershipId: ids.membershipId,
     template,
+    templateVersion: 1,
     legalBasis: 'AS 3660.2-2017',
     status: 'finalised',
     data: {},
@@ -192,8 +193,10 @@ describe('freezeTemplate', () => {
       const report = (await ctx.db.get(
         await insertReport(ctx, ids, 'custom'),
       ))!
-      // Finalising must never fail because a snapshot could not be taken —
-      // the alternative is a signed report stuck in draft on a phone.
+      // Freezing never throws: for a built-in, finalise carries on and the
+      // report falls back to its revision's module. A custom report has no
+      // such fallback, so finalise refuses it (TEMPLATE_NOT_FROZEN) — but that
+      // is finalise's decision, made on this `undefined`.
       await expect(freezeTemplate(ctx, report)).resolves.toBeUndefined()
     })
   })

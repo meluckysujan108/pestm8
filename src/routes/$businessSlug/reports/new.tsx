@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
+import { suggestTemplate } from '#/lib/reportTemplates/suggest'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -46,6 +47,24 @@ function NewReportPage() {
   const lockedProperty = properties.find((p) => p._id === search.propertyId)
   const jobId = lockedProperty ? search.jobId : undefined
 
+  // Arriving from a job, the app already knows what the visit was for, so the
+  // form that visit produces goes first and says why it is there. A suggestion
+  // only: every form stays on the list, in the same order, underneath.
+  const { data: job } = useQuery({
+    ...convexQuery(
+      api.jobs.get,
+      { businessId: business._id, jobId: (jobId ?? '') as Id<'jobs'> },
+    ),
+    enabled: Boolean(jobId),
+  })
+  const suggestedId = job ? suggestTemplate(job.jobType) : null
+  const templates = suggestedId
+    ? [
+        ...CREATABLE_TEMPLATES.filter((template) => template.id === suggestedId),
+        ...CREATABLE_TEMPLATES.filter((template) => template.id !== suggestedId),
+      ]
+    : CREATABLE_TEMPLATES
+
   useEffect(() => {
     if (propertyId) return
     if (lockedProperty) setPropertyId(lockedProperty._id)
@@ -62,7 +81,8 @@ function NewReportPage() {
       customTemplateId?: Id<'customReportTemplates'>
       legalBasis: string
       data: unknown
-    }) => convexCreate(args),
+      // This build shows a suggestion as one and asks for it to be confirmed.
+    }) => convexCreate({ ...args, suggestions: true }),
     onSuccess: (reportId) =>
       navigate({
         to: '/$businessSlug/reports/$reportId',
@@ -115,7 +135,7 @@ function NewReportPage() {
             )}
 
             <div className="mt-5 flex flex-col gap-2.5">
-              {CREATABLE_TEMPLATES.map((template) => (
+              {templates.map((template) => (
                 <button
                   key={template.id}
                   type="button"
@@ -142,6 +162,11 @@ function NewReportPage() {
                       {template.legalBasis}
                     </span>
                   </div>
+                  {template.id === suggestedId && job && (
+                    <p className="mt-1 text-caption font-semibold text-red">
+                      Suggested for {job.jobType}
+                    </p>
+                  )}
                   <p className="mt-1 text-body text-muted">{template.blurb}</p>
                 </button>
               ))}

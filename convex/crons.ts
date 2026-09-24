@@ -26,6 +26,21 @@ crons.cron(
 )
 
 /**
+ * The same thirty days for a retired report DRAFT. A finalised report is
+ * never deleted and never purged — the business is required to keep it — so
+ * this only ever reaches work in progress.
+ *
+ * Twenty minutes after the notes purge, so two self-rescheduling batch jobs
+ * are not competing for the same scheduler slot.
+ */
+crons.cron(
+  'purge deleted report drafts',
+  '20 19 * * *', // ~03:20 Australia/Perth
+  internal.reports.purgeExpired,
+  {},
+)
+
+/**
  * Ends switches that have run past their twelve hours, for readers.
  *
  * Hourly rather than daily because this is what a read sees: writes enforce the
@@ -37,6 +52,18 @@ crons.cron(
   'sweep expired account switches',
   '0 * * * *',
   internal.accountSwitches.sweepExpired,
+  {},
+)
+
+/**
+ * Forgets the owner's chosen view on devices that have signed out. Its own job,
+ * not a step in the switch sweep above, so a failure in one cannot stop the
+ * other; and hygiene only, since a dead session's view is never read.
+ */
+crons.cron(
+  'sweep views of ended sign-ins',
+  '30 * * * *',
+  internal.views.sweepEnded,
   {},
 )
 

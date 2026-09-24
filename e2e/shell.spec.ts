@@ -1,5 +1,12 @@
 import { expect, test } from '@playwright/test'
-import { FIXTURE_PASSWORD, api, signInViaUi, signUpActor, uniqueEmail } from './fixtures'
+import {
+  FIXTURE_PASSWORD,
+  api,
+  clickUntil,
+  signInViaUi,
+  signUpActor,
+  uniqueEmail,
+} from './fixtures'
 
 /**
  * The shell's structural contract, which is load-bearing for every other spec
@@ -66,18 +73,18 @@ test('collapsing the sidebar to icons keeps every link findable by name', async 
   await expect.poll(widthOf).toBeGreaterThan(0)
   const expandedWidth = await widthOf()
 
-  await page.getByRole('button', { name: 'Toggle sidebar' }).first().click()
-
   // It really collapsed — otherwise the assertions below prove nothing. Both
   // the state attribute (the mechanism) and the width (the result), because
-  // the attribute flipping without the width following would be the bug.
-  await expect(page.locator('[data-slot="sidebar"]')).toHaveAttribute(
-    'data-state',
-    'collapsed',
+  // the attribute flipping without the width following would be the bug. The
+  // tap is retried: one that lands before hydration toggles nothing.
+  await clickUntil(page.getByRole('button', { name: 'Toggle sidebar' }).first(), () =>
+    expect(page.locator('[data-slot="sidebar"]')).toHaveAttribute('data-state', 'collapsed', {
+      timeout: 3_000,
+    }),
   )
   await expect.poll(widthOf).toBeLessThan(expandedWidth)
 
-  for (const name of ['Schedule', 'Clients', 'Reports', 'Notes', 'Analytics', 'Settings']) {
+  for (const name of ['Schedule', 'Client', 'Reports', 'Notes', 'Analytics', 'Settings']) {
     await expect(sidebar.getByRole('link', { name })).toBeVisible()
   }
 
@@ -97,15 +104,19 @@ test('the mobile dock gives every destination an equal, thumb-sized target', asy
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
 
   const dock = page.getByRole('navigation').last()
-  const links = dock.getByRole('link')
-  await expect(links).toHaveCount(6)
+  // Four destinations and the burger that holds the rest. The burger is a
+  // button, not a link, since it opens a sheet rather than going anywhere.
+  await expect(dock.getByRole('link')).toHaveCount(4)
+  await expect(dock.getByRole('button', { name: 'More' })).toHaveCount(1)
 
-  const boxes = await links.evaluateAll((els) =>
+  const cells = dock.locator(':scope > a, :scope > button')
+  await expect(cells).toHaveCount(5)
+  const boxes = await cells.evaluateAll((els) =>
     els.map((el) => el.getBoundingClientRect()),
   )
   const widths = boxes.map((b) => Math.round(b.width))
   // An even grid, not flex-1 on labels of different lengths: uneven targets on
-  // a phone are how "Analytics" ends up twice the tap area of "Notes".
+  // a phone are how "Schedule" ends up twice the tap area of "Notes".
   expect(Math.max(...widths) - Math.min(...widths)).toBeLessThanOrEqual(1)
   // Apple's minimum touch target. Below this the dock is decorative.
   for (const box of boxes) expect(box.height).toBeGreaterThanOrEqual(44)
