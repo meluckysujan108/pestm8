@@ -40,7 +40,7 @@ import type { Doc, Id } from './_generated/dataModel'
  * Nothing is lost: `materialiseOne` is idempotent and always resumes from
  * whatever is missing.
  */
-const MAX_VISITS_PER_RUN = 60
+export const MAX_VISITS_PER_RUN = 60
 
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
@@ -232,7 +232,7 @@ function isBackfill(scheduledAt: number): boolean {
  * visit the engine projects — the only way any job becomes `recurring` — and
  * `manual` for the one a person booked by hand when creating the series.
  */
-async function insertVisit(
+export async function insertVisit(
   ctx: MutationCtx,
   recurrence: Doc<'recurrences'>,
   scheduledAt: number,
@@ -267,7 +267,7 @@ async function insertVisit(
  * Idempotent by design — the cron runs daily and must never double-book a
  * property.
  */
-async function materialiseOne(
+export async function materialiseOne(
   ctx: MutationCtx,
   recurrenceId: Id<'recurrences'>,
   durationMinutes = 60,

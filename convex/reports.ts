@@ -102,7 +102,7 @@ async function requireEditableReport(
 
 /** How long one row stands for an owner's edits to someone else's draft: a
  * working day, the length of a switch. */
-const OWNER_EDIT_WINDOW_MS = 12 * 60 * 60 * 1000
+export const OWNER_EDIT_WINDOW_MS = 12 * 60 * 60 * 1000
 
 /**
  * Who else was in this draft, on the draft's own history.
@@ -1437,7 +1437,7 @@ async function seedNewReport(
  * learned something — a restarted form came up blank, sorted below everything
  * and could not be found by search.
  */
-async function insertNewDraft(
+export async function insertNewDraft(
   ctx: MutationCtx,
   args: {
     businessId: Id<'businesses'>
@@ -2036,7 +2036,26 @@ export const finalise = mutation({
       reportId,
     )
     requireSameVersion(report, templateVersion)
+    return finaliseReport(ctx, env, report, data)
+  },
+})
 
+/**
+ * Locks a draft as the signed document, as `finalise` does once it has
+ * established who is asking. Shared with the demo seeder (convex/demo), which
+ * finalises as the member each report says finalised it, and dates history
+ * with `now`; the public mutation always passes the real clock.
+ */
+export async function finaliseReport(
+  ctx: MutationCtx,
+  env: WriteEnvelope,
+  report: Doc<'reports'>,
+  data: unknown,
+  now: number = Date.now(),
+): Promise<Id<'reports'>> {
+  const businessId = report.businessId
+  const reportId = report._id
+  {
     /**
      * Whether this document may be signed, as opposed to merely edited.
      *
@@ -2085,7 +2104,7 @@ export const finalise = mutation({
         named: named.map(factsFromMembership),
         signedBy,
       },
-      Date.now(),
+      now,
     )
     if (!decision.ok) throw new ConvexError(decision.reason)
 
@@ -2148,7 +2167,6 @@ export const finalise = mutation({
       console.error(`context snapshot failed for report ${reportId}`, error)
     }
 
-    const now = Date.now()
     // Allocated here rather than at create: a draft that is never finished
     // should not consume a number from a sequence a client may later quote
     // back over the phone. Read-then-patch is race-safe inside a Convex
@@ -2222,7 +2240,7 @@ export const finalise = mutation({
     // same transaction that locks the report, so "the form said send it" is
     // recorded even if the send never happens — and a recipient nobody has on
     // file waits for an owner, exactly as it would from the send sheet.
-    await queueFormDeliveries(ctx, report, data, env)
+    await queueFormDeliveries(ctx, report, data as Record<string, unknown>, env)
 
     // Render now, not when someone first asks for it. The technician who
     // locked this is standing in a driveway; the person who opens the PDF
@@ -2233,8 +2251,8 @@ export const finalise = mutation({
     })
 
     return reportId
-  },
-})
+  }
+}
 
 /**
  * Opens the deliveries the form asked for, at the moment it is locked.
@@ -2363,12 +2381,30 @@ export const amend = mutation({
   },
   handler: async (ctx, { businessId, reportId, reason }) => {
     const env = await requireWriteActor(ctx, businessId)
-    const by = writeAttribution(env.actor)
 
     const original = await ctx.db.get(reportId)
     if (!original || original.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
+    return amendReport(ctx, env, original, reason)
+  },
+})
+
+/**
+ * Opens the correction of a finalised report, as `amend` does once it has
+ * established who is asking and found the report in their business. Shared
+ * with the demo seeder (convex/demo), which dates it with `now`.
+ */
+export async function amendReport(
+  ctx: MutationCtx,
+  env: WriteEnvelope,
+  original: Doc<'reports'>,
+  reason: string,
+  now: number = Date.now(),
+): Promise<Id<'reports'>> {
+  const businessId = original.businessId
+  const by = writeAttribution(env.actor)
+  {
     if (original.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
     if (original.status !== 'finalised') {
       throw new ConvexError('REPORT_NOT_FINALISED')
@@ -2403,7 +2439,6 @@ export const amend = mutation({
       throw new ConvexError('AMENDMENT_REASON_REQUIRED')
     }
 
-    const now = Date.now()
     const amendmentId = await ctx.db.insert('reports', {
       businessId,
       propertyId: original.propertyId,
@@ -2468,8 +2503,8 @@ export const amend = mutation({
 
     await refreshSearchText(ctx, amendmentId)
     return amendmentId
-  },
-})
+  }
+}
 
 /**
  * Deleting a draft, and only a draft.
@@ -2696,7 +2731,13 @@ export const setPdf = internalMutation({
   },
   handler: async (ctx, { reportId, storageId, bytes }) => {
     const report = await ctx.db.get(reportId)
-    if (!report) return
+    // Gone while it rendered (purged from the bin, or its demo removed): the
+    // file was stored for this report alone, and nothing will ever point at
+    // it, so it goes too rather than sitting in storage unreferenced.
+    if (!report) {
+      await ctx.storage.delete(storageId)
+      return
+    }
 
     await ctx.db.insert('reportPdfs', {
       businessId: report.businessId,
@@ -2727,7 +2768,11 @@ export const setPreview = internalMutation({
   args: { reportId: v.id('reports'), storageId: v.id('_storage') },
   handler: async (ctx, { reportId, storageId }) => {
     const report = await ctx.db.get(reportId)
-    if (!report) return
+    // As setPdf: a preview of a report that has gone is nobody's.
+    if (!report) {
+      await ctx.storage.delete(storageId)
+      return
+    }
     if (report.previewStorageId) {
       await ctx.storage.delete(report.previewStorageId)
     }
