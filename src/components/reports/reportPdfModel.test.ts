@@ -10,7 +10,6 @@ import {
 import {
   PdfProblem,
   createInFlight,
-  hasOwnMarks,
   isSignalProblem,
   markupProblem,
   previewProblem,
@@ -18,7 +17,6 @@ import {
   reportPdfProblem,
   strokeToSave,
   strokesByPage,
-  undoTargetPage,
 } from './reportPdfModel'
 import type { AnnotationRow } from './reportPdfModel'
 
@@ -83,50 +81,27 @@ describe('strokesByPage', () => {
     const theirs = row({ page: 1, mine: false, authorColour: '#DC2626' })
     const departed = row({ page: 1, mine: false, authorColour: null })
     const [a, b, c] = strokesByPage([mine, theirs, departed]).get(0) ?? []
-    expect(a).toEqual({ id: mine.id, points: mine.points, mine: true })
+    expect(a).toEqual({
+      id: mine.id,
+      points: mine.points,
+      mine: true,
+      order: mine.createdAt,
+    })
     expect(b.color).toBe('#DC2626')
     expect(b.mine).toBe(false)
     // No colour known: the viewer's one neutral colour, not a guess.
     expect(c).not.toHaveProperty('color')
   })
-})
 
-describe('undoTargetPage', () => {
-  test('finds your newest mark anywhere in the report', () => {
-    const rows = [
-      row({ page: 1, createdAt: 100 }),
-      row({ page: 4, createdAt: 300 }),
-      row({ page: 2, createdAt: 200 }),
-    ]
-    expect(undoTargetPage(rows)).toBe(4)
-  })
-
-  test("never a colleague's, however much newer", () => {
-    const rows = [
-      row({ page: 1, createdAt: 100, mine: true }),
-      row({ page: 3, createdAt: 900, mine: false }),
-    ]
-    expect(undoTargetPage(rows)).toBe(1)
-  })
-
-  test('of two in one millisecond, the later-written — as the server picks', () => {
-    const rows = [
-      row({ page: 2, createdAt: 500 }),
-      row({ page: 5, createdAt: 500 }),
-    ]
-    expect(undoTargetPage(rows)).toBe(5)
-  })
-
-  test('nothing to undo with no marks of your own', () => {
-    expect(undoTargetPage([])).toBeNull()
-    expect(undoTargetPage([row({ page: 1, mine: false })])).toBeNull()
-  })
-
-  test('hasOwnMarks agrees', () => {
-    expect(hasOwnMarks([row({ page: 1, mine: false })])).toBe(false)
-    expect(hasOwnMarks([row({ page: 1, mine: false }), row({ page: 2 })])).toBe(
-      true,
-    )
+  /** Undo takes the mark of yours with the largest `order`: your newest,
+   * wherever it is — so the order must be when it was made, not where it
+   * sits in the list, which is by page. */
+  test('each mark is ordered by when it was made, not by its page', () => {
+    const late = row({ page: 1, createdAt: 900 })
+    const early = row({ page: 4, createdAt: 100 })
+    const byPage = strokesByPage([late, early])
+    expect(byPage.get(0)?.[0].order).toBe(900)
+    expect(byPage.get(3)?.[0].order).toBe(100)
   })
 })
 

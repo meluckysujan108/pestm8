@@ -20,9 +20,15 @@ const LINE = [
 ]
 
 const STROKES: Array<MarkupStroke> = [
-  { id: 'mine-1', points: LINE, mine: true },
-  { id: 'kim-1', points: LINE, mine: false, color: 'var(--member-3)' },
-  { id: 'gone-1', points: LINE, mine: false },
+  { id: 'mine-1', points: LINE, mine: true, order: 1 },
+  {
+    id: 'kim-1',
+    points: LINE,
+    mine: false,
+    order: 2,
+    color: 'var(--member-3)',
+  },
+  { id: 'gone-1', points: LINE, mine: false, order: 3 },
 ]
 
 function layer(props: Partial<ComponentProps<typeof PageMarkup>>) {
@@ -53,8 +59,14 @@ describe('PageMarkup', () => {
     // The second person on every team is dealt #DC2626, a shade off the pen.
     const html = layer({
       strokes: [
-        { id: 'kevin-1', points: LINE, mine: false, color: '#DC2626' },
-        { id: 'kim-1', points: LINE, mine: false, color: '#0F766E' },
+        {
+          id: 'kevin-1',
+          points: LINE,
+          mine: false,
+          order: 1,
+          color: '#DC2626',
+        },
+        { id: 'kim-1', points: LINE, mine: false, order: 2, color: '#0F766E' },
       ],
     })
     expect(html).not.toContain('#DC2626')
@@ -93,7 +105,14 @@ describe('PageMarkup', () => {
 
   it('draws a stroke still saving as yours', () => {
     const pending: Array<PendingMark> = [
-      { key: 'pending-1', page: 2, points: LINE, saved: null },
+      {
+        key: 'pending-1',
+        page: 2,
+        points: LINE,
+        others: new Set(),
+        saved: null,
+        taken: null,
+      },
     ]
     const html = layer({ pending })
     expect(html).toMatch(/data-markup-pending=""[^>]*class="stroke-red"/)

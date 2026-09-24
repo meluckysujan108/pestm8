@@ -9,9 +9,9 @@ import type { MarkupPoint, MarkupStroke } from '#/components/pdf/types'
 
 /**
  * The thinking behind a report's PDF on screen, kept apart from React so it
- * can be tested on its own: which page a stored mark belongs to, which mark
- * Undo takes, one render shared by everyone who asks for it at once, and what
- * to say when something fails.
+ * can be tested on its own: which page a stored mark belongs to, one render
+ * shared by everyone who asks for it at once, and what to say when something
+ * fails.
  *
  * ── Pages: stored from 1, shown from 0 ────────────────────────────────────
  *
@@ -46,6 +46,11 @@ export const storedPageOf = (pageIndex: number): number => pageIndex + 1
  * one). Your own marks carry no colour — the viewer draws them in its pen red
  * — and a teammate's carry their member colour when there is one.
  *
+ * Each mark's `order` is its `createdAt`: Undo, with nothing of yours still
+ * saving, takes the one of yours with the largest — your newest anywhere in
+ * the report, not only on the page being read, which was the old per-page
+ * canvas's rule only because it could see one page.
+ *
  * A row with a page no slot could hold is left out rather than drawn on the
  * wrong page: only a bad write could have made it.
  */
@@ -60,6 +65,7 @@ export function strokesByPage(
       id: row.id,
       points: row.points,
       mine: row.mine,
+      order: row.createdAt,
     }
     if (!row.mine && row.authorColour) stroke.color = row.authorColour
     const list = byPage.get(index)
@@ -67,34 +73,6 @@ export function strokesByPage(
     else byPage.set(index, [stroke])
   }
   return byPage
-}
-
-/** Whether the person asking has a mark anywhere in the report. */
-export function hasOwnMarks(rows: ReadonlyArray<AnnotationRow>): boolean {
-  return rows.some((row) => row.mine)
-}
-
-/**
- * The stored (1-based) page of the newest mark you made, anywhere in the
- * report, or null when you have none.
- *
- * Undo in the new viewer means "take back my last mark", wherever it is — not
- * "my last mark on the page I happen to be looking at", which was the old
- * per-page canvas's rule only because it could see one page. The server's
- * undo still works a page at a time, so this finds the page and the server
- * finds the same stroke on it by the same rule: the latest `createdAt`, and
- * of two in the same millisecond the later-written (which is later in the
- * list, since the server sends them in the order they were written).
- */
-export function undoTargetPage(
-  rows: ReadonlyArray<AnnotationRow>,
-): number | null {
-  let newest: AnnotationRow | null = null
-  for (const row of rows) {
-    if (!row.mine) continue
-    if (!newest || row.createdAt >= newest.createdAt) newest = row
-  }
-  return newest ? newest.page : null
 }
 
 /**

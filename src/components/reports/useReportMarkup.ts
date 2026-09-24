@@ -1,11 +1,10 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
-import { hasOwnMarks, strokesByPage } from './reportPdfModel'
+import { strokesByPage } from './reportPdfModel'
 import { createMarkupQueue } from './markupQueue'
 import type { MarkupStroke, ViewerMarkup } from '#/components/pdf/types'
-import type { AnnotationRow } from './reportPdfModel'
 import type { MarkupQueue } from './markupQueue'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -33,16 +32,17 @@ const NO_STROKES: ReadonlyMap<number, ReadonlyArray<MarkupStroke>> = new Map()
  *
  * ── Nothing here is optimistic ────────────────────────────────────────────
  *
- * The viewer keeps a stroke on screen while it saves; this only saves it. A
- * mark is the server's once the mutation resolves — Convex resolves it after
- * this client's queries have caught up with it — so `strokes` then includes
- * it and the viewer lets its own copy go.
+ * The viewer keeps a stroke on screen while it saves, and hides a mark while
+ * Undo or Clear takes it; this only asks the server. A mark is the server's
+ * once the mutation resolves — Convex resolves it after this client's
+ * queries have caught up with it — so `strokes` then agrees with the screen
+ * and the viewer lets its own copy go.
  *
- * Saves, Undo and Clear go through one queue (`markupQueue.ts`), so they
- * reach the server in the order they were tapped and each Undo picks its
- * mark only after everything before it has landed. "Undo" straight after a
- * stroke means that stroke, and two quick Undos take your two newest marks —
- * not the newest one and then an older one on the same page.
+ * Undo is aimed by the viewer, at the tap, and arrives here as one mark's id
+ * (`removeStroke`); each mark's `order` is when it was made (`createdAt`),
+ * which is how the viewer knows your newest. Saves and Clear go through one
+ * queue (`markupQueue.ts`), so a Clear sweeps up every stroke drawn before it
+ * was tapped and none drawn after.
  */
 export function useReportMarkup({
   businessId,
@@ -51,7 +51,6 @@ export function useReportMarkup({
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
 }): ViewerMarkup | undefined {
-  const queryClient = useQueryClient()
   const list = useMemo(
     () =>
       convexQuery(api.reportAnnotations.listForReport, {
@@ -69,46 +68,38 @@ export function useReportMarkup({
   })
 
   const add = useConvexMutation(api.reportAnnotations.addStroke)
-  const undoLast = useConvexMutation(api.reportAnnotations.undoLastStroke)
+  const remove = useConvexMutation(api.reportAnnotations.removeStroke)
   const clearMine = useConvexMutation(api.reportAnnotations.clearMyStrokes)
-  const latest = useRef({ add, undoLast, clearMine, data })
+  const latest = useRef({ add, remove, clearMine })
   useLayoutEffect(() => {
-    latest.current = { add, undoLast, clearMine, data }
+    latest.current = { add, remove, clearMine }
   })
 
-  // How many strokes are on their way: state, so that a first stroke still
-  // saving already offers Undo.
-  const [savingCount, setSavingCount] = useState(0)
-
   // One queue per report, made once and kept: it holds the order of what has
-  // been asked for, and a fresh one would forget an Undo still waiting. Made
+  // been asked for, and a fresh one would forget a Clear still waiting. Made
   // again (during render, as React allows for state derived from props) only
   // if this hook is handed another report.
   const reportKey = `${businessId}/${reportId}`
   const makeQueue = (): { key: string; queue: MarkupQueue } => ({
     key: reportKey,
-    queue: createMarkupQueue(
-      {
-        // The marks as they stand now: the cache, which a mutation that has
-        // come back has already updated, rather than a render that may not
-        // have happened yet.
-        rows: () =>
-          queryClient.getQueryData<Array<AnnotationRow>>(list.queryKey) ??
-          latest.current.data ??
-          [],
-        add: (page, points) =>
-          latest.current.add({ businessId, reportId, page, points }),
-        undoLast: (page) =>
-          latest.current.undoLast({ businessId, reportId, page }),
-        clearMine: (page) =>
-          latest.current.clearMine({ businessId, reportId, page }),
-      },
-      setSavingCount,
-    ),
+    queue: createMarkupQueue({
+      add: (page, points) =>
+        latest.current.add({ businessId, reportId, page, points }),
+      remove: (strokeId) =>
+        latest.current.remove({
+          businessId,
+          reportId,
+          // One of this report's own ids: the viewer only names marks this
+          // hook handed it (`strokesByPage`) or an `add` resolved with.
+          strokeId: strokeId as Id<'reportPdfAnnotations'>,
+        }),
+      clearMine: (page) =>
+        latest.current.clearMine({ businessId, reportId, page }),
+    }),
   })
   const [held, setHeld] = useState(makeQueue)
   if (held.key !== reportKey) setHeld(makeQueue())
-  const { addStroke, undo, clearPage } = held.queue
+  const { addStroke, removeStroke, clearPage } = held.queue
 
   // A new Map only when the marks change: the viewer memoises its page
   // slots on it.
@@ -116,10 +107,6 @@ export function useReportMarkup({
     () => (data ? strokesByPage(data) : NO_STROKES),
     [data],
   )
-  // Only your own marks are yours to take back. A report marked only by
-  // colleagues offers no Undo — the old canvas left it enabled there, and it
-  // then did nothing.
-  const canUndo = (data !== undefined && hasOwnMarks(data)) || savingCount > 0
 
   return useMemo(() => {
     if (isError || data === undefined) return undefined
@@ -127,10 +114,10 @@ export function useReportMarkup({
       strokes,
       canDraw: true,
       addStroke,
-      undo: canUndo ? undo : null,
+      removeStroke,
       clearPage,
       note: MARKUP_NOTE,
       shareNote: MARKUP_SHARE_NOTE,
     }
-  }, [isError, data, strokes, addStroke, canUndo, undo, clearPage])
+  }, [isError, data, strokes, addStroke, removeStroke, clearPage])
 }

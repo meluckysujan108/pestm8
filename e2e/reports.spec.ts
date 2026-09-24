@@ -341,9 +341,16 @@ test.describe('report document', () => {
       })
       .toEqual([{ page: 1, mine: true }])
 
-    // Undo takes it back, on the screen and on the server.
+    // Undo takes it back: off the screen the moment it is tapped, then off
+    // the server — that mark, named by its id, not "the newest" whenever the
+    // server hears of it (`reportAnnotations.removeStroke`).
     await palette.getByRole('button', { name: 'Undo my last mark' }).click()
     await expect(viewer.locator('[data-markup-stroke="mine"]')).toHaveCount(0)
+    await expect(viewer.locator('[data-markup-pending]')).toHaveCount(0)
+    // Nothing of yours left, so nothing more to take back.
+    await expect(
+      palette.getByRole('button', { name: 'Undo my last mark' }),
+    ).toBeDisabled()
     await expect
       .poll(async () =>
         (

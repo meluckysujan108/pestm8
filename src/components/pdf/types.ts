@@ -77,6 +77,13 @@ export type MarkupStroke = {
   /** Drawn by the person looking at it: theirs to undo or clear. */
   mine: boolean
   /**
+   * When it was made, as a number that never goes down: a later mark's is at
+   * least as large (a report's is its `createdAt`). Undo takes the one of
+   * yours with the largest — of two alike, the later in `strokes` — when
+   * nothing of yours is still saving.
+   */
+  order: number
+  /**
    * The colour of someone else's mark (a CSS colour, e.g. a member colour
    * token). Absent for one's own marks, which use the markup pen colour, and
    * for others when no colour is known (the viewer then uses one neutral
@@ -92,6 +99,13 @@ export type MarkupStroke = {
  * zoom), keeps a just-drawn stroke on screen until the caller's `strokes`
  * include it, and knows nothing of who may do what beyond these fields: the
  * caller decides and the server enforces.
+ *
+ * Undo is the viewer's to aim: it picks the mark when the thumb lands —
+ * this person's newest, a stroke still saving included — and hides it at
+ * once, then names it to `removeStroke` by id, so a stroke drawn while the
+ * Undo is on its way can never be the one it takes. Clear is handed over the
+ * moment it is tapped, and the order it lands in among the saves is the
+ * caller's to keep (see `clearPage`).
  */
 export type ViewerMarkup = {
   /**
@@ -102,13 +116,27 @@ export type ViewerMarkup = {
   /** False shows the marks with no pen (someone who may only look). */
   canDraw: boolean
   /**
-   * Saves a finished stroke. Rejects on failure; the viewer then drops the
-   * stroke it was showing and says it did not save.
+   * Saves a finished stroke and resolves with the saved mark's id — the one
+   * it will have in `strokes` — which is how an Undo aimed at a stroke still
+   * saving names it once it has saved. Rejects on failure; the viewer then
+   * drops the stroke it was showing and says it did not save.
    */
-  addStroke: (pageIndex: number, points: Array<MarkupPoint>) => Promise<void>
-  /** Removes this person's newest mark, on whatever page; null when they have none. */
-  undo: (() => Promise<void>) | null
-  /** Removes this person's marks on one page. */
+  addStroke: (pageIndex: number, points: Array<MarkupPoint>) => Promise<string>
+  /**
+   * Removes one of this person's marks, by id — the one the viewer's Undo
+   * chose. Resolves too when the mark is already gone (a Clear got there
+   * first); rejects when it could not be removed, and the viewer shows the
+   * mark again and says so.
+   */
+  removeStroke: (strokeId: string) => Promise<void>
+  /**
+   * Removes this person's marks on one page. Called the moment Clear is
+   * tapped, without waiting for strokes still saving, so the ordering is the
+   * caller's to keep: every stroke `addStroke` was called for before this is
+   * cleared by it (its save lands first), and every stroke after it is not
+   * (its save waits until the clear has landed). The viewer hides the page's
+   * marks meanwhile, and shows them again if this rejects.
+   */
   clearPage: (pageIndex: number) => Promise<void>
   /** Shown in the markup palette, e.g. that marks are not shared. */
   note?: string

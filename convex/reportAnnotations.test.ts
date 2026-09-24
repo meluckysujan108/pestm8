@@ -16,16 +16,19 @@ import type { TestActor } from '../test/harness'
 
 /**
  * A report's markup, as the new in-app viewer reads it — every mark on every
- * page in one query — and the three calls the old viewer makes, which the live
- * site keeps making until the new one ships (the backend goes first).
+ * page in one query — and takes one back (`removeStroke`, by the mark's id),
+ * and the calls the old viewer makes, which the live site keeps making until
+ * the new one ships (the backend goes first).
  *
  * The risks: a mark read by someone the pen was never offered to (the gate is
  * the REAL person's scope, narrower than the one that opens the report); a
  * teammate's mark reported as yours, so your undo is offered for it and then
- * does nothing; a page number shifted by one between the 1-based rows and the
- * 0-based viewer; a stroke nobody could have drawn painted on every phone that
- * opens the report; and a report with more marks than its one query can read,
- * which would hide all of them at once.
+ * does nothing; an Undo that removes a mark other than the one it named — a
+ * newer one, a colleague's, one on another report; a page number shifted by
+ * one between the 1-based rows and the 0-based viewer; a stroke nobody could
+ * have drawn painted on every phone that opens the report; and a report with
+ * more marks than its one query can read, which would hide all of them at
+ * once.
  */
 
 const STROKE = [
@@ -545,6 +548,270 @@ describe('a report holds only as many marks as its one read can show', () => {
   })
 })
 
+/** Undo, as the new viewer asks for it: this mark, by its id. */
+function remove(
+  s: Setup,
+  actor: TestActor,
+  reportId: Id<'reports'>,
+  strokeId: Id<'reportPdfAnnotations'>,
+) {
+  return actor.as.mutation(api.reportAnnotations.removeStroke, {
+    businessId: s.businessId,
+    reportId,
+    strokeId,
+  })
+}
+
+/** A finalised report of someone's in a business of its own, with one mark
+ * of theirs on it: the far side of a cross-business id. */
+async function rivalReport(s: Setup) {
+  const rival = await createActor(s.t, { email: 'rival@other.test' })
+  const other = await createBusiness(s.t, rival, 'Other Pest')
+  const now = Date.now()
+  const reportId = await s.t.run(async (ctx) => {
+    const clientId = await ctx.db.insert('clients', {
+      businessId: other.businessId,
+      kind: 'person',
+      name: 'P. Walsh',
+      createdAt: now,
+      updatedAt: now,
+    })
+    const propertyId = await ctx.db.insert('properties', {
+      businessId: other.businessId,
+      clientId,
+      addressLine: '3 Banksia Road',
+      suburb: 'Morley',
+      state: 'WA',
+      postcode: '6062',
+      createdAt: now,
+    })
+    return ctx.db.insert('reports', {
+      businessId: other.businessId,
+      propertyId,
+      authorMembershipId: other.ownerMembershipId,
+      template: 'serviceReport',
+      templateVersion: 1,
+      legalBasis: 'APVMA · AEPMA',
+      status: 'finalised',
+      data: {},
+      photoIds: [],
+      finalisedAt: now,
+      createdAt: now,
+    })
+  })
+  const strokeId = await rival.as.mutation(api.reportAnnotations.addStroke, {
+    businessId: other.businessId,
+    reportId,
+    page: 1,
+    points: STROKE,
+  })
+  return { rival, businessId: other.businessId, reportId, strokeId }
+}
+
+describe('removeStroke: Undo takes the mark it named, and only that', () => {
+  /**
+   * The race that made Undo inexact. Kevin draws B, taps Undo while B is
+   * still saving, and draws C while the Undo waits for B's id. C reaches the
+   * server before the Undo does; "my newest on this page" would take C — the
+   * mark still on his screen — and leave B. By id, B goes and C stays.
+   */
+  test('a mark drawn after the Undo was aimed is not the one it takes', async () => {
+    const s = await setup()
+    const a = await draw(s, s.kevin, s.kevinReport, 1)
+    const b = await draw(s, s.kevin, s.kevinReport, 1)
+    const c = await draw(s, s.kevin, s.kevinReport, 1)
+
+    const result = await remove(s, s.kevin, s.kevinReport, b)
+    expect(result).toBeNull()
+    expect((await rows(s)).map((r) => r._id)).toEqual([a, c])
+  })
+
+  test('on whatever page the mark is: no page to name, none to get wrong', async () => {
+    const s = await setup()
+    const onOne = await draw(s, s.kevin, s.kevinReport, 1)
+    const onThree = await draw(s, s.kevin, s.kevinReport, 3)
+
+    await remove(s, s.kevin, s.kevinReport, onOne)
+    expect((await marks(s, s.kevin, s.kevinReport)).map((m) => m.id)).toEqual([
+      onThree,
+    ])
+  })
+
+  /** Two Undo taps a moment apart that both reached for one mark, or a Clear
+   * of its page that landed first: the mark is gone, as asked. */
+  test('a mark already gone is quietly nothing, and nothing else goes', async () => {
+    const s = await setup()
+    const kept = await draw(s, s.kevin, s.kevinReport, 1)
+    const gone = await draw(s, s.kevin, s.kevinReport, 1)
+    await remove(s, s.kevin, s.kevinReport, gone)
+
+    expect(await remove(s, s.kevin, s.kevinReport, gone)).toBeNull()
+    expect((await rows(s)).map((r) => r._id)).toEqual([kept])
+
+    const cleared = await draw(s, s.kevin, s.kevinReport, 2)
+    await s.kevin.as.mutation(api.reportAnnotations.clearMyStrokes, {
+      businessId: s.businessId,
+      reportId: s.kevinReport,
+      page: 2,
+    })
+    expect(await remove(s, s.kevin, s.kevinReport, cleared)).toBeNull()
+    expect((await rows(s)).map((r) => r._id)).toEqual([kept])
+  })
+
+  test('nobody removes a mark someone else drew — not even the owner', async () => {
+    const s = await setup()
+    const kevins = await draw(s, s.kevin, s.kevinReport, 1)
+    const terences = await draw(s, s.terence, s.kevinReport, 1)
+
+    await expect(remove(s, s.terence, s.kevinReport, kevins)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+    await expect(remove(s, s.kevin, s.kevinReport, terences)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+    expect(await rows(s)).toHaveLength(2)
+  })
+
+  /**
+   * Working in Kevin's account, Terence is still Terence: the mark he may
+   * take back is the one he drew there, not Kevin's, whose account it is.
+   */
+  test('working in someone else’s account, only your own marks are yours to remove', async () => {
+    const s = await setup()
+    const kevins = await draw(s, s.kevin, s.kevinReport, 1)
+    await s.terence.as.mutation(api.views.set, {
+      businessId: s.businessId,
+      view: { kind: 'account', membershipId: s.kevinId },
+    })
+    const terences = await draw(s, s.terence, s.kevinReport, 1)
+
+    await expect(remove(s, s.terence, s.kevinReport, kevins)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+    await remove(s, s.terence, s.kevinReport, terences)
+    expect((await rows(s)).map((r) => r._id)).toEqual([kevins])
+  })
+
+  /** The report is what the gate checked, so the mark must be on it: an id
+   * from another report must not reach past the check. */
+  test('a mark on another report is not found through this one', async () => {
+    const s = await setup()
+    // Terence may see both reports, and the mark on Priya's is his own —
+    // it is still not on Kevin's.
+    const onPriyas = await draw(s, s.terence, s.priyaReport, 1)
+
+    await expect(remove(s, s.terence, s.kevinReport, onPriyas)).rejects.toThrow(
+      'NOT_FOUND',
+    )
+    expect(await rows(s)).toHaveLength(1)
+  })
+
+  test('a mark in another business is not found, from either side', async () => {
+    const s = await setup()
+    const ours = await draw(s, s.kevin, s.kevinReport, 1)
+    const far = await rivalReport(s)
+
+    // The rival names his own report, which passes his gate, and our mark.
+    await expect(
+      far.rival.as.mutation(api.reportAnnotations.removeStroke, {
+        businessId: far.businessId,
+        reportId: far.reportId,
+        strokeId: ours,
+      }),
+    ).rejects.toThrow('NOT_FOUND')
+    // Terence names ours, and the rival's mark.
+    await expect(
+      remove(s, s.terence, s.kevinReport, far.strokeId),
+    ).rejects.toThrow('NOT_FOUND')
+    expect((await rows(s)).map((r) => r._id).sort()).toEqual(
+      [ours, far.strokeId].sort(),
+    )
+  })
+
+  test('someone who cannot see the report removes nothing from it', async () => {
+    const s = await setup()
+    const kevins = await draw(s, s.kevin, s.kevinReport, 1)
+    const nadia = await createActor(s.t, { email: 'nadia@elsewhere.test' })
+
+    // A colleague kept to his own work, and a stranger.
+    await expect(remove(s, s.priya, s.kevinReport, kevins)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+    await expect(remove(s, nadia, s.kevinReport, kevins)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+    // Kevin himself, once removed from the team.
+    await s.t.run((ctx) => ctx.db.patch(s.kevinId, { status: 'removed' }))
+    await expect(remove(s, s.kevin, s.kevinReport, kevins)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+    expect(await rows(s)).toHaveLength(1)
+  })
+
+  /** Asked who you are before whether the mark is there: a stranger cannot
+   * use "gone" against "refused" to learn which ids exist. */
+  test('a stranger is refused even for a mark that is already gone', async () => {
+    const s = await setup()
+    const gone = await draw(s, s.kevin, s.kevinReport, 1)
+    await remove(s, s.kevin, s.kevinReport, gone)
+    const nadia = await createActor(s.t, { email: 'nadia@elsewhere.test' })
+
+    await expect(remove(s, nadia, s.kevinReport, gone)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+  })
+
+  test('looking through a colleague’s account does not lend her pen', async () => {
+    const s = await setup()
+    const priyas = await draw(s, s.priya, s.priyaReport)
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.kevinId, {
+        canViewOtherAccounts: true,
+        viewingAsMembershipId: s.priyaId,
+      }),
+    )
+
+    await expect(remove(s, s.kevin, s.priyaReport, priyas)).rejects.toThrow(
+      'NO_ACCESS',
+    )
+    expect(await rows(s)).toHaveLength(1)
+  })
+
+  test('a report in Recently Deleted keeps its marks', async () => {
+    const s = await setup()
+    const kevins = await draw(s, s.kevin, s.kevinReport, 1)
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.kevinReport, { deletedAt: Date.now() }),
+    )
+
+    await expect(remove(s, s.kevin, s.kevinReport, kevins)).rejects.toThrow(
+      'NOT_FOUND',
+    )
+    expect(await rows(s)).toHaveLength(1)
+  })
+
+  test('makes room in a full report, as undo does', async () => {
+    const s = await setup()
+    await seed(
+      s,
+      s.kevinReport,
+      s.kevinId,
+      Array.from({ length: MAX_STROKES_PER_REPORT }, () => ({
+        page: 1,
+        points: 1,
+      })),
+    )
+    await expect(draw(s, s.kevin, s.kevinReport)).rejects.toThrow(
+      'TOO_MANY_STROKES',
+    )
+
+    const [first] = await rows(s)
+    await remove(s, s.kevin, s.kevinReport, first._id)
+    await draw(s, s.kevin, s.kevinReport)
+    expect(await rows(s)).toHaveLength(MAX_STROKES_PER_REPORT)
+  })
+})
+
 describe('the old viewer’s calls behave as they did', () => {
   test('addStroke saves the stroke as the real person, on the page given, and returns it', async () => {
     const s = await setup()
@@ -588,9 +855,9 @@ describe('the old viewer’s calls behave as they did', () => {
     )
   })
 
-  /** The new viewer finds "your newest" in `listForReport`, whose order is
-   * the order they were written; undo has to agree on which that is, even
-   * for two marks stamped with the same millisecond. */
+  /** "Your newest" is the order they were written in, even for two marks
+   * stamped with the same millisecond — as the new viewer reads it from
+   * `listForReport` when it chooses what its Undo names. */
   test('of two strokes drawn in one millisecond, undo takes the later', async () => {
     const s = await setup()
     await seed(s, s.kevinReport, s.kevinId, [

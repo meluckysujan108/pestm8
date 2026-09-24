@@ -1,8 +1,18 @@
 import { describe, expect, test } from 'vitest'
 import { ConvexError } from 'convex/values'
+import {
+  NO_LOCAL_MARKS,
+  sync,
+  visibleStrokes,
+} from '#/components/pdf/localMarks'
+import { createMarkupSession } from '#/components/pdf/markupSession'
+import { byPage } from '#/components/pdf/pendingMarks'
 import { createMarkupQueue } from './markupQueue'
+import { strokesByPage } from './reportPdfModel'
+import type { LocalMarks } from '#/components/pdf/localMarks'
+import type { MarkupQueue } from './markupQueue'
 import type { AnnotationRow } from './reportPdfModel'
-import type { MarkupPoint } from '#/components/pdf/types'
+import type { MarkupPoint, MarkupStroke } from '#/components/pdf/types'
 
 const POINTS: Array<MarkupPoint> = [
   { x: 0.1, y: 0.1 },
@@ -17,11 +27,11 @@ const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
  * are sent and run there one at a time, and each comes back only once this
  * client's copy of the marks includes it — the copy first, then the promise.
  * Nothing comes back until the test says the signal let it (`deliver`), which
- * is how two taps land inside one round trip.
+ * is how a tap lands inside another's round trip.
  *
- * The server's rules are `reportAnnotations.ts`'s: undo takes your newest
- * mark on the page it is given (the latest `createdAt`, and of two in one
- * millisecond the later-written); clear takes all of yours on the page.
+ * The server's rules are `reportAnnotations.ts`'s: remove takes the one mark
+ * it names — refused if it is someone else's, nothing if it is already gone;
+ * clear takes all of yours on the page, whenever they arrived.
  */
 function fakeConvex(initial: Array<Omit<AnnotationRow, 'points'>>) {
   let clock = Math.max(0, ...initial.map((row) => row.createdAt))
@@ -32,20 +42,24 @@ function fakeConvex(initial: Array<Omit<AnnotationRow, 'points'>>) {
   }))
   let client = server
   const sent: Array<{
-    label: string
     apply: () => unknown
     resolve: (value: unknown) => void
     reject: (error: unknown) => void
   }> = []
   const log: Array<string> = []
 
-  const send = (label: string, apply: () => unknown) =>
-    new Promise<unknown>((resolve, reject) => {
+  const send = <T>(label: string, apply: () => T) =>
+    new Promise<T>((resolve, reject) => {
       log.push(label)
-      sent.push({ label, apply, resolve, reject })
+      sent.push({
+        apply,
+        resolve: resolve as (value: unknown) => void,
+        reject,
+      })
     })
 
   return {
+    /** The marks as this client holds them: a new array only when they change. */
     rows: () => client,
     add: (page: number, points: Array<MarkupPoint>) =>
       send(`add p${page}`, () => {
@@ -61,14 +75,12 @@ function fakeConvex(initial: Array<Omit<AnnotationRow, 'points'>>) {
         server = [...server, row]
         return row.id
       }),
-    undoLast: (page: number) =>
-      send(`undo p${page}`, () => {
-        let newest: AnnotationRow | null = null
-        for (const row of server) {
-          if (!row.mine || row.page !== page) continue
-          if (!newest || row.createdAt >= newest.createdAt) newest = row
-        }
-        server = server.filter((row) => row !== newest)
+    remove: (strokeId: string) =>
+      send(`remove ${strokeId}`, () => {
+        const row = server.find((r) => r.id === strokeId)
+        if (!row) return null
+        if (!row.mine) throw new ConvexError('NO_ACCESS')
+        server = server.filter((r) => r !== row)
         return null
       }),
     clearMine: (page: number) =>
@@ -86,9 +98,13 @@ function fakeConvex(initial: Array<Omit<AnnotationRow, 'points'>>) {
       if (failWith !== undefined) {
         next.reject(failWith)
       } else {
-        const result = next.apply()
-        client = server
-        next.resolve(result)
+        try {
+          const result = next.apply()
+          client = server
+          next.resolve(result)
+        } catch (error) {
+          next.reject(error)
+        }
       }
       await settle()
     },
@@ -102,6 +118,8 @@ function fakeConvex(initial: Array<Omit<AnnotationRow, 'points'>>) {
   }
 }
 
+type FakeConvex = ReturnType<typeof fakeConvex>
+
 const mine = (id: string, page: number, createdAt: number) => ({
   id,
   page,
@@ -110,9 +128,10 @@ const mine = (id: string, page: number, createdAt: number) => ({
   authorColour: null,
 })
 
-describe('two Undo taps inside one round trip', () => {
-  test('take your two newest marks, wherever they are — not an older one on the first page', async () => {
-    // Yesterday's X on page 3; today A on page 2, then B on page 3.
+describe('Undo takes the mark it names', () => {
+  test('two quick Undos take the two marks they named, wherever they are — not an older one on the first page', async () => {
+    // Yesterday's X on page 3; today A on page 2, then B on page 3. The
+    // viewer names B, then A; neither waits for the other.
     const convex = fakeConvex([
       mine('X', 3, 100),
       mine('A', 2, 200),
@@ -120,137 +139,166 @@ describe('two Undo taps inside one round trip', () => {
     ])
     const queue = createMarkupQueue(convex)
 
-    const first = queue.undo()
-    const second = queue.undo()
+    const first = queue.removeStroke('B')
+    const second = queue.removeStroke('A')
+    await settle()
+    expect(convex.waiting()).toBe(2)
     await convex.deliverAll()
     await Promise.all([first, second])
 
     expect(convex.ids()).toEqual(['X'])
-    expect(convex.log).toEqual(['undo p3', 'undo p2'])
+    expect(convex.log).toEqual(['remove B', 'remove A'])
   })
 
-  test('the second waits for the first to land before it chooses a page', async () => {
-    // A on page 2, B on page 1, C on page 2 — C, then B, are the newest.
-    const convex = fakeConvex([
-      mine('A', 2, 1),
-      mine('B', 1, 2),
-      mine('C', 2, 3),
-    ])
-    const queue = createMarkupQueue(convex)
-
-    void queue.undo()
-    void queue.undo()
-    await convex.deliverOne()
-    // Only now, with C gone from this client's marks, is the second sent.
-    expect(convex.log).toEqual(['undo p2', 'undo p1'])
-    await convex.deliverAll()
-
-    expect(convex.ids()).toEqual(['A'])
-  })
-
-  test('a colleague’s marks are never the target', async () => {
-    const convex = fakeConvex([
-      mine('A', 1, 1),
-      { ...mine('Theirs', 2, 5), mine: false },
-      mine('B', 3, 2),
-    ])
-    const queue = createMarkupQueue(convex)
-
-    void queue.undo()
-    void queue.undo()
-    void queue.undo()
-    await convex.deliverAll()
-
-    expect(convex.ids()).toEqual(['Theirs'])
-  })
-})
-
-describe('Undo and Clear in the order they were tapped', () => {
-  test('Undo straight after Clear takes your newest mark left, not nothing', async () => {
+  test('a removal waits for nothing — not for saves, not for a Clear', async () => {
     const convex = fakeConvex([mine('A', 1, 1), mine('B', 2, 2)])
     const queue = createMarkupQueue(convex)
 
-    void queue.clearPage(1) // "Clear my marks on page 2"
-    void queue.undo()
-    await convex.deliverAll()
-
-    expect(convex.log).toEqual(['clear p2', 'undo p1'])
-    expect(convex.ids()).toEqual([])
-  })
-
-  test('Undo straight after a stroke still saving takes that stroke', async () => {
-    const convex = fakeConvex([mine('A', 1, 1)])
-    const queue = createMarkupQueue(convex)
-
-    void queue.addStroke(1, POINTS)
-    void queue.undo()
-    await convex.deliverAll()
-
-    expect(convex.log).toEqual(['add p2', 'undo p2'])
-    expect(convex.ids()).toEqual(['A'])
-  })
-
-  test('a mark drawn while an Undo waits is not the one it takes', async () => {
-    const convex = fakeConvex([mine('A', 1, 1)])
-    const queue = createMarkupQueue(convex)
-
-    void queue.undo()
     void queue.addStroke(0, POINTS)
-    // Held back until the Undo has landed, so the server cannot see it as
-    // the newest mark on page 1 and take it instead of A.
+    void queue.clearPage(1)
+    void queue.removeStroke('A')
+    // Sent with nothing delivered yet: the Clear waits on the save, the
+    // removal on neither.
     await settle()
-    expect(convex.log).toEqual(['undo p1'])
+    expect(convex.log).toContain('remove A')
+    expect(convex.log).not.toContain('clear p2')
     await convex.deliverAll()
 
-    expect(convex.log).toEqual(['undo p1', 'add p1'])
+    expect(convex.log).toContain('clear p2')
     expect(convex.ids()).toEqual(['new-1'])
   })
 
-  test('a mark drawn straight after Clear survives it', async () => {
+  test('a colleague’s mark is refused, in words, and stays', async () => {
+    const convex = fakeConvex([{ ...mine('Theirs', 1, 1), mine: false }])
+    const queue = createMarkupQueue(convex)
+
+    const refused = expect(queue.removeStroke('Theirs')).rejects.toThrow(
+      'Your access doesn’t let you mark this report.',
+    )
+    await convex.deliverAll()
+    await refused
+    expect(convex.ids()).toEqual(['Theirs'])
+  })
+
+  test('a mark already gone is no failure', async () => {
+    const convex = fakeConvex([mine('A', 1, 1)])
+    const queue = createMarkupQueue(convex)
+
+    const first = queue.removeStroke('A')
+    const again = queue.removeStroke('A')
+    await convex.deliverAll()
+    await expect(Promise.all([first, again])).resolves.toBeDefined()
+    expect(convex.ids()).toEqual([])
+  })
+})
+
+/**
+ * What the viewer does with the queue, spelled out: an Undo aimed at a
+ * stroke still saving names it once `addStroke` resolves with its id.
+ */
+const undoOnceSaved = (queue: MarkupQueue, save: Promise<string>) =>
+  save.then((id) => queue.removeStroke(id))
+
+describe('the race Undo used to lose', () => {
+  test('draw A, draw B, Undo at B while it saves, draw C meanwhile: B goes and C stays', async () => {
+    const convex = fakeConvex([])
+    const queue = createMarkupQueue(convex)
+
+    void queue.addStroke(0, POINTS) // A
+    const b = queue.addStroke(0, POINTS)
+    const undone = undoOnceSaved(queue, b) // tapped now, at B
+    void queue.addStroke(0, POINTS) // C, drawn during the wait
+    await convex.deliverAll()
+    await undone
+
+    // C reached the server before the Undo did. "My newest on page 1" would
+    // have taken it; by id, the Undo takes B.
+    expect(convex.log).toEqual(['add p1', 'add p1', 'add p1', 'remove new-2'])
+    expect(convex.ids()).toEqual(['new-1', 'new-3'])
+  })
+
+  test('Undo twice fast, both strokes still saving: the two newest go', async () => {
+    const convex = fakeConvex([mine('X', 1, 1)])
+    const queue = createMarkupQueue(convex)
+
+    const a = queue.addStroke(0, POINTS)
+    const b = queue.addStroke(1, POINTS)
+    const undone = [undoOnceSaved(queue, b), undoOnceSaved(queue, a)]
+    await convex.deliverAll()
+    await Promise.all(undone)
+
+    expect(convex.ids()).toEqual(['X'])
+  })
+
+  test('addStroke resolves with the saved mark’s id', async () => {
+    const convex = fakeConvex([])
+    const queue = createMarkupQueue(convex)
+
+    const saved = queue.addStroke(2, POINTS)
+    await convex.deliverAll()
+    expect(await saved).toBe('new-1')
+  })
+})
+
+describe('Clear keeps the order it was tapped in', () => {
+  test('Clear, then draw straight away on the same page: the new mark survives', async () => {
     const convex = fakeConvex([mine('A', 1, 1)])
     const queue = createMarkupQueue(convex)
 
     void queue.clearPage(0)
     void queue.addStroke(0, POINTS)
+    // Held back until the clear has landed, so it cannot be swept up in it.
+    await settle()
+    expect(convex.log).toEqual(['clear p1'])
     await convex.deliverAll()
 
     expect(convex.log).toEqual(['clear p1', 'add p1'])
     expect(convex.ids()).toEqual(['new-1'])
   })
 
+  test('draw, then Clear before the save lands: the mark is cleared', async () => {
+    const convex = fakeConvex([mine('A', 1, 1)])
+    const queue = createMarkupQueue(convex)
+
+    void queue.addStroke(0, POINTS)
+    void queue.clearPage(0)
+    // The clear waits for the save it was tapped after.
+    await settle()
+    expect(convex.log).toEqual(['add p1'])
+    await convex.deliverAll()
+
+    expect(convex.log).toEqual(['add p1', 'clear p1'])
+    expect(convex.ids()).toEqual([])
+  })
+
+  test('a second Clear sweeps up a stroke held behind the first', async () => {
+    const convex = fakeConvex([])
+    const queue = createMarkupQueue(convex)
+
+    void queue.clearPage(0)
+    void queue.addStroke(0, POINTS) // after the first, before the second
+    void queue.clearPage(0)
+    await convex.deliverAll()
+
+    expect(convex.log).toEqual(['clear p1', 'add p1', 'clear p1'])
+    expect(convex.ids()).toEqual([])
+  })
+
   test('strokes with nothing ahead of them are sent at once, side by side', async () => {
     const convex = fakeConvex([])
-    const counts: Array<number> = []
-    const queue = createMarkupQueue(convex, (count) => counts.push(count))
+    const queue = createMarkupQueue(convex)
 
     void queue.addStroke(0, POINTS)
     void queue.addStroke(1, POINTS)
     await settle()
     expect(convex.waiting()).toBe(2)
     await convex.deliverAll()
-    expect(counts).toEqual([1, 2, 1, 0])
+    expect(convex.ids()).toEqual(['new-1', 'new-2'])
   })
 })
 
 describe('failures', () => {
-  test('a refused Undo says so, and the next one still runs', async () => {
-    const convex = fakeConvex([mine('A', 1, 1), mine('B', 2, 2)])
-    const queue = createMarkupQueue(convex)
-
-    // Watched from the start: the refusal lands while the test waits.
-    const refused = expect(queue.undo()).rejects.toThrow(
-      'Your access doesn’t let you mark this report.',
-    )
-    const next = queue.undo()
-    await convex.deliverOne(new ConvexError('NO_ACCESS'))
-    await refused
-    await convex.deliverAll()
-    await next
-
-    expect(convex.ids()).toEqual(['A'])
-  })
-
-  test('a refused Clear does not hold back what comes after it', async () => {
+  test('a refused Clear says so, and does not hold back what comes after it', async () => {
     const convex = fakeConvex([mine('A', 1, 1)])
     const queue = createMarkupQueue(convex)
 
@@ -266,6 +314,34 @@ describe('failures', () => {
     expect(convex.ids()).toEqual(['A', 'new-1'])
   })
 
+  test('a Clear waits out a save that fails, and still runs', async () => {
+    const convex = fakeConvex([mine('A', 1, 1)])
+    const queue = createMarkupQueue(convex)
+
+    const refused = expect(queue.addStroke(0, POINTS)).rejects.toThrow(
+      'This report is full of marks. Clear some of yours to add more.',
+    )
+    const cleared = queue.clearPage(0)
+    await convex.deliverOne(new ConvexError('TOO_MANY_STROKES'))
+    await refused
+    await convex.deliverAll()
+    await cleared
+
+    expect(convex.ids()).toEqual([])
+  })
+
+  test('a refused removal says so in words for Undo', async () => {
+    const convex = fakeConvex([mine('A', 1, 1)])
+    const queue = createMarkupQueue(convex)
+
+    const refused = expect(queue.removeStroke('A')).rejects.toThrow(
+      'Couldn’t undo your last mark. Try again.',
+    )
+    await convex.deliverOne(new Error('boom'))
+    await refused
+    expect(convex.ids()).toEqual(['A'])
+  })
+
   test('a stroke with nothing drawable is refused before it is sent', async () => {
     const convex = fakeConvex([])
     const queue = createMarkupQueue(convex)
@@ -275,12 +351,145 @@ describe('failures', () => {
     )
     expect(convex.log).toEqual([])
   })
+})
 
-  test('Undo with no marks of yours sends nothing', async () => {
-    const convex = fakeConvex([{ ...mine('Theirs', 1, 1), mine: false }])
-    const queue = createMarkupQueue(convex)
+/**
+ * The viewer's own taps (`markupSession.ts`, choosing at the tap) in front of
+ * this queue and the server: what the person sees, and what is stored, once
+ * everything has landed. The marks on screen are this client's copy, drawn
+ * as the viewer draws them.
+ */
+function viewerOn(convex: FakeConvex) {
+  const queue = createMarkupQueue(convex)
+  let local: LocalMarks = NO_LOCAL_MARKS
+  let rows: ReadonlyArray<AnnotationRow> | null = null
+  let strokes: ReadonlyMap<number, ReadonlyArray<MarkupStroke>> = new Map()
+  // A new Map only when the client's copy changes, as the hook's query does.
+  const current = () => {
+    if (convex.rows() !== rows) {
+      rows = convex.rows()
+      strokes = strokesByPage(rows)
+    }
+    return strokes
+  }
+  const toasts: Array<string> = []
+  const session = createMarkupSession({
+    markup: () => ({ strokes: current(), canDraw: true, ...queue }),
+    strokes: current,
+    read: () => local,
+    commit: (next) => {
+      local = next
+    },
+    toast: (message) => toasts.push(message),
+    now: () => 0,
+  })
+  return {
+    session,
+    toasts,
+    /** Stored marks drawn, by id, and strokes drawn while they save — as
+     * the next render draws them, once the hook has caught up (`sync`). */
+    screen: () => {
+      local = sync(local, current(), 0)
+      const shown = visibleStrokes(current(), local)
+      return {
+        stored: [...shown.values()].flat().map((s) => s.id),
+        saving: [...byPage(local.pending).values()].flat().length,
+      }
+    },
+  }
+}
 
-    await queue.undo()
-    expect(convex.log).toEqual([])
+describe('with the viewer in front', () => {
+  test('draw A, draw B, Undo, draw C: A and C, on screen and stored', async () => {
+    const convex = fakeConvex([])
+    const viewer = viewerOn(convex)
+
+    viewer.session.stroke(0, POINTS)
+    viewer.session.stroke(0, POINTS)
+    viewer.session.undo() // B, still saving: gone from the screen at once
+    expect(viewer.screen()).toEqual({ stored: [], saving: 1 })
+    viewer.session.stroke(0, POINTS)
+    await convex.deliverAll()
+
+    expect(convex.ids()).toEqual(['new-1', 'new-3'])
+    expect(viewer.screen()).toEqual({ stored: ['new-1', 'new-3'], saving: 0 })
+    expect(viewer.toasts).toEqual([])
+  })
+
+  test('Undo twice fast takes your two newest marks', async () => {
+    const convex = fakeConvex([
+      mine('X', 3, 100),
+      mine('A', 2, 200),
+      mine('B', 3, 300),
+    ])
+    const viewer = viewerOn(convex)
+
+    viewer.session.undo()
+    viewer.session.undo()
+    expect(viewer.screen().stored).toEqual(['X'])
+    await convex.deliverAll()
+
+    expect(convex.ids()).toEqual(['X'])
+    expect(viewer.screen().stored).toEqual(['X'])
+  })
+
+  test('Clear, then draw on the same page at once: the new mark survives', async () => {
+    const convex = fakeConvex([mine('A', 1, 1), mine('P2', 2, 2)])
+    const viewer = viewerOn(convex)
+
+    viewer.session.clear(0)
+    viewer.session.stroke(0, POINTS)
+    expect(viewer.screen()).toEqual({ stored: ['P2'], saving: 1 })
+    await convex.deliverAll()
+
+    expect(convex.ids()).toEqual(['P2', 'new-1'])
+    expect(viewer.screen()).toEqual({ stored: ['P2', 'new-1'], saving: 0 })
+  })
+
+  test('draw, then Clear before the save lands: the mark is cleared', async () => {
+    const convex = fakeConvex([mine('A', 1, 1)])
+    const viewer = viewerOn(convex)
+
+    viewer.session.stroke(0, POINTS)
+    viewer.session.clear(0)
+    expect(viewer.screen()).toEqual({ stored: [], saving: 0 })
+    // The save lands first and the page stays empty while the clear runs.
+    await convex.deliverOne()
+    expect(viewer.screen()).toEqual({ stored: [], saving: 0 })
+    await convex.deliverAll()
+
+    expect(convex.ids()).toEqual([])
+    expect(viewer.screen()).toEqual({ stored: [], saving: 0 })
+  })
+
+  test('Undo straight after Clear takes your newest mark left, not nothing', async () => {
+    const convex = fakeConvex([mine('A', 1, 1), mine('B', 2, 2)])
+    const viewer = viewerOn(convex)
+
+    viewer.session.clear(1) // "Clear my marks on page 2"
+    viewer.session.undo()
+    await convex.deliverAll()
+
+    // The Undo passed over B, which the Clear is taking. (Its removal goes
+    // out at once; the Clear a moment later, once nothing is ahead of it.)
+    expect(convex.log).toEqual(['remove A', 'clear p2'])
+    expect(convex.ids()).toEqual([])
+  })
+
+  test('an Undo aimed at a stroke the server refuses is spent: no older mark goes', async () => {
+    const convex = fakeConvex([mine('Real', 1, 1)])
+    const viewer = viewerOn(convex)
+
+    viewer.session.stroke(0, POINTS)
+    viewer.session.undo()
+    await convex.deliverOne(new ConvexError('TOO_MANY_STROKES'))
+    await convex.deliverAll()
+
+    expect(convex.log).toEqual(['add p1'])
+    expect(convex.ids()).toEqual(['Real'])
+    expect(viewer.screen()).toEqual({ stored: ['Real'], saving: 0 })
+    expect(viewer.toasts).toEqual([
+      'This report is full of marks. Clear some of yours to add more.',
+    ])
   })
 })

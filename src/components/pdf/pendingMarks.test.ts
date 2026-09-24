@@ -3,6 +3,7 @@ import {
   PENDING_FALLBACK_MS,
   byPage,
   dropMark,
+  isTwin,
   markSaved,
   nextFallback,
   reconcile,
@@ -23,11 +24,18 @@ const POINTS = [
 ]
 
 function drawn(key = 'pending-1', page = 0): PendingMark {
-  return { key, page, points: POINTS, saved: null }
+  return {
+    key,
+    page,
+    points: POINTS,
+    others: new Set(),
+    saved: null,
+    taken: null,
+  }
 }
 
 function stroke(id: string, extra: Partial<MarkupStroke> = {}): MarkupStroke {
-  return { id, points: [{ x: 0.9, y: 0.9 }], mine: true, ...extra }
+  return { id, points: [{ x: 0.9, y: 0.9 }], mine: true, order: 1, ...extra }
 }
 
 const BEFORE: Strokes = new Map([[0, [stroke('a')]]])
@@ -45,7 +53,7 @@ describe('pending marks', () => {
 
   it('stay after the save until newer marks arrive, when the save came back first', () => {
     // The save resolved with the old marks still on screen.
-    const saved = markSaved([drawn()], 'pending-1', BEFORE, 1000, null)
+    const saved = markSaved([drawn()], 'pending-1', BEFORE, 1000, 'row-b')
     expect(saved).toHaveLength(1)
     // A re-render with the same marks changes nothing…
     expect(reconcile(saved, BEFORE, 1100)).toBe(saved)
@@ -56,10 +64,10 @@ describe('pending marks', () => {
   it('go at once when the marks on screen already hold the stroke', () => {
     // The marks arrived a render before the save came back, as Convex
     // usually orders them.
-    expect(markSaved([drawn()], 'pending-1', AFTER, 1000, null)).toHaveLength(0)
+    expect(markSaved([drawn()], 'pending-1', AFTER, 1000, 'b')).toHaveLength(0)
   })
 
-  it('know their stroke by id when the save hands one back', () => {
+  it('know their stroke by the id the save hands back', () => {
     const renamed: Strokes = new Map([
       [0, [stroke('a'), stroke('row-7', { points: [{ x: 0.5, y: 0.5 }] })]],
     ])
@@ -75,13 +83,21 @@ describe('pending marks', () => {
     const theirs: Strokes = new Map([
       [0, [stroke('t', { points: [...POINTS], mine: false })]],
     ])
-    expect(markSaved([drawn()], 'pending-1', theirs, 1000, null)).toHaveLength(
+    expect(markSaved([drawn()], 'pending-1', theirs, 1000, 'b')).toHaveLength(1)
+  })
+
+  /** A dot tapped twice on one spot: the older one is not this one's twin. */
+  it('are not let go for an older stroke of yours with the same points', () => {
+    const older: Strokes = new Map([
+      [0, [stroke('old', { points: [...POINTS] })]],
+    ])
+    expect(markSaved([drawn()], 'pending-1', older, 1000, 'new')).toHaveLength(
       1,
     )
   })
 
   it('go after the fallback if the marks never visibly change', () => {
-    const saved = markSaved([drawn()], 'pending-1', BEFORE, 1000, null)
+    const saved = markSaved([drawn()], 'pending-1', BEFORE, 1000, 'row-b')
     expect(nextFallback(saved)).toBe(1000 + PENDING_FALLBACK_MS)
     expect(reconcile(saved, BEFORE, 1000 + PENDING_FALLBACK_MS - 1)).toBe(saved)
     expect(reconcile(saved, BEFORE, 1000 + PENDING_FALLBACK_MS)).toHaveLength(0)
@@ -99,7 +115,7 @@ describe('pending marks', () => {
       'pending-1',
       BEFORE,
       1000,
-      null,
+      'row-b',
     )
     // The second is still saving, so newer marks let only the first go.
     const next = reconcile(list, new Map(BEFORE), 1100)
@@ -112,5 +128,37 @@ describe('pending marks', () => {
     expect(pages.get(0)?.map((mark) => mark.key)).toEqual(['p1', 'p3'])
     expect(pages.get(3)?.map((mark) => mark.key)).toEqual(['p2'])
     expect(pages.has(1)).toBe(false)
+  })
+
+  it('are not drawn once an Undo or a Clear has taken them back', () => {
+    const pages = byPage([
+      { ...drawn('p1', 0), taken: 'undo' },
+      drawn('p2', 0),
+      { ...drawn('p3', 3), taken: { clear: 1 } },
+    ])
+    expect(pages.get(0)?.map((mark) => mark.key)).toEqual(['p2'])
+    expect(pages.has(3)).toBe(false)
+  })
+
+  it('know their twin by id once saved, and by their points before', () => {
+    const twin = stroke('row-9', { points: [...POINTS] })
+    expect(isTwin(twin, drawn())).toBe(true)
+    expect(isTwin({ ...twin, mine: false }, drawn())).toBe(false)
+    const moved = stroke('row-9')
+    expect(isTwin(moved, drawn())).toBe(false)
+    const saved: PendingMark = {
+      ...drawn(),
+      saved: { strokes: BEFORE, at: 0, id: 'row-9' },
+    }
+    expect(isTwin(moved, saved)).toBe(true)
+    // Once named, only that id is it, whatever else has its points.
+    expect(isTwin(stroke('row-2', { points: [...POINTS] }), saved)).toBe(false)
+  })
+
+  it('are never the twin of a stroke known to be another mark', () => {
+    const older = stroke('row-1', { points: [...POINTS] })
+    const mark: PendingMark = { ...drawn(), others: new Set(['row-1']) }
+    expect(isTwin(older, mark)).toBe(false)
+    expect(isTwin({ ...older, id: 'row-2' }, mark)).toBe(true)
   })
 })

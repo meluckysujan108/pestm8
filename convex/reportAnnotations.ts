@@ -91,13 +91,61 @@ export const addStroke = mutation({
 })
 
 /**
+ * Takes back one mark, named by its id — the new viewer's Undo.
+ *
+ * By id rather than "my newest on this page", because the newest is only
+ * the right answer at the moment Undo is tapped, and the server hears of the
+ * tap later. A stroke drawn while the Undo waits for the one it means to
+ * finish saving reaches the server first, and "newest" would then remove
+ * that — the mark just drawn, kept on screen, gone from the record. The
+ * viewer chooses its mark when the thumb lands (`pdf/localMarks.ts`) and names
+ * it here, so what goes is what was aimed at, on whatever page.
+ *
+ * The rules are `undoLastStroke`'s and `clearMyStrokes`'s:
+ *
+ * - The gate is the same (`requireVisibleReport`, the REAL person): someone
+ *   who could not read the report cannot remove its marks.
+ * - The mark must be on this report, and so in this business: an id from
+ *   another report is `NOT_FOUND`, never a way to reach a report the caller
+ *   was not checked against.
+ * - It must be the caller's own. Nobody — not the owner, who can see every
+ *   mark in the business — removes a mark someone else drew (`NO_ACCESS`).
+ * - A mark already gone is quietly nothing: two Undo taps a moment apart
+ *   that both reached for it, or a Clear of its page that landed first. The
+ *   caller asked for it not to be there, and it isn't.
+ *
+ * Alongside `undoLastStroke`, not instead of it: the live site's viewer
+ * still calls that until this one ships, and the backend ships first.
+ */
+export const removeStroke = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    reportId: v.id('reports'),
+    strokeId: v.id('reportPdfAnnotations'),
+  },
+  returns: v.null(),
+  handler: async (ctx, { businessId, reportId, strokeId }) => {
+    const { membership } = await requireVisibleReport(ctx, businessId, reportId)
+
+    const stroke = await ctx.db.get(strokeId)
+    if (!stroke) return null
+    if (stroke.reportId !== reportId) throw new ConvexError('NOT_FOUND')
+    if (stroke.authorMembershipId !== membership._id) {
+      throw new ConvexError('NO_ACCESS')
+    }
+    await ctx.db.delete(stroke._id)
+    return null
+  },
+})
+
+/**
  * Per-author, not global — one person's undo must not delete a stroke drawn
  * by someone else they can't even tell apart from their own.
  *
- * Per page, as the old viewer asked for it. The new one undoes the newest of
- * your marks anywhere in the report by finding it in `listForReport` and
- * passing its page here, which picks the same stroke by the same rule: the
- * latest `createdAt`, and of two in one millisecond the later-written.
+ * Per page, as the old viewer asked for it; the new viewer names the exact
+ * mark (`removeStroke`). Kept, with its arguments unchanged, while the old
+ * viewer is still what the live site serves. It picks by the latest
+ * `createdAt`, and of two in one millisecond the later-written.
  */
 export const undoLastStroke = mutation({
   args: {

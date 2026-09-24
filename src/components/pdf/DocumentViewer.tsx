@@ -545,7 +545,7 @@ export function DocumentViewer({
               onPosition={onPosition}
               handleRef={scrollerRef}
               inert={gridOpen}
-              markStrokes={markup?.strokes}
+              markStrokes={pen.strokes}
               pendingMarks={pen.pendingByPage}
               marking={marking}
               onStroke={pen.onStroke}
