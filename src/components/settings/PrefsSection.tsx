@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
+import { AbnInput } from '#/components/clients/AbnInput'
+import { FormAlert } from '#/components/forms/FormAlert'
 import { AU_STATES, TIMEZONE_BY_STATE } from '#/lib/au'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -54,6 +56,7 @@ function EditableBusiness({
   business: { name: string; state: string; timezone: string; abn?: string }
 }) {
   const hydrated = useHydrated()
+  const abnId = useId()
   const [name, setName] = useState(business.name)
   const [state, setState] = useState(business.state)
   const [abn, setAbn] = useState(business.abn ?? '')
@@ -81,7 +84,10 @@ function EditableBusiness({
             name,
             state,
             timezone: TIMEZONE_BY_STATE[state],
-            abn: abn.trim() || undefined,
+            // Blank clears a saved ABN (the server drops it); leaving it out,
+            // as this did, kept the old one while the button said "Saved".
+            // Left out when there was none, so nothing writes an empty ABN.
+            abn: abn.trim() || (business.abn ? '' : undefined),
           })
         }}
       >
@@ -110,19 +116,29 @@ function EditableBusiness({
           </select>
         </label>
 
-        <label className="flex flex-col gap-1.5">
-          <span className="section-label">ABN (optional)</span>
-          <input
-            value={abn}
-            onChange={(e) => setAbn(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </label>
+        {/* Printed on every compliance document, so a newly typed one must
+            pass the ATO check; the one already saved, left alone, is never
+            refused (the seed's own ABNs fail it). */}
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor={abnId} className="section-label">
+            ABN (optional)
+          </label>
+          <div>
+            <AbnInput
+              id={abnId}
+              value={abn}
+              onChange={setAbn}
+              initial={business.abn ?? ''}
+            />
+          </div>
+        </div>
 
         <p className="text-caption text-muted">
           State determines your timezone ({TIMEZONE_BY_STATE[state]}) and how
           licence fields are labelled.
         </p>
+
+        <FormAlert error={save.isError ? save.error : null} />
 
         <button
           type="submit"

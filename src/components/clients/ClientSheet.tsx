@@ -1,10 +1,9 @@
-import { useId, useState } from 'react'
+import { useEffect, useId, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import { AlertDialog } from 'radix-ui'
-import { ConvexError } from 'convex/values'
 import { Pencil, Plus, Star, Trash2, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
@@ -13,12 +12,24 @@ import {
 } from '#/components/reports/InlineReports'
 import { ClientNotesSection } from '#/components/notes/ClientNotesSection'
 import { AbnInput } from '#/components/clients/AbnInput'
-import { AddressLookupInput } from '#/components/clients/AddressLookupInput'
-import { PostcodeStateHint } from '#/components/clients/PostcodeStateHint'
+import { EmailInput } from '#/components/forms/EmailInput'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { FormField } from '#/components/forms/FormField'
+import { PhoneInput } from '#/components/forms/PhoneInput'
+import {
+  SaveWarningsPanel,
+  SaveWarningsProvider,
+  useLatest,
+  useSaveWarnings,
+} from '#/components/forms/SaveWarnings'
+import {
+  VerifiedAddressFields,
+  addressCheckToSend,
+} from '#/components/forms/VerifiedAddressFields'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { Segmented } from '#/components/primitives/Segmented'
-import { AU_STATES } from '#/lib/au'
+import { loadLocalities } from '#/lib/addressVerify'
 import { formatJobMoney } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
 import { abnDigits, formatAbn } from '../../../convex/lib/abn'
@@ -29,8 +40,22 @@ import {
 import { dayKeyOf } from '../../../convex/lib/dates'
 import { siteContactOf } from '../../../convex/lib/siteContact'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
+import type { ErrorCopy } from '#/components/forms/describeError'
+import type { AddressValue } from '#/lib/addressVerify'
 
 type ClientKind = 'person' | 'business'
+
+/** What a failed archive, remove or make-primary says: these are not saves,
+ * so describeError's "Could not save" words would name the wrong thing. */
+function actionCopy(action: string): ErrorCopy {
+  return {
+    offline: `Could not ${action}: this device is offline. Try again when you have signal.`,
+    NOT_FOUND: `Could not ${action}: it has changed since you opened this. Close it and look again.`,
+    NO_ACCESS: `Could not ${action}: your access does not cover this. Ask the business owner.`,
+    default: `Could not ${action}. Check your connection and try again.`,
+  }
+}
 
 export function ClientSheet({
   businessId,
@@ -124,6 +149,12 @@ function ClientBody({
     onSuccess: onClose,
   })
 
+  // The state's suburb table, fetched as the sheet opens while there is
+  // signal, so an address edited at a door with none is still checked.
+  useEffect(() => {
+    void loadLocalities(businessState)
+  }, [businessState])
+
   if (client === undefined) {
     return (
       <div className="px-4 py-10">
@@ -168,6 +199,7 @@ function ClientBody({
       {editing ? (
         <ClientEditForm
           businessId={businessId}
+          businessState={businessState}
           client={client}
           contactPerson={contactPerson ?? ''}
           onDone={() => setEditing(false)}
@@ -207,7 +239,11 @@ function ClientBody({
       {/* A business needs named people because "ACME Pest Control" can't
           answer a phone; a person client already is their own one contact. */}
       {client.kind === 'business' && (
-        <ClientContacts businessId={businessId} clientId={clientId} />
+        <ClientContacts
+          businessId={businessId}
+          businessState={businessState}
+          clientId={clientId}
+        />
       )}
 
       <ClientProperties
@@ -249,6 +285,12 @@ function ClientBody({
           Archive client
         </button>
       )}
+      {/* Here, not in the dialog: the dialog closes as Archive is pressed. */}
+      <FormAlert
+        className="mt-2"
+        error={archive.isError ? archive.error : null}
+        copy={actionCopy('archive this client')}
+      />
 
       <AlertDialog.Root open={confirmArchiveOpen} onOpenChange={setConfirmArchiveOpen}>
         <AlertDialog.Portal>
@@ -291,11 +333,15 @@ function ClientBody({
 
 function ClientEditForm({
   businessId,
+  businessState,
   client,
   contactPerson: prefilledContactPerson,
   onDone,
 }: {
   businessId: Id<'businesses'>
+  /** Where the business works: suggestions lean there, an address elsewhere
+   * is pointed out, and a number missing its area code gets this state's. */
+  businessState: string
   client: {
     _id: Id<'clients'>
     kind: ClientKind
@@ -316,13 +362,15 @@ function ClientEditForm({
   const [name, setName] = useState(client.name)
   const [phone, setPhone] = useState(client.phone ?? '')
   const [email, setEmail] = useState(client.email ?? '')
-  const [addressLine, setAddressLine] = useState(client.addressLine ?? '')
-  const [suburb, setSuburb] = useState(client.suburb ?? '')
-  // Blank until chosen. It used to start on the first state in the list,
-  // ACT, and was saved with every business edit, so reports printed "ACT"
-  // as the address of clients that never had one.
-  const [state, setState] = useState(client.state ?? '')
-  const [postcode, setPostcode] = useState(client.postcode ?? '')
+  const [address, setAddress] = useState<AddressValue>({
+    addressLine: client.addressLine ?? '',
+    suburb: client.suburb ?? '',
+    // Blank until chosen. It used to start on the first state in the list,
+    // ACT, and was saved with every business edit, so reports printed "ACT"
+    // as the address of clients that never had one.
+    state: client.state ?? '',
+    postcode: client.postcode ?? '',
+  })
   const [abn, setAbn] = useState(client.abn ? formatAbn(client.abn) : '')
   const [contactPerson, setContactPerson] = useState(prefilledContactPerson)
   // What the field opened with, not the live primary: if the contacts arrive
@@ -330,8 +378,19 @@ function ClientEditForm({
   // live name would read that as clearing it and take the star off.
   const [contactPersonBefore] = useState(prefilledContactPerson)
 
+  // What the record has saved, as the save below compares with: a value left
+  // as it is is not sent, so it is never refused here either, however it
+  // fails today's rules — only warned about.
+  const savedAddress: AddressValue = {
+    addressLine: client.addressLine ?? '',
+    suburb: client.suburb ?? '',
+    state: client.state ?? '',
+    postcode: client.postcode ?? '',
+  }
+
   const hydrated = useHydrated()
-  const abnId = useId()
+  const id = useId()
+  const warnings = useSaveWarnings()
 
   const convexUpdate = useConvexMutation(api.clients.update)
   const save = useMutation({
@@ -351,158 +410,181 @@ function ClientEditForm({
     }) => convexUpdate(args),
     onSuccess: onDone,
   })
-  const invalidAbn =
-    save.error instanceof ConvexError && save.error.data === 'INVALID_ABN'
+
+  const args = () => {
+    const hasAddress = [
+      address.addressLine,
+      address.suburb,
+      address.postcode,
+    ].some((part) => part.trim() !== '')
+    return {
+      businessId,
+      clientId: client._id,
+      kind,
+      name,
+      // Each only when changed, and blank clears it (clients.update).
+      // Untouched fields are left out, so a save that changes nothing
+      // writes nothing.
+      ...edited('phone', phone, client.phone),
+      ...edited('email', email, client.email),
+      // Omitted (not cleared) when kind isn't business: `clients.update`
+      // skips undefined args, so toggling to person just stops showing
+      // the address rather than wiping it — same "hidden, not deleted"
+      // treatment as clientContacts when kind flips away from business.
+      // The ABN and contact person are left alone the same way.
+      ...(kind === 'business' && {
+        ...edited('addressLine', address.addressLine, client.addressLine),
+        ...edited('suburb', address.suburb, client.suburb),
+        // A state on its own is not an address: with no street, suburb
+        // or postcode it is cleared, which also mends a lone "ACT".
+        ...edited('state', hasAddress ? address.state : '', client.state),
+        ...edited('postcode', address.postcode, client.postcode),
+        ...((abnDigits(abn) ?? abn.trim()) !== (client.abn ?? '') && {
+          abn: abn.trim(),
+        }),
+        // The server makes the name the primary contact, and blank takes
+        // the star off (nobody is deleted).
+        ...edited('contactPerson', contactPerson, contactPersonBefore),
+      }),
+    }
+  }
+  // Read when the save goes, which can be after the checks at Save have
+  // answered: what is in the fields then, not when Save was pressed.
+  const latestArgs = useLatest(args)
+
+  const phoneId = `${id}-phone`
+  const emailId = `${id}-email`
+  const abnId = `${id}-abn`
+  const addressHeadingId = `${id}-address-heading`
 
   return (
-    <form
-      className="mt-3 flex flex-col gap-3"
-      onSubmit={(e) => {
-        e.preventDefault()
-        const hasAddress = [addressLine, suburb, postcode].some(
-          (part) => part.trim() !== '',
-        )
-        save.mutate({
-          businessId,
-          clientId: client._id,
-          kind,
-          name,
-          // Each only when changed, and blank clears it (clients.update).
-          // Untouched fields are left out, so a save that changes nothing
-          // writes nothing.
-          ...edited('phone', phone, client.phone),
-          ...edited('email', email, client.email),
-          // Omitted (not cleared) when kind isn't business: `clients.update`
-          // skips undefined args, so toggling to person just stops showing
-          // the address rather than wiping it — same "hidden, not deleted"
-          // treatment as clientContacts when kind flips away from business.
-          // The ABN and contact person are left alone the same way.
-          ...(kind === 'business' && {
-            ...edited('addressLine', addressLine, client.addressLine),
-            ...edited('suburb', suburb, client.suburb),
-            // A state on its own is not an address: with no street, suburb
-            // or postcode it is cleared, which also mends a lone "ACT".
-            ...edited('state', hasAddress ? state : '', client.state),
-            ...edited('postcode', postcode, client.postcode),
-            ...((abnDigits(abn) ?? abn.trim()) !== (client.abn ?? '') && {
-              abn: abn.trim(),
-            }),
-            // The server makes the name the primary contact, and blank takes
-            // the star off (nobody is deleted).
-            ...edited('contactPerson', contactPerson, contactPersonBefore),
-          }),
-        })
-      }}
-    >
-      <FormField label="Client type">
-        <Segmented
-          label="Client type"
-          value={kind}
-          onChange={setKind}
-          options={[
-            { value: 'person', label: 'Person' },
-            { value: 'business', label: 'Business' },
-          ]}
-        />
-      </FormField>
-      <FormField label={kind === 'business' ? 'Business name' : 'Client name'}>
-        <TextInput value={name} onChange={setName} required />
-      </FormField>
-      {kind === 'business' && (
-        <>
-          {/* Not a FormField: the ABN's error line sits beside its input,
-              and inside a <label> it would become part of the field's name. */}
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor={abnId} className="section-label">
-              ABN (optional)
-            </label>
-            <div>
-              <AbnInput id={abnId} value={abn} onChange={setAbn} size="md" />
-            </div>
-          </div>
-          <FormField label="Contact person (optional)">
-            <TextInput value={contactPerson} onChange={setContactPerson} />
-          </FormField>
-          {/* Outside the label, which it would otherwise become part of. What
-              saving will do to the person already in the field, when it is not
-              simply correcting their name: they are never removed. */}
-          {contactPersonBefore.trim() !== '' &&
-            !sameName(contactPerson, contactPersonBefore) &&
-            !isNameCorrection(contactPersonBefore, contactPerson) && (
-              <p className="-mt-1.5 text-caption text-muted">
-                {contactPerson.trim() === ''
-                  ? `${contactPersonBefore.trim()} stays in Contacts, no longer the contact person.`
-                  : `${contactPerson.trim()} becomes the contact person. ${contactPersonBefore.trim()} stays in Contacts.`}
-              </p>
-            )}
-        </>
-      )}
-      <FormField label={kind === 'business' ? 'Main phone (optional)' : 'Phone (optional)'}>
-        <TextInput value={phone} onChange={setPhone} type="tel" />
-      </FormField>
-      <FormField label={kind === 'business' ? 'Main email (optional)' : 'Email (optional)'}>
-        <TextInput value={email} onChange={setEmail} type="email" />
-      </FormField>
-      {kind === 'business' && (
-        <>
-          <FormField label="Business address (optional)">
-            <TextInput value={addressLine} onChange={setAddressLine} placeholder="Street address" />
-          </FormField>
-          <FormField label="Suburb">
-            <TextInput value={suburb} onChange={setSuburb} placeholder="Suburb" />
-          </FormField>
-          <div className="grid grid-cols-2 gap-2.5">
-            <select
-              value={state}
-              onChange={(e) => setState(e.target.value)}
-              className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
-            >
-              <option value="" disabled>
-                State
-              </option>
-              {AU_STATES.map((s) => (
-                <option key={s.code} value={s.code}>
-                  {s.code}
-                </option>
-              ))}
-            </select>
-            <TextInput
-              value={postcode}
-              onChange={setPostcode}
-              inputMode="numeric"
-              placeholder="Postcode"
+    <SaveWarningsProvider value={warnings}>
+      <form
+        className="mt-3 flex flex-col gap-3"
+        onSubmit={(e) =>
+          warnings.guard(e, () => save.mutateAsync(latestArgs.current()))
+        }
+      >
+        <WrappedField label="Client type">
+          <Segmented
+            label="Client type"
+            value={kind}
+            onChange={setKind}
+            options={[
+              { value: 'person', label: 'Person' },
+              { value: 'business', label: 'Business' },
+            ]}
+          />
+        </WrappedField>
+        <WrappedField
+          label={kind === 'business' ? 'Business name' : 'Client name'}
+        >
+          <TextInput value={name} onChange={setName} required />
+        </WrappedField>
+        {kind === 'business' && (
+          <>
+            <FormField id={abnId} label="ABN (optional)" size="md">
+              <AbnInput
+                id={abnId}
+                value={abn}
+                onChange={setAbn}
+                initial={client.abn ? formatAbn(client.abn) : ''}
+                size="md"
+              />
+            </FormField>
+            <WrappedField label="Contact person (optional)">
+              <TextInput value={contactPerson} onChange={setContactPerson} />
+            </WrappedField>
+            {/* Outside the label, which it would otherwise become part of. What
+                saving will do to the person already in the field, when it is not
+                simply correcting their name: they are never removed. */}
+            {contactPersonBefore.trim() !== '' &&
+              !sameName(contactPerson, contactPersonBefore) &&
+              !isNameCorrection(contactPersonBefore, contactPerson) && (
+                <p className="-mt-1.5 text-caption text-muted">
+                  {contactPerson.trim() === ''
+                    ? `${contactPersonBefore.trim()} stays in Contacts, no longer the contact person.`
+                    : `${contactPerson.trim()} becomes the contact person. ${contactPersonBefore.trim()} stays in Contacts.`}
+                </p>
+              )}
+          </>
+        )}
+        <FormField
+          id={phoneId}
+          label={
+            kind === 'business' ? 'Main phone (optional)' : 'Phone (optional)'
+          }
+          size="md"
+        >
+          <PhoneInput
+            id={phoneId}
+            value={phone}
+            onChange={setPhone}
+            initial={client.phone ?? ''}
+            businessState={businessState}
+            size="md"
+          />
+        </FormField>
+        <FormField
+          id={emailId}
+          label={
+            kind === 'business' ? 'Main email (optional)' : 'Email (optional)'
+          }
+          size="md"
+        >
+          <EmailInput
+            id={emailId}
+            value={email}
+            onChange={setEmail}
+            initial={client.email ?? ''}
+            size="md"
+          />
+        </FormField>
+        {kind === 'business' && (
+          // Named as a group, each field by its placeholder's word: the
+          // four stacked labels of the new-client sheet would make this
+          // small edit form mostly headings.
+          <div
+            role="group"
+            aria-labelledby={addressHeadingId}
+            className="flex flex-col gap-2.5"
+          >
+            <p id={addressHeadingId} className="section-label -mb-1">
+              Business address (optional)
+            </p>
+            <VerifiedAddressFields
+              idPrefix={`${id}-address`}
+              value={address}
+              onChange={(patch) => setAddress((a) => ({ ...a, ...patch }))}
+              workState={businessState}
+              initial={savedAddress}
+              size="md"
+              labels="placeholders"
+              required={false}
             />
           </div>
-        </>
-      )}
-      {save.isError && (
-        <p
-          role="alert"
-          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          {invalidAbn
-            ? 'Could not save: the ABN does not pass the ATO check. Check its 11 digits.'
-            : 'Could not save these changes.'}
-        </p>
-      )}
+        )}
+        <FormAlert error={save.isError ? save.error : null} />
+        <SaveWarningsPanel />
 
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onDone}
-          className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={save.isPending || !hydrated}
-          className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
-        >
-          {save.isPending ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </form>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onDone}
+            className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={save.isPending || !hydrated}
+            className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          >
+            {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
+          </button>
+        </div>
+      </form>
+    </SaveWarningsProvider>
   )
 }
 
@@ -511,9 +593,11 @@ function ClientEditForm({
  * the one contact point via their own phone/email above. */
 function ClientContacts({
   businessId,
+  businessState,
   clientId,
 }: {
   businessId: Id<'businesses'>
+  businessState: string
   clientId: Id<'clients'>
 }) {
   const { data: contacts } = useQuery(
@@ -539,6 +623,16 @@ function ClientContacts({
     mutationFn: (args: { businessId: Id<'businesses'>; contactId: Id<'clientContacts'> }) =>
       convexSetPrimary(args),
   })
+  // One line for whichever was tapped last: each tap clears the other's, so
+  // an old failure is not left standing beside a new one.
+  const removeContact = (contactId: Id<'clientContacts'>) => {
+    setPrimary.reset()
+    remove.mutate({ businessId, contactId })
+  }
+  const makePrimary = (contactId: Id<'clientContacts'>) => {
+    remove.reset()
+    setPrimary.mutate({ businessId, contactId })
+  }
 
   // Primary contact first; otherwise the order the list already comes in.
   const ordered = contacts
@@ -554,6 +648,7 @@ function ClientContacts({
               <div key={contact._id} className="py-2.5 first:pt-0 last:pb-0">
                 <ContactEditForm
                   businessId={businessId}
+                  businessState={businessState}
                   contact={contact}
                   onDone={() => setEditingId(null)}
                 />
@@ -587,7 +682,7 @@ function ClientContacts({
                       type="button"
                       aria-label={`Make ${contact.name} primary`}
                       disabled={setPrimary.isPending}
-                      onClick={() => setPrimary.mutate({ businessId, contactId: contact._id })}
+                      onClick={() => makePrimary(contact._id)}
                       className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                     >
                       <Star size={14} strokeWidth={1.7} />
@@ -600,7 +695,7 @@ function ClientContacts({
                     onClick={() =>
                       contact.isPrimary
                         ? setConfirmRemove(contact)
-                        : remove.mutate({ businessId, contactId: contact._id })
+                        : removeContact(contact._id)
                     }
                     className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
@@ -614,9 +709,22 @@ function ClientContacts({
         </div>
       )}
 
+      {/* These used to fail without a word: the star or the row just stayed. */}
+      <FormAlert
+        className="mb-3"
+        error={remove.isError ? remove.error : null}
+        copy={actionCopy('remove that contact')}
+      />
+      <FormAlert
+        className="mb-3"
+        error={setPrimary.isError ? setPrimary.error : null}
+        copy={actionCopy('make them the primary contact')}
+      />
+
       {adding ? (
         <NewContactForm
           businessId={businessId}
+          businessState={businessState}
           clientId={clientId}
           onDone={() => setAdding(false)}
         />
@@ -658,8 +766,7 @@ function ClientContacts({
                   type="button"
                   disabled={remove.isPending}
                   onClick={() =>
-                    confirmRemove &&
-                    remove.mutate({ businessId, contactId: confirmRemove._id })
+                    confirmRemove && removeContact(confirmRemove._id)
                   }
                   className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
                 >
@@ -674,12 +781,70 @@ function ClientContacts({
   )
 }
 
+/**
+ * A contact's phone and email, checked as the client's own are
+ * (PhoneInput, EmailInput). Placeholders stand in for labels in this small
+ * card, so each is named by `ariaLabel`, and by `name` in the list above Add.
+ * `initial` is what the contact has saved, when editing one.
+ */
+function ContactDetailsFields({
+  id,
+  phone,
+  onPhone,
+  email,
+  onEmail,
+  initial,
+  businessState,
+}: {
+  id: string
+  phone: string
+  onPhone: (phone: string) => void
+  email: string
+  onEmail: (email: string) => void
+  initial?: { phone?: string; email?: string }
+  businessState: string
+}) {
+  return (
+    <>
+      {/* Each in a box of its own, so its message lines sit under it rather
+          than a card's gap away. */}
+      <div>
+        <PhoneInput
+          id={`${id}-phone`}
+          value={phone}
+          onChange={onPhone}
+          initial={initial && (initial.phone ?? '')}
+          businessState={businessState}
+          size="md"
+          placeholder="Phone (optional)"
+          ariaLabel="Phone (optional)"
+          name="Phone"
+        />
+      </div>
+      <div>
+        <EmailInput
+          id={`${id}-email`}
+          value={email}
+          onChange={onEmail}
+          initial={initial && (initial.email ?? '')}
+          size="md"
+          placeholder="Email (optional)"
+          ariaLabel="Email (optional)"
+          name="Email"
+        />
+      </div>
+    </>
+  )
+}
+
 function NewContactForm({
   businessId,
+  businessState,
   clientId,
   onDone,
 }: {
   businessId: Id<'businesses'>
+  businessState: string
   clientId: Id<'clients'>
   onDone: () => void
 }) {
@@ -688,6 +853,8 @@ function NewContactForm({
   const [phone, setPhone] = useState('')
   const [email, setEmail] = useState('')
   const hydrated = useHydrated()
+  const id = useId()
+  const warnings = useSaveWarnings()
 
   const convexCreate = useConvexMutation(api.clientContacts.create)
   const create = useMutation({
@@ -702,51 +869,74 @@ function NewContactForm({
     onSuccess: onDone,
   })
 
+  // Read when the save goes, after any checks at Add have answered.
+  const latestArgs = useLatest(() => ({
+    businessId,
+    clientId,
+    name,
+    role: role.trim() || undefined,
+    phone: phone.trim() || undefined,
+    email: email.trim() || undefined,
+  }))
+
   return (
-    <form
-      className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
-      onSubmit={(e) => {
-        e.preventDefault()
-        create.mutate({
-          businessId,
-          clientId,
-          name,
-          role: role.trim() || undefined,
-          phone: phone.trim() || undefined,
-          email: email.trim() || undefined,
-        })
-      }}
-    >
-      <TextInput value={name} onChange={setName} placeholder="Name" required />
-      <TextInput value={role} onChange={setRole} placeholder="Position (optional)" />
-      <TextInput value={phone} onChange={setPhone} type="tel" placeholder="Phone (optional)" />
-      <TextInput value={email} onChange={setEmail} type="email" placeholder="Email (optional)" />
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onDone}
-          className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={create.isPending || !hydrated}
-          className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
-        >
-          {create.isPending ? 'Adding…' : 'Add'}
-        </button>
-      </div>
-    </form>
+    <SaveWarningsProvider value={warnings}>
+      <form
+        className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
+        onSubmit={(e) =>
+          warnings.guard(e, () => create.mutateAsync(latestArgs.current()))
+        }
+      >
+        <TextInput
+          value={name}
+          onChange={setName}
+          placeholder="Name"
+          required
+        />
+        <TextInput
+          value={role}
+          onChange={setRole}
+          placeholder="Position (optional)"
+        />
+        <ContactDetailsFields
+          id={id}
+          phone={phone}
+          onPhone={setPhone}
+          email={email}
+          onEmail={setEmail}
+          businessState={businessState}
+        />
+        <FormAlert error={create.isError ? create.error : null} />
+        <SaveWarningsPanel />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onDone}
+            className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={create.isPending || !hydrated}
+            className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+          >
+            {create.isPending ? 'Adding…' : warnings.saveLabel('Add')}
+          </button>
+        </div>
+      </form>
+    </SaveWarningsProvider>
   )
 }
 
 function ContactEditForm({
   businessId,
+  businessState,
   contact,
   onDone,
 }: {
   businessId: Id<'businesses'>
+  businessState: string
   contact: {
     _id: Id<'clientContacts'>
     name: string
@@ -761,13 +951,15 @@ function ContactEditForm({
   const [phone, setPhone] = useState(contact.phone ?? '')
   const [email, setEmail] = useState(contact.email ?? '')
   const hydrated = useHydrated()
+  const id = useId()
+  const warnings = useSaveWarnings()
 
   const convexUpdate = useConvexMutation(api.clientContacts.update)
   const save = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
       contactId: Id<'clientContacts'>
-      name: string
+      name?: string
       role?: string
       phone?: string
       email?: string
@@ -775,42 +967,66 @@ function ContactEditForm({
     onSuccess: onDone,
   })
 
+  // Only what changed, and '' for a detail taken off, which clears it
+  // (clientContacts.update). Sending every field, as this did, left a number
+  // the person had deleted in place: a blank was sent as "leave it alone".
+  const latestArgs = useLatest(() => ({
+    businessId,
+    contactId: contact._id,
+    ...edited('name', name, contact.name),
+    ...edited('role', role, contact.role),
+    ...edited('phone', phone, contact.phone),
+    ...edited('email', email, contact.email),
+  }))
+
   return (
-    <form
-      className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
-      onSubmit={(e) => {
-        e.preventDefault()
-        save.mutate({
-          businessId,
-          contactId: contact._id,
-          name,
-          role: role.trim() || undefined,
-          phone: phone.trim() || undefined,
-          email: email.trim() || undefined,
-        })
-      }}
-    >
-      <TextInput value={name} onChange={setName} placeholder="Name" required />
-      <TextInput value={role} onChange={setRole} placeholder="Position (optional)" />
-      <TextInput value={phone} onChange={setPhone} type="tel" placeholder="Phone (optional)" />
-      <TextInput value={email} onChange={setEmail} type="email" placeholder="Email (optional)" />
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onDone}
-          className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={save.isPending || !hydrated}
-          className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
-        >
-          {save.isPending ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </form>
+    <SaveWarningsProvider value={warnings}>
+      <form
+        className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
+        onSubmit={(e) =>
+          warnings.guard(e, () => save.mutateAsync(latestArgs.current()))
+        }
+      >
+        <TextInput
+          value={name}
+          onChange={setName}
+          placeholder="Name"
+          required
+        />
+        <TextInput
+          value={role}
+          onChange={setRole}
+          placeholder="Position (optional)"
+        />
+        <ContactDetailsFields
+          id={id}
+          phone={phone}
+          onPhone={setPhone}
+          email={email}
+          onEmail={setEmail}
+          initial={contact}
+          businessState={businessState}
+        />
+        <FormAlert error={save.isError ? save.error : null} />
+        <SaveWarningsPanel />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onDone}
+            className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={save.isPending || !hydrated}
+            className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+          >
+            {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
+          </button>
+        </div>
+      </form>
+    </SaveWarningsProvider>
   )
 }
 
@@ -957,70 +1173,43 @@ type PropertyFieldsValue = {
 /**
  * One property's address, and its site contact for a business client — the
  * same fields for editing a property and adding another, so the two cannot
- * drift. Placeholders stand in for labels in this small card, so the street
- * is named for assistive technology by `ariaLabel`.
+ * drift. Placeholders stand in for labels in this small card, so each field
+ * is also named by an aria-label.
+ *
+ * The address is VerifiedAddressFields: checked as it goes in and again at
+ * Save, against the business's own state. `initial` is what the property has
+ * saved, when editing one: left as it is, nothing in it is refused or looked
+ * up again. Must sit inside a SaveWarningsProvider for the checks at Save.
  */
 function PropertyFields({
   value,
   onChange,
+  initial,
   clientKind,
   businessState,
+  onCheckChange,
 }: {
   value: PropertyFieldsValue
   onChange: (patch: Partial<PropertyFieldsValue>) => void
+  initial?: PropertyFieldsValue
   clientKind: ClientKind
   businessState: string
+  /** How the address came to be, for the mutation's `addressCheck`. */
+  onCheckChange: (check: AddressCheck) => void
 }) {
   const id = useId()
   return (
     <>
-      <AddressLookupInput
-        id={`${id}-street`}
-        value={value.addressLine}
-        onChange={(addressLine) => onChange({ addressLine })}
-        // All four, postcode included even when the suggestion has none: a
-        // postcode kept from the last address would belong somewhere else,
-        // and a blank one is caught by `required`.
-        onPick={onChange}
-        required
-        placeholder="Street address"
-        ariaLabel="Street address"
+      <VerifiedAddressFields
+        idPrefix={id}
+        value={value}
+        onChange={onChange}
+        workState={businessState}
+        initial={initial}
         size="md"
-        biasState={businessState}
+        labels="placeholders"
+        onCheckChange={onCheckChange}
       />
-      <TextInput
-        value={value.suburb}
-        onChange={(suburb) => onChange({ suburb })}
-        placeholder="Suburb"
-        required
-      />
-      <div>
-        <div className="grid grid-cols-2 gap-2.5">
-          <select
-            value={value.state}
-            onChange={(e) => onChange({ state: e.target.value })}
-            className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          >
-            {AU_STATES.map((s) => (
-              <option key={s.code} value={s.code}>
-                {s.code}
-              </option>
-            ))}
-          </select>
-          <TextInput
-            value={value.postcode}
-            onChange={(postcode) => onChange({ postcode })}
-            inputMode="numeric"
-            placeholder="Postcode"
-            required
-          />
-        </div>
-        <PostcodeStateHint
-          postcode={value.postcode}
-          state={value.state}
-          onUseState={(state) => onChange({ state })}
-        />
-      </div>
       {clientKind === 'business' && (
         <>
           <TextInput
@@ -1029,13 +1218,21 @@ function PropertyFields({
             placeholder="Site contact name"
             ariaLabel="Site contact name"
           />
-          <TextInput
-            value={value.siteContactPhone}
-            onChange={(siteContactPhone) => onChange({ siteContactPhone })}
-            type="tel"
-            placeholder="Site contact number"
-            ariaLabel="Site contact number"
-          />
+          {/* In a box of its own, so its message lines sit under it rather
+              than a card's gap away. */}
+          <div>
+            <PhoneInput
+              id={`${id}-site-phone`}
+              value={value.siteContactPhone}
+              onChange={(siteContactPhone) => onChange({ siteContactPhone })}
+              initial={initial?.siteContactPhone}
+              businessState={businessState}
+              size="md"
+              placeholder="Site contact number"
+              ariaLabel="Site contact number"
+              name="Site contact number"
+            />
+          </div>
         </>
       )}
     </>
@@ -1063,15 +1260,19 @@ function PropertyEditForm({
   }
   onDone: () => void
 }) {
-  const [value, setValue] = useState<PropertyFieldsValue>({
+  // What the property has saved, as the save below compares with.
+  const saved: PropertyFieldsValue = {
     addressLine: property.addressLine,
     suburb: property.suburb,
     state: property.state,
     postcode: property.postcode,
     siteContactName: property.siteContactName ?? '',
     siteContactPhone: property.siteContactPhone ?? '',
-  })
+  }
+  const [value, setValue] = useState<PropertyFieldsValue>(saved)
+  const [addressCheck, setAddressCheck] = useState<AddressCheck>('typed')
   const hydrated = useHydrated()
+  const warnings = useSaveWarnings()
 
   const convexUpdate = useConvexMutation(api.properties.update)
   const save = useMutation({
@@ -1084,59 +1285,71 @@ function PropertyEditForm({
       postcode: string
       siteContactName?: string
       siteContactPhone?: string
+      addressCheck?: AddressCheck
     }) => convexUpdate(args),
     onSuccess: onDone,
   })
 
+  // Read when the save goes, after any checks at Save have answered.
+  const latestArgs = useLatest(() => ({
+    businessId,
+    propertyId: property._id,
+    addressLine: value.addressLine,
+    suburb: value.suburb,
+    state: value.state,
+    postcode: value.postcode,
+    // Left out when the address was not touched, so the property keeps how
+    // it was last entered.
+    addressCheck: addressCheckToSend(addressCheck, value, saved),
+    // Only when changed, and blank clears one. Not sent for a person
+    // client, whose fields are hidden, so saving the address must leave
+    // them as they are.
+    ...(clientKind === 'business' &&
+      changed(value.siteContactName, property.siteContactName) && {
+        siteContactName: value.siteContactName.trim(),
+      }),
+    ...(clientKind === 'business' &&
+      changed(value.siteContactPhone, property.siteContactPhone) && {
+        siteContactPhone: value.siteContactPhone.trim(),
+      }),
+  }))
+
   return (
-    <form
-      className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
-      onSubmit={(e) => {
-        e.preventDefault()
-        save.mutate({
-          businessId,
-          propertyId: property._id,
-          addressLine: value.addressLine,
-          suburb: value.suburb,
-          state: value.state,
-          postcode: value.postcode,
-          // Only when changed, and blank clears one. Not sent for a person
-          // client, whose fields are hidden, so saving the address must leave
-          // them as they are.
-          ...(clientKind === 'business' &&
-            changed(value.siteContactName, property.siteContactName) && {
-              siteContactName: value.siteContactName.trim(),
-            }),
-          ...(clientKind === 'business' &&
-            changed(value.siteContactPhone, property.siteContactPhone) && {
-              siteContactPhone: value.siteContactPhone.trim(),
-            }),
-        })
-      }}
-    >
-      <PropertyFields
-        value={value}
-        onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
-        clientKind={clientKind}
-        businessState={businessState}
-      />
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onDone}
-          className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={save.isPending || !hydrated}
-          className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
-        >
-          {save.isPending ? 'Saving…' : 'Save'}
-        </button>
-      </div>
-    </form>
+    <SaveWarningsProvider value={warnings}>
+      <form
+        className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
+        onSubmit={(e) =>
+          warnings.guard(e, () => save.mutateAsync(latestArgs.current()))
+        }
+      >
+        <PropertyFields
+          value={value}
+          onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
+          initial={saved}
+          clientKind={clientKind}
+          businessState={businessState}
+          onCheckChange={setAddressCheck}
+        />
+        <FormAlert error={save.isError ? save.error : null} />
+        <SaveWarningsPanel />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onDone}
+            className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={save.isPending || !hydrated}
+            className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+          >
+            {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
+          </button>
+        </div>
+      </form>
+    </SaveWarningsProvider>
   )
 }
 
@@ -1163,7 +1376,9 @@ function NewPropertyForClientForm({
     siteContactName: '',
     siteContactPhone: '',
   })
+  const [addressCheck, setAddressCheck] = useState<AddressCheck>('typed')
   const hydrated = useHydrated()
+  const warnings = useSaveWarnings()
 
   const convexCreate = useConvexMutation(api.properties.createForClient)
   const create = useMutation({
@@ -1176,52 +1391,61 @@ function NewPropertyForClientForm({
       postcode: string
       siteContactName?: string
       siteContactPhone?: string
+      addressCheck?: AddressCheck
     }) => convexCreate(args),
     onSuccess: onDone,
   })
 
+  // Read when the save goes, after any checks at Add have answered.
+  const latestArgs = useLatest(() => ({
+    businessId,
+    clientId,
+    addressLine: value.addressLine,
+    suburb: value.suburb,
+    state: value.state,
+    postcode: value.postcode,
+    addressCheck: addressCheckToSend(addressCheck, value),
+    ...(clientKind === 'business' && {
+      siteContactName: value.siteContactName.trim() || undefined,
+      siteContactPhone: value.siteContactPhone.trim() || undefined,
+    }),
+  }))
+
   return (
-    <form
-      className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
-      onSubmit={(e) => {
-        e.preventDefault()
-        create.mutate({
-          businessId,
-          clientId,
-          addressLine: value.addressLine,
-          suburb: value.suburb,
-          state: value.state,
-          postcode: value.postcode,
-          ...(clientKind === 'business' && {
-            siteContactName: value.siteContactName.trim() || undefined,
-            siteContactPhone: value.siteContactPhone.trim() || undefined,
-          }),
-        })
-      }}
-    >
-      <PropertyFields
-        value={value}
-        onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
-        clientKind={clientKind}
-        businessState={businessState}
-      />
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onDone}
-          className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={create.isPending || !hydrated}
-          className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
-        >
-          {create.isPending ? 'Adding…' : 'Add property'}
-        </button>
-      </div>
-    </form>
+    <SaveWarningsProvider value={warnings}>
+      <form
+        className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
+        onSubmit={(e) =>
+          warnings.guard(e, () => create.mutateAsync(latestArgs.current()))
+        }
+      >
+        <PropertyFields
+          value={value}
+          onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
+          clientKind={clientKind}
+          businessState={businessState}
+          onCheckChange={setAddressCheck}
+        />
+        <FormAlert error={create.isError ? create.error : null} />
+        <SaveWarningsPanel />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onDone}
+            className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={create.isPending || !hydrated}
+            className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+          >
+            {create.isPending ? 'Adding…' : warnings.saveLabel('Add property')}
+          </button>
+        </div>
+      </form>
+    </SaveWarningsProvider>
   )
 }
 
@@ -1341,7 +1565,9 @@ function Section({
   )
 }
 
-function FormField({
+/** A control wrapped in its label, for one with no message lines of its own
+ * (those take the forms FormField, whose label names it by `htmlFor`). */
+function WrappedField({
   label,
   children,
 }: {

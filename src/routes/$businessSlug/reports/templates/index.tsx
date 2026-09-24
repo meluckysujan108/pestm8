@@ -9,6 +9,7 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
 import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
+import { FormAlert } from '#/components/forms/FormAlert'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -151,6 +152,17 @@ function BuiltinRow({
   )
 }
 
+/** Clone and duplicate make something new, so they say "copy", not "save". */
+const COPY_ERROR = {
+  TEMPLATE_RETIRED:
+    'This template has been retired, so it can no longer be copied.',
+  NOT_FOUND:
+    'Could not copy: this template has been deleted since the page opened.',
+  offline:
+    'Could not make the copy: this device is offline. Try again when you have signal.',
+  default: 'Could not make the copy. Check your connection and try again.',
+}
+
 function CloneBuiltinSheet({
   businessId,
   sourceTemplateId,
@@ -214,6 +226,12 @@ function CloneBuiltinSheet({
                 className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
               />
             </label>
+            {/* A failed clone used to leave the sheet open with nothing said. */}
+            <FormAlert
+              error={clone.isError ? clone.error : null}
+              copy={COPY_ERROR}
+              className="mt-4"
+            />
             <button
               type="submit"
               disabled={clone.isPending || !hydrated}
@@ -403,6 +421,11 @@ function DuplicateSheet({
                 className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
               />
             </label>
+            <FormAlert
+              error={duplicate.isError ? duplicate.error : null}
+              copy={COPY_ERROR}
+              className="mt-4"
+            />
             <button
               type="submit"
               disabled={duplicate.isPending || !hydrated}

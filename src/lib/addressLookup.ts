@@ -71,7 +71,7 @@ const MAX_SUGGESTIONS = 5
 const MIN_STREET_CHARS = 3
 
 /** Ways Photon files as streets that nobody lives on. */
-const NOT_A_STREET = new Set([
+export const NOT_A_STREET: ReadonlySet<string> = new Set([
   'abandoned',
   'bridleway',
   'bus_stop',
@@ -86,8 +86,11 @@ const NOT_A_STREET = new Set([
   'steps',
 ])
 
-/** Words that say what kind of street it is, not which one. */
-const STREET_TYPES = new Set([
+/** Words that say what kind of street it is, not which one. Australia
+ * Post's short forms, and the ones people write that it does not use ("Crt",
+ * "Dve", "Gdns"): a type not in here is read as part of the street's name,
+ * and "Felicia Crt" would then never be the map's Felicia Court. */
+export const STREET_TYPES: ReadonlySet<string> = new Set([
   'av',
   'ave',
   'avenue',
@@ -95,6 +98,8 @@ const STREET_TYPES = new Set([
   'boulevard',
   'bvd',
   'cct',
+  'cir',
+  'circle',
   'circuit',
   'cl',
   'close',
@@ -102,11 +107,17 @@ const STREET_TYPES = new Set([
   'cr',
   'cres',
   'crescent',
+  'crt',
   'ct',
   'dr',
   'drive',
+  'dve',
   'esp',
   'esplanade',
+  'freeway',
+  'fwy',
+  'gardens',
+  'gdns',
   'gr',
   'grove',
   'highway',
@@ -115,9 +126,14 @@ const STREET_TYPES = new Set([
   'ln',
   'loop',
   'parade',
+  'parkway',
   'pde',
+  'pkwy',
   'pl',
   'place',
+  'prom',
+  'promenade',
+  'pwy',
   'rd',
   'road',
   'sq',
@@ -133,7 +149,7 @@ const STREET_TYPES = new Set([
 
 /** How a street's own words get shortened when typed: "East Pt Rd" is East
  * Point Road, "Mt Eliza Rd" Mount Eliza Road. */
-const SHORT_FORMS: Record<string, string> = {
+export const SHORT_FORMS: Readonly<Record<string, string>> = {
   bch: 'beach',
   ck: 'creek',
   gt: 'great',
@@ -176,17 +192,23 @@ const ORDINAL_START = /^\d+(?:st|nd|rd|th)\b/i
 
 /**
  * The house part at the start of what was typed ("12", "12A", "3/12",
- * "Unit 3/12", "12-14", "Lot 50"), tidied as it goes back into the field,
- * and the rest.
+ * "Unit 3/12", "Unit 3 12", "12-14", "Lot 50"), tidied as it goes back into
+ * the field, and the rest.
  *
  * The number must stand alone, so "3rd Avenue" stays a street. A number with
  * nothing after it yet is a house with no street typed.
  */
-function splitHouseToken(typed: string): {
+export function splitHouseToken(typed: string): {
   token: string | null
   street: string
 } {
-  const clean = typed.replace(/\s+/g, ' ').trim()
+  // "No. 12" and "#12" are 12. Left in, the number would not be read as the
+  // house, and would go to Photon with the street.
+  const clean = typed
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/#\s*(?=\d)/g, '')
+    .replace(/^no\.?\s*(?=\d)/i, '')
 
   // Every group always takes part, if only as '': TypeScript types a group
   // as a string whether it matched or not.
@@ -213,6 +235,22 @@ function splitHouseToken(typed: string): {
     return {
       token: word ? `${word} ${numbers}` : numbers,
       street: unit[5].trim(),
+    }
+  }
+
+  // With the word in front, two numbers need nothing between them: "Unit 3
+  // 12", "U3 12", "Shop 2 12-14". Written back with the comma, the form that
+  // also reads right for a level or a suite. Without the word, "3 12 …" is as
+  // unclear as "3, 12 …".
+  const spaced =
+    /^(unit|u|apt|apartment|flat|shop|suite|level|lvl)\.?\s*(\d+[a-z]?)\s+(\d+[a-z]?(?:\s*-\s*\d+[a-z]?)?)(?:[\s,]+|$)(.*)$/i.exec(
+      clean,
+    )
+  if (spaced) {
+    const tidy = (n: string) => n.replace(/\s/g, '').toUpperCase()
+    return {
+      token: `${UNIT_WORDS[spaced[1].toLowerCase()]} ${tidy(spaced[2])}, ${tidy(spaced[3])}`,
+      street: spaced[4].trim(),
     }
   }
 
@@ -315,6 +353,71 @@ function stateCodeOf(raw: string, postcode: string): string {
   return match?.code ?? stateOfPostcode(postcode) ?? ''
 }
 
+/** One Photon result read as a street in a place. */
+export type PhotonStreet = {
+  /** "Walcott Street": the street itself, or the street a shop is on. */
+  street: string
+  /** The suburb as it goes into the form: see `readPhotonStreet`. */
+  suburb: string
+  /** The names a suburb typed by hand is matched against: the suburb, and
+   * the estate inside it ("Treeby", "Calleya"). The city only when there is
+   * no suburb: every street in metro Perth has the city "Perth", and every
+   * one in Darwin "Darwin", so a street found through the city could be in
+   * any suburb of it. */
+  places: Array<string>
+  /** The city Photon puts the place in ("Perth"), or ''. */
+  city: string
+  /** A state code from AU_STATES. */
+  state: string
+  /** Four digits, or ''. */
+  postcode: string
+}
+
+/** Photon's features, or [] for a reply that is not a FeatureCollection. */
+export function photonFeaturesOf(json: unknown): Array<unknown> {
+  if (typeof json !== 'object' || json === null) return []
+  const features = (json as { features?: unknown }).features
+  return Array.isArray(features) ? features : []
+}
+
+/**
+ * One Photon feature as the Australian street it is on, or null when it is
+ * not one: another country, a footpath or cycleway, no name, no state.
+ * Anything that is not the expected shape is null, never thrown on.
+ */
+export function readPhotonStreet(feature: unknown): PhotonStreet | null {
+  if (typeof feature !== 'object' || feature === null) return null
+  const props = (feature as { properties?: unknown }).properties
+  if (typeof props !== 'object' || props === null) return null
+  const p = props as Record<string, unknown>
+
+  if (text(p.countrycode).toUpperCase() !== 'AU') return null
+
+  let street = ''
+  if (p.type === 'street') {
+    const kind = text(p.osm_value)
+    if (text(p.osm_key) === 'highway' && NOT_A_STREET.has(kind)) return null
+    street = text(p.name)
+  } else if (p.type === 'house') {
+    street = text(p.street)
+  }
+  if (!street) return null
+
+  // District is the suburb ("Mount Lawley", where city is all of "Perth");
+  // a country town has only a city. Locality comes last: it is the estate
+  // ("Calleya") inside the suburb (Treeby) when both are there.
+  const district = text(p.district)
+  const city = text(p.city)
+  const locality = text(p.locality)
+  const suburb = district || city || locality
+  const rawPostcode = text(p.postcode)
+  const postcode = /^\d{4}$/.test(rawPostcode) ? rawPostcode : ''
+  const state = stateCodeOf(text(p.state), postcode)
+  if (!suburb || !state) return null
+  const places = [district || city, locality].filter(Boolean)
+  return { street, suburb, places, city, state, postcode }
+}
+
 /**
  * Photon's reply as the suggestions to show for what was typed, best first.
  * Anything that is not the expected shape is skipped, never thrown on.
@@ -324,40 +427,14 @@ export function parsePhotonResponse(
   typed: string,
   biasState?: string,
 ): Array<AddressSuggestion> {
-  if (typeof json !== 'object' || json === null) return []
-  const features = (json as { features?: unknown }).features
-  if (!Array.isArray(features)) return []
-
   const { token, street: typedStreet } = splitHouseToken(typed)
   const typedWords = wordsOf(typedStreet)
   const found: Array<AddressSuggestion> = []
 
-  for (const feature of features) {
-    if (typeof feature !== 'object' || feature === null) continue
-    const props = (feature as { properties?: unknown }).properties
-    if (typeof props !== 'object' || props === null) continue
-    const p = props as Record<string, unknown>
-
-    if (text(p.countrycode).toUpperCase() !== 'AU') continue
-
-    let street = ''
-    if (p.type === 'street') {
-      const kind = text(p.osm_value)
-      if (text(p.osm_key) === 'highway' && NOT_A_STREET.has(kind)) continue
-      street = text(p.name)
-    } else if (p.type === 'house') {
-      street = text(p.street)
-    }
-    if (!street || !isStreetTyped(street, typedWords)) continue
-
-    // District is the suburb ("Mount Lawley", where city is all of "Perth");
-    // a country town has only a city. Locality comes last: it is the estate
-    // ("Calleya") inside the suburb (Treeby) when both are there.
-    const suburb = text(p.district) || text(p.city) || text(p.locality)
-    const rawPostcode = text(p.postcode)
-    const postcode = /^\d{4}$/.test(rawPostcode) ? rawPostcode : ''
-    const state = stateCodeOf(text(p.state), postcode)
-    if (!suburb || !state) continue
+  for (const feature of photonFeaturesOf(json)) {
+    const place = readPhotonStreet(feature)
+    if (!place || !isStreetTyped(place.street, typedWords)) continue
+    const { street, suburb, state, postcode } = place
 
     const addressLine = token ? `${token} ${street}` : street
     found.push({
@@ -389,26 +466,25 @@ export function parsePhotonResponse(
 }
 
 /**
- * Suggestions for what was typed, or [] for any failure at all: offline, a
- * refused or broken reply, or the request being aborted because more was
- * typed. The field works exactly as a plain input without them.
- */
-/**
- * Set to 'on' in localStorage to let a browser under automation reach Photon.
- * See `lookupAllowed`.
+ * Set to 'on' in localStorage to let a browser under automation reach Photon
+ * and the other services the forms check against. See
+ * `networkLookupsAllowed`.
  */
 export const LOOKUP_UNDER_AUTOMATION_KEY = 'pestm8:address-lookup'
 
 /**
- * Off when the browser is being driven by a test runner (`navigator.webdriver`
- * — Playwright sets it), unless the test opts in.
+ * Whether the forms may ask anything over the network: address suggestions,
+ * the street check at save (addressVerify.ts), the email domain check. Off
+ * when the browser is being driven by a test runner (`navigator.webdriver` —
+ * Playwright sets it), unless the test opts in.
  *
  * The e2e suite types dozens of street addresses a run. Left on, every one of
  * them would reach a free public service that asks to be used fairly, and the
- * suite's results would hang on that service being up. A spec that is ABOUT the
- * lookup opts in and answers the requests itself (`page.route`).
+ * suite's results would hang on that service being up. With it off, only the
+ * offline checks run there. A spec that is ABOUT the lookup opts in and
+ * answers the requests itself (`page.route`).
  */
-function lookupAllowed(): boolean {
+export function networkLookupsAllowed(): boolean {
   if (typeof navigator === 'undefined' || !navigator.webdriver) return true
   try {
     return localStorage.getItem(LOOKUP_UNDER_AUTOMATION_KEY) === 'on'
@@ -417,32 +493,114 @@ function lookupAllowed(): boolean {
   }
 }
 
+/** The browser says there is no connection at all. One bar that answers
+ * nothing still counts as online, which is what the time limits are for. */
+export function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
+/**
+ * A GET that gives up after `timeoutMs`, or when `signal` is aborted, and
+ * never throws: the reply's JSON, or `ok: false` for any failure at all
+ * (refused, timed out, aborted, an error status, not JSON).
+ *
+ * Pass `headers` only when the service needs one: any header beyond the
+ * simple ones makes the browser ask the service's permission first (a CORS
+ * preflight), which is one more round trip on one bar of signal.
+ */
+export async function getJsonWithin(
+  url: string,
+  opts: { signal?: AbortSignal; timeoutMs: number; headers?: HeadersInit },
+): Promise<{ ok: true; json: unknown } | { ok: false }> {
+  const controller = new AbortController()
+  const giveUp = setTimeout(() => controller.abort(), opts.timeoutMs)
+  const cancel = () => controller.abort()
+  if (opts.signal?.aborted) controller.abort()
+  opts.signal?.addEventListener('abort', cancel)
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      ...(opts.headers ? { headers: opts.headers } : {}),
+    })
+    if (!res.ok) return { ok: false }
+    return { ok: true, json: await res.json() }
+  } catch {
+    return { ok: false }
+  } finally {
+    clearTimeout(giveUp)
+    opts.signal?.removeEventListener('abort', cancel)
+  }
+}
+
+/** What one lookup came to, for the line under the field. */
+export type AddressLookup = {
+  /**
+   * 'found': suggestions to show. 'none': Photon answered and nothing fits.
+   * 'failed': offline, refused, timed out, aborted or garbled. 'skipped':
+   * never asked, because too little of a street has been typed or a test
+   * runner is driving the browser; the field says nothing then.
+   */
+  status: 'found' | 'none' | 'failed' | 'skipped'
+  suggestions: Array<AddressSuggestion>
+}
+
+/**
+ * What the line under the field keeps when a lookup is called off (Escape
+ * closing the list, a pick): an answer already in stays, and "Searching…"
+ * goes, because nothing is being searched any more. Left, it would read
+ * "Searching…" until the text next changed.
+ */
+export function lookupStatusAfterCancel<T extends { status: string }>(
+  lookup: T | null,
+): T | null {
+  return lookup?.status === 'searching' ? null : lookup
+}
+
+/** Whether what was typed would be looked up at all: enough of a street,
+ * and lookups allowed. Lets the field say "Searching…" only when it is. */
+export function addressLookupWanted(typed: string): boolean {
+  return networkLookupsAllowed() && photonQueryOf(typed) !== null
+}
+
+/**
+ * Suggestions for what was typed, and how the asking went. Never throws.
+ */
+export async function lookUpAddresses(
+  query: string,
+  opts: { signal: AbortSignal; biasState?: string },
+): Promise<AddressLookup> {
+  if (!addressLookupWanted(query)) return { status: 'skipped', suggestions: [] }
+  if (isOffline()) return { status: 'failed', suggestions: [] }
+  // Given up on after a few seconds: on a site with one bar, a stalled
+  // request would otherwise leave the person waiting on a list that is never
+  // coming, when typing the rest by hand is quicker.
+  const reply = await getJsonWithin(photonUrl(query, opts.biasState), {
+    signal: opts.signal,
+    timeoutMs: REQUEST_TIMEOUT_MS,
+  })
+  // A reply that is not a FeatureCollection at all (a proxy's error page, a
+  // captive portal's JSON) is a failure, not "no matching street".
+  const features =
+    reply.ok && typeof reply.json === 'object' && reply.json !== null
+      ? (reply.json as { features?: unknown }).features
+      : undefined
+  if (!reply.ok || !Array.isArray(features)) {
+    return { status: 'failed', suggestions: [] }
+  }
+  const suggestions = parsePhotonResponse(reply.json, query, opts.biasState)
+  return { status: suggestions.length > 0 ? 'found' : 'none', suggestions }
+}
+
+/**
+ * Suggestions for what was typed, or [] for any failure at all: offline, a
+ * refused or broken reply, or the request being aborted because more was
+ * typed. The field works exactly as a plain input without them.
+ */
 export async function searchAddresses(
   query: string,
   opts: { signal: AbortSignal; biasState?: string },
 ): Promise<Array<AddressSuggestion>> {
-  if (typeof navigator !== 'undefined' && navigator.onLine === false) return []
-  if (!lookupAllowed()) return []
-  if (photonQueryOf(query) === null) return []
-  // Given up on after a few seconds: on a site with one bar, a stalled
-  // request would otherwise leave the person waiting on a list that is never
-  // coming, when typing the rest by hand is quicker.
-  const controller = new AbortController()
-  const giveUp = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-  const cancel = () => controller.abort()
-  opts.signal.addEventListener('abort', cancel)
-  try {
-    const res = await fetch(photonUrl(query, opts.biasState), {
-      signal: controller.signal,
-    })
-    if (!res.ok) return []
-    return parsePhotonResponse(await res.json(), query, opts.biasState)
-  } catch {
-    return []
-  } finally {
-    clearTimeout(giveUp)
-    opts.signal.removeEventListener('abort', cancel)
-  }
+  return (await lookUpAddresses(query, opts)).suggestions
 }
 
 /** The indefinite article for a state code as it is read aloud: "an NT",

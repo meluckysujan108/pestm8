@@ -10,6 +10,7 @@ import { internal } from './_generated/api'
 import { authComponent } from './auth'
 import { getAuthUserId, requireMembership } from './lib/access'
 import { isMemberColour, nextColour, normaliseColour } from './lib/colours'
+import { isValidEmail } from './lib/email'
 import {
   INVITE_TTL_MS,
   hashInviteToken,
@@ -94,13 +95,15 @@ export const store = internalMutation({
     const actor = env.actor.real
     assertInvitableRole(args.role)
 
+    // Lower-cased whole, not just the domain as a client's email is: the
+    // invitation is matched to the account that redeems it, and sign-in
+    // addresses are compared case-insensitively.
     const email = args.email.trim().toLowerCase()
-    // A deliberately loose check: the binding is what matters, and rejecting
-    // unusual-but-valid addresses is worse than accepting a typo the owner can
-    // see in the pending list.
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      throw new ConvexError('INVALID_EMAIL')
-    }
+    // The app's one rule for an address (lib/email.ts), which refuses only
+    // what can never be delivered to — "kevin@gmail..com", "kevin@kp.c". Still
+    // loose on purpose: the binding is what matters, and an unusual but real
+    // address must not be turned away.
+    if (!isValidEmail(email)) throw new ConvexError('INVALID_EMAIL')
 
     const members = await ctx.db
       .query('memberships')

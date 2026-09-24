@@ -11,7 +11,7 @@ export const sameName = (a: string, b: string) => folded(a) === folded(b)
 
 /** Edits between two strings, a swap of neighbours counting as one ("Jhon"
  * and "John" are one apart). */
-function editDistance(a: string, b: string): number {
+export function editDistance(a: string, b: string): number {
   const d = Array.from({ length: a.length + 1 }, (_row, i) =>
     Array.from({ length: b.length + 1 }, (_cell, j) =>
       i === 0 ? j : j === 0 ? i : 0,

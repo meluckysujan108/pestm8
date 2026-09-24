@@ -6,6 +6,7 @@ import { forSelf, recordAudit } from './lib/audit'
 import { requireAssignableRole, writeEnvelopeForMember } from './lib/actor'
 import { canManageMember, clampGrants } from './lib/capabilities'
 import { factsFromMembership } from './lib/membershipFacts'
+import { isValidEmail } from './lib/email'
 import {
   INVITE_TTL_MS,
   hashInviteToken,
@@ -80,10 +81,10 @@ export const store = internalMutation({
     }
     requireAssignableRole(wantedRole)
 
+    // As `invitations.store`: lower-cased whole, and the app's one rule for
+    // an address rather than a second, looser copy of it.
     const email = rawEmail.trim().toLowerCase()
-    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-      throw new ConvexError('INVALID_EMAIL')
-    }
+    if (!isValidEmail(email)) throw new ConvexError('INVALID_EMAIL')
 
     for (const member of await ctx.db
       .query('memberships')

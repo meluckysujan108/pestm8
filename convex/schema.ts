@@ -226,6 +226,14 @@ export const intervalUnit = v.union(
 export const clientKind = v.union(v.literal('person'), v.literal('business'))
 
 /**
+ * How a property's address was last entered: 'picked' from the address
+ * suggestions and unchanged when saved, or 'typed' (by hand, or a suggestion
+ * changed afterwards — autofill rewrites a suburb or postcode after the pick).
+ * Only a record of how the form saw it; nothing is refused on it.
+ */
+export const addressCheck = v.union(v.literal('picked'), v.literal('typed'))
+
+/**
  * Phases 1–2 (ARCHITECTURE.md §6.1–6.2): tenancy plus the core scheduling
  * loop. Reports, invoices, notes and tasks land in Phase 3.
  */
@@ -449,6 +457,11 @@ export default defineSchema({
     // blank; a person client's are kept but not shown or dialled.
     siteContactName: v.optional(v.string()),
     siteContactPhone: v.optional(v.string()),
+    // Written only when a form says how the address was entered (see
+    // `addressCheck` above), with when. Absent on every property saved
+    // before field verification, and on any saved by an older screen.
+    addressCheck: v.optional(addressCheck),
+    addressCheckedAt: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index('by_business', ['businessId'])
