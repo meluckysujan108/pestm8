@@ -114,6 +114,7 @@ export const seed = internalMutation({
           : undefined,
         createdAt: note.createdAt,
         updatedAt: note.createdAt,
+        ...(note.spec.personal && { visibility: 'private' as const }),
       })
       await prosemirrorSync.create(ctx, noteId, note.doc)
       ids.set(note, noteId)
@@ -236,6 +237,9 @@ async function noteViewerFor(
     readRows: env.scope,
     ownRows: env.realScope,
     pickerRows: env.listScope,
+    // Only lists other people's personal notes; never decides access, which
+    // is all this viewer is used for.
+    godView: false,
   }
 }
 
@@ -373,6 +377,10 @@ type NoteSpec = {
   deletedAt?: number
   /** Mentions already opened, and when. Unlisted means unread. */
   readAt?: Partial<Record<MemberKey, number>>
+  /** A personal note (notes.create's visibility 'private'): its author and
+   * the owner read it, only its author writes it, it links to nothing, and
+   * any pills in it tag nobody. */
+  personal?: true
   body: (pill: Pill) => PmNode
 }
 
@@ -1118,6 +1126,118 @@ function noteSpecs(base: DemoBase, now: number): Array<NoteSpec> {
           ),
         ),
     },
+
+    // ── Personal notes: "My notes", and the owner's "Everyone's notes" ────
+    // Readable by their author and the owner, written by the author alone,
+    // linked to nothing, tagging nobody.
+    {
+      name: 'owner’s quotes to chase, pinned',
+      by: 'owner',
+      on: { team: true },
+      personal: true,
+      createdAt: when(-9, 19, 10),
+      updatedAt: when(-2, 20, 5),
+      pinnedAt: when(-9, 19, 12),
+      body: () =>
+        titled(
+          'Quotes to chase',
+          checklist(
+            task(true, 'Ridgeline — Osborne Park bird netting (sent)'),
+            task(true, 'Coastline — Scarborough pre-purchase'),
+            task(false, 'PPM — whole-portfolio termite program'),
+            task(false, 'Harbourview Café — monthly service agreement'),
+          ),
+          p('Follow up anything older than a week by phone, not email.'),
+        ),
+    },
+    {
+      name: 'owner’s van and admin',
+      by: 'owner',
+      on: { team: true },
+      personal: true,
+      createdAt: when(-40, 7, 30),
+      updatedAt: when(-20, 18, 45),
+      body: () =>
+        titled(
+          'Van — service and rego',
+          p(
+            'Rego due end of next month. Service booked with the dealer for the 14th, loan van organised.',
+          ),
+          p(
+            'Ask the accountant whether the new sprayer is a write-off this year.',
+          ),
+        ),
+    },
+    {
+      name: 'owner’s personal note deleted three days ago',
+      by: 'owner',
+      on: { team: true },
+      personal: true,
+      createdAt: when(-12, 21, 0),
+      updatedAt: when(-12, 21, 20),
+      deletedAt: when(-3, 6, 45),
+      body: () =>
+        titled(
+          'Pricing idea (dropped)',
+          p(
+            'Flat monthly fee for strata clients instead of per visit. Not worth it for the volume.',
+          ),
+        ),
+    },
+    {
+      name: 'contractor’s stock count',
+      by: 'contractor',
+      on: { team: true },
+      personal: true,
+      createdAt: when(-15, 17, 30),
+      updatedAt: when(-1, 17, 40),
+      body: () =>
+        titled(
+          'My chemical stock — van 2',
+          checklist(
+            task(true, 'Fipronil gel: 1 tube left'),
+            task(true, 'Bait blocks: 3 buckets'),
+            task(false, 'Bifenthrin: order 2 × 5 L'),
+          ),
+          p('Supplier closes at 3pm on Fridays.'),
+        ),
+    },
+    {
+      // A pill typed into a personal note: kept in the body, but it tags
+      // nobody (applyDerived keeps no mention row), so the contractor's
+      // badge does not move.
+      name: 'sub’s licence application notes',
+      by: 'sub',
+      on: { team: true },
+      personal: true,
+      createdAt: when(-7, 20, 0),
+      updatedAt: when(-3, 21, 15),
+      body: (pill) =>
+        titled(
+          'Licence application',
+          p(
+            'Need 20 supervised timber inspections logged before I can apply. At 12 so far.',
+          ),
+          p('Ask ', pill('contractor'), ' to sign off the next eight.'),
+        ),
+    },
+    {
+      name: 'Dana’s questions for the owner',
+      by: 'dana',
+      on: { team: true },
+      personal: true,
+      createdAt: earlierToday(95),
+      updatedAt: earlierToday(90),
+      body: () =>
+        titled(
+          'To ask on Monday',
+          checklist(
+            task(false, 'Can I take the ute home on call-out weeks?'),
+            task(false, 'Who restocks the café bait stations?'),
+          ),
+          p(''),
+        ),
+    },
   ]
 }
 
@@ -1280,6 +1400,11 @@ async function plan(
 ): Promise<Planned> {
   const fail: (why: string) => never = (why) => {
     throw new Error(`demo: note "${spec.name}": ${why}`)
+  }
+  // notes.create refuses a personal note with a link (PRIVATE_NOTE_LINK).
+  if (spec.personal && !('team' in spec.on)) fail('a personal note is linked')
+  if (spec.personal && spec.editedBy && spec.editedBy !== spec.by) {
+    fail('only its author writes a personal note')
   }
   const { links, job } = await resolveLinks(ctx, lookup, spec.on, fail)
 

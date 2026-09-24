@@ -14,6 +14,7 @@ import {
 } from '../lib/recurrence'
 import { resolvePropertyId } from '../properties'
 import { MAX_VISITS_PER_RUN, insertVisit, materialiseOne } from '../recurrences'
+import { normaliseWorkOrder } from '../lib/workOrder'
 import {
   NAMED_JOBS,
   NAMED_VISITS,
@@ -745,6 +746,24 @@ function propertyOf(
  * history, today, and the weeks ahead, plus the photos on one of them.
  * Returns an entry for each, keyed where it is a named job.
  */
+/**
+ * The client's own reference for a job (jobs.create's `workOrder`), in each
+ * commercial client's format — and missing on every fourth, as it is when a
+ * portal has not issued one yet and the office is chasing it. Residential
+ * work has none.
+ */
+function workOrderFor(propertyKey: string, i: number): string | undefined {
+  if (i % 4 === 3) return undefined
+  if (propertyKey.startsWith('ridge')) return `WO-${448120 + i}`
+  if (propertyKey.startsWith('ppm')) return `PO ${4500123456 + i * 17}`
+  if (propertyKey.startsWith('coast')) return `SC#${12345 + i}-0${(i % 9) + 1}`
+  if (propertyKey === 'kewdaleWarehouse') {
+    // Pasted whole from the client's portal: long, but within the limit.
+    return `FM job ${55012 + i} / cost centre 7710-MAINT / approver R Chan`
+  }
+  return undefined
+}
+
 export const seedOneOff = internalMutation({
   args: { base: demoBaseV, properties: propertyMapV },
   returns: v.array(manifestJobV),
@@ -769,6 +788,7 @@ export const seedOneOff = internalMutation({
         propertyId: propertyOf(properties, job.propertyKey),
       })
       const jobNumber = await allocateJobNumber(ctx, base.businessId)
+      const workOrder = normaliseWorkOrder(workOrderFor(job.propertyKey, i))
       const jobId = await ctx.db.insert('jobs', {
         businessId: base.businessId,
         assignedMembershipId: base.members[job.assignee],
@@ -780,6 +800,7 @@ export const seedOneOff = internalMutation({
         status: initialJobStatus('manual'),
         createdAt,
         jobNumber,
+        ...(workOrder !== undefined && { workOrder }),
       })
       const finished =
         (job.status === 'completed' || job.status === 'invoiced') &&
@@ -848,6 +869,8 @@ type SeriesSpec = {
   createdAt?: number
   /** The first visit's length, as the booking form sent it. */
   durationMinutes: number
+  /** A standing work order (recurrences.create), copied onto every visit. */
+  workOrder?: string
   /** What became of each visit whose day has passed: `i` is its place among
    * them (0 the first), `count` how many there are, `day` its offset from
    * today. */
@@ -932,6 +955,7 @@ function seriesPlan(base: DemoBase, cal: Calendar): Array<SeriesSpec> {
       price: 16500,
       anchorDate: when(1, 9),
       durationMinutes: 30,
+      workOrder: 'SC#20931-01',
     },
     {
       key: 'monthlyClamp',
@@ -991,6 +1015,8 @@ function seriesPlan(base: DemoBase, cal: Calendar): Array<SeriesSpec> {
       anchorDate: when(quarterlyDay, 7, 30),
       createdAt: when(quarterlyDay - 2, 14, 0),
       durationMinutes: 90,
+      // One standing PO for the whole contract, on every visit.
+      workOrder: 'WO-448000 (standing)',
       // The strata manager's last visit is still waiting on its invoice.
       past: (i, count) => ({
         status: i === count - 1 ? 'completed' : 'invoiced',
@@ -1058,6 +1084,9 @@ async function createSeries(
     price: spec.price,
     anchorDate: spec.anchorDate,
     active: true,
+    ...(spec.workOrder !== undefined && {
+      workOrder: normaliseWorkOrder(spec.workOrder),
+    }),
   })
   const recurrence = await ctx.db.get(recurrenceId)
   if (!recurrence) throw new Error('demo: a series vanished mid-seed')
@@ -1344,6 +1373,8 @@ export const convertOne = internalMutation({
       price: job.price,
       anchorDate: job.scheduledAt,
       active: true,
+      // convertJobToRecurring: the job's work order becomes the series'.
+      ...(job.workOrder !== undefined && { workOrder: job.workOrder }),
     })
     await ctx.db.patch(job._id, {
       recurrenceId: convertedId,

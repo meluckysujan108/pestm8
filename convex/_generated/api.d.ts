@@ -22,7 +22,6 @@ import type * as dashboard from "../dashboard.js";
 import type * as deliveries from "../deliveries.js";
 import type * as demo_cleanup from "../demo/cleanup.js";
 import type * as demo_clients from "../demo/clients.js";
-import type * as demo_devSource from "../demo/devSource.js";
 import type * as demo_images from "../demo/images.js";
 import type * as demo_jobs from "../demo/jobs.js";
 import type * as demo_notes from "../demo/notes.js";
@@ -112,7 +111,6 @@ declare const fullApi: ApiFromModules<{
   deliveries: typeof deliveries;
   "demo/cleanup": typeof demo_cleanup;
   "demo/clients": typeof demo_clients;
-  "demo/devSource": typeof demo_devSource;
   "demo/images": typeof demo_images;
   "demo/jobs": typeof demo_jobs;
   "demo/notes": typeof demo_notes;

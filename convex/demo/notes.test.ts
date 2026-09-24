@@ -122,7 +122,7 @@ type Rows = Awaited<ReturnType<typeof rowsOf>>
 async function listAll(
   actor: TestActor,
   businessId: Id<'businesses'>,
-  filter: 'all' | 'trash',
+  filter: 'all' | 'trash' | 'everyone',
 ) {
   const out: Array<{ _id: Id<'notes'>; canEdit: boolean }> = []
   let cursor: string | null = null
@@ -246,15 +246,21 @@ describe('the demo notes', () => {
       expect(pills).toBeGreaterThan(15)
     })
 
-    test('mention rows match the pills one to one, less anyone who has left', () => {
+    test('mention rows match the pills one to one, less anyone who has left, and none on a personal note', () => {
       const removed = new Set(
         rows.members.filter((m) => m.status === 'removed').map((m) => m._id),
       )
       let droppedPills = 0
+      let personalPills = 0
       for (const note of rows.notes) {
         const pills = mentionIds(note.doc) as Array<Id<'memberships'>>
         droppedPills += pills.filter((id) => removed.has(id)).length
-        const wanted = pills.filter((id) => !removed.has(id)).sort()
+        // A personal note tags nobody: its pills stay in the body, rowless.
+        if (note.visibility === 'private') personalPills += pills.length
+        const wanted =
+          note.visibility === 'private'
+            ? []
+            : pills.filter((id) => !removed.has(id)).sort()
         const have = note.mentions.map((row) => row.membershipId).sort()
         expect(have, note.title).toEqual(wanted)
 
@@ -276,6 +282,7 @@ describe('the demo notes', () => {
       }
       // Riley's pill stays in the handover memo; the row does not.
       expect(droppedPills).toBeGreaterThanOrEqual(1)
+      expect(personalPills).toBeGreaterThanOrEqual(1)
     })
 
     test('links are what resolveLinks stores', () => {
@@ -391,10 +398,65 @@ describe('the demo notes', () => {
         true,
         true,
       ])
-      // The owner reads every live note.
+      // All Notes shows the owner every live shared note, and of the
+      // personal ones only their own: other people's are under Everyone's.
       expect(owner.size).toBe(
-        rows.notes.filter((n) => n.deletedAt === undefined).length,
+        rows.notes.filter(
+          (n) =>
+            n.deletedAt === undefined &&
+            (n.visibility === undefined ||
+              n.authorMembershipId === member('owner')),
+        ).length,
       )
+    })
+
+    test('personal notes: the author writes, the owner reads under Everyone’s, nobody else sees them', async () => {
+      const businessId = run.base.businessId
+      const personal = rows.notes.filter((n) => n.visibility === 'private')
+      expect(personal.length).toBeGreaterThanOrEqual(5)
+      for (const note of personal) {
+        // Linked to nothing, as notes.create requires.
+        expect([note.jobId, note.propertyId, note.clientId]).toEqual([
+          undefined,
+          undefined,
+          undefined,
+        ])
+        expect(note.lastEditedByMembershipId).toBe(note.authorMembershipId)
+      }
+      const others = personal.filter(
+        (n) =>
+          n.deletedAt === undefined && n.authorMembershipId !== member('owner'),
+      )
+      const everyone = (await listAll(run.owner, businessId, 'everyone')).map(
+        (n) => n._id,
+      )
+      expect(everyone.sort()).toEqual(others.map((n) => n._id).sort())
+
+      // The contractor's own is theirs to edit; the owner may only read it.
+      const theirs = personal.find(
+        (n) =>
+          n.authorMembershipId === member('contractor') &&
+          n.deletedAt === undefined,
+      )
+      if (!theirs) throw new Error('no contractor personal note')
+      const asAuthor = await run.contractor.as.query(api.notes.get, {
+        businessId,
+        noteId: theirs._id,
+      })
+      expect(asAuthor?.canEdit).toBe(true)
+      const asOwner = await run.owner.as.query(api.notes.get, {
+        businessId,
+        noteId: theirs._id,
+      })
+      expect(asOwner).not.toBeNull()
+      expect(asOwner?.canEdit).toBe(false)
+      // The sub, who can read the contractor's shared work, cannot read this.
+      expect(
+        await run.sub.as.query(api.notes.get, {
+          businessId,
+          noteId: theirs._id,
+        }),
+      ).toBeNull()
     })
 
     test('the subcontractor reads exactly what the rules allow', async () => {
@@ -403,6 +465,8 @@ describe('the demo notes', () => {
       // canReadNote for a subcontractor, whose job scope is their own jobs.
       const readable = (n: NoteRow) => {
         if (n.deletedAt !== undefined) return false
+        // Personal: only their own, and All Notes lists it.
+        if (n.visibility === 'private') return n.authorMembershipId === sub
         if (noteKind(n) !== 'job' || n.authorMembershipId === sub) return true
         const job = n.jobId ? rows.jobs.get(n.jobId) : undefined
         if (job?.assignedMembershipId === sub) return true
@@ -450,15 +514,17 @@ describe('the demo notes', () => {
       ).toBe(1)
     })
 
-    test('Recently Deleted: the contractor sees their own, the owner both', async () => {
+    test('Recently Deleted: the contractor sees their own, the owner all three', async () => {
       const businessId = run.base.businessId
       const trashed = rows.notes.filter((n) => n.deletedAt !== undefined)
-      expect(trashed).toHaveLength(2)
+      expect(trashed).toHaveLength(3)
       const mine = trashed.find(
         (n) => n.authorMembershipId === member('contractor'),
       )
       const owners = trashed.find(
-        (n) => n.authorMembershipId === member('owner'),
+        (n) =>
+          n.authorMembershipId === member('owner') &&
+          n.visibility === undefined,
       )
       // Two hours ago, and twenty days ago.
       expect(seededBy - (mine?.deletedAt ?? 0)).toBeGreaterThanOrEqual(

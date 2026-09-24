@@ -646,6 +646,39 @@ describe('the demo jobs', () => {
     expect(keptRow.scheduledAt).toBeGreaterThan(seededBy)
   })
 
+  test('commercial work carries the client’s work order; a standing one reaches every visit', () => {
+    const keyOfProperty = new Map(
+      Object.entries(run.properties).map(([key, id]) => [id, key]),
+    )
+    const commercial = (j: Doc<'jobs'>) =>
+      /^(ridge|ppm|coast|kewdale)/.test(keyOfProperty.get(j.propertyId) ?? '')
+    const oneOffIds = new Set(run.oneOff.map((m) => m.id))
+    const oneOffRows = rows.jobs.filter((j) => oneOffIds.has(j._id))
+    const withOrder = oneOffRows.filter((j) => j.workOrder !== undefined)
+    // Only commercial sites, and not all of them: some are still being chased.
+    expect(withOrder.length).toBeGreaterThan(10)
+    expect(withOrder.every(commercial)).toBe(true)
+    expect(
+      oneOffRows.some((j) => commercial(j) && j.workOrder === undefined),
+    ).toBe(true)
+    for (const j of withOrder) {
+      // lib/workOrder.ts: trimmed, at most 64 characters.
+      expect(j.workOrder).toBe(j.workOrder?.trim())
+      expect(j.workOrder?.length).toBeLessThanOrEqual(64)
+    }
+    // A standing order on the series, copied onto each visit as projected.
+    for (const [key, order] of [
+      ['quarterlyCommercial', 'WO-448000 (standing)'],
+      ['fortnightlyContractor', 'SC#20931-01'],
+    ] as const) {
+      const series = seriesByKey(key)
+      expect(series.workOrder).toBe(order)
+      const visits = visitsOf(series._id)
+      expect(visits.length).toBeGreaterThan(0)
+      for (const visit of visits) expect(visit.workOrder).toBe(order)
+    }
+  })
+
   test('the converted job became the first visit of a quarterly series', () => {
     const series = seriesByKey('converted')
     const original = oneOffs().find((j) => j.recurrenceId === series._id)
