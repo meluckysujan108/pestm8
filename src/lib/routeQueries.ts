@@ -59,6 +59,10 @@ export const rq = {
   invitations: (businessId: B) =>
     convexQuery(api.invitations.listForBusiness, { businessId }),
   products: (businessId: B) => convexQuery(api.products.list, { businessId }),
+  /** One person's licence document: their own on Profile, or a member's
+   * the owner opens from Team. */
+  licenceFile: (businessId: B, membershipId: Id<'memberships'>) =>
+    convexQuery(api.licences.file, { businessId, membershipId }),
 }
 
 /** How many rows the paginated libraries ask for first. */

@@ -24,6 +24,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Note, NoteViewer } from './lib/noteAccess'
 import { requireActor } from './lib/actor'
+import { heldAsLicence } from './lib/fileClaims'
 import { UNASSIGNED_COLOUR } from './lib/colours'
 
 const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000
@@ -908,7 +909,11 @@ export async function purgeNote(ctx: MutationCtx, note: Note) {
       .query('noteAttachments')
       .withIndex('by_storage', (q) => q.eq('storageId', row.storageId))
       .first()
-    if (!stillReferenced) await ctx.storage.delete(row.storageId)
+    // Nor someone's licence (Phase 8.1), which the claims above keep apart
+    // from a note's pictures; checked here too because this deletes.
+    if (!stillReferenced && !(await heldAsLicence(ctx, row.storageId))) {
+      await ctx.storage.delete(row.storageId)
+    }
   }
 
   await ctx.runMutation(components.prosemirrorSync.lib.deleteDocument, {
@@ -963,6 +968,11 @@ export const addAttachment = mutation({
       .withIndex('by_storage', (q) => q.eq('storageId', storageId))
       .first()
     if (claimed) throw new ConvexError('ALREADY_ATTACHED')
+    // Nor someone's licence document (Phase 8.1): a note's pictures are
+    // deleted with the note (`purgeNote`), and a licence's file never is.
+    if (await heldAsLicence(ctx, storageId)) {
+      throw new ConvexError('ALREADY_ATTACHED')
+    }
 
     await ctx.db.insert('noteAttachments', { noteId, storageId, createdAt: Date.now() })
     return ctx.storage.getUrl(storageId)

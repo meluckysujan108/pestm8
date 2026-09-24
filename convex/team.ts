@@ -16,7 +16,12 @@ import { NOT_STARTED_STATUSES } from './lib/jobStatus'
 import type { JobStatus } from './lib/jobStatus'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
-import { requireActor, requireCapability, requireWriteActor } from './lib/actor'
+import {
+  hasCapability,
+  requireActor,
+  requireCapability,
+  requireWriteActor,
+} from './lib/actor'
 
 /**
  * Offboarding.
@@ -365,6 +370,9 @@ export const roster = query({
   handler: async (ctx, { businessId }) => {
     const env = await requireActor(ctx, businessId)
     requireCapability(env, 'team.manage')
+    // Only the owner may open a member's licence document (licences.ts), so
+    // only the owner is told who has one.
+    const seesLicences = hasCapability(env, 'business.manage')
 
     const members = await ctx.db
       .query('memberships')
@@ -403,6 +411,10 @@ export const roster = query({
              * for anyone including themselves (`canSetColour`). An added
              * field, so an older client simply shows no picker. */
             canSetColour: canSetColour(env.actor, facts),
+            /** Whether there is a licence document the caller may open —
+             * the "View licence" button. An added field: absent on an older
+             * backend, which means no button. */
+            hasLicenceFile: seesLicences && m.licenceFile !== undefined,
           }
         }),
     )
