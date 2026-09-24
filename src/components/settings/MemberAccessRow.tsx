@@ -158,10 +158,16 @@ export function MemberAccessRow({
         </label>
         <button
           type="submit"
-          disabled={saveLicence.isPending || licence === (member.licenceNumber ?? '')}
+          disabled={
+            saveLicence.isPending || licence === (member.licenceNumber ?? '')
+          }
           className="h-11 shrink-0 rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
         >
-          {saveLicence.isPending ? 'Saving…' : saveLicence.isSuccess ? 'Saved' : 'Save'}
+          {saveLicence.isPending
+            ? 'Saving…'
+            : saveLicence.isSuccess
+              ? 'Saved'
+              : 'Save'}
         </button>
       </form>
       {/* A failed save used to leave only the button saying "Save" again. */}

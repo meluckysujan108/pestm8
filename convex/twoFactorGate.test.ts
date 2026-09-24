@@ -104,6 +104,26 @@ describe('the server-side gate', () => {
     ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
   })
 
+  test('the licence document is behind the gate too', async () => {
+    // Phase 8.1 landed alongside this, and a licence card carries a date of
+    // birth and a home address — so it is pinned here rather than trusted to
+    // `requireActor`/`requireWriteActor` staying the only way in.
+    const { t, businessId, kevin } = await business()
+    await setEnrolled(t, kevin.person.userId, false)
+    const as = kevin.person.as
+    const membershipId = kevin.membershipId
+
+    await expect(
+      as.query(api.licences.file, { businessId, membershipId }),
+    ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
+    await expect(
+      as.mutation(api.licences.generateUploadUrl, { businessId }),
+    ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
+    await expect(
+      as.mutation(api.licences.removeFile, { businessId, membershipId }),
+    ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
+  })
+
   test('the same account, once enrolled, gets its answers', async () => {
     const { t, businessId, kevin } = await business()
     await setEnrolled(t, kevin.person.userId, false)

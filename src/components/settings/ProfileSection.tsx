@@ -16,6 +16,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 import { rq } from '#/lib/routeQueries'
 import { LicenceDocument } from './LicenceDocument'
+import { TwoStepSection } from './TwoStepSection'
 import { saveUserName } from './saveUserName'
 
 /** Licence field labelling is state-based, so the label follows the tenant. */
@@ -203,6 +204,14 @@ export function ProfileSection({
             a file is saved the moment it is picked. */}
         <LicenceDocument businessId={businessId} membershipId={membershipId} />
       </form>
+
+      {/* Phase 8.3. Above Sign out rather than after the section, where it
+          first landed while this form was being changed on another branch:
+          a destructive button should end the page, not sit between two
+          settings cards. */}
+      <div className="mt-6">
+        <TwoStepSection />
+      </div>
 
       <button
         type="button"
