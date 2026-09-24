@@ -8,6 +8,7 @@ import { FormAlert } from '#/components/forms/FormAlert'
 import {
   SaveWarningsPanel,
   SaveWarningsProvider,
+  useLatest,
   useSaveWarnings,
 } from '#/components/forms/SaveWarnings'
 import { MemberAccessRow } from './MemberAccessRow'
@@ -56,6 +57,11 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
       setEmail('')
     },
   })
+
+  // Read when the link is minted, after the domain check has answered: the
+  // link only works for this exact address, so it must be the one in the box
+  // then, not the one there when Create link was pressed.
+  const latestEmail = useLatest(email)
 
   const convexRevoke = useConvexMutation(api.invitations.revoke)
   const revoke = useMutation({
@@ -106,7 +112,11 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
         <form
           onSubmit={(e) =>
             warnings.guard(e, () =>
-              invite.mutateAsync({ businessId, email, role: 'subcontractor' }),
+              invite.mutateAsync({
+                businessId,
+                email: latestEmail.current,
+                role: 'subcontractor',
+              }),
             )
           }
         >

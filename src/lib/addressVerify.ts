@@ -64,7 +64,8 @@ export type AddressIssue = {
 export type StreetCheck = {
   /**
    * 'found': the map has the street in that suburb. 'not-found': the map
-   * knows the suburb and not the street (with `issue`). 'unchecked': no
+   * knows the suburb and not the street, or has the street only in other
+   * suburbs of the city typed as the suburb (with `issue`). 'unchecked': no
    * clear answer — offline, blocked, slow, a test runner driving the browser,
    * too little typed, or the map does not know the suburb either.
    */
@@ -152,17 +153,32 @@ const SUBURB_SHORT_FORMS: Readonly<Record<string, string>> = {
   sth: 'south',
 }
 
+/** A compass point cut to its letter, which only means that at the start:
+ * "W Perth" is West Perth, and it is a letter away from Perth, which a
+ * near-miss match would otherwise offer instead. */
+const LEADING_SHORT_FORMS: ReadonlyMap<string, string> = new Map([
+  ['e', 'east'],
+  ['n', 'north'],
+  ['s', 'south'],
+  ['w', 'west'],
+])
+
 function suburbWords(name: string): Array<string> {
   return normaliseForSearch(name.replace(/['’]/g, ''))
     .split(/\s+/)
     .filter(Boolean)
-    .map((word) => SUBURB_SHORT_FORMS[word] ?? word)
+    .map((word, i) => {
+      const leading = i === 0 ? LEADING_SHORT_FORMS.get(word) : undefined
+      if (leading) return leading
+      return SUBURB_SHORT_FORMS[word] ?? word
+    })
 }
 
 /**
  * A suburb name compared the way people type it: case, spaces, hyphens,
- * apostrophes, "Mt"/"Mount", "St"/"Saint" and "Nth"/"Sth" set aside.
- * "Mt Lawley", "mount lawley" and "MountLawley" are one key.
+ * apostrophes, "Mt"/"Mount", "St"/"Saint", "Nth"/"Sth" and a leading
+ * "W"/"West" (and the other compass points) set aside. "Mt Lawley", "mount
+ * lawley" and "MountLawley" are one key.
  */
 export function suburbKey(name: string): string {
   return suburbWords(name).join('')
@@ -254,19 +270,31 @@ function findSuburb(table: LocalityTable, typed: string): SuburbMatch | null {
  * letter or two ("Fanny Bay", "Fannybay" for Fannie Bay; one for a short
  * name), else the one suburb whose name starts with what was typed
  * ("Fannie"). Where two are equally close, the one more people live in.
+ *
+ * The postcode typed, when it is one of this state's, goes first: of the
+ * close names, one whose addresses use it beats a closer one whose do not.
+ * "Artadale 6156" is Attadale, not Armadale.
  */
-function closestSuburb(table: LocalityTable, typed: string): Locality | null {
+function closestSuburb(
+  table: LocalityTable,
+  typed: string,
+  postcode: string,
+): Locality | null {
   const key = suburbKey(typed)
   if (key.length < 4) return null
   const allowed = key.length <= 7 ? 1 : 2
+  const typedPostcode = table.postcodes.has(postcode) ? postcode : ''
   let best: Locality | null = null
-  let bestDistance = Infinity
+  let bestScore = Infinity
   for (const locality of table.all) {
     if (Math.abs(locality.key.length - key.length) > allowed) continue
     const distance = editDistance(key, locality.key)
-    if (distance <= allowed && distance < bestDistance) {
+    if (distance > allowed) continue
+    const uses = typedPostcode !== '' && locality.postcodes.includes(postcode)
+    const score = uses ? distance : distance + allowed + 1
+    if (score < bestScore) {
       best = locality
-      bestDistance = distance
+      bestScore = score
     }
   }
   if (best) return best
@@ -281,6 +309,18 @@ function closestSuburb(table: LocalityTable, typed: string): Locality | null {
     )
   })
   return starting.length === 1 ? starting[0] : null
+}
+
+/** The one locality in the table whose addresses use the postcode, or null
+ * when none does or several do (6050 is Mount Lawley, Menora and
+ * Coolbinia). */
+function onlyLocalityUsing(
+  table: LocalityTable,
+  postcode: string,
+): Locality | null {
+  if (!table.postcodes.has(postcode)) return null
+  const using = table.all.filter((l) => l.postcodes.includes(postcode))
+  return using.length === 1 ? using[0] : null
 }
 
 /** "usually 6050", "usually 2196 or 2460". */
@@ -332,9 +372,12 @@ async function elsewhere(
  * - The postcode is another state's: "2209 is an NSW postcode." The fix is
  *   the suburb's own postcode when the suburb is in the state chosen (the
  *   state was right: prod has "Darwin 2209"), else the postcode's state
- *   (the state was left on its default: "Fannie Bay WA 0820").
+ *   (the state was left on its default: "Fannie Bay WA 0820"). The
+ *   postcode's state too when both states have a suburb of that name and
+ *   the postcode is the other one's ("Casuarina WA 0810").
  * - The suburb is not in the state chosen: "Did you mean Fannie Bay?", or
- *   "Mount Lawley is in WA.", or that it could not be found at all.
+ *   "Mount Lawley is in WA.", or the one suburb the postcode is, or that it
+ *   could not be found at all.
  * - The postcode is not the suburb's: "Mount Lawley's postcode is usually
  *   6050." A suburb whose addresses use several postcodes accepts any of
  *   them, and a postcode no street address in the state uses (a PO box's) is
@@ -376,8 +419,27 @@ export async function checkAddressOffline(
     // files under this state with it, is right as typed: Amata SA is 0872,
     // Wallaroo NSW 2618. (Barooga NSW, 3644, is filed under VIC only, and
     // costs its addresses one "Save anyway".)
+    //
+    // A suburb of the same name in the postcode's state, with that postcode,
+    // is the place meant, and the state was left on its default: "Casuarina
+    // WA 0810" is Casuarina NT. Its namesake here (Casuarina WA, 6167) is a
+    // Perth suburb 2,600 km away, so its postcode is not the fix.
     if (!known) {
-      if (own) {
+      const there = own ? await loadLocalities(hint.state) : null
+      const namesake = there
+        ? findSuburb(there, suburb)?.localities.find((l) =>
+            l.postcodes.includes(postcode),
+          )
+        : undefined
+      if (namesake) {
+        movedTo = hint.state
+        issues.push({
+          field: 'postcode',
+          level: 'warning',
+          message: `${hint.message} ${namesake.name} ${hint.state} uses it.`,
+          fix: { label: `Use ${hint.state}`, patch: { state: hint.state } },
+        })
+      } else if (own) {
         const name = match.kind === 'alias' ? suburb : own.name
         issues.push({
           field: 'postcode',
@@ -404,6 +466,7 @@ export async function checkAddressOffline(
 
   if (!match) {
     const issue = await suburbIssue(table, suburb, {
+      postcode: validPostcode ? postcode : '',
       postcodeState: postcodeState ?? '',
       workState,
       movedTo,
@@ -440,7 +503,12 @@ export async function checkAddressOffline(
 async function suburbIssue(
   table: LocalityTable,
   suburb: string,
-  opts: { postcodeState: string; workState: string; movedTo: string | null },
+  opts: {
+    postcode: string
+    postcodeState: string
+    workState: string
+    movedTo: string | null
+  },
 ): Promise<AddressIssue | null> {
   const state = table.state
   const postcodeState = opts.postcodeState !== state ? opts.postcodeState : ''
@@ -450,7 +518,9 @@ async function suburbIssue(
   const inPostcodeState = postcodeState
     ? await localityIn(postcodeState, suburb)
     : null
-  const close = inPostcodeState ? null : closestSuburb(table, suburb)
+  const close = inPostcodeState
+    ? null
+    : closestSuburb(table, suburb, opts.postcode)
   if (close) {
     return {
       field: 'suburb',
@@ -476,7 +546,7 @@ async function suburbIssue(
 
   // A near miss in the postcode's state: "Fannybay WA 0810".
   const there = postcodeState ? await loadLocalities(postcodeState) : null
-  const closeThere = there ? closestSuburb(there, suburb) : null
+  const closeThere = there ? closestSuburb(there, suburb, opts.postcode) : null
   if (closeThere) {
     return {
       field: 'suburb',
@@ -485,6 +555,22 @@ async function suburbIssue(
       fix: {
         label: `Use ${closeThere.name} ${postcodeState}`,
         patch: { suburb: closeThere.name, state: postcodeState },
+      },
+    }
+  }
+
+  // Nothing like the name, but the postcode is one suburb's alone: an
+  // estate's name, or what the locals call it ("Dianella Heights 6059").
+  // Offered as the postcode's suburb, so it reads as a guess.
+  const usingPostcode = onlyLocalityUsing(table, opts.postcode)
+  if (usingPostcode) {
+    return {
+      field: 'suburb',
+      level: 'warning',
+      message: `Couldn't find ${suburb} in ${state}. ${opts.postcode} is ${possessive(usingPostcode.name)} postcode.`,
+      fix: {
+        label: `Use ${usingPostcode.name}`,
+        patch: { suburb: usingPostcode.name },
       },
     }
   }
@@ -507,17 +593,25 @@ const STREET_TYPE_LONG: Readonly<Record<string, string>> = {
   blvd: 'boulevard',
   bvd: 'boulevard',
   cct: 'circuit',
+  cir: 'circle',
   cl: 'close',
   cr: 'crescent',
   cres: 'crescent',
+  crt: 'court',
   ct: 'court',
   dr: 'drive',
+  dve: 'drive',
   esp: 'esplanade',
+  fwy: 'freeway',
+  gdns: 'gardens',
   gr: 'grove',
   hwy: 'highway',
   ln: 'lane',
   pde: 'parade',
+  pkwy: 'parkway',
   pl: 'place',
+  prom: 'promenade',
+  pwy: 'parkway',
   rd: 'road',
   sq: 'square',
   st: 'street',
@@ -604,9 +698,14 @@ export function streetCheckUrl(value: AddressValue): string | null {
   const { street } = splitHouseToken(value.addressLine)
   const { name, words } = readStreetName(street)
   const suburb = value.suburb.replace(/\s+/g, ' ').trim()
-  // A street part that still starts with a digit is a number not read as
-  // one ("3, 12 …"); "3rd Avenue" is a street.
-  if (/^\d/.test(street) && !/^\d+(?:st|nd|rd|th)\b/i.test(street)) return null
+  // A number still among the words is a house or unit not read as one ("3,
+  // 12 …", "Townhouse 3 12 …"): it would be sent, and the street it is in
+  // front of would not be found. "3rd Avenue" is a street.
+  if (
+    words.some((word) => /\d/.test(word) && !/^\d+(?:st|nd|rd|th)$/.test(word))
+  ) {
+    return null
+  }
   if (name.replace(/[^\p{L}\p{N}]/gu, '').length < 3 || suburb === '') {
     return null
   }
@@ -620,6 +719,51 @@ export function streetCheckUrl(value: AddressValue): string | null {
   return `${PHOTON_STRUCTURED}?${params}`
 }
 
+type StreetName = { name: string; type: string }
+
+/** Whether `short` is written as a shortening of `long`: its first letter,
+ * then the rest of its letters in order ("pd" of parade, "crt" of court). */
+function shortens(short: string, long: string): boolean {
+  if (short.length < 2 || short.length >= long.length) return false
+  if (short[0] !== long[0]) return false
+  let at = 0
+  for (const letter of long) {
+    if (at < short.length && letter === short[at]) at += 1
+  }
+  return at === short.length
+}
+
+/**
+ * The typed street's name as it is compared with one of the map's, spaces
+ * aside ("Mc Donald" is McDonald). When no type was read, a last word that
+ * shortens the map street's own type is its type and not part of the name:
+ * "Marine Pd", in no list, is Marine Parade. Only its own type: "Kings
+ * Park", with no type, is not Kings Street.
+ */
+function typedNameFor(typed: StreetName, theirs: StreetName): string {
+  const words = typed.name.split(' ')
+  const cut =
+    !typed.type &&
+    words.length > 1 &&
+    shortens(words[words.length - 1], theirs.type)
+  return (cut ? words.slice(0, -1) : words).join('')
+}
+
+/** One street, however it was written: the same name, and the same type
+ * when both have one. */
+function sameStreet(typed: StreetName, theirs: StreetName): boolean {
+  return (
+    typedNameFor(typed, theirs) === theirs.name.replace(/\s/g, '') &&
+    (!typed.type || !theirs.type || typed.type === theirs.type)
+  )
+}
+
+/** "North Perth", "North Perth and Mount Lawley", "A, B and C". */
+function listed(names: Array<string>): string {
+  if (names.length === 1) return names[0]
+  return `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+}
+
 /**
  * Photon's structured reply read against what was typed. Pure, for the tests.
  *
@@ -628,12 +772,17 @@ export function streetCheckUrl(value: AddressValue): string | null {
  * ("Walcot Street" brings Walcott Street), other streets in the suburb, or
  * streets in a town of that name in another state. So:
  * - found: a street of the same name (type too, when both have one) in the
- *   state, in a place of the typed suburb's name.
+ *   state, in the typed suburb: its district, not the city around it. Every
+ *   street in metro Perth has the city Perth, so Walcott Street, in North
+ *   Perth and Mount Lawley, is not found in the suburb Perth.
+ * - not-found, when the suburb typed is only the city the street is in
+ *   ("Walcott St, Perth"): the warning names the suburbs it is in.
  * - not-found: no such street, and at least one street back from the typed
- *   suburb in the state — the map knows the suburb, and not the street.
+ *   suburb in the state — the map knows the suburb, and not the street. A
+ *   close street there is offered as the fix.
  * - unchecked otherwise: the map does not know the suburb (a new estate), or
  *   has the street only in a neighbouring suburb (a street on a boundary is
- *   filed under one side).
+ *   filed under one side), or the request would not have been sent.
  */
 export function readStreetCheck(
   json: unknown,
@@ -647,34 +796,55 @@ export function readStreetCheck(
     stateOfPostcode(value.postcode) ||
     stateCode(workState ?? '')
   const suburb = suburbKey(value.suburb)
-  if (!typed.name || !suburb || !state) return { status: 'unchecked' }
+  if (!typed.name || !suburb || !state || streetCheckUrl(value) === null) {
+    return { status: 'unchecked' }
+  }
 
-  const sameStreet = (theirs: { name: string; type: string }) =>
-    theirs.name === typed.name &&
-    (!typed.type || !theirs.type || theirs.type === typed.type)
+  // "Darwin" is what everyone calls Darwin City, the map's name for it.
+  const isTypedSuburb = (name: string) => {
+    const key = suburbKey(name)
+    return key !== '' && (key === suburb || key === `${suburb}city`)
+  }
 
-  const inSuburb: Array<{ street: string; name: string; type: string }> = []
+  const inSuburb: Array<{ street: string } & StreetName> = []
+  /** The suburbs the street is in, when the suburb typed is their city. */
+  const inCity: Array<string> = []
   let elsewhereInState = false
   for (const feature of photonFeaturesOf(json)) {
     const place = readPhotonStreet(feature)
     if (!place || place.state !== state) continue
     const theirs = readStreetName(place.street)
-    const here = place.places.some((p) => suburbKey(p) === suburb)
-    if (sameStreet(theirs)) {
-      if (here) return { status: 'found' }
+    if (sameStreet(typed, theirs)) {
+      if (place.places.some(isTypedSuburb)) return { status: 'found' }
       elsewhereInState = true
+      if (isTypedSuburb(place.city) && !inCity.includes(place.suburb)) {
+        inCity.push(place.suburb)
+      }
     }
     // The suburb itself, not the city around it: a street back from
     // "Perth" as the city of a Mount Lawley street says nothing about the
     // suburb Perth.
-    if (suburbKey(place.suburb) === suburb) {
+    if (isTypedSuburb(place.suburb)) {
       inSuburb.push({ street: place.street, ...theirs })
+    }
+  }
+
+  const shown = typedStreet.replace(/\s+/g, ' ').trim()
+  const where = value.suburb.replace(/\s+/g, ' ').trim()
+  // No fix: the map's suburbs are not always G-NAF's, and which one is right
+  // is for the person at the door.
+  if (inCity.length > 0) {
+    return {
+      status: 'not-found',
+      issue: {
+        field: 'suburb',
+        level: 'warning',
+        message: `Couldn't find ${shown} in ${where} itself on the map, only in ${listed(inCity)}.`,
+      },
     }
   }
   if (elsewhereInState || inSuburb.length === 0) return { status: 'unchecked' }
 
-  const shown = typedStreet.replace(/\s+/g, ' ').trim()
-  const where = value.suburb.replace(/\s+/g, ' ').trim()
   const close = closestStreet(typed, inSuburb)
   const line = close ? (token ? `${token} ${close}` : close) : null
   return {
@@ -694,16 +864,16 @@ export function readStreetCheck(
 
 /** The street back from the suburb most likely meant: the same name with
  * another type ("Walcott Road" for Walcott Street), or a slip of a letter or
- * two in the name. */
+ * two in the name ("Felisia Crt" for Felicia Court). */
 function closestStreet(
-  typed: { name: string; type: string },
-  found: Array<{ street: string; name: string; type: string }>,
+  typed: StreetName,
+  found: Array<{ street: string } & StreetName>,
 ): string | null {
-  const key = typed.name.replace(/\s/g, '')
-  const allowed = key.length <= 5 ? 1 : 2
   let best: string | null = null
   let bestDistance = Infinity
   for (const street of found) {
+    const key = typedNameFor(typed, street)
+    const allowed = key.length <= 5 ? 1 : 2
     const distance = editDistance(key, street.name.replace(/\s/g, ''))
     if (distance <= allowed && distance < bestDistance) {
       best = street.street

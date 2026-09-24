@@ -5,7 +5,7 @@ import { DEFAULT_GRANTS } from './lib/capabilities'
 import { MEMBER_COLOURS } from './lib/colours'
 import { forSelf, recordAudit } from './lib/audit'
 import { requireActor, requireCapability } from './lib/actor'
-import { formatAbn, normaliseAbn } from './lib/abn'
+import { abnDigits, formatAbn, normaliseAbn } from './lib/abn'
 import { normaliseEmail } from './lib/email'
 import { normalisePhone } from './lib/phone'
 
@@ -20,8 +20,20 @@ function businessAbn(raw: string | undefined): string | undefined {
   return digits === undefined ? undefined : formatAbn(digits)
 }
 
-/** Every digit, so "51 824 753 556" and "51824753556" are the same ABN. */
-const abnKey = (raw: string | undefined) => (raw ?? '').replace(/\D/g, '')
+/**
+ * Whether a sent ABN is the stored one sent back. Either exactly what is
+ * stored, or the same eleven digits and nothing else: a form that keeps what
+ * was typed sends "51824753556" back after the server stored
+ * "51 824 753 556". Only when the digits are the WHOLE value, though —
+ * comparing every digit found in it made "N/A" (no digits) match a business
+ * with no ABN, and "ABN 51824753556 (old)" match the stored one, and either
+ * was then stored, unchecked, as the ABN every report prints.
+ */
+function sameAbn(raw: string, stored: string | undefined): boolean {
+  if (!edited(raw, stored)) return true
+  const digits = abnDigits(raw)
+  return digits !== null && digits === abnDigits(stored ?? '')
+}
 
 function slugify(name: string) {
   return name
@@ -232,19 +244,28 @@ export const update = mutation({
     // them. The settings forms send every field on every save, and a
     // business whose ABN or number was saved before these rules (the seed's
     // ABNs fail the ATO's check) must still be able to change its name.
+    //
+    // One sent back unchanged is left out of the patch rather than written
+    // as sent: the form holds it as it was typed, so writing it would undo
+    // the formatting the server gave it ("51 824 753 556" back to
+    // "51824753556" on the next save of the business name), on a value
+    // every report prints as stored.
     const business = await ctx.db.get(businessId)
     if (!business) throw new ConvexError('NOT_FOUND')
-    if (patch.abn !== undefined && abnKey(patch.abn) !== abnKey(business.abn)) {
-      fields.abn = businessAbn(patch.abn)
+    if (patch.abn !== undefined) {
+      if (sameAbn(patch.abn, business.abn)) delete fields.abn
+      else fields.abn = businessAbn(patch.abn)
     }
     for (const key of ['email', 'reportCopyEmail'] as const) {
       const raw = patch[key]
-      if (raw !== undefined && edited(raw, business[key])) {
-        fields[key] = normaliseEmail(raw)
-      }
+      if (raw === undefined) continue
+      if (edited(raw, business[key])) fields[key] = normaliseEmail(raw)
+      else delete fields[key]
     }
-    if (patch.phone !== undefined && edited(patch.phone, business.phone)) {
-      fields.phone = normalisePhone(patch.phone)
+    if (patch.phone !== undefined) {
+      if (edited(patch.phone, business.phone)) {
+        fields.phone = normalisePhone(patch.phone)
+      } else delete fields.phone
     }
 
     if (Object.keys(fields).length > 0) {

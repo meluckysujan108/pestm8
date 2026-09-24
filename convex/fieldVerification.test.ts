@@ -668,6 +668,72 @@ describe('the business’s own details', () => {
     ).not.toHaveProperty('abn')
   })
 
+  test('an ABN that is more than its digits is checked, even when the digits match or there are none', async () => {
+    const s = await setup()
+    for (const abn of ['N/A', 'TBA', 'pending']) {
+      await expect(
+        s.owner.as.mutation(api.businesses.update, {
+          businessId: s.businessId,
+          abn,
+        }),
+      ).rejects.toThrow(/INVALID_ABN/)
+    }
+    expect(
+      await s.t.run(async (ctx) => ctx.db.get(s.businessId)),
+    ).not.toHaveProperty('abn')
+
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.businessId, { abn: '51 824 753 556' }),
+    )
+    await expect(
+      s.owner.as.mutation(api.businesses.update, {
+        businessId: s.businessId,
+        abn: 'ABN 51824753556 (old)',
+      }),
+    ).rejects.toThrow(/INVALID_ABN/)
+    const business = await s.t.run(async (ctx) => ctx.db.get(s.businessId))
+    expect(business?.abn).toBe('51 824 753 556')
+  })
+
+  test('details sent back as the form holds them keep the form they were stored in', async () => {
+    const s = await setup()
+    await s.owner.as.mutation(api.businesses.update, {
+      businessId: s.businessId,
+      abn: '51824753556',
+      email: 'office@coastal.test',
+    })
+
+    // The preferences form keeps what was typed, and sends it back with the
+    // next change of name: the ABN as digits, an address with the space the
+    // owner left on the end, a copy address that was never filled in.
+    for (const abn of ['51824753556', '51-824-753-556']) {
+      await s.owner.as.mutation(api.businesses.update, {
+        businessId: s.businessId,
+        name: `Coastal Pest ${abn}`,
+        abn,
+        email: 'office@coastal.test ',
+        reportCopyEmail: '',
+        phone: '',
+      })
+    }
+    const business = await s.t.run(async (ctx) => ctx.db.get(s.businessId))
+    expect(business).toMatchObject({
+      name: 'Coastal Pest 51-824-753-556',
+      abn: '51 824 753 556',
+      email: 'office@coastal.test',
+    })
+    expect(business).not.toHaveProperty('reportCopyEmail')
+    expect(business).not.toHaveProperty('phone')
+
+    // Nor is an unchanged ABN recorded as a change to what reports print.
+    const changed = await s.t.run(async (ctx) =>
+      (await ctx.db.query('auditLog').collect())
+        .filter((row) => row.action === 'business.update')
+        .map((row) => (row.meta as { fields: Array<string> }).fields),
+    )
+    expect(changed.slice(1)).toEqual([['name'], ['name']])
+  })
+
   test('a new business’s ABN is checked, and stored as the ATO prints it', async () => {
     const t = testApp()
     const owner = await createActor(t, { email: 'jo@jospest.test' })
@@ -872,6 +938,121 @@ describe('sending a report', () => {
       to: [' Accounts@Cafe.test '],
     })
     expect(status).toBe('queued')
+  })
+
+  /** A signed Service Report draft, ready to lock. */
+  async function draftFor(s: Setup, client: Partial<Doc<'clients'>>) {
+    const { propertyId } = await legacyClient(s, client)
+    return s.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(
+        new Blob(['signature'], { type: 'image/png' }),
+      )
+      return ctx.db.insert('reports', {
+        businessId: s.businessId,
+        propertyId,
+        authorMembershipId: s.ownerMembershipId,
+        template: 'serviceReport',
+        templateVersion: getTemplate('serviceReport').version,
+        legalBasis: 'APVMA · AEPMA',
+        status: 'draft',
+        data: {},
+        photoIds: [],
+        signatureSlots: {
+          technician: { storageId, signedAt: Date.now(), method: 'drawn' },
+        },
+        createdAt: Date.now(),
+      })
+    })
+  }
+
+  function finalise(s: Setup, reportId: Id<'reports'>, answers: object) {
+    return s.owner.as.mutation(api.reports.finalise, {
+      businessId: s.businessId,
+      reportId,
+      data: {
+        serviceDate: '2026-08-28',
+        safeToStart: true,
+        treatments: [],
+        technicianSignature: { signedAt: Date.now() },
+        sendCopy: true,
+        ...answers,
+      },
+      templateVersion: getTemplate('serviceReport').version,
+    })
+  }
+
+  test('the copy the form asks for leaves out an address on file that can never be delivered to', async () => {
+    const s = await setup()
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.businessId, { reportCopyEmail: 'reports@coastal' }),
+    )
+
+    const withOther = await draftFor(s, { email: 'accounts@cafe' })
+    await finalise(s, withOther, { emailReportTo: ['strata@example.com'] })
+    const onlyTypo = await draftFor(s, { email: 'accounts@cafe' })
+    await finalise(s, onlyTypo, {})
+
+    const rows = await s.t.run((ctx) =>
+      ctx.db.query('reportDeliveries').collect(),
+    )
+    // The one left is still sent. With nobody left, nothing is queued — not
+    // a row that sits in the history as a send that was never going to go.
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      reportId: withOther,
+      to: ['strata@example.com'],
+      cc: [],
+      trigger: 'finalise',
+    })
+  })
+
+  test('an owner cannot approve a held send to an address that can never be delivered to', async () => {
+    const s = await setup()
+    const reportId = await withReport(s, { email: 'accounts@cafe.test' })
+    // Held before the app checked addresses, as a technician's request for
+    // one nobody had on file.
+    const held = (to: Array<string>, cc: Array<string> = []) =>
+      s.t.run((ctx) =>
+        ctx.db.insert('reportDeliveries', {
+          businessId: s.businessId,
+          reportId,
+          to,
+          cc,
+          subject: 'Service Report',
+          trigger: 'manual',
+          status: 'pendingApproval',
+          sentByMembershipId: s.ownerMembershipId,
+          createdAt: Date.now(),
+        }),
+      )
+    const approve = (deliveryId: Id<'reportDeliveries'>) =>
+      s.owner.as.mutation(api.deliveries.approve, {
+        businessId: s.businessId,
+        deliveryId,
+      })
+
+    const typo = await held(['accounts@cafe'])
+    const typoCopy = await held(['accounts@cafe.test'], ['copies@coastal'])
+    for (const deliveryId of [typo, typoCopy]) {
+      await expect(approve(deliveryId)).rejects.toThrow(/INVALID_EMAIL/)
+    }
+    const good = await held(['strata@example.com'])
+    await approve(good)
+
+    // It can still be refused, which is what puts it in the history as not
+    // sent.
+    await s.owner.as.mutation(api.deliveries.reject, {
+      businessId: s.businessId,
+      deliveryId: typo,
+    })
+    const status = await s.t.run(async (ctx) =>
+      Promise.all(
+        [typo, typoCopy, good].map(
+          async (id) => (await ctx.db.get(id))?.status,
+        ),
+      ),
+    )
+    expect(status).toEqual(['failed', 'pendingApproval', 'queued'])
   })
 })
 

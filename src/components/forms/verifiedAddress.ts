@@ -121,7 +121,10 @@ export function issuesWithoutState(
  * The street check at save, with why it said nothing when it did not, for the
  * line under the address:
  * - 'found': the map has the street in that suburb.
- * - 'not-found': the map knows the suburb, not the street (with `issue`).
+ * - 'not-found': the map knows the suburb, not the street — or knows the
+ *   street only in a neighbouring suburb, when the one typed is just the
+ *   city it sits in ("Perth" for North Perth). `issue` says which, and on
+ *   which field.
  * - 'unknown': an answer came, but not a clear one (the map does not know
  *   the suburb either). Nothing is said.
  * - 'no-signal': offline, or no answer within the time allowed.

@@ -559,6 +559,13 @@ export const approve = mutation({
       throw new ConvexError('NOT_FOUND')
     }
     if (delivery.status !== 'pendingApproval') return
+    // The rule `request` refuses these by, held to here as well: a row
+    // waiting since before the app checked addresses can hold "bob@gmail",
+    // and approving it would log a send that can never arrive. The owner
+    // can still refuse it, which records that it was not sent.
+    if (![...delivery.to, ...delivery.cc].every(isValidEmail)) {
+      throw new ConvexError('INVALID_EMAIL')
+    }
 
     await ctx.db.patch(deliveryId, {
       status: 'queued',

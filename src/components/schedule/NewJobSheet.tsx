@@ -356,6 +356,27 @@ function NewJobForm({
   }
   const latestBooking = useLatest(bookingArgs)
 
+  /**
+   * What must be settled before anything is booked, each saying what is
+   * missing and moving to it. Checked at the press, and again when a booking
+   * that waited on its checks at Book finally goes: a client or property
+   * changed in a picker meanwhile does not type into the form, so nothing
+   * else would notice it.
+   */
+  function readyToBook(): boolean {
+    if (intervalIncomplete) return false
+    // Checked here rather than by disabling "Book job": the button sits at
+    // the foot of a long sheet, and a greyed-out button tells someone on the
+    // phone to a customer nothing about what is missing.
+    if (mode === 'existing' && !properties.some((p) => p._id === propertyId)) {
+      setPropertyMissing(true)
+      propertyTrigger.current?.focus()
+      return false
+    }
+    return !clientNeeded()
+  }
+  const latestReady = useLatest(readyToBook)
+
   /** Another client mode is another set of fields: warnings about the one
    * left are not about anything on screen. */
   function switchMode(next: (current: ClientMode) => ClientMode) {
@@ -377,24 +398,17 @@ function NewJobForm({
         className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
         onSubmit={(e) => {
           e.preventDefault()
-          if (intervalIncomplete) return
-          // Checked here rather than by disabling "Book job": the button sits
-          // at the foot of a long sheet, and a greyed-out button tells someone
-          // on the phone to a customer nothing about what is missing.
-          if (
-            mode === 'existing' &&
-            !properties.some((p) => p._id === propertyId)
-          ) {
-            setPropertyMissing(true)
-            propertyTrigger.current?.focus()
-            return
-          }
-          if (clientNeeded()) return
+          if (!readyToBook()) return
           // Only then the warnings: nothing is worth confirming on a booking
           // that is still missing its client. mutateAsync, so a booking that
-          // fails keeps them confirmed and Retry does not ask again.
-          saveWarnings.guard(null, () =>
-            create.mutateAsync(latestBooking.current()),
+          // fails keeps them confirmed and Retry does not ask again. The
+          // event, so a booking that waits on its checks is held to the
+          // browser's own checks again before it goes — and to this sheet's
+          // own, which the browser knows nothing about.
+          saveWarnings.guard(e, () =>
+            latestReady.current()
+              ? create.mutateAsync(latestBooking.current())
+              : undefined,
           )
         }}
       >

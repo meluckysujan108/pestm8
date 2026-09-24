@@ -139,10 +139,14 @@ function SettingsPage() {
 
       {/* Which build this is, for "what version are you on?", and the
           credit the free data behind the forms and the weather asks for. On
-          every tab, outside the sections, so no form owns it. */}
+          every tab, outside the sections, so no form owns it. The suburb
+          line is the G-NAF licence's own attribution, word for word as the
+          tables in src/lib/localities carry it: G-NAF is not CC BY, and a
+          wrong licence named here is a wrong notice for someone's data. */}
       <footer className="px-4 pb-8 text-caption text-grey-ink">
         Version {APP_VERSION} · Address suggestions © OpenStreetMap contributors
-        · Suburb data: G-NAF © Geoscape Australia (CC BY 4.0) · Weather:
+        · Suburb data: G-NAF © Geoscape Australia, licensed by the Commonwealth
+        of Australia under the Open G-NAF End User Licence Agreement · Weather:
         Open-Meteo, MET Norway
       </footer>
     </>

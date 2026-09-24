@@ -86,7 +86,10 @@ export const NOT_A_STREET: ReadonlySet<string> = new Set([
   'steps',
 ])
 
-/** Words that say what kind of street it is, not which one. */
+/** Words that say what kind of street it is, not which one. Australia
+ * Post's short forms, and the ones people write that it does not use ("Crt",
+ * "Dve", "Gdns"): a type not in here is read as part of the street's name,
+ * and "Felicia Crt" would then never be the map's Felicia Court. */
 export const STREET_TYPES: ReadonlySet<string> = new Set([
   'av',
   'ave',
@@ -95,6 +98,8 @@ export const STREET_TYPES: ReadonlySet<string> = new Set([
   'boulevard',
   'bvd',
   'cct',
+  'cir',
+  'circle',
   'circuit',
   'cl',
   'close',
@@ -102,11 +107,17 @@ export const STREET_TYPES: ReadonlySet<string> = new Set([
   'cr',
   'cres',
   'crescent',
+  'crt',
   'ct',
   'dr',
   'drive',
+  'dve',
   'esp',
   'esplanade',
+  'freeway',
+  'fwy',
+  'gardens',
+  'gdns',
   'gr',
   'grove',
   'highway',
@@ -115,9 +126,14 @@ export const STREET_TYPES: ReadonlySet<string> = new Set([
   'ln',
   'loop',
   'parade',
+  'parkway',
   'pde',
+  'pkwy',
   'pl',
   'place',
+  'prom',
+  'promenade',
+  'pwy',
   'rd',
   'road',
   'sq',
@@ -176,8 +192,8 @@ const ORDINAL_START = /^\d+(?:st|nd|rd|th)\b/i
 
 /**
  * The house part at the start of what was typed ("12", "12A", "3/12",
- * "Unit 3/12", "12-14", "Lot 50"), tidied as it goes back into the field,
- * and the rest.
+ * "Unit 3/12", "Unit 3 12", "12-14", "Lot 50"), tidied as it goes back into
+ * the field, and the rest.
  *
  * The number must stand alone, so "3rd Avenue" stays a street. A number with
  * nothing after it yet is a house with no street typed.
@@ -186,7 +202,13 @@ export function splitHouseToken(typed: string): {
   token: string | null
   street: string
 } {
-  const clean = typed.replace(/\s+/g, ' ').trim()
+  // "No. 12" and "#12" are 12. Left in, the number would not be read as the
+  // house, and would go to Photon with the street.
+  const clean = typed
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/#\s*(?=\d)/g, '')
+    .replace(/^no\.?\s*(?=\d)/i, '')
 
   // Every group always takes part, if only as '': TypeScript types a group
   // as a string whether it matched or not.
@@ -213,6 +235,22 @@ export function splitHouseToken(typed: string): {
     return {
       token: word ? `${word} ${numbers}` : numbers,
       street: unit[5].trim(),
+    }
+  }
+
+  // With the word in front, two numbers need nothing between them: "Unit 3
+  // 12", "U3 12", "Shop 2 12-14". Written back with the comma, the form that
+  // also reads right for a level or a suite. Without the word, "3 12 …" is as
+  // unclear as "3, 12 …".
+  const spaced =
+    /^(unit|u|apt|apartment|flat|shop|suite|level|lvl)\.?\s*(\d+[a-z]?)\s+(\d+[a-z]?(?:\s*-\s*\d+[a-z]?)?)(?:[\s,]+|$)(.*)$/i.exec(
+      clean,
+    )
+  if (spaced) {
+    const tidy = (n: string) => n.replace(/\s/g, '').toUpperCase()
+    return {
+      token: `${UNIT_WORDS[spaced[1].toLowerCase()]} ${tidy(spaced[2])}, ${tidy(spaced[3])}`,
+      street: spaced[4].trim(),
     }
   }
 
@@ -321,9 +359,14 @@ export type PhotonStreet = {
   street: string
   /** The suburb as it goes into the form: see `readPhotonStreet`. */
   suburb: string
-  /** Every name Photon gives the place ("Mount Lawley", "Perth", "Calleya"),
-   * for matching a suburb typed by hand against whichever it used. */
+  /** The names a suburb typed by hand is matched against: the suburb, and
+   * the estate inside it ("Treeby", "Calleya"). The city only when there is
+   * no suburb: every street in metro Perth has the city "Perth", and every
+   * one in Darwin "Darwin", so a street found through the city could be in
+   * any suburb of it. */
   places: Array<string>
+  /** The city Photon puts the place in ("Perth"), or ''. */
+  city: string
   /** A state code from AU_STATES. */
   state: string
   /** Four digits, or ''. */
@@ -363,13 +406,16 @@ export function readPhotonStreet(feature: unknown): PhotonStreet | null {
   // District is the suburb ("Mount Lawley", where city is all of "Perth");
   // a country town has only a city. Locality comes last: it is the estate
   // ("Calleya") inside the suburb (Treeby) when both are there.
-  const places = [text(p.district), text(p.city), text(p.locality)]
-  const suburb = places.find(Boolean) ?? ''
+  const district = text(p.district)
+  const city = text(p.city)
+  const locality = text(p.locality)
+  const suburb = district || city || locality
   const rawPostcode = text(p.postcode)
   const postcode = /^\d{4}$/.test(rawPostcode) ? rawPostcode : ''
   const state = stateCodeOf(text(p.state), postcode)
   if (!suburb || !state) return null
-  return { street, suburb, places: places.filter(Boolean), state, postcode }
+  const places = [district || city, locality].filter(Boolean)
+  return { street, suburb, places, city, state, postcode }
 }
 
 /**
@@ -496,6 +542,18 @@ export type AddressLookup = {
    */
   status: 'found' | 'none' | 'failed' | 'skipped'
   suggestions: Array<AddressSuggestion>
+}
+
+/**
+ * What the line under the field keeps when a lookup is called off (Escape
+ * closing the list, a pick): an answer already in stays, and "Searching…"
+ * goes, because nothing is being searched any more. Left, it would read
+ * "Searching…" until the text next changed.
+ */
+export function lookupStatusAfterCancel<T extends { status: string }>(
+  lookup: T | null,
+): T | null {
+  return lookup?.status === 'searching' ? null : lookup
 }
 
 /** Whether what was typed would be looked up at all: enough of a street,

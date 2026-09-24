@@ -5,6 +5,7 @@ import {
   getJsonWithin,
   isOffline,
   lookUpAddresses,
+  lookupStatusAfterCancel,
   networkLookupsAllowed,
   parsePhotonResponse,
   photonFeaturesOf,
@@ -520,21 +521,49 @@ describe('splitHouseToken', () => {
     ['Walcott St', null, 'Walcott St'],
     // A comma with no unit word before it is not read as a unit.
     ['3, 12 Walcott St', '3', '12 Walcott St'],
+    // With the word, two numbers need nothing between them.
+    ['Unit 3 12 Walcott Street', 'Unit 3, 12', 'Walcott Street'],
+    ['U3 12 Walcott St', 'Unit 3, 12', 'Walcott St'],
+    ['Apt 4 12 Walcott St', 'Apt 4, 12', 'Walcott St'],
+    ['Shop 2 12-14 Hay St', 'Shop 2, 12-14', 'Hay St'],
+    ['Level 2 100 St Georges Tce', 'Level 2, 100', 'St Georges Tce'],
+    // ...but not without it, and not before an ordinal street.
+    ['3 12 Walcott St', '3', '12 Walcott St'],
+    ['Unit 3 3rd Ave', null, 'Unit 3 3rd Ave'],
+    // "No." and "#" before the number.
+    ['No. 12 Walcott St', '12', 'Walcott St'],
+    ['no 12 Walcott St', '12', 'Walcott St'],
+    ['#12 Walcott St', '12', 'Walcott St'],
+    ['Unit #3/12 Walcott St', 'Unit 3/12', 'Walcott St'],
+    // A street whose name starts "No" keeps it.
+    ['Norfolk St', null, 'Norfolk St'],
   ])('%j is %j and %j', (typed, token, street) => {
     expect(splitHouseToken(typed)).toEqual({ token, street })
   })
 })
 
 describe('readPhotonStreet', () => {
-  test('reads a street in a suburb, with every name for the place', () => {
+  test('reads a street in a suburb, with the names a suburb typed may be', () => {
+    // Not the city: every street in metro Perth has the city Perth.
     expect(
       readPhotonStreet(feature({ locality: 'Inglewood Triangle' })),
     ).toEqual({
       street: 'Walcott Street',
       suburb: 'Mount Lawley',
-      places: ['Mount Lawley', 'Perth', 'Inglewood Triangle'],
+      places: ['Mount Lawley', 'Inglewood Triangle'],
+      city: 'Perth',
       state: 'WA',
       postcode: '6050',
+    })
+  })
+
+  test('a country town with no suburb is matched by its city', () => {
+    expect(
+      readPhotonStreet(feature({ district: '', city: 'Margaret River' })),
+    ).toMatchObject({
+      suburb: 'Margaret River',
+      places: ['Margaret River'],
+      city: 'Margaret River',
     })
   })
 
@@ -724,5 +753,23 @@ describe('lookUpAddresses: what the line under the field says', () => {
       'skipped',
     )
     expect(fetchFake).not.toHaveBeenCalled()
+  })
+})
+
+describe('lookupStatusAfterCancel', () => {
+  test('a lookup called off stops saying "Searching…"', () => {
+    // Escape while the list from before shows, with a new lookup pending:
+    // its reply is dropped, and nothing else would clear the line.
+    expect(
+      lookupStatusAfterCancel({ text: '12 Walc', status: 'searching' }),
+    ).toBeNull()
+  })
+
+  test('an answer already in stays', () => {
+    for (const status of ['found', 'none', 'failed'] as const) {
+      const lookup = { text: '12 Walc', status }
+      expect(lookupStatusAfterCancel(lookup)).toBe(lookup)
+    }
+    expect(lookupStatusAfterCancel(null)).toBeNull()
   })
 })

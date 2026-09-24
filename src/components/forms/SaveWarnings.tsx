@@ -10,13 +10,18 @@ import {
 } from 'react'
 import { flushSync } from 'react-dom'
 import {
-  isThenable,
-  runSaveChecks,
-  saveDecision,
+  IDLE_SAVE_GUARD,
+  createSaveGuard,
   warningsSignature,
 } from './saveWarningRules'
 import type { ReactNode } from 'react'
-import type { SaveCheck, SaveWarning } from './saveWarningRules'
+import type {
+  SaveCheck,
+  SaveGuard,
+  SaveGuardState,
+  SaveWarning,
+  SourcedWarning,
+} from './saveWarningRules'
 
 export type { SaveCheck, SaveWarning } from './saveWarningRules'
 
@@ -45,32 +50,29 @@ export type { SaveCheck, SaveWarning } from './saveWarningRules'
  * each row puts the cursor in its field.
  */
 
-/** A warning with the registration that produced it, so editing that field
- * takes its warnings off the list. */
-type Sourced = SaveWarning & { source: string }
-
-type Fields = {
-  register: (source: string, check: SaveCheck) => () => void
-  edited: (source: string) => void
+type Fields = Pick<SaveGuard, 'register' | 'edited' | 'removed'> & {
+  fix: (warning: SourcedWarning) => void
 }
 
 export type SaveWarningsController = {
   /**
-   * Put in the form's onSubmit. Stops the browser's own submit, runs every
-   * registered check (in parallel, each given 3 s; one that fails or is
-   * still going says nothing), then either calls `save` or shows what the
-   * checks found. The next press with exactly the same things found saves.
+   * Put in the form's onSubmit, passing its event. Stops the browser's own
+   * submit, runs every registered check (in parallel, each given 3 s; one
+   * that fails or is still going says nothing), then either calls `save` or
+   * shows what the checks found. The next press with exactly the same
+   * things found saves.
    *
    * When every check answers without the network — offline, under a test
    * runner, or no async checks registered — `save` runs in the same tick.
+   * When they answer later, `save` runs only if nothing was typed in the
+   * meantime and the form still passes the browser's own checks; otherwise
+   * the press shows what is found now and saves nothing. `reset` drops a
+   * press still waiting.
    *
    * If `save` returns a promise (`mutateAsync`), a rejected save keeps the
    * warnings confirmed, so Retry after "Could not save" does not ask again.
    */
-  guard: (
-    event: { preventDefault: () => void } | null | undefined,
-    save: () => unknown,
-  ) => void
+  guard: SaveGuard['guard']
   /** 'Checking…' while checks run, 'Save anyway' while warnings show, else
    * `label`. */
   saveLabel: (label: string) => string
@@ -79,7 +81,8 @@ export type SaveWarningsController = {
   /** The warnings on show; empty when the panel is closed. */
   warnings: ReadonlyArray<SaveWarning>
   /** Forget every warning shown or confirmed, e.g. when a sheet is reused
-   * for another record. */
+   * for another record or another client mode, and cancel a press still
+   * waiting on its checks. */
   reset: () => void
   /** @internal The registry the fields reach through the provider. */
   fields: Fields
@@ -89,123 +92,25 @@ const FieldsContext = createContext<Fields | null>(null)
 const ControllerContext = createContext<SaveWarningsController | null>(null)
 
 export function useSaveWarnings(): SaveWarningsController {
-  const registry = useRef(new Map<string, SaveCheck>())
-  // `seen`: what the person has been shown, less anything whose field they
-  // have edited since. A press that finds exactly this saves. `open`: whether
-  // the list is on screen — it closes on that saving press, but `seen` stays,
-  // so a save that fails and is retried does not ask a second time.
-  const seen = useRef<ReadonlyArray<Sourced>>([])
-  const [shown, setShown] = useState<ReadonlyArray<Sourced>>([])
-  const [open, setOpen] = useState(false)
-  const [checking, setChecking] = useState(false)
-  const busy = useRef(false)
-  const editedWhileChecking = useRef(false)
-  const live = useRef(true)
-
-  useEffect(() => {
-    live.current = true
-    return () => {
-      live.current = false
-    }
-  }, [])
-
-  const setSeen = useCallback((next: ReadonlyArray<Sourced>) => {
-    seen.current = next
-    setShown(next)
-    if (next.length === 0) setOpen(false)
-  }, [])
+  const [state, setState] = useState<SaveGuardState>(IDLE_SAVE_GUARD)
+  // The rules and their state live outside React (saveWarningRules.ts),
+  // made once per form; React only renders what they say.
+  const [core] = useState(() => createSaveGuard(setState))
+  useEffect(() => core.attach(), [core])
 
   const fields = useMemo<Fields>(
     () => ({
-      register(source, check) {
-        registry.current.set(source, check)
-        return () => {
-          if (registry.current.get(source) === check) {
-            registry.current.delete(source)
-          }
-        }
-      },
-      edited(source) {
-        if (busy.current) editedWhileChecking.current = true
-        if (seen.current.some((w) => w.source === source)) {
-          setSeen(seen.current.filter((w) => w.source !== source))
-        }
-      },
+      register: core.register,
+      edited: core.edited,
+      removed: core.removed,
+      // Applied and rendered at once, so the row is gone and the count
+      // right before focus moves.
+      fix: (warning) => core.fix(warning, flushSync),
     }),
-    [setSeen],
+    [core],
   )
 
-  const guard = useCallback<SaveWarningsController['guard']>(
-    (event, save) => {
-      event?.preventDefault()
-      if (busy.current) return
-
-      // Read from the registry each run: a check closes over its field's
-      // value, and a second run is for values typed since the first.
-      const checks = () =>
-        [...registry.current].map(([source, check]): SaveCheck => (signal) => {
-          const tag = (found: Array<SaveWarning>) =>
-            found.map((w) => ({ ...w, source }))
-          const result = check(signal)
-          return isThenable<Array<SaveWarning>>(result)
-            ? Promise.resolve(result).then(tag)
-            : tag(result)
-        })
-
-      const decide = (found: Array<SaveWarning>, retried: boolean) => {
-        if (!live.current) return
-        // Something was typed while the checks ran, so what they found is
-        // about values no longer there. Once more, with what is there now.
-        if (editedWhileChecking.current && !retried) {
-          editedWhileChecking.current = false
-          run(true)
-          return
-        }
-        const before = seen.current
-        const decision = saveDecision(
-          found,
-          before.length > 0 ? warningsSignature(before) : null,
-        )
-        if (!decision.save) {
-          setSeen(found as Array<Sourced>)
-          setOpen(true)
-          return
-        }
-        if (found.length === 0) setSeen([])
-        else setOpen(false)
-        const result = save()
-        if (isThenable(result)) {
-          // Saved: nothing is confirmed any more, so the same warning on a
-          // later edit of this still-open form is shown again. Failed: kept.
-          result.then(
-            () => live.current && setSeen([]),
-            () => {},
-          )
-        }
-      }
-
-      const run = (retried: boolean) => {
-        const found = runSaveChecks(checks())
-        if (!isThenable<Array<SaveWarning>>(found)) {
-          decide(found, retried)
-          return
-        }
-        busy.current = true
-        editedWhileChecking.current = false
-        setChecking(true)
-        void Promise.resolve(found).then((list) => {
-          busy.current = false
-          if (live.current) setChecking(false)
-          decide(list, retried)
-        })
-      }
-
-      run(false)
-    },
-    [setSeen],
-  )
-
-  const reset = useCallback(() => setSeen([]), [setSeen])
+  const { shown, open, checking } = state
   const visible = open && shown.length > 0
 
   const saveLabel = useCallback(
@@ -216,14 +121,14 @@ export function useSaveWarnings(): SaveWarningsController {
 
   return useMemo(
     () => ({
-      guard,
+      guard: core.guard,
       saveLabel,
       checking,
       warnings: visible ? shown : [],
-      reset,
+      reset: core.reset,
       fields,
     }),
-    [guard, saveLabel, checking, visible, shown, reset, fields],
+    [core, saveLabel, checking, visible, shown, fields],
   )
 }
 
@@ -247,7 +152,9 @@ export function SaveWarningsProvider({
  * Registers `check` to run when the form's Save is pressed. `source` names
  * the field (its input id does) and must be unique in the form. `deps` are
  * the values the check reads: when any of them changes, that field's
- * warnings leave the list, since they were about what used to be there.
+ * warnings leave the list, since they were about what used to be there
+ * (after a tapped fix, only the warning it fixed). They leave too when the
+ * field unmounts.
  *
  * Pass `null` for no check. Outside a SaveWarningsProvider it does nothing,
  * so a field works in a form that has not adopted the panel.
@@ -266,6 +173,14 @@ export function useSaveCheck(
     if (!fields || !check) return
     return fields.register(source, check)
   }, [fields, source, check])
+
+  // When the field leaves the form, so do its warnings: a row for a field
+  // no longer on screen can be neither fixed nor focused. Not in the effect
+  // above, whose cleanup runs on every render, as `check` is new each time.
+  useEffect(() => {
+    if (!fields) return
+    return () => fields.removed(source)
+  }, [fields, source])
 
   const before = useRef<ReadonlyArray<unknown> | null>(null)
   useEffect(() => {
@@ -375,23 +290,14 @@ export function SaveWarningsPanel({
                 type="button"
                 onClick={(e) => {
                   const form = e.currentTarget.closest('form')
-                  const fix = w.fix
-                  if (!fix) return
-                  const { source } = w as Sourced
-                  // Applied and rendered now, so the row is gone and the
-                  // count right before focus moves. Taken off the list here
-                  // too, for a fix that leaves the values its check watches
-                  // as they were.
-                  flushSync(() => {
-                    fix.apply()
-                    controller.fields.edited(source)
-                  })
+                  // Takes this row off, only: the field's other warnings
+                  // were not what this fixed.
+                  controller.fields.fix(w as SourcedWarning)
                   // The button just pressed is gone. Focus goes to what is
-                  // left to read, or to Save when nothing is.
-                  const left = warnings.some(
-                    (other) => (other as Sourced).source !== source,
-                  )
-                  if (left) heading.current?.focus()
+                  // left to read, or to Save when nothing is: the panel is
+                  // rendered by now, so its heading is there only if rows
+                  // are.
+                  if (heading.current) heading.current.focus()
                   else
                     form?.querySelector<HTMLElement>('[type="submit"]')?.focus()
                 }}

@@ -11,6 +11,7 @@
  * ARCHITECTURE.md §5.5 requires the build to fail if sw.js is missing, because
  * this whole class of failure is silent.
  */
+import { execSync } from 'node:child_process'
 import { existsSync, statSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { build } from 'vite'
@@ -36,11 +37,34 @@ if (!existsSync(PUBLIC_DIR)) {
   process.exit(1)
 }
 
+/**
+ * The build's short commit, worked out exactly as vite.config.ts works out
+ * the app's. The worker answers a page with it, and the page shows "a new
+ * version is ready" only when the two differ (src/lib/workerVersion.ts), so
+ * they must come from the same place: were this one to drift, every page
+ * would be told it was out of date on every launch.
+ */
+function appVersion() {
+  const vercel = process.env.VERCEL_GIT_COMMIT_SHA
+  if (vercel) return vercel.slice(0, 7)
+  try {
+    const sha = execSync('git rev-parse --short=7 HEAD', {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    })
+      .toString()
+      .trim()
+    return sha || 'dev'
+  } catch {
+    return 'dev'
+  }
+}
+
 // Bundle src/sw.ts on its own: the worker runs outside the app's module graph
 // and must be a self-contained classic script.
 await build({
   configFile: false,
   logLevel: 'warn',
+  define: { __APP_VERSION__: JSON.stringify(appVersion()) },
   build: {
     outDir: PUBLIC_DIR,
     emptyOutDir: false,

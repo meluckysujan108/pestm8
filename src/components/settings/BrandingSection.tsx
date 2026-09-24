@@ -13,6 +13,7 @@ import { PhoneInput } from '#/components/forms/PhoneInput'
 import {
   SaveWarningsPanel,
   SaveWarningsProvider,
+  useLatest,
   useSaveWarnings,
 } from '#/components/forms/SaveWarnings'
 import { VerifiedAddressFields } from '#/components/forms/VerifiedAddressFields'
@@ -85,6 +86,20 @@ export function BrandingSection({
     }) => convexUpdate(args),
   })
 
+  // Read when the save goes, after any checks at Save have answered, not
+  // when Save was pressed: a number put right while the address was still
+  // being looked up is what the field shows and what "Saved" claims, so it
+  // is what goes.
+  const latestArgs = useLatest(() => ({
+    businessId,
+    addressLine: address.addressLine,
+    suburb: address.suburb,
+    postcode: address.postcode,
+    phone,
+    email,
+    licenceNumber,
+  }))
+
   const getUploadUrl = useConvexMutation(api.businesses.generateUploadUrl)
   const setLogo = useConvexMutation(api.businesses.update)
 
@@ -144,11 +159,7 @@ export function BrandingSection({
             onClick={() => input.current?.click()}
             className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-50"
           >
-            {logoBusy
-              ? 'Uploading…'
-              : logoUrl
-                ? 'Change logo'
-                : 'Add logo'}
+            {logoBusy ? 'Uploading…' : logoUrl ? 'Change logo' : 'Add logo'}
           </button>
           <input
             ref={input}
@@ -178,17 +189,7 @@ export function BrandingSection({
         <form
           className="mt-3 rounded-2xl border border-hairline bg-surface px-3.5 pb-3.5 shadow-elevation"
           onSubmit={(e) =>
-            warnings.guard(e, () =>
-              save.mutateAsync({
-                businessId,
-                addressLine: address.addressLine,
-                suburb: address.suburb,
-                postcode: address.postcode,
-                phone,
-                email,
-                licenceNumber,
-              }),
-            )
+            warnings.guard(e, () => save.mutateAsync(latestArgs.current()))
           }
         >
           {/* Optional: plenty of businesses print no street address. */}

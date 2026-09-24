@@ -1,10 +1,15 @@
 import { useId, useState } from 'react'
 import { Lock } from 'lucide-react'
 import {
+  COMMON_EMAIL_DOMAINS,
+  emailDomain,
   emailProblem,
   emailTypoFix,
   isValidEmail,
 } from '../../../../convex/lib/email'
+import { isOffline, networkLookupsAllowed } from '#/lib/addressLookup'
+import { checkEmailDomain } from '#/lib/emailDomainCheck'
+import type { DomainMail } from '#/lib/emailDomainCheck'
 import { RichTextView } from '../RichText'
 import { FieldMessage } from '#/components/forms/FieldMessage'
 import {
@@ -149,14 +154,92 @@ export function splitEmails(text: string): Array<string> {
     })
 }
 
+const COMMON: ReadonlySet<string> = new Set(COMMON_EMAIL_DOMAINS)
+
+/** The words for a domain DNS says takes no mail — EmailInput's, so a client
+ * record and a report say the same thing about the same address. */
+export function noMailMessage(domain: string): string {
+  return `${domain} doesn't look like it receives email.`
+}
+
+/**
+ * The domains among `addresses` that DNS says take no mail
+ * (src/lib/emailDomainCheck.ts): "jan@smithpestcontrol.com.au" when the
+ * business is smithpest.com.au passes every spelling rule, and a compliance
+ * report sent there is simply gone.
+ *
+ * Asked only where EmailInput asks: not offline, not under a test runner, and
+ * not for an address already refused or offered a typo fix (that line says
+ * enough), nor a common provider's. Only the domain is sent. 'unknown' — no
+ * signal, a slow resolver — says nothing, and the answer is only ever a
+ * warning: nothing here stops a finalise or a send.
+ */
+export async function domainsWithoutMail(
+  addresses: ReadonlyArray<string>,
+  ask: (domain: string) => Promise<DomainMail> = checkEmailDomain,
+): Promise<Array<string>> {
+  if (!networkLookupsAllowed() || isOffline()) return []
+  const domains = new Set<string>()
+  for (const address of addresses) {
+    if (emailProblem(address) !== null || emailTypoFix(address) !== null) {
+      continue
+    }
+    const domain = emailDomain(address)
+    if (domain !== null && !COMMON.has(domain)) domains.add(domain)
+  }
+  const answers = await Promise.all(
+    [...domains].map(async (domain) =>
+      (await ask(domain)) === 'no-mail' ? domain : null,
+    ),
+  )
+  return answers.filter((domain): domain is string => domain !== null)
+}
+
 /** What is said under the box about one of its addresses. */
-type EmailLine = {
+export type EmailLine = {
   index: number
   entry: string
   tone: 'error' | 'warning'
   text: string
   /** The address most likely meant, for the one-tap fix. */
   fix: string | null
+}
+
+/**
+ * What to say about each address in the box. Only those `checked` — there
+ * when the box was last left — are spoken about: the one still being typed
+ * is not wrong yet. `noMail` is the domains DNS has said take no mail.
+ */
+export function emailLines(
+  entries: ReadonlyArray<string>,
+  checked: ReadonlyArray<string>,
+  noMail: ReadonlyArray<string>,
+): Array<EmailLine> {
+  return entries.flatMap((entry, index): Array<EmailLine> => {
+    if (!checked.includes(entry)) return []
+    const problem = emailProblem(entry)
+    const fix = emailTypoFix(entry)
+    if (problem !== null) {
+      return [{ index, entry, tone: 'error', text: problem, fix }]
+    }
+    if (fix !== null) {
+      return [
+        { index, entry, tone: 'warning', text: `Did you mean ${fix}?`, fix },
+      ]
+    }
+    const domain = emailDomain(entry)
+    return domain !== null && noMail.includes(domain)
+      ? [
+          {
+            index,
+            entry,
+            tone: 'warning',
+            text: noMailMessage(domain),
+            fix: null,
+          },
+        ]
+      : []
+  })
 }
 
 /**
@@ -185,19 +268,12 @@ export function EmailsControl({ field, value, onChange }: Of<'emails'>) {
   // spoken about: the one still being typed is not wrong yet. Those already
   // there when the form opened were finished in an earlier sitting.
   const [checked, setChecked] = useState<ReadonlyArray<string>>(list)
+  // Domains DNS has said take no mail, asked as the box is left. Only ever
+  // added to: an answer about a domain stays true whichever address asked.
+  const [noMail, setNoMail] = useState<ReadonlyArray<string>>([])
 
   const entries = splitEmails(draft)
-  const said = entries.flatMap((entry, index): Array<EmailLine> => {
-    if (!checked.includes(entry)) return []
-    const problem = emailProblem(entry)
-    const fix = emailTypoFix(entry)
-    if (problem !== null) {
-      return [{ index, entry, tone: 'error', text: problem, fix }]
-    }
-    return fix !== null
-      ? [{ index, entry, tone: 'warning', text: `Did you mean ${fix}?`, fix }]
-      : []
-  })
+  const said = emailLines(entries, checked, noMail)
   const errors = said.filter((line) => line.tone === 'error')
   const warnings = said.filter((line) => line.tone === 'warning')
   const errorId = fieldMessageId(id, 'error')
@@ -219,7 +295,9 @@ export function EmailsControl({ field, value, onChange }: Of<'emails'>) {
         id={id}
         type="text"
         inputMode="email"
-        autoComplete="email"
+        // A customer's address goes here, and with "email" the phone offers
+        // the technician's own — EmailInput turns it off for the same reason.
+        autoComplete="off"
         autoCapitalize="none"
         autoCorrect="off"
         spellCheck={false}
@@ -238,6 +316,11 @@ export function EmailsControl({ field, value, onChange }: Of<'emails'>) {
         onBlur={() => {
           setDraft(entries.join(', '))
           setChecked(entries)
+          void domainsWithoutMail(entries).then((found) => {
+            if (found.some((domain) => !noMail.includes(domain))) {
+              setNoMail((prev) => [...new Set([...prev, ...found])])
+            }
+          })
         }}
         className={fieldInputClass('lg', errors.length > 0)}
       />

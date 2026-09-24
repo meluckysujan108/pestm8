@@ -1,12 +1,17 @@
 import { useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexAction } from '@convex-dev/react-query'
-import { Check, Plus, Send, ShieldAlert } from 'lucide-react'
+import { Check, CircleAlert, Plus, Send, ShieldAlert } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
-import { emailProblem, emailTypoFix } from '../../../convex/lib/email'
+import {
+  emailDomain,
+  emailProblem,
+  emailTypoFix,
+} from '../../../convex/lib/email'
 import { FieldMessage } from '#/components/forms/FieldMessage'
 import { describedBy, fieldMessageId } from '#/components/forms/FormField'
+import { domainsWithoutMail, noMailMessage } from './fields/staticBlocks'
 import { deliveryRecipients } from '#/lib/reportTemplates/delivery'
 import type { ReportTemplate } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -26,9 +31,20 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * can approve.
  */
 
-type Recipient = { address: string; chosen: boolean; known: boolean }
+type Recipient = {
+  address: string
+  chosen: boolean
+  known: boolean
+  /** Why it can never be delivered to (convex/lib/email.ts), or null. */
+  problem: string | null
+  /** The address most likely meant, for the one-tap fix. */
+  fix: string | null
+}
 
-const SEND_ERROR: Record<string, string> = {
+export const SEND_ERROR: Record<string, string> = {
+  // An address on file from before addresses were checked ("bob@gmail"):
+  // the server refuses it, and saying only "could not send" hid why.
+  INVALID_EMAIL: 'That address can’t receive email. Check it for a typo.',
   EMAIL_NOT_CONFIGURED: 'Email sending isn’t set up for this business yet.',
   RECIPIENT_NEEDS_APPROVAL:
     'Sent to the owner to approve — it will go once they say yes.',
@@ -38,6 +54,52 @@ const SEND_ERROR: Record<string, string> = {
   SEND_RATE_LIMITED:
     'That is a lot of reports in an hour. Try again shortly, or ask an owner.',
   NO_RECIPIENT: 'Choose at least one person to send it to.',
+}
+
+/**
+ * The code a failed send came back with, or 'UNKNOWN'. A ConvexError carries
+ * it as `data`; by the time it reaches here it may only be in the message.
+ */
+export function sendErrorCode(error: unknown): string {
+  const data = (error as { data?: unknown } | null)?.data
+  if (typeof data === 'string' && Object.hasOwn(SEND_ERROR, data)) return data
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    Object.keys(SEND_ERROR).find((code) => message.includes(code)) ?? 'UNKNOWN'
+  )
+}
+
+/**
+ * Who the form asked for, plus anyone this report has already gone to.
+ * Chosen by default only where the form asked: a second copy to someone who
+ * already has one is a decision, not a default.
+ *
+ * An address that can never be delivered to is never chosen by default. One
+ * saved before addresses were checked ("bob@gmail") still reaches here from
+ * the client's record, and chosen it read "Needs approval", then failed at
+ * the server with no reason given. It shows as "Can’t be delivered", with
+ * the address most likely meant one tap away.
+ */
+export function suggestedRecipients(
+  asked: ReadonlyArray<string>,
+  before: ReadonlyArray<string>,
+  knownAddresses: ReadonlyArray<string>,
+): Array<Recipient> {
+  const seen = new Set<string>()
+  const out: Array<Recipient> = []
+  for (const address of [...asked, ...before]) {
+    if (seen.has(address)) continue
+    seen.add(address)
+    const problem = emailProblem(address)
+    out.push({
+      address,
+      chosen: problem === null && asked.includes(address),
+      known: knownAddresses.includes(address),
+      problem,
+      fix: problem === null ? null : emailTypoFix(address),
+    })
+  }
+  return out
 }
 
 export function SendSheet({
@@ -76,27 +138,15 @@ export function SendSheet({
   const knownAddresses = known?.addresses ?? []
   const unrestricted = known?.unrestricted ?? false
 
-  /**
-   * Who the form asked for, plus anyone this report has already gone to.
-   * Chosen by default only where the form asked: a second copy to someone who
-   * already has one is a decision, not a default.
-   */
-  const suggested = useMemo(() => {
-    const asked = deliveryRecipients(template, data, { clientEmail }).to
-    const before = (history ?? []).flatMap((row) => row.to)
-    const seen = new Set<string>()
-    const out: Array<Recipient> = []
-    for (const address of [...asked, ...before]) {
-      if (seen.has(address)) continue
-      seen.add(address)
-      out.push({
-        address,
-        chosen: asked.includes(address),
-        known: knownAddresses.includes(address),
-      })
-    }
-    return out
-  }, [template, data, clientEmail, history, knownAddresses])
+  const suggested = useMemo(
+    () =>
+      suggestedRecipients(
+        deliveryRecipients(template, data, { clientEmail }).to,
+        (history ?? []).flatMap((row) => row.to),
+        knownAddresses,
+      ),
+    [template, data, clientEmail, history, knownAddresses],
+  )
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
   const [added, setAdded] = useState<Array<string>>([])
@@ -107,18 +157,25 @@ export function SendSheet({
   // "Did you mean" was shown for: pressing Add again adds it as typed.
   const [draftShown, setDraftShown] = useState(false)
   const [typoAsked, setTypoAsked] = useState<string | null>(null)
+  // Domains DNS has said take no mail (src/lib/emailDomainCheck.ts), asked as
+  // a typed address is left or added. A warning only: it may still be sent.
+  const [noMail, setNoMail] = useState<ReadonlyArray<string>>([])
   const draftRef = useRef<HTMLInputElement>(null)
   const draftId = useId()
 
   const recipients: Array<Recipient> = [
     ...suggested.map((entry) => ({
       ...entry,
-      chosen: overrides[entry.address] ?? entry.chosen,
+      // One that can never arrive cannot be chosen at all.
+      chosen:
+        entry.problem === null && (overrides[entry.address] ?? entry.chosen),
     })),
     ...added.map((address) => ({
       address,
       chosen: overrides[address] ?? true,
       known: knownAddresses.includes(address),
+      problem: null,
+      fix: null,
     })),
   ]
   const chosen = recipients.filter((entry) => entry.chosen)
@@ -143,13 +200,7 @@ export function SendSheet({
           await convexSend({ businessId, reportId, to: address })
           results.push({ address, code: null })
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          results.push({
-            address,
-            code:
-              Object.keys(SEND_ERROR).find((code) => message.includes(code)) ??
-              'UNKNOWN',
-          })
+          results.push({ address, code: sendErrorCode(error) })
         }
       }
       return results
@@ -173,8 +224,37 @@ export function SendSheet({
   const draftFix = typed === '' ? null : emailTypoFix(typed)
   const showDraftProblem = draftShown && draftProblem !== null
   const showDraftTypo = draftShown && draftProblem === null && draftFix !== null
+  const draftDomain = draftProblem === null ? emailDomain(typed) : null
+  const showDraftNoMail =
+    draftFix === null && draftDomain !== null && noMail.includes(draftDomain)
   const draftErrorId = fieldMessageId(draftId, 'error')
   const draftWarningId = fieldMessageId(draftId, 'warning')
+
+  /** Asks DNS about these addresses' domains, and remembers the ones that
+   * take no mail. Only ever added to: the answer is about the domain. */
+  function askDomains(addresses: ReadonlyArray<string>) {
+    void domainsWithoutMail(addresses).then((found) => {
+      if (found.length === 0) return
+      setNoMail((prev) => [...new Set([...prev, ...found])])
+    })
+  }
+
+  /** The domain of `address`, when DNS has said it takes no mail. */
+  function chipNoMail(address: string): string | null {
+    const domain = emailDomain(address)
+    return domain !== null && noMail.includes(domain) ? domain : null
+  }
+
+  /** "Use bob@gmail.com" on an address that can't be delivered: the one
+   * meant is chosen in its place, and the bad one stays, unchosen, so it is
+   * plain what is on file. */
+  function takeChipFix(fix: string) {
+    if (!recipients.some((entry) => entry.address === fix)) {
+      setAdded((prev) => [...prev, fix])
+    }
+    setOverrides((prev) => ({ ...prev, [fix]: true }))
+    askDomains([fix])
+  }
 
   function takeDraftFix(fix: string) {
     setDraft(fix)
@@ -187,7 +267,9 @@ export function SendSheet({
    * An address that can never be delivered to stays in the box with the
    * reason under it. This used to drop anything without an @ without a word,
    * and let "bob@gmail" through to a send that could not arrive. A near miss
-   * of a common provider asks once; the second Add takes it as typed.
+   * of a common provider asks once, and so does a domain DNS has already said
+   * takes no mail; the second Add takes it as typed. An answer that comes
+   * after Add shows under the address's chip instead.
    */
   function addTyped() {
     if (typed === '') return
@@ -196,12 +278,17 @@ export function SendSheet({
       draftRef.current?.focus()
       return
     }
-    if (draftFix !== null && typoAsked !== typed) {
+    if ((draftFix !== null || showDraftNoMail) && typoAsked !== typed) {
       setTypoAsked(typed)
       setDraftShown(true)
       return
     }
-    if (!added.includes(typed)) setAdded((prev) => [...prev, typed])
+    askDomains([typed])
+    if (recipients.some((entry) => entry.address === typed)) {
+      setOverrides((prev) => ({ ...prev, [typed]: true }))
+    } else {
+      setAdded((prev) => [...prev, typed])
+    }
     setDraft('')
     setDraftShown(false)
     setTypoAsked(null)
@@ -238,44 +325,70 @@ export function SendSheet({
       )}
 
       <ul className="flex flex-col gap-1.5">
-        {recipients.map((entry) => (
-          <li key={entry.address}>
-            <button
-              type="button"
-              aria-pressed={entry.chosen}
-              onClick={() =>
-                setOverrides((prev) => ({
-                  ...prev,
-                  [entry.address]: !entry.chosen,
-                }))
-              }
-              className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
-                entry.chosen
-                  ? 'border-ink/15 bg-surface'
-                  : 'border-hairline bg-surface-2 opacity-60'
-              }`}
-            >
-              <span
-                className={`flex size-5 shrink-0 items-center justify-center rounded-md ${
-                  entry.chosen ? 'bg-ink text-surface' : 'bg-surface-3'
-                }`}
-              >
-                {entry.chosen && <Check size={13} strokeWidth={3} />}
-              </span>
-              <span className="min-w-0 flex-1 truncate text-body text-ink">
-                {entry.address}
-              </span>
-              {/* Said before Send, not after: a technician should know their
-                  request is going to the owner before they make it. */}
-              {settled && entry.chosen && !entry.known && !unrestricted && (
-                <span className="flex shrink-0 items-center gap-1 text-caption text-amber-ink">
-                  <ShieldAlert size={13} strokeWidth={2} />
-                  Needs approval
-                </span>
+        {recipients.map((entry, index) => {
+          const noMailDomain = chipNoMail(entry.address)
+          const noMailId = fieldMessageId(`${draftId}-chip-${index}`, 'warning')
+          return (
+            <li key={entry.address}>
+              {entry.problem !== null ? (
+                <UndeliverableChip
+                  entry={entry}
+                  fixChosen={recipients.some(
+                    (other) => other.address === entry.fix && other.chosen,
+                  )}
+                  onFix={takeChipFix}
+                />
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    aria-pressed={entry.chosen}
+                    aria-describedby={noMailDomain ? noMailId : undefined}
+                    onClick={() =>
+                      setOverrides((prev) => ({
+                        ...prev,
+                        [entry.address]: !entry.chosen,
+                      }))
+                    }
+                    className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
+                      entry.chosen
+                        ? 'border-ink/15 bg-surface'
+                        : 'border-hairline bg-surface-2 opacity-60'
+                    }`}
+                  >
+                    <span
+                      className={`flex size-5 shrink-0 items-center justify-center rounded-md ${
+                        entry.chosen ? 'bg-ink text-surface' : 'bg-surface-3'
+                      }`}
+                    >
+                      {entry.chosen && <Check size={13} strokeWidth={3} />}
+                    </span>
+                    <span className="min-w-0 flex-1 truncate text-body text-ink">
+                      {entry.address}
+                    </span>
+                    {/* Said before Send, not after: a technician should know
+                        their request is going to the owner before they make
+                        it. */}
+                    {settled &&
+                      entry.chosen &&
+                      !entry.known &&
+                      !unrestricted && (
+                        <span className="flex shrink-0 items-center gap-1 text-caption text-amber-ink">
+                          <ShieldAlert size={13} strokeWidth={2} />
+                          Needs approval
+                        </span>
+                      )}
+                  </button>
+                  {noMailDomain && (
+                    <FieldMessage id={noMailId} tone="warning">
+                      {noMailMessage(noMailDomain)}
+                    </FieldMessage>
+                  )}
+                </>
               )}
-            </button>
-          </li>
-        ))}
+            </li>
+          )
+        })}
       </ul>
 
       {adding ? (
@@ -302,9 +415,17 @@ export function SendSheet({
                 }
                 setDraft(event.target.value)
               }}
-              onBlur={() =>
+              onBlur={() => {
                 setDraftShown(draftProblem !== null || draftFix !== null)
-              }
+                // Ask now, so Add has the answer waiting. Only the domain goes.
+                if (
+                  draftProblem === null &&
+                  draftFix === null &&
+                  typed !== ''
+                ) {
+                  askDomains([typed])
+                }
+              }}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault()
@@ -315,7 +436,7 @@ export function SendSheet({
               aria-invalid={showDraftProblem || undefined}
               aria-describedby={describedBy(
                 showDraftProblem && draftErrorId,
-                showDraftTypo && draftWarningId,
+                (showDraftTypo || showDraftNoMail) && draftWarningId,
               )}
               placeholder="name@example.com"
               className={`h-11 min-w-0 flex-1 rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none ${showDraftProblem ? 'ring-2 ring-red' : 'focus:ring-2 focus:ring-blue'}`}
@@ -351,6 +472,11 @@ export function SendSheet({
               fix={{ label: 'Use it', onApply: () => takeDraftFix(draftFix) }}
             >
               Did you mean {draftFix}?
+            </FieldMessage>
+          )}
+          {showDraftNoMail && (
+            <FieldMessage id={draftWarningId} tone="warning">
+              {noMailMessage(draftDomain)}
             </FieldMessage>
           )}
         </div>
@@ -391,6 +517,50 @@ export function SendSheet({
         </div>
       )}
     </Sheet>
+  )
+}
+
+/**
+ * An address on file that can never be delivered to, shown as it is — not a
+ * choice, since the server refuses it — with the address most likely meant
+ * one tap away.
+ */
+function UndeliverableChip({
+  entry,
+  fixChosen,
+  onFix,
+}: {
+  entry: Recipient
+  /** The fix is already on the list and chosen, so it is not offered again. */
+  fixChosen: boolean
+  onFix: (fix: string) => void
+}) {
+  const fix = entry.fix
+  // Not a button: there is nothing to choose. The line under it is read
+  // straight after, in order.
+  return (
+    <>
+      <div className="flex w-full items-center gap-2.5 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5">
+        <span aria-hidden className="size-5 shrink-0 rounded-md bg-surface-3" />
+        <span className="min-w-0 flex-1 truncate text-body text-ink">
+          {entry.address}
+        </span>
+        <span className="flex shrink-0 items-center gap-1 text-caption text-red-ink">
+          <CircleAlert size={13} strokeWidth={2} />
+          Can’t be delivered
+        </span>
+      </div>
+      <FieldMessage
+        tone="warning"
+        fix={
+          fix && !fixChosen
+            ? { label: `Use ${fix}`, onApply: () => onFix(fix) }
+            : undefined
+        }
+      >
+        {entry.problem}
+      </FieldMessage>
+    </>
   )
 }
 

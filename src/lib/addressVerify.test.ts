@@ -216,6 +216,49 @@ describe('checkAddressOffline', () => {
     }
   })
 
+  test('a near miss that uses the postcode typed beats one that does not', async () => {
+    // "Artadale" is a letter from Armadale (6112) and from Attadale (6156).
+    expect(
+      (await offline(address('1 Main St', 'Artadale', 'WA', '6156')))[0]?.fix,
+    ).toEqual({ label: 'Use Attadale', patch: { suburb: 'Attadale' } })
+    // With no postcode to go on, the one more people live in.
+    expect(
+      (await offline(address('1 Main St', 'Artadale', 'WA', '')))[0]?.fix,
+    ).toEqual({ label: 'Use Armadale', patch: { suburb: 'Armadale' } })
+  })
+
+  test('a compass point cut to its letter is that point', async () => {
+    // "W Perth" is a letter from Perth; offered Perth, then Perth's 6000,
+    // a right West Perth address became a wrong Perth one.
+    for (const [typed, postcode] of [
+      ['W Perth', '6005'],
+      ['E Perth', '6004'],
+      ['N Perth', '6006'],
+      ['S Perth', '6151'],
+      ['W. Perth', '6005'],
+    ]) {
+      expect(await offline(address('1 Hay St', typed, 'WA', postcode))).toEqual(
+        [],
+      )
+    }
+  })
+
+  test("a suburb not found, whose postcode is one suburb's alone, is offered that one", async () => {
+    expect(
+      await offline(
+        address('12 Felicia Crt', 'Dianella Heights', 'WA', '6059'),
+      ),
+    ).toEqual([
+      {
+        field: 'suburb',
+        level: 'warning',
+        message:
+          "Couldn't find Dianella Heights in WA. 6059 is Dianella's postcode.",
+        fix: { label: 'Use Dianella', patch: { suburb: 'Dianella' } },
+      },
+    ])
+  })
+
   test('an address outside the work area is pointed out, even when right', async () => {
     expect(
       await offline(address('12 East Point Rd', 'Fannie Bay', 'NT', '0820')),
@@ -252,6 +295,35 @@ describe('checkAddressOffline', () => {
         level: 'warning',
         message: '0820 is an NT postcode.',
         fix: { label: 'Use NT', patch: { state: 'NT' } },
+      },
+    ])
+  })
+
+  test("a postcode from another state: that state's suburb of the same name, over this one's", async () => {
+    // Casuarina NT 0810 with the state left on WA. Casuarina WA is 6167, a
+    // Perth suburb: offering its postcode would move a Darwin address there.
+    expect(
+      await offline(address('12 Trower Rd', 'Casuarina', 'WA', '0810')),
+    ).toEqual([
+      {
+        field: 'postcode',
+        level: 'warning',
+        message: '0810 is an NT postcode. Casuarina NT uses it.',
+        fix: { label: 'Use NT', patch: { state: 'NT' } },
+      },
+    ])
+    expect(
+      (await offline(address('1 Main St', 'Durack', 'WA', '0830')))[0]?.fix,
+    ).toEqual({ label: 'Use NT', patch: { state: 'NT' } })
+    // And the other way round, for an NT business.
+    expect(
+      await offline(address('1 Main St', 'Casuarina', 'NT', '6167'), 'NT'),
+    ).toEqual([
+      {
+        field: 'postcode',
+        level: 'warning',
+        message: '6167 is a WA postcode. Casuarina WA uses it.',
+        fix: { label: 'Use WA', patch: { state: 'WA' } },
       },
     ])
   })
@@ -346,6 +418,14 @@ describe('street names', () => {
     ['Esplanade', 'esplanade', ''],
     ['Walcott', 'walcott', ''],
     ['Great Eastern Hwy', 'great eastern', 'highway'],
+    ['Felicia Crt', 'felicia', 'court'],
+    ['Kent Dve', 'kent', 'drive'],
+    ['Kings Park Gdns', 'kings park', 'gardens'],
+    ['Roe Pkwy', 'roe', 'parkway'],
+    ['Roe Pwy', 'roe', 'parkway'],
+    ['Riverside Prom', 'riverside', 'promenade'],
+    ['Mitchell Fwy', 'mitchell', 'freeway'],
+    ['Lakes Cir', 'lakes', 'circle'],
   ])('"%s" is %s %s', (typed, name, type) => {
     expect(readStreetName(typed)).toMatchObject({ name, type })
   })
@@ -359,6 +439,10 @@ describe('addressSignature', () => {
       '14 Walcott Street',
       '3/12 Walcott Street',
       'Unit 3/12 Walcott St',
+      'Unit 3 12 Walcott Street',
+      'U3 12 Walcott St',
+      'No. 12 Walcott St',
+      '#12 Walcott St',
       'Walcott Street',
     ]) {
       expect(addressSignature({ ...picked, addressLine: line })).toBe(
@@ -405,9 +489,28 @@ describe('the street check request', () => {
     ['Lot 50 Mudstone Road', 'mudstone road'],
     ['12 Walcott St Mt Lawley', 'walcott st'],
     ['12 3rd Ave', '3rd ave'],
+    ['Unit 3 12 Walcott Street', 'walcott street'],
+    ['U3 12 Walcott St', 'walcott st'],
+    ['Apt 4 12 Walcott St', 'walcott st'],
+    ['Shop 2 12 Walcott St', 'walcott st'],
+    ['No. 12 Walcott St', 'walcott st'],
+    ['#12 Walcott St', 'walcott st'],
+    ['12 Felicia Crt Dianella', 'felicia crt'],
   ])('"%s" sends "%s"', (line, street) => {
     const url = streetCheckUrl(address(line, 'Mount Lawley', 'WA', '6050'))!
     expect(new URL(url).searchParams.get('street')).toBe(street)
+  })
+
+  test('never sends a number it could not read as the house', () => {
+    for (const line of [
+      'Townhouse 3 12 Walcott St',
+      '3 12 Walcott St',
+      'Unit 3 3rd Ave',
+    ]) {
+      expect(
+        streetCheckUrl(address(line, 'Mount Lawley', 'WA', '6050')),
+      ).toBeNull()
+    }
   })
 
   test('asks nothing without a street or a suburb', () => {
@@ -432,6 +535,77 @@ describe('the street check, from real replies', () => {
     expect(check(STRUCTURED.eastPtRd)).toEqual({ status: 'found' })
     // Filed under the estate (Calleya) as well as the suburb.
     expect(check(STRUCTURED.mudstoneTreeby)).toEqual({ status: 'found' })
+  })
+
+  test('an informal type, a unit or a "No." does not lose the street', () => {
+    // "Crt" read as part of the name, and "Unit 3 12" as a street called
+    // "unit 3 12 walcott", were both not found, with nothing offered.
+    expect(check(STRUCTURED.feliciaCrt)).toEqual({ status: 'found' })
+    const walcott = STRUCTURED.walcottStreet
+    for (const line of [
+      'Unit 3 12 Walcott Street',
+      'U3 12 Walcott Street',
+      'Apt 4 12 Walcott Street',
+      'Shop 2 12 Walcott Street',
+      'No. 12 Walcott Street',
+      '#12 Walcott Street',
+    ]) {
+      expect(
+        readStreetCheck(walcott.json, { ...walcott.value, addressLine: line }),
+      ).toEqual({ status: 'found' })
+    }
+  })
+
+  test("a last word that shortens the map's type is that type", () => {
+    const { json, value } = STRUCTURED.feliciaCrt
+    expect(
+      readStreetCheck(json, { ...value, addressLine: '12 Felicia Cour' }),
+    ).toEqual({ status: 'found' })
+    // A slip in the name as well: offered, never a bare "couldn't find".
+    expect(
+      readStreetCheck(json, { ...value, addressLine: '12 Felisia Crt' }).issue
+        ?.fix,
+    ).toEqual({
+      label: 'Use Felicia Court',
+      patch: { addressLine: '12 Felicia Court' },
+    })
+  })
+
+  test('the suburb is the district, not the city the street is in', () => {
+    // Walcott Street is in North Perth and Mount Lawley, and every street
+    // in metro Perth has the city Perth. Found through the city, "Street
+    // found" backed a wrong suburb.
+    expect(check(STRUCTURED.walcottPerth)).toEqual({
+      status: 'not-found',
+      issue: {
+        field: 'suburb',
+        level: 'warning',
+        message:
+          "Couldn't find Walcott St in Perth itself on the map, only in North Perth and Mount Lawley.",
+      },
+    })
+    const { json, value } = STRUCTURED.smithDarwin
+    expect(
+      readStreetCheck(json, { ...value, addressLine: '1 Ross Smith Ave' }),
+    ).toMatchObject({
+      status: 'not-found',
+      issue: {
+        message:
+          "Couldn't find Ross Smith Ave in Darwin itself on the map, only in Fannie Bay.",
+      },
+    })
+    expect(
+      readStreetCheck(json, {
+        ...value,
+        addressLine: '1 Ross Smith Ave',
+        suburb: 'Fannie Bay',
+        postcode: '0820',
+      }),
+    ).toEqual({ status: 'found' })
+  })
+
+  test('"Darwin" is the district Darwin City', () => {
+    expect(check(STRUCTURED.smithDarwin)).toEqual({ status: 'found' })
   })
 
   test('a slip in the name: Photon brings the right street, and it is offered', () => {

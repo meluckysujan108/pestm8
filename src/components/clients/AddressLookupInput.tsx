@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
-import { addressLookupWanted, lookUpAddresses } from '#/lib/addressLookup'
+import {
+  addressLookupWanted,
+  lookUpAddresses,
+  lookupStatusAfterCancel,
+} from '#/lib/addressLookup'
 import type { KeyboardEvent } from 'react'
 import type { AddressLookup, AddressSuggestion } from '#/lib/addressLookup'
 import type { AddressValue } from '#/lib/addressVerify'
@@ -106,6 +110,10 @@ export function AddressLookupInput({
     inFlight.current?.abort()
     inFlight.current = null
     ticket.current += 1
+    // Its reply will now be dropped, so nothing else would clear a
+    // "Searching…" for it. Escape can cancel one: typed back to what the
+    // list showing was found for, a new lookup is already on its way.
+    setLookup(lookupStatusAfterCancel)
   }
 
   useEffect(() => cancelLookup, [])
