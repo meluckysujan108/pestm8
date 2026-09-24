@@ -41,6 +41,7 @@ import type * as lib_audit from "../lib/audit.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_clientScope from "../lib/clientScope.js";
 import type * as lib_colours from "../lib/colours.js";
+import type * as lib_contactNames from "../lib/contactNames.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_emailConfig from "../lib/emailConfig.js";
 import type * as lib_forecastWindow from "../lib/forecastWindow.js";
@@ -132,6 +133,7 @@ declare const fullApi: ApiFromModules<{
   "lib/capabilities": typeof lib_capabilities;
   "lib/clientScope": typeof lib_clientScope;
   "lib/colours": typeof lib_colours;
+  "lib/contactNames": typeof lib_contactNames;
   "lib/dates": typeof lib_dates;
   "lib/emailConfig": typeof lib_emailConfig;
   "lib/forecastWindow": typeof lib_forecastWindow;

@@ -301,14 +301,18 @@ test('a new site for an existing business is booked from New Job, without a seco
 
   await sheet.getByLabel('New site for').click()
   await page
-    .getByRole('textbox', { name: 'Search by name or phone' })
+    .getByRole('textbox', { name: 'Search by name, phone or suburb' })
     .fill('Mahal')
   await page.getByRole('button', { name: /^Mahal Mart/ }).click()
   await sheet.getByLabel('Site contact name').fill('Priya Shah')
   await sheet.getByLabel('Site contact number').fill('0400 222 333')
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
-  await expect(page.getByText('Belmont')).toBeVisible()
+  // On the card: the day's weather line names the suburb too, once the
+  // forecast is in.
+  await expect(
+    page.getByRole('button', { name: /Mahal Mart\s+Belmont/ }),
+  ).toBeVisible()
 
   // One Mahal Mart, now with two sites, the new one carrying its contact.
   const clients = await s.owner.client.query(api.clients.list, {

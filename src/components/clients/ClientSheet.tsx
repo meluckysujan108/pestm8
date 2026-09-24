@@ -21,7 +21,11 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { AU_STATES } from '#/lib/au'
 import { formatJobMoney } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
-import { formatAbn } from '../../../convex/lib/abn'
+import { abnDigits, formatAbn } from '../../../convex/lib/abn'
+import {
+  isNameCorrection,
+  sameName,
+} from '../../../convex/lib/contactNames'
 import { dayKeyOf } from '../../../convex/lib/dates'
 import { siteContactOf } from '../../../convex/lib/siteContact'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -363,27 +367,29 @@ function ClientEditForm({
           clientId: client._id,
           kind,
           name,
-          phone: phone.trim() || undefined,
-          email: email.trim() || undefined,
+          // Each only when changed, and blank clears it (clients.update).
+          // Untouched fields are left out, so a save that changes nothing
+          // writes nothing.
+          ...edited('phone', phone, client.phone),
+          ...edited('email', email, client.email),
           // Omitted (not cleared) when kind isn't business: `clients.update`
           // skips undefined args, so toggling to person just stops showing
           // the address rather than wiping it — same "hidden, not deleted"
           // treatment as clientContacts when kind flips away from business.
           // The ABN and contact person are left alone the same way.
           ...(kind === 'business' && {
-            addressLine: addressLine.trim() || undefined,
-            suburb: suburb.trim() || undefined,
-            // A state on its own is not an address.
-            state: (hasAddress && state) || undefined,
-            postcode: postcode.trim() || undefined,
-            // Always sent for a business: blank is how one is taken off.
-            abn: abn.trim(),
-            // Only when changed. The server makes the name the primary
-            // contact, and blank takes the star off (nobody is deleted), so
-            // an untouched field must not be sent at all.
-            ...(contactPerson.trim() !== contactPersonBefore.trim() && {
-              contactPerson: contactPerson.trim(),
+            ...edited('addressLine', addressLine, client.addressLine),
+            ...edited('suburb', suburb, client.suburb),
+            // A state on its own is not an address: with no street, suburb
+            // or postcode it is cleared, which also mends a lone "ACT".
+            ...edited('state', hasAddress ? state : '', client.state),
+            ...edited('postcode', postcode, client.postcode),
+            ...((abnDigits(abn) ?? abn.trim()) !== (client.abn ?? '') && {
+              abn: abn.trim(),
             }),
+            // The server makes the name the primary contact, and blank takes
+            // the star off (nobody is deleted).
+            ...edited('contactPerson', contactPerson, contactPersonBefore),
           }),
         })
       }}
@@ -417,6 +423,18 @@ function ClientEditForm({
           <FormField label="Contact person (optional)">
             <TextInput value={contactPerson} onChange={setContactPerson} />
           </FormField>
+          {/* Outside the label, which it would otherwise become part of. What
+              saving will do to the person already in the field, when it is not
+              simply correcting their name: they are never removed. */}
+          {contactPersonBefore.trim() !== '' &&
+            !sameName(contactPerson, contactPersonBefore) &&
+            !isNameCorrection(contactPersonBefore, contactPerson) && (
+              <p className="-mt-1.5 text-caption text-muted">
+                {contactPerson.trim() === ''
+                  ? `${contactPersonBefore.trim()} stays in Contacts, no longer the contact person.`
+                  : `${contactPerson.trim()} becomes the contact person. ${contactPersonBefore.trim()} stays in Contacts.`}
+              </p>
+            )}
         </>
       )}
       <FormField label={kind === 'business' ? 'Main phone (optional)' : 'Phone (optional)'}>
@@ -1082,12 +1100,17 @@ function PropertyEditForm({
           suburb: value.suburb,
           state: value.state,
           postcode: value.postcode,
-          // Blank clears one. Not sent for a person client, whose fields are
-          // hidden, so saving the address must leave them as they are.
-          ...(clientKind === 'business' && {
-            siteContactName: value.siteContactName.trim(),
-            siteContactPhone: value.siteContactPhone.trim(),
-          }),
+          // Only when changed, and blank clears one. Not sent for a person
+          // client, whose fields are hidden, so saving the address must leave
+          // them as they are.
+          ...(clientKind === 'business' &&
+            changed(value.siteContactName, property.siteContactName) && {
+              siteContactName: value.siteContactName.trim(),
+            }),
+          ...(clientKind === 'business' &&
+            changed(value.siteContactPhone, property.siteContactPhone) && {
+              siteContactPhone: value.siteContactPhone.trim(),
+            }),
         })
       }}
     >
@@ -1364,4 +1387,24 @@ function TextInput({
       className="h-11 w-full rounded-xl bg-surface-3 px-3.5 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
     />
   )
+}
+
+/**
+ * A text field for an update, only when it changed. Blank is sent as '',
+ * which clears it on the server; an untouched field is left out, so a save
+ * that changes nothing writes nothing — and a save made while the server is
+ * still the previous version sends nothing it does not know.
+ */
+function edited<TKey extends string>(
+  key: TKey,
+  now: string,
+  before: string | undefined,
+): Partial<Record<TKey, string>> {
+  return changed(now, before)
+    ? ({ [key]: now.trim() } as Record<TKey, string>)
+    : {}
+}
+
+function changed(now: string, before: string | undefined): boolean {
+  return now.trim() !== (before ?? '').trim()
 }

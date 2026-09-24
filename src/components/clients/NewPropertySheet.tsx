@@ -30,11 +30,18 @@ export function NewPropertySheet({
   open: boolean
   onClose: () => void
 }) {
-  const [value, setValue] = useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
   const businessState = useRouteContext({
     from: '/$businessSlug',
     select: (context) => context.business.state,
   })
+  // Starts in the business's own state, as "Add another property" does: a
+  // Darwin address typed by hand and left on WA is how prod came to hold
+  // "Fannybay WA".
+  const empty: NewClientFieldsValue = {
+    ...EMPTY_NEW_CLIENT,
+    state: businessState || EMPTY_NEW_CLIENT.state,
+  }
+  const [value, setValue] = useState<NewClientFieldsValue>(empty)
 
   const hydrated = useHydrated()
 
@@ -43,7 +50,7 @@ export function NewPropertySheet({
     mutationFn: (args: { businessId: Id<'businesses'> } & NewClientArgs) =>
       convexCreate(args),
     onSuccess: () => {
-      setValue(EMPTY_NEW_CLIENT)
+      setValue(empty)
       onClose()
     },
   })

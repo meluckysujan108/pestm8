@@ -44,7 +44,10 @@ describe('the Clients page search', () => {
     expect(found('51824753556')).toBe(true)
     expect(found('51 824 753 556')).toBe(true)
     expect(found('51 824')).toBe(true)
-    expect(found('824 753')).toBe(true)
+    // From the front, as one is read out: a run of digits from its middle is
+    // more likely part of a postcode or a phone number.
+    expect(found('824 753')).toBe(false)
+    expect(found('7535')).toBe(false)
     expect(found('99 999 999 999')).toBe(false)
   })
 
@@ -73,5 +76,21 @@ describe('the Clients page search', () => {
     expect(found('kowalski', switched)).toBe(false)
     expect(found('0433222111', switched)).toBe(false)
     expect(found('walter road', switched)).toBe(true)
+  })
+
+  test('a Perth postcode does not find a site through the +61 form of its mobile', () => {
+    // 0478 123 456 is +61 478 123 456, which starts 6147 — Lynwood's postcode.
+    const mobile = row({ name: 'Riverside Strata', kind: 'business' }, [
+      {
+        addressLine: '1 Kent Street',
+        suburb: 'Cannington',
+        siteContactName: 'Dana',
+        siteContactPhone: '0478 123 456',
+      },
+    ])
+    expect(found('6147', mobile)).toBe(false)
+    expect(found('0478', mobile)).toBe(true)
+    expect(found('+61 478', mobile)).toBe(true)
+    expect(found('61478123', mobile)).toBe(true)
   })
 })

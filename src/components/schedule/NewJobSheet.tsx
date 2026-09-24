@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
+import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { flushSync } from 'react-dom'
@@ -33,8 +33,7 @@ import type {
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { IntervalUnit } from '../../../convex/lib/recurrence'
 import { useHydrated } from '#/lib/useHydrated'
-import { propertyOptions } from '#/lib/propertyOptions'
-import { rq } from '#/lib/routeQueries'
+import { clientOptions, propertyOptions } from '#/lib/propertyOptions'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
@@ -127,14 +126,22 @@ function NewJobForm({
     properties.length > 0 ? 'existing' : 'new',
   )
   const [propertyId, setPropertyId] = useState('')
-  const [newClient, setNewClient] =
-    useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
-  const [siteClientId, setSiteClientId] = useState('')
-  const [newSite, setNewSite] = useState<NewSiteValue>(EMPTY_NEW_SITE)
   const businessState = useRouteContext({
     from: '/$businessSlug',
     select: (context) => context.business.state,
   })
+  // A new address starts in the business's own state, not WA for everyone:
+  // most of a Darwin business's clients are in the NT, and a Darwin address
+  // typed by hand and left on WA is how prod came to hold "Fannybay WA".
+  const [newClient, setNewClient] = useState<NewClientFieldsValue>(() => ({
+    ...EMPTY_NEW_CLIENT,
+    state: businessState || EMPTY_NEW_CLIENT.state,
+  }))
+  const [siteClientId, setSiteClientId] = useState('')
+  const [newSite, setNewSite] = useState<NewSiteValue>(() => ({
+    ...EMPTY_NEW_SITE,
+    state: businessState || EMPTY_NEW_SITE.state,
+  }))
   const [assignee, setAssignee] = useState('')
   const [jobType, setJobType] = useState<string>(JOB_TYPES[0])
   const [time, setTime] = useState('09:00')
@@ -171,30 +178,13 @@ function NewJobForm({
   )
   const [propertyMissing, setPropertyMissing] = useState(false)
 
-  // Asked for only once a new site is being added, and without suspending:
-  // the sheet has to open at once for every other booking, and most never
-  // need the client list.
-  const { data: clients } = useQuery(
-    mode === 'site'
-      ? rq.clients(businessId)
-      : convexQuery(api.clients.list, 'skip'),
-  )
+  // One per client, from the sites already loaded — archived clients
+  // included, and each saying where its sites are (see `clientOptions`).
   const clientOptionList = useMemo(
-    () =>
-      [...(clients ?? [])]
-        .sort((a, b) =>
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-        )
-        .map((c) => ({
-          value: c._id,
-          label: c.name,
-          // Found by the number on the phone as well as the name, as in the
-          // Property picker.
-          searchText: `${c.name} ${(c.phone ?? '').replace(/\D/g, '')}`,
-        })),
-    [clients],
+    () => clientOptions(properties),
+    [properties],
   )
-  const siteClient = clients?.find((c) => c._id === siteClientId)
+  const siteClient = properties.find((p) => p.clientId === siteClientId)?.client
   const [clientMissing, setClientMissing] = useState(false)
   const clientTrigger = useRef<HTMLButtonElement>(null)
 
@@ -220,12 +210,11 @@ function NewJobForm({
     if (propertyId && !properties.some((p) => p._id === propertyId))
       setPropertyId('')
   }, [properties, propertyId])
-  // The same for the new site's client. It also drops an archived client
-  // carried over from the Property picker, which the client list leaves out.
+  // The same for the new site's client.
   useEffect(() => {
-    if (siteClientId && clients && !clients.some((c) => c._id === siteClientId))
+    if (siteClientId && !properties.some((p) => p.clientId === siteClientId))
       setSiteClientId('')
-  }, [clients, siteClientId])
+  }, [properties, siteClientId])
   // Held to the options, not just seeded once: a switch starting or ending
   // while the sheet is open changes who may be booked, and a stale id would
   // be submitted as-is and refused.
@@ -287,6 +276,22 @@ function NewJobForm({
     onSuccess: onClose,
   })
 
+  /**
+   * Whose site it is comes first. Asked on the Book button's click as well as
+   * on submit: the click runs before the browser checks the required address
+   * fields below, which would otherwise send the person down to Street
+   * address first, then back up to the client once that was filled.
+   */
+  function clientNeeded(): boolean {
+    if (mode !== 'site' || siteClient) return false
+    setClientMissing(true)
+    clientTrigger.current?.focus()
+    return true
+  }
+  // Only while it is still true: a client carried over from the Property
+  // picker afterwards answers it.
+  const showClientMissing = clientMissing && !siteClient
+
   return (
     <form
       className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
@@ -304,11 +309,7 @@ function NewJobForm({
           propertyTrigger.current?.focus()
           return
         }
-        if (mode === 'site' && !siteClient) {
-          setClientMissing(true)
-          clientTrigger.current?.focus()
-          return
-        }
+        if (clientNeeded()) return
         const [hh, mm] = time.split(':').map(Number)
         // The picker gives a wall-clock time on the selected day, in the
         // tenant's own timezone — not the viewer's browser zone, which may
@@ -411,28 +412,22 @@ function NewJobForm({
         <>
           <Field label="New site for">
             <Combobox
-              // Blank until the list is in: a client carried over from the
-              // Property picker would show as its bare id meanwhile.
-              value={clients ? siteClientId : ''}
+              value={siteClientId}
               onChange={(next) => {
                 setSiteClientId(next)
                 setClientMissing(false)
               }}
               options={clientOptionList}
-              placeholder="Search by name or phone"
-              emptyLabel={clients ? 'Choose a client' : 'Loading clients…'}
-              noMatchLabel={
-                clients
-                  ? 'No client matches. Use New client above to add them.'
-                  : 'Loading clients…'
-              }
+              placeholder="Search by name, phone or suburb"
+              emptyLabel="Choose a client"
+              noMatchLabel="No client matches. Use New client above to add them."
               ariaLabel="New site for"
-              invalid={clientMissing}
+              invalid={showClientMissing}
               errorId={CLIENT_ERROR_ID}
               triggerRef={clientTrigger}
             />
           </Field>
-          {clientMissing && (
+          {showClientMissing && (
             <p
               id={CLIENT_ERROR_ID}
               role="alert"
@@ -454,7 +449,12 @@ function NewJobForm({
           )}
           <button
             type="button"
-            onClick={() => setMode('existing')}
+            onClick={() => {
+              // Focus goes where the person is going, as it does the other
+              // way; left alone it falls back to the top of the sheet.
+              flushSync(() => setMode('existing'))
+              propertyTrigger.current?.focus()
+            }}
             className="mt-3 text-[15px] font-semibold text-blue"
           >
             Choose an existing site instead
@@ -606,6 +606,9 @@ function NewJobForm({
 
       <button
         type="submit"
+        onClick={(e) => {
+          if (clientNeeded()) e.preventDefault()
+        }}
         disabled={create.isPending || !hydrated || intervalIncomplete}
         className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
       >

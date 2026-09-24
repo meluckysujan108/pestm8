@@ -3,11 +3,9 @@ import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { requireActor } from './lib/actor'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
+import { isNameCorrection, sameName } from './lib/contactNames'
 import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
-
-const sameName = (a: string, b: string) =>
-  a.trim().toLocaleLowerCase('en-AU') === b.trim().toLocaleLowerCase('en-AU')
 
 /**
  * Makes `rawName` a business client's contact person (Prompt 6.1) — its
@@ -15,12 +13,12 @@ const sameName = (a: string, b: string) =>
  * contact-person field: a second one would drift from the Contacts list, and
  * the contacts' emails already feed report recipients.
  *
- * Never deletes anyone. Blank takes the star off whoever has it and leaves
- * them in the list. A name already in the list takes the star. Otherwise a
- * primary that is only a name — the kind the client form itself creates — is
- * renamed in place, which is what fixing "Jhon" to "John" means; a primary
- * with a role, number or email is a real record of someone, so it keeps its
- * row and a new contact takes the star.
+ * Never removes anyone from the list. Blank takes the star off whoever has
+ * it. A name already in the list takes the star. A correction of the contact
+ * person's own name (`isNameCorrection`) renames them in place, keeping their
+ * number and role: adding Jan's surname must not leave two Jans, one without
+ * a phone. Any other name is a different person, added with the star, and
+ * whoever had it stays in the list.
  */
 export async function setContactPerson(
   ctx: MutationCtx,
@@ -45,7 +43,7 @@ export async function setContactPerson(
     const named = contacts.find((c) => sameName(c.name, name))
     if (named) {
       contactId = named._id
-    } else if (primary && !primary.role && !primary.phone && !primary.email) {
+    } else if (primary && isNameCorrection(primary.name, name)) {
       await ctx.db.patch(primary._id, { name })
       contactId = primary._id
     } else {

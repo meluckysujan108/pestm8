@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { propertyOptions } from './propertyOptions'
-import type { PickableProperty } from './propertyOptions'
+import { clientOptions, propertyOptions } from './propertyOptions'
+import type { PickableClientSite, PickableProperty } from './propertyOptions'
 import { filterByWords, pickOnEnter } from './searchMatch'
 
 function property(
@@ -224,5 +224,64 @@ describe('what Enter in the search box takes', () => {
 
   test('never free text where it is not allowed', () => {
     expect(enter(sites, 'Okafor')).toBeNull()
+  })
+})
+
+describe('the client picker for a new site (Prompt 6.3)', () => {
+  function site(
+    clientId: string,
+    client: PickableClientSite['client'],
+    addressLine: string,
+    suburb: string,
+  ): PickableClientSite {
+    return { clientId, client, addressLine, suburb }
+  }
+  const mahal = {
+    name: 'Mahal Mart',
+    phone: '+61 8 9000 1111',
+    kind: 'business' as const,
+  }
+  const SITES = [
+    site('c-mahal', mahal, '14 Kewdale Road', 'Kewdale'),
+    site('c-mahal', mahal, '5 Abernethy Road', 'Belmont'),
+    site('c-nguyen-1', { name: 'J. Nguyen' }, '12 Wattle Street', 'Bayswater'),
+    site('c-nguyen-2', { name: 'J. Nguyen' }, '3 Coode Street', 'Dianella'),
+    site(
+      'c-archer',
+      { name: 'A. Archer', archivedAt: 1 },
+      '9 Old Road',
+      'Bayswater',
+    ),
+  ]
+  const find = (query: string) =>
+    filterByWords(clientOptions(SITES), query).map((o) => o.value)
+
+  test('one option per client, saying where its sites are', () => {
+    expect(clientOptions(SITES).map((o) => o.label)).toEqual([
+      'J. Nguyen — Bayswater',
+      'J. Nguyen — Dianella',
+      'Mahal Mart — Kewdale, Belmont',
+      'A. Archer (archived) — Bayswater',
+    ])
+  })
+
+  test('an archived client is still offered, last, so it is not typed in again', () => {
+    expect(find('Archer')).toEqual(['c-archer'])
+  })
+
+  test('found by the number in either form, or by a street or suburb', () => {
+    expect(find('08 9000 1111')).toEqual(['c-mahal'])
+    expect(find('0890001111')).toEqual(['c-mahal'])
+    expect(find('Abernethy')).toEqual(['c-mahal'])
+    expect(find('Dianella')).toEqual(['c-nguyen-2'])
+  })
+
+  test('many suburbs are summed up rather than listed', () => {
+    const many = ['Kewdale', 'Belmont', 'Welshpool', 'Cannington'].map((s, i) =>
+      site('c-mahal', mahal, `${i + 1} Road`, s),
+    )
+    expect(clientOptions(many)[0].label).toBe(
+      'Mahal Mart — Kewdale, Belmont +2',
+    )
   })
 })

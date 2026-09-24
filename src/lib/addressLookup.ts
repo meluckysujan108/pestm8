@@ -37,6 +37,9 @@ export type AddressSuggestion = {
 
 const PHOTON_API = 'https://photon.komoot.io/api/'
 
+/** How long a request may take before the person is left to type. */
+const REQUEST_TIMEOUT_MS = 6000
+
 /** Mainland Australia and Tasmania, west, south, east, north. Keeps a
  * "Smith St" search out of Trinidad, Ontario and Taupō. */
 const AUSTRALIA_BBOX = '112,-44,154,-10'
@@ -140,7 +143,36 @@ const SHORT_FORMS: Record<string, string> = {
   pk: 'park',
   pt: 'point',
   sth: 'south',
+  // Perth's numbered avenues (Mount Lawley, Inglewood, Maylands) are typed
+  // with digits and named in words, or now and then the other way round.
+  '1st': 'first',
+  '2nd': 'second',
+  '3rd': 'third',
+  '4th': 'fourth',
+  '5th': 'fifth',
+  '6th': 'sixth',
+  '7th': 'seventh',
+  '8th': 'eighth',
+  '9th': 'ninth',
+  '10th': 'tenth',
 }
+
+/** How the words before a unit number get written, as they go back into the
+ * field. */
+const UNIT_WORDS: Record<string, string> = {
+  u: 'Unit',
+  unit: 'Unit',
+  apt: 'Apt',
+  apartment: 'Apt',
+  flat: 'Flat',
+  shop: 'Shop',
+  suite: 'Suite',
+  level: 'Level',
+  lvl: 'Level',
+}
+
+/** "3rd Avenue": a street that starts with a number, not a house. */
+const ORDINAL_START = /^\d+(?:st|nd|rd|th)\b/i
 
 /**
  * The house part at the start of what was typed ("12", "12A", "3/12",
@@ -163,15 +195,24 @@ function splitHouseToken(typed: string): {
     return { token: `Lot ${lot[1].toUpperCase()}`, street: lot[2].trim() }
   }
 
+  // "3/12", "1-3/12", "Unit 3/12", "U3/12", "Shop 2/45", and with a word in
+  // front the comma form too: "Unit 3, 12", "Suite 4, 100". Business clients
+  // (Prompt 6.1) are the ones in shops, suites and levels.
   const unit =
-    /^((?:unit\s+)?)(\d+[a-z]?\s*\/\s*\d+[a-z]?(?:\s*-\s*\d+[a-z]?)?)(?:[\s,]+|$)(.*)$/i.exec(
+    /^(?:(unit|u|apt|apartment|flat|shop|suite|level|lvl)\.?\s*)?(\d+[a-z]?(?:\s*-\s*\d+[a-z]?)?)\s*(\/|,)\s*(\d+[a-z]?(?:\s*-\s*\d+[a-z]?)?)(?:[\s,]+|$)(.*)$/i.exec(
       clean,
     )
-  if (unit) {
-    const numbers = unit[2].replace(/\s/g, '').toUpperCase()
+  // A comma with no word before it is not a unit: "3, 12" is just unclear.
+  if (unit && (unit[1] || unit[3] === '/')) {
+    const tidy = (n: string) => n.replace(/\s/g, '').toUpperCase()
+    const word = unit[1] ? UNIT_WORDS[unit[1].toLowerCase()] : undefined
+    const numbers =
+      unit[3] === '/'
+        ? `${tidy(unit[2])}/${tidy(unit[4])}`
+        : `${tidy(unit[2])}, ${tidy(unit[4])}`
     return {
-      token: `${unit[1] ? 'Unit ' : ''}${numbers}`,
-      street: unit[3].trim(),
+      token: word ? `${word} ${numbers}` : numbers,
+      street: unit[5].trim(),
     }
   }
 
@@ -199,6 +240,11 @@ function splitHouseToken(typed: string): {
  */
 function photonQueryOf(typed: string): string | null {
   const { street } = splitHouseToken(typed)
+  // A street part that still starts with a number was not read as a house
+  // ("3, 12 …", "12/ …"): sent, the numbers find junk, and a pick would put
+  // a bare street over what was typed. Better no suggestion. "3rd Avenue"
+  // is a street.
+  if (/^\d/.test(street) && !ORDINAL_START.test(street)) return null
   const letters = street.replace(/[^\p{L}\p{N}]/gu, '')
   return letters.length < MIN_STREET_CHARS ? null : street
 }
@@ -253,8 +299,9 @@ function sameWord(a: string, b: string): boolean {
  * them.
  */
 function isStreetTyped(street: string, typedWords: Array<string>): boolean {
-  const naming = wordsOf(street).find((word) => !STREET_TYPES.has(word))
-  if (naming === undefined) return true
+  const first = wordsOf(street).find((word) => !STREET_TYPES.has(word))
+  if (first === undefined) return true
+  const naming = SHORT_FORMS[first] ?? first
   return typedWords.some((word) => sameWord(naming, SHORT_FORMS[word] ?? word))
 }
 
@@ -377,14 +424,24 @@ export async function searchAddresses(
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return []
   if (!lookupAllowed()) return []
   if (photonQueryOf(query) === null) return []
+  // Given up on after a few seconds: on a site with one bar, a stalled
+  // request would otherwise leave the person waiting on a list that is never
+  // coming, when typing the rest by hand is quicker.
+  const controller = new AbortController()
+  const giveUp = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+  const cancel = () => controller.abort()
+  opts.signal.addEventListener('abort', cancel)
   try {
     const res = await fetch(photonUrl(query, opts.biasState), {
-      signal: opts.signal,
+      signal: controller.signal,
     })
     if (!res.ok) return []
     return parsePhotonResponse(await res.json(), query, opts.biasState)
   } catch {
     return []
+  } finally {
+    clearTimeout(giveUp)
+    opts.signal.removeEventListener('abort', cancel)
   }
 }
 

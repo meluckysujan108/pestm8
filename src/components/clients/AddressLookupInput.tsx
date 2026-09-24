@@ -73,9 +73,15 @@ export function AddressLookupInput({
   const ticket = useRef(0)
   const focused = useRef(false)
 
+  const listRef = useRef<HTMLUListElement>(null)
   const listId = `${id}-suggestions`
   const optionId = (i: number) => `${id}-suggestion-${i}`
-  const showing = open && suggestions.length > 0
+  // Only while they were found for exactly what is in the field. After an
+  // edit the old rows would still carry the old house number: "12 Walcott
+  // Street" picked a second after the 12 was corrected to 14 would put the
+  // job at the wrong house. They go the moment the text changes, and the new
+  // ones come in when found.
+  const showing = open && suggestions.length > 0 && foundFor === value
 
   function cancelLookup() {
     clearTimeout(timer.current)
@@ -124,6 +130,13 @@ export function AddressLookupInput({
       postcode: suggestion.postcode,
     })
   }
+
+  // On a phone the sheet shrinks to the space above the keyboard, and the
+  // list opens below the field, inside the sheet's scroll: brought into view
+  // when it opens, or it can sit hidden under the keyboard.
+  useEffect(() => {
+    if (showing) listRef.current?.scrollIntoView({ block: 'nearest' })
+  }, [showing])
 
   // The sheet around this field closes on Escape, from a listener on the
   // document that runs before any on the input (Radix's dismissable layer, in
@@ -218,7 +231,7 @@ export function AddressLookupInput({
         onMouseDown={(e) => e.preventDefault()}
         className="absolute inset-x-0 top-full z-30 mt-1.5 rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
       >
-        <ul id={listId} role="listbox" aria-label="Suggestions">
+        <ul ref={listRef} id={listId} role="listbox" aria-label="Suggestions">
           {showing &&
             suggestions.map((s, i) => (
               <li

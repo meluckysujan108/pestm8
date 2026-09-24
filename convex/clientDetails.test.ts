@@ -5,6 +5,7 @@ import { createActor, createBusiness, testApp } from '../test/harness'
 import { dayKeyOf } from './lib/dates'
 import { buildReportContext } from './lib/reportContext'
 import { contactToCall } from './lib/siteContact'
+import { isNameCorrection } from './lib/contactNames'
 import type { Doc, Id } from './_generated/dataModel'
 
 /**
@@ -443,7 +444,7 @@ describe('changing a client’s contact person', () => {
     })
   })
 
-  test('a primary who is only a name is renamed in place — fixing "Jhon"', async () => {
+  test('a slip in the contact person’s name is fixed in place — "Jhon" to "John"', async () => {
     const s = await setup()
     const { clientId } = await insertClient(s)
     const jhon = await addContact(s, clientId, {
@@ -490,6 +491,63 @@ describe('changing a client’s contact person', () => {
       })
     },
   )
+
+  test('adding a surname renames the contact person in place, number and role kept', async () => {
+    const s = await setup()
+    const { clientId } = await insertClient(s)
+    const jan = await addContact(s, clientId, {
+      name: 'Jan',
+      role: 'Store manager',
+      phone: '0400 111 222',
+      isPrimary: true,
+    })
+    await setContactPerson(s, clientId, 'Jan Morris')
+    const contacts = await contactsOf(s, clientId)
+    expect(contacts).toHaveLength(1)
+    expect(contacts[0]).toMatchObject({
+      _id: jan,
+      name: 'Jan Morris',
+      role: 'Store manager',
+      phone: '0400 111 222',
+      isPrimary: true,
+    })
+  })
+
+  test.each([
+    ['a bare name', {}],
+    ['a number', { phone: '0400 111 222' }],
+  ])(
+    'someone else never takes over the row of a contact person with %s',
+    async (_, details) => {
+      const s = await setup()
+      const { clientId } = await insertClient(s)
+      const sam = await addContact(s, clientId, {
+        name: 'Sam Lee',
+        isPrimary: true,
+        ...details,
+      })
+      await setContactPerson(s, clientId, 'Priya Shah')
+      const contacts = await contactsOf(s, clientId)
+      expect(contacts.find((c) => c._id === sam)).toMatchObject({
+        name: 'Sam Lee',
+        isPrimary: false,
+      })
+      expect(primaries(contacts)).toEqual(['Priya Shah'])
+    },
+  )
+
+  test('the same first name with another surname is another person', async () => {
+    const s = await setup()
+    const { clientId } = await insertClient(s)
+    await addContact(s, clientId, { name: 'Jan Smith', isPrimary: true })
+    await setContactPerson(s, clientId, 'Jan Morris')
+    const contacts = await contactsOf(s, clientId)
+    expect(contacts.map((c) => c.name).sort()).toEqual([
+      'Jan Morris',
+      'Jan Smith',
+    ])
+    expect(primaries(contacts)).toEqual(['Jan Morris'])
+  })
 
   test('with contacts but no primary, a new name is added as the primary', async () => {
     const s = await setup()
@@ -853,5 +911,80 @@ describe('a business client’s head-office address on a report', () => {
     expect(await printedAddress(s, { suburb: 'Perth', state: 'WA' })).toBe(
       'Perth WA',
     )
+  })
+})
+
+describe('what counts as correcting a contact person’s name', () => {
+  test.each([
+    ['Jan', 'Jan Morris', true],
+    ['Jan Morris', 'Jan', true],
+    ['Jhon', 'John', true],
+    ['Jan Moris', 'Jan Morris', true],
+    ['sam lee', 'Sammy Lee', true],
+    ['Ann', 'Anne', true],
+    ['  jan   morris ', 'Jan Morris', true],
+    ['Jan Smith', 'Jan Morris', false],
+    ['Sam Lee', 'Priya Shah', false],
+    ['Al', 'Ed', false],
+    ['Jan', 'Janet Morris', false],
+    ['', 'Jan', false],
+  ])('%j to %j: %s', (previous, next, expected) => {
+    expect(isNameCorrection(previous, next)).toBe(expected)
+  })
+})
+
+describe('clearing a client’s details from the edit form', () => {
+  test('a blank number, email or head-office line takes it off', async () => {
+    const s = await setup()
+    const { clientId } = await insertClient(s, {
+      email: 'accounts@cafe.test',
+      addressLine: '1 Hay Street',
+      suburb: 'Perth',
+      state: 'WA',
+      postcode: '6000',
+    })
+    await s.owner.as.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId,
+      phone: '',
+      email: '  ',
+      addressLine: '',
+      suburb: '',
+      state: '',
+      postcode: '',
+    })
+    const client = await get(s, clientId)
+    for (const field of [
+      'phone',
+      'email',
+      'addressLine',
+      'suburb',
+      'state',
+      'postcode',
+    ]) {
+      expect(client, field).not.toHaveProperty(field)
+    }
+  })
+
+  test('a lone State, the edit form’s old "ACT", can be taken off', async () => {
+    const s = await setup()
+    const { clientId } = await insertClient(s, { state: 'ACT' })
+    await s.owner.as.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId,
+      state: '',
+    })
+    expect(await get(s, clientId)).not.toHaveProperty('state')
+  })
+
+  test('a field left out is left alone', async () => {
+    const s = await setup()
+    const { clientId } = await insertClient(s)
+    await s.owner.as.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId,
+      name: 'Coastal Cafe Group Pty Ltd',
+    })
+    expect((await get(s, clientId)).phone).toBe('08 9335 1000')
   })
 })

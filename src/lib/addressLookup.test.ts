@@ -78,6 +78,30 @@ describe('the Photon request', () => {
       'Whitewood Road Howard Springs',
     )
     expect(q('3rd Avenue Mount Lawley')).toBe('3rd Avenue Mount Lawley')
+    expect(q('Unit 3, 12 Walcott St')).toBe('Walcott St')
+    expect(q('Shop 2/45 Beaufort St')).toBe('Beaufort St')
+    expect(q('5 3rd Avenue Mount Lawley')).toBe('3rd Avenue Mount Lawley')
+  })
+})
+
+describe('numbered streets', () => {
+  const third = feature({ name: 'Third Avenue' })
+
+  test('"3rd" finds Third Avenue, with the house carried over', () => {
+    expect(lines(reply(third), '5 3rd Avenue Mount Lawley')).toEqual([
+      '5 Third Avenue',
+    ])
+    expect(lines(reply(third), '3rd Ave')).toEqual(['Third Avenue'])
+  })
+
+  test('and "Third" finds a street filed as "3rd"', () => {
+    expect(
+      lines(reply(feature({ name: '3rd Avenue' })), '5 Third Ave'),
+    ).toEqual(['5 3rd Avenue'])
+  })
+
+  test('a different number is a different street', () => {
+    expect(lines(reply(third), '5 2nd Avenue')).toEqual([])
   })
 })
 
@@ -221,6 +245,15 @@ describe('the house number carried onto a street', () => {
     ['12, Walcott', '12 Walcott Street'],
     ['  12   Walcott  ', '12 Walcott Street'],
     ['Walcott St', 'Walcott Street'],
+    // The unit's word comes along, and so does the comma form after one.
+    ['U3/12 Walcott St', 'Unit 3/12 Walcott Street'],
+    ['Unit3/12 Walcott', 'Unit 3/12 Walcott Street'],
+    ['Unit 3, 12 Walcott St', 'Unit 3, 12 Walcott Street'],
+    ['1-3/12 Walcott', '1-3/12 Walcott Street'],
+    ['Shop 2/45 Walcott St', 'Shop 2/45 Walcott Street'],
+    ['suite 4, 100 Walcott', 'Suite 4, 100 Walcott Street'],
+    ['Level 2, 100 Walcott', 'Level 2, 100 Walcott Street'],
+    ['Apt 7/3 Walcott', 'Apt 7/3 Walcott Street'],
   ])('%j fills %j', (typed, addressLine) => {
     expect(lines(reply(feature({})), typed)).toEqual([addressLine])
   })
@@ -351,7 +384,50 @@ describe('searchAddresses', () => {
       RequestInit,
     ]
     expect(paramsOf(url).get('lat')).toBe('-31.9523')
-    expect(init.signal).toBe(signal)
+    expect(init.signal?.aborted).toBe(false)
+  })
+
+  /** A fetch that never answers, and fails the way fetch does once aborted. */
+  function hanging() {
+    let seen: AbortSignal | undefined
+    vi.stubGlobal('navigator', { onLine: true })
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url: unknown, init?: RequestInit) => {
+        seen = init?.signal ?? undefined
+        return new Promise<Response>((_, reject) => {
+          seen?.addEventListener('abort', () =>
+            reject(new DOMException('Aborted', 'AbortError')),
+          )
+        })
+      }),
+    )
+    return () => seen
+  }
+
+  test('a newer keystroke cancels the request in flight', async () => {
+    const seen = hanging()
+    const caller = new AbortController()
+    const found = searchAddresses('12 Walcott', { signal: caller.signal })
+    await Promise.resolve()
+    caller.abort()
+    expect(await found).toEqual([])
+    expect(seen()?.aborted).toBe(true)
+  })
+
+  test('a request that stalls is given up after a few seconds', async () => {
+    vi.useFakeTimers()
+    try {
+      const seen = hanging()
+      const found = searchAddresses('12 Walcott', { signal })
+      await vi.advanceTimersByTimeAsync(5_999)
+      expect(seen()?.aborted).toBe(false)
+      await vi.advanceTimersByTimeAsync(1)
+      expect(await found).toEqual([])
+      expect(seen()?.aborted).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('never throws: a failed, refused or garbled reply is no suggestions', async () => {
@@ -384,6 +460,9 @@ describe('searchAddresses', () => {
     expect(await searchAddresses('12 Wa', { signal })).toEqual([])
     expect(await searchAddresses('Lot 50', { signal })).toEqual([])
     expect(await searchAddresses('3/12', { signal })).toEqual([])
+    // Numbers it cannot read as a house: asking would find junk.
+    expect(await searchAddresses('3, 12 Walcott St', { signal })).toEqual([])
+    expect(await searchAddresses('12/ Walcott St', { signal })).toEqual([])
     expect(fetchFake).not.toHaveBeenCalled()
   })
 })

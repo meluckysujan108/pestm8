@@ -40,14 +40,11 @@ const MIN_NUMBER_DIGITS = 4
 
 const digitsOf = (text: string) => text.replace(/\D/g, '')
 
-/** A phone number's digits in both the ways an Australian one is written,
- * 0412 345 678 and +61 412 345 678 — as the New Job picker matches them
- * (propertyOptions.ts). */
-function phoneForms(phone: string): Array<string> {
+/** A phone number's digits as dialled at home: +61 412 345 678 as
+ * 0412345678. */
+function nationalDigits(phone: string): string {
   const digits = digitsOf(phone)
-  if (digits.startsWith('61')) return [digits, `0${digits.slice(2)}`]
-  if (digits.startsWith('0')) return [digits, `61${digits.slice(1)}`]
-  return [digits]
+  return digits.startsWith('61') ? `0${digits.slice(2)}` : digits
 }
 
 /**
@@ -100,11 +97,19 @@ export function matchesClientSearch(
   if (!/^[\d\s()+-]+$/.test(query)) return false
   const digits = digitsOf(query)
   if (digits.length < MIN_NUMBER_DIGITS) return false
-  const numbers = [
-    ...(client.kind === 'business' && client.abn ? [client.abn] : []),
-    ...siteContacts.flatMap((c) => (c.phone ? phoneForms(c.phone) : [])),
-  ]
-  return numbers.some((n) => n.includes(digits))
+
+  // An ABN is read out and typed from the front.
+  if (client.kind === 'business' && client.abn?.startsWith(digits)) return true
+
+  // A phone number is compared as dialled at home. Read as +61 only when it
+  // plainly is one: a Perth postcode like 6147 is also how "+61 47…" starts,
+  // and would bring up every business whose site has an 047 mobile.
+  const international =
+    query.startsWith('+') || (digits.startsWith('61') && digits.length >= 6)
+  const wanted = international ? `0${digits.slice(2)}` : digits
+  return siteContacts.some(
+    (c) => c.phone !== undefined && nationalDigits(c.phone).includes(wanted),
+  )
 }
 
 /**

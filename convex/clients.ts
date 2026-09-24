@@ -54,6 +54,15 @@ export const get = query({
   },
 })
 
+const CLEARABLE = [
+  'phone',
+  'email',
+  'addressLine',
+  'suburb',
+  'state',
+  'postcode',
+] as const
+
 export const update = mutation({
   args: {
     businessId: v.id('businesses'),
@@ -89,6 +98,13 @@ export const update = mutation({
         ([, value]) => value !== undefined,
       ),
     )
+    // A blank contact detail or head-office line clears it: written as
+    // `undefined`, which is how a patch removes a field. The edit form used to
+    // have no way to take a number or an address off at all, and saved as if
+    // it had. (Earlier frontends never send a blank: they leave a field out.)
+    for (const key of CLEARABLE) {
+      if (fields[key]?.trim() === '') fields[key] = undefined
+    }
     // Refused before anything is written. Stored as `undefined` when cleared —
     // how a patch removes a field — and left out when unchanged.
     if (rawAbn !== undefined) {

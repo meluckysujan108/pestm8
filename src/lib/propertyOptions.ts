@@ -97,3 +97,83 @@ function phoneForms(phone: string | undefined): string {
 function clientName(p: PickableProperty): string {
   return p.client?.name ?? 'Unknown client'
 }
+
+/** The fields of a `properties.list` row the client picker needs. */
+export type PickableClientSite = {
+  clientId: string
+  addressLine: string
+  suburb: string
+  client: {
+    name: string
+    phone?: string
+    kind?: 'person' | 'business'
+    archivedAt?: number
+  } | null
+}
+
+/**
+ * The options for "whose new site is this" (Prompt 6.3): one per client,
+ * built from the sites already loaded for the Property picker.
+ *
+ * From the sites rather than the client list, for two reasons. An archived
+ * client is still here, labelled and last, as in the Property picker: the
+ * office found them there, and turning them away would leave "New client"
+ * as the only way on — a second record for the same business. And each
+ * option says where the client's sites are, because two clients can share a
+ * name, and a new site filed under the wrong one sends its reports and its
+ * Call to someone else.
+ *
+ * Found by the name, the client's number in either form, or any of their
+ * streets and suburbs.
+ */
+export function clientOptions(
+  properties: ReadonlyArray<PickableClientSite>,
+): Array<ComboboxOption> {
+  const byClient = new Map<
+    string,
+    {
+      client: NonNullable<PickableClientSite['client']>
+      sites: Array<PickableClientSite>
+    }
+  >()
+  for (const p of properties) {
+    if (!p.client) continue
+    const entry = byClient.get(p.clientId)
+    if (entry) entry.sites.push(p)
+    else byClient.set(p.clientId, { client: p.client, sites: [p] })
+  }
+  return [...byClient.entries()]
+    .sort(([, a], [, b]) => {
+      const archived =
+        Number(Boolean(a.client.archivedAt)) -
+        Number(Boolean(b.client.archivedAt))
+      if (archived !== 0) return archived
+      return (
+        a.client.name.localeCompare(b.client.name, undefined, {
+          sensitivity: 'base',
+        }) ||
+        a.sites[0].suburb.localeCompare(b.sites[0].suburb, undefined, {
+          sensitivity: 'base',
+        })
+      )
+    })
+    .map(([clientId, { client, sites }]) => {
+      const suburbs = [...new Set(sites.map((s) => s.suburb.trim()))].filter(
+        Boolean,
+      )
+      const where =
+        suburbs.length > 2
+          ? `${suburbs.slice(0, 2).join(', ')} +${suburbs.length - 2}`
+          : suburbs.join(', ')
+      const name = client.archivedAt ? `${client.name} (archived)` : client.name
+      return {
+        value: clientId,
+        label: where ? `${name} — ${where}` : name,
+        searchText: [
+          client.name,
+          phoneForms(client.phone),
+          ...sites.flatMap((s) => [s.addressLine, s.suburb]),
+        ].join(' '),
+      }
+    })
+}
