@@ -233,14 +233,20 @@ export async function buildReportContext(
           phone: property.client.phone,
           email: property.client.email,
           // A business-kind client's own mailing address, not the service
-          // site — a form asking for both means both.
+          // site — a form asking for both means both. Only when there is a
+          // street or suburb to it, as the client sheet shows it: the edit
+          // form used to save a State on its own, and a report printed "ACT"
+          // as the client's address.
           address:
-            joined(
-              property.client.addressLine,
-              property.client.suburb,
-              property.client.state,
-              property.client.postcode,
-            ) || undefined,
+            property.client.addressLine?.trim() ||
+            property.client.suburb?.trim()
+              ? joined(
+                  property.client.addressLine,
+                  property.client.suburb,
+                  property.client.state,
+                  property.client.postcode,
+                ) || undefined
+              : undefined,
         }
       : null,
     property: property

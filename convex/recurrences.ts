@@ -23,7 +23,12 @@ import {
   intervalOf,
   occurrencesFrom,
 } from './lib/recurrence'
-import { clientNameOf, newClientFields, resolvePropertyId } from './properties'
+import {
+  clientNameOf,
+  newClientFields,
+  newPropertyFields,
+  resolvePropertyId,
+} from './properties'
 import { intervalUnit } from './schema'
 import type { WriteEnvelope } from './lib/actor'
 import type { Interval } from './lib/recurrence'
@@ -79,6 +84,7 @@ export const create = mutation({
     // client + property in the same transaction — mirrors jobs.create.
     propertyId: v.optional(v.id('properties')),
     newClient: v.optional(newClientFields),
+    newProperty: v.optional(newPropertyFields),
     assignedMembershipId: v.id('memberships'),
     intervalCount: v.number(),
     intervalUnit,
@@ -90,7 +96,7 @@ export const create = mutation({
   },
   handler: async (
     ctx,
-    { propertyId: existingPropertyId, newClient, ...args },
+    { propertyId: existingPropertyId, newClient, newProperty, ...args },
   ) => {
     const env = await requireWriteActor(ctx, args.businessId)
 
@@ -105,6 +111,7 @@ export const create = mutation({
 
     const propertyId = await resolvePropertyId(ctx, args.businessId, {
       propertyId: existingPropertyId,
+      newProperty,
       newClient,
     })
 

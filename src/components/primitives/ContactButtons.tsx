@@ -55,12 +55,12 @@ function placeOf(address: { addressLine?: string; suburb?: string }): string {
 
 /**
  * Hold-to-call/text/email row, shared by ClientSheet.tsx (a client's own
- * line, and once per named contact), JobDetailSheet.tsx (a job's client) and
- * the job card, so the hold, its labels and its guards cannot drift apart.
- * The sheets use the full-width `sheet` buttons; the card, compact `card`
- * ones. Text is offered wherever Call is, since both reach the same number —
- * unless `show` narrows the set. Renders nothing if none of the requested
- * actions has the data it needs.
+ * line, and once per named contact), JobDetailSheet.tsx (a job's client, and
+ * its site's contact) and the job card, so the hold, its labels and its
+ * guards cannot drift apart. The sheets use the full-width `sheet` buttons;
+ * the card, compact `card` ones. Text is offered wherever Call is, since both
+ * reach the same number — unless `show` narrows the set. Renders nothing if
+ * none of the requested actions has the data it needs.
  *
  * Every action is a hold (HoldButton): a phone on site gets pocketed and
  * brushed, and each of these reaches a client or leaves the app. Map was a
@@ -69,6 +69,7 @@ function placeOf(address: { addressLine?: string; suburb?: string }): string {
  */
 export function ContactButtons({
   name,
+  emailName = name,
   phone,
   email,
   address,
@@ -77,6 +78,11 @@ export function ContactButtons({
   variant = 'sheet',
 }: {
   name: string
+  /** Whose address Email reaches, for its accessible name, when that is not
+   * who Call and Text reach. A job card whose Call rings the site's contact
+   * still emails the client (Prompt 6.3), so it says "Call Jan" and "Email
+   * Mahal Mart" rather than naming Jan on head office's inbox. */
+  emailName?: string
   phone?: string
   email?: string
   /** Where Map points. Map appears only when `show` asks for it. */
@@ -105,8 +111,8 @@ export function ContactButtons({
     tileLabel(variant, Icon, caption)
   // Each accessible name starts with the word on the button (WCAG 2.5.3), so
   // "tap Call" works for someone driving the phone by voice.
-  const purpose = (verb: string) =>
-    toBook ? `${verb} to book: ${name}` : `${verb} ${name}`
+  const purpose = (verb: string, whom = name) =>
+    toBook ? `${verb} to book: ${whom}` : `${verb} ${whom}`
 
   return (
     <div className="flex gap-2">
@@ -138,7 +144,7 @@ export function ContactButtons({
       )}
       {mail && (
         <HoldButton
-          ariaLabel={purpose('Email')}
+          ariaLabel={purpose('Email', emailName)}
           onComplete={() => {
             window.location.href = `mailto:${email}`
           }}

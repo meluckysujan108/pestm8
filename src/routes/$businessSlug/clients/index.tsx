@@ -11,7 +11,7 @@ import { ClientSheet } from '#/components/clients/ClientSheet'
 import { ClientCard } from '#/components/clients/ClientCard'
 import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
 import { useHydrated } from '#/lib/useHydrated'
-import { useClientFilters } from '#/lib/clientFilters'
+import { matchesClientSearch, useClientFilters } from '#/lib/clientFilters'
 import { useCan } from '#/lib/access'
 import { rq, warm } from '#/lib/routeQueries'
 
@@ -41,8 +41,9 @@ function ClientsPage() {
 
   // Both lists are per-business and small (matches the same precedent the
   // Reports dashboard already established) — fetched once, unpaginated, and
-  // filtered client-side, which is what lets search match name OR address in
-  // one pass rather than needing two Convex search indexes merged.
+  // filtered client-side, which is what lets search match name, address, ABN
+  // or site contact in one pass rather than needing Convex search indexes
+  // merged.
   const { data: clients } = useSuspenseQuery(rq.clients(business._id))
   const { data: properties } = useSuspenseQuery(rq.properties(business._id))
 
@@ -59,18 +60,9 @@ function ClientsPage() {
       properties: propertiesByClient.get(client._id) ?? [],
     }))
 
-    const query = (q ?? '').trim().toLowerCase()
-    if (query === '') return withProperties
-
-    return withProperties.filter(({ client, properties: owned }) => {
-      const haystack = [
-        client.name,
-        ...owned.flatMap((p) => [p.addressLine, p.suburb]),
-      ]
-        .join(' ')
-        .toLowerCase()
-      return haystack.includes(query)
-    })
+    const term = q ?? ''
+    if (term.trim() === '') return withProperties
+    return withProperties.filter((row) => matchesClientSearch(row, term))
   }, [clients, properties, q])
 
   const { kind, setKind, suburb, setSuburb, filteredRows } =
@@ -158,6 +150,7 @@ function ClientsPage() {
         businessId={business._id}
         timezone={business.timezone}
         businessSlug={business.slug}
+        businessState={business.state}
         isOwner={canManageClients}
         clientId={openId}
         onClose={() => setOpenId(null)}

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import { AlertDialog } from 'radix-ui'
+import { ConvexError } from 'convex/values'
 import { Pencil, Plus, Star, Trash2, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
@@ -11,13 +12,22 @@ import {
   SeeAllReports,
 } from '#/components/reports/InlineReports'
 import { ClientNotesSection } from '#/components/notes/ClientNotesSection'
+import { AbnInput } from '#/components/clients/AbnInput'
+import { AddressLookupInput } from '#/components/clients/AddressLookupInput'
+import { PostcodeStateHint } from '#/components/clients/PostcodeStateHint'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { Segmented } from '#/components/primitives/Segmented'
 import { AU_STATES } from '#/lib/au'
 import { formatJobMoney } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
+import { abnDigits, formatAbn } from '../../../convex/lib/abn'
+import {
+  isNameCorrection,
+  sameName,
+} from '../../../convex/lib/contactNames'
 import { dayKeyOf } from '../../../convex/lib/dates'
+import { siteContactOf } from '../../../convex/lib/siteContact'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 type ClientKind = 'person' | 'business'
@@ -26,6 +36,7 @@ export function ClientSheet({
   businessId,
   timezone,
   businessSlug,
+  businessState,
   isOwner,
   clientId,
   onClose,
@@ -33,6 +44,8 @@ export function ClientSheet({
   businessId: Id<'businesses'>
   timezone: string
   businessSlug: string
+  /** Where address suggestions lean, and a new property's starting state. */
+  businessState: string
   isOwner: boolean
   clientId: string | null
   onClose: () => void
@@ -52,6 +65,7 @@ export function ClientSheet({
               businessId={businessId}
               timezone={timezone}
               businessSlug={businessSlug}
+              businessState={businessState}
               isOwner={isOwner}
               clientId={clientId as Id<'clients'>}
               onClose={onClose}
@@ -75,6 +89,7 @@ function ClientBody({
   businessId,
   timezone,
   businessSlug,
+  businessState,
   isOwner,
   clientId,
   onClose,
@@ -82,6 +97,7 @@ function ClientBody({
   businessId: Id<'businesses'>
   timezone: string
   businessSlug: string
+  businessState: string
   isOwner: boolean
   clientId: Id<'clients'>
   onClose: () => void
@@ -89,6 +105,15 @@ function ClientBody({
   const { data: client } = useQuery(
     convexQuery(api.clients.get, { businessId, clientId }),
   )
+  // The contact person is the primary contact (Prompt 6.1), not a field of
+  // its own. The same query the Contacts section runs, so no second fetch.
+  // Read for a person client too: flipping one back to business in the edit
+  // form brings back its hidden contact person, and the field should show
+  // them rather than start empty.
+  const { data: contacts } = useQuery(
+    convexQuery(api.clientContacts.list, { businessId, clientId }),
+  )
+  const contactPerson = contacts?.find((c) => c.isPrimary)?.name
   const [editing, setEditing] = useState(false)
   const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false)
 
@@ -144,6 +169,7 @@ function ClientBody({
         <ClientEditForm
           businessId={businessId}
           client={client}
+          contactPerson={contactPerson ?? ''}
           onDone={() => setEditing(false)}
         />
       ) : (
@@ -151,6 +177,16 @@ function ClientBody({
           <p className="mt-0.5 text-caption text-muted">
             {client.kind === 'business' ? 'Business' : 'Person'}
           </p>
+          {client.kind === 'business' && client.abn && (
+            <p className="text-caption tabular-nums text-muted">
+              ABN {formatAbn(client.abn)}
+            </p>
+          )}
+          {client.kind === 'business' && contactPerson && (
+            <p className="text-caption text-muted">
+              Contact person: {contactPerson}
+            </p>
+          )}
 
           <div className="mt-3">
             <ContactButtons name={client.name} phone={client.phone} email={client.email} />
@@ -174,7 +210,12 @@ function ClientBody({
         <ClientContacts businessId={businessId} clientId={clientId} />
       )}
 
-      <ClientProperties businessId={businessId} clientId={clientId} />
+      <ClientProperties
+        businessId={businessId}
+        businessState={businessState}
+        clientId={clientId}
+        clientKind={client.kind}
+      />
 
       <ClientNotesSection
         businessId={businessId}
@@ -251,6 +292,7 @@ function ClientBody({
 function ClientEditForm({
   businessId,
   client,
+  contactPerson: prefilledContactPerson,
   onDone,
 }: {
   businessId: Id<'businesses'>
@@ -264,7 +306,10 @@ function ClientEditForm({
     suburb?: string
     state?: string
     postcode?: string
+    abn?: string
   }
+  /** The primary contact's name, or '' when there is none. */
+  contactPerson: string
   onDone: () => void
 }) {
   const [kind, setKind] = useState<ClientKind>(client.kind)
@@ -273,10 +318,20 @@ function ClientEditForm({
   const [email, setEmail] = useState(client.email ?? '')
   const [addressLine, setAddressLine] = useState(client.addressLine ?? '')
   const [suburb, setSuburb] = useState(client.suburb ?? '')
-  const [state, setState] = useState(client.state ?? AU_STATES[0].code)
+  // Blank until chosen. It used to start on the first state in the list,
+  // ACT, and was saved with every business edit, so reports printed "ACT"
+  // as the address of clients that never had one.
+  const [state, setState] = useState(client.state ?? '')
   const [postcode, setPostcode] = useState(client.postcode ?? '')
+  const [abn, setAbn] = useState(client.abn ? formatAbn(client.abn) : '')
+  const [contactPerson, setContactPerson] = useState(prefilledContactPerson)
+  // What the field opened with, not the live primary: if the contacts arrive
+  // after the form opened, the field starts blank, and comparing with the
+  // live name would read that as clearing it and take the star off.
+  const [contactPersonBefore] = useState(prefilledContactPerson)
 
   const hydrated = useHydrated()
+  const abnId = useId()
 
   const convexUpdate = useConvexMutation(api.clients.update)
   const save = useMutation({
@@ -291,31 +346,50 @@ function ClientEditForm({
       suburb?: string
       state?: string
       postcode?: string
+      abn?: string
+      contactPerson?: string
     }) => convexUpdate(args),
     onSuccess: onDone,
   })
+  const invalidAbn =
+    save.error instanceof ConvexError && save.error.data === 'INVALID_ABN'
 
   return (
     <form
       className="mt-3 flex flex-col gap-3"
       onSubmit={(e) => {
         e.preventDefault()
+        const hasAddress = [addressLine, suburb, postcode].some(
+          (part) => part.trim() !== '',
+        )
         save.mutate({
           businessId,
           clientId: client._id,
           kind,
           name,
-          phone: phone.trim() || undefined,
-          email: email.trim() || undefined,
+          // Each only when changed, and blank clears it (clients.update).
+          // Untouched fields are left out, so a save that changes nothing
+          // writes nothing.
+          ...edited('phone', phone, client.phone),
+          ...edited('email', email, client.email),
           // Omitted (not cleared) when kind isn't business: `clients.update`
           // skips undefined args, so toggling to person just stops showing
           // the address rather than wiping it — same "hidden, not deleted"
           // treatment as clientContacts when kind flips away from business.
+          // The ABN and contact person are left alone the same way.
           ...(kind === 'business' && {
-            addressLine: addressLine.trim() || undefined,
-            suburb: suburb.trim() || undefined,
-            state: state || undefined,
-            postcode: postcode.trim() || undefined,
+            ...edited('addressLine', addressLine, client.addressLine),
+            ...edited('suburb', suburb, client.suburb),
+            // A state on its own is not an address: with no street, suburb
+            // or postcode it is cleared, which also mends a lone "ACT".
+            ...edited('state', hasAddress ? state : '', client.state),
+            ...edited('postcode', postcode, client.postcode),
+            ...((abnDigits(abn) ?? abn.trim()) !== (client.abn ?? '') && {
+              abn: abn.trim(),
+            }),
+            // The server makes the name the primary contact, and blank takes
+            // the star off (nobody is deleted).
+            ...edited('contactPerson', contactPerson, contactPersonBefore),
           }),
         })
       }}
@@ -334,6 +408,35 @@ function ClientEditForm({
       <FormField label={kind === 'business' ? 'Business name' : 'Client name'}>
         <TextInput value={name} onChange={setName} required />
       </FormField>
+      {kind === 'business' && (
+        <>
+          {/* Not a FormField: the ABN's error line sits beside its input,
+              and inside a <label> it would become part of the field's name. */}
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor={abnId} className="section-label">
+              ABN (optional)
+            </label>
+            <div>
+              <AbnInput id={abnId} value={abn} onChange={setAbn} size="md" />
+            </div>
+          </div>
+          <FormField label="Contact person (optional)">
+            <TextInput value={contactPerson} onChange={setContactPerson} />
+          </FormField>
+          {/* Outside the label, which it would otherwise become part of. What
+              saving will do to the person already in the field, when it is not
+              simply correcting their name: they are never removed. */}
+          {contactPersonBefore.trim() !== '' &&
+            !sameName(contactPerson, contactPersonBefore) &&
+            !isNameCorrection(contactPersonBefore, contactPerson) && (
+              <p className="-mt-1.5 text-caption text-muted">
+                {contactPerson.trim() === ''
+                  ? `${contactPersonBefore.trim()} stays in Contacts, no longer the contact person.`
+                  : `${contactPerson.trim()} becomes the contact person. ${contactPersonBefore.trim()} stays in Contacts.`}
+              </p>
+            )}
+        </>
+      )}
       <FormField label={kind === 'business' ? 'Main phone (optional)' : 'Phone (optional)'}>
         <TextInput value={phone} onChange={setPhone} type="tel" />
       </FormField>
@@ -354,6 +457,9 @@ function ClientEditForm({
               onChange={(e) => setState(e.target.value)}
               className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
             >
+              <option value="" disabled>
+                State
+              </option>
               {AU_STATES.map((s) => (
                 <option key={s.code} value={s.code}>
                   {s.code}
@@ -374,7 +480,9 @@ function ClientEditForm({
           role="alert"
           className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
-          Could not save these changes.
+          {invalidAbn
+            ? 'Could not save: the ABN does not pass the ATO check. Check its 11 digits.'
+            : 'Could not save these changes.'}
         </p>
       )}
 
@@ -413,6 +521,13 @@ function ClientContacts({
   )
   const [adding, setAdding] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
+  // The primary contact is the client's contact person (Prompt 6.1), shown
+  // under its name and edited from the client form, so removing them asks
+  // first. Anyone else goes on one tap, as before.
+  const [confirmRemove, setConfirmRemove] = useState<{
+    _id: Id<'clientContacts'>
+    name: string
+  } | null>(null)
 
   const convexRemove = useConvexMutation(api.clientContacts.remove)
   const remove = useMutation({
@@ -482,7 +597,11 @@ function ClientContacts({
                     type="button"
                     aria-label={`Remove ${contact.name}`}
                     disabled={remove.isPending}
-                    onClick={() => remove.mutate({ businessId, contactId: contact._id })}
+                    onClick={() =>
+                      contact.isPrimary
+                        ? setConfirmRemove(contact)
+                        : remove.mutate({ businessId, contactId: contact._id })
+                    }
                     className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
                     <Trash2 size={14} strokeWidth={1.7} />
@@ -511,6 +630,46 @@ function ClientContacts({
           Add contact
         </button>
       )}
+
+      <AlertDialog.Root
+        open={confirmRemove !== null}
+        onOpenChange={(open) => !open && setConfirmRemove(null)}
+      >
+        <AlertDialog.Portal>
+          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
+          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
+            <AlertDialog.Title className="text-row-title text-ink">
+              Remove {confirmRemove?.name}?
+            </AlertDialog.Title>
+            <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
+              They’re this client’s contact person.
+            </AlertDialog.Description>
+            <div className="mt-4 flex gap-2">
+              <AlertDialog.Cancel asChild>
+                <button
+                  type="button"
+                  className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                >
+                  Keep contact
+                </button>
+              </AlertDialog.Cancel>
+              <AlertDialog.Action asChild>
+                <button
+                  type="button"
+                  disabled={remove.isPending}
+                  onClick={() =>
+                    confirmRemove &&
+                    remove.mutate({ businessId, contactId: confirmRemove._id })
+                  }
+                  className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                >
+                  Remove
+                </button>
+              </AlertDialog.Action>
+            </div>
+          </AlertDialog.Content>
+        </AlertDialog.Portal>
+      </AlertDialog.Root>
     </Section>
   )
 }
@@ -659,10 +818,14 @@ function ContactEditForm({
  * another one — the reason this whole model exists over the old 1:1 shape. */
 function ClientProperties({
   businessId,
+  businessState,
   clientId,
+  clientKind,
 }: {
   businessId: Id<'businesses'>
+  businessState: string
   clientId: Id<'clients'>
+  clientKind: ClientKind
 }) {
   const { data: properties } = useQuery(
     convexQuery(api.properties.listByClient, { businessId, clientId }),
@@ -679,6 +842,8 @@ function ClientProperties({
               <PropertyEditForm
                 key={property._id}
                 businessId={businessId}
+                businessState={businessState}
+                clientKind={clientKind}
                 property={property}
                 onDone={() => setEditingId(null)}
               />
@@ -703,6 +868,10 @@ function ClientProperties({
                     <Pencil size={13} strokeWidth={2} />
                   </button>
                 </div>
+                <PropertySiteContact
+                  clientKind={clientKind}
+                  property={property}
+                />
               </div>
             ),
           )}
@@ -712,7 +881,9 @@ function ClientProperties({
       {adding ? (
         <NewPropertyForClientForm
           businessId={businessId}
+          businessState={businessState}
           clientId={clientId}
+          clientKind={clientKind}
           onDone={() => setAdding(false)}
         />
       ) : (
@@ -729,25 +900,177 @@ function ClientProperties({
   )
 }
 
+/**
+ * Who to ask for at a business client's site — the store manager, the
+ * caretaker (Prompt 6.3). Nothing for a person client, whose site contacts
+ * are kept but hidden after a flip from business (convex/lib/siteContact.ts).
+ * A name without a number is still shown: it is who to ask for at the door.
+ */
+function PropertySiteContact({
+  clientKind,
+  property,
+}: {
+  clientKind: ClientKind
+  property: {
+    addressLine: string
+    siteContactName?: string
+    siteContactPhone?: string
+  }
+}) {
+  const contact = siteContactOf({
+    clientKind,
+    siteContactName: property.siteContactName,
+    siteContactPhone: property.siteContactPhone,
+  })
+  if (!contact) return null
+  return (
+    <div className="mt-3 border-t border-hairline-2 pt-3">
+      <p className="section-label mb-1">Site contact</p>
+      {contact.name && <p className="text-body text-ink">{contact.name}</p>}
+      {contact.phone && (
+        <>
+          <p className="text-caption text-muted">{contact.phone}</p>
+          <div className="mt-2">
+            {/* Named after the site when nobody is, so two properties'
+                buttons are not both "Call site contact". */}
+            <ContactButtons
+              name={contact.name ?? `site contact at ${property.addressLine}`}
+              phone={contact.phone}
+              show={['call', 'text']}
+            />
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
+type PropertyFieldsValue = {
+  addressLine: string
+  suburb: string
+  state: string
+  postcode: string
+  siteContactName: string
+  siteContactPhone: string
+}
+
+/**
+ * One property's address, and its site contact for a business client — the
+ * same fields for editing a property and adding another, so the two cannot
+ * drift. Placeholders stand in for labels in this small card, so the street
+ * is named for assistive technology by `ariaLabel`.
+ */
+function PropertyFields({
+  value,
+  onChange,
+  clientKind,
+  businessState,
+}: {
+  value: PropertyFieldsValue
+  onChange: (patch: Partial<PropertyFieldsValue>) => void
+  clientKind: ClientKind
+  businessState: string
+}) {
+  const id = useId()
+  return (
+    <>
+      <AddressLookupInput
+        id={`${id}-street`}
+        value={value.addressLine}
+        onChange={(addressLine) => onChange({ addressLine })}
+        // All four, postcode included even when the suggestion has none: a
+        // postcode kept from the last address would belong somewhere else,
+        // and a blank one is caught by `required`.
+        onPick={onChange}
+        required
+        placeholder="Street address"
+        ariaLabel="Street address"
+        size="md"
+        biasState={businessState}
+      />
+      <TextInput
+        value={value.suburb}
+        onChange={(suburb) => onChange({ suburb })}
+        placeholder="Suburb"
+        required
+      />
+      <div>
+        <div className="grid grid-cols-2 gap-2.5">
+          <select
+            value={value.state}
+            onChange={(e) => onChange({ state: e.target.value })}
+            className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          >
+            {AU_STATES.map((s) => (
+              <option key={s.code} value={s.code}>
+                {s.code}
+              </option>
+            ))}
+          </select>
+          <TextInput
+            value={value.postcode}
+            onChange={(postcode) => onChange({ postcode })}
+            inputMode="numeric"
+            placeholder="Postcode"
+            required
+          />
+        </div>
+        <PostcodeStateHint
+          postcode={value.postcode}
+          state={value.state}
+          onUseState={(state) => onChange({ state })}
+        />
+      </div>
+      {clientKind === 'business' && (
+        <>
+          <TextInput
+            value={value.siteContactName}
+            onChange={(siteContactName) => onChange({ siteContactName })}
+            placeholder="Site contact name"
+            ariaLabel="Site contact name"
+          />
+          <TextInput
+            value={value.siteContactPhone}
+            onChange={(siteContactPhone) => onChange({ siteContactPhone })}
+            type="tel"
+            placeholder="Site contact number"
+            ariaLabel="Site contact number"
+          />
+        </>
+      )}
+    </>
+  )
+}
+
 function PropertyEditForm({
   businessId,
+  businessState,
+  clientKind,
   property,
   onDone,
 }: {
   businessId: Id<'businesses'>
+  businessState: string
+  clientKind: ClientKind
   property: {
     _id: Id<'properties'>
     addressLine: string
     suburb: string
     state: string
     postcode: string
+    siteContactName?: string
+    siteContactPhone?: string
   }
   onDone: () => void
 }) {
-  const [addressLine, setAddressLine] = useState(property.addressLine)
-  const [suburb, setSuburb] = useState(property.suburb)
-  const [state, setState] = useState(property.state)
-  const [postcode, setPostcode] = useState(property.postcode)
+  const [value, setValue] = useState<PropertyFieldsValue>({
+    addressLine: property.addressLine,
+    suburb: property.suburb,
+    state: property.state,
+    postcode: property.postcode,
+    siteContactName: property.siteContactName ?? '',
+    siteContactPhone: property.siteContactPhone ?? '',
+  })
   const hydrated = useHydrated()
 
   const convexUpdate = useConvexMutation(api.properties.update)
@@ -759,6 +1082,8 @@ function PropertyEditForm({
       suburb: string
       state: string
       postcode: string
+      siteContactName?: string
+      siteContactPhone?: string
     }) => convexUpdate(args),
     onSuccess: onDone,
   })
@@ -771,29 +1096,30 @@ function PropertyEditForm({
         save.mutate({
           businessId,
           propertyId: property._id,
-          addressLine,
-          suburb,
-          state,
-          postcode,
+          addressLine: value.addressLine,
+          suburb: value.suburb,
+          state: value.state,
+          postcode: value.postcode,
+          // Only when changed, and blank clears one. Not sent for a person
+          // client, whose fields are hidden, so saving the address must leave
+          // them as they are.
+          ...(clientKind === 'business' &&
+            changed(value.siteContactName, property.siteContactName) && {
+              siteContactName: value.siteContactName.trim(),
+            }),
+          ...(clientKind === 'business' &&
+            changed(value.siteContactPhone, property.siteContactPhone) && {
+              siteContactPhone: value.siteContactPhone.trim(),
+            }),
         })
       }}
     >
-      <TextInput value={addressLine} onChange={setAddressLine} placeholder="Street address" required />
-      <TextInput value={suburb} onChange={setSuburb} placeholder="Suburb" required />
-      <div className="grid grid-cols-2 gap-2.5">
-        <select
-          value={state}
-          onChange={(e) => setState(e.target.value)}
-          className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        >
-          {AU_STATES.map((s) => (
-            <option key={s.code} value={s.code}>
-              {s.code}
-            </option>
-          ))}
-        </select>
-        <TextInput value={postcode} onChange={setPostcode} inputMode="numeric" placeholder="Postcode" required />
-      </div>
+      <PropertyFields
+        value={value}
+        onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
+        clientKind={clientKind}
+        businessState={businessState}
+      />
       <div className="flex gap-2">
         <button
           type="button"
@@ -816,17 +1142,27 @@ function PropertyEditForm({
 
 function NewPropertyForClientForm({
   businessId,
+  businessState,
   clientId,
+  clientKind,
   onDone,
 }: {
   businessId: Id<'businesses'>
+  businessState: string
   clientId: Id<'clients'>
+  clientKind: ClientKind
   onDone: () => void
 }) {
-  const [addressLine, setAddressLine] = useState('')
-  const [suburb, setSuburb] = useState('')
-  const [state, setState] = useState('WA')
-  const [postcode, setPostcode] = useState('')
+  const [value, setValue] = useState<PropertyFieldsValue>({
+    addressLine: '',
+    suburb: '',
+    // The business's own, not always WA: most of a Darwin business's
+    // clients are in the NT.
+    state: businessState,
+    postcode: '',
+    siteContactName: '',
+    siteContactPhone: '',
+  })
   const hydrated = useHydrated()
 
   const convexCreate = useConvexMutation(api.properties.createForClient)
@@ -838,6 +1174,8 @@ function NewPropertyForClientForm({
       suburb: string
       state: string
       postcode: string
+      siteContactName?: string
+      siteContactPhone?: string
     }) => convexCreate(args),
     onSuccess: onDone,
   })
@@ -847,25 +1185,26 @@ function NewPropertyForClientForm({
       className="flex flex-col gap-2.5 rounded-2xl border border-hairline bg-surface p-3"
       onSubmit={(e) => {
         e.preventDefault()
-        create.mutate({ businessId, clientId, addressLine, suburb, state, postcode })
+        create.mutate({
+          businessId,
+          clientId,
+          addressLine: value.addressLine,
+          suburb: value.suburb,
+          state: value.state,
+          postcode: value.postcode,
+          ...(clientKind === 'business' && {
+            siteContactName: value.siteContactName.trim() || undefined,
+            siteContactPhone: value.siteContactPhone.trim() || undefined,
+          }),
+        })
       }}
     >
-      <TextInput value={addressLine} onChange={setAddressLine} placeholder="Street address" required />
-      <TextInput value={suburb} onChange={setSuburb} placeholder="Suburb" required />
-      <div className="grid grid-cols-2 gap-2.5">
-        <select
-          value={state}
-          onChange={(e) => setState(e.target.value)}
-          className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        >
-          {AU_STATES.map((s) => (
-            <option key={s.code} value={s.code}>
-              {s.code}
-            </option>
-          ))}
-        </select>
-        <TextInput value={postcode} onChange={setPostcode} inputMode="numeric" placeholder="Postcode" required />
-      </div>
+      <PropertyFields
+        value={value}
+        onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
+        clientKind={clientKind}
+        businessState={businessState}
+      />
       <div className="flex gap-2">
         <button
           type="button"
@@ -1024,6 +1363,7 @@ function TextInput({
   required,
   inputMode,
   placeholder,
+  ariaLabel,
 }: {
   value: string
   onChange: (v: string) => void
@@ -1031,6 +1371,9 @@ function TextInput({
   required?: boolean
   inputMode?: 'numeric' | 'decimal' | 'tel'
   placeholder?: string
+  /** A name for a field with no visible label: a placeholder is only a
+   * fallback name, and not every screen reader reads it as one. */
+  ariaLabel?: string
 }) {
   return (
     <input
@@ -1039,8 +1382,29 @@ function TextInput({
       required={required}
       inputMode={inputMode}
       placeholder={placeholder}
+      aria-label={ariaLabel}
       onChange={(e) => onChange(e.target.value)}
       className="h-11 w-full rounded-xl bg-surface-3 px-3.5 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
     />
   )
+}
+
+/**
+ * A text field for an update, only when it changed. Blank is sent as '',
+ * which clears it on the server; an untouched field is left out, so a save
+ * that changes nothing writes nothing — and a save made while the server is
+ * still the previous version sends nothing it does not know.
+ */
+function edited<TKey extends string>(
+  key: TKey,
+  now: string,
+  before: string | undefined,
+): Partial<Record<TKey, string>> {
+  return changed(now, before)
+    ? ({ [key]: now.trim() } as Record<TKey, string>)
+    : {}
+}
+
+function changed(now: string, before: string | undefined): boolean {
+  return now.trim() !== (before ?? '').trim()
 }

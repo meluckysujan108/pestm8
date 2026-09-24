@@ -8,7 +8,12 @@ import {
   startOfDayInZone,
   todayKeyInZone,
 } from './lib/dates'
-import { newClientFields, resolvePropertyId, withClient } from './properties'
+import {
+  newClientFields,
+  newPropertyFields,
+  resolvePropertyId,
+  withClient,
+} from './properties'
 import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
 import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
@@ -149,6 +154,14 @@ async function decorate(
           // not always the business's (a Perth business's Darwin job).
           propertyState: property?.state ?? '',
           clientName: client?.name ?? '',
+          // With the site contact below, for who the card's Call dials
+          // (convex/lib/siteContact.ts: a business site's own contact wins).
+          // Added beside `clientPhone`, never folded into it: an older
+          // frontend still live while this backend ships reads `clientPhone`
+          // as the client's line, and would dial the site under its name.
+          clientKind: client?.kind,
+          siteContactName: property?.siteContactName ?? '',
+          siteContactPhone: property?.siteContactPhone ?? '',
           // For the card's Call. The same number the job detail sheet dials
           // (`get` embeds the whole client), read off a document this row
           // loads anyway — and the client book is open to everyone who can
@@ -670,6 +683,8 @@ export const create = mutation({
     // to the Clients page first.
     propertyId: v.optional(v.id('properties')),
     newClient: v.optional(newClientFields),
+    // Or a new site for a client that already exists (Prompt 6.3).
+    newProperty: v.optional(newPropertyFields),
     assignedMembershipId: v.id('memberships'),
     jobType: v.string(),
     price: v.number(),
@@ -682,6 +697,7 @@ export const create = mutation({
     {
       propertyId: existingPropertyId,
       newClient,
+      newProperty,
       workOrder: rawWorkOrder,
       ...args
     },
@@ -703,6 +719,7 @@ export const create = mutation({
 
     const propertyId = await resolvePropertyId(ctx, args.businessId, {
       propertyId: existingPropertyId,
+      newProperty,
       newClient,
     })
 

@@ -1,11 +1,17 @@
 import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
+import { useRouteContext } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { EMPTY_NEW_CLIENT, NewClientFields } from './NewClientFields'
-import type { NewClientFieldsValue } from './NewClientFields'
+import {
+  EMPTY_NEW_CLIENT,
+  NewClientFields,
+  abnRefusal,
+  newClientArgs,
+} from './NewClientFields'
+import type { NewClientArgs, NewClientFieldsValue } from './NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 
@@ -24,25 +30,27 @@ export function NewPropertySheet({
   open: boolean
   onClose: () => void
 }) {
-  const [value, setValue] = useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
+  const businessState = useRouteContext({
+    from: '/$businessSlug',
+    select: (context) => context.business.state,
+  })
+  // Starts in the business's own state, as "Add another property" does: a
+  // Darwin address typed by hand and left on WA is how prod came to hold
+  // "Fannybay WA".
+  const empty: NewClientFieldsValue = {
+    ...EMPTY_NEW_CLIENT,
+    state: businessState || EMPTY_NEW_CLIENT.state,
+  }
+  const [value, setValue] = useState<NewClientFieldsValue>(empty)
 
   const hydrated = useHydrated()
 
   const convexCreate = useConvexMutation(api.properties.create)
   const create = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      clientName: string
-      kind: NewClientFieldsValue['kind']
-      addressLine: string
-      suburb: string
-      state: string
-      postcode: string
-      phone?: string
-      email?: string
-    }) => convexCreate(args),
+    mutationFn: (args: { businessId: Id<'businesses'> } & NewClientArgs) =>
+      convexCreate(args),
     onSuccess: () => {
-      setValue(EMPTY_NEW_CLIENT)
+      setValue(empty)
       onClose()
     },
   })
@@ -58,17 +66,7 @@ export function NewPropertySheet({
             className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
             onSubmit={(e) => {
               e.preventDefault()
-              create.mutate({
-                businessId,
-                clientName: value.clientName,
-                kind: value.kind,
-                addressLine: value.addressLine,
-                suburb: value.suburb,
-                state: value.state,
-                postcode: value.postcode,
-                phone: value.phone.trim() || undefined,
-                email: value.email.trim() || undefined,
-              })
+              create.mutate({ businessId, ...newClientArgs(value) })
             }}
           >
             <Drawer.Title className="text-sheet-title text-ink">
@@ -78,6 +76,7 @@ export function NewPropertySheet({
             <NewClientFields
               value={value}
               onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
+              biasState={businessState}
             />
 
             {create.isError && (
@@ -85,7 +84,7 @@ export function NewPropertySheet({
                 role="alert"
                 className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
               >
-                Could not save this client.
+                {abnRefusal(create.error) ?? 'Could not save this client.'}
               </p>
             )}
 

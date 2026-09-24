@@ -442,6 +442,13 @@ export default defineSchema({
     postcode: v.string(),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
+    // The person on site at a business client's property (Prompt 6.3): the
+    // store manager, the caretaker, the tenant who lets the technician in.
+    // Their number is what the job card's Call dials for a visit here, over
+    // the client's main line — see convex/lib/siteContact.ts. Absent when
+    // blank; a person client's are kept but not shown or dialled.
+    siteContactName: v.optional(v.string()),
+    siteContactPhone: v.optional(v.string()),
     createdAt: v.number(),
   })
     .index('by_business', ['businessId'])
@@ -467,6 +474,11 @@ export default defineSchema({
     suburb: v.optional(v.string()),
     state: v.optional(v.string()),
     postcode: v.optional(v.string()),
+    // The CUSTOMER's ABN, a business-kind client's (Prompt 6.1): eleven
+    // digits, checksum-valid (convex/lib/abn.ts). Not `businesses.abn`, which
+    // is the pest business's own. Kept, not shown, if the client is switched
+    // to a person. Its contact person is its primary `clientContacts` row.
+    abn: v.optional(v.string()),
     // Soft-delete, mirroring `customReportTemplates.archivedAt`: removes a
     // client from "new job"/"new property" pickers only, with zero effect on
     // any property/job/report that already references it.

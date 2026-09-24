@@ -3,6 +3,70 @@ import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { requireActor } from './lib/actor'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
+import { isNameCorrection, sameName } from './lib/contactNames'
+import type { Id } from './_generated/dataModel'
+import type { MutationCtx } from './_generated/server'
+
+/**
+ * Makes `rawName` a business client's contact person (Prompt 6.1) — its
+ * primary contact, the one "who do we deal with here". There is no separate
+ * contact-person field: a second one would drift from the Contacts list, and
+ * the contacts' emails already feed report recipients.
+ *
+ * Never removes anyone from the list. Blank takes the star off whoever has
+ * it. A name already in the list takes the star. A correction of the contact
+ * person's own name (`isNameCorrection`) renames them in place, keeping their
+ * number and role: adding Jan's surname must not leave two Jans, one without
+ * a phone. Any other name is a different person, added with the star, and
+ * whoever had it stays in the list.
+ */
+export async function setContactPerson(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  clientId: Id<'clients'>,
+  rawName: string,
+) {
+  const name = rawName.trim()
+  const contacts = await ctx.db
+    .query('clientContacts')
+    .withIndex('by_client', (q) => q.eq('clientId', clientId))
+    .collect()
+  const primary = contacts.find((c) => c.isPrimary)
+
+  let contactId: Id<'clientContacts'> | null
+  if (name === '') {
+    contactId = null
+  } else if (primary && sameName(primary.name, name)) {
+    if (primary.name !== name) await ctx.db.patch(primary._id, { name })
+    contactId = primary._id
+  } else {
+    const named = contacts.find((c) => sameName(c.name, name))
+    if (named) {
+      contactId = named._id
+    } else if (primary && isNameCorrection(primary.name, name)) {
+      await ctx.db.patch(primary._id, { name })
+      contactId = primary._id
+    } else {
+      contactId = await ctx.db.insert('clientContacts', {
+        businessId,
+        clientId,
+        name,
+        createdAt: Date.now(),
+      })
+    }
+  }
+
+  // Exclusive per client, as `setPrimary` keeps it — and on every path, so a
+  // client whose rows have somehow drifted to two stars comes out with one.
+  await Promise.all(
+    contacts
+      .filter((c) => c.isPrimary && c._id !== contactId)
+      .map((c) => ctx.db.patch(c._id, { isPrimary: false })),
+  )
+  if (contactId !== null && contactId !== primary?._id) {
+    await ctx.db.patch(contactId, { isPrimary: true })
+  }
+}
 
 export const list = query({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },

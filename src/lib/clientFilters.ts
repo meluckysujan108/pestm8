@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { siteContactOf } from '../../convex/lib/siteContact'
 
 export type ClientKind = 'person' | 'business'
 export type KindFilter = 'all' | ClientKind
@@ -30,6 +31,85 @@ export function computeSuburbLoad(
   return [...counts.entries()]
     .map(([suburb, count]) => ({ suburb, count }))
     .sort((a, b) => b.count - a.count || a.suburb.localeCompare(b.suburb))
+}
+
+/** Fewer digits than this and a number is more likely a street number, or
+ * part of one, than an ABN or a phone: it would bring in clients whose ABN
+ * happens to contain it, with nothing on their card to say why. */
+const MIN_NUMBER_DIGITS = 4
+
+const digitsOf = (text: string) => text.replace(/\D/g, '')
+
+/** A phone number's digits as dialled at home: +61 412 345 678 as
+ * 0412345678. */
+function nationalDigits(phone: string): string {
+  const digits = digitsOf(phone)
+  return digits.startsWith('61') ? `0${digits.slice(2)}` : digits
+}
+
+/**
+ * The Clients page's search: a client's name and its properties' streets and
+ * suburbs, as it always matched, and for a business client its ABN and its
+ * sites' contacts too (Prompt 6.1, 6.3). Only a business's: a client flipped
+ * to person keeps those hidden, and must not turn up for a number nobody can
+ * see on it.
+ *
+ * ABNs and phone numbers match on their digits, spaced or not: "51 824 753
+ * 556" and "51824753556" both find the one stored as digits, and
+ * "0412345678" or "+61 412 345 678" a site number saved as "0412 345 678".
+ */
+export function matchesClientSearch(
+  row: {
+    client: { name: string; kind: ClientKind; abn?: string }
+    properties: Array<{
+      addressLine: string
+      suburb: string
+      siteContactName?: string
+      siteContactPhone?: string
+    }>
+  },
+  term: string,
+): boolean {
+  const query = term.trim().toLowerCase()
+  if (query === '') return true
+
+  const { client, properties } = row
+  const siteContacts = properties.flatMap((p) => {
+    const contact = siteContactOf({
+      clientKind: client.kind,
+      siteContactName: p.siteContactName,
+      siteContactPhone: p.siteContactPhone,
+    })
+    return contact ? [contact] : []
+  })
+
+  const haystack = [
+    client.name,
+    ...properties.flatMap((p) => [p.addressLine, p.suburb]),
+    ...siteContacts.map((c) => c.name ?? ''),
+  ]
+    .join(' ')
+    .toLowerCase()
+  if (haystack.includes(query)) return true
+
+  // Numbers only by their digits, and never as text: "12" would otherwise
+  // find every site whose phone number has a 12 in it.
+  if (!/^[\d\s()+-]+$/.test(query)) return false
+  const digits = digitsOf(query)
+  if (digits.length < MIN_NUMBER_DIGITS) return false
+
+  // An ABN is read out and typed from the front.
+  if (client.kind === 'business' && client.abn?.startsWith(digits)) return true
+
+  // A phone number is compared as dialled at home. Read as +61 only when it
+  // plainly is one: a Perth postcode like 6147 is also how "+61 47…" starts,
+  // and would bring up every business whose site has an 047 mobile.
+  const international =
+    query.startsWith('+') || (digits.startsWith('61') && digits.length >= 6)
+  const wanted = international ? `0${digits.slice(2)}` : digits
+  return siteContacts.some(
+    (c) => c.phone !== undefined && nationalDigits(c.phone).includes(wanted),
+  )
 }
 
 /**

@@ -1,6 +1,8 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
+import { normaliseAbn } from './lib/abn'
+import type { Infer } from 'convex/values'
 import { isInScope } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { redactJobs } from './lib/prices'
@@ -118,77 +120,45 @@ export const listByClient = query({
   },
 })
 
-/** Adds another property to an existing client — the client detail sheet's
- * "add another property" action, distinct from `create` which makes a new
- * client and its first property together in one step. */
-export const createForClient = mutation({
-  args: {
-    businessId: v.id('businesses'),
-    clientId: v.id('clients'),
-    addressLine: v.string(),
-    suburb: v.string(),
-    state: v.string(),
-    postcode: v.string(),
-  },
-  handler: async (ctx, { businessId, clientId, ...address }) => {
-    await requireMembership(ctx, businessId)
+/**
+ * A site contact as stored: trimmed, and absent when blank. `undefined` in
+ * means "not given"; a blank string means "none", which the edit forms send
+ * to clear one.
+ */
+function siteContactField(raw: string | undefined): string | undefined {
+  return raw?.trim() || undefined
+}
 
-    const client = await ctx.db.get(clientId)
-    if (!client || client.businessId !== businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
-
-    return ctx.db.insert('properties', {
-      businessId,
-      clientId,
-      ...address,
-      createdAt: Date.now(),
-    })
-  },
-})
-
-/** The shape every "create a brand-new client" entry point needs — the
- * client-facing counterpart of `properties.create`'s own args, minus
- * `businessId` (the caller already has it). Reused by
- * `jobs.create`/`recurrences.create` so booking a job for a client that
- * doesn't exist yet needs one submit, not a trip to the Clients page first. */
-export const newClientFields = v.object({
-  clientName: v.string(),
-  // Defaults to 'person' so every existing caller (which never passes this)
-  // behaves exactly as before.
-  kind: v.optional(clientKind),
-  phone: v.optional(v.string()),
-  email: v.optional(v.string()),
+/** The fields of a property at an existing client — "add another property"
+ * on the client sheet, and a new site booked straight from the New Job sheet
+ * (`newPropertyFields`). */
+const propertyAddressFields = {
   addressLine: v.string(),
   suburb: v.string(),
   state: v.string(),
   postcode: v.string(),
-})
+  // Prompt 6.3. Only a business client's are shown or dialled
+  // (convex/lib/siteContact.ts), but they are stored whatever the kind, the
+  // same way a flipped client keeps its contacts.
+  siteContactName: v.optional(v.string()),
+  siteContactPhone: v.optional(v.string()),
+}
+const propertyAddressObject = v.object(propertyAddressFields)
 
-async function insertClientAndProperty(
+/**
+ * Inserts a property for a client already checked to be this business's.
+ * Shared by `createForClient` and `resolvePropertyId`'s new-site branch, so a
+ * site added from the client sheet and one added while booking are the same
+ * record.
+ */
+async function insertPropertyForClient(
   ctx: MutationCtx,
   businessId: Id<'businesses'>,
-  input: {
-    clientName: string
-    kind?: 'person' | 'business'
-    phone?: string
-    email?: string
-    addressLine: string
-    suburb: string
-    state: string
-    postcode: string
-  },
+  clientId: Id<'clients'>,
+  input: Infer<typeof propertyAddressObject>,
 ): Promise<Id<'properties'>> {
-  const now = Date.now()
-  const clientId = await ctx.db.insert('clients', {
-    businessId,
-    kind: input.kind ?? 'person',
-    name: input.clientName,
-    phone: input.phone,
-    email: input.email,
-    createdAt: now,
-    updatedAt: now,
-  })
+  const siteContactName = siteContactField(input.siteContactName)
+  const siteContactPhone = siteContactField(input.siteContactPhone)
   return ctx.db.insert('properties', {
     businessId,
     clientId,
@@ -196,31 +166,137 @@ async function insertClientAndProperty(
     suburb: input.suburb,
     state: input.state,
     postcode: input.postcode,
+    ...(siteContactName !== undefined && { siteContactName }),
+    ...(siteContactPhone !== undefined && { siteContactPhone }),
+    createdAt: Date.now(),
+  })
+}
+
+async function requireClientOf(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  clientId: Id<'clients'>,
+) {
+  const client = await ctx.db.get(clientId)
+  if (!client || client.businessId !== businessId) {
+    throw new ConvexError('NOT_FOUND')
+  }
+  return client
+}
+
+/** Adds another property to an existing client — the client detail sheet's
+ * "add another property" action, distinct from `create` which makes a new
+ * client and its first property together in one step. */
+export const createForClient = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    clientId: v.id('clients'),
+    ...propertyAddressFields,
+  },
+  handler: async (ctx, { businessId, clientId, ...input }) => {
+    await requireMembership(ctx, businessId)
+    await requireClientOf(ctx, businessId, clientId)
+    return insertPropertyForClient(ctx, businessId, clientId, input)
+  },
+})
+
+/**
+ * A new site for a client that already exists, booked from the New Job sheet
+ * (Prompt 6.3): the office is on the phone to a business that has "another
+ * rental at 5 X Street". Without it the only way out of the booking sheet was
+ * "New client", which gave the same business a second record and split its
+ * history across the two.
+ */
+export const newPropertyFields = v.object({
+  clientId: v.id('clients'),
+  ...propertyAddressFields,
+})
+
+/** The shape every "create a brand-new client" entry point needs — the
+ * client-facing counterpart of `properties.create`'s own args, minus
+ * `businessId` (the caller already has it). Reused by
+ * `jobs.create`/`recurrences.create` so booking a job for a client that
+ * doesn't exist yet needs one submit, not a trip to the Clients page first.
+ *
+ * The one definition of it: `create`'s args, `insertClientAndProperty` and
+ * `resolvePropertyId` all derive from this, so a field added here cannot be
+ * accepted by a validator and silently dropped on the insert. */
+export const newClientFields = v.object({
+  clientName: v.string(),
+  // Defaults to 'person' so every existing caller (which never passes this)
+  // behaves exactly as before.
+  kind: v.optional(clientKind),
+  phone: v.optional(v.string()),
+  email: v.optional(v.string()),
+  // Prompt 6.1, a business client's only — ignored for a person, who has
+  // neither. An invalid ABN refuses the whole submit, booking included.
+  abn: v.optional(v.string()),
+  // Becomes the client's primary contact (`clientContacts.isPrimary`), the
+  // one "who do we deal with here" — not a second, competing field.
+  contactPerson: v.optional(v.string()),
+  ...propertyAddressFields,
+})
+
+type NewClient = Infer<typeof newClientFields>
+
+async function insertClientAndProperty(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  input: NewClient,
+): Promise<Id<'properties'>> {
+  const kind = input.kind ?? 'person'
+  const isBusiness = kind === 'business'
+  // Refused before anything is written, though a throw would roll it all back
+  // anyway: an ABN that fails the ATO's check is a typo on an invoice.
+  const abn = isBusiness ? normaliseAbn(input.abn) : undefined
+  const contactPerson = isBusiness ? input.contactPerson?.trim() : undefined
+
+  const now = Date.now()
+  const clientId = await ctx.db.insert('clients', {
+    businessId,
+    kind,
+    name: input.clientName,
+    phone: input.phone,
+    email: input.email,
+    ...(abn !== undefined && { abn }),
     createdAt: now,
+    updatedAt: now,
+  })
+  if (contactPerson) {
+    await ctx.db.insert('clientContacts', {
+      businessId,
+      clientId,
+      name: contactPerson,
+      isPrimary: true,
+      createdAt: now,
+    })
+  }
+  // A person client has no site contact: the client IS who is on site.
+  return insertPropertyForClient(ctx, businessId, clientId, {
+    addressLine: input.addressLine,
+    suburb: input.suburb,
+    state: input.state,
+    postcode: input.postcode,
+    ...(isBusiness && {
+      siteContactName: input.siteContactName,
+      siteContactPhone: input.siteContactPhone,
+    }),
   })
 }
 
 /**
- * Resolves a job/recurrence's property from either an existing id or inline
- * new-client fields, inserting the client+property in the same mutation when
- * it's the latter — Convex mutations are transactional, so this can never
- * leave an orphaned client behind if the rest of the caller's insert fails.
+ * Resolves a job/recurrence's property from an existing id, a new site for an
+ * existing client, or inline new-client fields, inserting what is new in the
+ * same mutation — Convex mutations are transactional, so this can never leave
+ * an orphaned client or site behind if the rest of the caller's insert fails.
  */
 export async function resolvePropertyId(
   ctx: MutationCtx,
   businessId: Id<'businesses'>,
   input: {
     propertyId?: Id<'properties'>
-    newClient?: {
-      clientName: string
-      kind?: 'person' | 'business'
-      phone?: string
-      email?: string
-      addressLine: string
-      suburb: string
-      state: string
-      postcode: string
-    }
+    newProperty?: Infer<typeof newPropertyFields>
+    newClient?: NewClient
   },
 ): Promise<Id<'properties'>> {
   if (input.propertyId !== undefined) {
@@ -231,6 +307,12 @@ export async function resolvePropertyId(
     return input.propertyId
   }
 
+  if (input.newProperty) {
+    const { clientId, ...site } = input.newProperty
+    await requireClientOf(ctx, businessId, clientId)
+    return insertPropertyForClient(ctx, businessId, clientId, site)
+  }
+
   if (!input.newClient) throw new ConvexError('MISSING_PROPERTY')
   return insertClientAndProperty(ctx, businessId, input.newClient)
 }
@@ -238,18 +320,11 @@ export async function resolvePropertyId(
 export const create = mutation({
   args: {
     businessId: v.id('businesses'),
-    clientName: v.string(),
-    phone: v.optional(v.string()),
-    email: v.optional(v.string()),
-    kind: v.optional(clientKind),
-    addressLine: v.string(),
-    suburb: v.string(),
-    state: v.string(),
-    postcode: v.string(),
+    ...newClientFields.fields,
   },
-  handler: async (ctx, args) => {
-    await requireMembership(ctx, args.businessId)
-    return insertClientAndProperty(ctx, args.businessId, args)
+  handler: async (ctx, { businessId, ...input }) => {
+    await requireMembership(ctx, businessId)
+    return insertClientAndProperty(ctx, businessId, input)
   },
 })
 
@@ -261,8 +336,14 @@ export const update = mutation({
     suburb: v.optional(v.string()),
     state: v.optional(v.string()),
     postcode: v.optional(v.string()),
+    // A blank string clears it; leaving it out leaves it alone.
+    siteContactName: v.optional(v.string()),
+    siteContactPhone: v.optional(v.string()),
   },
-  handler: async (ctx, { businessId, propertyId, ...patch }) => {
+  handler: async (
+    ctx,
+    { businessId, propertyId, siteContactName, siteContactPhone, ...address },
+  ) => {
     await requireMembership(ctx, businessId)
 
     const property = await ctx.db.get(propertyId)
@@ -273,11 +354,20 @@ export const update = mutation({
     // Typed explicitly for the same reason as `clients.update`: the optional
     // args really can arrive absent, but `Object.entries` infers them away,
     // which makes a necessary runtime filter read as dead code.
-    const fields = Object.fromEntries(
-      Object.entries<string | undefined>(patch).filter(
+    const fields: Record<string, string | undefined> = Object.fromEntries(
+      Object.entries<string | undefined>(address).filter(
         ([, value]) => value !== undefined,
       ),
     )
+    // Written as `undefined` when cleared — which is how a patch removes a
+    // field. Without this a blank would be stored as an empty string, and a
+    // site contact who moved on could never be taken off again.
+    if (siteContactName !== undefined) {
+      fields.siteContactName = siteContactField(siteContactName)
+    }
+    if (siteContactPhone !== undefined) {
+      fields.siteContactPhone = siteContactField(siteContactPhone)
+    }
     if (Object.keys(fields).length > 0) await ctx.db.patch(propertyId, fields)
   },
 })
