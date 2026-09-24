@@ -8,7 +8,7 @@ import { watchForNewBuild } from '#/lib/workerVersion'
 const UPDATE_CHECK_MS = 30 * 60 * 1000
 
 /**
- * Registers the worker built by scripts/build-sw.mjs, and says when a newer
+ * Registers the worker built by scripts/build-sw.ts, and says when a newer
  * version of the app has arrived.
  *
  * Dev is deliberately excluded: a stale precache during development produces

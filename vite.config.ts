@@ -1,4 +1,3 @@
-import { execSync } from 'node:child_process'
 import { defineConfig } from 'vite'
 import { devtools } from '@tanstack/devtools-vite'
 
@@ -7,26 +6,9 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { nitro } from 'nitro/vite'
+import { appVersion, serviceWorker } from './scripts/build-sw'
 
-/**
- * The build's short commit, shown in Settings so "which version are you on?"
- * has an answer when someone reports a problem. Vercel says which commit it
- * is building; a local build asks git; anything else is 'dev'.
- */
-function appVersion(): string {
-  const vercel = process.env.VERCEL_GIT_COMMIT_SHA
-  if (vercel) return vercel.slice(0, 7)
-  try {
-    const sha = execSync('git rev-parse --short=7 HEAD', {
-      stdio: ['ignore', 'pipe', 'ignore'],
-    })
-      .toString()
-      .trim()
-    return sha || 'dev'
-  } catch {
-    return 'dev'
-  }
-}
+const sw = serviceWorker()
 
 const config = defineConfig({
   // Read through src/lib/appVersion.ts, which also covers the tests, where
@@ -53,7 +35,11 @@ const config = defineConfig({
   ssr: { noExternal: ['@convex-dev/better-auth'] },
   plugins: [
     devtools(),
-    nitro({ rollupConfig: { external: [/^@sentry\//] } }),
+    nitro({
+      rollupConfig: { external: [/^@sentry\//] },
+      modules: [sw.nitroModule],
+    }),
+    sw.plugin,
     tailwindcss(),
     tanstackStart(),
     viteReact(),

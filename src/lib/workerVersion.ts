@@ -11,7 +11,7 @@
  *
  * So the page asks the worker which build it came from, and only a different
  * build is news. Both sides are built with the same short commit
- * (vite.config.ts for the app, scripts/build-sw.mjs for the worker).
+ * (vite.config.ts for the app, scripts/build-sw.ts for the worker).
  *
  * Imported by the worker too, so nothing here may touch the DOM.
  */
