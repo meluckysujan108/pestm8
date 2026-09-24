@@ -10,6 +10,7 @@
 
 import type * as access from "../access.js";
 import type * as accountSwitches from "../accountSwitches.js";
+import type * as adminInvite from "../adminInvite.js";
 import type * as analytics from "../analytics.js";
 import type * as auditLog from "../auditLog.js";
 import type * as auth from "../auth.js";
@@ -99,6 +100,7 @@ import type {
 declare const fullApi: ApiFromModules<{
   access: typeof access;
   accountSwitches: typeof accountSwitches;
+  adminInvite: typeof adminInvite;
   analytics: typeof analytics;
   auditLog: typeof auditLog;
   auth: typeof auth;
