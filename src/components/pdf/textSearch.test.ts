@@ -126,6 +126,42 @@ describe('rangeRect', () => {
     expect(rect.h * 842).toBeCloseTo(12)
   })
 
+  it('places part of an item by measured glyph widths when it can', () => {
+    // "iiiWWW": three narrow glyphs then three wide ones, 120pt in all. By
+    // character count "WWW" would start halfway along; measured, it starts
+    // a quarter of the way, which is where the W's are actually drawn.
+    const item = {
+      str: 'iiiWWW',
+      transform: [12, 0, 0, 12, 72, 700],
+      width: 120,
+      height: 12,
+    }
+    const widths: Record<string, number> = { i: 1, W: 3 }
+    const measure = (text: string) =>
+      [...text].reduce((sum, ch) => sum + widths[ch], 0)
+    const rect = rangeRect(item, 3, 6, viewport, { measure })
+    expect(rect.x * 595).toBeCloseTo(72 + 30)
+    expect(rect.w * 595).toBeCloseTo(90)
+  })
+
+  it('falls back to the character share when measuring fails', () => {
+    const item = {
+      str: '0123456789',
+      transform: [12, 0, 0, 12, 72, 700],
+      width: 100,
+      height: 12,
+    }
+    const zero = rangeRect(item, 2, 5, viewport, { measure: () => 0 })
+    expect(zero.x * 595).toBeCloseTo(72 + 20)
+    const broken = rangeRect(item, 2, 5, viewport, {
+      measure: () => {
+        throw new Error('no canvas')
+      },
+    })
+    expect(broken.x * 595).toBeCloseTo(72 + 20)
+    expect(broken.w * 595).toBeCloseTo(30)
+  })
+
   it('turns with rotated text', () => {
     // Running up the page, rotated 90° anticlockwise.
     const item = {

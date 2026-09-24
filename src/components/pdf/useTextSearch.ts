@@ -7,7 +7,48 @@ type ContentItem = Awaited<
   ReturnType<PDFPageProxy['getTextContent']>
 >['items'][number]
 type TextItem = Extract<ContentItem, { str: string }>
-type FontStyle = { ascent?: number; vertical?: boolean }
+type FontStyle = { ascent?: number; vertical?: boolean; fontFamily?: string }
+
+const GENERIC_FAMILY =
+  /^(serif|sans-serif|monospace|cursive|fantasy|system-ui)$/
+
+let measuring: CanvasRenderingContext2D | null | undefined
+
+/**
+ * Measures text in a run's font, so a match inside the run is highlighted
+ * where its glyphs are drawn (see `rangeRect`). The embedded font comes first,
+ * under the name pdf.js registered it with `document.fonts` when it drew the
+ * page (a text item's `fontName`); then the family pdf.js reports for the run,
+ * which is what its own text layer measures with. Nothing to measure with —
+ * no canvas — and `rangeRect` counts characters instead.
+ */
+function measurerFor(
+  fontName: string,
+  style: FontStyle | undefined,
+): ((text: string) => number) | undefined {
+  if (measuring === undefined) {
+    try {
+      measuring =
+        typeof document === 'undefined'
+          ? null
+          : document.createElement('canvas').getContext('2d')
+    } catch {
+      measuring = null
+    }
+  }
+  const context = measuring
+  if (!context) return undefined
+  const unquote = (name: string) => name.replace(/["\\]/g, '')
+  const family = style?.fontFamily?.trim() || 'sans-serif'
+  const fallback = GENERIC_FAMILY.test(family)
+    ? family
+    : `"${unquote(family)}", sans-serif`
+  const font = `100px "${unquote(fontName)}", ${fallback}`
+  return (text) => {
+    context.font = font
+    return context.measureText(text).width
+  }
+}
 
 type PageText = {
   items: TextItem[]
@@ -163,6 +204,7 @@ export function useTextSearch(
             return rangeRect(source, from, to, text.viewport, {
               ascent: style?.ascent,
               vertical: style?.vertical,
+              measure: measurerFor(source.fontName, style),
             })
           }),
         }))

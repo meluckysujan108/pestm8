@@ -214,6 +214,35 @@ export type ViewportLike = {
   height: number
 }
 
+/**
+ * How far along `str` its first `n` characters reach, as a fraction of the
+ * whole, by measured width — or null when there is nothing usable to measure
+ * with, so the caller counts characters instead. A measurer that throws (no
+ * canvas) or answers nonsense is treated the same as none.
+ */
+function shareOf(
+  str: string,
+  measure: ((text: string) => number) | undefined,
+): ((n: number) => number) | null {
+  if (!measure) return null
+  try {
+    const total = measure(str)
+    if (!(total > 0) || !Number.isFinite(total)) return null
+    return (n) => {
+      try {
+        const part = measure(str.slice(0, n))
+        return Number.isFinite(part)
+          ? Math.min(1, Math.max(0, part / total))
+          : n / Math.max(1, str.length)
+      } catch {
+        return n / Math.max(1, str.length)
+      }
+    }
+  } catch {
+    return null
+  }
+}
+
 function multiply(m: number[], n: number[]): number[] {
   return [
     m[0] * n[0] + m[2] * n[1],
@@ -233,15 +262,24 @@ function multiply(m: number[], n: number[]): number[] {
  * through the viewport gives its baseline origin, direction and font size;
  * the box runs from the ascent above the baseline to the descent below it.
  * pdf.js knows only the whole item's width, not each glyph's, so part of an
- * item is placed by its share of the characters — close enough to sit over
- * the word, which is all a highlight has to do.
+ * item is placed by its share of the item's MEASURED width when the caller
+ * can measure text in the item's font (`measure`) — which is also how pdf.js's
+ * own text layer fits a run — and by its share of the characters otherwise.
+ * Counting characters drifts on a run that mixes narrow and wide glyphs
+ * ("Page 1 — First aid measures" put the highlight half a letter right);
+ * measuring puts it over the word.
  */
 export function rangeRect(
   item: TextGeometry,
   from: number,
   to: number,
   viewport: ViewportLike,
-  options: { ascent?: number; vertical?: boolean } = {},
+  options: {
+    ascent?: number
+    vertical?: boolean
+    /** Width of `text` in the item's font, in any unit. */
+    measure?: (text: string) => number
+  } = {},
 ): PageRect {
   const tx = multiply(viewport.transform, item.transform)
   let angle = Math.atan2(tx[1], tx[0])
@@ -257,8 +295,11 @@ export function rangeRect(
   const scale = Math.hypot(viewport.transform[0], viewport.transform[1]) || 1
   const advance = (options.vertical ? item.height : item.width) * scale
   const length = Math.max(1, item.str.length)
-  const x0 = (advance * Math.max(0, from)) / length
-  const x1 = (advance * Math.min(length, to)) / length
+  const start = Math.max(0, from)
+  const end = Math.min(length, to)
+  const share = shareOf(item.str, options.measure)
+  const x0 = advance * (share?.(start) ?? start / length)
+  const x1 = advance * (share?.(end) ?? end / length)
 
   // The box's top-left sits `ascent` above the baseline origin, in the
   // direction perpendicular to the text.
