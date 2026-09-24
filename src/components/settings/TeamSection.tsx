@@ -1,8 +1,16 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { useConvexAction, useConvexMutation } from '@convex-dev/react-query'
 import { Check, Copy, Mail, RefreshCw, Share2, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
+import { EmailInput } from '#/components/forms/EmailInput'
+import { FormAlert } from '#/components/forms/FormAlert'
+import {
+  SaveWarningsPanel,
+  SaveWarningsProvider,
+  useLatest,
+  useSaveWarnings,
+} from '#/components/forms/SaveWarnings'
 import { MemberAccessRow } from './MemberAccessRow'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Role } from '../../../convex/lib/capabilities'
@@ -34,6 +42,8 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
   } | null>(null)
 
   const hydrated = useHydrated()
+  const emailId = useId()
+  const warnings = useSaveWarnings()
 
   const convexCreate = useConvexAction(api.invitations.create)
   const invite = useMutation({
@@ -47,6 +57,11 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
       setEmail('')
     },
   })
+
+  // Read when the link is minted, after the domain check has answered: the
+  // link only works for this exact address, so it must be the one in the box
+  // then, not the one there when Create link was pressed.
+  const latestEmail = useLatest(email)
 
   const convexRevoke = useConvexMutation(api.invitations.revoke)
   const revoke = useMutation({
@@ -89,42 +104,56 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
       </div>
 
       <h2 className="section-label mb-2 mt-6">Invite a subcontractor</h2>
-      <form
-        className="flex gap-2"
-        onSubmit={(e) => {
-          e.preventDefault()
-          invite.mutate({ businessId, email, role: 'subcontractor' })
-        }}
-      >
-        <label className="flex-1">
-          <span className="sr-only">Email address</span>
-          <input
-            type="email"
-            value={email}
-            required
-            autoCapitalize="none"
-            placeholder="kevin@example.com"
-            onChange={(e) => setEmail(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={invite.isPending || !hydrated}
-          className="h-12 shrink-0 rounded-xl bg-red px-4 text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+      {/* The link only works for this exact address, so a slip here ("gmial")
+          mints a link nobody can use. A near miss, or a domain that takes no
+          mail, asks once, with the fix; the second press creates it as
+          typed. */}
+      <SaveWarningsProvider value={warnings}>
+        <form
+          onSubmit={(e) =>
+            warnings.guard(e, () =>
+              invite.mutateAsync({
+                businessId,
+                email: latestEmail.current,
+                role: 'subcontractor',
+              }),
+            )
+          }
         >
-          {invite.isPending ? 'Creating…' : 'Create link'}
-        </button>
-      </form>
+          <div className="flex items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <label htmlFor={emailId} className="sr-only">
+                Email address
+              </label>
+              <EmailInput
+                id={emailId}
+                value={email}
+                onChange={setEmail}
+                required
+                placeholder="kevin@example.com"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={invite.isPending || !hydrated}
+              className="h-12 shrink-0 rounded-xl bg-red px-4 text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            >
+              {/* "Save anyway" when warned, not "Create anyway": it is
+                  what the list above tells them to press. */}
+              {invite.isPending
+                ? 'Creating…'
+                : warnings.saveLabel('Create link')}
+            </button>
+          </div>
+          <SaveWarningsPanel className="mt-2" />
+        </form>
+      </SaveWarningsProvider>
 
-      {invite.isError && (
-        <p
-          role="alert"
-          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          {inviteError(invite.error)}
-        </p>
-      )}
+      <FormAlert
+        error={invite.isError ? invite.error : null}
+        copy={INVITE_COPY}
+        className="mt-2"
+      />
 
       {freshLink ? (
         <InviteLinkCard
@@ -285,14 +314,14 @@ function InviteLinkCard({
   )
 }
 
-function inviteError(error: unknown) {
-  const message = error instanceof Error ? error.message : String(error)
-  if (message.includes('ALREADY_MEMBER')) return "They're already on your team."
-  if (message.includes('INVALID_EMAIL')) return 'Check that email address.'
-  if (message.includes('OWNER_INVITE_FORBIDDEN')) {
-    return 'Owner access cannot be invited.'
-  }
-  return 'Could not create the invite. Check your connection and try again.'
+/** The invite's own words for describeError: it creates, it does not save. */
+const INVITE_COPY = {
+  ALREADY_MEMBER: "They're already on your team.",
+  INVALID_EMAIL: 'Check that email address.',
+  OWNER_INVITE_FORBIDDEN: 'Owner access cannot be invited.',
+  offline:
+    'Could not create the invite: this device is offline. Try again when you have signal.',
+  default: 'Could not create the invite. Check your connection and try again.',
 }
 
 function expiryLabel(expiresAt: number | undefined, state: string) {

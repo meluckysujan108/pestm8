@@ -2,11 +2,13 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { normaliseAbn } from './lib/abn'
+import { normaliseEmail } from './lib/email'
+import { normalisePhone } from './lib/phone'
 import type { Infer } from 'convex/values'
 import { isInScope } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { redactJobs } from './lib/prices'
-import { clientKind } from './schema'
+import { addressCheck, clientKind } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { requireActor } from './lib/actor'
@@ -142,6 +144,10 @@ const propertyAddressFields = {
   // same way a flipped client keeps its contacts.
   siteContactName: v.optional(v.string()),
   siteContactPhone: v.optional(v.string()),
+  // How the form saw the address at save: picked from the suggestions and
+  // unchanged, or typed. Optional, so every older screen still saves; written
+  // with the time only when given.
+  addressCheck: v.optional(addressCheck),
 }
 const propertyAddressObject = v.object(propertyAddressFields)
 
@@ -158,7 +164,10 @@ async function insertPropertyForClient(
   input: Infer<typeof propertyAddressObject>,
 ): Promise<Id<'properties'>> {
   const siteContactName = siteContactField(input.siteContactName)
-  const siteContactPhone = siteContactField(input.siteContactPhone)
+  // The number the job card's Call dials for this site, so one that can never
+  // be dialled is refused (INVALID_PHONE) rather than found out at the door.
+  const siteContactPhone = normalisePhone(input.siteContactPhone)
+  const now = Date.now()
   return ctx.db.insert('properties', {
     businessId,
     clientId,
@@ -168,7 +177,11 @@ async function insertPropertyForClient(
     postcode: input.postcode,
     ...(siteContactName !== undefined && { siteContactName }),
     ...(siteContactPhone !== undefined && { siteContactPhone }),
-    createdAt: Date.now(),
+    ...(input.addressCheck !== undefined && {
+      addressCheck: input.addressCheck,
+      addressCheckedAt: now,
+    }),
+    createdAt: now,
   })
 }
 
@@ -249,6 +262,11 @@ async function insertClientAndProperty(
   // Refused before anything is written, though a throw would roll it all back
   // anyway: an ABN that fails the ATO's check is a typo on an invoice.
   const abn = isBusiness ? normaliseAbn(input.abn) : undefined
+  // The same for an email that can never be delivered to (INVALID_EMAIL) and
+  // a number that can never be dialled (INVALID_PHONE): the booking would
+  // otherwise succeed and the report sent to that address simply vanish.
+  const email = normaliseEmail(input.email)
+  const phone = normalisePhone(input.phone)
   const contactPerson = isBusiness ? input.contactPerson?.trim() : undefined
 
   const now = Date.now()
@@ -256,8 +274,8 @@ async function insertClientAndProperty(
     businessId,
     kind,
     name: input.clientName,
-    phone: input.phone,
-    email: input.email,
+    ...(phone !== undefined && { phone }),
+    ...(email !== undefined && { email }),
     ...(abn !== undefined && { abn }),
     createdAt: now,
     updatedAt: now,
@@ -277,6 +295,7 @@ async function insertClientAndProperty(
     suburb: input.suburb,
     state: input.state,
     postcode: input.postcode,
+    addressCheck: input.addressCheck,
     ...(isBusiness && {
       siteContactName: input.siteContactName,
       siteContactPhone: input.siteContactPhone,
@@ -339,10 +358,20 @@ export const update = mutation({
     // A blank string clears it; leaving it out leaves it alone.
     siteContactName: v.optional(v.string()),
     siteContactPhone: v.optional(v.string()),
+    // How the address was entered this time; see the schema. Left alone
+    // when not given, so an older screen's save keeps the last one.
+    addressCheck: v.optional(addressCheck),
   },
   handler: async (
     ctx,
-    { businessId, propertyId, siteContactName, siteContactPhone, ...address },
+    {
+      businessId,
+      propertyId,
+      siteContactName,
+      siteContactPhone,
+      addressCheck: check,
+      ...address
+    },
   ) => {
     await requireMembership(ctx, businessId)
 
@@ -365,10 +394,23 @@ export const update = mutation({
     if (siteContactName !== undefined) {
       fields.siteContactName = siteContactField(siteContactName)
     }
+    // Checked only when this save changes it: the form sends it back with
+    // every edit, and a site saved before the rule must stay editable.
     if (siteContactPhone !== undefined) {
-      fields.siteContactPhone = siteContactField(siteContactPhone)
+      fields.siteContactPhone =
+        siteContactPhone.trim() === (property.siteContactPhone ?? '').trim()
+          ? siteContactField(siteContactPhone)
+          : normalisePhone(siteContactPhone)
     }
-    if (Object.keys(fields).length > 0) await ctx.db.patch(propertyId, fields)
+    if (Object.keys(fields).length > 0 || check !== undefined) {
+      await ctx.db.patch(propertyId, {
+        ...fields,
+        ...(check !== undefined && {
+          addressCheck: check,
+          addressCheckedAt: Date.now(),
+        }),
+      })
+    }
   },
 })
 

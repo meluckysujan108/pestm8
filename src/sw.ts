@@ -7,6 +7,8 @@ import {
 } from 'serwist'
 import { version as pdfjsVersion } from 'pdfjs-dist/package.json'
 import type { PrecacheEntry, SerwistGlobalConfig } from 'serwist'
+import { APP_VERSION } from './lib/appVersion'
+import { answerVersionRequest } from './lib/workerVersion'
 
 declare global {
   interface WorkerGlobalScope extends SerwistGlobalConfig {
@@ -43,14 +45,14 @@ const PDFJS_LIST = '/pdfjs/version.json'
 /**
  * The precache manifest without anything under pdfjs/.
  *
- * scripts/build-sw.mjs precaches every `.js` in the client output, and
+ * scripts/build-sw.ts precaches every `.js` in the client output, and
  * pdf.js ships one JavaScript file among its runtime assets —
  * wasm/openjpeg_nowasm_fallback.js, ~450 KB, loaded only by a browser with
  * WebAssembly switched off (iOS Lockdown Mode). Precached, every install
  * would download it on a phone plan for the rare phone that needs it. Left
  * out here, it is fetched on demand like its neighbours and cached by the
- * rule below. (A `globIgnores` entry in build-sw.mjs would keep it out of the
- * manifest altogether; this holds either way.)
+ * rule below. build-sw.ts's `globIgnores` keeps pdfjs/ out of the manifest
+ * in the first place; this filter holds even if that entry is ever lost.
  */
 function withoutPdfjs(
   entries: Array<PrecacheEntry | string> | undefined,
@@ -124,4 +126,11 @@ self.addEventListener('activate', (event) => {
       // Only space is lost; the current version's cache is its own.
     }),
   )
+})
+
+// Which build this worker is, for a page deciding whether it is out of date
+// (src/lib/workerVersion.ts). scripts/build-sw.ts writes in the same commit
+// the app is built with, so a page and a worker from one deploy agree.
+self.addEventListener('message', (event) => {
+  answerVersionRequest(event.data, event.ports, APP_VERSION)
 })

@@ -93,7 +93,7 @@ test('an owner can edit business name, state and ABN, and a subcontractor sees t
 
   await page.getByLabel('Name').fill('Business Info Co (Renamed)')
   await page.getByLabel('State').selectOption('QLD')
-  await page.getByLabel('ABN (optional)').fill('11 222 333 444')
+  await page.getByLabel('ABN (optional)').fill('51 824 753 556')
   await expect(page.getByText('Australia/Brisbane')).toBeVisible()
 
   await businessForm.getByRole('button', { name: 'Save' }).click()
@@ -105,7 +105,7 @@ test('an owner can edit business name, state and ABN, and a subcontractor sees t
   await page.reload()
   await expect(page.getByLabel('Name')).toHaveValue('Business Info Co (Renamed)')
   await expect(page.getByLabel('State')).toHaveValue('QLD')
-  await expect(page.getByLabel('ABN (optional)')).toHaveValue('11 222 333 444')
+  await expect(page.getByLabel('ABN (optional)')).toHaveValue('51 824 753 556')
   await expect(page.getByText('Australia/Brisbane')).toBeVisible()
 
   // A subcontractor reads the same details, but as plain text with no form

@@ -5,6 +5,35 @@ import { DEFAULT_GRANTS } from './lib/capabilities'
 import { MEMBER_COLOURS } from './lib/colours'
 import { forSelf, recordAudit } from './lib/audit'
 import { requireActor, requireCapability } from './lib/actor'
+import { abnDigits, formatAbn, normaliseAbn } from './lib/abn'
+import { normaliseEmail } from './lib/email'
+import { normalisePhone } from './lib/phone'
+
+/**
+ * The business's own ABN as stored: checked by the ATO's rule (INVALID_ABN)
+ * and written the way the ATO prints it, "51 824 753 556", because this one
+ * is printed as stored on every report and certificate — unlike a client's,
+ * which is kept as digits and formatted where it is shown. Absent when blank.
+ */
+function businessAbn(raw: string | undefined): string | undefined {
+  const digits = normaliseAbn(raw)
+  return digits === undefined ? undefined : formatAbn(digits)
+}
+
+/**
+ * Whether a sent ABN is the stored one sent back. Either exactly what is
+ * stored, or the same eleven digits and nothing else: a form that keeps what
+ * was typed sends "51824753556" back after the server stored
+ * "51 824 753 556". Only when the digits are the WHOLE value, though —
+ * comparing every digit found in it made "N/A" (no digits) match a business
+ * with no ABN, and "ABN 51824753556 (old)" match the stored one, and either
+ * was then stored, unchecked, as the ABN every report prints.
+ */
+function sameAbn(raw: string, stored: string | undefined): boolean {
+  if (!edited(raw, stored)) return true
+  const digits = abnDigits(raw)
+  return digits !== null && digits === abnDigits(stored ?? '')
+}
 
 function slugify(name: string) {
   return name
@@ -115,13 +144,17 @@ export const create = mutation({
       slug = `${base}-${++n}`
     }
 
+    // Refused before anything is written: it goes on the header of every
+    // compliance document this business issues.
+    const abn = businessAbn(args.abn)
+
     const now = Date.now()
     const businessId = await ctx.db.insert('businesses', {
       name: args.name,
       slug,
       state: args.state,
       timezone: args.timezone,
-      abn: args.abn,
+      ...(abn !== undefined && { abn }),
       subscriptionStatus: 'trialing',
       createdAt: now,
     })
@@ -206,6 +239,35 @@ export const update = mutation({
         ([, value]) => value !== undefined,
       ),
     )
+
+    // The printed contact details are checked only when this save changes
+    // them. The settings forms send every field on every save, and a
+    // business whose ABN or number was saved before these rules (the seed's
+    // ABNs fail the ATO's check) must still be able to change its name.
+    //
+    // One sent back unchanged is left out of the patch rather than written
+    // as sent: the form holds it as it was typed, so writing it would undo
+    // the formatting the server gave it ("51 824 753 556" back to
+    // "51824753556" on the next save of the business name), on a value
+    // every report prints as stored.
+    const business = await ctx.db.get(businessId)
+    if (!business) throw new ConvexError('NOT_FOUND')
+    if (patch.abn !== undefined) {
+      if (sameAbn(patch.abn, business.abn)) delete fields.abn
+      else fields.abn = businessAbn(patch.abn)
+    }
+    for (const key of ['email', 'reportCopyEmail'] as const) {
+      const raw = patch[key]
+      if (raw === undefined) continue
+      if (edited(raw, business[key])) fields[key] = normaliseEmail(raw)
+      else delete fields[key]
+    }
+    if (patch.phone !== undefined) {
+      if (edited(patch.phone, business.phone)) {
+        fields.phone = normalisePhone(patch.phone)
+      } else delete fields.phone
+    }
+
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(businessId, fields)
 
@@ -222,6 +284,11 @@ export const update = mutation({
     }
   },
 })
+
+/** Whether a saved detail is being changed, not just sent back as it was. */
+function edited(raw: string, stored: string | undefined): boolean {
+  return raw.trim() !== (stored ?? '').trim()
+}
 
 /** Short-lived upload URL for the business logo — owner-gated, since only the
  * owner can change branding via `update` above. */

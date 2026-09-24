@@ -6,8 +6,14 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import viteReact from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { nitro } from 'nitro/vite'
+import { appVersion, serviceWorker } from './scripts/build-sw'
+
+const sw = serviceWorker()
 
 const config = defineConfig({
+  // Read through src/lib/appVersion.ts, which also covers the tests, where
+  // nothing defines it.
+  define: { __APP_VERSION__: JSON.stringify(appVersion()) },
   // 3000 by default so `npm run dev` and the Playwright baseURL agree, but
   // overridable: a second dev server on the same machine needs its own port,
   // and putting it here rather than in the npm script keeps it working on
@@ -29,7 +35,11 @@ const config = defineConfig({
   ssr: { noExternal: ['@convex-dev/better-auth'] },
   plugins: [
     devtools(),
-    nitro({ rollupConfig: { external: [/^@sentry\//] } }),
+    nitro({
+      rollupConfig: { external: [/^@sentry\//] },
+      modules: [sw.nitroModule],
+    }),
+    sw.plugin,
     tailwindcss(),
     tanstackStart(),
     viteReact(),

@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "node scripts/copy-pdfjs-assets.mjs && vite dev",
     "generate-routes": "tsr generate",
-    "build": "node scripts/copy-pdfjs-assets.mjs && vite build && node scripts/build-sw.mjs",
+    "build": "node scripts/copy-pdfjs-assets.mjs && vite build && node scripts/check-sw.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:e2e": "playwright test",

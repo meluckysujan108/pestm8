@@ -18,6 +18,10 @@ const SIZES = {
  * sentence saying why appears once the field has been left, or a submit
  * refused, and not while the digits are still going in.
  *
+ * `initial` is the ABN already saved. Left as it was it is never refused:
+ * the business's own ABN in the seed and e2e fixtures fails the checksum, and
+ * a form must not become unsaveable over a value nobody touched.
+ *
  * The sentence is rendered beside the input, so do NOT put this inside a
  * <label>, where it would become part of the field's name. Name it with
  * <label htmlFor={id}>.
@@ -26,16 +30,20 @@ export function AbnInput({
   id,
   value,
   onChange,
+  initial,
   size = 'lg',
 }: {
   id: string
   value: string
   onChange: (v: string) => void
+  /** The saved value. Unchanged, it is never an error. */
+  initial?: string
   size?: 'lg' | 'md'
 }) {
   const inputRef = useRef<HTMLInputElement>(null)
   const [reveal, setReveal] = useState(false)
-  const invalid = value.trim() !== '' && !isValidAbn(value)
+  const unchanged = initial !== undefined && value.trim() === initial.trim()
+  const invalid = value.trim() !== '' && !unchanged && !isValidAbn(value)
   const showError = invalid && reveal
   const errorId = `${id}-error`
 
@@ -57,7 +65,13 @@ export function AbnInput({
           const next = e.target.value
           // Put right (or cleared), it goes quiet again until the next time
           // the field is left.
-          if (next.trim() === '' || isValidAbn(next)) setReveal(false)
+          if (
+            next.trim() === '' ||
+            isValidAbn(next) ||
+            next.trim() === initial?.trim()
+          ) {
+            setReveal(false)
+          }
           onChange(next)
         }}
         onBlur={() => setReveal(invalid)}

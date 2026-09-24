@@ -1,3 +1,4 @@
+import { isValidEmail } from './email'
 import type { Doc } from '../_generated/dataModel'
 import type { MutationCtx, QueryCtx } from '../_generated/server'
 
@@ -54,11 +55,23 @@ export async function knownRecipients(
       : []
   const business = await ctx.db.get(report.businessId)
 
-  return normaliseAddresses([
-    client?.email,
-    ...contacts.map((contact) => contact.email),
-    // The business's own copy address is always its own to use.
-    business?.email,
-    business?.reportCopyEmail,
-  ])
+  return normaliseAddresses(
+    [
+      client?.email,
+      ...contacts.map((contact) => contact.email),
+      // The business's own copy address is always its own to use.
+      business?.email,
+      business?.reportCopyEmail,
+    ].filter(deliverable),
+  )
+}
+
+/**
+ * Being on file is not the same as being right. An address saved before the
+ * app checked them ("bob@gmail", "jan@hotmail..com") is the typo this rule
+ * exists to catch, so it does not skip the owner's approval merely by having
+ * been typed into the client record first.
+ */
+function deliverable(address: string | undefined): address is string {
+  return address !== undefined && isValidEmail(address)
 }

@@ -4,6 +4,8 @@ import { requireMembership } from './lib/access'
 import { requireActor } from './lib/actor'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { isNameCorrection, sameName } from './lib/contactNames'
+import { normaliseEmail } from './lib/email'
+import { normalisePhone } from './lib/phone'
 import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -104,14 +106,25 @@ export const create = mutation({
       throw new ConvexError('NOT_FOUND')
     }
 
+    // A contact's email is a report recipient the moment it is saved
+    // (lib/recipients.ts), so one that can never be delivered to is refused
+    // here rather than discovered when a compliance report goes nowhere.
+    const email = normaliseEmail(rest.email)
+    const phone = normalisePhone(rest.phone)
     return ctx.db.insert('clientContacts', {
       businessId,
       clientId,
-      ...rest,
+      name: rest.name,
+      ...(rest.role !== undefined && { role: rest.role }),
+      ...(phone !== undefined && { phone }),
+      ...(email !== undefined && { email }),
       createdAt: Date.now(),
     })
   },
 })
+
+/** The contact details a blank string takes off, as `clients.update` does. */
+const CLEARABLE = ['role', 'phone', 'email'] as const
 
 export const update = mutation({
   args: {
@@ -133,14 +146,36 @@ export const update = mutation({
     // Typed explicitly, as in clients.update and properties.update: the
     // optional args really can arrive absent, but `Object.entries` infers them
     // away, which makes a necessary runtime filter read as dead code.
-    const fields = Object.fromEntries(
+    const fields: Record<string, string | undefined> = Object.fromEntries(
       Object.entries<string | undefined>(patch).filter(
         ([, value]) => value !== undefined,
       ),
     )
+    // A blank clears it, written as `undefined` — how a patch removes a
+    // field. Leaving blanks out, as this did, meant a contact's old number or
+    // a role they no longer hold could never be taken off. (Earlier frontends
+    // never send a blank here: they leave the field out.)
+    for (const key of CLEARABLE) {
+      if (fields[key]?.trim() === '') fields[key] = undefined
+    }
+    // Only what this save changes is checked. The edit form sends every
+    // field, and a contact saved before these rules with a number or address
+    // they would now refuse must stay editable — its name, say — without
+    // first having its old details fixed.
+    if (fields.email !== undefined && edited(fields.email, contact.email)) {
+      fields.email = normaliseEmail(fields.email)
+    }
+    if (fields.phone !== undefined && edited(fields.phone, contact.phone)) {
+      fields.phone = normalisePhone(fields.phone)
+    }
     if (Object.keys(fields).length > 0) await ctx.db.patch(contactId, fields)
   },
 })
+
+/** Whether a saved detail is being changed, not just sent back as it was. */
+export function edited(raw: string, stored: string | undefined): boolean {
+  return raw.trim() !== (stored ?? '').trim()
+}
 
 /** Exclusive per client, mirroring `reports.setGalleryCover` exactly. */
 export const setPrimary = mutation({

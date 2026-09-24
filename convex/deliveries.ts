@@ -17,6 +17,7 @@ import { forSelf, recordAudit } from './lib/audit'
 import { clientScope, reportReadable } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { emailConfigured } from './lib/emailConfig'
+import { isValidEmail } from './lib/email'
 import type { ActorEnvelope } from './lib/actor'
 import { memberName } from './lib/reportContext'
 import {
@@ -459,6 +460,14 @@ export const request = mutation({
 
     const addresses = normaliseAddresses(to)
     if (addresses.length === 0) throw new ConvexError('NO_RECIPIENT')
+    const copies = normaliseAddresses(cc ?? [])
+    // An address that can never be delivered to (lib/email.ts) is refused
+    // outright rather than queued, or held for an owner to approve: either
+    // way it would sit in the history as a send that was never going to
+    // arrive, and the technician would have left the site believing it had.
+    if (![...addresses, ...copies].every(isValidEmail)) {
+      throw new ConvexError('INVALID_EMAIL')
+    }
 
     await assertWithinSendLimit(ctx, membership._id)
 
@@ -476,7 +485,7 @@ export const request = mutation({
       businessId,
       reportId,
       to: addresses,
-      cc: normaliseAddresses(cc ?? []),
+      cc: copies,
       subject: await subjectFor(ctx, report),
       trigger: 'manual',
       status,
@@ -550,6 +559,13 @@ export const approve = mutation({
       throw new ConvexError('NOT_FOUND')
     }
     if (delivery.status !== 'pendingApproval') return
+    // The rule `request` refuses these by, held to here as well: a row
+    // waiting since before the app checked addresses can hold "bob@gmail",
+    // and approving it would log a send that can never arrive. The owner
+    // can still refuse it, which records that it was not sent.
+    if (![...delivery.to, ...delivery.cc].every(isValidEmail)) {
+      throw new ConvexError('INVALID_EMAIL')
+    }
 
     await ctx.db.patch(deliveryId, {
       status: 'queued',

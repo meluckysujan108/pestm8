@@ -26,6 +26,7 @@ import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { deliveryRecipients } from '../src/lib/reportTemplates/delivery'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import { knownRecipients } from './lib/recipients'
+import { isValidEmail } from './lib/email'
 import { settingsFor } from './templateSettings'
 import { reportSearchText } from './lib/reportSearch'
 import {
@@ -2280,10 +2281,20 @@ async function queueFormDeliveries(
   const client = property ? await ctx.db.get(property.clientId) : null
   const business = await ctx.db.get(report.businessId)
 
-  const { to, cc } = deliveryRecipients(template, data, {
+  const asked = deliveryRecipients(template, data, {
     clientEmail: client?.email,
     businessCopyEmail: business?.reportCopyEmail ?? business?.email,
   })
+  // Only the addresses that can be delivered to, the rule `deliveries.request`
+  // refuses the rest by. An address typed into the form's email field was
+  // checked a moment ago, by `assertComplete`; the client's own address and
+  // the business's copy were not, and come from records
+  // saved before the app checked them ("bob@gmail"), and a row for one would
+  // sit in the history — or in the owner's approval queue — as a send that
+  // was never going to arrive. The report can still be sent from the send
+  // sheet once the address is put right.
+  const to = asked.to.filter(isValidEmail)
+  const cc = asked.cc.filter(isValidEmail)
   if (to.length === 0) return
 
   const known = await knownRecipients(ctx, report)

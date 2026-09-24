@@ -5,10 +5,17 @@ import { useRouteContext } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
+import { FormAlert } from '#/components/forms/FormAlert'
+import {
+  SaveWarningsPanel,
+  SaveWarningsProvider,
+  useLatest,
+  useSaveWarnings,
+} from '#/components/forms/SaveWarnings'
 import {
   EMPTY_NEW_CLIENT,
+  NEW_CLIENT_ERROR_COPY,
   NewClientFields,
-  abnRefusal,
   newClientArgs,
 } from './NewClientFields'
 import type { NewClientArgs, NewClientFieldsValue } from './NewClientFields'
@@ -42,8 +49,21 @@ export function NewPropertySheet({
     state: businessState || EMPTY_NEW_CLIENT.state,
   }
   const [value, setValue] = useState<NewClientFieldsValue>(empty)
+  // Read when the save runs, which may be after the checks at Save have
+  // answered: what was typed while they ran is what gets saved.
+  const latestValue = useLatest(value)
 
   const hydrated = useHydrated()
+  // The address, email and phone checks at Save: what may be wrong is listed
+  // above the button, and a second press saves it as it is.
+  const saveWarnings = useSaveWarnings()
+
+  // Warnings about a draft the person walked away from are not news when the
+  // sheet opens again; the next press checks afresh.
+  function close() {
+    saveWarnings.reset()
+    onClose()
+  }
 
   const convexCreate = useConvexMutation(api.properties.create)
   const create = useMutation({
@@ -56,51 +76,59 @@ export function NewPropertySheet({
   })
 
   return (
-    <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
+    <Drawer.Root open={open} onOpenChange={(o) => !o && close()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
 
-          <form
-            className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              create.mutate({ businessId, ...newClientArgs(value) })
-            }}
-          >
-            <Drawer.Title className="text-sheet-title text-ink">
-              New client
-            </Drawer.Title>
-
-            <NewClientFields
-              value={value}
-              onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
-              biasState={businessState}
-            />
-
-            {create.isError && (
-              <p
-                role="alert"
-                className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-              >
-                {abnRefusal(create.error) ?? 'Could not save this client.'}
-              </p>
-            )}
-
-            <button
-              type="submit"
-              disabled={create.isPending || !hydrated}
-              className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          <SaveWarningsProvider value={saveWarnings}>
+            <form
+              className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+              onSubmit={(e) =>
+                // mutateAsync, so a save that fails keeps the warnings already
+                // confirmed and Retry does not ask about them again.
+                saveWarnings.guard(e, () =>
+                  create.mutateAsync({
+                    businessId,
+                    ...newClientArgs(latestValue.current),
+                  }),
+                )
+              }
             >
-              {create.isPending ? 'Saving…' : 'Save client'}
-            </button>
-          </form>
+              <Drawer.Title className="text-sheet-title text-ink">
+                New client
+              </Drawer.Title>
+
+              <NewClientFields
+                value={value}
+                onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
+                businessState={businessState}
+              />
+
+              <FormAlert
+                error={create.isError ? create.error : null}
+                copy={NEW_CLIENT_ERROR_COPY}
+                className="mt-3"
+              />
+              <SaveWarningsPanel className="mt-3" />
+
+              <button
+                type="submit"
+                disabled={create.isPending || !hydrated}
+                className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+              >
+                {create.isPending
+                  ? 'Saving…'
+                  : saveWarnings.saveLabel('Save client')}
+              </button>
+            </form>
+          </SaveWarningsProvider>
 
           <button
             type="button"
             aria-label="Close"
-            onClick={onClose}
+            onClick={close}
             className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
           >
             <X size={16} strokeWidth={2} />

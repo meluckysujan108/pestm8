@@ -2,7 +2,9 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { normaliseAbn } from './lib/abn'
-import { setContactPerson } from './clientContacts'
+import { normaliseEmail } from './lib/email'
+import { normalisePhone } from './lib/phone'
+import { edited, setContactPerson } from './clientContacts'
 import { INLINE_LIMIT, decorate as decorateReports } from './reports'
 import { isInScope, reportReadable } from './lib/capabilities'
 import { clientKind } from './schema'
@@ -104,6 +106,17 @@ export const update = mutation({
     // it had. (Earlier frontends never send a blank: they leave a field out.)
     for (const key of CLEARABLE) {
       if (fields[key]?.trim() === '') fields[key] = undefined
+    }
+    // Checked only when this save changes it: the edit form sends every
+    // field, and a client saved before these rules must stay editable without
+    // first having an old address or number fixed. A new email is also
+    // stored the one way (`normaliseEmail`), since it becomes a report
+    // recipient.
+    if (fields.email !== undefined && edited(fields.email, client.email)) {
+      fields.email = normaliseEmail(fields.email)
+    }
+    if (fields.phone !== undefined && edited(fields.phone, client.phone)) {
+      fields.phone = normalisePhone(fields.phone)
     }
     // Refused before anything is written. Stored as `undefined` when cleared —
     // how a patch removes a field — and left out when unchanged.
