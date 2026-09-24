@@ -3,7 +3,6 @@ import { describe, expect, test } from 'vitest'
 import { createActor, createBusiness, testApp } from '../../test/harness'
 import { FIXES, applyPropertyFixes } from './propertyFixesV1'
 import type { Fix } from './propertyFixesV1'
-import type { Id } from '../_generated/dataModel'
 
 /** The production fixes, pointed at rows of the test's own. */
 async function setup() {
