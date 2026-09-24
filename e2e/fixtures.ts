@@ -353,6 +353,12 @@ export type RejectionCode =
   | 'ALREADY_ATTACHED'
   | 'FILE_TOO_LARGE'
   | 'WRONG_FILE_TYPE'
+  // A report mark nobody could have drawn (a page that is not a whole number
+  // from 1, no points or too many, a coordinate that is not a real number —
+  // one merely off the page is pulled in, not refused), and one past what a
+  // report's marks may hold.
+  | 'INVALID_STROKE'
+  | 'TOO_MANY_STROKES'
 
 export async function expectRejected(
   call: () => Promise<unknown>,

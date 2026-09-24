@@ -65,6 +65,7 @@ import type * as lib_recurrence from "../lib/recurrence.js";
 import type * as lib_reportContext from "../lib/reportContext.js";
 import type * as lib_reportEmail from "../lib/reportEmail.js";
 import type * as lib_reportFacts from "../lib/reportFacts.js";
+import type * as lib_reportMarkup from "../lib/reportMarkup.js";
 import type * as lib_reportSearch from "../lib/reportSearch.js";
 import type * as lib_richText from "../lib/richText.js";
 import type * as lib_siteContact from "../lib/siteContact.js";
@@ -162,6 +163,7 @@ declare const fullApi: ApiFromModules<{
   "lib/reportContext": typeof lib_reportContext;
   "lib/reportEmail": typeof lib_reportEmail;
   "lib/reportFacts": typeof lib_reportFacts;
+  "lib/reportMarkup": typeof lib_reportMarkup;
   "lib/reportSearch": typeof lib_reportSearch;
   "lib/richText": typeof lib_richText;
   "lib/siteContact": typeof lib_siteContact;
