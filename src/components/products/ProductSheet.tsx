@@ -140,6 +140,10 @@ export function ProductSheet({
                 replaceStatus={
                   replaceStatus?.productId === shown.id ? replaceStatus : null
                 }
+                replaceElsewhere={
+                  replaceBusy(replaceStatus) &&
+                  replaceStatus?.productId !== shown.id
+                }
                 onEdit={onEdit}
               />
             )
@@ -195,6 +199,7 @@ function DetailsBody({
   onView,
   onReplace,
   replaceStatus,
+  replaceElsewhere,
   onEdit,
 }: {
   businessId: Id<'businesses'>
@@ -204,7 +209,11 @@ function DetailsBody({
   support: ShareSupport
   onView: () => void
   onReplace?: (row: LiveProductRow) => void
+  /** This product's Replace, if one is running or just ended. */
   replaceStatus: ReplaceStatus | null
+  /** Another product's new PDF is still going up. The page has one picker
+   * and one upload at a time, so Replace here waits for it — visibly. */
+  replaceElsewhere: boolean
   onEdit: (row: LiveProductRow) => void
 }) {
   const pdf = usePdfInHand({ businessId, product, online, support })
@@ -369,7 +378,11 @@ function DetailsBody({
                     )}
                     {canEdit && onReplace && product.live && (
                       <ReplaceButton
-                        disabled={!hydrated || replaceBusy(replaceStatus)}
+                        disabled={
+                          !hydrated ||
+                          replaceBusy(replaceStatus) ||
+                          replaceElsewhere
+                        }
                         onClick={() => product.live && onReplace(product.live)}
                       />
                     )}
@@ -383,7 +396,11 @@ function DetailsBody({
                   {canEdit && onReplace && product.live && (
                     <div className="mt-2 grid grid-cols-2 gap-2">
                       <ReplaceButton
-                        disabled={!hydrated || replaceBusy(replaceStatus)}
+                        disabled={
+                          !hydrated ||
+                          replaceBusy(replaceStatus) ||
+                          replaceElsewhere
+                        }
                         onClick={() => product.live && onReplace(product.live)}
                       />
                     </div>
@@ -391,13 +408,21 @@ function DetailsBody({
                 </>
               )}
 
-              {replaceStatus && (
+              {replaceStatus ? (
                 <p
                   role={replaceStatus.phase === 'failed' ? 'alert' : 'status'}
                   className={`mt-2 text-caption ${replaceStatus.phase === 'failed' ? 'text-amber-ink' : 'text-muted'}`}
                 >
                   {replaceStatusText(replaceStatus)}
                 </p>
+              ) : (
+                replaceElsewhere &&
+                canEdit &&
+                onReplace && (
+                  <p role="status" className="mt-2 text-caption text-muted">
+                    Another product’s new PDF is still uploading.
+                  </p>
+                )
               )}
               {keep.error && (
                 <p role="alert" className="mt-2 text-caption text-amber-ink">

@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import { releaseCanvas } from './pageRenderer'
-import type { PDFDocumentProxy, RenderTask } from './pdfjs'
+import { usePageZoomed } from './pageZoom'
+import type { PDFDocumentProxy, PDFPageProxy, RenderTask } from './pdfjs'
 import type { Insets, PageSize } from './layout'
 
 /**
@@ -10,7 +11,9 @@ import type { Insets, PageSize } from './layout'
  * A thumbnail is drawn only when it scrolls near the screen (an
  * IntersectionObserver) and released when it scrolls well away, so a
  * 200-page manual costs a screenful of small canvases rather than 200 of
- * them; and every one is released when the grid closes.
+ * them; and every one is released when the grid closes. Once a thumbnail is
+ * drawn, pdf.js is told to let go of what it parsed for that page too — see
+ * `drawThumbnails`.
  */
 export function PageGrid({
   doc,
@@ -27,6 +30,8 @@ export function PageGrid({
   onPick: (index: number) => void
 }) {
   const scrollerRef = useRef<HTMLDivElement>(null)
+  // The browser may pinch here only while the app itself is zoomed.
+  const appZoomed = usePageZoomed()
 
   // Open on the page being read, not on page 1.
   useLayoutEffect(() => {
@@ -46,7 +51,7 @@ export function PageGrid({
     <div
       ref={scrollerRef}
       data-viewer-scroll
-      className="absolute inset-0 overflow-y-auto overscroll-contain bg-viewer-backdrop [touch-action:pan-y]"
+      className={`absolute inset-0 overflow-y-auto overscroll-contain bg-viewer-backdrop ${appZoomed ? '[touch-action:manipulation]' : '[touch-action:pan-y]'}`}
       style={{ paddingTop: insets.top, paddingBottom: insets.bottom }}
     >
       <ul
@@ -106,8 +111,21 @@ type Thumb = {
 /**
  * Draws thumbnails into every `[data-thumb]` under `root` as they come near
  * the screen, two at a time. Returns the cleanup, which frees them all.
+ *
+ * Every draw ends — placed, cancelled or failed — with `page.cleanup()`. A
+ * render keeps the page's parsed drawing commands and decoded images in
+ * pdf.js (a scanned page is one full-size image, ~35 MB decoded) until the
+ * page is cleaned up or the document closes; a thumbnail has what it needs
+ * once its canvas is drawn. Without it, scrolling the grid through a scanned
+ * 40-page SDS holds every page's image at once, and an iPhone kills the app.
+ * pdf.js waits for any render of the page still running (the page behind
+ * the grid) before it lets go, and a later render just asks for it again.
+ * Exported for tests.
  */
-function drawThumbnails(doc: PDFDocumentProxy, root: HTMLElement): () => void {
+export function drawThumbnails(
+  doc: PDFDocumentProxy,
+  root: HTMLElement,
+): () => void {
   const thumbs = new Map<Element, Thumb>()
   const queue: Thumb[] = []
   let running = 0
@@ -124,8 +142,9 @@ function drawThumbnails(doc: PDFDocumentProxy, root: HTMLElement): () => void {
     const generation = thumb.generation
     const stale = () => destroyed || thumb.generation !== generation
     let canvas: HTMLCanvasElement | null = null
+    let page: PDFPageProxy | null = null
     try {
-      const page = await doc.getPage(thumb.index + 1)
+      page = await doc.getPage(thumb.index + 1)
       if (stale()) return
       const width = Math.max(1, thumb.el.clientWidth)
       const scale = (width * dpr) / page.getViewport({ scale: 1 }).width
@@ -148,6 +167,7 @@ function drawThumbnails(doc: PDFDocumentProxy, root: HTMLElement): () => void {
     } finally {
       if (canvas) releaseCanvas(canvas)
       if (thumb.generation === generation) thumb.task = null
+      page?.cleanup()
     }
   }
 

@@ -1044,6 +1044,26 @@ export function planKeptSync(
   return plan
 }
 
+/**
+ * What, besides the list, the page's sync must run again on: which products
+ * are kept, the file each came from, and when it was stored. Empty when
+ * nothing is (or nothing has been read yet).
+ *
+ * A keep writes the PDF URL it was tapped on, after a download that can take
+ * minutes — and a list that changed meanwhile (the PDF replaced, the product
+ * deleted) was synced without it: the product was not kept yet, or the keep
+ * had it in hand (`refreshPdf` leaves it alone). The keep landing changes
+ * this, so the list is applied again, to it too. It settles: words leave it
+ * alone, and a refreshed PDF or a forgotten product changes it once, after
+ * which the same list has nothing left to do.
+ */
+export function keptSyncKey(
+  entries: ReadonlyArray<KeptProduct> | null,
+): string {
+  if (!entries) return ''
+  return entries.map((e) => `${e.productId} ${e.keptAt} ${e.pdfUrl}`).join('\n')
+}
+
 type SyncState = {
   /** The newest list handed in, and its number. */
   live: ReadonlyArray<LiveProduct>

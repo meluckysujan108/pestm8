@@ -9,6 +9,7 @@ import {
   forgetKeptProduct,
   keepProduct,
   keepRequestFor,
+  keptSyncKey,
   listKept,
   planKeptSync,
   readKeptPdf,
@@ -916,6 +917,81 @@ describe('syncKept', () => {
       expect.anything(),
     )
     expect(puts).not.toHaveBeenCalled()
+  })
+
+  // What the page does: sync when the list changes, and again when
+  // `keptSyncKey` does. A keep that was downloading while the list moved on
+  // writes the file it was tapped on; its landing must set off a sync that
+  // catches it up.
+  describe('a keep that lands after the list moved on', () => {
+    async function keepWhileListMoves(moved: Array<LiveProduct>) {
+      const b = freshBusiness()
+      // Something else already kept, so the page was syncing all along.
+      await keepProduct(request(b, { productId: 'p9', name: 'Nine' }))
+      let release: () => void = () => {}
+      fetchMock.mockImplementation(async (url: string) => {
+        if (url === 'https://store/pdf-1') {
+          await new Promise<void>((resolve) => (release = resolve))
+        }
+        return serve(url)
+      })
+      const keeping = keepProduct(request(b))
+      await vi.waitFor(() =>
+        expect(fetchMock).toHaveBeenCalledWith(
+          'https://store/pdf-1',
+          expect.anything(),
+        ),
+      )
+      await syncKept(b, moved)
+      const before = keptSyncKey(await listKept(b))
+      release()
+      await keeping
+      const landed = await listKept(b)
+      // The keep wrote what it was tapped on…
+      expect(landed.find((e) => e.productId === 'p1')?.pdfUrl).toBe(
+        'https://store/pdf-1',
+      )
+      // …and changed the key, so the page syncs the same list again.
+      expect(keptSyncKey(landed)).not.toBe(before)
+      await syncKept(b, moved)
+      return listKept(b)
+    }
+
+    test('replaced meanwhile: the new file is fetched', async () => {
+      const entries = await keepWhileListMoves([
+        live({ id: 'p9', name: 'Nine' }),
+        live({
+          pdf: { url: 'https://store/pdf-2', fileName: 'v2.pdf', size: 1 },
+        }),
+      ])
+      expect(entries.find((e) => e.productId === 'p1')?.pdfUrl).toBe(
+        'https://store/pdf-2',
+      )
+    })
+
+    test('deleted meanwhile: the copy goes', async () => {
+      const entries = await keepWhileListMoves([
+        live({ id: 'p9', name: 'Nine' }),
+      ])
+      expect(entries.map((e) => e.productId)).toEqual(['p9'])
+    })
+  })
+
+  test('keptSyncKey settles: a sync of the same list again changes nothing', async () => {
+    const b = freshBusiness()
+    await keepProduct(request(b))
+    const list = [
+      live({
+        name: 'Renamed',
+        pdf: { url: 'https://store/pdf-2', fileName: 'v2.pdf', size: 1 },
+      }),
+    ]
+    await syncKept(b, list)
+    const once = keptSyncKey(await listKept(b))
+    await syncKept(b, list)
+    expect(keptSyncKey(await listKept(b))).toBe(once)
+    expect(keptSyncKey(null)).toBe('')
+    expect(keptSyncKey([])).toBe('')
   })
 
   test('calls while one runs join it, and the newest list wins', async () => {

@@ -56,7 +56,7 @@ export function pdfSourceFor(
   return {
     key,
     load: async (onProgress, signal) => {
-      const held = recallPdf(key, product.id)
+      const held = recallPdf(key, product.id, product.pdf?.size)
       if (held) return held
 
       if (kept && (url === null || kept.pdfUrl === url || !isOnline())) {

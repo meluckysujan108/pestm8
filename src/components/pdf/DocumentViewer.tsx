@@ -12,6 +12,7 @@ import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { PAGE_GAP } from './layout'
 import { PageGrid } from './PageGrid'
 import { PageScroller } from './PageScroller'
+import { pageIsZoomed } from './pageZoom'
 import { browserStorage, loadPosition, savePosition } from './readingPosition'
 import { SearchBar } from './SearchBar'
 import { usePageSizes, usePdfDocument } from './useDocument'
@@ -630,6 +631,9 @@ function union(rects: PageRect[]): PageRect {
  * the viewer's own scrolling areas are cancelled too. Two-finger moves and
  * Safari's gesture events are cancelled everywhere, or a pinch on a bar would
  * zoom the whole app.
+ *
+ * Except while the app is already zoomed (`pageIsZoomed`): then the browser
+ * keeps every gesture, pans included, so the app can be zoomed back out.
  */
 function useBodyLock(root: HTMLElement | null) {
   useEffect(() => {
@@ -639,8 +643,14 @@ function useBodyLock(root: HTMLElement | null) {
     html.style.overflow = 'hidden'
     body.style.overflow = 'hidden'
 
+    // Decided as each touch and each gesture starts, not on every move.
+    let touchZoomed = false
+    let gestureZoomed = false
+    const onTouchStart = () => {
+      touchZoomed = pageIsZoomed()
+    }
     const onTouchMove = (event: TouchEvent) => {
-      if (!event.cancelable) return
+      if (!event.cancelable || touchZoomed) return
       if (event.touches.length > 1) {
         event.preventDefault()
         return
@@ -653,16 +663,28 @@ function useBodyLock(root: HTMLElement | null) {
       if (target.closest('[data-viewer-scroll], input, textarea')) return
       event.preventDefault()
     }
-    const onGesture = (event: Event) => event.preventDefault()
+    const onGestureStart = (event: Event) => {
+      gestureZoomed = pageIsZoomed()
+      if (!gestureZoomed) event.preventDefault()
+    }
+    const onGestureChange = (event: Event) => {
+      if (!gestureZoomed) event.preventDefault()
+    }
+    root.addEventListener('touchstart', onTouchStart, { passive: true })
     root.addEventListener('touchmove', onTouchMove, { passive: false })
-    document.addEventListener('gesturestart', onGesture, { passive: false })
-    document.addEventListener('gesturechange', onGesture, { passive: false })
+    document.addEventListener('gesturestart', onGestureStart, {
+      passive: false,
+    })
+    document.addEventListener('gesturechange', onGestureChange, {
+      passive: false,
+    })
     return () => {
       html.style.overflow = previous[0]
       body.style.overflow = previous[1]
+      root.removeEventListener('touchstart', onTouchStart)
       root.removeEventListener('touchmove', onTouchMove)
-      document.removeEventListener('gesturestart', onGesture)
-      document.removeEventListener('gesturechange', onGesture)
+      document.removeEventListener('gesturestart', onGestureStart)
+      document.removeEventListener('gesturechange', onGestureChange)
     }
   }, [root])
 }

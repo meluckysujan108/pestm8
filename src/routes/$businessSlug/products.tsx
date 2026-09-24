@@ -28,8 +28,9 @@ import {
   replaceStatusText,
   useReplacePdf,
 } from '#/components/products/useReplacePdf'
-import { syncKept, useKeptProducts } from '#/lib/keptProducts'
+import { keptSyncKey, syncKept, useKeptProducts } from '#/lib/keptProducts'
 import { savePdf, sharePdf } from '#/lib/pdfFiles'
+import { noteListedPdfs } from '#/lib/pdfMemory'
 import { EMPTY_DRAFT, draftFrom } from '#/lib/productForm'
 import { filterProducts } from '#/lib/productSearch'
 import { rq, warm } from '#/lib/routeQueries'
@@ -148,12 +149,20 @@ function ProductsPage() {
     [products, q],
   )
 
-  // Kept copies follow the live list — never a list still loading, which
-  // would read as "everything was deleted".
-  const hasKept = (keptEntries?.length ?? 0) > 0
+  // A PDF this phone just uploaded is settled under its URL as soon as the
+  // list shows it, opened or not — so it is never mistaken, later, for a
+  // different file the product gets after (`noteListedPdfs`).
   useEffect(() => {
-    if (live && hasKept) void syncKept(businessId, live)
-  }, [businessId, live, hasKept])
+    if (live) noteListedPdfs(live)
+  }, [live])
+
+  // Kept copies follow the live list — never a list still loading, which
+  // would read as "everything was deleted" — and again whenever a keep lands,
+  // since the list may have moved on while it downloaded (`keptSyncKey`).
+  const keptKey = keptSyncKey(keptEntries)
+  useEffect(() => {
+    if (live && keptKey !== '') void syncKept(businessId, live)
+  }, [businessId, live, keptKey])
 
   // ── What is open ────────────────────────────────────────────────────────
 
@@ -473,8 +482,13 @@ function ProductsPage() {
               : undefined,
             save: savePdf,
             saveLabel: support.saveLabel,
+            // One upload at a time (`useReplacePdf`): while one is going up,
+            // this product's or another's, there is no Replace to offer.
             replace:
-              viewerProduct.canEdit && viewerProduct.live && online
+              viewerProduct.canEdit &&
+              viewerProduct.live &&
+              online &&
+              !replace.busy
                 ? () => viewerProduct.live && replace.pick(viewerProduct.live)
                 : undefined,
             keep: viewerKeep.available

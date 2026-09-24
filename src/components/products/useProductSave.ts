@@ -2,7 +2,11 @@ import { useCallback, useState } from 'react'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { uploadToStorage } from '#/lib/pdfFiles'
-import { forgetUpload, rememberUpload } from '#/lib/pdfMemory'
+import {
+  forgetUpload,
+  rememberNewProductUpload,
+  rememberUpload,
+} from '#/lib/pdfMemory'
 import { productErrorMessage } from '#/lib/productErrors'
 import { baselineForSave } from '#/lib/productForm'
 import { createUploadMemo, saveProduct } from '#/lib/productSave'
@@ -79,7 +83,7 @@ export function useProductSave(businessId: Id<'businesses'>) {
         setState({ phase: 'idle', error: null })
         if (!saved.written) return null
         // Its PDF is on this phone already: opening it should not fetch it.
-        if (saved.pdf) rememberUpload(saved.result, null, saved.pdf)
+        if (saved.pdf) rememberNewProductUpload(saved.result, saved.pdf)
         return saved.result
       } catch (error) {
         setState({ phase: 'idle', error: productErrorMessage(error, 'save') })

@@ -152,7 +152,7 @@ export function usePdfInHand({
       again: now.prep.phase === 'again',
     })
     if (usable && held.current) return held.current.blob
-    const fresh = recallPdf(now.url, now.product.id)
+    const fresh = recallPdf(now.url, now.product.id, now.product.pdf?.size)
     if (fresh) return fresh
     const kept = now.product.kept
     if (kept && (now.url === null || !now.online)) return recallPdf(kept.pdfUrl)
@@ -386,7 +386,7 @@ export function useKeepToggle(
       setAction('keep')
       outcome = await kept.keep(
         request,
-        recallPdf(request.pdfUrl, product.id) ?? undefined,
+        recallPdf(request.pdfUrl, product.id, product.pdf?.size) ?? undefined,
       )
     } else {
       return null

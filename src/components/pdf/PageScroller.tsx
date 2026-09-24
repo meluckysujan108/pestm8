@@ -10,6 +10,7 @@ import {
 } from 'react'
 import { flushSync } from 'react-dom'
 import { PageRenderer } from './pageRenderer'
+import { pageIsZoomed, usePageZoomed } from './pageZoom'
 import {
   IDENTITY,
   MAX_ZOOM,
@@ -52,7 +53,9 @@ import type { PageRect } from './textSearch'
  * because nothing written in JavaScript feels as right on an iPhone as the
  * real thing (`touch-action: pan-x pan-y`). Zoom is ours: iOS ignores
  * `user-scalable=no`, so two fingers would otherwise zoom the whole app, bars
- * and all.
+ * and all. The one exception is an app that is already zoomed when the viewer
+ * opens (`pageIsZoomed`): its pinches stay the browser's until it is back at
+ * 1x, or it could never be zoomed back out.
  *
  * A zoom never re-lays-out the page list while fingers are moving. During a
  * pinch the stack of pages is scaled with a CSS transform around the fingers'
@@ -258,6 +261,8 @@ export const PageScroller = memo(function PageScroller({
   })
 
   const [limits] = useState(() => canvasLimits(isTouchDevice()))
+  // The browser may pinch here only while the app itself is zoomed.
+  const appZoomed = usePageZoomed()
   const rendererRef = useRef<PageRenderer | null>(null)
   const anchorRef = useRef<Anchor>(
     initial
@@ -558,6 +563,10 @@ export const PageScroller = memo(function PageScroller({
     } | null = null
     let lastTap: { q: Point; at: number } | null = null
     let singleTapTimer = 0
+    // The app itself zoomed, as the touch or the gesture started: see
+    // `pageIsZoomed`. Pinches are then the browser's.
+    let touchZoomed = false
+    let gestureZoomed = false
 
     const local = (clientX: number, clientY: number): Point => {
       const rect = el.getBoundingClientRect()
@@ -577,7 +586,8 @@ export const PageScroller = memo(function PageScroller({
 
     const onTouchStart = (event: TouchEvent) => {
       touches = event.touches.length
-      if (event.touches.length !== 2) return
+      touchZoomed = pageIsZoomed()
+      if (event.touches.length !== 2 || touchZoomed) return
       settleNow()
       const { layout: at, zoom: z } = live.current
       if (!at || gestureRef.current) return
@@ -602,8 +612,11 @@ export const PageScroller = memo(function PageScroller({
     }
 
     const onTouchMove = (event: TouchEvent) => {
-      // Two fingers never scroll or zoom the page natively, anywhere here.
-      if (event.touches.length >= 2 && event.cancelable) event.preventDefault()
+      // Two fingers never scroll or zoom the page natively, anywhere here —
+      // unless the app is zoomed already, and this pinch is to undo that.
+      if (event.touches.length >= 2 && event.cancelable && !touchZoomed) {
+        event.preventDefault()
+      }
       const g = gestureRef.current
       if (g?.kind !== 'pinch' || event.touches.length < 2) return
       const [a, b] = [event.touches[0], event.touches[1]]
@@ -649,6 +662,8 @@ export const PageScroller = memo(function PageScroller({
     // On iOS the same events accompany the touches handled above, so they
     // are only prevented there (or Safari zooms the whole app).
     const onGestureStart = (event: Event) => {
+      gestureZoomed = pageIsZoomed()
+      if (gestureZoomed) return
       event.preventDefault()
       const e = event as SafariGestureEvent
       if (touches > 0) return
@@ -666,6 +681,7 @@ export const PageScroller = memo(function PageScroller({
       }
     }
     const onGestureChange = (event: Event) => {
+      if (gestureZoomed) return
       event.preventDefault()
       const g = gestureRef.current
       if (g?.kind !== 'trackpad') return
@@ -679,6 +695,7 @@ export const PageScroller = memo(function PageScroller({
       })
     }
     const onGestureEnd = (event: Event) => {
+      if (gestureZoomed) return
       event.preventDefault()
       const g = gestureRef.current
       if (g?.kind !== 'trackpad') return
@@ -701,6 +718,8 @@ export const PageScroller = memo(function PageScroller({
     // trackpad pinch: zoom around the pointer.
     const onWheel = (event: WheelEvent) => {
       if (!event.ctrlKey && !event.metaKey) return
+      // Chrome's trackpad pinch-zoom of the whole app, being undone.
+      if (gestureRef.current?.kind !== 'wheel' && pageIsZoomed()) return
       event.preventDefault()
       let g = gestureRef.current
       if (g?.kind === 'animation') {
@@ -1007,7 +1026,7 @@ export const PageScroller = memo(function PageScroller({
       // lock (`useBodyLock`) cancels them everywhere else.
       data-viewer-scroll
       data-zoom={Math.round(zoom * 100) / 100}
-      className="absolute inset-y-0 left-[env(safe-area-inset-left)] right-[env(safe-area-inset-right)] overflow-y-auto overscroll-contain outline-none select-none [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] [touch-action:pan-x_pan-y]"
+      className={`absolute inset-y-0 left-[env(safe-area-inset-left)] right-[env(safe-area-inset-right)] overflow-y-auto overscroll-contain outline-none select-none [-webkit-tap-highlight-color:transparent] [-webkit-touch-callout:none] ${appZoomed ? '[touch-action:manipulation]' : '[touch-action:pan-x_pan-y]'}`}
       // Sideways only when there is something to the side: at fit width a
       // diagonal swipe should not wobble the page left and right.
       style={{ overflowX: zoom > MIN_ZOOM ? 'auto' : 'hidden' }}
