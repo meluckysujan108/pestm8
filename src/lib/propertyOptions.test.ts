@@ -95,6 +95,62 @@ describe('finding a client and address for a new job', () => {
   })
 })
 
+describe('finding a business site by its site contact', () => {
+  // Two sites of one business, each with its own caretaker: the office is
+  // talking to Jan, not to head office.
+  const MART = {
+    name: 'Mahal Mart',
+    phone: '08 9300 0000',
+    kind: 'business' as const,
+  }
+  const MORLEY = {
+    ...property('p-mart-morley', MART, '3 Walter Road', 'Morley'),
+    siteContactName: 'Jan Kowalski',
+    siteContactPhone: '0433 222 111',
+  }
+  const MIDLAND = {
+    ...property('p-mart-midland', MART, '8 Great Eastern Highway', 'Midland'),
+    siteContactName: 'Priya Shah',
+  }
+  const sites = [MORLEY, MIDLAND, NGUYEN]
+
+  test('by the site contact’s name', () => {
+    expect(offered('kowalski', sites)).toEqual(['p-mart-morley'])
+    expect(offered('priya', sites)).toEqual(['p-mart-midland'])
+  })
+
+  test('by the site contact’s number, written either way', () => {
+    expect(offered('0433 222 111', sites)).toEqual(['p-mart-morley'])
+    expect(offered('+61 433 222 111', sites)).toEqual(['p-mart-morley'])
+  })
+
+  test('head office’s number still finds every site', () => {
+    expect(offered('9300 0000', sites)).toEqual([
+      'p-mart-morley',
+      'p-mart-midland',
+    ])
+  })
+
+  test('the label is unchanged: client and address, not the site contact', () => {
+    expect(propertyOptions([MORLEY])[0].label).toBe(
+      'Mahal Mart — 3 Walter Road, Morley',
+    )
+  })
+
+  test('a person client’s leftover site contact does not find their house', () => {
+    // Switched from business to person, the site contact is kept but hidden
+    // everywhere else (convex/lib/siteContact.ts).
+    const switched = {
+      ...MORLEY,
+      _id: 'p-switched',
+      client: { name: 'M. Roberts', kind: 'person' as const },
+    }
+    expect(offered('kowalski', [switched])).toEqual([])
+    expect(offered('0433222111', [switched])).toEqual([])
+    expect(offered('roberts', [switched])).toEqual(['p-switched'])
+  })
+})
+
 describe('how the picker lists them', () => {
   test('by client name, then street, with archived clients last', () => {
     const second = property(

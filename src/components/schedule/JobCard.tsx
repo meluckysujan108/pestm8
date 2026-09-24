@@ -13,6 +13,7 @@ import {
 import { mapsUrl } from '#/lib/maps'
 import { describeInterval } from '../../../convex/lib/recurrence'
 import { dayKeyOf } from '../../../convex/lib/dates'
+import { contactToCall } from '../../../convex/lib/siteContact'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { WeatherStrip } from './WeatherStrip'
 import type { JobStatus } from '#/components/primitives/StatusPill'
@@ -39,6 +40,12 @@ export type JobRow = {
   clientPhone?: string
   /** Absent from a backend older than the card's Email — then no Email. */
   clientEmail?: string
+  /** With the site contact, who the card's Call and Text reach: a business
+   * site's own number before the client's (Prompt 6.3). Absent from a backend
+   * older than site contacts — then the card calls the client, as before. */
+  clientKind?: 'person' | 'business'
+  siteContactName?: string
+  siteContactPhone?: string
   assigneeColour: string
   assigneeName?: string
   assignedMembershipId: string
@@ -145,7 +152,18 @@ export function JobCard({
   const buttons = cardButtonsFor(
     hideActions ? 'none' : cardActionsFor(job, timezone, now),
   )
-  const phone = job.clientPhone || undefined
+  // Call and Text ring whoever is at the site, where a business site has its
+  // own number (convex/lib/siteContact.ts). Email stays the client's: an
+  // address is for paperwork, and head office is who gets it. The heading
+  // stays the client's name either way — it is whose job this is.
+  const callee = contactToCall({
+    clientKind: job.clientKind,
+    clientName: job.clientName,
+    clientPhone: job.clientPhone,
+    siteContactName: job.siteContactName,
+    siteContactPhone: job.siteContactPhone,
+  })
+  const phone = callee.phone
   const email = job.clientEmail || undefined
   const offersContact =
     buttons.contact && (phone !== undefined || email !== undefined)
@@ -293,7 +311,8 @@ export function JobCard({
               </p>
             )}
             <ContactButtons
-              name={job.clientName}
+              name={callee.name}
+              emailName={job.clientName}
               phone={phone}
               email={email}
               show={['call', 'text', 'email']}

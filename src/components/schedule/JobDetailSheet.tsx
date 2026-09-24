@@ -38,6 +38,7 @@ import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dat
 import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
+import { siteContactOf } from '../../../convex/lib/siteContact'
 import {
   DEFAULT_INTERVAL,
   RecurrenceFields,
@@ -254,6 +255,23 @@ function JobDetailBody({
     setStatus.mutate({ businessId, jobId: job._id, status: next })
   }
 
+  // The person at a business client's site, shown in the Property section
+  // beside the client's own line (Prompt 6.3). Null for a person client,
+  // who is their own site contact.
+  const siteContact = job?.property
+    ? siteContactOf({
+        clientKind: job.property.client?.kind,
+        siteContactName: job.property.siteContactName,
+        siteContactPhone: job.property.siteContactPhone,
+      })
+    : null
+  // The client's own buttons are captioned only beside a site contact, so the
+  // technician can tell which Call is the site and which the office — and
+  // only when there are buttons to caption.
+  const client = job?.property?.client
+  const captionOffice =
+    siteContact !== null && Boolean(client?.phone || client?.email)
+
   return (
     <>
       {job ? (
@@ -377,10 +395,47 @@ function JobDetailBody({
                   {job.property?.postcode}
                 </p>
 
+                {/* Whoever lets the technician in — the store manager, the
+                    caretaker. First, since it is who the job card's Call
+                    already rings (convex/lib/siteContact.ts); head office stays
+                    below it, not replaced by it. A name without a number is
+                    still shown: it is who to ask for at the door. */}
+                {siteContact && (
+                  <div className="mt-3 border-t border-hairline-2 pt-3">
+                    <p className="section-label mb-1">Site contact</p>
+                    {siteContact.name && (
+                      <p className="text-body text-ink">{siteContact.name}</p>
+                    )}
+                    {siteContact.phone && (
+                      <>
+                        <p className="text-caption text-muted">
+                          {siteContact.phone}
+                        </p>
+                        <div className="mt-2">
+                          <ContactButtons
+                            name={siteContact.name ?? 'site contact'}
+                            phone={siteContact.phone}
+                            show={['call', 'text']}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
+
                 {/* Quick-contact — hold to confirm on touch, since a phone in a
                     pocket must never silently dial or text a client (§2.3). */}
                 {job.property?.client && (
-                  <div className="mt-3">
+                  <div
+                    className={
+                      captionOffice
+                        ? 'mt-3 border-t border-hairline-2 pt-3'
+                        : 'mt-3'
+                    }
+                  >
+                    {captionOffice && (
+                      <p className="section-label mb-1">Head office</p>
+                    )}
                     <ContactButtons
                       name={job.property.client.name}
                       phone={job.property.client.phone}

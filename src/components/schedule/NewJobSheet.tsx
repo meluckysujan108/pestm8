@@ -1,6 +1,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useRouteContext } from '@tanstack/react-router'
 import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
@@ -15,22 +16,36 @@ import { Combobox } from '#/components/primitives/Combobox'
 import { Segmented } from '#/components/primitives/Segmented'
 import {
   EMPTY_NEW_CLIENT,
+  EMPTY_NEW_SITE,
   NewClientFields,
+  SiteAddressFields,
+  SiteContactFields,
+  abnRefusal,
+  newClientArgs,
+  newSiteArgs,
 } from '#/components/clients/NewClientFields'
-import type { NewClientFieldsValue } from '#/components/clients/NewClientFields'
+import type {
+  NewClientArgs,
+  NewClientFieldsValue,
+  NewSiteArgs,
+  NewSiteValue,
+} from '#/components/clients/NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { IntervalUnit } from '../../../convex/lib/recurrence'
 import { useHydrated } from '#/lib/useHydrated'
 import { propertyOptions } from '#/lib/propertyOptions'
+import { rq } from '#/lib/routeQueries'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 
-type ClientMode = 'existing' | 'new'
+/** 'site' is a new site for an existing client (Prompt 6.3). */
+type ClientMode = 'existing' | 'new' | 'site'
 
 const PROPERTY_ERROR_ID = 'new-job-property-error'
+const CLIENT_ERROR_ID = 'new-job-client-error'
 
 export function NewJobSheet({
   businessId,
@@ -114,6 +129,12 @@ function NewJobForm({
   const [propertyId, setPropertyId] = useState('')
   const [newClient, setNewClient] =
     useState<NewClientFieldsValue>(EMPTY_NEW_CLIENT)
+  const [siteClientId, setSiteClientId] = useState('')
+  const [newSite, setNewSite] = useState<NewSiteValue>(EMPTY_NEW_SITE)
+  const businessState = useRouteContext({
+    from: '/$businessSlug',
+    select: (context) => context.business.state,
+  })
   const [assignee, setAssignee] = useState('')
   const [jobType, setJobType] = useState<string>(JOB_TYPES[0])
   const [time, setTime] = useState('09:00')
@@ -149,13 +170,43 @@ function NewJobForm({
     [properties],
   )
   const [propertyMissing, setPropertyMissing] = useState(false)
+
+  // Asked for only once a new site is being added, and without suspending:
+  // the sheet has to open at once for every other booking, and most never
+  // need the client list.
+  const { data: clients } = useQuery(
+    mode === 'site'
+      ? rq.clients(businessId)
+      : convexQuery(api.clients.list, 'skip'),
+  )
+  const clientOptionList = useMemo(
+    () =>
+      [...(clients ?? [])]
+        .sort((a, b) =>
+          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
+        )
+        .map((c) => ({
+          value: c._id,
+          label: c.name,
+          // Found by the number on the phone as well as the name, as in the
+          // Property picker.
+          searchText: `${c.name} ${(c.phone ?? '').replace(/\D/g, '')}`,
+        })),
+    [clients],
+  )
+  const siteClient = clients?.find((c) => c._id === siteClientId)
+  const [clientMissing, setClientMissing] = useState(false)
+  const clientTrigger = useRef<HTMLButtonElement>(null)
+
   // A work order is mostly a business client's — a facilities company, an
   // agency — so for them the field is simply there. Anyone else can still
   // add one; a landlord's managing agent issues them too.
   const clientKind =
     mode === 'existing'
       ? properties.find((p) => p._id === propertyId)?.client?.kind
-      : newClient.kind
+      : mode === 'site'
+        ? siteClient?.kind
+        : newClient.kind
   // Kept open while it holds anything, so a value typed for one client is
   // never sent unseen after switching to another.
   const showWorkOrder =
@@ -169,6 +220,12 @@ function NewJobForm({
     if (propertyId && !properties.some((p) => p._id === propertyId))
       setPropertyId('')
   }, [properties, propertyId])
+  // The same for the new site's client. It also drops an archived client
+  // carried over from the Property picker, which the client list leaves out.
+  useEffect(() => {
+    if (siteClientId && clients && !clients.some((c) => c._id === siteClientId))
+      setSiteClientId('')
+  }, [clients, siteClientId])
   // Held to the options, not just seeded once: a switch starting or ending
   // while the sheet is open changes who may be booked, and a stale id would
   // be submitted as-is and refused.
@@ -185,14 +242,20 @@ function NewJobForm({
   // A repeating booking is a recurrence, not a job: creating it materialises
   // the first occurrence and every one after it, so the two paths are distinct
   // rather than "a job plus some extra rows". Either can be booked against an
-  // existing property or a brand-new client created in the same submit —
-  // both mutations accept one or the other and insert the client+property in
-  // the same transaction, so a failure never leaves an orphaned client behind.
+  // existing property, a new site for an existing client, or a brand-new
+  // client created in the same submit — both mutations accept any one of the
+  // three and insert what is new in the same transaction, so a failure never
+  // leaves an orphaned client or site behind.
   const create = useMutation({
     mutationFn: (args: {
       businessId: Id<'businesses'>
+      // Already in the server's shape (newClientArgs, newSiteArgs), and handed
+      // to either mutation whole: mapped field by field here, once per
+      // branch, a new field reached one and was silently dropped by the other.
       property:
-        { propertyId: Id<'properties'> } | { newClient: NewClientFieldsValue }
+        | { propertyId: Id<'properties'> }
+        | { newProperty: NewSiteArgs }
+        | { newClient: NewClientArgs }
       assignedMembershipId: Id<'memberships'>
       jobType: string
       price: number
@@ -204,26 +267,11 @@ function NewJobForm({
       // caller needs neither — void keeps them from being conflated.
     }): Promise<void> => {
       const { repeat: recurrence, property, ...job } = args
-      const propertyArgs =
-        'propertyId' in property
-          ? { propertyId: property.propertyId }
-          : {
-              newClient: {
-                clientName: property.newClient.clientName,
-                kind: property.newClient.kind,
-                addressLine: property.newClient.addressLine,
-                suburb: property.newClient.suburb,
-                state: property.newClient.state,
-                postcode: property.newClient.postcode,
-                phone: property.newClient.phone.trim() || undefined,
-                email: property.newClient.email.trim() || undefined,
-              },
-            }
       return recurrence === null
-        ? convexCreate({ ...job, ...propertyArgs }).then(() => undefined)
+        ? convexCreate({ ...job, ...property }).then(() => undefined)
         : convexCreateRecurrence({
             businessId: job.businessId,
-            ...propertyArgs,
+            ...property,
             assignedMembershipId: job.assignedMembershipId,
             intervalCount: recurrence.count,
             intervalUnit: recurrence.unit,
@@ -256,6 +304,11 @@ function NewJobForm({
           propertyTrigger.current?.focus()
           return
         }
+        if (mode === 'site' && !siteClient) {
+          setClientMissing(true)
+          clientTrigger.current?.focus()
+          return
+        }
         const [hh, mm] = time.split(':').map(Number)
         // The picker gives a wall-clock time on the selected day, in the
         // tenant's own timezone — not the viewer's browser zone, which may
@@ -268,7 +321,15 @@ function NewJobForm({
           property:
             mode === 'existing'
               ? { propertyId: propertyId as Id<'properties'> }
-              : { newClient },
+              : mode === 'site'
+                ? {
+                    newProperty: newSiteArgs(
+                      siteClientId as Id<'clients'>,
+                      clientKind,
+                      newSite,
+                    ),
+                  }
+                : { newClient: newClientArgs(newClient) },
           assignedMembershipId: assignee as Id<'memberships'>,
           jobType,
           price: Math.round(Number(price || '0') * 100),
@@ -285,8 +346,12 @@ function NewJobForm({
         <Field label="Client">
           <Segmented
             label="Client"
-            value={mode}
-            onChange={setMode}
+            // A new site is still an existing client's, so that tab stays
+            // chosen; tapping it again leaves the site being added alone.
+            value={mode === 'new' ? 'new' : 'existing'}
+            onChange={(next) =>
+              setMode((m) => (m === 'site' && next === 'existing' ? m : next))
+            }
             options={[
               { value: 'existing', label: 'Existing client' },
               { value: 'new', label: 'New client' },
@@ -307,7 +372,7 @@ function NewJobForm({
               options={propertyOptionList}
               placeholder="Search by name or address"
               emptyLabel="Choose a client and address"
-              noMatchLabel="No client or address matches. Use New client above to add them."
+              noMatchLabel="No client or address matches. Use New client above, or New site below for another address of an existing client."
               ariaLabel="Property"
               invalid={propertyMissing}
               errorId={PROPERTY_ERROR_ID}
@@ -325,11 +390,81 @@ function NewJobForm({
               Choose the client and address for this job.
             </p>
           )}
+          <button
+            type="button"
+            onClick={() => {
+              // The client already found in the picker is most likely the
+              // one with the new address, so it comes along.
+              const picked = properties.find((p) => p._id === propertyId)
+              flushSync(() => {
+                if (picked) setSiteClientId(picked.clientId)
+                setMode('site')
+              })
+              clientTrigger.current?.focus()
+            }}
+            className="mt-3 text-[15px] font-semibold text-blue"
+          >
+            + New site for an existing client
+          </button>
+        </>
+      ) : mode === 'site' ? (
+        <>
+          <Field label="New site for">
+            <Combobox
+              // Blank until the list is in: a client carried over from the
+              // Property picker would show as its bare id meanwhile.
+              value={clients ? siteClientId : ''}
+              onChange={(next) => {
+                setSiteClientId(next)
+                setClientMissing(false)
+              }}
+              options={clientOptionList}
+              placeholder="Search by name or phone"
+              emptyLabel={clients ? 'Choose a client' : 'Loading clients…'}
+              noMatchLabel={
+                clients
+                  ? 'No client matches. Use New client above to add them.'
+                  : 'Loading clients…'
+              }
+              ariaLabel="New site for"
+              invalid={clientMissing}
+              errorId={CLIENT_ERROR_ID}
+              triggerRef={clientTrigger}
+            />
+          </Field>
+          {clientMissing && (
+            <p
+              id={CLIENT_ERROR_ID}
+              role="alert"
+              className="mt-1.5 text-caption text-red-ink"
+            >
+              Choose the client this site belongs to.
+            </p>
+          )}
+          <SiteAddressFields
+            value={newSite}
+            onChange={(patch) => setNewSite((v) => ({ ...v, ...patch }))}
+            biasState={businessState}
+          />
+          {siteClient?.kind === 'business' && (
+            <SiteContactFields
+              value={newSite}
+              onChange={(patch) => setNewSite((v) => ({ ...v, ...patch }))}
+            />
+          )}
+          <button
+            type="button"
+            onClick={() => setMode('existing')}
+            className="mt-3 text-[15px] font-semibold text-blue"
+          >
+            Choose an existing site instead
+          </button>
         </>
       ) : (
         <NewClientFields
           value={newClient}
           onChange={(patch) => setNewClient((v) => ({ ...v, ...patch }))}
+          biasState={businessState}
         />
       )}
 
@@ -464,7 +599,8 @@ function NewJobForm({
           role="alert"
           className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
-          Could not book this job. You may not have access to that calendar.
+          {abnRefusal(create.error) ??
+            'Could not book this job. You may not have access to that calendar.'}
         </p>
       )}
 

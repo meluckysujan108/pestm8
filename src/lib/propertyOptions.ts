@@ -1,3 +1,4 @@
+import { siteContactOf } from '../../convex/lib/siteContact'
 import type { ComboboxOption } from '#/components/primitives/Combobox'
 
 /** The fields of a `properties.list` row the picker needs. */
@@ -6,9 +7,14 @@ export type PickableProperty = {
   addressLine: string
   suburb: string
   postcode: string
+  /** The site's own contact (Prompt 6.3), counted only for a business client
+   * — the same rule as the job card's Call. */
+  siteContactName?: string
+  siteContactPhone?: string
   client: {
     name: string
     phone?: string
+    kind?: 'person' | 'business'
     archivedAt?: number
   } | null
 }
@@ -20,7 +26,9 @@ export type PickableProperty = {
  *
  * Each option is found by the client's name, the street, the suburb, the
  * postcode or the client's phone number — the number the office is usually
- * looking at when someone rings to book.
+ * looking at when someone rings to book. A business site is also found by its
+ * site contact's name and number: the caretaker who rings about the building
+ * is not head office, and may not know the client's name at all.
  *
  * An archived client stays pickable, labelled and listed last. Nothing in the
  * app can unarchive a client yet, and the Clients page hides them, so leaving
@@ -51,6 +59,13 @@ export function propertyOptions(
       const name = p.client?.archivedAt
         ? `${clientName(p)} (archived)`
         : clientName(p)
+      // A person client's leftover site contact is hidden everywhere else, so
+      // it must not be what makes their house turn up here.
+      const site = siteContactOf({
+        clientKind: p.client?.kind,
+        siteContactName: p.siteContactName,
+        siteContactPhone: p.siteContactPhone,
+      })
       return {
         value: p._id,
         label: `${name} — ${p.addressLine}, ${p.suburb}`,
@@ -60,15 +75,17 @@ export function propertyOptions(
           p.suburb,
           p.postcode,
           phoneForms(p.client?.phone),
+          site?.name ?? '',
+          phoneForms(site?.phone),
         ].join(' '),
       }
     })
 }
 
 /**
- * The client's number as digits, in both the ways an Australian number gets
+ * A phone number as digits, in both the ways an Australian number gets
  * written — 0412 345 678 and +61 412 345 678 — so whichever the office
- * types finds whichever was saved. The phone field is free text.
+ * types finds whichever was saved. Phone fields are free text.
  */
 function phoneForms(phone: string | undefined): string {
   const digits = (phone ?? '').replace(/\D/g, '')
