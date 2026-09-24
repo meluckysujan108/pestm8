@@ -90,8 +90,14 @@ jobs:
           # Read into an array rather than piping to xargs: a path is data
           # here, and quoting "${files[@]}" keeps it that way. Also avoids
           # xargs' word-splitting, which would break on any path with a space.
+          #
+          # --no-warn-ignored: a changed file the config ignores is passed here
+          # by name, and ESLint answers "File ignored because of a matching
+          # ignore pattern" — a warning, which --max-warnings 0 turns into a
+          # failure. eslint.config.js ignores itself, so without this flag any
+          # change to the lint config failed CI on that warning alone.
           files=()
           while IFS= read -r f; do
             [ -n "$f" ] && files+=("$f")
           done < <(grep -E '\.(ts|tsx|js|jsx|mjs)$' "$RUNNER_TEMP/changed.txt")
-          [ ${#files[@]} -eq 0 ] || pnpm eslint --max-warnings 0 "${files[@]}"
+          [ ${#files[@]} -eq 0 ] || pnpm eslint --max-warnings 0 --no-warn-ignored "${files[@]}"
