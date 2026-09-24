@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { describeError } from '#/components/forms/describeError'
-import { saveUserName } from './ProfileSection'
+import { saveUserName } from './saveUserName'
 
 describe('saving the name', () => {
   it('fails when Better Auth resolves with a refusal instead of throwing', async () => {
