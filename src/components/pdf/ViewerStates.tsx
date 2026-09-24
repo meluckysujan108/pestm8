@@ -179,9 +179,12 @@ export function PasswordState({
 
 export function ErrorState({
   reason,
+  detail,
   onRetry,
 }: {
   reason: 'download' | 'damaged'
+  /** The source's own words for what went wrong (`plainWords`). */
+  detail: string | null
   onRetry: () => void
 }) {
   return (
@@ -197,9 +200,10 @@ export function ErrorState({
       />
       <h3 className="text-row-title text-ink">Couldn't open this PDF</h3>
       <p className="max-w-xs text-caption text-muted">
-        {reason === 'download'
-          ? "It didn't download. Check your signal and try again."
-          : 'The file may be damaged, or not a PDF.'}
+        {detail ??
+          (reason === 'download'
+            ? "It didn't download. Check your signal and try again."
+            : 'The file may be damaged, or not a PDF.')}
       </p>
       <button
         type="button"

@@ -9,12 +9,16 @@ import {
   useState,
 } from 'react'
 import { flushSync } from 'react-dom'
+import { PageMarkup } from './PageMarkup'
 import { PageRenderer } from './pageRenderer'
+import { scrolledAt } from './markupInput'
 import { pageIsZoomed, usePageZoomed } from './pageZoom'
+import { isStylus, useMarkupInput } from './useMarkupInput'
 import {
   IDENTITY,
   MAX_ZOOM,
   MIN_ZOOM,
+  PAN_ONLY_STRETCH,
   anchorAt,
   canvasLimits,
   clampZoom,
@@ -24,6 +28,7 @@ import {
   currentPageAt,
   pageBox,
   pagesNear,
+  pinchTransform,
   planDetail,
   revealScroll,
   scrollForAnchor,
@@ -32,7 +37,8 @@ import {
   zoomAbout,
   zoomTransformAround,
 } from './layout'
-import type { Ref } from 'react'
+import type { Ref, RefObject } from 'react'
+import type { OwnScroll } from './markupInput'
 import type { PDFDocumentProxy } from './pdfjs'
 import type {
   Anchor,
@@ -42,8 +48,10 @@ import type {
   Point,
   StageTransform,
 } from './layout'
+import type { PendingMark } from './pendingMarks'
 import type { ReadingPosition } from './readingPosition'
 import type { PageRect } from './textSearch'
+import type { MarkupPoint, MarkupStroke } from './types'
 
 /**
  * The pages: one continuous vertical scroll, pinch and double-tap to zoom,
@@ -73,9 +81,13 @@ import type { PageRect } from './textSearch'
  * layer.
  *
  * Each page slot is laid out in page-relative fractions inside, so anything
- * drawn over a page — the search highlights today, a report's markup later —
- * is a child of the slot positioned in percentages and follows every zoom for
- * free.
+ * drawn over a page — the search highlights, a report's marks — is a child of
+ * the slot positioned in percentages and follows every zoom for free.
+ *
+ * In markup mode one finger draws instead of scrolling (`useMarkupInput`),
+ * and two fingers are the only way to move: the pinch below is then also the
+ * pan, and one that barely changed the fingers' spread keeps its zoom
+ * (`PAN_ONLY_STRETCH`).
  */
 
 export type Highlight = { rect: PageRect; current: boolean }
@@ -117,7 +129,20 @@ type Props = {
   handleRef: Ref<ScrollerHandle>
   /** While something covers the pages (the page grid). */
   inert?: boolean
+  /**
+   * The marks over the pages, by 0-based page. The slots are memoised on
+   * this Map: a new one only when the marks change. Absent: no markup layer.
+   */
+  markStrokes?: ReadonlyMap<number, ReadonlyArray<MarkupStroke>>
+  /** Drawn strokes still saving, by page, drawn as the viewer's own. */
+  pendingMarks?: ReadonlyMap<number, ReadonlyArray<PendingMark>>
+  /** Markup mode: one finger draws. */
+  marking?: boolean
+  /** A stroke finished on page `index`; see `useMarkupInput`. */
+  onStroke?: (index: number, points: Array<MarkupPoint>) => void
 }
+
+const noStroke = () => {}
 
 /** Double-tap target, from fit width. */
 const DOUBLE_TAP_ZOOM = 2.5
@@ -142,6 +167,8 @@ type Pinch = {
   p0: Point
   dist0: number
   lastMid: Point
+  /** The furthest the fingers' spread has strayed from `dist0`, as a fraction. */
+  stretch: number
 }
 
 /** Desktop Safari's trackpad pinch, which arrives as GestureEvents. */
@@ -212,6 +239,19 @@ function transformCss(t: StageTransform): string {
 
 const pct = (n: number) => `${n * 100}%`
 
+/**
+ * Remembers where the scroll was just set, and when, so the `scroll` event
+ * that follows is known for this component's own (`isOwnScroll`). Read back
+ * rather than taken from the target: the browser clamps a scroll past the
+ * end, and the event reports where it actually went.
+ */
+function noteOwnScroll(
+  el: HTMLElement,
+  own: RefObject<OwnScroll | null>,
+): void {
+  own.current = { x: el.scrollLeft, y: el.scrollTop, at: performance.now() }
+}
+
 export const PageScroller = memo(function PageScroller({
   doc,
   sizes,
@@ -224,6 +264,10 @@ export const PageScroller = memo(function PageScroller({
   onPosition,
   handleRef,
   inert,
+  markStrokes,
+  pendingMarks,
+  marking = false,
+  onStroke = noStroke,
 }: Props) {
   const scrollerRef = useRef<HTMLDivElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
@@ -248,7 +292,7 @@ export const PageScroller = memo(function PageScroller({
 
   // What the native event handlers read. Updated before any other layout
   // effect, so a commit's own layout effect already sees the new zoom.
-  const live = useRef({ layout, zoom, sizes })
+  const live = useRef({ layout, zoom, sizes, marking })
   const callbacks = useRef({
     onTap,
     onPageChange,
@@ -256,7 +300,7 @@ export const PageScroller = memo(function PageScroller({
     onPosition,
   })
   useLayoutEffect(() => {
-    live.current = { layout, zoom, sizes }
+    live.current = { layout, zoom, sizes, marking }
     callbacks.current = { onTap, onPageChange, onScrollActivity, onPosition }
   })
 
@@ -277,6 +321,8 @@ export const PageScroller = memo(function PageScroller({
   const detailTimer = useRef(0)
   /** The zoom the renderer last heard about. */
   const syncedZoomRef = useRef<number | null>(null)
+  /** Where this component last put the scroll itself: see `isOwnScroll`. */
+  const ownScrollRef = useRef<OwnScroll | null>(null)
 
   const applyTransform = useCallback((t: StageTransform) => {
     transformRef.current = t
@@ -395,6 +441,7 @@ export const PageScroller = memo(function PageScroller({
       if (el) {
         el.scrollLeft = scroll.x
         el.scrollTop = scroll.y
+        noteOwnScroll(el, ownScrollRef)
       }
       clearTransform()
       sync()
@@ -537,8 +584,11 @@ export const PageScroller = memo(function PageScroller({
       pendingRef.current ?? scrollForAnchor(layout, zoom, anchorRef.current)
     pendingRef.current = null
     // Only when it moves: writing scrollTop stops a momentum scroll dead.
-    if (Math.abs(el.scrollLeft - target.x) > 0.5) el.scrollLeft = target.x
-    if (Math.abs(el.scrollTop - target.y) > 0.5) el.scrollTop = target.y
+    const moveX = Math.abs(el.scrollLeft - target.x) > 0.5
+    const moveY = Math.abs(el.scrollTop - target.y) > 0.5
+    if (moveX) el.scrollLeft = target.x
+    if (moveY) el.scrollTop = target.y
+    if (moveX || moveY) noteOwnScroll(el, ownScrollRef)
     clearTransform()
     sync()
   }, [layout, zoom, clearTransform, sync])
@@ -575,7 +625,14 @@ export const PageScroller = memo(function PageScroller({
     const scroll = (): Point => ({ x: el.scrollLeft, y: el.scrollTop })
 
     const onScroll = () => {
-      lastScrollAt = performance.now()
+      // Only the browser's own scrolling can be momentum a touch then stops;
+      // a zoom just committed is not (`scrolledAt`).
+      lastScrollAt = scrolledAt(
+        lastScrollAt,
+        ownScrollRef.current,
+        scroll(),
+        performance.now(),
+      )
       if (frame) return
       frame = requestAnimationFrame(() => {
         frame = 0
@@ -588,10 +645,13 @@ export const PageScroller = memo(function PageScroller({
       touches = event.touches.length
       touchZoomed = pageIsZoomed()
       if (event.touches.length !== 2 || touchZoomed) return
+      const [a, b] = [event.touches[0], event.touches[1]]
+      // A pencil and the hand resting beside it are not a pinch: the pen is
+      // drawing (`markupInput.ts` lets that stroke go on).
+      if (isStylus(a) || isStylus(b)) return
       settleNow()
       const { layout: at, zoom: z } = live.current
       if (!at || gestureRef.current) return
-      const [a, b] = [event.touches[0], event.touches[1]]
       const dist = Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY)
       if (dist < 1) return
       const mid = local(
@@ -608,6 +668,7 @@ export const PageScroller = memo(function PageScroller({
         p0: contentPointUnder(transformRef.current, scroll(), mid),
         dist0: dist,
         lastMid: mid,
+        stretch: 0,
       }
     }
 
@@ -627,15 +688,11 @@ export const PageScroller = memo(function PageScroller({
       )
       const shown = rubberBand(g.zoom * g.start.s * (dist / g.dist0))
       const s = shown / g.zoom
-      const now = scroll()
       // Whatever was under the first midpoint is under the current one:
       // spreading zooms, moving both fingers pans.
-      applyTransform({
-        s,
-        tx: mid.x + now.x - s * g.p0.x,
-        ty: mid.y + now.y - s * g.p0.y,
-      })
+      applyTransform(pinchTransform(g.p0, mid, scroll(), s))
       g.lastMid = mid
+      g.stretch = Math.max(g.stretch, Math.abs(dist / g.dist0 - 1))
     }
 
     const onTouchEnd = (event: TouchEvent) => {
@@ -644,13 +701,13 @@ export const PageScroller = memo(function PageScroller({
       if (g?.kind !== 'pinch' || event.touches.length >= 2) return
       lastPinchEndAt = performance.now()
       const now = scroll()
-      const next = settleTransform(
-        g.layout,
-        g.zoom,
-        transformRef.current,
-        now,
-        g.lastMid,
-      )
+      // In markup mode, two fingers that kept their spread were panning: the
+      // same pan, at the scale the gesture started with.
+      const panned =
+        live.current.marking && g.stretch <= PAN_ONLY_STRETCH
+          ? pinchTransform(g.p0, g.lastMid, now, g.start.s)
+          : transformRef.current
+      const next = settleTransform(g.layout, g.zoom, panned, now, g.lastMid)
       gestureRef.current = null
       animateTo(
         transformFor(g.layout, g.zoom, now, next.zoom, next.scroll),
@@ -918,6 +975,7 @@ export const PageScroller = memo(function PageScroller({
           fx: anchorRef.current.fx,
         })
         el.scrollTo(target.x, target.y)
+        noteOwnScroll(el, ownScrollRef)
         sync()
       },
       revealRect(index, rect) {
@@ -930,6 +988,7 @@ export const PageScroller = memo(function PageScroller({
           y: el.scrollTop,
         })
         el.scrollTo(target.x, target.y)
+        noteOwnScroll(el, ownScrollRef)
         sync()
       },
       zoomBy(factor) {
@@ -965,13 +1024,24 @@ export const PageScroller = memo(function PageScroller({
     }
   }, [settleNow, sync, zoomToward])
 
+  useMarkupInput({
+    stageRef,
+    scrollerRef,
+    ownScrollRef,
+    enabled: marking,
+    onStroke,
+  })
+
   const n = layout?.tops.length ?? 0
   const slots = useMemo(() => {
     if (!layout) return null
     return layout.tops.map((_, index) => {
       const box = pageBox(layout, zoom, index)
-      const marks =
-        index >= near[0] && index <= near[1] ? highlights.get(index) : undefined
+      // Only pages near the screen carry anything drawn over them: a finger
+      // can only land on one of those, and a long report's marks on page 40
+      // are DOM nobody is looking at.
+      const isNear = index >= near[0] && index <= near[1]
+      const marks = isNear ? highlights.get(index) : undefined
       return (
         <div
           key={index}
@@ -1013,10 +1083,18 @@ export const PageScroller = memo(function PageScroller({
               ))}
             </div>
           )}
+          {markStrokes && isNear && (
+            <PageMarkup
+              index={index}
+              strokes={markStrokes.get(index)}
+              pending={pendingMarks?.get(index)}
+              marking={marking}
+            />
+          )}
         </div>
       )
     })
-  }, [layout, zoom, near, highlights, n])
+  }, [layout, zoom, near, highlights, n, markStrokes, pendingMarks, marking])
 
   return (
     <div

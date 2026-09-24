@@ -45,9 +45,14 @@ export type ViewerActions = {
    * share sheet's "Save to Files" on an iPhone or iPad, where a download from
    * an installed app has nowhere sensible to land.
    */
-  save: (file: File) => Promise<void> | void
-  /** "Save to Files" on Apple phones and tablets, "Download" elsewhere. */
-  saveLabel: string
+  save?: (file: File) => Promise<void> | void
+  /**
+   * "Save to Files" on Apple phones and tablets, "Download" elsewhere. Given
+   * with `save`; both are absent for a document that must not leave the app
+   * (a report's draft preview), and the More menu then offers only what is
+   * left, or is not drawn at all.
+   */
+  saveLabel?: string
   /**
    * Offered only to the product's creator and the owner. Opens the file
    * picker; once the new file is saved, `source.key` changes and the viewer
@@ -62,6 +67,58 @@ export type ViewerActions = {
   }
 }
 
+/** A point on a page, as fractions of the page as displayed (0–1, top-left). */
+export type MarkupPoint = { x: number; y: number }
+
+/** One mark on a page. */
+export type MarkupStroke = {
+  id: string
+  points: ReadonlyArray<MarkupPoint>
+  /** Drawn by the person looking at it: theirs to undo or clear. */
+  mine: boolean
+  /**
+   * The colour of someone else's mark (a CSS colour, e.g. a member colour
+   * token). Absent for one's own marks, which use the markup pen colour, and
+   * for others when no colour is known (the viewer then uses one neutral
+   * colour for everyone else).
+   */
+  color?: string
+}
+
+/**
+ * A markup layer over the pages — a report's marks, for the team.
+ *
+ * The viewer draws the marks, runs markup mode (one finger draws, two pan and
+ * zoom), keeps a just-drawn stroke on screen until the caller's `strokes`
+ * include it, and knows nothing of who may do what beyond these fields: the
+ * caller decides and the server enforces.
+ */
+export type ViewerMarkup = {
+  /**
+   * Every mark, by 0-based page index. A new Map only when the marks change:
+   * the page slots are memoised on it.
+   */
+  strokes: ReadonlyMap<number, ReadonlyArray<MarkupStroke>>
+  /** False shows the marks with no pen (someone who may only look). */
+  canDraw: boolean
+  /**
+   * Saves a finished stroke. Rejects on failure; the viewer then drops the
+   * stroke it was showing and says it did not save.
+   */
+  addStroke: (pageIndex: number, points: Array<MarkupPoint>) => Promise<void>
+  /** Removes this person's newest mark, on whatever page; null when they have none. */
+  undo: (() => Promise<void>) | null
+  /** Removes this person's marks on one page. */
+  clearPage: (pageIndex: number) => Promise<void>
+  /** Shown in the markup palette, e.g. that marks are not shared. */
+  note?: string
+  /**
+   * Said once when the PDF is shared or saved while it has marks, e.g. "Sent
+   * without the marks — they stay in the app for your team."
+   */
+  shareNote?: string
+}
+
 export type DocumentViewerProps = {
   /** Shown in the top bar — the product's name. */
   title: string
@@ -70,4 +127,17 @@ export type DocumentViewerProps = {
   source: DocumentSource
   actions: ViewerActions
   onClose: () => void
+  /** A markup layer over the pages; absent means no pen and no marks. */
+  markup?: ViewerMarkup
+  /**
+   * A short, non-interactive label kept on screen under the top bar, e.g.
+   * "Draft — not the finished document" or "Replaced by version 2".
+   */
+  badge?: string
+  /**
+   * Remember and restore where the reader was, per `source.key` (default
+   * true). Off for a one-off document such as a draft preview, whose key
+   * would only push real documents out of the remembered list.
+   */
+  rememberPosition?: boolean
 }

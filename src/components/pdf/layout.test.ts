@@ -3,6 +3,7 @@ import {
   IDENTITY,
   MAX_FIT_WIDTH,
   PAGE_GAP,
+  PAN_ONLY_STRETCH,
   SIDE_PAD,
   anchorAt,
   baseRenderScale,
@@ -16,6 +17,7 @@ import {
   pageAtUnitY,
   pageBox,
   pagesNear,
+  pinchTransform,
   planDetail,
   revealScroll,
   scrollForAnchor,
@@ -294,6 +296,46 @@ describe('pinch', () => {
     const settled = settleTransform(layout, 2, t, scroll, { x: 100, y: 100 })
     expect(settled.zoom).toBe(1)
     expect(settled.scroll.x).toBe(0)
+  })
+
+  it('shows the fingers’ first point under their midpoint, at any scale', () => {
+    const scroll = { x: 300, y: 2000 }
+    const start = { x: 150, y: 400 }
+    const p0 = contentPointUnder(IDENTITY, scroll, start)
+    // Spread in place: the same as zooming around the midpoint.
+    const spread = pinchTransform(p0, start, scroll, 1.8)
+    const around = zoomTransformAround(IDENTITY, scroll, start, 1.8)
+    expect(spread.tx).toBeCloseTo(around.tx)
+    expect(spread.ty).toBeCloseTo(around.ty)
+    // Anywhere, at any scale: p0 is under the midpoint.
+    const mid = { x: 90, y: 310 }
+    const t = pinchTransform(p0, mid, scroll, 2.4)
+    const under = contentPointUnder(t, scroll, mid)
+    expect(under.x).toBeCloseTo(p0.x)
+    expect(under.y).toBeCloseTo(p0.y)
+  })
+
+  it('a two-finger pan in markup mode keeps its zoom and moves by the fingers’ travel', () => {
+    // At 2x, both fingers drag up and left while their spread wobbles 3%.
+    const layout = phoneLayout()
+    const zoom = 2
+    const scroll = { x: 200, y: 6000 }
+    const start = { x: 200, y: 420 }
+    const end = { x: 160, y: 300 }
+    const p0 = contentPointUnder(IDENTITY, scroll, start)
+    expect(0.03).toBeLessThan(PAN_ONLY_STRETCH)
+
+    const wobbled = pinchTransform(p0, end, scroll, 1.03)
+    // Taken at its word, the wobble is a zoom…
+    expect(
+      settleTransform(layout, zoom, wobbled, scroll, end).zoom,
+    ).toBeCloseTo(2.06)
+    // …and snapped to a pan, it is not: the page moved with the fingers.
+    const panned = pinchTransform(p0, end, scroll, 1)
+    const settled = settleTransform(layout, zoom, panned, scroll, end)
+    expect(settled.zoom).toBe(zoom)
+    expect(settled.scroll.x).toBeCloseTo(scroll.x + 40)
+    expect(settled.scroll.y).toBeCloseTo(scroll.y + 120)
   })
 })
 
