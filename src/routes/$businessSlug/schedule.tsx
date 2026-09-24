@@ -25,6 +25,7 @@ import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
 import { ScheduleFilterBar } from '#/components/schedule/ScheduleFilterBar'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useWeather, weatherKeyOf } from '#/lib/weather'
+import { WeatherCredit } from '#/components/schedule/WeatherCredit'
 import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useActing, useCan, useViewMode } from '#/lib/access'
@@ -192,6 +193,7 @@ function SchedulePage() {
       dayKey: selectedKey,
       suburb: j.suburb,
       postcode: j.postcode,
+      state: j.propertyState,
     })),
   )
 
@@ -456,8 +458,12 @@ function SchedulePage() {
                     timezone={business.timezone}
                     onOpen={setOpenJobId}
                     hideTechnician
+                    dayShown={selectedKey}
                   />
                 ))}
+                {Object.keys(weather.byKey).length > 0 && (
+                  <WeatherCredit className="md:col-span-2" />
+                )}
               </div>
             )}
           </section>

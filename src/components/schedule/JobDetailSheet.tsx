@@ -22,10 +22,12 @@ import { Segmented } from '#/components/primitives/Segmented'
 import {
   JOB_TYPES,
   formatDuration,
+  formatJobDate,
   formatJobMoney,
   formatTime,
 } from '#/lib/format'
 import { WeatherGlyph } from './WeatherGlyph'
+import { WeatherCredit } from './WeatherCredit'
 import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
 import { prepareUpload } from '#/lib/images/prepareUpload'
@@ -329,7 +331,11 @@ function JobDetailBody({
                   <StatusPill status={job.status} />
                 )}
                 <span className="text-body text-muted">
-                  {formatTime(job.scheduledAt, timezone)} ·{' '}
+                  {formatJobDate(
+                    dayKeyOf(job.scheduledAt, timezone),
+                    dayKeyOf(Date.now(), timezone),
+                  )}{' '}
+                  · {formatTime(job.scheduledAt, timezone)} ·{' '}
                   {formatDuration(job.durationMinutes)}
                 </span>
               </div>
@@ -996,6 +1002,7 @@ function JobWeather({
         <WeatherGlyph weather={day} size={18} />
         <p className="text-body text-ink">
           {day.suburb}
+          {day.partial && ' · rest of today'}
           {day.maxTempC !== undefined && ` · ${Math.round(day.maxTempC)}°`}
           {day.minTempC !== undefined && ` / ${Math.round(day.minTempC)}°`}
           {day.rainMm !== undefined && ` · ${day.rainMm.toFixed(1)} mm`}
@@ -1015,6 +1022,7 @@ function JobWeather({
           Windy — expect spray drift on exposed applications.
         </p>
       )}
+      <WeatherCredit className="mt-1.5" />
     </Section>
   )
 }

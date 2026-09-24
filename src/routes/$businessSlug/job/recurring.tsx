@@ -7,6 +7,8 @@ import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { useCan } from '#/lib/access'
 import { rq, warm } from '#/lib/routeQueries'
+import { useJobsWeather } from '#/lib/weather'
+import { WeatherCredit } from '#/components/schedule/WeatherCredit'
 
 export const Route = createFileRoute('/$businessSlug/job/recurring')({
   validateSearch: z.object({
@@ -38,6 +40,8 @@ function RecurringJobPage() {
   const { data } = useSuspenseQuery(rq.recurringJobs(business._id))
 
   const { jobs, seriesCount, horizonDays } = data
+  // Each visit's forecast on its own day, for those in the next two weeks.
+  const weather = useJobsWeather(business, jobs)
   const months = Math.round(horizonDays / 30)
 
   return (
@@ -79,6 +83,7 @@ function RecurringJobPage() {
               <JobCard
                 key={job._id}
                 job={job}
+                weather={weather.cellFor(job)}
                 timezone={business.timezone}
                 hideActions
                 onOpen={(id) =>
@@ -91,6 +96,7 @@ function RecurringJobPage() {
             ))}
           </div>
         )}
+        {weather.showsAny(jobs) && <WeatherCredit className="mt-4" />}
       </section>
 
       <JobDetailSheet
