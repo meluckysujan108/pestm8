@@ -135,7 +135,7 @@ const { businessId, slug } = await owner.mutation(api.businesses.create, {
   name: 'Bayside Pest Control',
   state: 'WA',
   timezone: 'Australia/Perth',
-  abn: '54 123 456 789',
+  abn: '48 123 123 124',
 })
 
 console.log('Setting up branding…')

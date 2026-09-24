@@ -303,7 +303,15 @@ export function useLatest<T>(value: T): { readonly current: T } {
  * the cursor in its field, inside the tap so iOS brings the keyboard up; its
  * fix applies the fix and takes the row away.
  */
-export function SaveWarningsPanel({ className }: { className?: string }) {
+export function SaveWarningsPanel({
+  className,
+  anywayLabel = 'Save anyway',
+}: {
+  className?: string
+  /** What the form's own button reads while warnings show, so the line at
+   * the foot names the button that is actually there ("Book anyway"). */
+  anywayLabel?: string
+}) {
   const controller = useContext(ControllerContext)
   const headingId = useId()
   const heading = useRef<HTMLHeadingElement>(null)
@@ -397,8 +405,8 @@ export function SaveWarningsPanel({ className }: { className?: string }) {
       </ul>
       <p className="pb-1 text-grey-ink">
         {warnings.length === 1
-          ? 'Fix it, or press Save anyway to keep it as it is.'
-          : 'Fix them, or press Save anyway to keep them as they are.'}
+          ? `Fix it, or press ${anywayLabel} to keep it as it is.`
+          : `Fix them, or press ${anywayLabel} to keep them as they are.`}
       </p>
     </section>
   )

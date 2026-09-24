@@ -1,7 +1,14 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { PhoneInput } from '#/components/forms/PhoneInput'
+import {
+  SaveWarningsPanel,
+  SaveWarningsProvider,
+  useSaveWarnings,
+} from '#/components/forms/SaveWarnings'
 import { authClient } from '#/lib/auth-client'
 import { forgetCachedPages } from '#/lib/rootState'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -40,6 +47,8 @@ export function ProfileSection({
   const [licence, setLicence] = useState(licenceNumber ?? '')
 
   const hydrated = useHydrated()
+  const phoneId = useId()
+  const warnings = useSaveWarnings()
 
   const saveName = useMutation({
     mutationFn: (newName: string) => authClient.updateUser({ name: newName }),
@@ -66,53 +75,79 @@ export function ProfileSection({
   return (
     <>
       <h2 className="section-label mb-2">Your details</h2>
-      <form
-        className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation"
-        onSubmit={(e) => {
-          e.preventDefault()
-          saveName.mutate(name)
-          saveProfile.mutate({
-            businessId,
-            membershipId,
-            phone: phone.trim() || undefined,
-          })
-        }}
-      >
-        <label className="flex flex-col gap-1.5">
-          <span className="section-label">Name</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="section-label">Email</span>
-          <p className="flex h-12 w-full items-center rounded-xl bg-surface-3 px-3.5 text-[16px] text-muted">
-            {user.email}
-          </p>
-        </label>
-        <label className="flex flex-col gap-1.5">
-          <span className="section-label">Phone (optional)</span>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            type="tel"
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={saveName.isPending || saveProfile.isPending || !hydrated}
-          className="h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+      <SaveWarningsProvider value={warnings}>
+        <form
+          className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation"
+          onSubmit={(e) =>
+            warnings.guard(e, () =>
+              Promise.all([
+                saveName.mutateAsync(name),
+                saveProfile.mutateAsync({
+                  businessId,
+                  membershipId,
+                  phone: phone.trim() || undefined,
+                }),
+              ]),
+            )
+          }
         >
-          {saveName.isPending || saveProfile.isPending
-            ? 'Saving…'
-            : saveName.isSuccess || saveProfile.isSuccess
-              ? 'Saved'
-              : 'Save'}
-        </button>
-      </form>
+          <label className="flex flex-col gap-1.5">
+            <span className="section-label">Name</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="section-label">Email</span>
+            <p className="flex h-12 w-full items-center rounded-xl bg-surface-3 px-3.5 text-[16px] text-muted">
+              {user.email}
+            </p>
+          </label>
+          {/* Printed on the reports this person signs ("Contact the
+            Inspector") and dialled from them, so it gets the same checks as
+            a client's number. Label by htmlFor: the lines under the input
+            and their fix button must not become part of its name. */}
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor={phoneId} className="section-label">
+              Phone (optional)
+            </label>
+            <div>
+              <PhoneInput
+                id={phoneId}
+                value={phone}
+                onChange={setPhone}
+                initial={initialPhone ?? ''}
+                businessState={state}
+              />
+            </div>
+          </div>
+          <FormAlert
+            error={
+              saveProfile.isError
+                ? saveProfile.error
+                : saveName.isError
+                  ? saveName.error
+                  : null
+            }
+          />
+          <SaveWarningsPanel />
+          <button
+            type="submit"
+            disabled={saveName.isPending || saveProfile.isPending || !hydrated}
+            className="h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+          >
+            {saveName.isPending || saveProfile.isPending
+              ? 'Saving…'
+              : warnings.saveLabel(
+                  saveName.isSuccess || saveProfile.isSuccess
+                    ? 'Saved'
+                    : 'Save',
+                )}
+          </button>
+        </form>
+      </SaveWarningsProvider>
 
       <h2 className="section-label mb-2 mt-6">Your licence</h2>
       <form
@@ -139,6 +174,10 @@ export function ProfileSection({
         <p className="mt-2 text-caption text-muted">
           Printed on every report and certificate you finalise.
         </p>
+        <FormAlert
+          error={saveLicence.isError ? saveLicence.error : null}
+          className="mt-3"
+        />
         <button
           type="submit"
           disabled={saveLicence.isPending || !hydrated}

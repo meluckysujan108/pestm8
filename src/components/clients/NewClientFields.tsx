@@ -2,11 +2,17 @@ import { useId, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import type { Ref } from 'react'
 import type { Infer } from 'convex/values'
-import { AU_STATES } from '#/lib/au'
 import { Segmented } from '#/components/primitives/Segmented'
+import { EmailInput } from '#/components/forms/EmailInput'
+import { FormField } from '#/components/forms/FormField'
+import { PhoneInput } from '#/components/forms/PhoneInput'
+import {
+  VerifiedAddressFields,
+  addressCheckToSend,
+} from '#/components/forms/VerifiedAddressFields'
+import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
+import type { ErrorCopy } from '#/components/forms/describeError'
 import { AbnInput } from './AbnInput'
-import { AddressLookupInput } from './AddressLookupInput'
-import { PostcodeStateHint } from './PostcodeStateHint'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type {
   newClientFields,
@@ -16,7 +22,12 @@ import type {
 export type ClientKind = 'person' | 'business'
 
 /** A site's address and who to ask for there — a new client's first site, or
- * another site at an existing client (NewJobSheet, Prompt 6.3). */
+ * another site at an existing client (NewJobSheet, Prompt 6.3).
+ *
+ * `addressCheck` is not typed by anyone: SiteAddressFields keeps it up to
+ * date — 'picked' while the four fields still hold the suggestion picked for
+ * them, 'typed' otherwise — so it travels with the draft to `newClientArgs`
+ * and `newSiteArgs` instead of each sheet holding it separately. */
 export type NewSiteValue = {
   addressLine: string
   suburb: string
@@ -24,6 +35,7 @@ export type NewSiteValue = {
   postcode: string
   siteContactName: string
   siteContactPhone: string
+  addressCheck: AddressCheck
 }
 
 export const EMPTY_NEW_SITE: NewSiteValue = {
@@ -33,6 +45,7 @@ export const EMPTY_NEW_SITE: NewSiteValue = {
   postcode: '',
   siteContactName: '',
   siteContactPhone: '',
+  addressCheck: 'typed',
 }
 
 export type NewClientFieldsValue = NewSiteValue & {
@@ -80,6 +93,7 @@ export function newClientArgs(value: NewClientFieldsValue): NewClientArgs {
     suburb: value.suburb.trim(),
     state: value.state,
     postcode: value.postcode.trim(),
+    addressCheck: addressCheckToSend(value.addressCheck, value),
     phone: optional(value.phone),
     email: optional(value.email),
     ...(value.kind === 'business' && {
@@ -105,6 +119,7 @@ export function newSiteArgs(
     suburb: site.suburb.trim(),
     state: site.state,
     postcode: site.postcode.trim(),
+    addressCheck: addressCheckToSend(site.addressCheck, site),
     ...(clientKind === 'business' && {
       siteContactName: optional(site.siteContactName),
       siteContactPhone: optional(site.siteContactPhone),
@@ -113,15 +128,14 @@ export function newSiteArgs(
 }
 
 /**
- * The server's INVALID_ABN, said plainly, or null for any other failure.
+ * FormAlert's words for a new client that could not be saved: the server's
+ * INVALID_ABN said plainly, the rest as every form says them (describeError).
  * `AbnInput` stops a bad ABN before submit, so this is the backstop for the
  * two checks ever disagreeing — and "could not save" would send someone
  * looking everywhere but the ABN.
  */
-export function abnRefusal(error: Error | null): string | null {
-  return error?.message.includes('INVALID_ABN')
-    ? "That ABN doesn't pass the ATO check — check the 11 digits."
-    : null
+export const NEW_CLIENT_ERROR_COPY: ErrorCopy = {
+  INVALID_ABN: "That ABN doesn't pass the ATO check — check the 11 digits.",
 }
 
 /**
@@ -129,18 +143,27 @@ export function abnRefusal(error: Error | null): string | null {
  * (adding a client on its own) and `NewJobSheet.tsx` (adding one inline
  * while booking a job) — extracted so the two stay identical rather than
  * drifting if either is tweaked later.
+ *
+ * The address, phone and email are checked as they go in, and again at Save
+ * when the form is inside a SaveWarningsProvider (both sheets are): anything
+ * that may be wrong but might be right is listed above the button, never
+ * refused.
  */
 export function NewClientFields({
   value,
   onChange,
-  biasState,
+  businessState,
 }: {
   value: NewClientFieldsValue
   onChange: (patch: Partial<NewClientFieldsValue>) => void
-  /** The business's own state, whose addresses are suggested first. */
-  biasState?: string
+  /** The business's own state (the route context's): its addresses are
+   * suggested first, one in another state is pointed out, and a phone number
+   * missing its area code most likely has this state's. */
+  businessState: string
 }) {
   const abnId = useId()
+  const phoneId = useId()
+  const emailId = useId()
   const business = value.kind === 'business'
   const [addingSiteContact, setAddingSiteContact] = useState(false)
   const siteContactInput = useRef<HTMLInputElement>(null)
@@ -173,38 +196,51 @@ export function NewClientFields({
         />
       </Field>
       {business && (
-        <FieldFor id={abnId} label="ABN (optional)">
+        <FormField id={abnId} label="ABN (optional)" className="mt-4">
           <AbnInput
             id={abnId}
             value={value.abn}
             onChange={(abn) => onChange({ abn })}
             size="lg"
           />
-        </FieldFor>
+        </FormField>
       )}
 
       <SiteAddressFields
         value={value}
         onChange={onChange}
-        biasState={biasState}
+        businessState={businessState}
       />
 
       {/* The same labels as the client sheet's edit form: a business's phone
-          and email are head office's, not whoever is on site. */}
-      <Field label={business ? 'Main phone (optional)' : 'Phone (optional)'}>
-        <Input
+          and email are head office's, not whoever is on site. FormField, not
+          Field: these render their own error and warning lines, which inside
+          a <label> would become part of the field's name. */}
+      <FormField
+        id={phoneId}
+        label={business ? 'Main phone (optional)' : 'Phone (optional)'}
+        className="mt-4"
+      >
+        <PhoneInput
+          id={phoneId}
           value={value.phone}
           onChange={(phone) => onChange({ phone })}
-          type="tel"
+          businessState={businessState}
+          size="lg"
         />
-      </Field>
-      <Field label={business ? 'Main email (optional)' : 'Email (optional)'}>
-        <Input
+      </FormField>
+      <FormField
+        id={emailId}
+        label={business ? 'Main email (optional)' : 'Email (optional)'}
+        className="mt-4"
+      >
+        <EmailInput
+          id={emailId}
           value={value.email}
           onChange={(email) => onChange({ email })}
-          type="email"
+          size="lg"
         />
-      </Field>
+      </FormField>
 
       {business && (
         <>
@@ -219,6 +255,7 @@ export function NewClientFields({
               value={value}
               onChange={onChange}
               nameRef={siteContactInput}
+              businessState={businessState}
             />
           ) : (
             // A button, not a Field: inside a <label> it would take the
@@ -245,70 +282,35 @@ export function NewClientFields({
 
 /**
  * Street, suburb, state and postcode, with address suggestions on the street
- * (Prompt 6.2). Picking one fills all four at once, so the suburb, state and
- * postcode come from the same place as the street instead of being typed in
- * separately, where nothing checks one against another.
+ * (Prompt 6.2) and the field verification checks (VerifiedAddressFields):
+ * picking a suggestion fills all four at once, and whatever ends up in them —
+ * picked, typed, or rewritten by autofill since — is checked against each
+ * other as it goes in and again at Save. Only a postcode that is not four
+ * digits is refused; the rest are warnings above the save button.
+ *
+ * Keeps the draft's `addressCheck` up to date through `onChange`, for
+ * `newClientArgs` / `newSiteArgs`. Needs a SaveWarningsProvider around the
+ * form for the checks at Save.
  */
 export function SiteAddressFields({
   value,
   onChange,
-  biasState,
+  businessState,
 }: {
   value: Pick<NewSiteValue, 'addressLine' | 'suburb' | 'state' | 'postcode'>
   onChange: (patch: Partial<NewSiteValue>) => void
-  biasState?: string
+  /** The work area: an address in another state is pointed out. */
+  businessState: string
 }) {
-  const streetId = useId()
+  const idPrefix = useId()
   return (
-    <>
-      <FieldFor id={streetId} label="Street address">
-        <AddressLookupInput
-          id={streetId}
-          value={value.addressLine}
-          onChange={(addressLine) => onChange({ addressLine })}
-          onPick={(address) => onChange(address)}
-          required
-          size="lg"
-          biasState={biasState}
-        />
-      </FieldFor>
-      <Field label="Suburb">
-        <Input
-          value={value.suburb}
-          onChange={(suburb) => onChange({ suburb })}
-          required
-        />
-      </Field>
-
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="State">
-          <select
-            value={value.state}
-            onChange={(e) => onChange({ state: e.target.value })}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          >
-            {AU_STATES.map((s) => (
-              <option key={s.code} value={s.code}>
-                {s.code}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Postcode">
-          <Input
-            value={value.postcode}
-            onChange={(postcode) => onChange({ postcode })}
-            required
-            inputMode="numeric"
-          />
-        </Field>
-      </div>
-      <PostcodeStateHint
-        postcode={value.postcode}
-        state={value.state}
-        onUseState={(state) => onChange({ state })}
-      />
-    </>
+    <VerifiedAddressFields
+      idPrefix={idPrefix}
+      value={value}
+      onChange={onChange}
+      workState={businessState}
+      onCheckChange={(addressCheck) => onChange({ addressCheck })}
+    />
   )
 }
 
@@ -318,11 +320,15 @@ export function SiteContactFields({
   value,
   onChange,
   nameRef,
+  businessState,
 }: {
   value: Pick<NewSiteValue, 'siteContactName' | 'siteContactPhone'>
   onChange: (patch: Partial<NewSiteValue>) => void
   nameRef?: Ref<HTMLInputElement>
+  /** For the area code a number missing one most likely has. */
+  businessState?: string
 }) {
+  const phoneId = useId()
   return (
     <>
       <Field label="Site contact name">
@@ -332,13 +338,15 @@ export function SiteContactFields({
           onChange={(siteContactName) => onChange({ siteContactName })}
         />
       </Field>
-      <Field label="Site contact number">
-        <Input
+      <FormField id={phoneId} label="Site contact number" className="mt-4">
+        <PhoneInput
+          id={phoneId}
           value={value.siteContactPhone}
           onChange={(siteContactPhone) => onChange({ siteContactPhone })}
-          type="tel"
+          businessState={businessState}
+          size="lg"
         />
-      </Field>
+      </FormField>
     </>
   )
 }
@@ -346,25 +354,20 @@ export function SiteContactFields({
 function Input({
   value,
   onChange,
-  type = 'text',
   required,
-  inputMode,
   inputRef,
 }: {
   value: string
   onChange: (v: string) => void
-  type?: string
   required?: boolean
-  inputMode?: 'numeric' | 'decimal' | 'tel'
   inputRef?: Ref<HTMLInputElement>
 }) {
   return (
     <input
       ref={inputRef}
-      type={type}
+      type="text"
       value={value}
       required={required}
-      inputMode={inputMode}
       onChange={(e) => onChange(e.target.value)}
       className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
     />
@@ -383,29 +386,5 @@ function Field({
       <span className="section-label">{label}</span>
       {children}
     </label>
-  )
-}
-
-/**
- * `Field` for a control that renders more than its input — a suggestion list,
- * an error line. Wrapped in a <label>, all of that text would become part of
- * the field's name, so it is named with `htmlFor` instead.
- */
-function FieldFor({
-  id,
-  label,
-  children,
-}: {
-  id: string
-  label: string
-  children: React.ReactNode
-}) {
-  return (
-    <div className="mt-4 flex flex-col gap-1.5">
-      <label htmlFor={id} className="section-label">
-        {label}
-      </label>
-      <div>{children}</div>
-    </div>
   )
 }

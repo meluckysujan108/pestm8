@@ -17,13 +17,21 @@ import { Segmented } from '#/components/primitives/Segmented'
 import {
   EMPTY_NEW_CLIENT,
   EMPTY_NEW_SITE,
+  NEW_CLIENT_ERROR_COPY,
   NewClientFields,
   SiteAddressFields,
   SiteContactFields,
-  abnRefusal,
   newClientArgs,
   newSiteArgs,
 } from '#/components/clients/NewClientFields'
+import { FormAlert } from '#/components/forms/FormAlert'
+import {
+  SaveWarningsPanel,
+  SaveWarningsProvider,
+  useLatest,
+  useSaveWarnings,
+} from '#/components/forms/SaveWarnings'
+import type { ErrorCopy } from '#/components/forms/describeError'
 import type {
   NewClientArgs,
   NewClientFieldsValue,
@@ -45,6 +53,21 @@ type ClientMode = 'existing' | 'new' | 'site'
 
 const PROPERTY_ERROR_ID = 'new-job-property-error'
 const CLIENT_ERROR_ID = 'new-job-client-error'
+
+/**
+ * Why a booking failed, in FormAlert. This used to say "You may not have
+ * access to that calendar" whatever had happened — for no signal, and for an
+ * email the server refused, too — so the person went looking at permissions
+ * for a typo. Access is named only when access is what was refused.
+ */
+const BOOKING_ERROR_COPY: ErrorCopy = {
+  ...NEW_CLIENT_ERROR_COPY,
+  NO_ACCESS:
+    'Could not book this job: your access does not cover that calendar. Ask the business owner.',
+  INVALID_ASSIGNEE:
+    'Could not book this job: that person is no longer on the team. Choose someone else under Assigned to.',
+  default: 'Could not book this job. Check your connection and try again.',
+}
 
 export function NewJobSheet({
   businessId,
@@ -224,6 +247,10 @@ function NewJobForm({
   }, [assignees, assignee, preferred])
 
   const hydrated = useHydrated()
+  // The new client's or new site's address, email and phone, checked at Book:
+  // what may be wrong is listed above the button, and a second press books it
+  // as it is. An existing property has nothing to check.
+  const saveWarnings = useSaveWarnings()
 
   const convexCreate = useConvexMutation(api.jobs.create)
   const convexCreateRecurrence = useConvexMutation(api.recurrences.create)
@@ -292,329 +319,362 @@ function NewJobForm({
   // picker afterwards answers it.
   const showClientMissing = clientMissing && !siteClient
 
+  /**
+   * The booking as the form holds it now. Read when the save runs, which can
+   * be up to 3 seconds after the press while the checks at Book answer: what
+   * was typed meanwhile is what gets booked.
+   */
+  function bookingArgs() {
+    const [hh, mm] = time.split(':').map(Number)
+    // The picker gives a wall-clock time on the selected day, in the
+    // tenant's own timezone — not the viewer's browser zone, which may
+    // differ (a technician travelling, or simply a differently-configured
+    // device) and would otherwise silently book the wrong instant.
+    const scheduledAt = zonedDateTimeToUtc(dayKey, hh, mm, timezone)
+    return {
+      businessId,
+      property:
+        mode === 'existing'
+          ? { propertyId: propertyId as Id<'properties'> }
+          : mode === 'site'
+            ? {
+                newProperty: newSiteArgs(
+                  siteClientId as Id<'clients'>,
+                  clientKind,
+                  newSite,
+                ),
+              }
+            : { newClient: newClientArgs(newClient) },
+      assignedMembershipId: assignee as Id<'memberships'>,
+      jobType,
+      price: Math.round(Number(price || '0') * 100),
+      scheduledAt,
+      durationMinutes: Number(duration),
+      workOrder: workOrder.trim() || undefined,
+      repeat: chosenInterval,
+    }
+  }
+  const latestBooking = useLatest(bookingArgs)
+
+  /** Another client mode is another set of fields: warnings about the one
+   * left are not about anything on screen. */
+  function switchMode(next: (current: ClientMode) => ClientMode) {
+    saveWarnings.reset()
+    setMode(next)
+  }
+
+  const bookLabel = create.isPending
+    ? 'Booking…'
+    : saveWarnings.checking
+      ? 'Checking…'
+      : saveWarnings.warnings.length > 0
+        ? 'Book anyway'
+        : 'Book job'
+
   return (
-    <form
-      className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
-      onSubmit={(e) => {
-        e.preventDefault()
-        if (intervalIncomplete) return
-        // Checked here rather than by disabling "Book job": the button sits at
-        // the foot of a long sheet, and a greyed-out button tells someone on
-        // the phone to a customer nothing about what is missing.
-        if (
-          mode === 'existing' &&
-          !properties.some((p) => p._id === propertyId)
-        ) {
-          setPropertyMissing(true)
-          propertyTrigger.current?.focus()
-          return
-        }
-        if (clientNeeded()) return
-        const [hh, mm] = time.split(':').map(Number)
-        // The picker gives a wall-clock time on the selected day, in the
-        // tenant's own timezone — not the viewer's browser zone, which may
-        // differ (a technician travelling, or simply a differently-configured
-        // device) and would otherwise silently book the wrong instant.
-        const scheduledAt = zonedDateTimeToUtc(dayKey, hh, mm, timezone)
+    <SaveWarningsProvider value={saveWarnings}>
+      <form
+        className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          if (intervalIncomplete) return
+          // Checked here rather than by disabling "Book job": the button sits
+          // at the foot of a long sheet, and a greyed-out button tells someone
+          // on the phone to a customer nothing about what is missing.
+          if (
+            mode === 'existing' &&
+            !properties.some((p) => p._id === propertyId)
+          ) {
+            setPropertyMissing(true)
+            propertyTrigger.current?.focus()
+            return
+          }
+          if (clientNeeded()) return
+          // Only then the warnings: nothing is worth confirming on a booking
+          // that is still missing its client. mutateAsync, so a booking that
+          // fails keeps them confirmed and Retry does not ask again.
+          saveWarnings.guard(null, () =>
+            create.mutateAsync(latestBooking.current()),
+          )
+        }}
+      >
+        <Drawer.Title className="text-sheet-title text-ink">
+          New job
+        </Drawer.Title>
 
-        create.mutate({
-          businessId,
-          property:
-            mode === 'existing'
-              ? { propertyId: propertyId as Id<'properties'> }
-              : mode === 'site'
-                ? {
-                    newProperty: newSiteArgs(
-                      siteClientId as Id<'clients'>,
-                      clientKind,
-                      newSite,
-                    ),
-                  }
-                : { newClient: newClientArgs(newClient) },
-          assignedMembershipId: assignee as Id<'memberships'>,
-          jobType,
-          price: Math.round(Number(price || '0') * 100),
-          scheduledAt,
-          durationMinutes: Number(duration),
-          workOrder: workOrder.trim() || undefined,
-          repeat: chosenInterval,
-        })
-      }}
-    >
-      <Drawer.Title className="text-sheet-title text-ink">New job</Drawer.Title>
-
-      {properties.length > 0 && (
-        <Field label="Client">
-          <Segmented
-            label="Client"
-            // A new site is still an existing client's, so that tab stays
-            // chosen; tapping it again leaves the site being added alone.
-            value={mode === 'new' ? 'new' : 'existing'}
-            onChange={(next) =>
-              setMode((m) => (m === 'site' && next === 'existing' ? m : next))
-            }
-            options={[
-              { value: 'existing', label: 'Existing client' },
-              { value: 'new', label: 'New client' },
-            ]}
-          />
-        </Field>
-      )}
-
-      {mode === 'existing' ? (
-        <>
-          <Field label="Property">
-            <Combobox
-              value={propertyId}
-              onChange={(next) => {
-                setPropertyId(next)
-                setPropertyMissing(false)
-              }}
-              options={propertyOptionList}
-              placeholder="Search by name or address"
-              emptyLabel="Choose a client and address"
-              noMatchLabel="No client or address matches. Use New client above, or New site below for another address of an existing client."
-              ariaLabel="Property"
-              invalid={propertyMissing}
-              errorId={PROPERTY_ERROR_ID}
-              triggerRef={propertyTrigger}
+        {properties.length > 0 && (
+          <Field label="Client">
+            <Segmented
+              label="Client"
+              // A new site is still an existing client's, so that tab stays
+              // chosen; tapping it again leaves the site being added alone.
+              value={mode === 'new' ? 'new' : 'existing'}
+              onChange={(next) =>
+                switchMode((m) =>
+                  m === 'site' && next === 'existing' ? m : next,
+                )
+              }
+              options={[
+                { value: 'existing', label: 'Existing client' },
+                { value: 'new', label: 'New client' },
+              ]}
             />
           </Field>
-          {/* Outside the <label>: inside it, this sentence would become part
+        )}
+
+        {mode === 'existing' ? (
+          <>
+            <Field label="Property">
+              <Combobox
+                value={propertyId}
+                onChange={(next) => {
+                  setPropertyId(next)
+                  setPropertyMissing(false)
+                }}
+                options={propertyOptionList}
+                placeholder="Search by name or address"
+                emptyLabel="Choose a client and address"
+                noMatchLabel="No client or address matches. Use New client above, or New site below for another address of an existing client."
+                ariaLabel="Property"
+                invalid={propertyMissing}
+                errorId={PROPERTY_ERROR_ID}
+                triggerRef={propertyTrigger}
+              />
+            </Field>
+            {/* Outside the <label>: inside it, this sentence would become part
               of the field's name. */}
-          {propertyMissing && (
-            <p
-              id={PROPERTY_ERROR_ID}
-              role="alert"
-              className="mt-1.5 text-caption text-red-ink"
-            >
-              Choose the client and address for this job.
-            </p>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              // The client already found in the picker is most likely the
-              // one with the new address, so it comes along.
-              const picked = properties.find((p) => p._id === propertyId)
-              flushSync(() => {
-                if (picked) setSiteClientId(picked.clientId)
-                setMode('site')
-              })
-              clientTrigger.current?.focus()
-            }}
-            className="mt-3 text-[15px] font-semibold text-blue"
-          >
-            + New site for an existing client
-          </button>
-        </>
-      ) : mode === 'site' ? (
-        <>
-          <Field label="New site for">
-            <Combobox
-              value={siteClientId}
-              onChange={(next) => {
-                setSiteClientId(next)
-                setClientMissing(false)
+            {propertyMissing && (
+              <p
+                id={PROPERTY_ERROR_ID}
+                role="alert"
+                className="mt-1.5 text-caption text-red-ink"
+              >
+                Choose the client and address for this job.
+              </p>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                // The client already found in the picker is most likely the
+                // one with the new address, so it comes along.
+                const picked = properties.find((p) => p._id === propertyId)
+                flushSync(() => {
+                  if (picked) setSiteClientId(picked.clientId)
+                  switchMode(() => 'site')
+                })
+                clientTrigger.current?.focus()
               }}
-              options={clientOptionList}
-              placeholder="Search by name, phone or suburb"
-              emptyLabel="Choose a client"
-              noMatchLabel="No client matches. Use New client above to add them."
-              ariaLabel="New site for"
-              invalid={showClientMissing}
-              errorId={CLIENT_ERROR_ID}
-              triggerRef={clientTrigger}
-            />
-          </Field>
-          {showClientMissing && (
-            <p
-              id={CLIENT_ERROR_ID}
-              role="alert"
-              className="mt-1.5 text-caption text-red-ink"
+              className="mt-3 text-[15px] font-semibold text-blue"
             >
-              Choose the client this site belongs to.
-            </p>
-          )}
-          <SiteAddressFields
-            value={newSite}
-            onChange={(patch) => setNewSite((v) => ({ ...v, ...patch }))}
-            biasState={businessState}
-          />
-          {siteClient?.kind === 'business' && (
-            <SiteContactFields
+              + New site for an existing client
+            </button>
+          </>
+        ) : mode === 'site' ? (
+          <>
+            <Field label="New site for">
+              <Combobox
+                value={siteClientId}
+                onChange={(next) => {
+                  setSiteClientId(next)
+                  setClientMissing(false)
+                }}
+                options={clientOptionList}
+                placeholder="Search by name, phone or suburb"
+                emptyLabel="Choose a client"
+                noMatchLabel="No client matches. Use New client above to add them."
+                ariaLabel="New site for"
+                invalid={showClientMissing}
+                errorId={CLIENT_ERROR_ID}
+                triggerRef={clientTrigger}
+              />
+            </Field>
+            {showClientMissing && (
+              <p
+                id={CLIENT_ERROR_ID}
+                role="alert"
+                className="mt-1.5 text-caption text-red-ink"
+              >
+                Choose the client this site belongs to.
+              </p>
+            )}
+            <SiteAddressFields
               value={newSite}
               onChange={(patch) => setNewSite((v) => ({ ...v, ...patch }))}
+              businessState={businessState}
             />
-          )}
+            {siteClient?.kind === 'business' && (
+              <SiteContactFields
+                value={newSite}
+                onChange={(patch) => setNewSite((v) => ({ ...v, ...patch }))}
+                businessState={businessState}
+              />
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                // Focus goes where the person is going, as it does the other
+                // way; left alone it falls back to the top of the sheet.
+                flushSync(() => switchMode(() => 'existing'))
+                propertyTrigger.current?.focus()
+              }}
+              className="mt-3 text-[15px] font-semibold text-blue"
+            >
+              Choose an existing site instead
+            </button>
+          </>
+        ) : (
+          <NewClientFields
+            value={newClient}
+            onChange={(patch) => setNewClient((v) => ({ ...v, ...patch }))}
+            businessState={businessState}
+          />
+        )}
+
+        {showWorkOrder ? (
+          <Field label="Work Order (Optional)">
+            <input
+              ref={workOrderInput}
+              value={workOrder}
+              onChange={(e) => setWorkOrder(e.target.value)}
+              maxLength={MAX_WORK_ORDER_LENGTH}
+              // Work-order numbers are codes, not words: capitals on the phone
+              // keyboard, and nothing "corrected" into a dictionary word.
+              autoCapitalize="characters"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="e.g. WO-448120"
+              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            />
+          </Field>
+        ) : (
+          // A button, not a Field: inside a <label> it would take the label's
+          // name. type="button" so it can never be the form's submit.
           <button
             type="button"
             onClick={() => {
-              // Focus goes where the person is going, as it does the other
-              // way; left alone it falls back to the top of the sheet.
-              flushSync(() => setMode('existing'))
-              propertyTrigger.current?.focus()
+              // Rendered now, and focused while the tap is still being handled:
+              // iOS opens the keyboard only for a focus inside the tap, so a
+              // focus deferred to the next frame leaves a ring and no keyboard.
+              flushSync(() => setAddingWorkOrder(true))
+              workOrderInput.current?.focus()
             }}
             className="mt-3 text-[15px] font-semibold text-blue"
           >
-            Choose an existing site instead
+            + Add work order
           </button>
-        </>
-      ) : (
-        <NewClientFields
-          value={newClient}
-          onChange={(patch) => setNewClient((v) => ({ ...v, ...patch }))}
-          biasState={businessState}
-        />
-      )}
-
-      {showWorkOrder ? (
-        <Field label="Work Order (Optional)">
-          <input
-            ref={workOrderInput}
-            value={workOrder}
-            onChange={(e) => setWorkOrder(e.target.value)}
-            maxLength={MAX_WORK_ORDER_LENGTH}
-            // Work-order numbers are codes, not words: capitals on the phone
-            // keyboard, and nothing "corrected" into a dictionary word.
-            autoCapitalize="characters"
-            autoCorrect="off"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="e.g. WO-448120"
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </Field>
-      ) : (
-        // A button, not a Field: inside a <label> it would take the label's
-        // name. type="button" so it can never be the form's submit.
-        <button
-          type="button"
-          onClick={() => {
-            // Rendered now, and focused while the tap is still being handled:
-            // iOS opens the keyboard only for a focus inside the tap, so a
-            // focus deferred to the next frame leaves a ring and no keyboard.
-            flushSync(() => setAddingWorkOrder(true))
-            workOrderInput.current?.focus()
-          }}
-          className="mt-3 text-[15px] font-semibold text-blue"
-        >
-          + Add work order
-        </button>
-      )}
-
-      <Field label="Job type">
-        <Combobox
-          value={jobType}
-          onChange={setJobType}
-          options={JOB_TYPES.map((t) => ({ value: t, label: t }))}
-          allowCustom
-          customLabel={(q) => `Add "${q}" as a new job type`}
-          placeholder="Search or add a job type"
-          ariaLabel="Job type"
-        />
-      </Field>
-
-      <Field label="Assigned to">
-        {assignees.length > 1 ? (
-          <select
-            value={assignee}
-            onChange={(e) => setAssignee(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          >
-            {assignees.map((m) => (
-              <option key={m._id} value={m._id}>
-                {personLabel(m)}
-              </option>
-            ))}
-          </select>
-        ) : (
-          // Someone who can only book themselves has nothing to choose, and a
-          // one-option select reads as a choice they are being denied.
-          <p className="flex h-12 w-full items-center rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink">
-            Assigned to you
-          </p>
         )}
-        <OffViewNote assignee={assignee} people={assignees} />
-      </Field>
 
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Start">
-          <input
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        <Field label="Job type">
+          <Combobox
+            value={jobType}
+            onChange={setJobType}
+            options={JOB_TYPES.map((t) => ({ value: t, label: t }))}
+            allowCustom
+            customLabel={(q) => `Add "${q}" as a new job type`}
+            placeholder="Search or add a job type"
+            ariaLabel="Job type"
           />
         </Field>
-        <Field label="Minutes">
+
+        <Field label="Assigned to">
+          {assignees.length > 1 ? (
+            <select
+              value={assignee}
+              onChange={(e) => setAssignee(e.target.value)}
+              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            >
+              {assignees.map((m) => (
+                <option key={m._id} value={m._id}>
+                  {personLabel(m)}
+                </option>
+              ))}
+            </select>
+          ) : (
+            // Someone who can only book themselves has nothing to choose, and a
+            // one-option select reads as a choice they are being denied.
+            <p className="flex h-12 w-full items-center rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink">
+              Assigned to you
+            </p>
+          )}
+          <OffViewNote assignee={assignee} people={assignees} />
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Start">
+            <input
+              type="time"
+              value={time}
+              onChange={(e) => setTime(e.target.value)}
+              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            />
+          </Field>
+          <Field label="Minutes">
+            <input
+              type="number"
+              min="15"
+              step="15"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            />
+          </Field>
+        </div>
+
+        <FieldGroup label="Repeat">
+          <Segmented
+            label="Repeat"
+            value={repeats ? 'repeats' : 'once'}
+            onChange={(v) => setRepeats(v === 'repeats')}
+            disabled={!hydrated}
+            options={[
+              { value: 'once', label: 'One-off' },
+              { value: 'repeats', label: 'Recurring Job' },
+            ]}
+          />
+          {repeats && (
+            <div className="mt-2">
+              <RecurrenceFields
+                value={interval}
+                onChange={setInterval}
+                idPrefix="new-job-repeat"
+              />
+            </div>
+          )}
+        </FieldGroup>
+
+        <Field label="Price (AUD)">
           <input
             type="number"
-            min="15"
-            step="15"
-            value={duration}
-            onChange={(e) => setDuration(e.target.value)}
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            placeholder="0.00"
             className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
           />
         </Field>
-      </div>
 
-      <FieldGroup label="Repeat">
-        <Segmented
-          label="Repeat"
-          value={repeats ? 'repeats' : 'once'}
-          onChange={(v) => setRepeats(v === 'repeats')}
-          disabled={!hydrated}
-          options={[
-            { value: 'once', label: 'One-off' },
-            { value: 'repeats', label: 'Recurring Job' },
-          ]}
+        <FormAlert
+          error={create.isError ? create.error : null}
+          copy={BOOKING_ERROR_COPY}
+          className="mt-3"
         />
-        {repeats && (
-          <div className="mt-2">
-            <RecurrenceFields
-              value={interval}
-              onChange={setInterval}
-              idPrefix="new-job-repeat"
-            />
-          </div>
-        )}
-      </FieldGroup>
+        <SaveWarningsPanel className="mt-3" anywayLabel="Book anyway" />
 
-      <Field label="Price (AUD)">
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          inputMode="decimal"
-          value={price}
-          onChange={(e) => setPrice(e.target.value)}
-          placeholder="0.00"
-          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-        />
-      </Field>
-
-      {create.isError && (
-        <p
-          role="alert"
-          className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
+        <button
+          type="submit"
+          onClick={(e) => {
+            if (clientNeeded()) e.preventDefault()
+          }}
+          disabled={create.isPending || !hydrated || intervalIncomplete}
+          className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
         >
-          {abnRefusal(create.error) ??
-            'Could not book this job. You may not have access to that calendar.'}
-        </p>
-      )}
-
-      <button
-        type="submit"
-        onClick={(e) => {
-          if (clientNeeded()) e.preventDefault()
-        }}
-        disabled={create.isPending || !hydrated || intervalIncomplete}
-        className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
-      >
-        {create.isPending ? 'Booking…' : 'Book job'}
-      </button>
-    </form>
+          {bookLabel}
+        </button>
+      </form>
+    </SaveWarningsProvider>
   )
 }
 

@@ -1,6 +1,17 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { Lock } from 'lucide-react'
+import {
+  emailProblem,
+  emailTypoFix,
+  isValidEmail,
+} from '../../../../convex/lib/email'
 import { RichTextView } from '../RichText'
+import { FieldMessage } from '#/components/forms/FieldMessage'
+import {
+  describedBy,
+  fieldInputClass,
+  fieldMessageId,
+} from '#/components/forms/FormField'
 import { present } from '#/lib/reportTemplates/present'
 import type { EditorProps } from './leafEditors'
 import type { FieldDef } from '#/lib/reportTemplates'
@@ -117,34 +128,161 @@ export function MemberControl({ field, value, onChange, ctx }: Of<'member'>) {
 }
 
 /**
+ * The addresses in what was typed into an "Email report to" box. Split on
+ * commas, semicolons and line breaks, which is what people type (and paste)
+ * between addresses. A space splits only when every piece on either side is
+ * an address of its own, as in a pasted "a@x.com b@y.com": "john smith@x.com"
+ * is one address with a mistake in it, not "john" and "smith@x.com" — the
+ * split used to send the report to smith@x.com and print "john" as a
+ * recipient.
+ */
+export function splitEmails(text: string): Array<string> {
+  return text
+    .split(/[,;\n\r]+/)
+    .map((chunk) => chunk.trim())
+    .filter((chunk) => chunk !== '')
+    .flatMap((chunk) => {
+      const pieces = chunk.split(/\s+/)
+      return pieces.length > 1 && pieces.every((piece) => isValidEmail(piece))
+        ? pieces
+        : [chunk]
+    })
+}
+
+/** What is said under the box about one of its addresses. */
+type EmailLine = {
+  index: number
+  entry: string
+  tone: 'error' | 'warning'
+  text: string
+  /** The address most likely meant, for the one-tap fix. */
+  fix: string | null
+}
+
+/**
  * Extra recipients, stored as a list so the printed line and the addresses the
- * document is actually sent to cannot disagree. Split on commas and newlines
- * because both are what people type.
+ * document is actually sent to cannot disagree.
+ *
+ * Every address here is sent the finalised document, so each is checked as
+ * the box is left (convex/lib/email.ts): one that can never be delivered to is
+ * named under the box, with the likely address as a fix where there is one;
+ * a near miss of a common provider is offered as a fix. Stored as typed
+ * either way — finalising is what refuses a bad one (validate.ts), so a
+ * report half-filled in a driveway still saves.
+ *
+ * The control sits inside FieldRenderer's <label>, so the input is named with
+ * aria-label: the lines under it, and their fix buttons, would otherwise
+ * become part of its name.
  */
 export function EmailsControl({ field, value, onChange }: Of<'emails'>) {
+  const id = useId()
   const list = Array.isArray(value) ? (value as Array<string>) : []
   // What the technician has typed, kept as typed. Re-rendering from the parsed
   // list on every keystroke would swallow a trailing comma — the one character
   // needed to start a second address.
   const [draft, setDraft] = useState(list.join(', '))
-  const parsed = (text: string) =>
-    text
-      .split(/[,;\s]+/)
-      .map((entry) => entry.trim())
-      .filter((entry) => entry !== '')
+  // The addresses as they were when the box was last left. Only those are
+  // spoken about: the one still being typed is not wrong yet. Those already
+  // there when the form opened were finished in an earlier sitting.
+  const [checked, setChecked] = useState<ReadonlyArray<string>>(list)
+
+  const entries = splitEmails(draft)
+  const said = entries.flatMap((entry, index): Array<EmailLine> => {
+    if (!checked.includes(entry)) return []
+    const problem = emailProblem(entry)
+    const fix = emailTypoFix(entry)
+    if (problem !== null) {
+      return [{ index, entry, tone: 'error', text: problem, fix }]
+    }
+    return fix !== null
+      ? [{ index, entry, tone: 'warning', text: `Did you mean ${fix}?`, fix }]
+      : []
+  })
+  const errors = said.filter((line) => line.tone === 'error')
+  const warnings = said.filter((line) => line.tone === 'warning')
+  const errorId = fieldMessageId(id, 'error')
+  const warningId = fieldMessageId(id, 'warning')
+
+  function replace(index: number, fix: string) {
+    const next = entries.map((entry, i) => (i === index ? fix : entry))
+    setDraft(next.join(', '))
+    onChange(next)
+    // The fix button just pressed is gone; the cursor goes back to the box.
+    document.getElementById(id)?.focus()
+  }
+
+  // One child of FieldRenderer's label, so its gap does not double the
+  // space above each line under the box.
   return (
-    <input
-      type="text"
-      inputMode="email"
-      autoComplete="email"
-      value={draft}
-      placeholder={field.placeholder ?? 'name@example.com'}
-      onChange={(e) => {
-        setDraft(e.target.value)
-        onChange(parsed(e.target.value))
-      }}
-      onBlur={() => setDraft(parsed(draft).join(', '))}
-      className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-    />
+    <div>
+      <input
+        id={id}
+        type="text"
+        inputMode="email"
+        autoComplete="email"
+        autoCapitalize="none"
+        autoCorrect="off"
+        spellCheck={false}
+        value={draft}
+        placeholder={field.placeholder ?? 'name@example.com'}
+        aria-label={field.label}
+        aria-invalid={errors.length > 0 || undefined}
+        aria-describedby={describedBy(
+          errors.length > 0 && errorId,
+          warnings.length > 0 && warningId,
+        )}
+        onChange={(e) => {
+          setDraft(e.target.value)
+          onChange(splitEmails(e.target.value))
+        }}
+        onBlur={() => {
+          setDraft(entries.join(', '))
+          setChecked(entries)
+        }}
+        className={fieldInputClass('lg', errors.length > 0)}
+      />
+      {/* Which address, by name: "the second one" is no help in a list of
+          four typed on a phone. */}
+      {errors.length > 0 && (
+        <div id={errorId}>
+          {errors.map((line) => (
+            <FieldMessage
+              key={`${line.index}:${line.entry}`}
+              tone="error"
+              fix={
+                line.fix
+                  ? {
+                      label: `Use ${line.fix}`,
+                      onApply: () => replace(line.index, line.fix ?? ''),
+                    }
+                  : undefined
+              }
+            >
+              {entries.length > 1 ? `${line.entry}: ${line.text}` : line.text}
+            </FieldMessage>
+          ))}
+        </div>
+      )}
+      {warnings.length > 0 && (
+        <div id={warningId}>
+          {warnings.map((line) => (
+            <FieldMessage
+              key={`${line.index}:${line.entry}`}
+              tone="warning"
+              fix={
+                line.fix
+                  ? {
+                      label: 'Use it',
+                      onApply: () => replace(line.index, line.fix ?? ''),
+                    }
+                  : undefined
+              }
+            >
+              {entries.length > 1 ? `${line.entry}: ${line.text}` : line.text}
+            </FieldMessage>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

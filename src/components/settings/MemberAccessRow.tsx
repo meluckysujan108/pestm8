@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
+import { FormAlert } from '#/components/forms/FormAlert'
 import { ColourPicker } from './ColourPicker'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Grants, Role } from '../../../convex/lib/capabilities'
@@ -155,6 +156,11 @@ export function MemberAccessRow({
           {saveLicence.isPending ? 'Saving…' : saveLicence.isSuccess ? 'Saved' : 'Save'}
         </button>
       </form>
+      {/* A failed save used to leave only the button saying "Save" again. */}
+      <FormAlert
+        error={saveLicence.isError ? saveLicence.error : null}
+        className="mt-2"
+      />
       {!member.licenceNumber && (
         <p className="mt-1.5 text-caption text-amber-ink">
           Without this they cannot finalise a termite certificate, timber pest

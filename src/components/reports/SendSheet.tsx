@@ -1,9 +1,12 @@
-import { useMemo, useState } from 'react'
+import { useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexAction } from '@convex-dev/react-query'
 import { Check, Plus, Send, ShieldAlert } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
+import { emailProblem, emailTypoFix } from '../../../convex/lib/email'
+import { FieldMessage } from '#/components/forms/FieldMessage'
+import { describedBy, fieldMessageId } from '#/components/forms/FormField'
 import { deliveryRecipients } from '#/lib/reportTemplates/delivery'
 import type { ReportTemplate } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -99,6 +102,13 @@ export function SendSheet({
   const [added, setAdded] = useState<Array<string>>([])
   const [draft, setDraft] = useState('')
   const [adding, setAdding] = useState(false)
+  // What is wrong with the typed address shows once the field is left or Add
+  // pressed, not while it is still going in. `typoAsked` is the address a
+  // "Did you mean" was shown for: pressing Add again adds it as typed.
+  const [draftShown, setDraftShown] = useState(false)
+  const [typoAsked, setTypoAsked] = useState<string | null>(null)
+  const draftRef = useRef<HTMLInputElement>(null)
+  const draftId = useId()
 
   const recipients: Array<Recipient> = [
     ...suggested.map((entry) => ({
@@ -156,11 +166,45 @@ export function SendSheet({
       result.code !== null && result.code !== 'RECIPIENT_NEEDS_APPROVAL',
   )
 
+  const typed = draft.trim().toLowerCase()
+  const draftProblem = typed === '' ? null : emailProblem(typed)
+  // Offered with the error too: "bob@gmail" is refused, and bob@gmail.com is
+  // almost certainly what was meant.
+  const draftFix = typed === '' ? null : emailTypoFix(typed)
+  const showDraftProblem = draftShown && draftProblem !== null
+  const showDraftTypo = draftShown && draftProblem === null && draftFix !== null
+  const draftErrorId = fieldMessageId(draftId, 'error')
+  const draftWarningId = fieldMessageId(draftId, 'warning')
+
+  function takeDraftFix(fix: string) {
+    setDraft(fix)
+    setDraftShown(false)
+    setTypoAsked(null)
+    draftRef.current?.focus()
+  }
+
+  /**
+   * An address that can never be delivered to stays in the box with the
+   * reason under it. This used to drop anything without an @ without a word,
+   * and let "bob@gmail" through to a send that could not arrive. A near miss
+   * of a common provider asks once; the second Add takes it as typed.
+   */
   function addTyped() {
-    const address = draft.trim().toLowerCase()
-    if (address === '' || !address.includes('@')) return
-    if (!added.includes(address)) setAdded((prev) => [...prev, address])
+    if (typed === '') return
+    if (draftProblem !== null) {
+      setDraftShown(true)
+      draftRef.current?.focus()
+      return
+    }
+    if (draftFix !== null && typoAsked !== typed) {
+      setTypoAsked(typed)
+      setDraftShown(true)
+      return
+    }
+    if (!added.includes(typed)) setAdded((prev) => [...prev, typed])
     setDraft('')
+    setDraftShown(false)
+    setTypoAsked(null)
     setAdding(false)
   }
 
@@ -235,30 +279,80 @@ export function SendSheet({
       </ul>
 
       {adding ? (
-        <div className="mt-2 flex gap-2">
-          <input
-            autoFocus
-            type="email"
-            inputMode="email"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault()
-                addTyped()
+        <div className="mt-2">
+          <div className="flex gap-2">
+            <input
+              ref={draftRef}
+              id={draftId}
+              autoFocus
+              type="email"
+              inputMode="email"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              value={draft}
+              onChange={(event) => {
+                const next = event.target.value.trim().toLowerCase()
+                // Put right (or cleared), it goes quiet until next left.
+                if (
+                  next === '' ||
+                  (emailProblem(next) === null && emailTypoFix(next) === null)
+                ) {
+                  setDraftShown(false)
+                }
+                setDraft(event.target.value)
+              }}
+              onBlur={() =>
+                setDraftShown(draftProblem !== null || draftFix !== null)
               }
-            }}
-            aria-label="Email address"
-            placeholder="name@example.com"
-            className="h-11 min-w-0 flex-1 rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-          <button
-            type="button"
-            onClick={addTyped}
-            className="shrink-0 rounded-xl bg-surface-2 px-3.5 text-[15px] font-semibold text-ink"
-          >
-            Add
-          </button>
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault()
+                  addTyped()
+                }
+              }}
+              aria-label="Email address"
+              aria-invalid={showDraftProblem || undefined}
+              aria-describedby={describedBy(
+                showDraftProblem && draftErrorId,
+                showDraftTypo && draftWarningId,
+              )}
+              placeholder="name@example.com"
+              className={`h-11 min-w-0 flex-1 rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none ${showDraftProblem ? 'ring-2 ring-red' : 'focus:ring-2 focus:ring-blue'}`}
+            />
+            <button
+              type="button"
+              onClick={addTyped}
+              className="shrink-0 rounded-xl bg-surface-2 px-3.5 text-[15px] font-semibold text-ink"
+            >
+              {typoAsked === typed ? 'Add anyway' : 'Add'}
+            </button>
+          </div>
+          {showDraftProblem && (
+            <FieldMessage
+              id={draftErrorId}
+              tone="error"
+              fix={
+                draftFix
+                  ? {
+                      label: `Use ${draftFix}`,
+                      onApply: () => takeDraftFix(draftFix),
+                    }
+                  : undefined
+              }
+            >
+              {draftProblem}
+            </FieldMessage>
+          )}
+          {showDraftTypo && (
+            <FieldMessage
+              id={draftWarningId}
+              tone="warning"
+              fix={{ label: 'Use it', onApply: () => takeDraftFix(draftFix) }}
+            >
+              Did you mean {draftFix}?
+            </FieldMessage>
+          )}
         </div>
       ) : (
         <button
