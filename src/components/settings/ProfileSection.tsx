@@ -157,7 +157,9 @@ export function ProfileSection({
         onClick={async () => {
           await authClient.signOut()
           await forgetCachedPages()
-          // expectAuth requires a full reload so the client re-authenticates.
+          // A full reload, not a soft navigation, so every cached query and
+          // component tied to the old identity is gone rather than briefly
+          // visible to whoever signs in next on this device.
           window.location.href = '/login'
         }}
         className="mt-6 h-12 w-full rounded-xl bg-surface-2 text-[17px] font-semibold text-red transition active:scale-[.975]"
