@@ -25,6 +25,8 @@ import {
  *   lift after a full hold — the only moment a phone lets a page open a tab.
  * - The top right says how often a recurring job comes round, where the start
  *   time used to be; the time is in the Time row.
+ * - Every card says its date, except on the Schedule, whose heading already
+ *   says the day — there a card only says it when it is on another day.
  */
 
 const DAY = 24 * 60 * 60 * 1000
@@ -331,4 +333,117 @@ test('a mouse click opens the map at once — a desktop click is deliberate', as
   await page.getByRole('button', { name: MAP }).click()
   await expect.poll(() => openedTabs(page)).toHaveLength(1)
   expect(await openedTabs(page)).toEqual([{ url: MAP_URL, active: true }])
+})
+
+/** "Fri 25 Sept": what the card's Date row says for an instant, in Perth. */
+function cardDate(ts: number) {
+  const parts = new Intl.DateTimeFormat('en-AU', {
+    timeZone: 'Australia/Perth',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).formatToParts(new Date(ts))
+  const part = (type: string) => parts.find((p) => p.type === type)?.value
+  return `${part('weekday')} ${part('day')} ${part('month')}`
+}
+
+test('the Job tab and the Recurring view say each card’s date; the Schedule, whose heading says the day, does not', async ({
+  page,
+}) => {
+  const s = await seed('card-date')
+  const at = await bookSpiderTreatment(s)
+  await s.owner.client.mutation(api.recurrences.create, {
+    businessId: s.businessId,
+    propertyId: s.propertyId,
+    assignedMembershipId: s.ownerMembershipId,
+    intervalCount: 1,
+    intervalUnit: 'month',
+    jobType: 'Rodent Baiting',
+    price: 16000,
+    anchorDate: Date.now() + DAY,
+    durationMinutes: 45,
+  })
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/job`)
+  const card = page.getByRole('button', { name: /Spider Treatment/ })
+  await expect(card.getByText('Date', { exact: true })).toBeVisible()
+  await expect(card).toContainText(cardDate(at))
+
+  // And the sheet it opens says the date too.
+  const detail = page.getByRole('dialog')
+  await clickUntil(card, () => expect(detail).toBeVisible({ timeout: 2_000 }))
+  await expect(detail).toContainText(cardDate(at))
+
+  await page.goto(`/${s.slug}/job/recurring`)
+  const visit = page.getByRole('button', { name: /Rodent Baiting/ }).first()
+  await expect(visit.getByText('Date', { exact: true })).toBeVisible()
+
+  await page.goto(`/${s.slug}/schedule?date=${perthDayKey(at)}`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  const onTheDay = page.getByRole('button', { name: /Spider Treatment/ })
+  await expect(onTheDay).toBeVisible()
+  await expect(onTheDay.getByText('Date', { exact: true })).toHaveCount(0)
+})
+
+/**
+ * The one card on the Schedule that says its date: an overdue visit, carried
+ * forward onto today from the day it was due. Its chip says only "Overdue",
+ * so the Date row is the only place that says since when.
+ */
+test('an overdue visit carried onto today’s Schedule says the day it was due', async ({
+  page,
+}) => {
+  const now = Date.now()
+  // A daily series begun two days ago. The engine never backfills more than
+  // a day, so its one past visit is the one 23 hours ago: yesterday, unless
+  // it is past 11pm in Perth.
+  const due = now - 23 * 60 * MINUTE
+  test.skip(
+    perthDayKey(due) === perthDayKey(now),
+    'past 11pm in Perth, 23 hours ago is still today',
+  )
+  const s = await seed('card-overdue')
+  await s.owner.client.mutation(api.recurrences.create, {
+    businessId: s.businessId,
+    propertyId: s.propertyId,
+    assignedMembershipId: s.ownerMembershipId,
+    intervalCount: 1,
+    intervalUnit: 'day',
+    jobType: 'Possum Check',
+    price: 9000,
+    anchorDate: now - 47 * 60 * MINUTE,
+    durationMinutes: 30,
+  })
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/schedule?date=${perthDayKey(now)}`)
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
+  const carried = page
+    .getByRole('button', { name: /Possum Check/ })
+    .filter({ hasText: 'Overdue' })
+  await expect(carried).toHaveCount(1)
+  await expect(carried.getByText('Date', { exact: true })).toBeVisible()
+  await expect(carried).toContainText(cardDate(due))
+})
+
+/**
+ * The Job tab used to draw no forecast at all: only the Schedule asked for
+ * one. A job in the next two weeks now shows its own day's weather, with the
+ * sources credited. Strict, not "a number or No forecast": with MET Norway
+ * standing in for Open-Meteo, a Perth suburb tomorrow always has one, and a
+ * forecast that fails entirely is what this is here to catch.
+ */
+test('the Job tab shows each job’s forecast, and credits it', async ({
+  page,
+}) => {
+  const s = await seed('card-weather')
+  await bookSpiderTreatment(s)
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/job`)
+  const card = page.getByRole('button', { name: /Spider Treatment/ })
+  await expect(card).toBeVisible()
+  await expect(card).toContainText(/\d+°/, { timeout: 20_000 })
+  await expect(page.getByText(/Weather data by/)).toBeVisible()
 })

@@ -958,6 +958,10 @@ export default defineSchema({
     rainMm: v.optional(v.number()),
     windKmh: v.optional(v.number()),
     code: v.optional(v.number()),
+    // Only the rest of that day: MET Norway, standing in for Open-Meteo,
+    // forecasts from the current hour. Shown on the card as such, refetched
+    // sooner, and never used as a report's weather (reports.cachedForecast).
+    partial: v.optional(v.boolean()),
     fetchedAt: v.number(),
   }).index('by_suburb_day', ['suburbKey', 'dayKey']),
 
@@ -979,6 +983,18 @@ export default defineSchema({
     lng: v.number(),
     fetchedAt: v.number(),
   }).index('by_suburb_key', ['suburbKey']),
+
+  /**
+   * A suburb the geocoder has no populated place for, in that state — a typo
+   * ("Fannybay"), a test entry, or a name it does not know. Remembered for a
+   * day so every view of a job there does not ask again. Only a genuine "no
+   * such place" is written: a refused or failed request is not an answer.
+   */
+  geocodeMisses: defineTable({
+    suburbKey: v.string(),
+    state: v.string(),
+    missedAt: v.number(),
+  }).index('by_suburb_state', ['suburbKey', 'state']),
 
   /**
    * The `gallery` field kind's photos — as many per field as the technician

@@ -1,3 +1,5 @@
+import { dateTimeFormat, dayKeyOf } from '../../convex/lib/dates'
+
 /**
  * Cents in, dollars out. Money is stored as integer cents everywhere (§4.2).
  *
@@ -16,7 +18,7 @@ export function formatMoney(cents: number | null): string {
 }
 
 export function formatTime(ts: number, timezone: string): string {
-  return new Intl.DateTimeFormat('en-AU', {
+  return dateTimeFormat('en-AU', {
     timeZone: timezone,
     hour: 'numeric',
     minute: '2-digit',
@@ -24,6 +26,56 @@ export function formatTime(ts: number, timezone: string): string {
   })
     .format(new Date(ts))
     .replace(/\s?([ap])m/i, (_, p) => p.toLowerCase() + 'm')
+}
+
+/**
+ * "Fri 25 Sept" — the day a job is booked for, as the job card and its sheet
+ * say it, with the year added when it is not this year ("Fri 25 Sept 2027").
+ *
+ * Built from the tenant's day key, never from the device's clock or time
+ * zone, so the server render and the phone always agree. Deliberately no
+ * "Today" or "Tomorrow": a card left open past midnight would keep saying the
+ * wrong one. `thisDayKey` (today's key, in the tenant's zone) only decides
+ * whether the year needs saying.
+ */
+export function formatJobDate(dayKey: string, thisDayKey: string): string {
+  const parts = dateTimeFormat('en-AU', {
+    timeZone: 'UTC',
+    weekday: 'short',
+    day: 'numeric',
+    month: 'short',
+  }).formatToParts(dayKeyToDate(dayKey))
+  // Assembled from the parts: en-AU puts a comma after the weekday.
+  const part = (type: string) => parts.find((p) => p.type === type)?.value
+  const date = `${part('weekday')} ${part('day')} ${part('month')}`
+  const year = dayKey.slice(0, 4)
+  return year === thisDayKey.slice(0, 4) ? date : `${date} ${year}`
+}
+
+/**
+ * "9:30am – 10:15am · 45 min", or "11:00pm – Sat 1:00am · 2 hr" when the job
+ * runs past midnight, in the tenant's time zone. An end exactly at midnight
+ * still belongs to the day it ends, so it reads "12:00am" with no weekday.
+ */
+export function formatTimeRange(
+  start: number,
+  durationMinutes: number,
+  timezone: string,
+): string {
+  const end = start + durationMinutes * 60_000
+  const endDay = dayKeyOf(Math.max(start, end - 1), timezone)
+  const endLabel =
+    endDay === dayKeyOf(start, timezone)
+      ? formatTime(end, timezone)
+      : `${formatShortWeekday(endDay)} ${formatTime(end, timezone)}`
+  return `${formatTime(start, timezone)} – ${endLabel} · ${formatDuration(durationMinutes)}`
+}
+
+function formatShortWeekday(dayKey: string): string {
+  return dateTimeFormat('en-AU', {
+    timeZone: 'UTC',
+    weekday: 'short',
+  }).format(dayKeyToDate(dayKey))
 }
 
 export function formatDuration(minutes: number): string {

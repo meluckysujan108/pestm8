@@ -109,7 +109,7 @@ test('a job shows the forecast for its own property and day', async ({
   await page.getByRole('button', { name: /Termite Inspection/ }).click()
 
   const sheet = page.getByRole('dialog')
-  await expect(sheet.getByText('Weather')).toBeVisible()
+  await expect(sheet.getByText('Weather', { exact: true })).toBeVisible()
   // Named for the property's suburb, since two jobs on one day can sit in
   // different places.
   await expect(sheet.getByText(/Bayswater · \d+°/)).toBeVisible()
