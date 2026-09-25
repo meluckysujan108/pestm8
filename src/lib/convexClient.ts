@@ -1,4 +1,7 @@
 import { ConvexReactClient } from 'convex/react'
+import type { ConvexReactClientOptions } from 'convex/react'
+import { withRefreshRetry } from '#/lib/tokenRefresh'
+import type { RefreshRetry } from '#/lib/tokenRefresh'
 
 /**
  * The browser's Convex client, which never signs the socket out between one
@@ -41,12 +44,27 @@ import { ConvexReactClient } from 'convex/react'
  * - the next token refetch comes back empty, and the Convex client clears
  *   the socket itself.
  * The Convex client's own clears don't pass through here and happen at once:
- * that empty refetch, or a token the server rejects for good. Sending the
- * person to sign in is SessionWatch's job (__root.tsx), which follows Better
- * Auth, not the socket.
+ * that empty refetch, or a token the server rejects for good. Given
+ * `refreshRetry`, a refetch comes back empty only when the session has really
+ * ended: the token getter this is handed retries one that failed for want of
+ * signal, or on a server hiccup (lib/tokenRefresh.ts). Sending the person to
+ * sign in is SessionWatch's job (__root.tsx), which follows Better Auth, not
+ * the socket.
  */
 export class HandoverConvexClient extends ConvexReactClient {
   private clearPending = false
+  // Moves on with every sign-in handed over and every clear that goes
+  // through, so a refresh still retrying for an earlier one stops.
+  private authGeneration = 0
+  private readonly refreshRetry: RefreshRetry | undefined
+
+  constructor(
+    address: string,
+    { refreshRetry, ...options }: HandoverOptions = {},
+  ) {
+    super(address, options)
+    this.refreshRetry = refreshRetry
+  }
 
   override clearAuth(): void {
     if (this.clearPending) return
@@ -54,12 +72,29 @@ export class HandoverConvexClient extends ConvexReactClient {
     queueMicrotask(() => {
       if (!this.clearPending) return
       this.clearPending = false
+      this.authGeneration++
       super.clearAuth()
     })
   }
 
-  override setAuth(...args: Parameters<ConvexReactClient['setAuth']>): void {
+  override setAuth(
+    ...[fetchToken, ...rest]: Parameters<ConvexReactClient['setAuth']>
+  ): void {
     this.clearPending = false
-    super.setAuth(...args)
+    const generation = ++this.authGeneration
+    super.setAuth(
+      this.refreshRetry
+        ? withRefreshRetry(
+            fetchToken,
+            this.refreshRetry,
+            () => generation === this.authGeneration,
+          )
+        : fetchToken,
+      ...rest,
+    )
   }
+}
+
+type HandoverOptions = ConvexReactClientOptions & {
+  refreshRetry?: RefreshRetry
 }

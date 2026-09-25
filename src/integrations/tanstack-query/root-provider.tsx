@@ -1,6 +1,8 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 import { ConvexQueryClient } from '@convex-dev/react-query'
+import { authClient } from '#/lib/auth-client'
 import { HandoverConvexClient } from '#/lib/convexClient'
+import { browserRefreshRetry } from '#/lib/tokenRefresh'
 import { flagIfTwoStepNeeded, watchForTwoStepRefusals } from '#/lib/twoStep'
 
 /**
@@ -50,9 +52,12 @@ export function getContext() {
   // error does not throw. It is not harmless for convex/react's own hooks,
   // which throw it, so the socket must never be told "nobody" while someone
   // is signed in — see HandoverConvexClient for how that used to happen on
-  // every page load.
+  // every page load, and lib/tokenRefresh.ts for how a token refresh that
+  // failed for want of signal did it until the next reload.
   const convexQueryClient = new ConvexQueryClient(
-    new HandoverConvexClient(convexUrl),
+    new HandoverConvexClient(convexUrl, {
+      refreshRetry: browserRefreshRetry(() => authClient.getSession()),
+    }),
   )
 
   const queryClient = new QueryClient({
