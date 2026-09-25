@@ -5,11 +5,12 @@ import {
   redirect,
 } from '@tanstack/react-router'
 import { convexQuery } from '@convex-dev/react-query'
+import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../../../convex/_generated/api'
 import { AppShell } from '#/components/shell/AppShell'
 import { SwitchBanner } from '#/components/shell/SwitchBanner'
 import { AccessProvider } from '#/lib/access'
-import { signedOutAfterAll } from '#/lib/rootState'
+import { signedInToken, signedOutAfterAll } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 
 export const Route = createFileRoute('/$businessSlug')({
@@ -28,10 +29,11 @@ export const Route = createFileRoute('/$businessSlug')({
       throw error
     }
 
-    const business = await context.queryClient
-      .ensureQueryData(
-        convexQuery(api.businesses.getBySlug, { slug: params.businessSlug }),
-      )
+    const bySlug = convexQuery(api.businesses.getBySlug, {
+      slug: params.businessSlug,
+    })
+    let business = await context.queryClient
+      .ensureQueryData(bySlug)
       .catch(enrol)
 
     // getBySlug returns null both for a missing business and for one the
@@ -41,9 +43,26 @@ export const Route = createFileRoute('/$businessSlug')({
     // sign-in cached in the browser nothing above would have noticed. Ask
     // before calling it a missing business, or an offboarded technician's
     // next tap is a dead end instead of the sign-in screen.
+    //
+    // Still signed in is not the end of it. The null in the cache is the live
+    // socket's answer, and the socket can answer as nobody while someone is
+    // signed in: while one token hands over to the next, or after a token
+    // refresh fails. So the lookup is asked again with the server's own
+    // token, over HTTP (`businessOverHttp`), and only its null is a missing
+    // business. Without that, a signed-in tap in such a moment was "Not
+    // found" (e2e/socketSignIn.spec.ts).
     if (!business) {
       if (await signedOutAfterAll()) throw redirect({ to: '/login' })
-      throw notFound()
+      business = await businessOverHttp(
+        context.convexQueryClient.convexClient.url,
+        params.businessSlug,
+      ).catch((error: unknown) =>
+        isMfaEnrolmentError(error) ? enrol(error) : null,
+      )
+      if (!business) throw notFound()
+      // So the next tap reads it rather than doubting the same null again.
+      // The socket's own answer replaces it once it has one.
+      context.queryClient.setQueryData(bySlug.queryKey, business)
     }
 
     // Warmed here, together, so the shell renders without a suspense flash.
@@ -87,4 +106,20 @@ function BusinessLayout() {
       </AppShell>
     </AccessProvider>
   )
+}
+
+/**
+ * `businesses.getBySlug` asked over plain HTTP, with the token of the server's
+ * last "who is signed in" answer — which `signedOutAfterAll` has just
+ * refreshed, unless it asked a moment ago. The socket plays no part, so an
+ * answer it gave as nobody cannot come back this way. Null when there is no
+ * such token to ask with: on the server, whose lookup already went out with
+ * the request's own.
+ */
+async function businessOverHttp(convexUrl: string, slug: string) {
+  const token = signedInToken()
+  if (!token) return null
+  const client = new ConvexHttpClient(convexUrl)
+  client.setAuth(token)
+  return client.query(api.businesses.getBySlug, { slug })
 }

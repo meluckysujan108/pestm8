@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConvexReactClient } from 'convex/react'
-import { HandoverConvexClient } from './convexClient'
+import { makeFunctionReference } from 'convex/server'
+import { HandoverConvexClient, openSignedOut } from './convexClient'
 import type { AuthTokenFetcher } from 'convex/browser'
 import type { RefreshRetry, SessionAnswer } from './tokenRefresh'
 
@@ -389,5 +390,125 @@ describe('HandoverConvexClient, when a token refresh fails', () => {
       expect(socket().identities()).toEqual([LOADED, FRESH, 'nobody']),
     )
     expect(reported.at(-1)).toBe(false)
+  })
+})
+
+/** Asks for a query, the way a server-rendered page's cache does on load. */
+function subscribe(client: ConvexReactClient) {
+  client
+    .watchQuery(makeFunctionReference<'query'>('businesses:getBySlug'), {
+      slug: 'acme',
+    })
+    .onUpdate(() => {})
+}
+
+/** What the socket sent, in order, by kind. */
+const sentKinds = () =>
+  socket().sent.map((message) =>
+    message.type === 'Authenticate' && message.tokenType === 'None'
+      ? 'nobody'
+      : message.type,
+  )
+
+const socketOptions = {
+  webSocketConstructor: RecordingSocket as unknown as typeof WebSocket,
+  unsavedChangesWarning: false,
+}
+
+function connectHeld(refreshRetry?: RefreshRetry) {
+  const client = new HandoverConvexClient(URL, {
+    ...socketOptions,
+    holdForSignIn: true,
+    refreshRetry,
+  })
+  clients.push(client)
+  return client
+}
+
+describe('HandoverConvexClient, held until the page load knows who it is for', () => {
+  it('a signed-in page load tells the server who it is before asking for anything', async () => {
+    const client = connectHeld(betterAuth().retry)
+    subscribe(client)
+    // Open, as on a slow phone, before the provider has mounted.
+    await settle()
+    expect(socket().sent).toEqual([])
+
+    client.setAuth(async () => 'token-1')
+    await settle()
+
+    expect(sentKinds()).toEqual(['Connect', 'Authenticate', 'ModifyQuerySet'])
+    expect(socket().identities()).toEqual(['token-1'])
+  })
+
+  it('is needed: unheld, the socket asks as nobody before the token arrives', async () => {
+    const client = connect(ConvexReactClient)
+    subscribe(client)
+    await settle()
+
+    client.setAuth(async () => 'token-1')
+    await settle()
+
+    expect(sentKinds()).toEqual(['Connect', 'ModifyQuerySet', 'Authenticate'])
+  })
+
+  it("is needed: convex's own expectAuth never sends Connect once the socket opened first", async () => {
+    // If a Convex upgrade fixes this, expectAuth could hold the socket instead.
+    const client = new ConvexReactClient(URL, {
+      ...socketOptions,
+      expectAuth: true,
+    })
+    clients.push(client)
+    subscribe(client)
+    await settle()
+
+    client.setAuth(async () => 'token-1')
+    await settle()
+
+    expect(sentKinds()).toEqual(['Authenticate', 'ModifyQuerySet'])
+  })
+
+  it('a page loaded signed out lets the socket go with no token, without asking Better Auth', async () => {
+    const auth = betterAuth('unknown')
+    const client = connectHeld(auth.retry)
+    subscribe(client)
+    await settle()
+
+    openSignedOut(client)
+    await settle()
+
+    expect(sentKinds()).toEqual(['Connect', 'ModifyQuerySet'])
+    expect(auth.asked()).toBe(0)
+  })
+
+  it('someone who signs in after that still hands the socket their token', async () => {
+    const client = connectHeld(betterAuth().retry)
+    subscribe(client)
+    openSignedOut(client)
+    await settle()
+
+    client.setAuth(async () => 'token-1')
+    await settle()
+
+    expect(socket().identities()).toEqual(['token-1'])
+  })
+
+  it("the first sign-in's token is the one refreshed, and its callbacks hear about it", async () => {
+    const auth = betterAuth()
+    const client = new HandoverConvexClient(URL, {
+      webSocketConstructor: ServerSocket as unknown as typeof WebSocket,
+      unsavedChangesWarning: false,
+      authRefreshTokenLeewaySeconds: LEEWAY_SECONDS,
+      holdForSignIn: true,
+      refreshRetry: auth.retry,
+    })
+    clients.push(client)
+    const script = tokens(LOADED, [FRESH, RENEWED])
+    const reported = signIn(client, script.fetchToken)
+
+    await vi.waitFor(() =>
+      expect(socket().identities()).toEqual([LOADED, FRESH, RENEWED]),
+    )
+    expect(reported).toContain(true)
+    expect(reported).not.toContain(false)
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   HeadContent,
   Outlet,
@@ -17,6 +17,7 @@ import { ServiceWorker } from '#/components/shell/ServiceWorker'
 import { TwoStepPromptHost } from '#/components/auth/TwoStepPrompt'
 import { useHydrated } from '#/lib/useHydrated'
 import { authClient } from '#/lib/auth-client'
+import { openSignedOut } from '#/lib/convexClient'
 import { getInitialState } from '#/lib/initialState'
 import {
   forgetRootState,
@@ -101,6 +102,16 @@ function RootComponent() {
   // client render is the only moment the SSR answer is to hand, because
   // hydration restores this context without running `beforeLoad`.
   seedRootState({ token, theme })
+
+  // The socket says nothing until it knows who this page load is for
+  // (`holdForSignIn` in lib/convexClient.ts). Signed in,
+  // ConvexBetterAuthProvider below lets it go with the server render's token.
+  // Signed out, nothing would, so this does. Decided by how the page loaded:
+  // a sign-in or sign-out after that is the provider's to pass on.
+  const loadedSignedOut = useRef(!token).current
+  useEffect(() => {
+    if (loadedSignedOut) openSignedOut(convexQueryClient.convexClient)
+  }, [loadedSignedOut, convexQueryClient])
 
   // Mounted once, at the root: while the preference is `system`, this is what
   // makes the app follow a phone that flips to dark at sunset.
