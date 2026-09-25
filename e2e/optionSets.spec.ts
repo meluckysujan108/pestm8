@@ -42,8 +42,12 @@ test('a product an owner adds in Settings is on the next report', async ({
   const s = await setupBusinessWithSub('optionset-add')
   await signInViaUi(page, s.owner.email)
 
-  await page.goto(`/${s.slug}/settings?seg=reports`)
-  await page.getByRole('button', { name: 'Products' }).click()
+  await page.goto(`/${s.slug}/settings/reports/answers`)
+  // Each list's row names it first, then how many options it has. It stays
+  // disabled until the page has hydrated: a tap before then opens nothing.
+  const productsRow = page.getByRole('button', { name: /^Products\b/ })
+  await expect(productsRow).toBeEnabled()
+  await productsRow.click()
 
   const sheet = page.getByRole('dialog')
   await expect(sheet.getByText('Reports already finalised')).toBeVisible()

@@ -59,10 +59,17 @@ export const rq = {
   invitations: (businessId: B) =>
     convexQuery(api.invitations.listForBusiness, { businessId }),
   products: (businessId: B) => convexQuery(api.products.list, { businessId }),
-  /** One person's licence document: their own on Profile, or a member's
-   * the owner opens from Team. */
+  /** One person's licence document: their own on Settings → Licence, or a
+   * member's the owner opens from Team. */
   licenceFile: (businessId: B, membershipId: Id<'memberships'>) =>
     convexQuery(api.licences.file, { businessId, membershipId }),
+  /** How the business prints and sends reports — business.manage only. */
+  reportSettings: (businessId: B) =>
+    convexQuery(api.businesses.reportSettings, { businessId }),
+  /** The answer lists the forms offer, as an owner edits them —
+   * templates.manage only. */
+  answerLists: (businessId: B) =>
+    convexQuery(api.optionSets.editable, { businessId }),
 }
 
 /** How many rows the paginated libraries ask for first. */

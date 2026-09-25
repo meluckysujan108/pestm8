@@ -31,25 +31,39 @@ test('an owner invites a subcontractor, who joins with the link', async ({
   )
 
   await signInViaUi(page, ownerEmail)
-  await page.goto(`/${slug}/settings?seg=team`)
+  await page.goto(`/${slug}/settings/team`)
 
-  await expect(page.getByRole('heading', { name: 'Team' })).toBeVisible()
+  await expect(
+    page.getByRole('heading', { name: 'Team', level: 1 }),
+  ).toBeVisible()
 
-  const createLink = page.getByRole('button', { name: 'Create link' })
+  // The invite form lives in a sheet the header's Invite opens. A tap before
+  // hydration opens nothing, so the button stays disabled until then.
+  const inviteButton = page.getByRole('button', { name: 'Invite', exact: true })
+  await expect(inviteButton).toBeEnabled()
+  await inviteButton.click()
+
+  const sheet = page.getByRole('dialog', { name: 'Invite a subcontractor' })
+  const createLink = sheet.getByRole('button', { name: 'Create link' })
   await expect(createLink).toBeEnabled()
-  await page.getByLabel('Email address').fill(subEmail)
+  await sheet.getByLabel('Email address').fill(subEmail)
   await createLink.click()
 
   // The link is shown exactly once, because only its hash is stored.
-  const linkText = page.getByText(/\/join\//)
+  const linkText = sheet.getByText(/\/join\//)
   await expect(linkText).toBeVisible()
   const url = (await linkText.innerText()).trim()
   const token = url.split('/join/')[1]
   expect(token).toBeTruthy()
 
-  // And the invite shows as outstanding until it is used. The address appears
-  // twice on this screen — in the link card and in the waiting list — so this
-  // asks for the exact-match one, which is the list row.
+  // Done closes the sheet, and the link goes with it: there is no copy of it
+  // to come back to.
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(sheet).toBeHidden()
+  await expect(page.getByText(/\/join\//)).toHaveCount(0)
+
+  // And the invite shows as outstanding until it is used, as a row of the
+  // waiting list.
   await expect(page.getByText(subEmail, { exact: true })).toBeVisible()
 
   // Kevin signs up and redeems the link he was sent.
@@ -128,13 +142,23 @@ test('an owner grants view-all access from settings', async ({ page }) => {
   await inviteAndJoin(owner, sub, businessId)
 
   await signInViaUi(page, ownerEmail)
-  await page.goto(`/${slug}/settings?seg=team`)
-  // A tap before hydration is dropped: the server-rendered switch has no
-  // handler yet. Create link stays disabled until the page has hydrated.
-  await expect(page.getByRole('button', { name: 'Create link' })).toBeEnabled()
+  await page.goto(`/${slug}/settings/team`)
+  // A tap before hydration is dropped. Invite stays disabled until the page
+  // has hydrated, so the row below is tapped by a page that can route it.
+  await expect(
+    page.getByRole('button', { name: 'Invite', exact: true }),
+  ).toBeEnabled()
 
-  const toggle = page.getByRole('switch').first()
-  await expect(toggle).toBeVisible()
+  // Each person's access is on their own page, a row of the team list.
+  await page.getByRole('link', { name: /^Kevin/ }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Kevin', level: 1 }),
+  ).toBeVisible()
+
+  // The switches are disabled until this page has hydrated too: a tap on the
+  // server-rendered one has no handler yet.
+  const toggle = page.getByRole('switch', { name: 'Can view all jobs' })
+  await expect(toggle).toBeEnabled()
   await expect(toggle).toHaveAttribute('data-state', 'unchecked')
   // Retired: the client book is open to everyone in the business.
   await expect(page.getByText('Can see all clients')).toBeHidden()
@@ -166,7 +190,7 @@ test('a subcontractor cannot invite or see the team roster controls', async ({
   const sub = await signUpActor(subEmail, FIXTURE_PASSWORD, 'Kevin')
   await inviteAndJoin(owner, sub, businessId)
 
-  // Rejected at the function, not merely hidden from the segmented control.
+  // Rejected at the function, not merely hidden from the page.
   await expectRejected(
     () =>
       sub.client.action(api.invitations.create, {
@@ -177,11 +201,26 @@ test('a subcontractor cannot invite or see the team roster controls', async ({
     'NO_ACCESS',
   )
 
+  // And the Team page, opened by its address, says so rather than offering
+  // controls the server would refuse, or the roster it would not hand over.
   await signInViaUi(page, subEmail)
-  await page.goto(`/${slug}/settings`)
+  await page.goto(`/${slug}/settings/team`)
 
-  await expect(page.getByRole('tab', { name: 'Profile' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Team' })).toHaveCount(0)
+  await expect(
+    page.getByText('Only the business owner can change these.'),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Invite', exact: true }),
+  ).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Create link' })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: /^Terence/ })).toHaveCount(0)
+
+  // Nor does the Settings hub offer a Team row to open: a row that opens onto
+  // a refusal is worse than no row. Scoped to the page, not the sidebar.
+  await page.goto(`/${slug}/settings`)
+  const hub = page.getByRole('main')
+  await expect(hub.getByRole('link', { name: /^My details/ })).toBeVisible()
+  await expect(hub.getByRole('link', { name: /^Team/ })).toHaveCount(0)
 })
 
 test('nobody can be invited as an owner', async () => {

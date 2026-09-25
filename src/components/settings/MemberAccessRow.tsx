@@ -1,12 +1,26 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { fieldInputClass } from '#/components/forms/FormField'
+import { useAccess } from '#/lib/access'
+import { useHydrated } from '#/lib/useHydrated'
 import { ColourPicker } from './ColourPicker'
 import { ResetTwoStepButton } from './ResetTwoStepButton'
 import { MemberLicenceButton } from './MemberLicenceButton'
+import { useSavedFlash } from './useJustSaved'
+import {
+  DANGER_ROW_CLASS,
+  DangerGroup,
+  FIELD_LABEL,
+  FieldRow,
+  ROW_CLASS,
+  SettingsGroup,
+  SettingsRow,
+} from './ui'
+import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Grants, Role } from '../../../convex/lib/capabilities'
 
@@ -33,27 +47,114 @@ export type Member = {
   hasLicenceFile?: boolean
 }
 
-export function MemberAccessRow({
+/** How a person is named wherever the team lists them. */
+export function memberName(member: Pick<Member, 'name' | 'email'>): string {
+  return member.name || member.email || 'Team member'
+}
+
+export const ROLE_LABEL: Record<Role, string> = {
+  owner: 'Owner',
+  contractor: 'Contractor',
+  subcontractor: 'Subcontractor',
+}
+
+/**
+ * One person's settings, as the groups of their page under Settings → Team:
+ * colour, licence, role, access, and — last, in red — the two things that
+ * take something away from them.
+ *
+ * Each control is offered only where the server will take it. `canManage`
+ * is the roster's own answer (`canManageMember`): an owner manages everyone
+ * but themselves, a contractor only their own team, and nobody the owner.
+ * A licence number is the owner's to set for anyone, or a person's own
+ * (`memberships.setLicence`).
+ */
+export function MemberSettings({
   businessId,
   member,
   others = [],
+  onRemoved,
 }: {
   businessId: Id<'businesses'>
   member: Member
   /** Active members who could take over this person's booked work. */
   others?: Array<Member>
+  /** After they have been removed, so the page can go back to the list. */
+  onRemoved: () => void
 }) {
-  const convexSetViewOthers = useConvexMutation(
-    api.memberships.setCanViewOtherAccounts,
-  )
-  const setViewOthers = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      membershipId: Id<'memberships'>
-      canViewOtherAccounts: boolean
-    }) => convexSetViewOthers(args),
-  })
+  const access = useAccess()
+  const isOwner = member.role === 'owner'
+  const manages = !isOwner && member.canManage
+  const canSetLicence =
+    access.role === 'owner' || member._id === access.membershipId
 
+  return (
+    <>
+      {member.canSetColour && (
+        <SettingsGroup
+          title="Colour"
+          footer="Marks their jobs on every schedule the team shares."
+        >
+          <ColourPicker
+            businessId={businessId}
+            membershipId={member._id}
+            name={member.name || member.email || 'this person'}
+            colour={member.colour}
+            others={others}
+          />
+        </SettingsGroup>
+      )}
+
+      <LicenceGroup
+        businessId={businessId}
+        member={member}
+        canEdit={canSetLicence}
+      />
+
+      {manages && (
+        <RoleGroup businessId={businessId} member={member} others={others} />
+      )}
+
+      {manages && <AccessGroup businessId={businessId} member={member} />}
+
+      {manages && (
+        <DangerGroup>
+          <ResetTwoStepButton
+            businessId={businessId}
+            membershipId={member._id}
+            name={member.name || member.email}
+            twoStepOn={member.twoStepOn}
+          />
+          <RemoveMember
+            businessId={businessId}
+            member={member}
+            others={others}
+            onRemoved={onRemoved}
+          />
+        </DangerGroup>
+      )}
+    </>
+  )
+}
+
+/*
+  Here, and not only on each person's own Licence page.
+  A regulated report cannot be finalised without a licence number on the
+  account it belongs to, and the owner is the one who knows those numbers
+  and the one who gets the phone call when a certificate will not sign.
+  Leaving it self-service meant the only way to prepare a team for that
+  rule was to ask every technician to go and type it in themselves.
+*/
+function LicenceGroup({
+  businessId,
+  member,
+  canEdit,
+}: {
+  businessId: Id<'businesses'>
+  member: Member
+  canEdit: boolean
+}) {
+  const inputId = useId()
   const convexSetLicence = useConvexMutation(api.memberships.setLicence)
   const saveLicence = useMutation({
     mutationFn: (args: {
@@ -63,6 +164,107 @@ export function MemberAccessRow({
     }) => convexSetLicence(args),
   })
   const [licence, setLicence] = useState(member.licenceNumber ?? '')
+  // The server trims what it stores, so "1234 " is not a change from "1234".
+  const dirty = licence.trim() !== (member.licenceNumber ?? '')
+  const saved = useSavedFlash()
+
+  const missing = !member.licenceNumber
+
+  return (
+    <SettingsGroup
+      title="Licence"
+      footer={
+        missing ? (
+          <span className="text-amber-ink">
+            Without this they cannot finalise a termite certificate, timber pest
+            inspection or treatment record.
+          </span>
+        ) : canEdit ? undefined : (
+          'Only the business owner can change this.'
+        )
+      }
+    >
+      {canEdit ? (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault()
+            saveLicence.mutate(
+              {
+                businessId,
+                membershipId: member._id,
+                licenceNumber: licence,
+              },
+              { onSuccess: saved.mark },
+            )
+          }}
+        >
+          <FieldRow id={inputId} label="Licence number">
+            <div className="flex gap-2">
+              <input
+                id={inputId}
+                value={licence}
+                onChange={(e) => setLicence(e.target.value)}
+                placeholder="Not set"
+                autoComplete="off"
+                className={`${fieldInputClass()} min-w-0 flex-1`}
+              />
+              {/* This page has several controls that each save on their
+                  own, so the licence gets its own small Save rather than the
+                  page's bar — and only while there is something to save, or
+                  a moment after, so "Saved" is seen. */}
+              {(dirty || saveLicence.isPending || saved.recently) && (
+                <button
+                  type="submit"
+                  disabled={saveLicence.isPending || !dirty}
+                  className="h-12 shrink-0 rounded-xl bg-red px-4 text-[16px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                >
+                  {saveLicence.isPending
+                    ? 'Saving…'
+                    : !dirty && saved.recently
+                      ? 'Saved'
+                      : 'Save'}
+                </button>
+              )}
+            </div>
+            {/* A failed save used to leave only the button saying "Save"
+                again. */}
+            <FormAlert
+              error={saveLicence.isError ? saveLicence.error : null}
+              className="mt-2"
+            />
+          </FieldRow>
+        </form>
+      ) : (
+        <SettingsRow
+          title="Licence number"
+          value={member.licenceNumber || 'Not set'}
+        />
+      )}
+
+      {/* Phase 8.1: the licence document they uploaded, read-only. */}
+      {member.hasLicenceFile && (
+        <MemberLicenceButton
+          businessId={businessId}
+          membershipId={member._id}
+          name={member.name || member.email || 'This person'}
+        />
+      )}
+    </SettingsGroup>
+  )
+}
+
+function RoleGroup({
+  businessId,
+  member,
+  others,
+}: {
+  businessId: Id<'businesses'>
+  member: Member
+  others: Array<Member>
+}) {
+  const hydrated = useHydrated()
+  const roleId = useId()
+  const parentId = useId()
 
   const convexSetRole = useConvexMutation(api.memberships.setRole)
   const setRole = useMutation({
@@ -86,6 +288,98 @@ export function MemberAccessRow({
     (m) => m.role === 'contractor' && m.status === 'active',
   )
 
+  const failed = setRole.isError
+    ? setRole.error
+    : assignTo.isError
+      ? assignTo.error
+      : null
+
+  return (
+    <SettingsGroup title="Role">
+      {/* Each saves as it changes: there is nothing to type, so nothing to
+          hold back for a Save. Disabled until the page has hydrated — a
+          change before then lands on a select with no handler, and is
+          lost. */}
+      <FieldRow id={roleId} label="Role">
+        <select
+          id={roleId}
+          value={member.role}
+          disabled={setRole.isPending || !hydrated}
+          onChange={(e) =>
+            setRole.mutate({
+              businessId,
+              membershipId: member._id,
+              role: e.target.value as 'subcontractor' | 'contractor',
+            })
+          }
+          className={`${fieldInputClass()} disabled:opacity-50`}
+        >
+          <option value="subcontractor">Subcontractor</option>
+          <option value="contractor">Contractor</option>
+        </select>
+      </FieldRow>
+
+      {/* Only a subcontractor belongs to a team — a contractor's place is
+          beside the owner, and the model is one level deep. */}
+      {member.role === 'subcontractor' && contractors.length > 0 && (
+        <FieldRow id={parentId} label="Works under">
+          <select
+            id={parentId}
+            value={member.parentMembershipId ?? ''}
+            disabled={assignTo.isPending || !hydrated}
+            onChange={(e) =>
+              assignTo.mutate({
+                businessId,
+                membershipId: member._id,
+                parentMembershipId:
+                  e.target.value === ''
+                    ? null
+                    : (e.target.value as Id<'memberships'>),
+              })
+            }
+            className={`${fieldInputClass()} disabled:opacity-50`}
+          >
+            <option value="">Nobody — answers to you</option>
+            {contractors.map((c) => (
+              <option key={c._id} value={c._id}>
+                {c.name || c.email}
+              </option>
+            ))}
+          </select>
+        </FieldRow>
+      )}
+
+      {failed !== null && (
+        <div className="px-3.5 py-3">
+          <FormAlert error={failed} />
+        </div>
+      )}
+    </SettingsGroup>
+  )
+}
+
+// Owners already see everything, so the page offers them none of these: a
+// toggle would imply it could be turned off.
+function AccessGroup({
+  businessId,
+  member,
+}: {
+  businessId: Id<'businesses'>
+  member: Member
+}) {
+  const hydrated = useHydrated()
+
+  const convexSetViewOthers = useConvexMutation(
+    api.memberships.setCanViewOtherAccounts,
+  )
+  const setViewOthers = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      membershipId: Id<'memberships'>
+      canViewOtherAccounts: boolean
+    }) => convexSetViewOthers(args),
+  })
+
   const convexSetGrants = useConvexMutation(api.memberships.setGrants)
   const setGrants = useMutation({
     mutationFn: (args: {
@@ -95,256 +389,105 @@ export function MemberAccessRow({
     }) => convexSetGrants(args),
   })
 
-  const isOwner = member.role === 'owner'
+  const failed = setGrants.isError
+    ? setGrants.error
+    : setViewOthers.isError
+      ? setViewOthers.error
+      : null
 
   return (
-    <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
-      <div className="flex items-center gap-3">
-        <span
-          aria-hidden
-          className="size-2.5 shrink-0 rounded-full"
-          style={{ backgroundColor: member.colour }}
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-row-title text-ink">
-            {member.name || member.email || 'Team member'}
-          </p>
-          <p className="truncate text-caption capitalize text-muted">
-            {member.role}
-            {member.licenceNumber ? ` · Licence ${member.licenceNumber}` : ''}
-          </p>
-        </div>
-      </div>
-
-      {member.canSetColour && (
-        <div className="mt-3 border-t border-hairline-2 pt-3">
-          <ColourPicker
-            businessId={businessId}
-            membershipId={member._id}
-            name={member.name || member.email || 'this person'}
-            colour={member.colour}
-            others={others}
-          />
-        </div>
-      )}
-
-      {/*
-        Here, and not only on each person's own Profile page.
-        A regulated report cannot be finalised without a licence number on the
-        account it belongs to, and the owner is the one who knows those numbers
-        and the one who gets the phone call when a certificate will not sign.
-        Leaving it self-service meant the only way to prepare a team for that
-        rule was to ask every technician to go and type it in themselves.
-      */}
-      <form
-        className="mt-3 flex items-end gap-2 border-t border-hairline-2 pt-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          saveLicence.mutate({
+    <SettingsGroup title="Access">
+      <SwitchRow
+        label="Can view all jobs"
+        description="Read-only view of every schedule and property history."
+        checked={member.grants.otherSchedules}
+        disabled={setGrants.isPending || !hydrated}
+        onChange={(checked) =>
+          setGrants.mutate({
             businessId,
             membershipId: member._id,
-            licenceNumber: licence,
+            grants: { ...member.grants, otherSchedules: checked },
           })
-        }}
-      >
-        <label className="min-w-0 flex-1">
-          <span className="section-label">Licence number</span>
-          <input
-            value={licence}
-            onChange={(e) => setLicence(e.target.value)}
-            placeholder="Not set"
-            className="mt-1 h-11 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={
-            saveLicence.isPending || licence === (member.licenceNumber ?? '')
-          }
-          className="h-11 shrink-0 rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
-        >
-          {saveLicence.isPending
-            ? 'Saving…'
-            : saveLicence.isSuccess
-              ? 'Saved'
-              : 'Save'}
-        </button>
-      </form>
-      {/* A failed save used to leave only the button saying "Save" again. */}
-      <FormAlert
-        error={saveLicence.isError ? saveLicence.error : null}
-        className="mt-2"
+        }
       />
-      {!member.licenceNumber && (
-        <p className="mt-1.5 text-caption text-amber-ink">
-          Without this they cannot finalise a termite certificate, timber pest
-          inspection or treatment record.
-        </p>
-      )}
-
-      {/* Phase 8.1: the licence document they uploaded, read-only. */}
-      {member.hasLicenceFile && (
-        <div className="mt-2 flex flex-wrap items-center">
-          <MemberLicenceButton
-            businessId={businessId}
-            membershipId={member._id}
-            name={member.name || member.email || 'This person'}
-          />
+      <SwitchRow
+        label="Can see job prices"
+        description="Prices on jobs and revenue on the dashboard."
+        checked={member.grants.prices}
+        disabled={setGrants.isPending || !hydrated}
+        onChange={(checked) =>
+          // The whole object with one field changed. Sending only the
+          // change would make every other toggle false the first time a
+          // legacy row gets a `grants` object written to it.
+          setGrants.mutate({
+            businessId,
+            membershipId: member._id,
+            grants: { ...member.grants, prices: checked },
+          })
+        }
+      />
+      <SwitchRow
+        label="Can view other accounts"
+        description="Switch to other subcontractors' views — never the owner's."
+        checked={member.canViewOtherAccounts}
+        disabled={setViewOthers.isPending || !hydrated}
+        onChange={(checked) =>
+          setViewOthers.mutate({
+            businessId,
+            membershipId: member._id,
+            canViewOtherAccounts: checked,
+          })
+        }
+      />
+      {failed !== null && (
+        <div className="px-3.5 py-3">
+          <FormAlert error={failed} />
         </div>
       )}
+    </SettingsGroup>
+  )
+}
 
-      {!isOwner && (
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-hairline-2 pt-3">
-          <label className="flex items-center gap-2">
-            <span className="text-caption text-muted">Role</span>
-            <select
-              value={member.role}
-              disabled={setRole.isPending}
-              onChange={(e) =>
-                setRole.mutate({
-                  businessId,
-                  membershipId: member._id,
-                  role: e.target.value as 'subcontractor' | 'contractor',
-                })
-              }
-              className="h-9 rounded-xl bg-surface-3 px-2.5 text-body text-ink outline-none focus:ring-2 focus:ring-blue disabled:opacity-50"
-            >
-              <option value="subcontractor">Subcontractor</option>
-              <option value="contractor">Contractor</option>
-            </select>
-          </label>
-
-          {/* Only a subcontractor belongs to a team — a contractor's place is
-              beside the owner, and the model is one level deep. */}
-          {member.role === 'subcontractor' && contractors.length > 0 && (
-            <label className="flex items-center gap-2">
-              <span className="text-caption text-muted">Works under</span>
-              <select
-                value={member.parentMembershipId ?? ''}
-                disabled={assignTo.isPending}
-                onChange={(e) =>
-                  assignTo.mutate({
-                    businessId,
-                    membershipId: member._id,
-                    parentMembershipId:
-                      e.target.value === ''
-                        ? null
-                        : (e.target.value as Id<'memberships'>),
-                  })
-                }
-                className="h-9 rounded-xl bg-surface-3 px-2.5 text-body text-ink outline-none focus:ring-2 focus:ring-blue disabled:opacity-50"
-              >
-                <option value="">Nobody — answers to you</option>
-                {contractors.map((c) => (
-                  <option key={c._id} value={c._id}>
-                    {c.name || c.email}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-      )}
-
-      {/* Owners already see everything, so offering the toggle would imply it
-          could be turned off. */}
-      {!isOwner && (
-        <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
-          <span className="min-w-0">
-            <span className="block text-body text-ink">Can view all jobs</span>
-            <span className="block text-caption text-muted">
-              Read-only visibility of the whole schedule and property history.
-              Never the right to edit someone else's booking.
-            </span>
-          </span>
-          <Switch.Root
-            checked={member.grants.otherSchedules}
-            disabled={setGrants.isPending}
-            onCheckedChange={(checked) =>
-              setGrants.mutate({
-                businessId,
-                membershipId: member._id,
-                grants: { ...member.grants, otherSchedules: checked },
-              })
-            }
-            className="relative mt-0.5 h-[31px] w-[51px] shrink-0 rounded-full bg-fill-track transition data-[state=checked]:bg-green disabled:opacity-50"
-          >
-            <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
-          </Switch.Root>
-        </label>
-      )}
-
-      {!isOwner && (
-        <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
-          <span className="min-w-0">
-            <span className="block text-body text-ink">Can see job prices</span>
-            <span className="block text-caption text-muted">
-              Prices on jobs, and the revenue figures on the dashboard and
-              analytics. With this off they see the work, not what it is worth.
-            </span>
-          </span>
-          <Switch.Root
-            checked={member.grants.prices}
-            disabled={setGrants.isPending}
-            onCheckedChange={(checked) =>
-              // The whole object with one field changed. Sending only the
-              // change would make every other toggle false the first time a
-              // legacy row gets a `grants` object written to it.
-              setGrants.mutate({
-                businessId,
-                membershipId: member._id,
-                grants: { ...member.grants, prices: checked },
-              })
-            }
-            className="relative mt-0.5 h-[31px] w-[51px] shrink-0 rounded-full bg-fill-track transition data-[state=checked]:bg-green disabled:opacity-50"
-          >
-            <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
-          </Switch.Root>
-        </label>
-      )}
-
-      {!isOwner && (
-        <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
-          <span className="min-w-0">
-            <span className="block text-body text-ink">
-              Can view other accounts
-            </span>
-            <span className="block text-caption text-muted">
-              Lets them switch their own view to see other subcontractors'
-              schedules and clients from the header account menu — never the
-              owner's, even with this on.
-            </span>
-          </span>
-          <Switch.Root
-            checked={member.canViewOtherAccounts}
-            disabled={setViewOthers.isPending}
-            onCheckedChange={(checked) =>
-              setViewOthers.mutate({
-                businessId,
-                membershipId: member._id,
-                canViewOtherAccounts: checked,
-              })
-            }
-            className="relative mt-0.5 h-[31px] w-[51px] shrink-0 rounded-full bg-fill-track transition data-[state=checked]:bg-green disabled:opacity-50"
-          >
-            <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
-          </Switch.Root>
-        </label>
-      )}
-
-      {!isOwner && (
-        <ResetTwoStepButton
-          businessId={businessId}
-          membershipId={member._id}
-          name={member.name || member.email}
-          twoStepOn={member.twoStepOn}
-        />
-      )}
-
-      {!isOwner && (
-        <RemoveMember businessId={businessId} member={member} others={others} />
-      )}
-    </div>
+/**
+ * A switch as a row. The whole row is its <label>, so a gloved tap anywhere
+ * on the words flips it; the switch's own name is just the title, which is
+ * what a screen reader (and the e2e suite) calls it. The line under it wraps
+ * rather than truncating like a link row's subtitle: it is what the switch
+ * does, and half of it is no use.
+ */
+function SwitchRow({
+  label,
+  description,
+  checked,
+  disabled,
+  onChange,
+}: {
+  label: string
+  description: ReactNode
+  checked: boolean
+  disabled: boolean
+  onChange: (checked: boolean) => void
+}) {
+  const descriptionId = useId()
+  return (
+    <label className={ROW_CLASS}>
+      <span className="min-w-0 flex-1">
+        <span className="block text-body text-ink">{label}</span>
+        <span id={descriptionId} className="block text-caption text-muted">
+          {description}
+        </span>
+      </span>
+      <Switch.Root
+        aria-label={label}
+        aria-describedby={descriptionId}
+        checked={checked}
+        disabled={disabled}
+        onCheckedChange={onChange}
+        className="relative h-[31px] w-[51px] shrink-0 rounded-full bg-fill-track transition data-[state=checked]:bg-green disabled:opacity-50"
+      >
+        <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
+      </Switch.Root>
+    </label>
   )
 }
 
@@ -360,11 +503,15 @@ function RemoveMember({
   businessId,
   member,
   others,
+  onRemoved,
 }: {
   businessId: Id<'businesses'>
   member: Member
   others: Array<Member>
+  onRemoved: () => void
 }) {
+  const hydrated = useHydrated()
+  const reassignId = useId()
   const [confirming, setConfirming] = useState(false)
   const [reassignTo, setReassignTo] = useState<Id<'memberships'> | ''>('')
 
@@ -383,7 +530,12 @@ function RemoveMember({
       membershipId: Id<'memberships'>
       reassignTo?: Id<'memberships'>
     }) => convexRemove(args),
-    onSuccess: () => setConfirming(false),
+    // On the mutation, not on the call: by the time it resolves the roster
+    // has already dropped them, and the page may have unmounted this.
+    onSuccess: () => {
+      setConfirming(false)
+      onRemoved()
+    },
   })
 
   const handover =
@@ -391,23 +543,20 @@ function RemoveMember({
 
   if (!confirming) {
     return (
-      <div className="mt-3 border-t border-hairline-2 pt-3">
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          className="text-caption font-semibold text-red"
-        >
-          Remove from team
-        </button>
-      </div>
+      <button
+        type="button"
+        disabled={!hydrated}
+        onClick={() => setConfirming(true)}
+        className={DANGER_ROW_CLASS}
+      >
+        Remove from team
+      </button>
     )
   }
 
   return (
-    <div className="mt-3 border-t border-hairline-2 pt-3">
-      <p className="text-body text-ink">
-        Remove {member.name || member.email}?
-      </p>
+    <div className="px-3.5 py-3">
+      <p className="text-body text-ink">Remove {memberName(member)}?</p>
       <p className="mt-1 text-caption text-muted">
         {preview.isPending
           ? 'Checking what they have on…'
@@ -415,14 +564,17 @@ function RemoveMember({
       </p>
 
       {handover && (
-        <label className="mt-3 flex flex-col gap-1.5">
-          <span className="section-label">Hand their work to</span>
+        <div className="mt-3 flex flex-col gap-1.5">
+          <label htmlFor={reassignId} className={FIELD_LABEL}>
+            Hand their work to
+          </label>
           <select
+            id={reassignId}
             value={reassignTo}
             onChange={(e) =>
               setReassignTo(e.target.value as Id<'memberships'> | '')
             }
-            className="h-11 rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={fieldInputClass()}
           >
             <option value="">Choose someone…</option>
             {others.map((other) => (
@@ -431,16 +583,11 @@ function RemoveMember({
               </option>
             ))}
           </select>
-        </label>
+        </div>
       )}
 
       {remove.isError && (
-        <p
-          role="alert"
-          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          {removeError(remove.error)}
-        </p>
+        <FormAlert className="mt-2">{removeError(remove.error)}</FormAlert>
       )}
 
       <div className="mt-3 flex gap-2">

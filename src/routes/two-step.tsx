@@ -24,8 +24,8 @@ import { useHydrated } from '#/lib/useHydrated'
 
 /**
  * Setting up two-step sign-in. Optional (convex/lib/mfa.ts): people arrive
- * here from "Turn on two-step sign-in" in Settings → Profile, and "Not now"
- * takes them back. Where a deployment makes it compulsory
+ * here from "Turn on two-step sign-in" in Settings → Two-step sign-in, and
+ * "Not now" takes them back. Where a deployment makes it compulsory
  * (`AUTH_MFA_REQUIRED=on`), this is also where the app sends anyone signed in
  * who has not done it — after creating an account from an invitation, after
  * the owner has reset them — the server refuses them everything else until it
@@ -120,7 +120,7 @@ function TwoStepPage() {
           setup={setup}
           onVerified={() => {
             // On from here, whether or not the codes below are ever saved:
-            // until "I've saved these", Profile asks for new ones.
+            // until "I've saved these", Settings asks for new ones.
             if (userId) {
               markSetUpStarted(userId, false)
               markRecoveryCodesUnsaved(userId, true)

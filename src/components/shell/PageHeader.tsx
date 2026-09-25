@@ -7,6 +7,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 
 export function PageHeader({
   kicker,
+  back,
   title,
   action,
   onKickerClick,
@@ -14,6 +15,9 @@ export function PageHeader({
   businessSlug,
 }: {
   kicker?: string
+  /** A way back up, in the kicker's place — Settings' pages carry
+   * "‹ Settings" here. Wins over `kicker` when both are given. */
+  back?: ReactNode
   title: string
   action?: ReactNode
   /** Makes the kicker a control — the schedule uses it to open the month grid. */
@@ -30,14 +34,18 @@ export function PageHeader({
       <SidebarTrigger className="mb-1 hidden shrink-0 lg:flex" />
 
       <div className="min-w-0 flex-1">
-        {kicker &&
+        {back}
+        {!back &&
+          kicker &&
           (onKickerClick ? (
             <button
               type="button"
               onClick={onKickerClick}
               className="mb-0.5 flex items-center gap-1 text-blue"
             >
-              <span className="section-label truncate !text-blue">{kicker}</span>
+              <span className="section-label truncate !text-blue">
+                {kicker}
+              </span>
               <ChevronDown size={13} strokeWidth={2.4} />
             </button>
           ) : (

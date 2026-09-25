@@ -179,9 +179,8 @@ export function ViewMenu({
               <DropdownMenu.Separator className="my-1 border-t border-hairline" />
               <DropdownMenu.Item asChild>
                 <Link
-                  to="/$businessSlug/settings"
+                  to="/$businessSlug/settings/licence"
                   params={{ businessSlug }}
-                  search={{ seg: 'profile' }}
                   className="flex items-start gap-2 rounded-xl px-2.5 py-2 text-caption text-muted outline-none transition data-[highlighted]:bg-surface-2"
                 >
                   <BadgeCheck

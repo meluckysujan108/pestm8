@@ -29,7 +29,8 @@ export function licenceKeyOf(membershipId: string, uploadedAt: number): string {
  */
 const held = new Map<string, Blob>()
 
-/** The bytes held for `key` this page load, if any — for the Profile tile. */
+/** The bytes held for `key` this page load, if any — for the Licence page's
+ * tile. */
 export function heldLicence(key: string): Blob | null {
   return held.get(key) ?? null
 }

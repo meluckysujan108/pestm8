@@ -52,12 +52,13 @@ should not disappear when an environment variable goes missing:
 | `AUTH_BREACH_CHECK=off` | Stops checking passwords against Have I Been Pwned. Set on the e2e deployment only. |
 
 **Two-step sign-in** (authenticator app + ten recovery codes) is optional:
-each person turns it on or off in Settings → Profile, with their password.
-Once on, a code is asked for at every sign-in — there is no "trust this
-device". A technician who loses their phone signs in with a recovery code; one
-who has lost both is reset by the business owner from Settings → Team. Turning
-it on signs the account out on every other device, and ten wrong codes in a
-row lock the account's code check for 15 minutes.
+each person turns it on or off in Settings → Two-step sign-in, with their
+password. Once on, a code is asked for at every sign-in — there is no "trust
+this device". A technician who loses their phone signs in with a recovery
+code; one who has lost both is reset by the business owner from Settings →
+Team (their own page there). Turning it on signs the account out on every
+other device, and ten wrong codes in a row lock the account's code check for
+15 minutes.
 
 `AUTH_MFA_REQUIRED=on` makes it compulsory on that deployment: every app
 function then refuses a signed-in account that has not set it up

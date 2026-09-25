@@ -3,6 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { useAccess, useCan } from '#/lib/access'
+import { useHydrated } from '#/lib/useHydrated'
+import { DANGER_ROW_CLASS } from './ui'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -18,6 +20,9 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * real in both directions: the person is signed out everywhere, and until
  * they turn it on again their password alone signs them in.
  * So: confirm it really is them before pressing it.
+ *
+ * A row of the member page's last group (`DangerGroup`), in red with Remove
+ * from team: both take something away from the person, and both ask first.
  */
 export function ResetTwoStepButton({
   businessId,
@@ -36,6 +41,7 @@ export function ResetTwoStepButton({
   const canManage = useCan('team.manage')
   const isOwner = useAccess().role === 'owner'
   const [confirming, setConfirming] = useState(false)
+  const hydrated = useHydrated()
   // What happens after the reset depends on it: where two-step sign-in is
   // compulsory (`AUTH_MFA_REQUIRED=on`) they are sent to set it up again at
   // their next sign-in; where it is optional, they are simply without it.
@@ -54,7 +60,7 @@ export function ResetTwoStepButton({
   if (!canManage || !isOwner) return null
   if (twoStepOn !== true) {
     return reset.isSuccess ? (
-      <p className="mt-3 border-t border-hairline-2 pt-3 text-caption text-muted">
+      <p role="status" className="px-3.5 py-3 text-caption text-muted">
         {required
           ? `Two-step sign-in reset. ${name} sets it up again at their next sign-in.`
           : `Two-step sign-in reset. ${name} signs in with just their password until they turn it on again in Settings.`}
@@ -64,22 +70,20 @@ export function ResetTwoStepButton({
 
   if (!confirming) {
     return (
-      <div className="mt-3 border-t border-hairline-2 pt-3">
-        <button
-          type="button"
-          onClick={() => setConfirming(true)}
-          // 44 px tall however small the words: pressed in a driveway, with
-          // gloves on.
-          className="inline-flex min-h-11 items-center text-caption font-semibold text-blue"
-        >
-          Reset two-step sign-in
-        </button>
-      </div>
+      <button
+        type="button"
+        disabled={!hydrated}
+        onClick={() => setConfirming(true)}
+        // A full-width row, 52 px tall: pressed in a driveway, with gloves on.
+        className={DANGER_ROW_CLASS}
+      >
+        Reset two-step sign-in
+      </button>
     )
   }
 
   return (
-    <div className="mt-3 border-t border-hairline-2 pt-3">
+    <div className="px-3.5 py-3">
       <p className="text-body text-ink">Reset two-step sign-in for {name}?</p>
       <p className="mt-1 text-caption text-muted">
         For when they have lost their phone and their recovery codes. They are

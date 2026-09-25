@@ -1,7 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useRef, useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
-import { FileText, ImageIcon, LoaderCircle, Upload } from 'lucide-react'
+import {
+  ChevronRight,
+  FileText,
+  ImageIcon,
+  LoaderCircle,
+  Upload,
+} from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
   LICENCE_ACCEPT,
@@ -9,37 +15,28 @@ import {
   cleanLicenceFileName,
 } from '../../../convex/lib/licences'
 import { FormAlert } from '#/components/forms/FormAlert'
-import {
-  useObjectUrl,
-  useOnline,
-  useStillPendingAfter,
-} from '#/components/products/hooks'
-import {
-  forgetKeptLicence,
-  keepLicence,
-  readKeptLicence,
-} from '#/lib/keptLicence'
+import { useObjectUrl } from '#/components/products/hooks'
+import { forgetKeptLicence, keepLicence } from '#/lib/keptLicence'
 import { formatBytes, uploadToStorage } from '#/lib/pdfFiles'
-import { rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import { LicenceViewer } from './LicenceViewer'
 import { heldLicence, holdLicence, licenceKeyOf } from './licenceSource'
+import { ROW_CLASS, RowBody, SettingsGroup } from './ui'
+import { useMyLicence } from './useMyLicence'
 import type { ChangeEvent } from 'react'
-import type { KeptLicence } from '#/lib/keptLicence'
-import type { LicenceView } from './licenceSource'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
- * The licence document on Profile (Phase 8.1): add a PDF, PNG or JPG of your
- * licence, see it inside the app, replace or remove it.
+ * The licence document on Settings → Licence (Phase 8.1): add a PDF, PNG or
+ * JPG of your licence, see it inside the app, replace or remove it.
  *
- * Mounted under the licence number, in its card but not part of its Save:
- * the number saves when Save is pressed; a file is saved the moment it is
- * picked, which is what every phone does with a file it has been handed.
+ * Its own group, apart from the licence number and its Save: the number
+ * saves when Save is pressed; a file is saved the moment it is picked, which
+ * is what every phone does with a file it has been handed.
  *
  * With no signal the query waits rather than fails, so after a few seconds
  * the copy kept on this phone (`keptLicence.ts`) stands in for it, and opens
- * as the live one would.
+ * as the live one would (`useMyLicence`).
  */
 
 /** Words for the refusals `licences.setFile` can make. */
@@ -81,46 +78,11 @@ export function LicenceDocument({
   businessId: Id<'businesses'>
   membershipId: Id<'memberships'>
 }) {
-  const live = useQuery(rq.licenceFile(businessId, membershipId))
-  const online = useOnline()
+  const { live, kept, setKept, shown, online } = useMyLicence(
+    businessId,
+    membershipId,
+  )
   const hydrated = useHydrated()
-  const late = useStillPendingAfter(live.isPending, 4000)
-
-  // The copy on this phone: read when the page opens and whenever the live
-  // version changes, so the tile can stand in for the query with no signal.
-  const [kept, setKept] = useState<KeptLicence | null>(null)
-  const liveUploadedAt = live.data?.uploadedAt
-  useEffect(() => {
-    let current = true
-    void readKeptLicence(businessId, membershipId).then((copy) => {
-      if (current) setKept(copy)
-    })
-    return () => {
-      current = false
-    }
-  }, [businessId, membershipId, liveUploadedAt])
-
-  // Removed on another phone: the copy here goes too.
-  const removedElsewhere = live.data === null
-  useEffect(() => {
-    if (!removedElsewhere) return
-    void forgetKeptLicence(businessId, membershipId).then(() => setKept(null))
-  }, [businessId, membershipId, removedElsewhere])
-
-  const shown: LicenceView | null | undefined =
-    live.data !== undefined
-      ? live.data
-      : kept && (late || !online || live.isError)
-        ? {
-            url: null,
-            kind: kept.meta.kind,
-            contentType: kept.meta.contentType,
-            fileName: kept.meta.fileName,
-            size: kept.meta.size,
-            uploadedAt: kept.meta.uploadedAt,
-            mine: true,
-          }
-        : undefined
 
   const [open, setOpen] = useState(false)
   const picker = useRef<HTMLInputElement>(null)
@@ -197,6 +159,11 @@ export function LicenceDocument({
   }
 
   const busy = upload.isPending || remove.isPending
+  const actionError = upload.isError
+    ? upload.error
+    : remove.isError
+      ? remove.error
+      : null
 
   // The thumbnail: bytes this phone already has for this version — the kept
   // copy, or what this page load uploaded or opened — else the plain photo
@@ -205,7 +172,7 @@ export function LicenceDocument({
   // cross-origin and all) in a cache nothing clears at sign-out — so on a
   // shared tablet the card, with its date of birth and home address, stayed
   // behind for the next person, under a storage URL that never stops working.
-  // And it pulled a photo of up to 10 MB over mobile data to draw 56 pixels.
+  // And it pulled a photo of up to 10 MB over mobile data to draw 48 pixels.
   // Never for a PDF, which has a plain tile.
   const photo =
     shown?.kind === 'image'
@@ -216,8 +183,147 @@ export function LicenceDocument({
   const thumbnail = useObjectUrl(photo)
 
   return (
-    <div className="mt-3 border-t border-hairline-2 pt-3">
-      <span className="section-label">Licence document</span>
+    <>
+      <SettingsGroup
+        title="Licence document"
+        footer="Only you and the business owner can see it. Kept on this phone for sites with no signal."
+      >
+        {shown === undefined ? (
+          live.isError ? (
+            <div className="px-3.5 py-3">
+              <FormAlert
+                error={live.error}
+                copy={{
+                  default: 'Could not load your licence. Try again later.',
+                }}
+              />
+            </div>
+          ) : (
+            <div className={`${ROW_CLASS} justify-center`}>
+              <LoaderCircle
+                aria-hidden
+                size={20}
+                strokeWidth={2}
+                className="animate-spin text-muted"
+              />
+              <span className="sr-only" role="status">
+                Loading your licence
+              </span>
+            </div>
+          )
+        ) : shown === null ? (
+          <button
+            type="button"
+            onClick={choose}
+            disabled={busy || !hydrated}
+            className={`${ROW_CLASS} disabled:opacity-60`}
+          >
+            <RowBody
+              icon={Upload}
+              tint="blue"
+              leading={upload.isPending ? <Spinner /> : undefined}
+              title={upload.isPending ? 'Uploading…' : 'Add your licence'}
+              subtitle="PDF, PNG or JPG"
+            />
+          </button>
+        ) : (
+          <>
+            {/* The whole row opens it: there is no separate View button. */}
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              disabled={!hydrated}
+              aria-label={`View your licence, ${shown.fileName}`}
+              className={`${ROW_CLASS} disabled:opacity-60`}
+            >
+              <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-2 text-muted">
+                {thumbnail ? (
+                  <img
+                    src={thumbnail}
+                    alt=""
+                    draggable={false}
+                    className="size-full object-cover"
+                  />
+                ) : shown.kind === 'pdf' ? (
+                  <FileText aria-hidden size={22} strokeWidth={1.6} />
+                ) : (
+                  <ImageIcon aria-hidden size={22} strokeWidth={1.6} />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-body font-semibold text-ink">
+                  {shown.fileName}
+                </span>
+                <span className="block truncate text-caption text-muted">
+                  {shown.kind === 'pdf' ? 'PDF' : 'Photo'} ·{' '}
+                  {formatBytes(shown.size)}
+                  {/* The phone's own date, after hydration: the server
+                      renders in UTC, and a licence added late in the evening
+                      in Perth would otherwise disagree about the day. */}
+                  {hydrated &&
+                    ` · Added ${new Date(shown.uploadedAt).toLocaleDateString(
+                      'en-AU',
+                      { day: 'numeric', month: 'short', year: 'numeric' },
+                    )}`}
+                </span>
+                {live.data === undefined && (
+                  <span className="block text-caption text-orange-ink">
+                    Showing the copy on this phone
+                  </span>
+                )}
+                {live.data && live.data.url === null && (
+                  <span className="block text-caption text-orange-ink">
+                    The file is missing — upload it again.
+                  </span>
+                )}
+              </span>
+              <ChevronRight
+                aria-hidden
+                size={17}
+                strokeWidth={2.2}
+                className="shrink-0 text-muted-2"
+              />
+            </button>
+            {/* Only once the live document has answered: while the kept copy
+                stands in, there is no signal to send a change with. */}
+            <div className="grid grid-cols-2 divide-x divide-hairline">
+              <button
+                type="button"
+                onClick={choose}
+                disabled={busy || !hydrated || live.data === undefined}
+                className="min-h-11 text-body font-semibold text-blue transition active:bg-surface-2 disabled:opacity-50"
+              >
+                {upload.isPending ? 'Uploading…' : 'Replace'}
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      'Remove your licence document? You can add it again at any time.',
+                    )
+                  ) {
+                    remove.mutate()
+                  }
+                }}
+                disabled={busy || !hydrated || live.data === undefined}
+                className="min-h-11 text-body font-semibold text-red transition active:bg-surface-2 disabled:opacity-50"
+              >
+                {remove.isPending ? 'Removing…' : 'Remove'}
+              </button>
+            </div>
+          </>
+        )}
+        {actionError && (
+          <div className="px-3.5 py-3">
+            <FormAlert error={actionError} copy={LICENCE_ERRORS} />
+          </div>
+        )}
+      </SettingsGroup>
+
+      {/* After the group, not in it: the card's hairlines go between its
+          children, and a hidden first child would draw one above the top
+          row. */}
       <input
         ref={picker}
         type="file"
@@ -226,154 +332,6 @@ export function LicenceDocument({
         tabIndex={-1}
         aria-hidden
         onChange={onPicked}
-      />
-
-      {shown === undefined ? (
-        live.isError ? (
-          <FormAlert
-            error={live.error}
-            copy={{ default: 'Could not load your licence. Try again later.' }}
-            className="mt-1.5"
-          />
-        ) : (
-          <div className="mt-1.5 flex h-16 items-center justify-center rounded-xl bg-surface-3">
-            <LoaderCircle
-              aria-hidden
-              size={20}
-              strokeWidth={2}
-              className="animate-spin text-muted"
-            />
-            <span className="sr-only" role="status">
-              Loading your licence
-            </span>
-          </div>
-        )
-      ) : shown === null ? (
-        <button
-          type="button"
-          onClick={choose}
-          disabled={busy || !hydrated}
-          className="mt-1.5 flex min-h-12 w-full items-center gap-3 rounded-xl border border-dashed border-hairline bg-surface-3 px-3.5 py-3 text-left text-[16px] text-ink transition active:scale-[.985] disabled:opacity-60"
-        >
-          {upload.isPending ? (
-            <LoaderCircle
-              aria-hidden
-              size={20}
-              strokeWidth={2}
-              className="shrink-0 animate-spin text-muted"
-            />
-          ) : (
-            <Upload
-              aria-hidden
-              size={20}
-              strokeWidth={1.8}
-              className="shrink-0 text-blue"
-            />
-          )}
-          <span>
-            {upload.isPending
-              ? 'Uploading…'
-              : 'Add your licence (PDF, PNG or JPG)'}
-          </span>
-        </button>
-      ) : (
-        <div className="mt-1.5 rounded-xl bg-surface-3 p-2.5">
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            disabled={!hydrated}
-            aria-label={`View your licence, ${shown.fileName}`}
-            className="flex w-full items-center gap-3 text-left transition active:scale-[.985]"
-          >
-            <span className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-surface-2 text-muted">
-              {thumbnail ? (
-                <img
-                  src={thumbnail}
-                  alt=""
-                  draggable={false}
-                  className="size-full object-cover"
-                />
-              ) : shown.kind === 'pdf' ? (
-                <FileText aria-hidden size={24} strokeWidth={1.6} />
-              ) : (
-                <ImageIcon aria-hidden size={24} strokeWidth={1.6} />
-              )}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block truncate text-[16px] font-semibold text-ink">
-                {shown.fileName}
-              </span>
-              <span className="block truncate text-caption text-muted">
-                {shown.kind === 'pdf' ? 'PDF' : 'Photo'} ·{' '}
-                {formatBytes(shown.size)}
-                {/* The phone's own date, after hydration: the server renders
-                    in UTC, and a licence added late in the evening in Perth
-                    would otherwise disagree about the day. */}
-                {hydrated &&
-                  ` · Added ${new Date(shown.uploadedAt).toLocaleDateString(
-                    'en-AU',
-                    { day: 'numeric', month: 'short', year: 'numeric' },
-                  )}`}
-              </span>
-              {live.data === undefined && (
-                <span className="block text-caption text-orange-ink">
-                  Showing the copy on this phone
-                </span>
-              )}
-              {live.data && live.data.url === null && (
-                <span className="block text-caption text-orange-ink">
-                  The file is missing — upload it again.
-                </span>
-              )}
-            </span>
-          </button>
-          <div className="mt-2.5 grid grid-cols-3 gap-2">
-            <button
-              type="button"
-              onClick={() => setOpen(true)}
-              disabled={!hydrated}
-              className="h-11 rounded-xl bg-blue text-[15px] font-semibold text-on-tint transition active:scale-[.975] disabled:opacity-50"
-            >
-              View
-            </button>
-            <button
-              type="button"
-              onClick={choose}
-              disabled={busy || !hydrated || live.data === undefined}
-              className="h-11 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
-            >
-              {upload.isPending ? 'Uploading…' : 'Replace'}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (
-                  window.confirm(
-                    'Remove your licence document? You can add it again at any time.',
-                  )
-                ) {
-                  remove.mutate()
-                }
-              }}
-              disabled={busy || !hydrated || live.data === undefined}
-              className="h-11 rounded-xl bg-surface-2 text-[15px] font-semibold text-red transition active:scale-[.975] disabled:opacity-50"
-            >
-              {remove.isPending ? 'Removing…' : 'Remove'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      <p className="mt-2 text-caption text-muted">
-        Only you and the business owner can see it. It’s kept on this phone once
-        you’ve opened it, for sites with no signal.
-      </p>
-      <FormAlert
-        error={
-          upload.isError ? upload.error : remove.isError ? remove.error : null
-        }
-        copy={LICENCE_ERRORS}
-        className="mt-2"
       />
 
       {open && shown && (
@@ -389,6 +347,22 @@ export function LicenceDocument({
           }}
         />
       )}
-    </div>
+    </>
+  )
+}
+
+/** An upload in flight, in the icon tile's place. */
+function Spinner() {
+  return (
+    <span
+      aria-hidden
+      className="flex size-[30px] shrink-0 items-center justify-center"
+    >
+      <LoaderCircle
+        size={20}
+        strokeWidth={2}
+        className="animate-spin text-muted"
+      />
+    </span>
   )
 }

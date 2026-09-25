@@ -91,14 +91,15 @@ export function ColourPicker({
 
   const sharedWith = holders(current)
 
+  // A row of its own inside the member page's "Colour" group, which carries
+  // the heading — so no label of its own here, only the radio group's name.
   return (
-    <div>
-      <p className="section-label">Colour</p>
+    <div className="px-2 py-2">
       <RadioGroup.Root
         aria-label={`Colour for ${name}`}
         value={selected}
         onValueChange={choose}
-        className="mt-1 flex flex-wrap gap-0.5"
+        className="flex flex-wrap gap-0.5"
       >
         {!offered && (
           <RadioGroup.Item
@@ -146,18 +147,18 @@ export function ColourPicker({
         })}
       </RadioGroup.Root>
       {!offered && (
-        <p className="mt-1 text-caption text-ink-2">
+        <p className="mt-1 px-1.5 text-caption text-ink-2">
           Their current colour is no longer offered. Pick one of these.
         </p>
       )}
       {sharedWith.length > 0 && (
-        <p className="mt-1 text-caption text-ink-2">
+        <p className="mt-1 px-1.5 text-caption text-ink-2">
           {sharedWith.join(' and ')} {sharedWith.length === 1 ? 'has' : 'have'}{' '}
           this colour too, so their jobs look the same on the schedule.
         </p>
       )}
       {save.isError && (
-        <p role="alert" className="mt-1.5 text-caption text-amber-ink">
+        <p role="alert" className="mt-1.5 px-1.5 text-caption text-amber-ink">
           Could not change the colour. Check your connection and try again.
         </p>
       )}

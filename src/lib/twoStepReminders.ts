@@ -11,8 +11,8 @@
  *    set-up screen says so when it starts again.
  * 2. That recovery codes were SHOWN but "I've saved these" was never pressed.
  *    Checking the code turns two-step sign-in on before the codes are shown,
- *    so a reload there lands in the app with the codes gone. Profile's
- *    two-step card then asks for new ones until they are confirmed saved.
+ *    so a reload there lands in the app with the codes gone. Settings →
+ *    Two-step sign-in then asks for new ones until they are confirmed saved.
  *
  * Flags only — never the secret or the codes themselves, which would sit in
  * the browser's storage for whoever uses the device next. Keyed by the

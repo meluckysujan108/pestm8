@@ -28,12 +28,13 @@ test('caption text renders muted and small, not as a background colour', async (
   })
 
   await signInViaUi(page, email)
-  await page.goto(`/${slug}/settings?seg=prefs`)
+  await page.goto(`/${slug}/settings/business`)
 
-  // Rendered straight from route context (no query, no lazy chunk), so it's
-  // present on first paint — unlike a loading skeleton, which can finish and
-  // unmount between the visibility check and the computed-style read below.
-  const caption = page.getByText(/State determines your timezone/)
+  // The Business group's footer, rendered from the business the layout already
+  // holds (no query of its own to wait for), so it's present on first paint —
+  // unlike a loading skeleton, which can finish and unmount between the
+  // visibility check and the computed-style read below.
+  const caption = page.getByText(/State sets your timezone/)
   await expect(caption).toBeVisible()
 
   const { color, fontSize } = await caption.evaluate((node) => {

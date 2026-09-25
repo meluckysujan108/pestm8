@@ -1,0 +1,123 @@
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
+import { PageHeader } from '#/components/shell/PageHeader'
+import { EmptyState } from '#/components/primitives/EmptyState'
+import {
+  MemberSettings,
+  memberName,
+} from '#/components/settings/MemberAccessRow'
+import { BackLink, SettingsBody } from '#/components/settings/ui'
+import { TeamOwnerOnly } from '#/components/settings/TeamOwnerOnly'
+import { useCan } from '#/lib/access'
+import { rq, settleWithin, warm } from '#/lib/routeQueries'
+import type { Access } from '#/lib/access'
+import type { Id } from '../../../../../convex/_generated/dataModel'
+
+/** How long the loader holds the navigation for its queries, at most. */
+const LOADER_WAIT_MS = 2000
+
+export const Route = createFileRoute('/$businessSlug/settings/team/$memberId')({
+  // The management roster, which the page finds this person in — the same
+  // entry the Team page reads, so coming from there it is already cached.
+  // Only for whoever may read it (`access.me` is warm from the layout), and
+  // never waited on past LOADER_WAIT_MS: with no signal a Convex query never
+  // answers, and the page's placeholder is the better answer to that.
+  loader: ({ context: { queryClient, business } }) => {
+    const access = queryClient.getQueryData<Access>(
+      rq.access(business._id).queryKey,
+    )
+    if (access?.caps['team.manage'] !== true) return
+    return settleWithin(
+      LOADER_WAIT_MS,
+      warm(queryClient, rq.team(business._id)),
+    )
+  },
+  component: MemberPage,
+})
+
+function MemberPage() {
+  // Live, not from the route: a switch into someone else's account drops
+  // `team.manage` at the server, and the roster below with it.
+  const canManageTeam = useCan('team.manage')
+
+  if (!canManageTeam) {
+    return (
+      <MemberFrame title="Team member">
+        <TeamOwnerOnly />
+      </MemberFrame>
+    )
+  }
+  return <MemberLoaded />
+}
+
+function MemberLoaded() {
+  const { business } = Route.useRouteContext()
+  const { memberId } = Route.useParams()
+  const navigate = useNavigate()
+  const { data: members } = useSuspenseQuery(rq.team(business._id))
+
+  // By id from the address, so an old link, or someone since removed, lands
+  // here rather than on another person's settings.
+  const member = members.find((m) => m._id === (memberId as Id<'memberships'>))
+
+  if (!member) {
+    return (
+      <MemberFrame title="Not found">
+        <EmptyState
+          title="They're no longer on your team."
+          body="Whoever this link was for has left, or it was mistyped."
+        />
+      </MemberFrame>
+    )
+  }
+
+  return (
+    <MemberFrame title={memberName(member)}>
+      <MemberSettings
+        businessId={business._id}
+        member={member}
+        others={members.filter(
+          (m) => m._id !== member._id && m.status === 'active',
+        )}
+        onRemoved={() =>
+          void navigate({
+            to: '/$businessSlug/settings/team',
+            params: { businessSlug: business.slug },
+            // Their page is gone; back should not bring it up again.
+            replace: true,
+          })
+        }
+      />
+    </MemberFrame>
+  )
+}
+
+/** The header and body every state of this page shares. */
+function MemberFrame({
+  title,
+  children,
+}: {
+  title: string
+  children: ReactNode
+}) {
+  const { business } = Route.useRouteContext()
+  return (
+    <>
+      <PageHeader
+        businessId={business._id}
+        businessSlug={business.slug}
+        title={title}
+        back={
+          <BackLink
+            to="/$businessSlug/settings/team"
+            params={{ businessSlug: business.slug }}
+          >
+            Team
+          </BackLink>
+        }
+      />
+      <SettingsBody>{children}</SettingsBody>
+    </>
+  )
+}

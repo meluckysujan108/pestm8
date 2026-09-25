@@ -1,5 +1,11 @@
 import { expect, test } from '@playwright/test'
-import { api, licenceSelf, setupBusinessWithSub, signInViaUi } from './fixtures'
+import {
+  api,
+  clickUntil,
+  licenceSelf,
+  setupBusinessWithSub,
+  signInViaUi,
+} from './fixtures'
 
 /**
  * Working inside somebody else's account, through the browser.
@@ -40,23 +46,32 @@ test('an owner works in a subcontractor’s account, then comes back out', async
   await expect(banner).toBeVisible()
   await expect(page.getByText(/everything you do is recorded/)).toBeVisible()
 
-  /**
-   * The rule that makes switching safe to offer at all. `team.manage` is false
-   * while switched, so the Team tab is not merely hidden — the server has
-   * stopped honouring it, and the two agree because both read the same live
-   * query.
-   */
-  await page.goto(`/${slug}/settings`)
-  await expect(page.getByRole('tab', { name: 'Profile' })).toBeVisible()
-  await expect(page.getByRole('tab', { name: 'Team' })).toBeHidden()
-
   // Editing a profile while switched still edits your own: identity-bearing
   // writes always resolve the real person.
+  await page.goto(`/${slug}/settings/details`)
   await expect(page.getByLabel('Name')).toHaveValue('Terence')
 
-  await page.getByRole('button', { name: 'Switch back' }).click()
-  await expect(banner).toBeHidden()
-  await expect(page.getByRole('tab', { name: 'Team' })).toBeVisible()
+  /**
+   * The rule that makes switching safe to offer at all. `team.manage` is false
+   * while switched, so the Team page offers nothing — not merely hidden, the
+   * server has stopped honouring it, and the two agree because both read the
+   * same live query.
+   */
+  await page.goto(`/${slug}/settings/team`)
+  await expect(
+    page.getByText('Only the business owner can change these.'),
+  ).toBeVisible()
+  const invite = page.getByRole('button', { name: 'Invite', exact: true })
+  await expect(invite).toHaveCount(0)
+
+  // Nothing on this page waits for hydration while switched, so the click is
+  // retried until it takes rather than lost to a page still hydrating.
+  await clickUntil(page.getByRole('button', { name: 'Switch back' }), () =>
+    expect(banner).toBeHidden({ timeout: 2_000 }),
+  )
+  // The same page, live: the team comes back without a reload.
+  await expect(invite).toBeVisible()
+  await expect(page.getByRole('link', { name: /^Kevin/ })).toBeVisible()
 
   // The switch was a real row, and stopping removed it — not just a client
   // flag that a reload would restore.
@@ -131,23 +146,31 @@ test('an owner builds a contractor a team, and the team works in their account',
     await setupBusinessWithSub('switch-contractor')
   await licenceSelf(owner, businessId)
 
-  // Kevin becomes a contractor from the Team screen, which is the only way an
-  // owner has to do it.
+  // Kevin becomes a contractor from his page under Team, which is the only
+  // way an owner has to do it.
   await signInViaUi(page, owner.email)
-  await page.goto(`/${slug}/settings?seg=team`)
-  await expect(page.getByRole('heading', { name: 'Team' })).toBeVisible()
+  await page.goto(`/${slug}/settings/team`)
+  await expect(
+    page.getByRole('heading', { name: 'Team', level: 1 }),
+  ).toBeVisible()
+  // A tap before hydration is dropped. Invite stays disabled until the page
+  // has hydrated.
+  await expect(
+    page.getByRole('button', { name: 'Invite', exact: true }),
+  ).toBeEnabled()
+  await page.getByRole('link', { name: /^Kevin/ }).click()
+  await expect(
+    page.getByRole('heading', { name: 'Kevin', level: 1 }),
+  ).toBeVisible()
+
   // A change before hydration is dropped: the server-rendered select has no
-  // handler yet. Create link stays disabled until the page has hydrated.
-  await expect(page.getByRole('button', { name: 'Create link' })).toBeEnabled()
-
-  await page.getByLabel('Role').selectOption('contractor')
-
-  // The caption under their name is what the owner actually reads, and it is
-  // rendered from the live query rather than from the select they just moved.
-  await expect(page.getByText(/^contractor/i).first()).toBeVisible()
+  // handler yet, so it stays disabled until the page has hydrated.
+  const role = page.getByLabel('Role')
+  await expect(role).toBeEnabled()
+  await role.selectOption('contractor')
 
   // And the server agrees, which is what the screen was claiming. Polled
-  // because the assertion above can settle on the optimistic render.
+  // because the select shows the choice before the server has it.
   await expect
     .poll(async () => {
       const roster = await owner.client.query(api.team.roster, { businessId })
@@ -155,7 +178,15 @@ test('an owner builds a contractor a team, and the team works in their account',
     })
     .toBe('contractor')
 
-  // A contractor can have a team, which is the whole reason the role was held
-  // back until now — so the selector for putting someone on one appears.
+  // Only a subcontractor works under someone: as a contractor, Kevin answers
+  // to the owner, so the selector for putting him on a team is gone.
   await expect(page.getByLabel('Works under')).toHaveCount(0)
+
+  // The caption under his name on the team list is what the owner actually
+  // reads, and it is rendered from the live query rather than from the select
+  // just moved.
+  await page.getByRole('link', { name: 'Team', exact: true }).click()
+  await expect(page.getByRole('link', { name: /^Kevin/ })).toContainText(
+    /Contractor/,
+  )
 })

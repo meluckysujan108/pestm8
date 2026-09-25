@@ -4,12 +4,14 @@ import { FileText } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { rq } from '#/lib/routeQueries'
 import { LicenceViewer } from './LicenceViewer'
+import { ROW_CLASS, RowBody } from './ui'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
- * "View licence" on a Team row (Phase 8.1): the owner opens a member's licence
- * document, read-only, inside the app — no Share, no Save, no Replace, and no
- * copy kept on the owner's phone (`licenceSource.ts`).
+ * "View licence" on a member's page (Phase 8.1), a row of its Licence group:
+ * the owner opens a member's licence document, read-only, inside the app — no
+ * Share, no Save, no Replace, and no copy kept on the owner's phone
+ * (`licenceSource.ts`).
  *
  * Shown only where the roster says there is one this viewer may open
  * (`team.roster`'s `hasLicenceFile`, true for the owner alone). The document
@@ -31,8 +33,13 @@ export function MemberLicenceButton({
     enabled: open,
   })
 
+  const failed = open && licence.isError
+  const removed = open && licence.data === null
+
+  // One element, so the group's hairlines fall above and below the row and
+  // whatever it says under itself, not between them.
   return (
-    <>
+    <div>
       <button
         type="button"
         onClick={() => {
@@ -40,22 +47,29 @@ export function MemberLicenceButton({
           if (licence.isError) void licence.refetch()
         }}
         disabled={open && licence.isPending}
-        className="flex h-11 items-center gap-1.5 rounded-xl bg-surface-2 px-3 text-body font-semibold text-blue transition active:scale-[.975] disabled:opacity-50"
+        className={`${ROW_CLASS} disabled:opacity-50`}
       >
-        <FileText aria-hidden size={16} strokeWidth={1.8} />
-        {open && licence.isPending ? 'Opening…' : 'View licence'}
-      </button>
-      {open && licence.isError && (
-        <FormAlert
-          error={licence.error}
-          copy={{ default: 'Could not open this licence. Try again.' }}
-          className="mt-2 w-full"
+        <RowBody
+          icon={FileText}
+          tint="blue"
+          title={open && licence.isPending ? 'Opening…' : 'View licence'}
+          chevron
         />
-      )}
-      {open && licence.data === null && (
-        <p className="mt-2 w-full text-caption text-muted">
-          {name} has removed their licence document.
-        </p>
+      </button>
+      {(failed || removed) && (
+        <div className="px-3.5 pb-3">
+          {failed && (
+            <FormAlert
+              error={licence.error}
+              copy={{ default: 'Could not open this licence. Try again.' }}
+            />
+          )}
+          {removed && (
+            <p className="text-caption text-muted">
+              {name} has removed their licence document.
+            </p>
+          )}
+        </div>
       )}
       {open && licence.data && (
         <LicenceViewer
@@ -66,6 +80,6 @@ export function MemberLicenceButton({
           onClose={() => setOpen(false)}
         />
       )}
-    </>
+    </div>
   )
 }

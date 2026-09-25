@@ -1,5 +1,5 @@
 /**
- * Kept apart from ProfileSection so it can be tested on its own: the
+ * Kept apart from MyDetails so it can be tested on its own: the
  * component's imports reach the server-side auth setup, which needs the
  * deployment's environment at load and has none under the unit tests.
  */

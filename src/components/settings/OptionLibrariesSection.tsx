@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useConvexMutation } from '@convex-dev/react-query'
 import {
   ArrowDown,
   ArrowUp,
@@ -11,7 +11,17 @@ import {
   Trash2,
 } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
+import { ListPending } from '#/components/shell/Pending'
+import { rq } from '#/lib/routeQueries'
+import { useHydrated } from '#/lib/useHydrated'
 import { api } from '../../../convex/_generated/api'
+import {
+  DANGER_ROW_CLASS,
+  DangerGroup,
+  ROW_CLASS,
+  RowBody,
+  SettingsGroup,
+} from './ui'
 import type { OptionSetKey } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -45,61 +55,63 @@ export function OptionLibrariesSection({
 }: {
   businessId: Id<'businesses'>
 }) {
-  const { data: lists } = useQuery(
-    convexQuery(api.optionSets.editable, { businessId }),
-  )
+  const hydrated = useHydrated()
+  const { data: lists } = useQuery(rq.answerLists(businessId))
   const [open, setOpen] = useState<OptionSetKey | null>(null)
   const editing = lists?.find((list) => list.key === open)
 
   return (
-    <section>
-      <h2 className="section-label mb-2">Report options</h2>
-      <p className="mb-3 text-caption text-muted">
-        The lists your reports offer. Changing one changes every form that uses
-        it, and reports already finalised keep the list they were signed with.
-      </p>
-
+    <>
       {lists === undefined ? (
-        <p className="text-caption text-muted">Loading…</p>
+        <ListPending label="Loading answer lists" count={3} />
       ) : (
-        <div className="flex flex-col gap-2">
+        <SettingsGroup footer="Changing a list changes every form that uses it. Finalised reports keep theirs.">
           {lists.map((list) => (
             <button
               key={list.key}
               type="button"
+              // A sheet that opens only once React is listening: before
+              // hydration the tap would do nothing, silently.
+              disabled={!hydrated}
               onClick={() => setOpen(list.key)}
-              className="flex items-center justify-between gap-2 rounded-2xl border border-hairline bg-surface px-3.5 py-3 text-left shadow-elevation transition active:scale-[.99]"
+              className={ROW_CLASS}
             >
-              <span className="min-w-0">
-                <span className="block truncate text-body text-ink">
-                  {list.label}
-                </span>
-                <span className="text-caption text-muted">
-                  {list.options.length}{' '}
-                  {list.options.length === 1 ? 'option' : 'options'}
-                  {/* Worth saying: an untouched list is still exactly what the
-                      form ships with, and a correction to it will arrive. */}
-                  {list.isDefault ? " · the form's own" : ' · yours'}
-                </span>
-              </span>
-              <span className="shrink-0 text-caption font-semibold text-blue">
-                Edit
-              </span>
+              <RowBody
+                title={list.label}
+                subtitle={
+                  <>
+                    {list.options.length}{' '}
+                    {list.options.length === 1 ? 'option' : 'options'}
+                    {/* Worth saying: an untouched list is still exactly what
+                        the form ships with, and a correction to it will
+                        arrive. */}
+                    {list.isDefault ? " · the form's own" : ' · yours'}
+                  </>
+                }
+                chevron
+              />
             </button>
           ))}
-        </div>
+        </SettingsGroup>
       )}
 
       {editing && (
         <OptionListSheet
+          // A fresh sheet for each list, so a rename half-typed in one is
+          // not waiting in the next.
+          key={editing.key}
           businessId={businessId}
           list={editing}
           onClose={() => setOpen(null)}
         />
       )}
-    </section>
+    </>
   )
 }
+
+/** The small square buttons on an option's row. */
+const ICON_BUTTON =
+  'flex size-9 shrink-0 items-center justify-center rounded-lg transition active:bg-surface-2 disabled:opacity-30'
 
 function OptionListSheet({
   businessId,
@@ -115,6 +127,7 @@ function OptionListSheet({
   const [renameTo, setRenameTo] = useState('')
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [confirmingReset, setConfirmingReset] = useState(false)
 
   // Written out rather than wrapped in a helper that calls `useMutation`:
   // a hook behind a function is a rule-of-hooks trap waiting for the first
@@ -163,6 +176,9 @@ function OptionListSheet({
   const reset = useMutation({
     mutationFn: (args: { businessId: Id<'businesses'>; key: OptionSetKey }) =>
       convexReset(args),
+    // Closed once it has happened, not as it is asked for: closing first
+    // left a refusal with nowhere to be said.
+    onSuccess: onClose,
     onError,
   })
 
@@ -199,6 +215,16 @@ function OptionListSheet({
     reorder.mutate({ businessId, key: list.key, values })
   }
 
+  function addDraft() {
+    if (draft.trim() === '') return
+    add.mutate({ businessId, key: list.key, label: draft })
+    setDraft('')
+  }
+
+  function submitRename(from: string) {
+    rename.mutate({ businessId, key: list.key, from, to: renameTo })
+  }
+
   return (
     <Sheet
       open
@@ -214,9 +240,7 @@ function OptionListSheet({
               onKeyDown={(event) => {
                 if (event.key !== 'Enter') return
                 event.preventDefault()
-                if (draft.trim() === '') return
-                add.mutate({ businessId, key: list.key, label: draft })
-                setDraft('')
+                addDraft()
               }}
               aria-label={`Add to ${list.label}`}
               placeholder="Add an option"
@@ -225,10 +249,7 @@ function OptionListSheet({
             <button
               type="button"
               disabled={draft.trim() === '' || add.isPending}
-              onClick={() => {
-                add.mutate({ businessId, key: list.key, label: draft })
-                setDraft('')
-              }}
+              onClick={addDraft}
               className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-ink px-4 text-[15px] font-semibold text-surface disabled:opacity-40"
             >
               <Plus size={15} strokeWidth={2.2} />
@@ -244,139 +265,134 @@ function OptionListSheet({
         </div>
       }
     >
-      <ul className="flex flex-col gap-1">
-        {list.options.map((option, index) => (
-          <li
-            key={option.value}
-            className="flex items-center gap-1.5 rounded-xl border border-hairline bg-surface px-2.5 py-2"
-          >
-            {renaming === option.value ? (
-              <>
-                <input
-                  autoFocus
-                  value={renameTo}
-                  onChange={(event) => setRenameTo(event.target.value)}
-                  aria-label={`Rename ${option.label}`}
-                  className="h-9 min-w-0 flex-1 rounded-lg bg-surface-3 px-2.5 text-[15px] text-ink outline-none"
-                />
-                <button
-                  type="button"
-                  onClick={() =>
-                    rename.mutate({
-                      businessId,
-                      key: list.key,
-                      from: option.value,
-                      to: renameTo,
-                    })
-                  }
-                  className="shrink-0 rounded-lg bg-ink px-2.5 py-1.5 text-caption font-semibold text-surface"
-                >
-                  Save
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  type="button"
-                  disabled={pinned.has(option.value)}
-                  onClick={() => {
-                    setError(null)
-                    setNote(null)
-                    setRenaming(option.value)
-                    setRenameTo(option.label)
-                  }}
-                  className="min-w-0 flex-1 truncate text-left text-body text-ink disabled:text-muted"
-                >
-                  {option.label}
-                </button>
-
-                <button
-                  type="button"
-                  aria-label={
-                    option.usual
-                      ? `${option.label} — one of the usual, remove`
-                      : `${option.label} — mark as one of the usual`
-                  }
-                  aria-pressed={option.usual}
-                  disabled={usual.isPending}
-                  onClick={() =>
-                    usual.mutate({
-                      businessId,
-                      key: list.key,
-                      value: option.value,
-                      usual: !option.usual,
-                    })
-                  }
-                  className={`flex size-8 shrink-0 items-center justify-center rounded-lg ${
-                    option.usual ? 'text-amber-ink' : 'text-muted'
-                  }`}
-                >
-                  <Star
-                    size={15}
-                    strokeWidth={2}
-                    fill={option.usual ? 'currentColor' : 'none'}
+      {/* Said once, where the consequence is: a technician with the draft
+          open on their phone right now wins, and that is a deliberate choice
+          rather than a locking scheme a one-technician draft does not need. */}
+      <SettingsGroup footer="Renaming updates open drafts too, except one a technician is editing right now.">
+        <ul className="divide-y divide-hairline">
+          {list.options.map((option, index) => (
+            <li
+              key={option.value}
+              className="flex min-h-[52px] items-center gap-1 py-1.5 pl-3.5 pr-1.5"
+            >
+              {renaming === option.value ? (
+                <>
+                  <input
+                    autoFocus
+                    value={renameTo}
+                    onChange={(event) => setRenameTo(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Enter') return
+                      event.preventDefault()
+                      submitRename(option.value)
+                    }}
+                    aria-label={`Rename ${option.label}`}
+                    className="h-10 min-w-0 flex-1 rounded-lg bg-surface-3 px-2.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
                   />
-                </button>
+                  <button
+                    type="button"
+                    disabled={rename.isPending}
+                    onClick={() => submitRename(option.value)}
+                    className="h-10 shrink-0 rounded-lg bg-ink px-3 text-caption font-semibold text-surface disabled:opacity-50"
+                  >
+                    Save
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    disabled={pinned.has(option.value)}
+                    onClick={() => {
+                      setError(null)
+                      setNote(null)
+                      setRenaming(option.value)
+                      setRenameTo(option.label)
+                    }}
+                    className="min-w-0 flex-1 truncate py-1.5 text-left text-body text-ink disabled:text-muted"
+                  >
+                    {option.label}
+                  </button>
 
-                <button
-                  type="button"
-                  aria-label={`Move ${option.label} up`}
-                  disabled={index === 0 || reorder.isPending}
-                  onClick={() => move(index, -1)}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted disabled:opacity-30"
-                >
-                  <ArrowUp size={15} strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Move ${option.label} down`}
-                  disabled={
-                    index === list.options.length - 1 || reorder.isPending
-                  }
-                  onClick={() => move(index, 1)}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted disabled:opacity-30"
-                >
-                  <ArrowDown size={15} strokeWidth={2} />
-                </button>
+                  <button
+                    type="button"
+                    aria-label={
+                      option.usual
+                        ? `${option.label} — one of the usual, remove`
+                        : `${option.label} — mark as one of the usual`
+                    }
+                    aria-pressed={option.usual}
+                    disabled={usual.isPending}
+                    onClick={() =>
+                      usual.mutate({
+                        businessId,
+                        key: list.key,
+                        value: option.value,
+                        usual: !option.usual,
+                      })
+                    }
+                    className={`${ICON_BUTTON} ${
+                      option.usual ? 'text-amber-ink' : 'text-muted'
+                    }`}
+                  >
+                    <Star
+                      size={16}
+                      strokeWidth={2}
+                      fill={option.usual ? 'currentColor' : 'none'}
+                    />
+                  </button>
 
-                <button
-                  type="button"
-                  aria-label={`Stop offering ${option.label}`}
-                  disabled={pinned.has(option.value)}
-                  onClick={() => {
-                    setError(null)
-                    archive.mutate({
-                      businessId,
-                      key: list.key,
-                      value: option.value,
-                    })
-                  }}
-                  className="flex size-8 shrink-0 items-center justify-center rounded-lg text-muted disabled:opacity-30"
-                >
-                  <Trash2 size={15} strokeWidth={1.9} />
-                </button>
-              </>
-            )}
-          </li>
-        ))}
-      </ul>
+                  <button
+                    type="button"
+                    aria-label={`Move ${option.label} up`}
+                    disabled={index === 0 || reorder.isPending}
+                    onClick={() => move(index, -1)}
+                    className={`${ICON_BUTTON} text-muted`}
+                  >
+                    <ArrowUp size={16} strokeWidth={2} />
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Move ${option.label} down`}
+                    disabled={
+                      index === list.options.length - 1 || reorder.isPending
+                    }
+                    onClick={() => move(index, 1)}
+                    className={`${ICON_BUTTON} text-muted`}
+                  >
+                    <ArrowDown size={16} strokeWidth={2} />
+                  </button>
 
-      {/* Said once, where the consequence is: a technician with the draft open
-          on their phone right now wins, and that is a deliberate choice rather
-          than a locking scheme a one-technician draft does not need. */}
-      <p className="mt-2 text-caption text-muted">
-        Renaming an option updates open drafts too. A technician editing one
-        right now keeps their version.
-      </p>
+                  <button
+                    type="button"
+                    aria-label={`Stop offering ${option.label}`}
+                    disabled={pinned.has(option.value)}
+                    onClick={() => {
+                      setError(null)
+                      archive.mutate({
+                        businessId,
+                        key: list.key,
+                        value: option.value,
+                      })
+                    }}
+                    className={`${ICON_BUTTON} text-muted`}
+                  >
+                    <Trash2 size={16} strokeWidth={1.9} />
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      </SettingsGroup>
 
       {list.archived.length > 0 && (
-        <>
-          <p className="section-label mt-4">No longer offered</p>
-          <ul className="mt-1.5 flex flex-col gap-1">
+        <SettingsGroup title="No longer offered">
+          <ul className="divide-y divide-hairline">
             {list.archived.map((option) => (
               <li
                 key={option.value}
-                className="flex items-center gap-2 rounded-xl border border-hairline bg-surface-2 px-2.5 py-2"
+                className="flex min-h-[52px] items-center gap-2 py-1.5 pl-3.5 pr-2"
               >
                 <span className="min-w-0 flex-1 truncate text-body text-muted">
                   {option.label}
@@ -391,7 +407,7 @@ function OptionListSheet({
                       value: option.value,
                     })
                   }
-                  className="flex shrink-0 items-center gap-1 rounded-lg px-2 py-1 text-caption font-semibold text-blue"
+                  className="flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-caption font-semibold text-blue"
                 >
                   <Check size={13} strokeWidth={2.4} />
                   Offer again
@@ -399,21 +415,55 @@ function OptionListSheet({
               </li>
             ))}
           </ul>
-        </>
+        </SettingsGroup>
       )}
 
+      {/* Last, and asked twice: it throws away everything this business has
+          done to the list — additions, renames, stars, the order, what it
+          stopped offering — and there is no undo. */}
       {!list.isDefault && (
-        <button
-          type="button"
-          onClick={() => {
-            reset.mutate({ businessId, key: list.key })
-            onClose()
-          }}
-          className="mt-4 flex items-center gap-1.5 text-caption font-semibold text-muted"
-        >
-          <RotateCcw size={13} strokeWidth={2.2} />
-          Go back to the form&rsquo;s own list
-        </button>
+        <DangerGroup>
+          {confirmingReset ? (
+            <div className="px-3.5 py-3">
+              <p className="text-body text-ink">
+                Go back to the form&rsquo;s own list?
+              </p>
+              <p className="mt-0.5 text-caption text-muted">
+                Everything you&rsquo;ve added, renamed, starred, reordered or
+                stopped offering here is undone.
+              </p>
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setConfirmingReset(false)}
+                  className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  disabled={reset.isPending}
+                  onClick={() => {
+                    setError(null)
+                    reset.mutate({ businessId, key: list.key })
+                  }}
+                  className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                >
+                  {reset.isPending ? 'Resetting…' : 'Reset list'}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setConfirmingReset(true)}
+              className={`${DANGER_ROW_CLASS} gap-1.5`}
+            >
+              <RotateCcw size={15} strokeWidth={2.2} />
+              Go back to the form&rsquo;s own list
+            </button>
+          )}
+        </DangerGroup>
       )}
     </Sheet>
   )
