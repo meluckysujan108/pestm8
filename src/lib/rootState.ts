@@ -138,14 +138,30 @@ export function forgetRootState(): void {
  * labelled with who kept them, and go when someone else signs in
  * (`checkKeptFiles` below) — so the same technician signing back in after a
  * week-old session lapsed still has them in the roof void.
+ *
+ * The person's own licence document (src/lib/keptLicence.ts) IS dropped
+ * here: it is their personal information rather than the business's shelf,
+ * and it comes back on its own the next time they open it with signal.
  */
 export async function forgetCachedPages(): Promise<void> {
   try {
-    if (typeof caches !== 'undefined') await caches.delete('pages')
+    if (typeof caches !== 'undefined') {
+      await Promise.all([
+        caches.delete('pages'),
+        caches.delete(KEPT_LICENCE_CACHE),
+      ])
+    }
   } catch {
     // A browser that refuses the cache has nothing stale to serve from it.
   }
 }
+
+/**
+ * The cache src/lib/keptLicence.ts keeps the person's licence in, named here
+ * rather than imported for the reason `KEPT_CACHE` below is. Its test holds
+ * the two names together.
+ */
+const KEPT_LICENCE_CACHE = 'pestm8-kept-licence-v1'
 
 /**
  * Who is signed in, by user id: the `sub` claim of the cached token, which

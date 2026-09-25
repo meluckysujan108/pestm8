@@ -3,8 +3,10 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useConvexAction } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
-import { authClient } from '#/lib/auth-client'
+import { SecondStepForm } from '#/components/auth/SecondStepForm'
+import { authClient, needsSecondStep } from '#/lib/auth-client'
 import { forgetCachedPages } from '#/lib/rootState'
+import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
 
 /**
@@ -43,6 +45,18 @@ function JoinPage() {
 
   const redeem = useMutation({
     mutationFn: () => convexRedeem({ token }),
+    // Joining comes after two-step sign-in is set up, never before (the
+    // server refuses it: convex/lib/access.ts). A brand-new account lands
+    // here straight from sign-up, so this is the usual first visit to the
+    // set-up screen — which comes back to this link when it is done.
+    onError: async (error) => {
+      if (!isMfaEnrolmentError(error)) return
+      await router.navigate({
+        to: '/two-step',
+        search: { next: `/join/${token}` },
+        replace: true,
+      })
+    },
     onSuccess: async ({ slug }) => {
       await router.invalidate()
       await router.navigate({
@@ -90,7 +104,7 @@ function JoinPage() {
         <span className="text-ink">{emailHint}</span>.
       </p>
 
-      {redeem.isError && (
+      {redeem.isError && !isMfaEnrolmentError(redeem.error) && (
         <Alert>{redeemMessage(redeem.error, emailHint)}</Alert>
       )}
 
@@ -183,6 +197,8 @@ function JoinForm({
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [pending, setPending] = useState(false)
+  // An existing account with two-step sign-in: the code, in place.
+  const [secondStep, setSecondStep] = useState(false)
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
@@ -216,12 +232,32 @@ function JoinForm({
         }
         return
       }
+      if (needsSecondStep(result.data)) {
+        setPassword('')
+        setSecondStep(true)
+        return
+      }
       onAuthed()
     } catch {
       setError("Couldn't reach PestM8. Check your connection and try again.")
     } finally {
       setPending(false)
     }
+  }
+
+  if (secondStep) {
+    return (
+      <div className="mt-6">
+        <SecondStepForm
+          disabled={disabled}
+          onVerified={onAuthed}
+          onRestart={(message) => {
+            setSecondStep(false)
+            setError(message)
+          }}
+        />
+      </div>
+    )
   }
 
   return (
@@ -249,8 +285,8 @@ function JoinForm({
         value={password}
         onChange={setPassword}
         autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
-        minLength={mode === 'signUp' ? 8 : undefined}
-        hint={mode === 'signUp' ? 'At least 8 characters.' : undefined}
+        minLength={mode === 'signUp' ? 10 : undefined}
+        hint={mode === 'signUp' ? 'At least 10 characters.' : undefined}
       />
 
       {error && <Alert>{error}</Alert>}

@@ -1,9 +1,14 @@
-import { createRouter as createTanStackRouter } from '@tanstack/react-router'
+import {
+  ErrorComponent,
+  createRouter as createTanStackRouter,
+} from '@tanstack/react-router'
 import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query'
 import { ConvexProvider } from 'convex/react'
 import { routeTree } from './routeTree.gen'
 import { getContext } from './integrations/tanstack-query/root-provider'
 import { PagePending } from './components/shell/Pending'
+import { TwoStepNeededCard } from './components/auth/TwoStepPrompt'
+import { isMfaEnrolmentError } from './lib/twoStep'
 
 export function getRouter() {
   const context = getContext()
@@ -29,6 +34,19 @@ export function getRouter() {
     // commit — and for a page that fetches in render, the fetch with it.
     // Revisit if a loader ever settles reliably around 200-300 ms.
     defaultPendingMinMs: 0,
+    // A page that could not load because this session has not set up two-step
+    // sign-in says so, with the way through, rather than "Something went
+    // wrong" — the case of someone already inside the app when it became
+    // compulsory, whose next tap reads a cached guard and then fails in the
+    // page. Everything else keeps the router's own error screen.
+    defaultErrorComponent: (props) =>
+      isMfaEnrolmentError(props.error) ? (
+        <div className="px-4 pt-6">
+          <TwoStepNeededCard />
+        </div>
+      ) : (
+        <ErrorComponent {...props} />
+      ),
     Wrap: ({ children }) => (
       <ConvexProvider client={context.convexQueryClient.convexClient}>
         {children}

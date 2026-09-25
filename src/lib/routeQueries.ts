@@ -59,6 +59,10 @@ export const rq = {
   invitations: (businessId: B) =>
     convexQuery(api.invitations.listForBusiness, { businessId }),
   products: (businessId: B) => convexQuery(api.products.list, { businessId }),
+  /** One person's licence document: their own on Profile, or a member's
+   * the owner opens from Team. */
+  licenceFile: (businessId: B, membershipId: Id<'memberships'>) =>
+    convexQuery(api.licences.file, { businessId, membershipId }),
 }
 
 /** How many rows the paginated libraries ask for first. */
@@ -141,6 +145,24 @@ export async function warm(
       ?.getObserversCount()
     if (!watched) queryClient.removeQueries({ queryKey, exact: true })
   }
+}
+
+/**
+ * `work`, or nothing once `ms` has passed — for a loader that must not hold
+ * the page hostage to a query. `warm` resolves only when its queries do, and
+ * with no signal a Convex query never does, so a loader that simply awaited
+ * it left the navigation on its pending screen for as long as the phone was
+ * out of range. A page that has an answer for late data (a kept copy, its own
+ * placeholder) warms through this instead.
+ */
+export function settleWithin(ms: number, work: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms)
+    }),
+  ]).finally(() => clearTimeout(timer))
 }
 
 /** A search param as the loader sees it, before the route has validated it. */

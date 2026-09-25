@@ -1,5 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { handler } from '#/lib/auth-server'
+import { pickAuthCookie } from '#/lib/authCookies'
 
 /**
  * This TanStack Start / Nitro build emits only the LAST Set-Cookie header on a
@@ -27,27 +28,31 @@ import { handler } from '#/lib/auth-server'
  * surviving one dev/prod difference further than the fix originally covered.
  * `includes()` matches the cookie name regardless of a `__Secure-` prefix.
  *
- * Revisit if Start starts preserving repeated Set-Cookie headers — then both
- * can simply pass through.
+ * Two-step sign-in made "the last one that is not the JWT" wrong as well: a
+ * correct code sets the session and THEN clears the challenge cookie, so the
+ * last write was the clearing and nobody got signed in. The choice is now by
+ * what each cookie ends up as — src/lib/authCookies.ts has the rule and its
+ * tests.
+ *
+ * Revisit if Start starts preserving repeated Set-Cookie headers — then all of
+ * them can simply pass through.
  */
-const JWT_COOKIE = 'better-auth.convex_jwt'
-
 async function proxy(request: Request): Promise<Response> {
   const response = await handler(request)
   const cookies = response.headers.getSetCookie()
 
   if (cookies.length === 0) return response
 
-  const durable = cookies.filter((c) => !c.includes(`${JWT_COOKIE}=`))
-  if (durable.length === 0) return response
+  // Which one, now that two-step sign-in writes several per response and the
+  // one that matters is not always last: see src/lib/authCookies.ts.
+  const keep = pickAuthCookie(cookies)
+  if (keep === null) return response
 
   const headers = new Headers()
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() !== 'set-cookie') headers.set(key, value)
   })
-  // Only the last survives, so emit the session cookie alone rather than
-  // letting the JWT overwrite it.
-  headers.set('set-cookie', durable[durable.length - 1])
+  headers.set('set-cookie', keep)
 
   return new Response(response.body, {
     status: response.status,

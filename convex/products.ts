@@ -1,6 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { hasCapability, requireActor, requireWriteActor } from './lib/actor'
+import { heldAsLicence } from './lib/fileClaims'
 import {
   CLAIM_WINDOW_MS,
   MAX_PRODUCTS,
@@ -466,6 +467,11 @@ async function claimFile(
     .withIndex('by_photoStorageId', (q) => q.eq('photoStorageId', storageId))
     .first()
   if (asPdf || asPhoto) throw new ConvexError('ALREADY_ATTACHED')
+  // Someone's licence document (Phase 8.1) is read by them and the owner
+  // alone; on a product, the whole business would have it.
+  if (await heldAsLicence(ctx, storageId)) {
+    throw new ConvexError('ALREADY_ATTACHED')
+  }
 
   const refusal = as === 'pdf' ? checkPdfFile(file) : checkPhotoFile(file)
   if (refusal !== null) throw new ConvexError(refusal)

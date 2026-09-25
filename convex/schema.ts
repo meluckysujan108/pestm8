@@ -362,6 +362,32 @@ export default defineSchema({
      * never been filled in.
      */
     licenceExpiresOn: v.optional(v.number()),
+    /**
+     * The licence itself (Phase 8.1): a photo of the card or the regulator's
+     * PDF, uploaded by its holder from Profile. See `convex/licences.ts` for
+     * who may read it — the holder and the owner, nobody else.
+     *
+     * Optional and additive, so no migration: absent means none uploaded.
+     * Replacing or removing it drops this pointer and nothing else — the old
+     * file stays in storage, as every file in this app does (`products.ts`
+     * has the reasoning).
+     */
+    licenceFile: v.optional(
+      v.object({
+        storageId: v.id('_storage'),
+        /** Which viewer opens it: the PDF viewer or the image viewer. */
+        kind: v.union(v.literal('pdf'), v.literal('image')),
+        /** As claimed: application/pdf, image/png or image/jpeg. */
+        contentType: v.string(),
+        /** Tidied, ending in the extension of what it is. */
+        fileName: v.string(),
+        /** Bytes, from storage — never from the client. */
+        size: v.number(),
+        /** Also the identity of this version of the file, for the copy kept
+         * on the holder's phone. */
+        uploadedAt: v.number(),
+      }),
+    ),
     phone: v.optional(v.string()),
     /**
      * This member's own signature, saved once and reused on their own reports.
@@ -400,7 +426,12 @@ export default defineSchema({
     // "Who is on my team" on every dispatch, roster and switch-target read.
     // Without it that answer is a full scan of the business filtered in
     // memory, which is also how an owner-row leak gets written by accident.
-    .index('by_business_parent', ['businessId', 'parentMembershipId']),
+    .index('by_business_parent', ['businessId', 'parentMembershipId'])
+    // "Is this upload already someone's licence?" — asked before any feature
+    // claims a file, so one file is never two people's, and before anything
+    // deletes one. The table is a business's handful of people, so the
+    // backfill on deploy is nothing.
+    .index('by_licenceFile_storageId', ['licenceFile.storageId']),
 
   // First-class, deliberately NOT derived from job history: reports must stay
   // findable by address years later, whether or not the original job survives.
@@ -1591,4 +1622,28 @@ export default defineSchema({
     // claims one, so one upload can never end up on two products.
     .index('by_pdfStorageId', ['pdfStorageId'])
     .index('by_photoStorageId', ['photoStorageId']),
+
+  /**
+   * Wrong two-step codes per ACCOUNT, across every sign-in — the cap Better
+   * Auth's own lockout would keep, if it could run here (see `twoStep()` in
+   * convex/auth.ts: its two columns are not in the auth component's schema).
+   *
+   * Without it the only limit is five codes per password sign-in, and a new
+   * sign-in costs one request to someone holding the password: about 67,000
+   * sign-ins find a code by chance, which is an hour's scripting. With it, ten
+   * codes in a row that are not right lock the account's code check for 15
+   * minutes, however many sign-ins and IP addresses they are spread over.
+   *
+   * One row per account that has got a code wrong since its last right one;
+   * a right code deletes it. `userId` is the Better Auth user's id, a string
+   * (that table lives in the component). New table, so nothing to migrate.
+   */
+  twoStepAttempts: defineTable({
+    userId: v.string(),
+    /** Codes tried since the last right one — counted as each check starts,
+     * so parallel guesses cannot all slip in under the limit. */
+    attempts: v.number(),
+    /** Set once `attempts` reaches the limit; ms since epoch. */
+    lockedUntil: v.optional(v.number()),
+  }).index('by_userId', ['userId']),
 })

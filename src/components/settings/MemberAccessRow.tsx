@@ -5,6 +5,8 @@ import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { ColourPicker } from './ColourPicker'
+import { ResetTwoStepButton } from './ResetTwoStepButton'
+import { MemberLicenceButton } from './MemberLicenceButton'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Grants, Role } from '../../../convex/lib/capabilities'
 
@@ -23,6 +25,12 @@ export type Member = {
   /** From the roster: whether this viewer may set this person's colour. Absent
    * from an older backend, which means no picker. */
   canSetColour?: boolean
+  /** From the roster: whether they have two-step sign-in set up. Absent from
+   * an older backend, which means no reset is offered. */
+  twoStepOn?: boolean
+  /** From the roster: a licence document this viewer (the owner) may open.
+   * Absent from an older backend, which means no button. */
+  hasLicenceFile?: boolean
 }
 
 export function MemberAccessRow({
@@ -150,10 +158,16 @@ export function MemberAccessRow({
         </label>
         <button
           type="submit"
-          disabled={saveLicence.isPending || licence === (member.licenceNumber ?? '')}
+          disabled={
+            saveLicence.isPending || licence === (member.licenceNumber ?? '')
+          }
           className="h-11 shrink-0 rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
         >
-          {saveLicence.isPending ? 'Saving…' : saveLicence.isSuccess ? 'Saved' : 'Save'}
+          {saveLicence.isPending
+            ? 'Saving…'
+            : saveLicence.isSuccess
+              ? 'Saved'
+              : 'Save'}
         </button>
       </form>
       {/* A failed save used to leave only the button saying "Save" again. */}
@@ -166,6 +180,17 @@ export function MemberAccessRow({
           Without this they cannot finalise a termite certificate, timber pest
           inspection or treatment record.
         </p>
+      )}
+
+      {/* Phase 8.1: the licence document they uploaded, read-only. */}
+      {member.hasLicenceFile && (
+        <div className="mt-2 flex flex-wrap items-center">
+          <MemberLicenceButton
+            businessId={businessId}
+            membershipId={member._id}
+            name={member.name || member.email || 'This person'}
+          />
+        </div>
       )}
 
       {!isOwner && (
@@ -305,6 +330,15 @@ export function MemberAccessRow({
             <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
           </Switch.Root>
         </label>
+      )}
+
+      {!isOwner && (
+        <ResetTwoStepButton
+          businessId={businessId}
+          membershipId={member._id}
+          name={member.name || member.email}
+          twoStepOn={member.twoStepOn}
+        />
       )}
 
       {!isOwner && (

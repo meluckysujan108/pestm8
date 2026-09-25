@@ -10,14 +10,29 @@ import { AppShell } from '#/components/shell/AppShell'
 import { SwitchBanner } from '#/components/shell/SwitchBanner'
 import { AccessProvider } from '#/lib/access'
 import { signedOutAfterAll } from '#/lib/rootState'
+import { isMfaEnrolmentError } from '#/lib/twoStep'
 
 export const Route = createFileRoute('/$businessSlug')({
-  beforeLoad: async ({ context, params }) => {
+  beforeLoad: async ({ context, params, location }) => {
     if (!context.isAuthenticated) throw redirect({ to: '/login' })
 
-    const business = await context.queryClient.ensureQueryData(
-      convexQuery(api.businesses.getBySlug, { slug: params.businessSlug }),
-    )
+    // Signed in without two-step sign-in set up: the server refuses every
+    // query below (MFA_ENROLMENT_REQUIRED), so send them to set it up and
+    // bring them back here after. Read off the refusal rather than asked for
+    // up front, so an enrolled person — everyone, after the first day — pays
+    // nothing for it on the way into the schedule.
+    const enrol = (error: unknown): never => {
+      if (isMfaEnrolmentError(error)) {
+        throw redirect({ to: '/two-step', search: { next: location.href } })
+      }
+      throw error
+    }
+
+    const business = await context.queryClient
+      .ensureQueryData(
+        convexQuery(api.businesses.getBySlug, { slug: params.businessSlug }),
+      )
+      .catch(enrol)
 
     // getBySlug returns null both for a missing business and for one the
     // caller isn't a member of, so this 404 leaks no existence information.
@@ -45,7 +60,7 @@ export const Route = createFileRoute('/$businessSlug')({
       context.queryClient.ensureQueryData(
         convexQuery(api.businesses.listForUser, {}),
       ),
-    ])
+    ]).catch(enrol)
 
     return { business, membership: business.membership }
   },

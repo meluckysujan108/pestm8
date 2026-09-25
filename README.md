@@ -47,14 +47,36 @@ shares one bucket and a tight limit locks out the whole business at once.
 One switch runs the other way — **on unless set**, because a security check
 should not disappear when an environment variable goes missing:
 
-| Env var                 | Effect                                                                                                                  |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `AUTH_BREACH_CHECK=off` | Stops checking passwords against Have I Been Pwned. Set on the e2e deployment only.                                     |
+| Env var                 | Effect                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `AUTH_BREACH_CHECK=off` | Stops checking passwords against Have I Been Pwned. Set on the e2e deployment only. |
+
+**Two-step sign-in** (authenticator app + ten recovery codes) is optional:
+each person turns it on or off in Settings → Profile, with their password.
+Once on, a code is asked for at every sign-in — there is no "trust this
+device". A technician who loses their phone signs in with a recovery code; one
+who has lost both is reset by the business owner from Settings → Team. Turning
+it on signs the account out on every other device, and ten wrong codes in a
+row lock the account's code check for 15 minutes.
+
+`AUTH_MFA_REQUIRED=on` makes it compulsory on that deployment: every app
+function then refuses a signed-in account that has not set it up
+(`MFA_ENROLMENT_REQUIRED`, which the client turns into the `/two-step` set-up
+screen), and nobody can switch it off. Nothing sets it today. Before turning
+it on where people are working, deploy the frontend first, give open apps time
+to pick up the new bundle, and tell the team they will need an authenticator
+app. The e2e suite's accounts cannot read one, so `e2e/globalSetup.ts` refuses
+to run against a deployment where it is on.
+
+**Sessions last until sign-out**: 400 days, renewed on every use (at most once
+a day), so anyone who opens PestM8 at least once a year stays signed in.
+Signing out, removal from the team and a two-step reset still end sessions
+(`SESSION_LIFETIME` in `convex/auth.ts`).
 
 Every password set or changed otherwise costs one live HTTPS call to
 `api.pwnedpasswords.com`, and the e2e suite makes ~120 of them per run — an
 outage of that service once failed 54 of 127 tests. Production keeps the check
-on; it refuses a breached password as before, but an *unreachable* service no
+on; it refuses a breached password as before, but an _unreachable_ service no
 longer refuses anything, so a third party being down cannot lock anyone out of
 `/change-password` or `/reset-password`.
 

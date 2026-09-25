@@ -51,6 +51,9 @@ export type ViewerActions = {
    * Saves a copy outside the app — an `<a download>` where that works, the
    * share sheet's "Save to Files" on an iPhone or iPad, where a download from
    * an installed app has nowhere sensible to land.
+   *
+   * Absent where a file is to be read inside the app and nowhere else — a
+   * licence document (Phase 8.1) — which leaves the menu without Save.
    */
   save?: (file: File) => Promise<HandOverResult> | HandOverResult
   /**
@@ -66,6 +69,9 @@ export type ViewerActions = {
    * reloads on its own.
    */
   replace?: () => void
+  /** The menu's words for `replace`. "Replace PDF…" unless the picker
+   * takes more than a PDF — a licence can be replaced with a photo. */
+  replaceLabel?: string
   /** A copy kept on this phone, for sites with no signal. */
   keep?: {
     kept: boolean

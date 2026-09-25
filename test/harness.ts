@@ -61,10 +61,20 @@ export type TestActor = {
  * Creates a Better Auth user and a live session, and returns the app scoped to
  * that identity. `emailVerified` defaults to false because that is what a real
  * sign-up produces today — tests that care about verification should say so.
+ *
+ * `twoFactorEnabled` defaults to TRUE, so that the same tests hold where a
+ * deployment makes two-step sign-in compulsory (`AUTH_MFA_REQUIRED=on`,
+ * convex/lib/mfa.ts) and `requireAuthUser` refuses anyone without it. The
+ * tests about the gate itself, and about optional two-step, pass `false`.
  */
 export async function createActor(
   t: TestApp,
-  opts: { email: string; name?: string; emailVerified?: boolean },
+  opts: {
+    email: string
+    name?: string
+    emailVerified?: boolean
+    twoFactorEnabled?: boolean
+  },
 ): Promise<TestActor> {
   const now = Date.now()
 
@@ -77,6 +87,7 @@ export async function createActor(
             name: opts.name ?? opts.email,
             email: opts.email.toLowerCase(),
             emailVerified: opts.emailVerified ?? false,
+            twoFactorEnabled: opts.twoFactorEnabled ?? true,
             createdAt: now,
             updatedAt: now,
           },

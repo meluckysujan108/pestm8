@@ -1,6 +1,31 @@
-import { QueryClient } from '@tanstack/react-query'
+import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 import { ConvexQueryClient } from '@convex-dev/react-query'
+import { flagIfTwoStepNeeded, watchForTwoStepRefusals } from '#/lib/twoStep'
 
+/**
+ * The global answer to MFA_ENROLMENT_REQUIRED: the "set up two-step sign-in"
+ * prompt (components/auth/TwoStepPrompt), not a "Server Error".
+ *
+ * The route guards already send an un-enrolled person to the set-up screen
+ * before a page loads (`/`, `$businessSlug`, `/onboarding`). This is for the
+ * moment they cannot: a person already inside the app when two-step sign-in
+ * became compulsory, whose queries and saves start being refused mid-screen.
+ *
+ * A prompt rather than a redirect, so the page they are on — a half-typed
+ * note, the job they are driving to — is not thrown away under them; the
+ * prompt's own header comment has the rest.
+ *
+ * Three ways the refusal arrives, and all three are listened for:
+ *
+ * - A save: the mutation cache's `onError`.
+ * - A fetch: the query cache's `onError`, which only runs inside a fetch.
+ * - A PUSH to a live query — the usual case, since every query on screen is
+ *   re-run the moment the server starts refusing. @convex-dev/react-query
+ *   delivers those with `setState`, which never reaches `onError`, so the
+ *   cache's event stream is watched for an entry that has turned into this
+ *   error. Only for entries something is showing: a guard's
+ *   `ensureQueryData` has no observers, and redirects on its own.
+ */
 export function getContext() {
   const convexUrl = import.meta.env.VITE_CONVEX_URL
   if (!convexUrl) throw new Error('VITE_CONVEX_URL is not set')
@@ -23,6 +48,14 @@ export function getContext() {
   const convexQueryClient = new ConvexQueryClient(convexUrl)
 
   const queryClient = new QueryClient({
+    queryCache: new QueryCache({
+      onError: (error, query) => {
+        if (query.getObserversCount() > 0) flagIfTwoStepNeeded(error)
+      },
+    }),
+    mutationCache: new MutationCache({
+      onError: (error) => flagIfTwoStepNeeded(error),
+    }),
     defaultOptions: {
       queries: {
         queryKeyHashFn: convexQueryClient.hashFn(),
@@ -48,6 +81,10 @@ export function getContext() {
   queryClient.setQueryDefaults(['convexQuery', 'businesses:getBySlug'], {
     gcTime: Infinity,
   })
+
+  // Pushed refusals (see the top of this file). Only on the client: the
+  // server renders a request at a time and has nobody to prompt.
+  if (typeof window !== 'undefined') watchForTwoStepRefusals(queryClient)
 
   convexQueryClient.connect(queryClient)
 

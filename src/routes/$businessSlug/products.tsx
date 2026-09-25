@@ -30,7 +30,7 @@ import { savePdf, sharePdf } from '#/lib/pdfFiles'
 import { noteListedPdfs } from '#/lib/pdfMemory'
 import { EMPTY_DRAFT, draftFrom } from '#/lib/productForm'
 import { filterProducts } from '#/lib/productSearch'
-import { rq, warm } from '#/lib/routeQueries'
+import { rq, settleWithin, warm } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import type { HistoryState } from '@tanstack/react-router'
 import type { EditState, SheetStatus } from '#/components/products/ProductSheet'
@@ -93,16 +93,6 @@ export const Route = createFileRoute('/$businessSlug/products')({
     settleWithin(LOADER_WAIT_MS, warm(queryClient, rq.products(business._id))),
   component: ProductsPage,
 })
-
-function settleWithin(ms: number, work: Promise<void>): Promise<void> {
-  let timer: ReturnType<typeof setTimeout> | undefined
-  return Promise.race([
-    work,
-    new Promise<void>((resolve) => {
-      timer = setTimeout(resolve, ms)
-    }),
-  ]).finally(() => clearTimeout(timer))
-}
 
 /** Marks a history entry as pushed by this page — see the top of the file. */
 const PUSHED_KEY = 'productsPushed'
