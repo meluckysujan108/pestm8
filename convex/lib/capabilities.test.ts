@@ -8,10 +8,14 @@ import {
   canChooseView,
   canDispatchTo,
   canEditJob,
+  canAssignTo,
   canFinaliseReport,
+  canInviteAs,
+  canManageInvitation,
   canManageMember,
   canSetColour,
   canSetLicence,
+  canSetRole,
   canSwitchInto,
   capabilitiesOf,
   clampGrants,
@@ -676,6 +680,74 @@ describe('a technician’s colour is the owner’s to set', () => {
     expect(canSetColour(self(owner()), sub({ status: 'removed' }))).toBe(false)
     expect(
       canSetColour(self(owner()), sub({ businessId: OTHER_BUSINESS })),
+    ).toBe(false)
+  })
+})
+
+describe('a contractor runs their own team, not the business', () => {
+  const contractor2 = () => member(CONTRACTOR_2, 'contractor')
+  const theirs = () => sub({ _id: PRIYA, parentMembershipId: CONTRACTOR_2 })
+  const unattached = () => sub({ _id: PRIYA, parentMembershipId: null })
+
+  test('roles are the owner’s: a contractor changes nobody’s, not even their own team’s', () => {
+    expect(canSetRole(self(owner()), sub())).toBe(true)
+    expect(canSetRole(self(owner()), contractor())).toBe(true)
+    expect(canSetRole(self(contractor()), sub())).toBe(false)
+    expect(canSetRole(self(contractor()), contractor2())).toBe(false)
+    expect(canSetRole(self(contractor()), unattached())).toBe(false)
+  })
+
+  test('the owner’s own row, and a switched owner, are refused like anywhere else', () => {
+    expect(canSetRole(self(owner()), owner())).toBe(false)
+    expect(canSetRole(switched(owner(), sub()), contractor())).toBe(false)
+  })
+
+  test('a contractor may let their own people go, but not give them away', () => {
+    expect(canAssignTo(self(contractor()), sub(), null)).toBe(true)
+    expect(canAssignTo(self(contractor()), sub(), contractor())).toBe(true)
+    expect(canAssignTo(self(contractor()), sub(), contractor2())).toBe(false)
+    // And cannot reach anyone who is not already theirs.
+    expect(canAssignTo(self(contractor()), theirs(), contractor())).toBe(false)
+    expect(canAssignTo(self(contractor()), unattached(), contractor())).toBe(
+      false,
+    )
+  })
+
+  test('the owner places anyone under any contractor', () => {
+    expect(canAssignTo(self(owner()), sub(), contractor2())).toBe(true)
+    expect(canAssignTo(self(owner()), unattached(), contractor())).toBe(true)
+    expect(canAssignTo(switched(owner(), sub()), sub(), null)).toBe(false)
+  })
+
+  test('only the owner invites a contractor; nobody invites an owner', () => {
+    expect(canInviteAs(self(owner()), 'contractor')).toBe(true)
+    expect(canInviteAs(self(owner()), 'subcontractor')).toBe(true)
+    expect(canInviteAs(self(owner()), 'owner')).toBe(false)
+    expect(canInviteAs(self(contractor()), 'subcontractor')).toBe(true)
+    expect(canInviteAs(self(contractor()), 'contractor')).toBe(false)
+    expect(canInviteAs(self(sub()), 'subcontractor')).toBe(false)
+    expect(canInviteAs(switched(owner(), sub()), 'subcontractor')).toBe(false)
+  })
+
+  test('an invitation is managed by the owner, or by the contractor who sent it', () => {
+    const from = (invitedByMembershipId: typeof OWNER) => ({
+      businessId: BUSINESS,
+      invitedByMembershipId,
+    })
+    expect(canManageInvitation(self(owner()), from(CONTRACTOR))).toBe(true)
+    expect(canManageInvitation(self(contractor()), from(CONTRACTOR))).toBe(true)
+    expect(canManageInvitation(self(contractor()), from(OWNER))).toBe(false)
+    expect(canManageInvitation(self(contractor()), from(CONTRACTOR_2))).toBe(
+      false,
+    )
+    expect(
+      canManageInvitation(self(owner()), {
+        businessId: OTHER_BUSINESS,
+        invitedByMembershipId: OWNER,
+      }),
+    ).toBe(false)
+    expect(
+      canManageInvitation(switched(owner(), sub()), from(CONTRACTOR)),
     ).toBe(false)
   })
 })
