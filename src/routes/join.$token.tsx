@@ -285,8 +285,8 @@ function JoinForm({
         value={password}
         onChange={setPassword}
         autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
-        minLength={mode === 'signUp' ? 8 : undefined}
-        hint={mode === 'signUp' ? 'At least 8 characters.' : undefined}
+        minLength={mode === 'signUp' ? 10 : undefined}
+        hint={mode === 'signUp' ? 'At least 10 characters.' : undefined}
       />
 
       {error && <Alert>{error}</Alert>}

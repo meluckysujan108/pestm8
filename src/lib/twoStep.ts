@@ -192,6 +192,17 @@ export function describeTwoFactorError(error: {
           restart: false,
         }
       }
+      // A server-side failure or a dropped connection arrives with no code,
+      // and its "message" is the fetch library's own class name — a
+      // technician was shown "HTTPError" when the backend was unreachable.
+      // Only a coded refusal carries words written for a person.
+      if (!error.code || (error.status !== undefined && error.status >= 500)) {
+        return {
+          message:
+            "Couldn't reach PestM8. Check your signal, then try again with the code showing now.",
+          restart: false,
+        }
+      }
       return {
         message: error.message ?? 'Something went wrong. Try again.',
         restart: false,

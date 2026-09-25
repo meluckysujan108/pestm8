@@ -96,6 +96,25 @@ describe('two-factor errors in plain words', () => {
     expect(wrong.restart).toBe(false)
     expect(wrong.message).toMatch(/30 seconds/)
   })
+
+  test('an unreachable server never shows the fetch library name', () => {
+    // What better-fetch hands back when the backend answers 500 with no body.
+    const down = describeTwoFactorError({ status: 500, message: 'HTTPError' })
+    expect(down.message).not.toMatch(/HTTPError/)
+    expect(down.message).toMatch(/signal/)
+    expect(down.restart).toBe(false)
+  })
+
+  test("a coded refusal keeps the server's own words", () => {
+    const words = describeTwoFactorError({
+      code: 'MFA_ALREADY_ENABLED',
+      status: 400,
+      message: 'Two-step sign-in is already set up on this account.',
+    })
+    expect(words.message).toBe(
+      'Two-step sign-in is already set up on this account.',
+    )
+  })
 })
 
 describe('a refusal pushed to a live query', () => {
