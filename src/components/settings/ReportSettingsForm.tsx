@@ -153,7 +153,15 @@ export function ReportSettingsForm({
           // copy rides along on the emails a form asks for as it is locked,
           // and falls back to the business email. A send from the report's
           // own Send button carries no copy, so this does not claim one.
-          footer="Copied on the emails a form sends as it's finalised. Blank uses your business email."
+          // With no business email on file there is nothing to fall back to,
+          // and the line says what the placeholder does.
+          footer={`Copied on the emails a form sends as it's finalised.${
+            loading
+              ? ''
+              : settings.email
+                ? ' Blank uses your business email.'
+                : ' Leave blank to send no copy.'
+          }`}
         >
           <FieldRow id={`${id}-copy`} label="Business copy">
             <EmailInput
@@ -166,6 +174,11 @@ export function ReportSettingsForm({
               }
             />
           </FieldRow>
+        </SettingsGroup>
+
+        {/* A group of its own, so the Sending footer sits under the field it
+            explains rather than under this switch's own line of help. */}
+        <SettingsGroup id={`${id}-approvals`} title="Approvals">
           {/* The recipient rule (convex/lib/recipients.ts): someone without
               business.manage may send to the addresses on the client's
               record, and anywhere else waits in the owner's approval queue.

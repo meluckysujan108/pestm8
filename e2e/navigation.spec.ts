@@ -103,6 +103,39 @@ test('signed in, moving between tabs never waits on the server function', async 
   expect(serverFnCalls).toEqual([])
 })
 
+test('an old Settings tab address opens the page that took its place', async ({
+  page,
+}) => {
+  const s = await setup('nav-old-seg')
+  await signInViaUi(page, s.owner.email)
+
+  // Bookmarks and the home-screen app's last address still carry the old
+  // tabs. Each lands on its own page now.
+  await page.goto(`/${s.slug}/settings?seg=team`)
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings/team$`))
+  await expect(
+    page.getByRole('heading', { name: 'Team', level: 1 }),
+  ).toBeVisible()
+
+  // Profile was the old default tab, and the hub is what replaced it — not
+  // My details, which has no licence on it. The stale tab leaves the address.
+  await page.goto(`/${s.slug}/settings?seg=profile`)
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings$`))
+  await expect(
+    page.getByRole('heading', { name: 'Settings', level: 1 }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('main').getByRole('link', { name: /^Licence/ }),
+  ).toBeVisible()
+
+  // A tab that never existed opens the hub, not an error page.
+  await page.goto(`/${s.slug}/settings?seg=nonsense`)
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings(\\?.*)?$`))
+  await expect(
+    page.getByRole('heading', { name: 'Settings', level: 1 }),
+  ).toBeVisible()
+})
+
 test('a slow page loads inside the shell instead of blanking the app', async ({
   page,
 }) => {

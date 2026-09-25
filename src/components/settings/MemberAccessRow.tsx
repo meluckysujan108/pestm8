@@ -163,9 +163,15 @@ function LicenceGroup({
       licenceNumber: string
     }) => convexSetLicence(args),
   })
-  const [licence, setLicence] = useState(member.licenceNumber ?? '')
+  // What has been typed, or null for "as saved": the field shows the live
+  // number until someone types, so one set meanwhile elsewhere (by the person
+  // on their own Licence page) shows through rather than reading as a change
+  // here — a Save appearing by itself, and pressing it writing the old
+  // number back over the new one.
+  const [typed, setTyped] = useState<string | null>(null)
+  const licence = typed ?? member.licenceNumber ?? ''
   // The server trims what it stores, so "1234 " is not a change from "1234".
-  const dirty = licence.trim() !== (member.licenceNumber ?? '')
+  const dirty = typed !== null && typed.trim() !== (member.licenceNumber ?? '')
   const saved = useSavedFlash()
 
   const missing = !member.licenceNumber
@@ -175,7 +181,9 @@ function LicenceGroup({
       title="Licence"
       footer={
         missing ? (
-          <span className="text-amber-ink">
+          // orange-ink, not amber-ink: on the canvas amber-ink is 3.6:1,
+          // under the 4.5 small text needs (FormAlert has the same rule).
+          <span className="text-orange-ink">
             Without this they cannot finalise a termite certificate, timber pest
             inspection or treatment record.
           </span>
@@ -188,13 +196,22 @@ function LicenceGroup({
         <form
           onSubmit={(e) => {
             e.preventDefault()
+            // Enter in an untouched field submits too; it has nothing to send.
+            if (!dirty || saveLicence.isPending) return
+            const sent = licence
             saveLicence.mutate(
               {
                 businessId,
                 membershipId: member._id,
-                licenceNumber: licence,
+                licenceNumber: sent,
               },
-              { onSuccess: saved.mark },
+              {
+                onSuccess: () => {
+                  saved.mark()
+                  // Back to the saved number, unless more was typed meanwhile.
+                  setTyped((now) => (now === sent ? null : now))
+                },
+              },
             )
           }}
         >
@@ -203,7 +220,7 @@ function LicenceGroup({
               <input
                 id={inputId}
                 value={licence}
-                onChange={(e) => setLicence(e.target.value)}
+                onChange={(e) => setTyped(e.target.value)}
                 placeholder="Not set"
                 autoComplete="off"
                 className={`${fieldInputClass()} min-w-0 flex-1`}
@@ -263,6 +280,7 @@ function RoleGroup({
   others: Array<Member>
 }) {
   const hydrated = useHydrated()
+  const access = useAccess()
   const roleId = useId()
   const parentId = useId()
 
@@ -339,7 +357,14 @@ function RoleGroup({
             }
             className={`${fieldInputClass()} disabled:opacity-50`}
           >
-            <option value="">Nobody — answers to you</option>
+            {/* `null` is the owner (team.assignTo), whoever is looking: to
+                a contractor moving one of their own crew, "you" would read
+                as themselves. */}
+            <option value="">
+              {access.role === 'owner'
+                ? 'Nobody — answers to you'
+                : 'Nobody — answers to the owner'}
+            </option>
             {contractors.map((c) => (
               <option key={c._id} value={c._id}>
                 {c.name || c.email}

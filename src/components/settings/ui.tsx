@@ -95,7 +95,9 @@ export function RowBadge({
   children: ReactNode
 }) {
   const style = {
-    amber: 'bg-amber-bg text-amber-ink border-amber-line',
+    // orange-ink, not amber-ink, as FormAlert: amber-ink on amber-bg is
+    // 3.98:1, under the 4.5 this 12px text needs.
+    amber: 'bg-amber-bg text-orange-ink border-amber-line',
     red: 'bg-red-bg text-red-ink border-red-line',
     green: 'bg-green-bg text-green-ink border-green-line',
     grey: 'bg-grey-bg text-grey-ink border-grey-line',
@@ -164,8 +166,10 @@ export function RowBody({
   )
 }
 
+// The focus ring is inset: a group's card clips its rows (overflow-hidden),
+// and would cut an outer ring off. The background shift alone is 1.1:1.
 export const ROW_CLASS =
-  'flex min-h-[52px] w-full items-center gap-3 px-3.5 py-2.5 text-left outline-none transition focus-visible:bg-surface-2 active:bg-surface-2'
+  'flex min-h-[52px] w-full items-center gap-3 px-3.5 py-2.5 text-left outline-none transition focus-visible:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue active:bg-surface-2'
 
 /** A row that is not a link: a switch, a read-only value. */
 export function SettingsRow(
@@ -262,6 +266,10 @@ export function FieldRow({
  *
  * Pinned above the phone's dock, so a long form's Save is never a scroll away.
  * On a wide screen there is no dock and it sits at the foot of the column.
+ *
+ * 55px is the dock's own height (MobileDock: its border, padding, glyph and
+ * label), not the 68px `main` pads by: at 68 the page scrolled through a
+ * strip between the two bars.
  */
 export function SaveBar({
   visible,
@@ -280,7 +288,7 @@ export function SaveBar({
 }) {
   if (!visible) return null
   return (
-    <div className="sticky bottom-[calc(68px+env(safe-area-inset-bottom))] z-20 -mx-4 mt-4 border-t border-hairline bg-canvas/90 px-4 py-3 backdrop-blur lg:bottom-0">
+    <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-20 -mx-4 mt-4 border-t border-hairline bg-canvas/90 px-4 py-3 backdrop-blur lg:bottom-0">
       <button
         type="submit"
         form={form}

@@ -4,6 +4,8 @@ import { useConvexMutation } from '@convex-dev/react-query'
 import { RadioGroup } from 'radix-ui'
 import { Check } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
+import { useLatest } from '#/components/forms/SaveWarnings'
+import { useHydrated } from '#/lib/useHydrated'
 import {
   COLOUR_NAME,
   MEMBER_COLOURS,
@@ -33,7 +35,13 @@ const CHIP =
  * to Cyan passes through every colour between. The choice shows at once and
  * is saved a moment after the last move — one change and one audit row, not
  * eight — and the group is never disabled meanwhile: a disabled radio cannot
- * hold focus, and the keyboard user would be dropped back to the page.
+ * hold focus, and the keyboard user would be dropped back to the page. (It is
+ * disabled before hydration, when there is no handler to take a tap and no
+ * focus yet to lose.)
+ *
+ * Leaving the page inside that moment still saves: this sits on a drill-in
+ * page whose next tap is usually ‹ Team, and the check mark has already told
+ * the owner it took.
  */
 export function ColourPicker({
   businessId,
@@ -49,6 +57,7 @@ export function ColourPicker({
   /** The rest of the team, for "also Kevin". */
   others: Array<{ name: string; email?: string; colour: string }>
 }) {
+  const hydrated = useHydrated()
   const convexSetColour = useConvexMutation(api.memberships.setColour)
   const save = useMutation({
     mutationFn: (next: string) =>
@@ -64,14 +73,33 @@ export function ColourPicker({
   // stored colour shows again beside the error.
   const [chosen, setChosen] = useState<string | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const pending = useRef<string | null>(null)
+  // Read at unmount, when the props and the hook's own mutate are gone.
+  const target = useLatest({ businessId, membershipId, convexSetColour })
   useEffect(
     () => () => {
-      if (timer.current) clearTimeout(timer.current)
+      if (!timer.current) return
+      // Unmounted inside the debounce: send it now rather than drop it,
+      // straight to Convex since the useMutation has gone with the page.
+      // Nowhere is left to show a failure.
+      clearTimeout(timer.current)
+      timer.current = null
+      const last = target.current
+      if (pending.current !== null) {
+        last
+          .convexSetColour({
+            businessId: last.businessId,
+            membershipId: last.membershipId,
+            colour: pending.current,
+          })
+          .catch(() => {})
+      }
     },
-    [],
+    [target],
   )
   const choose = (next: string) => {
     setChosen(next)
+    pending.current = next
     if (timer.current) clearTimeout(timer.current)
     timer.current = setTimeout(() => {
       timer.current = null
@@ -99,6 +127,7 @@ export function ColourPicker({
         aria-label={`Colour for ${name}`}
         value={selected}
         onValueChange={choose}
+        disabled={!hydrated}
         className="flex flex-wrap gap-0.5"
       >
         {!offered && (

@@ -16,6 +16,7 @@ import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { Bone } from '#/components/shell/Pending'
 import { ShowMyLicenceButton } from '#/components/settings/ShowMyLicence'
+import { needsLicence } from '#/components/settings/needsLicence'
 import {
   DANGER_ROW_CLASS,
   DangerGroup,
@@ -43,9 +44,14 @@ const LOADER_WAIT_MS = 2000
  * app's last URL and links in old messages still carry them, and a redirect
  * is cheaper than a page that quietly ignores the part of the address that
  * said where to go.
+ *
+ * Profile was the old default tab — details, licence, two-step, Sign out —
+ * and this hub is what took its place, not My details: that page has no
+ * licence on it, and waits for the signed-in user, which with no signal
+ * never answers. So it lands here, with the `seg` dropped.
  */
 const SEGMENT_PAGE = {
-  profile: '/$businessSlug/settings/details',
+  profile: '/$businessSlug/settings',
   team: '/$businessSlug/settings/team',
   prefs: '/$businessSlug/settings/business',
   reports: '/$businessSlug/settings/reports',
@@ -61,12 +67,14 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
   }),
   // Replaced, not pushed: Back from the page it lands on should leave
   // Settings, not bounce off this redirect again. Someone without the
-  // capability lands on that page's own "only the owner" message.
+  // capability lands on that page's own "only the owner" message. The search
+  // goes, so the hub's own (profile) comes back through here with no `seg`.
   beforeLoad: ({ search, params }) => {
     if (search.seg) {
       throw redirect({
         to: SEGMENT_PAGE[search.seg],
         params: { businessSlug: params.businessSlug },
+        search: {},
         replace: true,
       })
     }
@@ -351,13 +359,10 @@ function TeamRow({
 
   const active = members?.filter((m) => m.status === 'active')
   // Only people this person can do something about: an owner's whole team
-  // and himself, a contractor's own crew and himself. A badge for a licence
-  // someone else has to chase is not something that needs doing here.
+  // and himself, a contractor's own crew and himself — the same rule the
+  // Team page badges its rows by, so the count is what it shows.
   const needLicence =
-    active?.filter(
-      (m) =>
-        (m.canManage || m._id === membershipId) && !m.licenceNumber?.trim(),
-    ).length ?? 0
+    members?.filter((m) => needsLicence(m, membershipId)).length ?? 0
   const invited = invitations?.length ?? 0
 
   return (

@@ -23,8 +23,10 @@ import {
 import type { Member } from './MemberAccessRow'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Role } from '../../../convex/lib/capabilities'
+import { useAccess } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
 import { rq } from '#/lib/routeQueries'
+import { needsLicence } from './needsLicence'
 
 /**
  * Settings → Team: who is on the team, each a row that opens their own page,
@@ -67,8 +69,15 @@ export function TeamSection({
   } | null>(null)
 
   const hydrated = useHydrated()
+  const { membershipId } = useAccess()
   const emailId = useId()
   const warnings = useSaveWarnings()
+
+  // Read when a link comes back, not when it was asked for: a sheet closed
+  // while Create link was still out must not reopen on that link the next
+  // time Invite is pressed for somebody else. The invitation itself was made
+  // and waits under "Waiting to join", where New link mints another.
+  const sheetOpen = useLatest(inviteOpen)
 
   const convexCreate = useConvexAction(api.invitations.create)
   const invite = useMutation({
@@ -78,8 +87,8 @@ export function TeamSection({
       role: Role
     }) => convexCreate(args),
     onSuccess: ({ url }, variables) => {
-      setFreshLink({ email: variables.email, url })
       setEmail('')
+      if (sheetOpen.current) setFreshLink({ email: variables.email, url })
     },
   })
 
@@ -154,11 +163,13 @@ export function TeamSection({
             subtitle={`${ROLE_LABEL[member.role]}${member.licenceNumber ? ` · Licence ${member.licenceNumber}` : ''}`}
             // Only for something that needs doing: without a number they
             // cannot finalise a regulated report, and nobody finds that out
-            // until a certificate will not sign.
+            // until a certificate will not sign. Only on someone this viewer
+            // can chase (their own crew, or themselves), by the rule the
+            // hub's count uses.
             badge={
-              member.licenceNumber ? undefined : (
+              needsLicence(member, membershipId) ? (
                 <RowBadge tone="amber">No licence</RowBadge>
-              )
+              ) : undefined
             }
           />
         ))}

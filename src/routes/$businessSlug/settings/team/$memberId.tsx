@@ -1,7 +1,9 @@
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Suspense } from 'react'
+import { createFileRoute, useNavigate, useRouter } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
 import { PageHeader } from '#/components/shell/PageHeader'
+import { SectionPending } from '#/components/shell/Pending'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import {
   MemberSettings,
@@ -48,13 +50,28 @@ function MemberPage() {
       </MemberFrame>
     )
   }
-  return <MemberLoaded />
+  // The header stays put while the roster loads — past the loader's two
+  // seconds, with no signal, or after a Switch back that the loader never
+  // warmed it for — rather than the whole page turning into its placeholder,
+  // ‹ Team and all.
+  return (
+    <Suspense
+      fallback={
+        <MemberFrame title="Team member">
+          <SectionPending />
+        </MemberFrame>
+      }
+    >
+      <MemberLoaded />
+    </Suspense>
+  )
 }
 
 function MemberLoaded() {
   const { business } = Route.useRouteContext()
   const { memberId } = Route.useParams()
   const navigate = useNavigate()
+  const router = useRouter()
   const { data: members } = useSuspenseQuery(rq.team(business._id))
 
   // By id from the address, so an old link, or someone since removed, lands
@@ -80,14 +97,26 @@ function MemberLoaded() {
         others={members.filter(
           (m) => m._id !== member._id && m.status === 'active',
         )}
-        onRemoved={() =>
+        onRemoved={() => {
+          // Only from their page. The removal can resolve long after the
+          // tap — on a slow connection, or queued offline and sent on
+          // reconnect — and by then the owner may be somewhere else, which
+          // this must not pull them away from (or replace in history).
+          // latestLocation includes a navigation already under way.
+          if (
+            !router.latestLocation.pathname.endsWith(
+              `/settings/team/${member._id}`,
+            )
+          ) {
+            return
+          }
           void navigate({
             to: '/$businessSlug/settings/team',
             params: { businessSlug: business.slug },
             // Their page is gone; back should not bring it up again.
             replace: true,
           })
-        }
+        }}
       />
     </MemberFrame>
   )

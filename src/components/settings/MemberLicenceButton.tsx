@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { FileText } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { rq } from '#/lib/routeQueries'
+import { useHydrated } from '#/lib/useHydrated'
 import { LicenceViewer } from './LicenceViewer'
 import { ROW_CLASS, RowBody } from './ui'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -27,6 +28,7 @@ export function MemberLicenceButton({
   membershipId: Id<'memberships'>
   name: string
 }) {
+  const hydrated = useHydrated()
   const [open, setOpen] = useState(false)
   const licence = useQuery({
     ...rq.licenceFile(businessId, membershipId),
@@ -46,7 +48,8 @@ export function MemberLicenceButton({
           setOpen(true)
           if (licence.isError) void licence.refetch()
         }}
-        disabled={open && licence.isPending}
+        // Before hydration a tap has no handler and is lost.
+        disabled={!hydrated || (open && licence.isPending)}
         className={`${ROW_CLASS} disabled:opacity-50`}
       >
         <RowBody

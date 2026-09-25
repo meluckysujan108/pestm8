@@ -59,10 +59,12 @@ function AboutPage() {
         <SettingsGroup title="Data sources">
           {DATA_CREDITS.map(({ source, credit }) => (
             // Wrapped, never truncated like a row's value: a licence notice
-            // cut off at the edge of a phone is not the notice.
+            // cut off at the edge of a phone is not the notice. Nor is one too
+            // faint to read: grey-ink, as the old footer had it, not muted
+            // (3.3:1 on white, under the 4.5 a caption needs).
             <div key={source} className="px-3.5 py-3">
               <p className="text-body text-ink">{source}</p>
-              <p className="mt-0.5 text-caption text-muted">{credit}</p>
+              <p className="mt-0.5 text-caption text-grey-ink">{credit}</p>
             </div>
           ))}
         </SettingsGroup>

@@ -63,16 +63,19 @@ const ADDRESS_ROWS =
 
 /**
  * The business as it prints: who issued the document (the Business group)
- * and the letterhead at the top of every report and certificate (logo,
- * address, phone, email, website). The page renders this only for someone
- * with `business.manage`; the server refuses everyone else anyway.
+ * and the letterhead (logo, address, phone, email, website). The logo and the
+ * contact lines head every report (reportTemplates/documentModel.ts); the
+ * address does not — it prints in the body of the inspection report and the
+ * certificate (and any custom form that asks for it). The page renders this
+ * only for someone with `business.manage`; the server refuses everyone else
+ * anyway.
  *
  * The business licence number here is the business's own — distinct from a
  * technician's licence on `memberships`, which is theirs to keep on the
  * Licence page.
  *
- * The address, phone and email head every report and certificate the business
- * issues, so they get the same checks as a client's (field verification). The
+ * The address, phone and email print on what the business issues, so they
+ * get the same checks as a client's (field verification). The
  * address has no State field: a business's state is the one chosen above it,
  * and the printed address is in it.
  *
@@ -323,7 +326,7 @@ export function BusinessSection({
         <SettingsGroup
           id={`${id}-letterhead-heading`}
           title="Letterhead"
-          footer="Printed at the top of every report and certificate."
+          footer="Logo and contact details head every report; the address prints on inspection reports and certificates."
           // The street's suggestions open below it, over the rows beneath,
           // and a card that clips its contents would cut them off. Nothing
           // in this one paints to its edges, so it has nothing to clip.

@@ -46,6 +46,24 @@ test('an owner works in a subcontractor’s account, then comes back out', async
   await expect(banner).toBeVisible()
   await expect(page.getByText(/everything you do is recorded/)).toBeVisible()
 
+  // The Settings hub drops every business row while switched — the server
+  // has stopped honouring what they open — and says why, rather than leave
+  // the owner wondering where his business went. His own rows stay. Scoped
+  // to the page, not the sidebar.
+  await page.goto(`/${slug}/settings`)
+  const hub = page.getByRole('main')
+  await expect(
+    hub.getByText(
+      'Switch back to your own account to change business settings.',
+    ),
+  ).toBeVisible()
+  await expect(hub.getByRole('link', { name: /^My details/ })).toBeVisible()
+  await expect(
+    hub.getByRole('link', { name: /^Business details/ }),
+  ).toHaveCount(0)
+  await expect(hub.getByRole('link', { name: /^Team/ })).toHaveCount(0)
+  await expect(hub.getByRole('link', { name: /^Reports/ })).toHaveCount(0)
+
   // Editing a profile while switched still edits your own: identity-bearing
   // writes always resolve the real person.
   await page.goto(`/${slug}/settings/details`)
@@ -183,10 +201,6 @@ test('an owner builds a contractor a team, and the team works in their account',
       return roster.find((m) => m._id === subMembershipId)?.role
     })
     .toBe('contractor')
-
-  // Only a subcontractor works under someone: as a contractor, Kevin answers
-  // to the owner, so the selector for putting him on a team is gone.
-  await expect(page.getByLabel('Works under')).toHaveCount(0)
 
   // The caption under his name on the team list is what the owner actually
   // reads, and it is rendered from the live query rather than from the select

@@ -186,7 +186,10 @@ export function LicenceDocument({
     <>
       <SettingsGroup
         title="Licence document"
-        footer="Only you and the business owner can see it. Kept on this phone for sites with no signal."
+        // A copy is kept only once it has been opened (or uploaded) on this
+        // phone (licenceSource.ts), so the line says to open it: one uploaded
+        // from the office laptop is not here yet on a site with no signal.
+        footer="Only you and the owner can see it. Open it once to keep it on this phone for sites with no signal."
       >
         {shown === undefined ? (
           live.isError ? (
