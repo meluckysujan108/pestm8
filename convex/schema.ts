@@ -433,6 +433,75 @@ export default defineSchema({
     // backfill on deploy is nothing.
     .index('by_licenceFile_storageId', ['licenceFile.storageId']),
 
+  /**
+   * My licences: every licence a person holds — pest management, fumigation,
+   * a white card, a driver's licence — each named by them, with an optional
+   * number and expiry, and up to six files (`memberLicenceFiles`). See
+   * `convex/memberLicences.ts` for who may do what: the holder writes, the
+   * owner reads, nobody else sees them.
+   *
+   * SEPARATE from `memberships.licenceNumber`, which prints on reports and
+   * decides whether one may be finalised. Nothing here feeds that.
+   *
+   * Per membership, like the rest of a person's standing in a business: the
+   * same person in two businesses keeps two wallets. New table, so nothing to
+   * migrate but the Phase 8.1 document (`migrations/licenceWalletV1`).
+   */
+  memberLicences: defineTable({
+    businessId: v.id('businesses'),
+    /** The holder — who may change it, and the only one. */
+    membershipId: v.id('memberships'),
+    /** As the holder calls it, tidied (`cleanLicenceName`): 1–80 characters. */
+    name: v.string(),
+    /** Up to 60 characters; absent when there is none. */
+    number: v.optional(v.string()),
+    /**
+     * The last day it is good for, as a calendar date `YYYY-MM-DD`
+     * (`checkExpiresOn`) — never a timestamp, so it is the same day wherever
+     * it is read. Absent when unknown or it does not expire.
+     */
+    expiresOn: v.optional(v.string()),
+    createdAt: v.number(),
+    /** Any change to it, its files included. */
+    updatedAt: v.number(),
+  })
+    // A person's wallet — capped at MAX_LICENCES, so always a short read.
+    .index('by_membership', ['membershipId'])
+    .index('by_business', ['businessId']),
+
+  /**
+   * A licence's files: the card photographed front and back, the regulator's
+   * PDF. One row per file, not an array on the licence, so adding one never
+   * rewrites the others. Capped at MAX_LICENCE_FILES per licence.
+   *
+   * The same shape and the same claim as `memberships.licenceFile`
+   * (`claimLicenceFile` in lib/licenceClaims.ts), and never deleted with its
+   * row — no `ctx.storage.delete` for a licence, ever (`licences.ts`).
+   */
+  memberLicenceFiles: defineTable({
+    /** Copied from the licence, so a row answers who may read it by itself. */
+    businessId: v.id('businesses'),
+    membershipId: v.id('memberships'),
+    licenceId: v.id('memberLicences'),
+    storageId: v.id('_storage'),
+    /** Which viewer opens it: the PDF viewer or the image viewer. */
+    kind: v.union(v.literal('pdf'), v.literal('image')),
+    /** As claimed: application/pdf, image/png or image/jpeg. */
+    contentType: v.string(),
+    /** Tidied, ending in the extension of what it is. */
+    fileName: v.string(),
+    /** Bytes, from storage — never from the client. */
+    size: v.number(),
+    /** Also the identity of this version of the file, for a copy kept on the
+     * holder's phone. */
+    uploadedAt: v.number(),
+  })
+    // A licence's files, in the order they were added.
+    .index('by_licence', ['licenceId', 'uploadedAt'])
+    // "Is this upload already someone's licence?" (`heldAsLicence`) — asked
+    // before any feature claims a file and before anything deletes one.
+    .index('by_storage', ['storageId']),
+
   // First-class, deliberately NOT derived from job history: reports must stay
   // findable by address years later, whether or not the original job survives.
   /**

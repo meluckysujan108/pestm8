@@ -16,6 +16,7 @@ import {
 } from './lib/capabilities'
 import { factsFromMembership } from './lib/membershipFacts'
 import { clearTwoStepAttempts } from './twoStepAttempts'
+import { licenceCountOf } from './memberLicences'
 import { NOT_STARTED_STATUSES } from './lib/jobStatus'
 import type { JobStatus } from './lib/jobStatus'
 import type { Doc, Id } from './_generated/dataModel'
@@ -397,6 +398,10 @@ export const roster = query({
     // Only the owner may open a member's licence document (licences.ts), so
     // only the owner is told who has one.
     const seesLicences = hasCapability(env, 'business.manage')
+    // Likewise the licence wallet (memberLicences.ts), which the holder may
+    // also read: how many they hold, for exactly the rows `list` would open.
+    const seesWallet = (m: Doc<'memberships'>) =>
+      m.status === 'active' && (seesLicences || m._id === env.actor.real._id)
 
     const members = await ctx.db
       .query('memberships')
@@ -454,6 +459,13 @@ export const roster = query({
              * the "View licence" button. An added field: absent on an older
              * backend, which means no button. */
             hasLicenceFile: seesLicences && m.licenceFile !== undefined,
+            /** How many licences are in this person's wallet — for the owner,
+             * and for the caller's own row; absent for anyone else, and for
+             * anyone not active, whose licences nobody may open. An added
+             * field, so an older client ignores it. */
+            licenceCount: seesWallet(m)
+              ? await licenceCountOf(ctx, m._id)
+              : undefined,
           }
         }),
     )
