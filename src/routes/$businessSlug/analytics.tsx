@@ -10,7 +10,7 @@ import { rq, warm } from '#/lib/routeQueries'
 
 // A separate lazy chunk so `recharts` (~150KB gzipped) never loads on
 // Schedule or any other route — only whoever actually opens Analytics pays
-// for it. Mirrors `ReportActionBar.tsx`'s exact `LazyPdfViewer` pattern.
+// for it. The same pattern as the PDF viewer's (`pdf/host/viewerChunk.ts`).
 const LazyAnalyticsCharts = lazy(() =>
   import('#/components/analytics/AnalyticsCharts').then((m) => ({
     default: m.AnalyticsCharts,

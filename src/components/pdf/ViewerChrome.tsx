@@ -8,6 +8,7 @@ import {
   FileUp,
   LayoutGrid,
   LoaderCircle,
+  Pencil,
   Search,
   Share,
 } from 'lucide-react'
@@ -43,6 +44,7 @@ export function TopBar({
   /** 0 until the document is open. */
   pages: number
   onDone: () => void
+  /** The More menu, or null when there is nothing to put in it. */
   menu: ReactNode
 }) {
   return (
@@ -155,6 +157,7 @@ export function Toolbar({
   onSearch,
   onPages,
   searchButtonRef,
+  markup,
 }: {
   actions: ViewerActions
   /** The file has arrived, so there is something to hand over. */
@@ -167,6 +170,12 @@ export function Toolbar({
   onSearch: () => void
   onPages: () => void
   searchButtonRef: Ref<HTMLButtonElement>
+  /** The pen, for someone who may draw; absent draws no Markup button. */
+  markup?: {
+    open: boolean
+    onToggle: () => void
+    buttonRef: Ref<HTMLButtonElement>
+  }
 }) {
   const { keep } = actions
   return (
@@ -193,6 +202,17 @@ export function Toolbar({
       >
         <LayoutGrid size={22} strokeWidth={1.8} />
       </ToolbarButton>
+      {markup && (
+        <ToolbarButton
+          label="Markup"
+          buttonRef={markup.buttonRef}
+          disabled={!ready}
+          pressed={markup.open}
+          onClick={markup.onToggle}
+        >
+          <Pencil size={21} strokeWidth={1.8} />
+        </ToolbarButton>
+      )}
       {keep && (
         <ToolbarButton
           label="Keep on this phone"
@@ -216,6 +236,15 @@ export function Toolbar({
       )}
     </div>
   )
+}
+
+/**
+ * Whether the More menu has anything in it. A draft's preview offers no Save
+ * (it must not leave the app) and no Replace or Keep, and an empty menu is a
+ * button that opens onto nothing — so then there is no button.
+ */
+export function hasMoreMenu(actions: ViewerActions): boolean {
+  return !!actions.save || !!actions.replace || !!actions.keep
 }
 
 /**
@@ -255,13 +284,15 @@ export function MoreMenu({
           {/* Every item acts inside the tap that chose it: Safari opens the
               share sheet (Save to Files) and the file picker (Replace) only
               from a user gesture. */}
-          <MenuItem
-            icon={<Download size={18} strokeWidth={1.8} />}
-            disabled={!canSave}
-            onSelect={onSave}
-          >
-            {actions.saveLabel}
-          </MenuItem>
+          {actions.save && (
+            <MenuItem
+              icon={<Download size={18} strokeWidth={1.8} />}
+              disabled={!canSave}
+              onSelect={onSave}
+            >
+              {actions.saveLabel ?? 'Download'}
+            </MenuItem>
+          )}
           {replace && (
             <MenuItem
               icon={<FileUp size={18} strokeWidth={1.8} />}

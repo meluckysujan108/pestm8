@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -9,15 +10,24 @@ import {
 import { flushSync } from 'react-dom'
 import { Dialog } from 'radix-ui'
 import { useKeyboardInset } from '#/lib/useKeyboardInset'
+import { handOver } from './handOver'
 import { PAGE_GAP } from './layout'
+import { MarkupPalette } from './MarkupPalette'
 import { PageGrid } from './PageGrid'
 import { PageScroller } from './PageScroller'
-import { pageIsZoomed } from './pageZoom'
+import { pageIsZoomed, usePageZoomed } from './pageZoom'
 import { browserStorage, loadPosition, savePosition } from './readingPosition'
 import { SearchBar } from './SearchBar'
 import { usePageSizes, usePdfDocument } from './useDocument'
+import { useMarkupSession } from './useMarkupSession'
 import { useTextSearch } from './useTextSearch'
-import { BottomBar, MoreMenu, Toolbar, TopBar } from './ViewerChrome'
+import {
+  BottomBar,
+  MoreMenu,
+  Toolbar,
+  TopBar,
+  hasMoreMenu,
+} from './ViewerChrome'
 import { keyCommand } from './viewerKeys'
 import { ErrorState, LoadingState, PasswordState } from './ViewerStates'
 import type { KeyboardEvent as ReactKeyboardEvent, SyntheticEvent } from 'react'
@@ -43,7 +53,12 @@ import type { DocumentViewerProps } from './types'
  * outside the sheet and close it, and Escape reaches the viewer first.
  *
  * Layers: the dock is z-40, sheets z-50, alert dialogs z-60/70; the viewer
- * is z-80, and its own menu z-90.
+ * is z-80, and its own menu z-90. Which is why nothing inside it may ask
+ * through one of the app's alert dialogs: it would open behind the viewer.
+ *
+ * A caller may lay marks over the pages (`markup`, a report's): the viewer
+ * draws them, runs the pen, and knows nothing of reports or who may do what
+ * beyond the contract's fields.
  */
 export function DocumentViewer({
   title,
@@ -51,6 +66,9 @@ export function DocumentViewer({
   source,
   actions,
   onClose,
+  markup,
+  badge,
+  rememberPosition = true,
 }: DocumentViewerProps) {
   const [attempt, setAttempt] = useState(0)
   const { state, blob, submitPassword } = usePdfDocument(source, attempt)
@@ -85,6 +103,8 @@ export function DocumentViewer({
   const doneRef = useRef<HTMLButtonElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const searchButtonRef = useRef<HTMLButtonElement>(null)
+  const markupButtonRef = useRef<HTMLButtonElement>(null)
+  const markupDoneRef = useRef<HTMLButtonElement>(null)
   const scrollerRef = useRef<ScrollerHandle>(null)
   const currentRef = useRef(0)
   const pillTimer = useRef(0)
@@ -96,8 +116,7 @@ export function DocumentViewer({
   )
 
   const ready = doc !== null
-  // Search and the page grid need their controls on screen.
-  const showBars = barsVisible || searchOpen || gridOpen || !ready
+  const badgeId = useId()
 
   const keyboard = useKeyboardInset()
   // The bar already reserves the home-indicator strip, which the keyboard
@@ -151,12 +170,15 @@ export function DocumentViewer({
 
   // ---- Reading position ---------------------------------------------------
 
+  // Fixed for the life of the viewer: a draft preview neither opens where the
+  // last draft was left nor pushes real documents out of the remembered list.
+  const [remember] = useState(rememberPosition)
   const initialPosition = useMemo(() => {
-    if (!doc) return null
+    if (!doc || !remember) return null
     const saved = loadPosition(browserStorage(), source.key)
     return saved && saved.page <= doc.numPages ? saved : null
     // Read once per document; later saves must not move the view.
-  }, [doc, source.key])
+  }, [doc, source.key, remember])
 
   const positionRef = useRef<{ key: string; position: ReadingPosition } | null>(
     null,
@@ -176,24 +198,64 @@ export function DocumentViewer({
   })
   const onPosition = useCallback(
     (position: ReadingPosition) => {
+      if (!remember) return
       positionRef.current = { key: keyRef.current, position }
       if (saveTimer.current) return
       saveTimer.current = window.setTimeout(flushPosition, 500)
     },
-    [flushPosition],
+    [flushPosition, remember],
   )
   useEffect(() => flushPosition, [flushPosition])
 
+  // ---- Toasts --------------------------------------------------------------
+
+  const showToast = useCallback((message: string) => {
+    setToast(message)
+    window.clearTimeout(toastTimer.current)
+    toastTimer.current = window.setTimeout(() => setToast(null), 3000)
+  }, [])
+
+  // ---- Markup --------------------------------------------------------------
+
+  // Not while the app itself is pinch-zoomed: its pinches are then the
+  // browser's (`pageZoom.ts`), and a page that swallowed one-finger touches
+  // for the pen could leave it stuck zoomed.
+  const appZoomed = usePageZoomed()
+  const pen = useMarkupSession(markup, {
+    ready,
+    appZoomed,
+    page: current,
+    showToast,
+  })
+  const marking = pen.open
+  const setMarkupOpen = pen.setOpen
+
+  // Search, the page grid and the pen need their controls on screen.
+  const showBars = barsVisible || searchOpen || gridOpen || marking || !ready
+
+  const openMarkup = () => {
+    flushSync(() => {
+      setMarkupOpen(true)
+      setBarsVisible(true)
+    })
+    markupDoneRef.current?.focus()
+  }
+  const closeMarkup = useCallback(() => {
+    flushSync(() => setMarkupOpen(false))
+    // Back to the button that opened it, which the palette was covering.
+    markupButtonRef.current?.focus()
+  }, [setMarkupOpen])
+
   // ---- Scroller callbacks --------------------------------------------------
 
-  // A tap on the page shows or hides the bars — except while search or the
-  // grid holds them on screen. There it would change nothing that could be
-  // seen, only what is remembered, and the bars would then vanish, Done and
-  // all, the moment search closed. Read at tap time (it fires 250 ms after
-  // the finger lifts), so a ref.
+  // A tap on the page shows or hides the bars — except while search, the
+  // grid or the pen holds them on screen. There it would change nothing that
+  // could be seen, only what is remembered, and the bars would then vanish,
+  // Done and all, the moment search closed. Read at tap time (it fires 250 ms
+  // after the finger lifts), so a ref.
   const barsHeld = useRef(false)
   useLayoutEffect(() => {
-    barsHeld.current = searchOpen || gridOpen
+    barsHeld.current = searchOpen || gridOpen || marking
   })
   const onTap = useCallback(() => {
     if (barsHeld.current) return
@@ -220,12 +282,6 @@ export function DocumentViewer({
     },
     [],
   )
-
-  const showToast = useCallback((message: string) => {
-    setToast(message)
-    window.clearTimeout(toastTimer.current)
-    toastTimer.current = window.setTimeout(() => setToast(null), 3000)
-  }, [])
 
   // ---- Search ------------------------------------------------------------
 
@@ -303,11 +359,12 @@ export function DocumentViewer({
     flushSync(() => {
       setSearchOpen(true)
       setGridOpen(false)
+      setMarkupOpen(false)
       setBarsVisible(true)
     })
     searchInputRef.current?.focus()
     searchInputRef.current?.select()
-  }, [ready])
+  }, [ready, setMarkupOpen])
 
   const closeSearch = useCallback(() => {
     flushSync(() => {
@@ -322,15 +379,34 @@ export function DocumentViewer({
 
   // ---- Share and save ------------------------------------------------------
 
+  // The file goes out exactly as the caller stored it: marks are for the
+  // team, drawn over the pages here and never burned into the PDF. Said once
+  // it has gone — not as the share sheet opens, when it would sit behind the
+  // sheet, and not at all if the sheet is closed without sending
+  // (`handOver`).
+  const withoutMarks = (note: string | undefined) => {
+    const said = pen.hasMarks ? note : undefined
+    return said ? () => showToast(said) : undefined
+  }
   const share = () => {
     if (!file || !actions.share) return
     // No await before this call: Safari opens the share sheet only from
     // inside the tap.
-    run(() => actions.share?.(file), "Couldn't share this PDF", showToast)
+    handOver(
+      () => actions.share?.(file),
+      "Couldn't share this PDF",
+      showToast,
+      withoutMarks(markup?.shareNote),
+    )
   }
   const save = () => {
-    if (!file) return
-    run(() => actions.save(file), "Couldn't save this PDF", showToast)
+    if (!file || !actions.save) return
+    handOver(
+      () => actions.save?.(file),
+      "Couldn't save this PDF",
+      showToast,
+      withoutMarks(markup?.saveNote ?? markup?.shareNote),
+    )
   }
 
   // ---- Keys ---------------------------------------------------------------
@@ -414,7 +490,8 @@ export function DocumentViewer({
           ref={setRoot}
           aria-label={`${title} PDF`}
           aria-modal="true"
-          aria-describedby={undefined}
+          // A draft preview says what it is as it opens, not only on screen.
+          aria-describedby={badge ? badgeId : undefined}
           onOpenAutoFocus={(event) => {
             event.preventDefault()
             doneRef.current?.focus()
@@ -437,6 +514,9 @@ export function DocumentViewer({
             } else if (gridOpen) {
               event.preventDefault()
               setGridOpen(false)
+            } else if (marking) {
+              event.preventDefault()
+              closeMarkup()
             }
           }}
           onKeyDownCapture={onKeyDownCapture}
@@ -467,6 +547,10 @@ export function DocumentViewer({
               onPosition={onPosition}
               handleRef={scrollerRef}
               inert={gridOpen}
+              markStrokes={pen.strokes}
+              pendingMarks={pen.pendingByPage}
+              marking={marking}
+              onStroke={pen.onStroke}
             />
           )}
           {state.phase === 'loading' && (
@@ -483,6 +567,7 @@ export function DocumentViewer({
           {state.phase === 'error' && (
             <ErrorState
               reason={state.reason}
+              detail={state.detail}
               onRetry={() => setAttempt((n) => n + 1)}
             />
           )}
@@ -501,7 +586,8 @@ export function DocumentViewer({
             />
           )}
 
-          {/* "3 of 12", while scrolling. */}
+          {/* "3 of 12", while scrolling — below the badge, when there is
+              one, rather than on top of it on a narrow phone. */}
           {ready && !gridOpen && (
             <div
               aria-hidden
@@ -509,11 +595,7 @@ export function DocumentViewer({
                 'chrome-blur pointer-events-none absolute left-[max(0.75rem,env(safe-area-inset-left))] z-10 rounded-full px-2.5 py-1 text-caption font-semibold text-ink shadow-elevation transition-[opacity,top] duration-300',
                 pillVisible ? 'opacity-100' : 'opacity-0',
               ].join(' ')}
-              style={{
-                top: showBars
-                  ? topBarHeight + 8
-                  : 'calc(env(safe-area-inset-top) + 8px)',
-              }}
+              style={{ top: pillTop(showBars, topBarHeight, badge ? 1 : 0) }}
             >
               {current + 1} of {pages}
             </div>
@@ -531,8 +613,26 @@ export function DocumentViewer({
             title={title}
             pages={pages}
             onDone={onClose}
-            menu={<MoreMenu actions={actions} canSave={!!file} onSave={save} />}
+            menu={
+              hasMoreMenu(actions) ? (
+                <MoreMenu actions={actions} canSave={!!file} onSave={save} />
+              ) : null
+            }
           />
+
+          {/* What this document is, kept in view: "Draft — not the finished
+              document". Read once as the viewer opens (it describes the
+              dialog), and not again every time the bars come and go. */}
+          {badge && !gridOpen && (
+            <p
+              id={badgeId}
+              aria-live="off"
+              className="chrome-blur pointer-events-none absolute left-1/2 z-10 max-w-[calc(100%-1.5rem)] -translate-x-1/2 truncate rounded-full px-2.5 py-1 text-caption font-semibold text-ink shadow-elevation transition-[top] duration-300"
+              style={{ top: pillTop(showBars, topBarHeight, 0) }}
+            >
+              {badge}
+            </p>
+          )}
 
           {noText && (
             <p
@@ -554,7 +654,19 @@ export function DocumentViewer({
           )}
 
           <BottomBar barRef={bottomBarRef} visible={showBars} lift={lift}>
-            {searchOpen && ready ? (
+            {marking ? (
+              <MarkupPalette
+                note={markup?.note}
+                canUndo={pen.canUndo}
+                onUndo={pen.onUndo}
+                page={current}
+                canClear={pen.canClear}
+                clearArmed={pen.clearArmed}
+                onClear={pen.onClear}
+                onDone={closeMarkup}
+                doneRef={markupDoneRef}
+              />
+            ) : searchOpen && ready ? (
               <SearchBar
                 inputRef={searchInputRef}
                 query={query}
@@ -576,9 +688,21 @@ export function DocumentViewer({
                 onSearch={openSearch}
                 onPages={() => {
                   setBarsVisible(true)
+                  setMarkupOpen(false)
                   setGridOpen((open) => !open)
                 }}
                 searchButtonRef={searchButtonRef}
+                // The palette covers this bar while the pen is out, and its
+                // own Done puts the pen away.
+                markup={
+                  pen.canDraw
+                    ? {
+                        open: marking,
+                        onToggle: openMarkup,
+                        buttonRef: markupButtonRef,
+                      }
+                    : undefined
+                }
               />
             )}
           </BottomBar>
@@ -594,22 +718,15 @@ function stopBubbling(event: SyntheticEvent) {
   event.stopPropagation()
 }
 
-/** Calls an action, and says so if it fails — unless it was cancelled. */
-function run(
-  action: () => Promise<void> | void,
-  failure: string,
-  showToast: (message: string) => void,
-) {
-  const report = (error: unknown) => {
-    // Closing the share sheet without choosing is not a failure.
-    if (error instanceof Error && error.name === 'AbortError') return
-    showToast(failure)
-  }
-  try {
-    Promise.resolve(action()).catch(report)
-  } catch (error) {
-    report(error)
-  }
+/**
+ * Where a pill under the top bar sits: just below the bar, or near the top
+ * of the screen when the bars are away; `row` 1 is the second pill down.
+ */
+function pillTop(showBars: boolean, topBarHeight: number, row: number) {
+  const below = 8 + row * 32
+  return showBars
+    ? topBarHeight + below
+    : `calc(env(safe-area-inset-top) + ${below}px)`
 }
 
 /** The smallest rectangle around all of a match's pieces. */

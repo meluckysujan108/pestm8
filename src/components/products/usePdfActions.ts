@@ -24,7 +24,7 @@ import type { LoadProgress } from '#/components/pdf/types'
 import type { KeepOutcome } from '#/lib/keptProducts'
 import type { ShareOutcome } from '#/lib/pdfFiles'
 import type { HeldPdf } from '#/lib/shareGesture'
-import type { ShareSupport } from './hooks'
+import type { ShareSupport } from '#/components/pdf/host/useShareSupport'
 import type { ShownProduct } from './model'
 
 /**
@@ -178,7 +178,7 @@ export function usePdfInHand({
     (purpose: PdfPurpose, blob: Blob, fresh: boolean) => {
       const { product: now } = latest.current
       const file = asPdfFile(blob, now.pdf?.fileName ?? now.name)
-      let pending: Promise<ShareOutcome | void>
+      let pending: Promise<ShareOutcome | 'saved'>
       // Each of these calls `navigator.share()` before its first await.
       try {
         pending =

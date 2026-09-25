@@ -515,7 +515,11 @@ src/components/
     DurableNoticePreview.tsx      an optional extra behind `features`
     ReportDocument.tsx            on-screen rendered document
     pdf/                          ONE painter (ReportPdf) + CoverPage, layout,
-                                  tables, theme, RichTextPdf, PdfViewer
+                                  tables, theme, RichTextPdf (server-side only)
+    ReportPdfCard.tsx  ReportPdfViewer.tsx  DraftPreviewViewer.tsx
+                                  the PDF tab, and a report (with the team's
+                                  marks) or a draft's preview in the in-app
+                                  viewer (components/pdf, via pdf/host)
   notes/
     NotesLibrary.tsx  NotesRail.tsx  NoteList.tsx  NoteEditor.tsx
     NoteEditorHeader.tsx  JobNotesSection.tsx ("Before you arrive" only)

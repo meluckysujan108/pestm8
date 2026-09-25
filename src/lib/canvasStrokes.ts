@@ -1,11 +1,10 @@
 /**
- * The pointer-position and stroke-painting math shared by every hand-rolled
- * canvas drawing surface in this app (`AnnotationEditor.tsx` for photos,
- * `AnnotationOverlay.tsx` for PDF pages). Genuinely identical code in both —
- * not parameterized behaviour — so it lives here once rather than being
- * copied. The surrounding state machine (dirty/save/undo/clear, what "the
- * background" is) stays duplicated in each component, since that part
- * actually differs between them.
+ * The pointer-position and stroke-painting math for the app's hand-rolled
+ * canvas drawing surface (`AnnotationEditor.tsx`, marking up a photo). It was
+ * shared with the old PDF viewer's per-page canvas until report markup moved
+ * into the in-app viewer (`#/components/pdf`), which draws its marks itself.
+ * Still its own module: the math is not the editor's state machine
+ * (dirty/save/undo/clear, what "the background" is), and reads better apart.
  */
 
 export type Point = { x: number; y: number }

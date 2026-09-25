@@ -35,36 +35,16 @@ export function AmendmentNotice({
   const navigate = useNavigate()
   if (!supersededBy && !supersedes) return null
 
-  const numbered =
-    reportNumber !== undefined ? `#${reportNumber}` : 'this report'
+  const numbered = numberedAs(reportNumber)
 
   return (
     <div className="px-4 pt-4">
       {supersededBy && (
-        <div className="flex items-start gap-2.5 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5">
-          <History
-            size={16}
-            strokeWidth={1.9}
-            className="mt-0.5 shrink-0 text-amber-ink"
-          />
-          <p className="min-w-0 flex-1 text-caption text-amber-ink">
-            <span className="font-semibold">Replaced.</span> A later version of{' '}
-            {numbered} has been issued. This document is kept because the client
-            was sent it.{' '}
-            <button
-              type="button"
-              onClick={() =>
-                void navigate({
-                  to: '/$businessSlug/reports/$reportId',
-                  params: { businessSlug, reportId: supersededBy },
-                })
-              }
-              className="font-semibold underline"
-            >
-              Open the current version
-            </button>
-          </p>
-        </div>
+        <ReplacedNotice
+          businessSlug={businessSlug}
+          supersededBy={supersededBy}
+          reportNumber={reportNumber}
+        />
       )}
 
       {supersedes && (
@@ -94,6 +74,53 @@ export function AmendmentNotice({
           </p>
         </div>
       )}
+    </div>
+  )
+}
+
+function numberedAs(reportNumber: number | undefined): string {
+  return reportNumber !== undefined ? `#${reportNumber}` : 'this report'
+}
+
+/**
+ * The replaced end of the pair: this document is no longer the current one,
+ * and the way to the one that is. On the form and on the PDF tab alike, so
+ * nobody reads, shares or marks up the old document without being told.
+ */
+export function ReplacedNotice({
+  businessSlug,
+  supersededBy,
+  reportNumber,
+}: {
+  businessSlug: string
+  supersededBy: Id<'reports'>
+  reportNumber?: number
+}) {
+  const navigate = useNavigate()
+  return (
+    <div className="flex items-start gap-2.5 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5">
+      <History
+        size={16}
+        strokeWidth={1.9}
+        className="mt-0.5 shrink-0 text-amber-ink"
+      />
+      <p className="min-w-0 flex-1 text-caption text-amber-ink">
+        <span className="font-semibold">Replaced.</span> A later version of{' '}
+        {numberedAs(reportNumber)} has been issued. This document is kept
+        because the client was sent it.{' '}
+        <button
+          type="button"
+          onClick={() =>
+            void navigate({
+              to: '/$businessSlug/reports/$reportId',
+              params: { businessSlug, reportId: supersededBy },
+            })
+          }
+          className="font-semibold underline"
+        >
+          Open the current version
+        </button>
+      </p>
     </div>
   )
 }

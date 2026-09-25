@@ -332,6 +332,34 @@ export function zoomAbout(
 }
 
 /**
+ * What two fingers show at scale `s`: content point `p0` — whatever was under
+ * their first midpoint — under their midpoint now, `mid`. Spreading them
+ * zooms; moving both pans.
+ */
+export function pinchTransform(
+  p0: Point,
+  mid: Point,
+  scroll: Point,
+  s: number,
+): StageTransform {
+  return { s, tx: mid.x + scroll.x - s * p0.x, ty: mid.y + scroll.y - s * p0.y }
+}
+
+/**
+ * In markup mode, two fingers whose spread never strayed further than this
+ * from where it started (a fraction of it) were panning, and the gesture
+ * settles at the zoom it began at.
+ *
+ * With one finger drawing, two is the only way to move the page, and no two
+ * fingers dragged across glass keep exactly the same spread: left alone, every
+ * pan would commit a zoom of 1.03 or 0.98 — a re-layout, a blurry moment
+ * while the pages redraw at the new size, and the words a hair bigger or
+ * smaller than they were. Outside markup mode one finger pans, so a
+ * two-finger gesture there is a pinch and is taken at its word.
+ */
+export const PAN_ONLY_STRETCH = 0.05
+
+/**
  * Where a gesture that has left the stack at `transform` settles: its zoom
  * clamped to the range, and the scroll that keeps what is under `q` (the last
  * midpoint of the fingers) under it.

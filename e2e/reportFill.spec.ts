@@ -17,6 +17,11 @@ import {
   sectionUrl,
   signReport,
 } from './fixtures/reportPayloads'
+import {
+  DRAFT_BADGE,
+  expectDocumentOpen,
+  reportViewer,
+} from './fixtures/reportViewer'
 import { getTemplate } from '../src/lib/reportTemplates'
 import type { Id } from '../convex/_generated/dataModel'
 
@@ -666,12 +671,27 @@ test.describe('the sheet before the lock', () => {
     await builderReady(page)
     await page.getByRole('button', { name: 'Finalise & lock' }).click()
 
-    const sheet = page.getByRole('dialog')
-    // The tab is opened on the tap and pointed at the file when the render
-    // lands — a popup opened afterwards is one every browser blocks.
-    const opened = page.waitForEvent('popup')
+    const sheet = page.getByRole('dialog', { name: 'Ready to lock' })
+    // In the app's own viewer, never a new tab: from the installed app on an
+    // iPhone a tab is Safari taking over the screen, with no way back into
+    // the report but the app switcher.
+    const popups: Array<string> = []
+    page.on('popup', (popup) => popups.push(popup.url()))
     await sheet.getByRole('button', { name: 'Preview the document' }).click()
-    await opened
+
+    // The sheet steps aside for it, and the preview says what it is.
+    await expect(sheet).toBeHidden()
+    const preview = reportViewer(page)
+    await expectDocumentOpen(preview)
+    await expect(preview.getByText(DRAFT_BADGE)).toBeVisible()
+    // View only: nothing leaves the app from a draft — no Share, no Save (so
+    // no More menu, which would hold nothing) — and nothing to mark.
+    await expect(preview.getByRole('button', { name: 'Share' })).toHaveCount(0)
+    await expect(preview.getByRole('button', { name: 'More' })).toHaveCount(0)
+    await expect(
+      preview.getByRole('button', { name: 'Markup', exact: true }),
+    ).toHaveCount(0)
+    expect(popups).toEqual([])
 
     // The watermarked copy is kept where the next one can replace it, rather
     // than accumulating a file per look. (What it contains is asserted in
@@ -688,6 +708,12 @@ test.describe('the sheet before the lock', () => {
         { timeout: 30_000 },
       )
       .not.toBeNull()
+
+    // Closing it puts the sheet back as it was, without asking again.
+    await preview.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(preview).toBeHidden()
+    await expect(sheet).toBeVisible()
+    expect(popups).toEqual([])
 
     // Still a draft: reading it is not agreeing to it.
     const report = await owner.client.query(api.reports.get, {

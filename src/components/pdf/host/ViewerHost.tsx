@@ -6,16 +6,19 @@ import type { ErrorInfo, ReactNode } from 'react'
 import type { DocumentViewerProps } from '#/components/pdf/types'
 
 /**
- * The PDF viewer, as the Products page opens it: fetched on first use (see
- * `viewerChunk.ts`), with a stand-in that looks like the viewer while it
- * arrives and a way out if it never does.
+ * The PDF viewer, as every page opens it — a product's PDF, a finalised
+ * report, a draft's preview: fetched on first use (see `viewerChunk.ts`),
+ * with a stand-in that looks like the viewer while it arrives and a way out
+ * if it never does. The one door to the viewer: a page imports this, never
+ * `DocumentViewer` itself, which would pull pdf.js into its chunk and crash
+ * the server render.
  *
  * Both stand-ins draw the viewer's own backdrop and its Done button in the
  * viewer's place, so opening a PDF looks like one motion however long the
  * chunk takes — and so a technician on one bar of signal is never left with
  * a blank screen and no way back. Neither is a Radix dialog: nothing else is
- * open (the sheet closes while the viewer is up), so there is no focus trap
- * to share and nothing to fight over the body's pointer events.
+ * open (every page closes its sheet while the viewer is up), so there is no
+ * focus trap to share and nothing to fight over the body's pointer events.
  */
 
 const DocumentViewer = lazy(loadViewer)
@@ -101,7 +104,7 @@ function ViewerShell({
  * Catches the one failure the viewer cannot report itself: its own code not
  * arriving — no signal on first open, or a deploy since this page loaded that
  * replaced the chunk it asks for. React.lazy remembers a failed import, so
- * only a reload tries again; Close leaves the product as it was.
+ * only a reload tries again; Close leaves the page as it was.
  */
 class ViewerBoundary extends Component<
   { title: string; onClose: () => void; children: ReactNode },
