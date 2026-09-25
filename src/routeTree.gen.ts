@@ -31,11 +31,13 @@ import { Route as BusinessSlugSettingsIndexRouteImport } from './routes/$busines
 import { Route as BusinessSlugSettingsAboutRouteImport } from './routes/$businessSlug/settings/about'
 import { Route as BusinessSlugSettingsBusinessRouteImport } from './routes/$businessSlug/settings/business'
 import { Route as BusinessSlugSettingsDetailsRouteImport } from './routes/$businessSlug/settings/details'
-import { Route as BusinessSlugSettingsLicenceRouteImport } from './routes/$businessSlug/settings/licence'
 import { Route as BusinessSlugSettingsSignInRouteImport } from './routes/$businessSlug/settings/sign-in'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as BusinessSlugReportsTemplatesIndexRouteImport } from './routes/$businessSlug/reports/templates/index'
 import { Route as BusinessSlugReportsTemplatesTemplateIdRouteImport } from './routes/$businessSlug/reports/templates/$templateId'
+import { Route as BusinessSlugSettingsLicenceIndexRouteImport } from './routes/$businessSlug/settings/licence/index'
+import { Route as BusinessSlugSettingsLicenceLicenceIdRouteImport } from './routes/$businessSlug/settings/licence/$licenceId'
+import { Route as BusinessSlugSettingsLicenceNewRouteImport } from './routes/$businessSlug/settings/licence/new'
 import { Route as BusinessSlugSettingsReportsIndexRouteImport } from './routes/$businessSlug/settings/reports/index'
 import { Route as BusinessSlugSettingsReportsAnswersRouteImport } from './routes/$businessSlug/settings/reports/answers'
 import { Route as BusinessSlugSettingsTeamIndexRouteImport } from './routes/$businessSlug/settings/team/index'
@@ -159,12 +161,6 @@ const BusinessSlugSettingsDetailsRoute =
     path: '/settings/details',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
-const BusinessSlugSettingsLicenceRoute =
-  BusinessSlugSettingsLicenceRouteImport.update({
-    id: '/settings/licence',
-    path: '/settings/licence',
-    getParentRoute: () => BusinessSlugRouteRoute,
-  } as any)
 const BusinessSlugSettingsSignInRoute =
   BusinessSlugSettingsSignInRouteImport.update({
     id: '/settings/sign-in',
@@ -186,6 +182,24 @@ const BusinessSlugReportsTemplatesTemplateIdRoute =
   BusinessSlugReportsTemplatesTemplateIdRouteImport.update({
     id: '/reports/templates/$templateId',
     path: '/reports/templates/$templateId',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
+const BusinessSlugSettingsLicenceIndexRoute =
+  BusinessSlugSettingsLicenceIndexRouteImport.update({
+    id: '/settings/licence/',
+    path: '/settings/licence/',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
+const BusinessSlugSettingsLicenceLicenceIdRoute =
+  BusinessSlugSettingsLicenceLicenceIdRouteImport.update({
+    id: '/settings/licence/$licenceId',
+    path: '/settings/licence/$licenceId',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
+const BusinessSlugSettingsLicenceNewRoute =
+  BusinessSlugSettingsLicenceNewRouteImport.update({
+    id: '/settings/licence/new',
+    path: '/settings/licence/new',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
 const BusinessSlugSettingsReportsIndexRoute =
@@ -232,7 +246,6 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/settings/about': typeof BusinessSlugSettingsAboutRoute
   '/$businessSlug/settings/business': typeof BusinessSlugSettingsBusinessRoute
   '/$businessSlug/settings/details': typeof BusinessSlugSettingsDetailsRoute
-  '/$businessSlug/settings/licence': typeof BusinessSlugSettingsLicenceRoute
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
@@ -240,9 +253,12 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
   '/$businessSlug/settings/': typeof BusinessSlugSettingsIndexRoute
   '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
+  '/$businessSlug/settings/licence/$licenceId': typeof BusinessSlugSettingsLicenceLicenceIdRoute
+  '/$businessSlug/settings/licence/new': typeof BusinessSlugSettingsLicenceNewRoute
   '/$businessSlug/settings/reports/answers': typeof BusinessSlugSettingsReportsAnswersRoute
   '/$businessSlug/settings/team/$memberId': typeof BusinessSlugSettingsTeamMemberIdRoute
   '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
+  '/$businessSlug/settings/licence/': typeof BusinessSlugSettingsLicenceIndexRoute
   '/$businessSlug/settings/reports/': typeof BusinessSlugSettingsReportsIndexRoute
   '/$businessSlug/settings/team/': typeof BusinessSlugSettingsTeamIndexRoute
 }
@@ -264,7 +280,6 @@ export interface FileRoutesByTo {
   '/$businessSlug/settings/about': typeof BusinessSlugSettingsAboutRoute
   '/$businessSlug/settings/business': typeof BusinessSlugSettingsBusinessRoute
   '/$businessSlug/settings/details': typeof BusinessSlugSettingsDetailsRoute
-  '/$businessSlug/settings/licence': typeof BusinessSlugSettingsLicenceRoute
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients': typeof BusinessSlugClientsIndexRoute
@@ -272,9 +287,12 @@ export interface FileRoutesByTo {
   '/$businessSlug/reports': typeof BusinessSlugReportsIndexRoute
   '/$businessSlug/settings': typeof BusinessSlugSettingsIndexRoute
   '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
+  '/$businessSlug/settings/licence/$licenceId': typeof BusinessSlugSettingsLicenceLicenceIdRoute
+  '/$businessSlug/settings/licence/new': typeof BusinessSlugSettingsLicenceNewRoute
   '/$businessSlug/settings/reports/answers': typeof BusinessSlugSettingsReportsAnswersRoute
   '/$businessSlug/settings/team/$memberId': typeof BusinessSlugSettingsTeamMemberIdRoute
   '/$businessSlug/reports/templates': typeof BusinessSlugReportsTemplatesIndexRoute
+  '/$businessSlug/settings/licence': typeof BusinessSlugSettingsLicenceIndexRoute
   '/$businessSlug/settings/reports': typeof BusinessSlugSettingsReportsIndexRoute
   '/$businessSlug/settings/team': typeof BusinessSlugSettingsTeamIndexRoute
 }
@@ -298,7 +316,6 @@ export interface FileRoutesById {
   '/$businessSlug/settings/about': typeof BusinessSlugSettingsAboutRoute
   '/$businessSlug/settings/business': typeof BusinessSlugSettingsBusinessRoute
   '/$businessSlug/settings/details': typeof BusinessSlugSettingsDetailsRoute
-  '/$businessSlug/settings/licence': typeof BusinessSlugSettingsLicenceRoute
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
@@ -306,9 +323,12 @@ export interface FileRoutesById {
   '/$businessSlug/reports/': typeof BusinessSlugReportsIndexRoute
   '/$businessSlug/settings/': typeof BusinessSlugSettingsIndexRoute
   '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
+  '/$businessSlug/settings/licence/$licenceId': typeof BusinessSlugSettingsLicenceLicenceIdRoute
+  '/$businessSlug/settings/licence/new': typeof BusinessSlugSettingsLicenceNewRoute
   '/$businessSlug/settings/reports/answers': typeof BusinessSlugSettingsReportsAnswersRoute
   '/$businessSlug/settings/team/$memberId': typeof BusinessSlugSettingsTeamMemberIdRoute
   '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
+  '/$businessSlug/settings/licence/': typeof BusinessSlugSettingsLicenceIndexRoute
   '/$businessSlug/settings/reports/': typeof BusinessSlugSettingsReportsIndexRoute
   '/$businessSlug/settings/team/': typeof BusinessSlugSettingsTeamIndexRoute
 }
@@ -333,7 +353,6 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/about'
     | '/$businessSlug/settings/business'
     | '/$businessSlug/settings/details'
-    | '/$businessSlug/settings/licence'
     | '/$businessSlug/settings/sign-in'
     | '/api/auth/$'
     | '/$businessSlug/clients/'
@@ -341,9 +360,12 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/'
     | '/$businessSlug/settings/'
     | '/$businessSlug/reports/templates/$templateId'
+    | '/$businessSlug/settings/licence/$licenceId'
+    | '/$businessSlug/settings/licence/new'
     | '/$businessSlug/settings/reports/answers'
     | '/$businessSlug/settings/team/$memberId'
     | '/$businessSlug/reports/templates/'
+    | '/$businessSlug/settings/licence/'
     | '/$businessSlug/settings/reports/'
     | '/$businessSlug/settings/team/'
   fileRoutesByTo: FileRoutesByTo
@@ -365,7 +387,6 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/about'
     | '/$businessSlug/settings/business'
     | '/$businessSlug/settings/details'
-    | '/$businessSlug/settings/licence'
     | '/$businessSlug/settings/sign-in'
     | '/api/auth/$'
     | '/$businessSlug/clients'
@@ -373,9 +394,12 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports'
     | '/$businessSlug/settings'
     | '/$businessSlug/reports/templates/$templateId'
+    | '/$businessSlug/settings/licence/$licenceId'
+    | '/$businessSlug/settings/licence/new'
     | '/$businessSlug/settings/reports/answers'
     | '/$businessSlug/settings/team/$memberId'
     | '/$businessSlug/reports/templates'
+    | '/$businessSlug/settings/licence'
     | '/$businessSlug/settings/reports'
     | '/$businessSlug/settings/team'
   id:
@@ -398,7 +422,6 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/about'
     | '/$businessSlug/settings/business'
     | '/$businessSlug/settings/details'
-    | '/$businessSlug/settings/licence'
     | '/$businessSlug/settings/sign-in'
     | '/api/auth/$'
     | '/$businessSlug/clients/'
@@ -406,9 +429,12 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/'
     | '/$businessSlug/settings/'
     | '/$businessSlug/reports/templates/$templateId'
+    | '/$businessSlug/settings/licence/$licenceId'
+    | '/$businessSlug/settings/licence/new'
     | '/$businessSlug/settings/reports/answers'
     | '/$businessSlug/settings/team/$memberId'
     | '/$businessSlug/reports/templates/'
+    | '/$businessSlug/settings/licence/'
     | '/$businessSlug/settings/reports/'
     | '/$businessSlug/settings/team/'
   fileRoutesById: FileRoutesById
@@ -579,13 +605,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessSlugSettingsDetailsRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
-    '/$businessSlug/settings/licence': {
-      id: '/$businessSlug/settings/licence'
-      path: '/settings/licence'
-      fullPath: '/$businessSlug/settings/licence'
-      preLoaderRoute: typeof BusinessSlugSettingsLicenceRouteImport
-      parentRoute: typeof BusinessSlugRouteRoute
-    }
     '/$businessSlug/settings/sign-in': {
       id: '/$businessSlug/settings/sign-in'
       path: '/settings/sign-in'
@@ -612,6 +631,27 @@ declare module '@tanstack/react-router' {
       path: '/reports/templates/$templateId'
       fullPath: '/$businessSlug/reports/templates/$templateId'
       preLoaderRoute: typeof BusinessSlugReportsTemplatesTemplateIdRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/settings/licence/': {
+      id: '/$businessSlug/settings/licence/'
+      path: '/settings/licence'
+      fullPath: '/$businessSlug/settings/licence/'
+      preLoaderRoute: typeof BusinessSlugSettingsLicenceIndexRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/settings/licence/$licenceId': {
+      id: '/$businessSlug/settings/licence/$licenceId'
+      path: '/settings/licence/$licenceId'
+      fullPath: '/$businessSlug/settings/licence/$licenceId'
+      preLoaderRoute: typeof BusinessSlugSettingsLicenceLicenceIdRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/settings/licence/new': {
+      id: '/$businessSlug/settings/licence/new'
+      path: '/settings/licence/new'
+      fullPath: '/$businessSlug/settings/licence/new'
+      preLoaderRoute: typeof BusinessSlugSettingsLicenceNewRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
     '/$businessSlug/settings/reports/': {
@@ -670,15 +710,17 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugSettingsAboutRoute: typeof BusinessSlugSettingsAboutRoute
   BusinessSlugSettingsBusinessRoute: typeof BusinessSlugSettingsBusinessRoute
   BusinessSlugSettingsDetailsRoute: typeof BusinessSlugSettingsDetailsRoute
-  BusinessSlugSettingsLicenceRoute: typeof BusinessSlugSettingsLicenceRoute
   BusinessSlugSettingsSignInRoute: typeof BusinessSlugSettingsSignInRoute
   BusinessSlugClientsIndexRoute: typeof BusinessSlugClientsIndexRoute
   BusinessSlugReportsIndexRoute: typeof BusinessSlugReportsIndexRoute
   BusinessSlugSettingsIndexRoute: typeof BusinessSlugSettingsIndexRoute
   BusinessSlugReportsTemplatesTemplateIdRoute: typeof BusinessSlugReportsTemplatesTemplateIdRoute
+  BusinessSlugSettingsLicenceLicenceIdRoute: typeof BusinessSlugSettingsLicenceLicenceIdRoute
+  BusinessSlugSettingsLicenceNewRoute: typeof BusinessSlugSettingsLicenceNewRoute
   BusinessSlugSettingsReportsAnswersRoute: typeof BusinessSlugSettingsReportsAnswersRoute
   BusinessSlugSettingsTeamMemberIdRoute: typeof BusinessSlugSettingsTeamMemberIdRoute
   BusinessSlugReportsTemplatesIndexRoute: typeof BusinessSlugReportsTemplatesIndexRoute
+  BusinessSlugSettingsLicenceIndexRoute: typeof BusinessSlugSettingsLicenceIndexRoute
   BusinessSlugSettingsReportsIndexRoute: typeof BusinessSlugSettingsReportsIndexRoute
   BusinessSlugSettingsTeamIndexRoute: typeof BusinessSlugSettingsTeamIndexRoute
 }
@@ -695,18 +737,21 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugSettingsAboutRoute: BusinessSlugSettingsAboutRoute,
   BusinessSlugSettingsBusinessRoute: BusinessSlugSettingsBusinessRoute,
   BusinessSlugSettingsDetailsRoute: BusinessSlugSettingsDetailsRoute,
-  BusinessSlugSettingsLicenceRoute: BusinessSlugSettingsLicenceRoute,
   BusinessSlugSettingsSignInRoute: BusinessSlugSettingsSignInRoute,
   BusinessSlugClientsIndexRoute: BusinessSlugClientsIndexRoute,
   BusinessSlugReportsIndexRoute: BusinessSlugReportsIndexRoute,
   BusinessSlugSettingsIndexRoute: BusinessSlugSettingsIndexRoute,
   BusinessSlugReportsTemplatesTemplateIdRoute:
     BusinessSlugReportsTemplatesTemplateIdRoute,
+  BusinessSlugSettingsLicenceLicenceIdRoute:
+    BusinessSlugSettingsLicenceLicenceIdRoute,
+  BusinessSlugSettingsLicenceNewRoute: BusinessSlugSettingsLicenceNewRoute,
   BusinessSlugSettingsReportsAnswersRoute:
     BusinessSlugSettingsReportsAnswersRoute,
   BusinessSlugSettingsTeamMemberIdRoute: BusinessSlugSettingsTeamMemberIdRoute,
   BusinessSlugReportsTemplatesIndexRoute:
     BusinessSlugReportsTemplatesIndexRoute,
+  BusinessSlugSettingsLicenceIndexRoute: BusinessSlugSettingsLicenceIndexRoute,
   BusinessSlugSettingsReportsIndexRoute: BusinessSlugSettingsReportsIndexRoute,
   BusinessSlugSettingsTeamIndexRoute: BusinessSlugSettingsTeamIndexRoute,
 }

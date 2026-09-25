@@ -10,7 +10,7 @@ import { useAssigneeOptions } from '#/lib/assignees'
 import { useHydrated } from '#/lib/useHydrated'
 import { ColourPicker } from './ColourPicker'
 import { ResetTwoStepButton } from './ResetTwoStepButton'
-import { MemberLicenceButton } from './MemberLicenceButton'
+import { MemberLicences } from './MemberLicences'
 import { canSetLicence, needsLicence } from './needsLicence'
 import { useSavedFlash } from './useJustSaved'
 import {
@@ -55,9 +55,9 @@ export type Member = {
   /** From the roster: whether they have two-step sign-in set up. Absent from
    * an older backend, which means no reset is offered. */
   twoStepOn?: boolean
-  /** From the roster: a licence document this viewer (the owner) may open.
-   * Absent from an older backend, which means no button. */
-  hasLicenceFile?: boolean
+  /** From the roster: how many licences they hold — for the owner, and on
+   * one's own row. Absent from an older backend, and for anyone else. */
+  licenceCount?: number
 }
 
 /** How a person is named wherever the team lists them. */
@@ -85,11 +85,14 @@ export const ROLE_LABEL: Record<Role, string> = {
  */
 export function MemberSettings({
   businessId,
+  timezone,
   member,
   others = [],
   onRemoved,
 }: {
   businessId: Id<'businesses'>
+  /** The business's, which a licence's expiry is counted in. */
+  timezone: string
   member: Member
   /** Active members who could take over this person's booked work. */
   others?: Array<Member>
@@ -146,6 +149,17 @@ export function MemberSettings({
         // type it in for them: it is the reason a certificate will not sign.
         // The rule the Team page's badge and the hub's count use.
         missing={needsLicence(member, access)}
+      />
+
+      {/* The licences they hold, read-only — the owner's alone to see. Apart
+          from the number above, which prints on their reports. */}
+      <MemberLicences
+        businessId={businessId}
+        membershipId={member._id}
+        name={memberName(member)}
+        licenceCount={member.licenceCount}
+        active={member.status === 'active'}
+        timezone={timezone}
       />
 
       {(roleEditable || showTeam) && (
@@ -303,15 +317,6 @@ function LicenceGroup({
         <SettingsRow
           title="Licence number"
           value={member.licenceNumber || 'Not set'}
-        />
-      )}
-
-      {/* Phase 8.1: the licence document they uploaded, read-only. */}
-      {member.hasLicenceFile && (
-        <MemberLicenceButton
-          businessId={businessId}
-          membershipId={member._id}
-          name={member.name || member.email || 'This person'}
         />
       )}
     </SettingsGroup>

@@ -16,7 +16,12 @@ import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { Bone } from '#/components/shell/Pending'
 import { ShowMyLicenceButton } from '#/components/settings/ShowMyLicence'
+import { walletExpiry } from '#/components/settings/licenceExpiry'
 import { needsLicence } from '#/components/settings/needsLicence'
+import {
+  useBusinessToday,
+  useMyLicences,
+} from '#/components/settings/useMyLicences'
 import type { LicenceViewer } from '#/components/settings/needsLicence'
 import {
   DANGER_ROW_CLASS,
@@ -80,15 +85,16 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
       })
     }
   },
-  // The signed-in user (the name and the rows' values), the licence document
-  // "Show my licence" opens and, for whoever may see it, the Team row's two
-  // lists. `access.me` is already in the cache: the layout's beforeLoad warms
-  // it, so reading the capability here costs nothing and keeps a technician
-  // from asking for a roster they cannot have.
+  // The signed-in user (the name and the rows' values), the licences "Show
+  // my licence" opens (and the Licences row badges) and, for whoever may see
+  // it, the Team row's two lists. `access.me` is already in the cache: the
+  // layout's beforeLoad warms it, so reading the capability here costs
+  // nothing and keeps a technician from asking for a roster they cannot
+  // have.
   //
   // Warmed, never waited on past LOADER_WAIT_MS: with no signal a Convex
   // query never answers, and this is where a technician on site opens the
-  // licence kept on their phone to show an inspector. The page has its own
+  // licences kept on their phone to show an inspector. The page has its own
   // answer for late data (the name suspends on its own, every row's value
   // simply fills in, and the licence button falls back to the kept copy), so
   // the loader must not hold it back.
@@ -102,7 +108,7 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
       warm(
         queryClient,
         rq.currentUser(),
-        rq.licenceFile(business._id, membership._id),
+        rq.memberLicences(business._id, membership._id),
         ...(team ? [rq.team(business._id), rq.invitations(business._id)] : []),
       ),
     )
@@ -139,6 +145,13 @@ function SettingsHub() {
   const businessName = live?.name ?? business.name
   const licenceNumber = me.licenceNumber?.trim()
   const phone = me.phone?.trim()
+
+  // This person's licences, live or — with no signal — as kept on this phone,
+  // for Show my licence and the Licences row's badge. Read here, once, rather
+  // than by each: the read is also what keeps the phone's copy up to date.
+  const wallet = useMyLicences(business._id, membership._id).shown
+  const today = useBusinessToday(live?.timezone ?? business.timezone)
+  const expiring = walletExpiry(wallet?.licences ?? [], today)
 
   // Not suspended on, unlike the name at the top of the page: each row's value
   // fills in when it comes, and a row with no value yet still opens.
@@ -215,14 +228,16 @@ function SettingsHub() {
             {/* Straight from route context, never behind the name: this is
                 what a technician on site with no signal taps to show an
                 inspector their licence. Hidden when it renders nothing (no
-                document), so the card is just the name. Its own boundary in
-                case it ever reads with suspense, which must not take the page
-                down with it. */}
+                file to show), so the card is just the name. Its own boundary
+                in case it ever reads with suspense, which must not take the
+                page down with it. */}
             <div className="mt-3 empty:hidden">
               <Suspense fallback={null}>
                 <ShowMyLicenceButton
                   businessId={business._id}
                   membershipId={membership._id}
+                  wallet={wallet}
+                  today={today}
                 />
               </Suspense>
             </div>
@@ -243,14 +258,20 @@ function SettingsHub() {
             params={{ businessSlug }}
             icon={IdCard}
             tint="green"
-            title="Licence"
+            title="Licences"
             value={licenceNumber}
-            // Printed on every certificate they finalise, and finalising
-            // refuses a blank one — so its absence is something to do.
+            // One badge, the most pressing first. The report number is
+            // printed on every certificate they finalise, and finalising
+            // refuses a blank one — so its absence outranks a licence that
+            // has run out, which is a reminder and blocks nothing.
             badge={
-              licenceNumber ? undefined : (
+              !licenceNumber ? (
                 <RowBadge tone="amber">Missing</RowBadge>
-              )
+              ) : expiring === 'expired' ? (
+                <RowBadge tone="red">Expired</RowBadge>
+              ) : expiring === 'soon' ? (
+                <RowBadge tone="amber">Expiring</RowBadge>
+              ) : undefined
             }
           />
           <SettingsLinkRow

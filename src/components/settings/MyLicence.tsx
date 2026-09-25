@@ -26,9 +26,9 @@ const LICENCE_LABEL: Record<string, string> = {
  * The licence number printed on this person's reports, and its Save.
  *
  * Needs nothing but the route's membership and business, so it renders with
- * no signal, beside the licence document (`children`), which must not wait
- * on anything either. The two are separate forms: the number saves when Save
- * is pressed, a document the moment it is picked.
+ * no signal, beside the list of their licences (`children`), which must not
+ * wait on anything either. Separate from that list, which never prints on a
+ * report: this number does, and a report will not finalise without it.
  *
  * `children` go between the form and its Save bar, so the bar stays at the
  * foot of the page, pinned above the dock, rather than between two groups.

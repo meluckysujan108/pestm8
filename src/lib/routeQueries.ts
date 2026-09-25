@@ -59,10 +59,10 @@ export const rq = {
   invitations: (businessId: B) =>
     convexQuery(api.invitations.listForBusiness, { businessId }),
   products: (businessId: B) => convexQuery(api.products.list, { businessId }),
-  /** One person's licence document: their own on Settings → Licence, or a
-   * member's the owner opens from Team. */
-  licenceFile: (businessId: B, membershipId: Id<'memberships'>) =>
-    convexQuery(api.licences.file, { businessId, membershipId }),
+  /** One person's licences, with their files: their own on Settings →
+   * Licences and the hub, or a member's the owner opens from Team. */
+  memberLicences: (businessId: B, membershipId: Id<'memberships'>) =>
+    convexQuery(api.memberLicences.list, { businessId, membershipId }),
   /** How the business prints and sends reports — business.manage only. */
   reportSettings: (businessId: B) =>
     convexQuery(api.businesses.reportSettings, { businessId }),

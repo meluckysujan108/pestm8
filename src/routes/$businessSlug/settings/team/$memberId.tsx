@@ -93,6 +93,7 @@ function MemberLoaded() {
     <MemberFrame title={memberName(member)}>
       <MemberSettings
         businessId={business._id}
+        timezone={business.timezone}
         member={member}
         others={members.filter(
           (m) => m._id !== member._id && m.status === 'active',

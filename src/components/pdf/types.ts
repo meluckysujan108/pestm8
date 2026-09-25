@@ -80,6 +80,20 @@ export type ViewerActions = {
   }
 }
 
+/**
+ * Several files of one thing, opened as one: a licence's card front, its back
+ * and the regulator's certificate. The viewer shows which of them is open and
+ * steps to the one before or after; the opener decides what each one is, and
+ * hands the viewer that file's source when the step lands.
+ */
+export type ViewerPager = {
+  /** Which file is open, from 0. */
+  index: number
+  count: number
+  onPrevious: () => void
+  onNext: () => void
+}
+
 /** A point on a page, as fractions of the page as displayed (0–1, top-left). */
 export type MarkupPoint = { x: number; y: number }
 
@@ -206,4 +220,6 @@ export type DocumentViewerProps = {
    * would only push real documents out of the remembered list.
    */
   rememberPosition?: boolean
+  /** The other files this one belongs with; absent for a single file. */
+  pager?: ViewerPager
 }
