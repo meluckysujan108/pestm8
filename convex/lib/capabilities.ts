@@ -789,6 +789,30 @@ export function recomputeGrants(
   }
 }
 
+/**
+ * A subcontractor's grants at the moment their contractor stops being one —
+ * demoted, removed, or gone of their own accord — and they go back to
+ * answering to the owner.
+ *
+ * What they could see a moment before, frozen: the old contractor's ceiling
+ * is baked into the stored toggles, then dropped. Releasing them with their
+ * stored toggles as they were would WIDEN access, because a toggle can sit on
+ * the row while the ceiling holds it off — a contractor whose own "see prices"
+ * the owner turned off leaves a team whose rows may still say on. And keeping
+ * the old contractor as a live ceiling is the orphan this replaces: a removed
+ * contractor holds nothing, so their former team silently lost prices and the
+ * whole schedule the moment they left.
+ *
+ * `formerParent` must be the contractor as they were BEFORE the change.
+ * `switchInto` always goes: it named that contractor's account.
+ */
+export function releasedGrants(
+  member: MembershipFacts,
+  formerParent: MembershipFacts,
+): Grants {
+  return { ...recomputeGrants(member, formerParent), switchInto: null }
+}
+
 // ───────────────────────────────────────────────────────────────── switching
 
 export type SwitchRefusal =

@@ -7,6 +7,7 @@ import { inviteState } from './lib/inviteTokens'
 import { normalisePhone } from './lib/phone'
 import { grants, role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
+import { releaseTeam } from './lib/teamRelease'
 import {
   hasCapability,
   requireActor,
@@ -509,6 +510,21 @@ export const setRole = mutation({
       parentDoc ? factsFromMembership(parentDoc) : null,
     )
 
+    // A contractor who stops being one takes nobody with them: their team
+    // answers to the owner from now on, keeping what they could see
+    // (`releaseTeam`). Before the patch, while `target` still holds the grants
+    // being baked in as their ceiling.
+    const now = Date.now()
+    const releasedTeam =
+      target.role === 'contractor' && args.role !== 'contractor'
+        ? await releaseTeam(ctx, {
+            contractor: target,
+            actorId: actor._id,
+            reason: 'demoted',
+            at: now,
+          })
+        : 0
+
     await ctx.db.patch(args.membershipId, {
       role: args.role,
       parentMembershipId: becoming.parentMembershipId ?? undefined,
@@ -521,8 +537,8 @@ export const setRole = mutation({
       action: 'membership.setRole',
       entityType: 'memberships',
       entityId: args.membershipId,
-      meta: { role: args.role },
-      at: Date.now(),
+      meta: { role: args.role, ...(releasedTeam > 0 && { releasedTeam }) },
+      at: now,
     })
   },
 })
