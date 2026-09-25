@@ -22,13 +22,16 @@ import type { LucideIcon } from 'lucide-react'
  * contrast in both themes. */
 export type Tint = 'blue' | 'green' | 'red' | 'orange' | 'grey' | 'amber'
 
+// Only the saturated system colours: they are the same in both themes. The
+// `-ink` tokens invert for dark mode (orange-ink turns peach, grey-ink turns
+// pale), which put a white glyph on a pale tile.
 const TINT: Record<Tint, string> = {
   blue: 'bg-blue text-white',
   green: 'bg-green text-white',
   red: 'bg-red text-white',
-  orange: 'bg-orange-ink text-white',
+  orange: 'bg-amber text-white',
   amber: 'bg-amber text-white',
-  grey: 'bg-grey-ink text-white',
+  grey: 'bg-muted-2 text-white',
 }
 
 /** The small rounded square an iOS settings row leads with. */

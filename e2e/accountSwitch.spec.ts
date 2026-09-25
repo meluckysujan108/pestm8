@@ -65,10 +65,16 @@ test('an owner works in a subcontractor’s account, then comes back out', async
   await expect(invite).toHaveCount(0)
 
   // Nothing on this page waits for hydration while switched, so the click is
-  // retried until it takes rather than lost to a page still hydrating.
+  // retried until it takes rather than lost to a page still hydrating. It has
+  // taken once the button is busy or gone — not once the banner has gone,
+  // which can take longer than a retry waits, and a retry would then be
+  // clicking a button that is already stopping the switch.
   await clickUntil(page.getByRole('button', { name: 'Switch back' }), () =>
-    expect(banner).toBeHidden({ timeout: 2_000 }),
+    expect(
+      page.getByRole('button', { name: 'Switch back', disabled: false }),
+    ).toHaveCount(0, { timeout: 2_000 }),
   )
+  await expect(banner).toBeHidden()
   // The same page, live: the team comes back without a reload.
   await expect(invite).toBeVisible()
   await expect(page.getByRole('link', { name: /^Kevin/ })).toBeVisible()
