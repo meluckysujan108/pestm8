@@ -341,6 +341,19 @@ test.describe('report document', () => {
       })
       .toEqual([{ page: 1, mine: true }])
 
+    // And drawn back on page 1 from what the server holds, not only from the
+    // stroke the viewer kept on screen while it saved: reading the table's
+    // page straight in as the slot's index would draw it on page 2.
+    await expect(viewer.locator('[data-markup-pending]')).toHaveCount(0)
+    const pageSlot = (n: number) =>
+      viewer.getByRole('img', { name: new RegExp(`^Page ${n} of \\d+$`) })
+    await expect(
+      pageSlot(1).locator('[data-markup-stroke="mine"]'),
+    ).toHaveCount(1)
+    await expect(
+      pageSlot(2).locator('[data-markup-stroke="mine"]'),
+    ).toHaveCount(0)
+
     // Undo takes it back: off the screen the moment it is tapped, then off
     // the server — that mark, named by its id, not "the newest" whenever the
     // server hears of it (`reportAnnotations.removeStroke`).
