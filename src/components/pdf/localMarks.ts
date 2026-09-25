@@ -48,7 +48,10 @@ import type { MarkupPoint, MarkupStroke } from './types'
  * survive. So the viewer need not wait for anything. It hides your marks on
  * the page for as long as the clear is out — stored ones, and strokes still
  * saving there, which the clear will sweep up once they land — and brings
- * them all back if it fails (`clearFailed`).
+ * them all back if it fails (`clearFailed`). A viewer opened while a Clear
+ * asked for in an earlier one is still out does the same for it
+ * (`clearTakenOver`), so closing and reopening the document does not bring
+ * back, for a while, marks already cleared.
  *
  * No React and no DOM, so every ordering can be tested with plain calls.
  */
@@ -239,6 +242,26 @@ export function clear(
   }
   const clearing = new Map(state.clearing).set(clearId, page)
   return { ...state, pending, clearing }
+}
+
+/**
+ * A Clear of `page` that was already on its way when this viewer opened —
+ * asked for by one closed since — taken over as `clearId`: your marks on the
+ * page are hidden until it comes back, as they were in the viewer that asked
+ * for it, and `clearLanded` / `clearFailed` follow it as for any other.
+ *
+ * Unlike `clear`, nothing drawn here is swept up with it. All of that was
+ * drawn after the Clear was tapped, and the caller holds each save back until
+ * the clear has landed (`ViewerMarkup.clearPage`), so every stroke survives
+ * it and must stay on screen.
+ */
+export function clearTakenOver(
+  state: LocalMarks,
+  clearId: number,
+  page: number,
+): LocalMarks {
+  const clearing = new Map(state.clearing).set(clearId, page)
+  return { ...state, clearing }
 }
 
 /**

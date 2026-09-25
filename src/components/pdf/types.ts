@@ -31,6 +31,13 @@ export type DocumentSource = {
   ) => Promise<Blob>
 }
 
+/**
+ * How a Share or Save ended: `'cancelled'` when the person closed the share
+ * sheet without choosing anything — neither a failure nor something done, so
+ * the viewer says nothing at all. Anything else counts as done.
+ */
+export type HandOverResult = 'shared' | 'saved' | 'cancelled' | void
+
 export type ViewerActions = {
   /**
    * Hands the PDF itself to the system share sheet. It receives a finished
@@ -39,13 +46,13 @@ export type ViewerActions = {
    * and the share sheet never opens. Absent where the browser cannot share
    * files at all.
    */
-  share?: (file: File) => Promise<void>
+  share?: (file: File) => Promise<HandOverResult>
   /**
    * Saves a copy outside the app — an `<a download>` where that works, the
    * share sheet's "Save to Files" on an iPhone or iPad, where a download from
    * an installed app has nowhere sensible to land.
    */
-  save?: (file: File) => Promise<void> | void
+  save?: (file: File) => Promise<HandOverResult> | HandOverResult
   /**
    * "Save to Files" on Apple phones and tablets, "Download" elsewhere. Given
    * with `save`; both are absent for a document that must not leave the app
@@ -138,13 +145,38 @@ export type ViewerMarkup = {
    * marks meanwhile, and shows them again if this rejects.
    */
   clearPage: (pageIndex: number) => Promise<void>
+  /**
+   * The Clears handed over that have not landed yet — including any a viewer
+   * since closed asked for. A viewer opened on the document takes those over
+   * as it opens: the page's marks stay hidden until each lands, as they were
+   * in the viewer that asked, rather than showing again for as long as the
+   * Clear is out. The ones this viewer asked for itself it knows already.
+   *
+   * Optional: a caller whose clears go no further than the viewer that asked
+   * for them has none to hand over.
+   */
+  clearsUnderway?: () => ReadonlyArray<ClearUnderway>
   /** Shown in the markup palette, e.g. that marks are not shared. */
   note?: string
   /**
-   * Said once when the PDF is shared or saved while it has marks, e.g. "Sent
-   * without the marks — they stay in the app for your team."
+   * Said once when the PDF is shared while it has marks, e.g. "Sent without
+   * the marks — they stay in the app for your team." Never when the share
+   * sheet is closed without sending.
    */
   shareNote?: string
+  /** `shareNote` for Save / Download; `shareNote` itself when absent. */
+  saveNote?: string
+}
+
+/** A Clear on its way (`ViewerMarkup.clearsUnderway`). */
+export type ClearUnderway = {
+  /** The 0-based page it clears. */
+  pageIndex: number
+  /**
+   * The promise `clearPage` returned for it — the same one, so a viewer can
+   * tell a Clear it asked for itself from one it has yet to take over.
+   */
+  done: Promise<void>
 }
 
 export type DocumentViewerProps = {

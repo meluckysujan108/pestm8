@@ -52,6 +52,25 @@ export const MAX_STROKES_PER_REPORT = 2000
 export const MAX_POINTS_PER_REPORT = 100_000
 
 /**
+ * The most strokes, and points, one person keeps on one report: a quarter of
+ * the report's.
+ *
+ * Only the person who drew a mark can take it away — nobody, not the owner,
+ * clears a colleague's (`reportAnnotations.ts`) — so a report one person
+ * could fill would be closed to everyone else, and closed for good once that
+ * person left the team. A share each means it takes four people at their
+ * limit to fill one, and each of them still on the team can make room in it.
+ * A quarter is still room for some 250 circled spots, or minutes of unbroken
+ * drawing, from one person on one report.
+ *
+ * `addStroke` asks of the caller's share first (`TOO_MANY_STROKES`, "clear
+ * some of yours" — advice they can follow) and of the report's second
+ * (`REPORT_FULL_OF_MARKS`, in words for someone who may have no marks on it).
+ */
+export const MAX_STROKES_PER_AUTHOR = MAX_STROKES_PER_REPORT / 4
+export const MAX_POINTS_PER_AUTHOR = MAX_POINTS_PER_REPORT / 4
+
+/**
  * How far off the page a point is kept.
  *
  * Points are fractions of the page as displayed, 0–1. The old canvas captured

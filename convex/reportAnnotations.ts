@@ -3,7 +3,9 @@ import { mutation, query } from './_generated/server'
 import { reportReadable } from './lib/capabilities'
 import { normaliseColour } from './lib/colours'
 import {
+  MAX_POINTS_PER_AUTHOR,
   MAX_POINTS_PER_REPORT,
+  MAX_STROKES_PER_AUTHOR,
   MAX_STROKES_PER_REPORT,
   strokeToStore,
 } from './lib/reportMarkup'
@@ -72,12 +74,27 @@ export const addStroke = mutation({
       .query('reportPdfAnnotations')
       .withIndex('by_report_page', (q) => q.eq('reportId', reportId))
       .take(MAX_STROKES_PER_REPORT)
-    const heldPoints = held.reduce((sum, row) => sum + row.points.length, 0)
+    const pointsIn = (rows: typeof held) =>
+      rows.reduce((sum, row) => sum + row.points.length, 0)
+
+    // The caller's own share first: only they can make room in it, so this
+    // refusal is the one that tells them to clear some of theirs. One person
+    // alone can never fill the report for everyone else, who could not clear
+    // a single mark of theirs (`MAX_STROKES_PER_AUTHOR`).
+    const own = held.filter((row) => row.authorMembershipId === membership._id)
     if (
-      held.length >= MAX_STROKES_PER_REPORT ||
-      heldPoints + points.length > MAX_POINTS_PER_REPORT
+      own.length >= MAX_STROKES_PER_AUTHOR ||
+      pointsIn(own) + points.length > MAX_POINTS_PER_AUTHOR
     ) {
       throw new ConvexError('TOO_MANY_STROKES')
+    }
+    // Then the report's: several people at their limit. Words of its own,
+    // since the caller may have no marks here to clear.
+    if (
+      held.length >= MAX_STROKES_PER_REPORT ||
+      pointsIn(held) + points.length > MAX_POINTS_PER_REPORT
+    ) {
+      throw new ConvexError('REPORT_FULL_OF_MARKS')
     }
 
     return ctx.db.insert('reportPdfAnnotations', {

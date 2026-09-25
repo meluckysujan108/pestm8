@@ -290,8 +290,17 @@ export function isSignalProblem(error: unknown, offline: boolean): boolean {
 }
 
 const MARKUP_WORDS: Readonly<Record<string, string>> = {
+  // Your own share of the report's marks (`MAX_STROKES_PER_AUTHOR`): only you
+  // can take marks of yours away, so only you can make room in it — and you
+  // can.
   TOO_MANY_STROKES:
-    'This report is full of marks. Clear some of yours to add more.',
+    'You’ve made as many marks as one person can on this report. Clear some of yours to add more.',
+  // The whole report's, filled by several people's shares. "Clear some of
+  // yours" would be advice the person may not be able to follow — they may
+  // have no marks here at all, and nobody clears a colleague's — so this
+  // says whose marks they are and who can make room.
+  REPORT_FULL_OF_MARKS:
+    'This report is full of the team’s marks. Whoever made them can clear some to make room.',
   INVALID_STROKE: 'That mark couldn’t be saved. Try drawing it again.',
   NO_ACCESS: 'Your access doesn’t let you mark this report.',
   NOT_FOUND: 'This report has been deleted.',

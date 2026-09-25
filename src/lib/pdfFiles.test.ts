@@ -537,14 +537,17 @@ describe('sharePdf', () => {
     expect(nav.share).toHaveBeenCalledWith({ files: [file] })
   })
 
-  test('a closed sheet resolves quietly; a refusal rejects', async () => {
+  test('a closed sheet resolves as cancelled, a sent one as shared; a refusal rejects', async () => {
     const file = asPdfFile(new Blob(['%PDF-']), 'sds.pdf')
+    stubNavigator()
+    await expect(sharePdf(file)).resolves.toBe('shared')
+
     stubNavigator({
       share: vi.fn(async () => {
         throw new DOMException('Share canceled', 'AbortError')
       }),
     })
-    await expect(sharePdf(file)).resolves.toBeUndefined()
+    await expect(sharePdf(file)).resolves.toBe('cancelled')
 
     stubNavigator({
       share: vi.fn(async () => {

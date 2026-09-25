@@ -16,8 +16,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * The marks are the team's working notes — a circled bait station, "check
  * this again" — and never burned into the file: a client who is sent the
  * report gets the document they are owed, not the office's scribbles. The
- * palette says so, and so does the viewer when a report with marks is shared
- * (`MARKUP_NOTE`, `MARKUP_SHARE_NOTE`).
+ * palette says so, and so does the viewer once a report with marks is shared
+ * or saved (`MARKUP_NOTE`, `MARKUP_SHARE_NOTE`, `MARKUP_SAVE_NOTE`).
  *
  * Mounted only once hydrated and only while the address says `?view=pdf`
  * (the route decides); the viewer's own code arrives lazily through

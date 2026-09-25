@@ -254,6 +254,71 @@ describe('Clear', () => {
   })
 })
 
+/**
+ * The viewer was closed and opened again while a Clear it asked for was still
+ * out. The caller hands the new viewer that Clear (`clearsUnderway`); its
+ * page stays hidden until it lands, as it would have in the viewer that
+ * asked, and nothing drawn in this one is swept up with it.
+ */
+describe('a Clear taken over from a viewer since closed', () => {
+  const underway = (pageIndex: number) => {
+    const answer = deferred<void>()
+    return { answer, clear: { pageIndex, done: answer.promise } }
+  }
+
+  it('hides its page until it lands, and spares a stroke drawn here', async () => {
+    const h = harness(
+      new Map([
+        [1, [stored('a', 1)]],
+        [0, [stored('b', 2)]],
+      ]),
+    )
+    const out = underway(1)
+    h.session.takeOver([out.clear])
+    expect(h.drawnNow()).toEqual({ stored: ['b'], saving: [] })
+    h.session.stroke(1, POINTS)
+    expect(h.drawnNow()).toEqual({ stored: ['b'], saving: ['pending-1'] })
+
+    out.answer.resolve()
+    await flush()
+    // Landed: until the marks catch up, the cleared mark stays hidden.
+    expect(h.local().clearing.size).toBe(0)
+    expect(h.drawnNow()).toEqual({ stored: ['b'], saving: ['pending-1'] })
+    expect(h.toasts).toEqual([])
+  })
+
+  it('brings the page back, and says so here, when it fails', async () => {
+    const h = harness(new Map([[1, [stored('a', 1)]]]))
+    const out = underway(1)
+    h.session.takeOver([out.clear])
+    out.answer.reject(new Error(''))
+    await flush()
+
+    expect(h.drawnNow().stored).toEqual(['a'])
+    expect(h.toasts).toEqual(["Couldn't clear your marks on page 2."])
+  })
+
+  it('is taken over once, and a Clear asked for here never', async () => {
+    const h = harness(new Map([[1, [stored('a', 1)]]]))
+    h.session.clear(1)
+    const own = { pageIndex: 1, done: h.clears[0].answer.promise }
+    const before = h.local()
+    h.session.takeOver([own])
+    expect(h.local()).toBe(before)
+
+    const out = underway(0)
+    h.session.takeOver([out.clear, own])
+    h.session.takeOver([out.clear])
+    expect([...h.local().clearing.values()]).toEqual([1, 0])
+
+    // Its own Clear failing is said once, not once for each time it was seen.
+    h.clears[0].answer.reject(new Error(''))
+    out.answer.resolve()
+    await flush()
+    expect(h.toasts).toEqual(["Couldn't clear your marks on page 2."])
+  })
+})
+
 describe('strokes', () => {
   it('are on screen before the pen lets go of its own line', () => {
     const h = harness()

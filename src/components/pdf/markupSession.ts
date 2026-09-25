@@ -2,6 +2,7 @@ import {
   clear,
   clearFailed,
   clearLanded,
+  clearTakenOver,
   drawn,
   removeFailed,
   removeLanded,
@@ -11,12 +12,13 @@ import {
 } from './localMarks'
 import type { LocalMarks } from './localMarks'
 import type { Strokes } from './pendingMarks'
-import type { MarkupPoint, ViewerMarkup } from './types'
+import type { ClearUnderway, MarkupPoint, ViewerMarkup } from './types'
 
 /**
  * The pen's three acts — a finished stroke, Undo, Clear — and what follows
  * each when the caller answers: `localMarks.ts`'s rules, run against the
- * caller's `ViewerMarkup`.
+ * caller's `ViewerMarkup`. Plus the Clears a viewer closed since left still
+ * out, which this one follows as if it had asked for them (`takeOver`).
  *
  * Kept out of the hook (`useMarkupSession`) so the orderings that matter can
  * be driven, with a real caller behind them, without React: every act reads
@@ -48,12 +50,22 @@ export type MarkupSession = {
   undo: () => void
   /** Clear was confirmed for the 0-based page `pageIndex`. */
   clear: (pageIndex: number) => void
+  /**
+   * The caller's Clears still on their way (`ViewerMarkup.clearsUnderway`):
+   * any this session did not ask for — a viewer closed since did — are
+   * followed from here as if it had, their pages hidden until they land.
+   * Safe to call as often as the caller changes; each is taken over once.
+   */
+  takeOver: (clears: ReadonlyArray<ClearUnderway>) => void
 }
 
 export function createMarkupSession(deps: MarkupSessionDeps): MarkupSession {
   const { read, commit } = deps
   let strokeCount = 0
   let clearCount = 0
+  // Every Clear this session follows, by the promise the caller gave for it:
+  // those it asked for, and those it took over.
+  const following = new WeakSet<Promise<void>>()
 
   /** Asks the caller to remove a mark an Undo chose, and hid already. */
   const remove = (id: string) => {
@@ -68,6 +80,22 @@ export function createMarkupSession(deps: MarkupSessionDeps): MarkupSession {
         if (after !== before) {
           deps.toast(wordsFor(error, "Couldn't undo your last mark."))
         }
+      },
+    )
+  }
+
+  /** Follows Clear `clearId` of `pageIndex` to wherever it lands. */
+  const follow = (clearId: number, pageIndex: number, done: Promise<void>) => {
+    done.then(
+      () => commit(clearLanded(read(), clearId, deps.strokes())),
+      (error: unknown) => {
+        commit(clearFailed(read(), clearId))
+        deps.toast(
+          wordsFor(
+            error,
+            `Couldn't clear your marks on page ${pageIndex + 1}.`,
+          ),
+        )
       },
     )
   }
@@ -108,18 +136,25 @@ export function createMarkupSession(deps: MarkupSessionDeps): MarkupSession {
       // (`ViewerMarkup.clearPage`).
       const clearId = ++clearCount
       commit(clear(read(), clearId, pageIndex))
-      attempt(() => markup.clearPage(pageIndex)).then(
-        () => commit(clearLanded(read(), clearId, deps.strokes())),
-        (error: unknown) => {
-          commit(clearFailed(read(), clearId))
-          deps.toast(
-            wordsFor(
-              error,
-              `Couldn't clear your marks on page ${pageIndex + 1}.`,
-            ),
-          )
-        },
-      )
+      const asked = attempt(() => {
+        const done = markup.clearPage(pageIndex)
+        // Known as this session's own, so `takeOver` never follows it twice.
+        if (done instanceof Promise) following.add(done)
+        return done
+      })
+      follow(clearId, pageIndex, asked)
+    },
+
+    takeOver(clears) {
+      for (const { pageIndex, done } of clears) {
+        if (following.has(done)) continue
+        following.add(done)
+        const clearId = ++clearCount
+        commit(clearTakenOver(read(), clearId, pageIndex))
+        // Its failure is said here: the viewer that asked for it, and would
+        // have said so, has gone.
+        follow(clearId, pageIndex, done)
+      }
     },
   }
 }

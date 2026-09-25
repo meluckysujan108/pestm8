@@ -441,14 +441,16 @@ export function asPdfFile(blob: Blob, fileName: string): File {
  * already hold the File and must not await anything between the tap and this
  * call either.
  *
- * Resolves quietly when the person closes the sheet without choosing
- * anything — that is a choice, not a failure — and rejects on anything else,
- * including a browser with no share sheet at all.
+ * Resolves `'cancelled'` when the person closes the sheet without choosing
+ * anything — that is a choice, not a failure, but nothing went either, and a
+ * caller that says "Sent" afterwards must be able to tell — and `'shared'`
+ * once it has gone. Rejects on anything else, including a browser with no
+ * share sheet at all.
  */
 export async function sharePdf(
   file: File,
   opts: { title?: string; text?: string } = {},
-): Promise<void> {
+): Promise<'shared' | 'cancelled'> {
   const nav = looseNavigator()
   if (!nav?.share) throw new Error('This browser cannot share files.')
   const data: ShareData = { files: [file] }
@@ -456,8 +458,9 @@ export async function sharePdf(
   if (opts.text) data.text = opts.text
   try {
     await nav.share(data)
+    return 'shared'
   } catch (error) {
-    if (isAbortError(error)) return
+    if (isAbortError(error)) return 'cancelled'
     throw error
   }
 }
@@ -477,10 +480,18 @@ const REVOKE_AFTER_MS = 60_000
  * Everywhere else it is an ordinary download: a link to the bytes with a
  * `download` name, clicked. The link joins the document for the click
  * because older Firefox ignores a click on a detached one.
+ *
+ * Resolves as `sharePdf` does where it is the share sheet — `'cancelled'`
+ * when that is closed without choosing — and `'saved'` once a download has
+ * been handed to the browser.
  */
-export async function savePdf(file: File): Promise<void> {
+export async function savePdf(
+  file: File,
+): Promise<'shared' | 'saved' | 'cancelled'> {
   if (isAppleTouchDevice() && canShareFiles()) return sharePdf(file)
-  if (typeof document === 'undefined') return
+  // No page to click a link in (rendering on the server): nothing went, and
+  // nothing is to be said about it.
+  if (typeof document === 'undefined') return 'cancelled'
 
   const href = URL.createObjectURL(file)
   const link = document.createElement('a')
@@ -495,6 +506,7 @@ export async function savePdf(file: File): Promise<void> {
     link.remove()
     setTimeout(() => URL.revokeObjectURL(href), REVOKE_AFTER_MS)
   }
+  return 'saved'
 }
 
 /**

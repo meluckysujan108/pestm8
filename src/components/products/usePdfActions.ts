@@ -178,7 +178,7 @@ export function usePdfInHand({
     (purpose: PdfPurpose, blob: Blob, fresh: boolean) => {
       const { product: now } = latest.current
       const file = asPdfFile(blob, now.pdf?.fileName ?? now.name)
-      let pending: Promise<ShareOutcome | void>
+      let pending: Promise<ShareOutcome | 'saved'>
       // Each of these calls `navigator.share()` before its first await.
       try {
         pending =

@@ -10,6 +10,7 @@ import {
 import { flushSync } from 'react-dom'
 import { Dialog } from 'radix-ui'
 import { useKeyboardInset } from '#/lib/useKeyboardInset'
+import { handOver } from './handOver'
 import { PAGE_GAP } from './layout'
 import { MarkupPalette } from './MarkupPalette'
 import { PageGrid } from './PageGrid'
@@ -381,29 +382,30 @@ export function DocumentViewer({
   // The file goes out exactly as the caller stored it: marks are for the
   // team, drawn over the pages here and never burned into the PDF. Said once
   // it has gone — not as the share sheet opens, when it would sit behind the
-  // sheet, and not at all if the sheet is closed without sending.
-  const sentWithoutMarks = () => {
-    const note = pen.hasMarks ? markup?.shareNote : undefined
-    return note ? () => showToast(note) : undefined
+  // sheet, and not at all if the sheet is closed without sending
+  // (`handOver`).
+  const withoutMarks = (note: string | undefined) => {
+    const said = pen.hasMarks ? note : undefined
+    return said ? () => showToast(said) : undefined
   }
   const share = () => {
     if (!file || !actions.share) return
     // No await before this call: Safari opens the share sheet only from
     // inside the tap.
-    run(
+    handOver(
       () => actions.share?.(file),
       "Couldn't share this PDF",
       showToast,
-      sentWithoutMarks(),
+      withoutMarks(markup?.shareNote),
     )
   }
   const save = () => {
     if (!file || !actions.save) return
-    run(
+    handOver(
       () => actions.save?.(file),
       "Couldn't save this PDF",
       showToast,
-      sentWithoutMarks(),
+      withoutMarks(markup?.saveNote ?? markup?.shareNote),
     )
   }
 
@@ -714,28 +716,6 @@ export default DocumentViewer
 
 function stopBubbling(event: SyntheticEvent) {
   event.stopPropagation()
-}
-
-/**
- * Calls an action, and says so if it fails — unless it was cancelled — or
- * runs `done` once it has worked.
- */
-function run(
-  action: () => Promise<void> | void,
-  failure: string,
-  showToast: (message: string) => void,
-  done?: () => void,
-) {
-  const report = (error: unknown) => {
-    // Closing the share sheet without choosing is not a failure.
-    if (error instanceof Error && error.name === 'AbortError') return
-    showToast(failure)
-  }
-  try {
-    Promise.resolve(action()).then(done, report)
-  } catch (error) {
-    report(error)
-  }
 }
 
 /**

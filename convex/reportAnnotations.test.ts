@@ -6,8 +6,10 @@ import { MEMBER_COLOURS } from './lib/colours'
 import {
   MAX_COORDINATE,
   MAX_MARKUP_PAGE,
+  MAX_POINTS_PER_AUTHOR,
   MAX_POINTS_PER_REPORT,
   MAX_POINTS_PER_STROKE,
+  MAX_STROKES_PER_AUTHOR,
   MAX_STROKES_PER_REPORT,
   MIN_COORDINATE,
 } from './lib/reportMarkup'
@@ -488,9 +490,10 @@ describe('a report holds only as many marks as its one read can show', () => {
     await expect(draw(s, s.kevin, s.kevinReport)).rejects.toThrow(
       'TOO_MANY_STROKES',
     )
-    // Refused for anyone, not just the person who filled it.
+    // Refused for anyone, not just the person who filled it — in words of
+    // its own for someone with no marks here to clear.
     await expect(draw(s, s.terence, s.kevinReport)).rejects.toThrow(
-      'TOO_MANY_STROKES',
+      'REPORT_FULL_OF_MARKS',
     )
     expect(await marks(s, s.terence, s.kevinReport)).toHaveLength(
       MAX_STROKES_PER_REPORT,
@@ -523,6 +526,55 @@ describe('a report holds only as many marks as its one read can show', () => {
     const points = (n: number) =>
       Array.from({ length: n }, () => ({ x: 0.5, y: 0.5 }))
 
+    // Terence, well inside his own share, meets the report's.
+    await expect(
+      draw(s, s.terence, s.kevinReport, 1, points(left + 1)),
+    ).rejects.toThrow('REPORT_FULL_OF_MARKS')
+    await draw(s, s.terence, s.kevinReport, 1, points(left))
+    await expect(
+      draw(s, s.terence, s.kevinReport, 1, points(1)),
+    ).rejects.toThrow('REPORT_FULL_OF_MARKS')
+  })
+
+  test('one person’s share: the stroke past it is refused, the rest of the team is not, and their own Undo makes room', async () => {
+    const s = await setup()
+    await seed(
+      s,
+      s.kevinReport,
+      s.kevinId,
+      Array.from({ length: MAX_STROKES_PER_AUTHOR }, () => ({
+        page: 1,
+        points: 1,
+      })),
+    )
+
+    await expect(draw(s, s.kevin, s.kevinReport)).rejects.toThrow(
+      'TOO_MANY_STROKES',
+    )
+    await draw(s, s.terence, s.kevinReport)
+
+    const [first] = await rows(s)
+    await remove(s, s.kevin, s.kevinReport, first._id)
+    await draw(s, s.kevin, s.kevinReport)
+  })
+
+  test('and so are the points past it', async () => {
+    const s = await setup()
+    const full = Math.floor(MAX_POINTS_PER_AUTHOR / MAX_POINTS_PER_STROKE)
+    const left = MAX_POINTS_PER_AUTHOR - full * MAX_POINTS_PER_STROKE
+    expect(left).toBeGreaterThan(1)
+    await seed(
+      s,
+      s.kevinReport,
+      s.kevinId,
+      Array.from({ length: full }, () => ({
+        page: 1,
+        points: MAX_POINTS_PER_STROKE,
+      })),
+    )
+    const points = (n: number) =>
+      Array.from({ length: n }, () => ({ x: 0.5, y: 0.5 }))
+
     await expect(
       draw(s, s.kevin, s.kevinReport, 1, points(left + 1)),
     ).rejects.toThrow('TOO_MANY_STROKES')
@@ -530,6 +582,92 @@ describe('a report holds only as many marks as its one read can show', () => {
     await expect(draw(s, s.kevin, s.kevinReport, 1, points(1))).rejects.toThrow(
       'TOO_MANY_STROKES',
     )
+    await draw(s, s.terence, s.kevinReport, 1, points(MAX_POINTS_PER_STROKE))
+  })
+
+  test('one person drawing all they can leaves the rest of the team room to mark it', async () => {
+    // Only the person who drew a mark can take it away, so a report one
+    // person could fill would be closed to everyone else — for good, once
+    // that person left the team. Kevin draws through the mutation alone:
+    // the longest strokes he may until refused, then shorter and shorter
+    // ones, until not one more point is taken.
+    const s = await setup()
+    const points = (n: number) =>
+      Array.from({ length: n }, () => ({ x: 0.5, y: 0.5 }))
+    for (
+      let size = MAX_POINTS_PER_STROKE;
+      size >= 1;
+      size = Math.floor(size / 2)
+    ) {
+      for (;;) {
+        const refusal = await draw(s, s.kevin, s.kevinReport, 1, points(size))
+          .then(() => null)
+          .catch((error: unknown) => String(error))
+        if (refusal === null) continue
+        expect(refusal).toMatch('TOO_MANY_STROKES')
+        break
+      }
+    }
+    await expect(draw(s, s.kevin, s.kevinReport)).rejects.toThrow(
+      'TOO_MANY_STROKES',
+    )
+
+    // The owner can still mark the report Kevin filled his share of.
+    await draw(s, s.terence, s.kevinReport)
+    expect(
+      (await marks(s, s.terence, s.kevinReport)).filter((m) => m.mine),
+    ).toHaveLength(1)
+  })
+
+  /**
+   * What it takes to fill a report now: four people at their share. Two of
+   * them here have since left the team, so their marks are nobody's to
+   * clear; the two still here can each make room, and the one person with
+   * nothing on it is told it is full, not to clear marks he does not have.
+   */
+  test('four people at their share fill it: the fifth is told it is full, and either still here makes room', async () => {
+    const s = await setup()
+    const now = Date.now()
+    const departed = await s.t.run(async (ctx) => {
+      const leaver = (userId: string, colour: string) =>
+        ctx.db.insert('memberships', {
+          userId,
+          businessId: s.businessId,
+          role: 'subcontractor',
+          canViewAllJobs: false,
+          colour,
+          status: 'removed',
+          createdAt: now,
+        })
+      return [
+        await leaver('left-1', MEMBER_COLOURS[3]),
+        await leaver('left-2', MEMBER_COLOURS[4]),
+      ]
+    })
+    const share = Array.from({ length: MAX_STROKES_PER_AUTHOR }, () => ({
+      page: 1,
+      points: 1,
+    }))
+    for (const author of [s.kevinId, s.priyaId, ...departed]) {
+      await seed(s, s.kevinReport, author, share)
+    }
+    expect(await rows(s)).toHaveLength(MAX_STROKES_PER_REPORT)
+
+    await expect(draw(s, s.terence, s.kevinReport)).rejects.toThrow(
+      'REPORT_FULL_OF_MARKS',
+    )
+    await expect(draw(s, s.kevin, s.kevinReport)).rejects.toThrow(
+      'TOO_MANY_STROKES',
+    )
+
+    // Kevin clears his marks on page 1: room for him, and for Terence.
+    await s.kevin.as.mutation(api.reportAnnotations.clearMyStrokes, {
+      businessId: s.businessId,
+      reportId: s.kevinReport,
+      page: 1,
+    })
+    await draw(s, s.terence, s.kevinReport)
+    await draw(s, s.kevin, s.kevinReport)
   })
 
   test('marks on one report do not count against another', async () => {
@@ -801,13 +939,13 @@ describe('removeStroke: Undo takes the mark it named, and only that', () => {
         points: 1,
       })),
     )
-    await expect(draw(s, s.kevin, s.kevinReport)).rejects.toThrow(
-      'TOO_MANY_STROKES',
+    await expect(draw(s, s.terence, s.kevinReport)).rejects.toThrow(
+      'REPORT_FULL_OF_MARKS',
     )
 
     const [first] = await rows(s)
     await remove(s, s.kevin, s.kevinReport, first._id)
-    await draw(s, s.kevin, s.kevinReport)
+    await draw(s, s.terence, s.kevinReport)
     expect(await rows(s)).toHaveLength(MAX_STROKES_PER_REPORT)
   })
 })

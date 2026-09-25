@@ -7,10 +7,14 @@ import {
 } from '#/components/pdf/localMarks'
 import { createMarkupSession } from '#/components/pdf/markupSession'
 import { byPage } from '#/components/pdf/pendingMarks'
-import { createMarkupQueue } from './markupQueue'
+import {
+  createMarkupQueue,
+  heldMarkupQueues,
+  reportMarkupQueue,
+} from './markupQueue'
 import { strokesByPage } from './reportPdfModel'
 import type { LocalMarks } from '#/components/pdf/localMarks'
-import type { MarkupQueue } from './markupQueue'
+import type { MarkupQueue, MarkupServer } from './markupQueue'
 import type { AnnotationRow } from './reportPdfModel'
 import type { MarkupPoint, MarkupStroke } from '#/components/pdf/types'
 
@@ -297,6 +301,95 @@ describe('Clear keeps the order it was tapped in', () => {
   })
 })
 
+describe('one queue per report, not per viewer', () => {
+  // Each test names a report of its own: the queues are held for the app,
+  // not for a test.
+
+  test('closed and opened again while a Clear waits: a stroke drawn after it is sent after it, and survives', async () => {
+    const convex = fakeConvex([])
+    // The viewer that asked, and the one opened after it was closed.
+    const first = reportMarkupQueue('b1/closed', convex)
+    const second = reportMarkupQueue('b1/closed', convex)
+    void first.addStroke(0, POINTS) // A, still saving on one bar of signal
+    const cleared = first.clearPage(0) // waits for A
+    const drawnAfter = second.addStroke(0, POINTS) // B, after the Clear
+
+    await settle()
+    expect(convex.log).toEqual(['add p1'])
+    await convex.deliverAll()
+    await cleared
+
+    expect(convex.log).toEqual(['add p1', 'clear p1', 'add p1'])
+    expect(convex.ids()).toEqual([await drawnAfter])
+  })
+
+  test('another report’s strokes do not wait on this one’s Clear', async () => {
+    const convex = fakeConvex([])
+    void reportMarkupQueue('b1/busy', convex).addStroke(0, POINTS)
+    void reportMarkupQueue('b1/busy', convex).clearPage(0)
+    void reportMarkupQueue('b1/other', convex).addStroke(0, POINTS)
+
+    await settle()
+    expect(convex.log).toEqual(['add p1', 'add p1'])
+    await convex.deliverAll()
+  })
+
+  test('held while anything is out, and let go once nothing is, whichever way it went', async () => {
+    const convex = fakeConvex([mine('X', 1, 1)])
+    const queue = reportMarkupQueue('b1/released', convex)
+    const before = heldMarkupQueues()
+
+    // Nothing kept for an Undo, which keeps no order, or a stroke refused
+    // before it is sent.
+    const undone = queue.removeStroke('X')
+    await expect(queue.addStroke(0, [])).rejects.toThrow()
+    expect(heldMarkupQueues()).toBe(before)
+    await convex.deliverAll()
+    await undone
+
+    void queue.addStroke(0, POINTS)
+    const cleared = expect(queue.clearPage(0)).rejects.toThrow(
+      'Your access doesn’t let you mark this report.',
+    )
+    expect(heldMarkupQueues()).toBe(before + 1)
+    expect(queue.clearsUnderway().map((c) => c.pageIndex)).toEqual([0])
+
+    await convex.deliverOne()
+    expect(heldMarkupQueues()).toBe(before + 1)
+    await convex.deliverOne(new ConvexError('NO_ACCESS'))
+    await cleared
+
+    expect(heldMarkupQueues()).toBe(before)
+    expect(queue.clearsUnderway()).toEqual([])
+  })
+
+  test('what is sent next goes through the newest viewer’s way to Convex', async () => {
+    const convex = fakeConvex([])
+    const sentBy: Array<string> = []
+    const through = (who: string): MarkupServer => ({
+      add: (page, points) => {
+        sentBy.push(who)
+        return convex.add(page, points)
+      },
+      remove: convex.remove,
+      clearMine: (page) => {
+        sentBy.push(who)
+        return convex.clearMine(page)
+      },
+    })
+    const first = reportMarkupQueue('b1/newest', through('first'))
+    void first.addStroke(0, POINTS)
+    const cleared = first.clearPage(0)
+    await settle() // the stroke is sent; the Clear waits for it
+    const second = reportMarkupQueue('b1/newest', through('second'))
+    void second.addStroke(0, POINTS)
+    await convex.deliverAll()
+    await cleared
+
+    expect(sentBy).toEqual(['first', 'second', 'second'])
+  })
+})
+
 describe('failures', () => {
   test('a refused Clear says so, and does not hold back what comes after it', async () => {
     const convex = fakeConvex([mine('A', 1, 1)])
@@ -319,7 +412,7 @@ describe('failures', () => {
     const queue = createMarkupQueue(convex)
 
     const refused = expect(queue.addStroke(0, POINTS)).rejects.toThrow(
-      'This report is full of marks. Clear some of yours to add more.',
+      'You’ve made as many marks as one person can on this report. Clear some of yours to add more.',
     )
     const cleared = queue.clearPage(0)
     await convex.deliverOne(new ConvexError('TOO_MANY_STROKES'))
@@ -359,8 +452,10 @@ describe('failures', () => {
  * everything has landed. The marks on screen are this client's copy, drawn
  * as the viewer draws them.
  */
-function viewerOn(convex: FakeConvex) {
-  const queue = createMarkupQueue(convex)
+function viewerOn(
+  convex: FakeConvex,
+  queue: MarkupQueue = createMarkupQueue(convex),
+) {
   let local: LocalMarks = NO_LOCAL_MARKS
   let rows: ReadonlyArray<AnnotationRow> | null = null
   let strokes: ReadonlyMap<number, ReadonlyArray<MarkupStroke>> = new Map()
@@ -383,6 +478,8 @@ function viewerOn(convex: FakeConvex) {
     toast: (message) => toasts.push(message),
     now: () => 0,
   })
+  // As the viewer opens: any Clear an earlier one left out is taken over.
+  session.takeOver(queue.clearsUnderway())
   return {
     session,
     toasts,
@@ -476,6 +573,39 @@ describe('with the viewer in front', () => {
     expect(convex.ids()).toEqual([])
   })
 
+  /**
+   * Done, then View PDF, while a Clear still waits on a save — one bar of
+   * signal. The reopened viewer is a new session over the same report's
+   * queue: the page it was cleared from stays empty, not showing again the
+   * marks on their way out, and a stroke drawn there now waits for the Clear
+   * and outlives it, rather than going first and being swept away with no
+   * word said.
+   */
+  test('closed and reopened while a Clear waits: the page stays cleared, and a stroke drawn after it survives', async () => {
+    const convex = fakeConvex([mine('A', 1, 1), mine('P2', 2, 2)])
+    const first = viewerOn(convex, reportMarkupQueue('b1/reopened', convex))
+    first.session.stroke(0, POINTS) // B, still saving
+    first.session.clear(0) // "Clear my marks on page 1", waiting for B
+    expect(first.screen()).toEqual({ stored: ['P2'], saving: 0 })
+
+    // Done, then View PDF.
+    const second = viewerOn(convex, reportMarkupQueue('b1/reopened', convex))
+    expect(second.screen()).toEqual({ stored: ['P2'], saving: 0 })
+    second.session.stroke(0, POINTS) // C, drawn after the Clear
+    await settle()
+    expect(convex.log).toEqual(['add p1'])
+
+    // B lands, the Clear goes out behind it, and C behind that.
+    await convex.deliverOne()
+    expect(second.screen()).toEqual({ stored: ['P2'], saving: 1 })
+    await convex.deliverAll()
+
+    expect(convex.log).toEqual(['add p1', 'clear p1', 'add p1'])
+    expect(convex.ids()).toEqual(['P2', 'new-2'])
+    expect(second.screen()).toEqual({ stored: ['P2', 'new-2'], saving: 0 })
+    expect(second.toasts).toEqual([])
+  })
+
   test('an Undo aimed at a stroke the server refuses is spent: no older mark goes', async () => {
     const convex = fakeConvex([mine('Real', 1, 1)])
     const viewer = viewerOn(convex)
@@ -489,7 +619,7 @@ describe('with the viewer in front', () => {
     expect(convex.ids()).toEqual(['Real'])
     expect(viewer.screen()).toEqual({ stored: ['Real'], saving: 0 })
     expect(viewer.toasts).toEqual([
-      'This report is full of marks. Clear some of yours to add more.',
+      'You’ve made as many marks as one person can on this report. Clear some of yours to add more.',
     ])
   })
 })

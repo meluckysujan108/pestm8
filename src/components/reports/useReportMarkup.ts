@@ -1,19 +1,22 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { strokesByPage } from './reportPdfModel'
-import { createMarkupQueue } from './markupQueue'
+import { reportMarkupQueue } from './markupQueue'
 import type { MarkupStroke, ViewerMarkup } from '#/components/pdf/types'
-import type { MarkupQueue } from './markupQueue'
+import type { MarkupServer } from './markupQueue'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /** The user's words (2026-09-24), said in the markup palette. */
 export const MARKUP_NOTE =
   'Marks are for your team. Share sends the report without them.'
-/** Said once when a report with marks is shared or saved. */
+/** Said once when a report with marks is shared. */
 export const MARKUP_SHARE_NOTE =
   'Sent without the marks — they stay in the app for your team.'
+/** Said once when a report with marks is saved or downloaded. */
+export const MARKUP_SAVE_NOTE =
+  'Saved without the marks — they stay in the app for your team.'
 
 const NO_STROKES: ReadonlyMap<number, ReadonlyArray<MarkupStroke>> = new Map()
 
@@ -42,7 +45,9 @@ const NO_STROKES: ReadonlyMap<number, ReadonlyArray<MarkupStroke>> = new Map()
  * (`removeStroke`); each mark's `order` is when it was made (`createdAt`),
  * which is how the viewer knows your newest. Saves and Clear go through one
  * queue (`markupQueue.ts`), so a Clear sweeps up every stroke drawn before it
- * was tapped and none drawn after.
+ * was tapped and none drawn after — one queue per report rather than per
+ * viewer, so that still holds when the PDF is closed and opened again while
+ * the Clear is out.
  */
 export function useReportMarkup({
   businessId,
@@ -75,14 +80,16 @@ export function useReportMarkup({
     latest.current = { add, remove, clearMine }
   })
 
-  // One queue per report, made once and kept: it holds the order of what has
-  // been asked for, and a fresh one would forget a Clear still waiting. Made
-  // again (during render, as React allows for state derived from props) only
-  // if this hook is handed another report.
-  const reportKey = `${businessId}/${reportId}`
-  const makeQueue = (): { key: string; queue: MarkupQueue } => ({
-    key: reportKey,
-    queue: createMarkupQueue({
+  // One queue per report, which holds the order of what has been asked for.
+  // Not this hook's to keep: this is mounted with the viewer, made again
+  // each time the PDF is opened, and a queue made with it forgot a Clear
+  // still waiting when it closed — the reopened viewer's next stroke went
+  // out ahead of it and was swept away when it landed. The report's queue
+  // is held outside React while it has anything out (`reportMarkupQueue`),
+  // so the reopened viewer's strokes wait behind that Clear, and the viewer
+  // takes the Clear over (`clearsUnderway`) to keep its page hidden.
+  const queue = useMemo(() => {
+    const server: MarkupServer = {
       add: (page, points) =>
         latest.current.add({ businessId, reportId, page, points }),
       remove: (strokeId) =>
@@ -95,11 +102,9 @@ export function useReportMarkup({
         }),
       clearMine: (page) =>
         latest.current.clearMine({ businessId, reportId, page }),
-    }),
-  })
-  const [held, setHeld] = useState(makeQueue)
-  if (held.key !== reportKey) setHeld(makeQueue())
-  const { addStroke, removeStroke, clearPage } = held.queue
+    }
+    return reportMarkupQueue(`${businessId}/${reportId}`, server)
+  }, [businessId, reportId])
 
   // A new Map only when the marks change: the viewer memoises its page
   // slots on it.
@@ -113,11 +118,10 @@ export function useReportMarkup({
     return {
       strokes,
       canDraw: true,
-      addStroke,
-      removeStroke,
-      clearPage,
+      ...queue,
       note: MARKUP_NOTE,
       shareNote: MARKUP_SHARE_NOTE,
+      saveNote: MARKUP_SAVE_NOTE,
     }
-  }, [isError, data, strokes, addStroke, removeStroke, clearPage])
+  }, [isError, data, strokes, queue])
 }

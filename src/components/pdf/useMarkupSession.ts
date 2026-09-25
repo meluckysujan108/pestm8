@@ -118,6 +118,17 @@ export function useMarkupSession(
   )
   const onStroke = session.stroke
 
+  // A Clear asked for in a viewer since closed (Done, then open the document
+  // again, the Clear still waiting on one bar of signal) is still out, and
+  // its page's marks still stored until it lands. Taken over before the
+  // first paint that could show them — and looked for again whenever the
+  // caller changes, so a markup layer that arrives after the viewer opens
+  // is asked too. Each Clear is taken over once; this session's own never.
+  useLayoutEffect(() => {
+    const underway = markup?.clearsUnderway?.()
+    if (underway && underway.length > 0) session.takeOver(underway)
+  }, [markup, session])
+
   // ---- Undo and Clear ------------------------------------------------------
 
   const onUndo = useCallback(() => {

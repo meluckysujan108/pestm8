@@ -346,9 +346,20 @@ describe('plain words', () => {
   })
 
   test("a mark's, with words for what was being done", () => {
+    // Your own share of the report is full: only you can make room in it.
     expect(
       markupProblem(new ConvexError('TOO_MANY_STROKES'), false, 'add'),
-    ).toMatch(/full of marks/)
+    ).toMatch(/as many marks as one person can.*Clear some of yours/)
+    // The report is, with the team's marks: you may have none to clear, so
+    // it is not advice you might be unable to follow.
+    const full = markupProblem(
+      new ConvexError('REPORT_FULL_OF_MARKS'),
+      false,
+      'add',
+    )
+    expect(full).toMatch(/full of the team’s marks/)
+    expect(full).not.toMatch(/yours/)
+    expect(full).not.toBe('Your mark didn’t save. Try again.')
     expect(markupProblem(new Error('odd'), false, 'add')).toBe(
       'Your mark didn’t save. Try again.',
     )
