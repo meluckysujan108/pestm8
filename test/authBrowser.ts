@@ -1,4 +1,4 @@
-import { pickAuthCookie } from '../src/lib/authCookies'
+import { passesOn, pickAuthCookie } from '../src/lib/authCookies'
 
 /**
  * A browser and an authenticator app, as much of each as driving Better
@@ -42,8 +42,9 @@ export type AuthFetch = (path: string, init: RequestInit) => Promise<Response>
 /**
  * A browser's cookie jar, as much of one as these endpoints need — behind the
  * app's auth proxy, which passes on ONE Set-Cookie per response
- * (src/routes/api/auth/$.ts). Applying only the cookie the proxy would choose
- * is the point: two-step sign-in writes several per response, and the flow
+ * (src/routes/api/auth/$.ts), and none that clears the session in answer to
+ * a read (`passesOn`). Applying only the cookie the proxy would pass on is
+ * the point: two-step sign-in writes several per response, and the flow
  * has to work with the one that gets through. Through the real proxy (a
  * Playwright spec) the choice has already been made, and making it again
  * over one cookie changes nothing.
@@ -71,8 +72,14 @@ export class AuthBrowser {
     return this.request('POST', path, body, headers)
   }
 
-  async get(path: string) {
-    return this.request('GET', path)
+  /**
+   * `stale` sends the Cookie header the browser held earlier instead of the
+   * jar's: a request that went out before an answer since then changed the
+   * cookie, and whose own answer lands after it — as a page's background
+   * reads do while a code is being checked.
+   */
+  async get(path: string, options: { stale?: string } = {}) {
+    return this.request('GET', path, undefined, undefined, options.stale)
   }
 
   /** Straight to Convex with this browser's cookies, as server rendering's
@@ -90,6 +97,7 @@ export class AuthBrowser {
     path: string,
     body?: unknown,
     headers?: Record<string, string>,
+    cookie = this.cookieHeader(),
   ) {
     const response = await this.send(path, {
       method,
@@ -97,13 +105,14 @@ export class AuthBrowser {
         ...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
         ...headers,
         origin: this.origin,
-        cookie: this.cookieHeader(),
+        cookie,
       },
       ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
     })
     this.sent = response.headers.getSetCookie()
     const kept = pickAuthCookie(this.sent)
-    for (const line of kept === null ? [] : [kept]) {
+    const applied = kept !== null && passesOn(method, kept) ? [kept] : []
+    for (const line of applied) {
       const [pair, ...attributes] = line.split(';')
       const eq = pair.indexOf('=')
       const name = pair.slice(0, eq).trim()

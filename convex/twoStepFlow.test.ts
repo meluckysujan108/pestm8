@@ -1101,6 +1101,63 @@ describe('a right code whose answer never arrives', () => {
   })
 })
 
+describe('a read already on its way when the code is checked', () => {
+  test('its "no such session" does not sign out the session the code made', async () => {
+    // The set-up screen's code goes out while the page's own reads may still
+    // be going out on the cookie it had: the Convex token the provider
+    // fetches again after each auth call, the session check on coming back
+    // from the authenticator app. The right code deletes that session, so
+    // each such read is answered "signed out", and Better Auth clears the
+    // session cookie in the same answer. Landing after the code's answer,
+    // that clearing wiped the NEW session's cookie: someone who had just
+    // turned two-step sign-in on was signed out, and "Continue" after the
+    // recovery codes went to the sign-in screen (e2e/twoStep.spec.ts, which
+    // types the code the moment the key shows, caught it).
+    const t = testApp()
+    const email = 'late-read@example.test'
+    const browser = await signUp(t, email)
+    const totpURI = (
+      await browser.post('/two-factor/enable', { password: PASSWORD })
+    ).json.totpURI as string
+    const before = browser.cookieHeader()
+
+    const verified = await browser.post('/two-factor/verify-totp', {
+      code: await totp(totpURI),
+    })
+    expect(verified.status).toBe(200)
+    const session = browser.value('session_token')
+    expect(session).toBeDefined()
+    expect(before).not.toContain(session)
+
+    for (const path of ['/convex/token', '/get-session']) {
+      await browser.get(path, { stale: before })
+      // The server did say to clear it…
+      expect(browser.sent.some((c) => /session_token=;/.test(c))).toBe(true)
+      // …and a read is not where a session cookie is cleared.
+      expect(browser.value('session_token')).toBe(session)
+    }
+
+    // Still signed in, on the session the code made: its recovery codes
+    // can be made, and the session check finds it.
+    const codes = await browser.post('/two-factor/generate-backup-codes', {
+      password: PASSWORD,
+    })
+    expect(codes.status).toBe(200)
+    const checked = await browser.get('/get-session')
+    expect(
+      (checked.json as { user?: { email?: string } } | null)?.user,
+    ).toEqual(expect.objectContaining({ email }))
+  })
+
+  test('signing out, which is not a read, still clears it', async () => {
+    const t = testApp()
+    const browser = await signUp(t, 'late-read-out@example.test')
+    expect(browser.has('session_token')).toBe(true)
+    await browser.post('/sign-out', {})
+    expect(browser.has('session_token')).toBe(false)
+  })
+})
+
 describe('a set-up belongs to the session that started it', () => {
   test('a key planted with a leaked password is never handed to the real person', async () => {
     const t = testApp()

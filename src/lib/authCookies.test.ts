@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { pickAuthCookie } from './authCookies'
+import { passesOn, pickAuthCookie } from './authCookies'
 
 /**
  * The auth proxy can pass on one Set-Cookie per response. These are the
@@ -62,5 +62,30 @@ describe('the one cookie the auth proxy passes on', () => {
     expect(pickAuthCookie([theme, JWT])).toBe(theme)
     expect(pickAuthCookie([JWT])).toBeNull()
     expect(pickAuthCookie([])).toBeNull()
+  })
+})
+
+describe('what a read may do to the session cookie', () => {
+  // A read that set out on a cookie since replaced — the Convex token, the
+  // session check — is answered "no such session" with the session cookie
+  // cleared, and that clearing lands on the browser's NEW cookie. It signed
+  // people out the moment two-step sign-in came on (convex/twoStepFlow.test.ts,
+  // "a read already on its way when the code is checked").
+  test('a read does not clear the session cookie', () => {
+    expect(passesOn('GET', CLEAR_SESSION)).toBe(false)
+    expect(passesOn('GET', CLEAR_SESSION.replace('__Secure-', ''))).toBe(false)
+  })
+
+  test('a read still renews it', () => {
+    expect(passesOn('GET', SET_SESSION)).toBe(true)
+  })
+
+  test('signing out, signing in and checking a code still clear it', () => {
+    expect(passesOn('POST', CLEAR_SESSION)).toBe(true)
+  })
+
+  test('only the session cookie is held back', () => {
+    expect(passesOn('GET', CLEAR_CHALLENGE)).toBe(true)
+    expect(passesOn('GET', 'pestm8-theme=dark; Path=/')).toBe(true)
   })
 })
