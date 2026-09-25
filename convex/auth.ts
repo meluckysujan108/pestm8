@@ -303,6 +303,7 @@ function twoStep() {
     message: 'Two-step sign-in is already set up on this account.',
     code: 'MFA_ALREADY_ENABLED',
   })
+  startFromNothing(plugin.endpoints.enableTwoFactor)
   refuseOnceEnabled(plugin.endpoints.getTOTPURI, {
     message:
       'The set-up key is only shown while setting up. Ask the business owner to reset two-step sign-in if you need to add it again.',
@@ -354,6 +355,39 @@ function refuseOnceEnabled(
   endpoint.options.use = [...(endpoint.options.use ?? []), guard]
 }
 
+/**
+ * Clears any two-factor row an account that is NOT set up still has, before
+ * `/two-factor/enable` runs.
+ *
+ * The plugin marks a new secret verified at once when an earlier row was
+ * verified, and then its first code never flips `twoFactorEnabled`. Normally
+ * no such row survives — turning two-step off deletes it — but turning it off
+ * is two writes (the flag, then the row), each its own transaction here. If
+ * the second one fails, the account is left off with a verified row, and
+ * every "Turn on" after that looks as if it worked and leaves it off: the
+ * person thinks they are protected and is not. Starting from nothing makes
+ * that half state heal itself on the next set-up.
+ *
+ * Runs after `refuseOnceEnabled`, so an account that is set up never gets
+ * this far.
+ */
+function startFromNothing(endpoint: {
+  options: { use?: Array<unknown> }
+}): void {
+  const clear = createAuthMiddleware(async (ctx) => {
+    const session = ctx.context.session as {
+      user?: { id?: string; twoFactorEnabled?: boolean | null }
+    } | null
+    const userId = session?.user?.id
+    if (!userId || session.user?.twoFactorEnabled === true) return
+    await ctx.context.adapter.deleteMany({
+      model: 'twoFactor',
+      where: [{ field: 'userId', value: userId }],
+    })
+  })
+  endpoint.options.use = [...(endpoint.options.use ?? []), clear]
+}
+
 /** The code checks the per-account cap counts (`twoStepAttempts`). */
 const CODE_CHECK_PATHS = new Set([
   `${TWO_FACTOR_PREFIX}verify-totp`,
@@ -399,6 +433,10 @@ export const authComponent = createClient<DataModel>(components.betterAuth)
  * two-step reset, and turning two-step sign-in on all still end sessions:
  * each deletes the rows, and `getAuthUser` re-reads the row on every call.
  *
+ * Renewal happens only on the browser's own `/get-session`, which goes
+ * through the auth proxy and so keeps the renewed cookie — see the
+ * `/convex/token` line in `hooks.before` for why.
+ *
  * `freshAge` is untouched. It only gates `/list-sessions` and
  * `/unlink-account`, neither of which this app calls, so a year-old session
  * loses nothing it uses.
@@ -432,6 +470,19 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
     },
     hooks: {
       before: createAuthMiddleware(async (h) => {
+        // Sessions renew on the browser's /get-session (SessionWatch in
+        // __root.tsx asks on every page load), never on /convex/token. Server
+        // rendering fetches a token for every cold open and keeps only the
+        // token (src/lib/initialState.ts): a renewal there moved the row on
+        // but threw its Set-Cookie away, so the browser's own check straight
+        // after found nothing due, and the cookie still ran out 400 days
+        // after sign-in however often the app was opened. Returned rather
+        // than assigned, because a before-hook is handed a copy of the
+        // context and only what it returns is merged back.
+        if (h.path === '/convex/token') {
+          return { context: { query: { ...h.query, disableRefresh: true } } }
+        }
+
         twoFactorPolicy(h.path, h.body, isMfaRequired())
 
         // The per-account cap on codes (`twoStepAttempts`): counted before

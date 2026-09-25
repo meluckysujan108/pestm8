@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { afterEach, beforeEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { components } from './_generated/api'
 import { MAX_TWO_STEP_ATTEMPTS } from './twoStepAttempts'
 import { testApp } from '../test/harness'
@@ -45,14 +45,32 @@ class Browser {
   }
 
   async post(path: string, body: unknown) {
+    return this.request('POST', path, body)
+  }
+
+  async get(path: string) {
+    return this.request('GET', path)
+  }
+
+  /** Straight to Convex with this browser's cookies, as server rendering's
+   * token fetch does — no proxy, so nothing lands in the jar. */
+  async serverSide(path: string) {
     const response = await this.t.fetch(`/api/auth${path}`, {
-      method: 'POST',
+      method: 'GET',
+      headers: { origin: ORIGIN, cookie: this.cookieHeader() },
+    })
+    return response.headers.getSetCookie()
+  }
+
+  private async request(method: 'GET' | 'POST', path: string, body?: unknown) {
+    const response = await this.t.fetch(`/api/auth${path}`, {
+      method,
       headers: {
-        'content-type': 'application/json',
+        ...(method === 'POST' ? { 'content-type': 'application/json' } : {}),
         origin: ORIGIN,
         cookie: this.cookieHeader(),
       },
-      body: JSON.stringify(body),
+      ...(method === 'POST' ? { body: JSON.stringify(body) } : {}),
     })
     this.sent = response.headers.getSetCookie()
     const kept = pickAuthCookie(this.sent)
@@ -288,6 +306,40 @@ describe('two-step sign-in, end to end', () => {
     expect(disabled.json.code).toBe('MFA_REQUIRED')
   })
 
+  test('a turn-off that failed half-way does not stop it being turned on again', async () => {
+    const t = testApp()
+    const browser = await signUp(t, 'half-off@example.test')
+    await enrol(browser)
+    // What a disable that died between its two writes leaves: the flag off,
+    // the verified row still there.
+    const userId = await userIdOf(t, 'half-off@example.test')
+    await t.run(async (ctx) => {
+      await ctx.runMutation(components.betterAuth.adapter.updateOne, {
+        input: {
+          model: 'user',
+          where: [{ field: '_id', value: userId }],
+          update: { twoFactorEnabled: false },
+        },
+      })
+    })
+
+    // Setting up again must take: the new code turns it on.
+    const phone = new Browser(t)
+    await phone.post('/sign-in/email', {
+      email: 'half-off@example.test',
+      password: PASSWORD,
+    })
+    await enrol(phone)
+    const user = await t.run(
+      async (ctx): Promise<{ twoFactorEnabled?: boolean | null } | null> =>
+        ctx.runQuery(components.betterAuth.adapter.findOne, {
+          model: 'user',
+          where: [{ field: '_id', value: userId }],
+        }),
+    )
+    expect(user?.twoFactorEnabled).toBe(true)
+  })
+
   test('nobody can set it up again over itself', async () => {
     const t = testApp()
     const browser = await signUp(t, 'ann@example.test')
@@ -333,7 +385,7 @@ describe('two-step sign-in, end to end', () => {
     ).toBe(200)
   })
 
-  test('an account that never finished setting up signs in with a password and is sent to set up', async () => {
+  test('an account that never finished setting up signs in with its password alone', async () => {
     const t = testApp()
     const browser = await signUp(t, 'half@example.test')
     // Started, never verified: twoFactorEnabled must still be false.
@@ -407,6 +459,43 @@ describe('how long a sign-in lasts', () => {
     expect(verified.status).toBe(200)
     const left = (await expiryOf(t, 'coded@example.test')) - signedInAt
     expect(left).toBeGreaterThan(399 * DAY)
+  })
+
+  test('a cold open renews it where the browser keeps the cookie', async () => {
+    const t = testApp()
+    await signUp(t, 'renew@example.test')
+    const phone = new Browser(t)
+    await phone.post('/sign-in/email', {
+      email: 'renew@example.test',
+      password: PASSWORD,
+    })
+    const before = await expiryOf(t, 'renew@example.test')
+
+    // Two days on: renewal is due (updateAge is one day).
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      vi.setSystemTime(Date.now() + 2 * DAY)
+
+      // Server rendering fetches a token first, and its Set-Cookie is thrown
+      // away (src/lib/initialState.ts). It must not renew the session — if it
+      // did, the browser's own request below would find nothing due, and the
+      // cookie would still run out 400 days after sign-in.
+      const ssr = await phone.serverSide('/convex/token')
+      expect(ssr.some((c) => c.includes('session_token'))).toBe(false)
+      expect(await expiryOf(t, 'renew@example.test')).toBe(before)
+
+      // The browser's session check, through the proxy, renews it — row and
+      // cookie together.
+      const checked = await phone.get('/get-session')
+      expect(checked.status).toBe(200)
+      const renewed = phone.sent.find((c) => c.includes('session_token'))
+      expect(renewed).toMatch(/max-age=34560000/i)
+      expect(await expiryOf(t, 'renew@example.test')).toBeGreaterThan(
+        before + DAY,
+      )
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   test('signing out still ends it', async () => {

@@ -10,6 +10,7 @@ import { rq } from '#/lib/routeQueries'
 import { describeTwoFactorError } from '#/lib/twoStep'
 import {
   markRecoveryCodesUnsaved,
+  markSetUpStarted,
   recoveryCodesUnsaved,
 } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
@@ -108,6 +109,10 @@ export function TwoStepSection() {
       return
     }
     markRecoveryCodesUnsaved(user._id, false)
+    // The PestM8 entry in their authenticator is dead now. If they turn it on
+    // again on this phone, set-up warns them to delete it first — otherwise
+    // two entries with the same name, and the old one's codes never match.
+    markSetUpStarted(user._id, true)
     window.location.reload()
   }
 
@@ -181,7 +186,7 @@ export function TwoStepSection() {
           >
             <p className="text-caption text-muted">
               {open === 'off'
-                ? 'Signing in will only ask for your password again, and your authenticator entry and recovery codes stop working. Enter your password to turn it off.'
+                ? 'Signing in will only ask for your password again, and your recovery codes stop working. Delete PestM8 from your authenticator app afterwards — its codes will not work again. Enter your password to turn it off.'
                 : 'Your old recovery codes stop working as soon as the new ones are made. Enter your password to continue.'}
             </p>
             <label className="flex flex-col gap-1.5">

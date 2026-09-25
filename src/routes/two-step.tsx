@@ -102,7 +102,7 @@ function TwoStepPage() {
           <p className="mt-2 text-body text-muted">
             {required
               ? 'Every PestM8 account now signs in with a password and a 6-digit code from an authenticator app on your phone. It keeps client records safe if a password gets out. It takes about a minute.'
-              : 'Once it is on, signing in asks for your password and a 6-digit code from an authenticator app on your phone, so a password that gets out is not enough on its own. You stay signed in until you sign out, so the code is only asked for when you sign in again. It takes about a minute.'}
+              : 'Once it is on, signing in asks for your password and a 6-digit code from an authenticator app on your phone, so a password that gets out is not enough on its own. You stay signed in until you sign out, so the code is only asked for when you sign in again. Turning it on signs you out on your other devices — sign in there again with a code. It takes about a minute.'}
           </p>
         )}
       </div>
@@ -285,13 +285,13 @@ function ScanStep({
       <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4">
         <p className="section-label">1 · Add PestM8 to your authenticator</p>
         {setup.restarted && (
-          // Starting again made a new secret: the entry from the first try
-          // will never give a right code, and a dead entry beside a live one
-          // is a wrong code at every sign-in.
+          // Starting again (after an unfinished try, or after turning it off)
+          // made a new secret: the old entry will never give a right code,
+          // and a dead entry beside a live one, both named PestM8, is a wrong
+          // code at every sign-in.
           <Alert>
-            You started setting this up before. If PestM8 is already in your
-            authenticator app, delete that entry first — only the one you add
-            now will work.
+            If PestM8 is already in your authenticator app from before, delete
+            that entry first — only the one you add now will work.
           </Alert>
         )}
         <p className="text-body text-muted">
