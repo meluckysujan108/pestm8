@@ -7,7 +7,9 @@ import { ConvexProvider } from 'convex/react'
 import { routeTree } from './routeTree.gen'
 import { getContext } from './integrations/tanstack-query/root-provider'
 import { PagePending } from './components/shell/Pending'
+import { SignInSettling } from './components/auth/SignInSettling'
 import { TwoStepNeededCard } from './components/auth/TwoStepPrompt'
+import { isUnauthenticatedError } from './lib/signInSettling'
 import { isMfaEnrolmentError } from './lib/twoStep'
 
 export function getRouter() {
@@ -38,12 +40,16 @@ export function getRouter() {
     // sign-in says so, with the way through, rather than "Something went
     // wrong" — the case of someone already inside the app when it became
     // compulsory, whose next tap reads a cached guard and then fails in the
-    // page. Everything else keeps the router's own error screen.
+    // page. A page refused as "Unauthenticated" holds on its placeholder
+    // while the sign-in settles, and is retried (components/auth/
+    // SignInSettling). Everything else keeps the router's own error screen.
     defaultErrorComponent: (props) =>
       isMfaEnrolmentError(props.error) ? (
         <div className="px-4 pt-6">
           <TwoStepNeededCard />
         </div>
+      ) : isUnauthenticatedError(props.error) ? (
+        <SignInSettling {...props} />
       ) : (
         <ErrorComponent {...props} />
       ),
