@@ -26,7 +26,7 @@ import {
   requireAssignableRole,
   requireCapability,
 } from './lib/actor'
-import { NO_GRANTS } from './lib/capabilities'
+import { canInviteAs, canManageInvitation, NO_GRANTS } from './lib/capabilities'
 import type { Role } from './lib/capabilities'
 
 /**
@@ -94,6 +94,9 @@ export const store = internalMutation({
     requireCapability(env, 'team.manage')
     const actor = env.actor.real
     assertInvitableRole(args.role)
+    // A contractor holds `team.manage` too, but only the owner makes
+    // contractors (`canInviteAs`).
+    if (!canInviteAs(env.actor, args.role)) throw new ConvexError('NO_ACCESS')
 
     // Lower-cased whole, not just the domain as a client's email is: the
     // invitation is matched to the account that redeems it, and sign-in
@@ -187,6 +190,16 @@ export const applyNewToken = internalMutation({
     const invitation = await ctx.db.get(args.invitationId)
     if (!invitation || invitation.businessId !== args.businessId) {
       throw new ConvexError('NOT_FOUND')
+    }
+    // Only an invitation this person may manage (`canManageInvitation`), and
+    // only for a role they could invite as today: reissuing is issuing, and a
+    // row from before these rules may name a role nobody may hand out now.
+    if (!canManageInvitation(env.actor, invitation)) {
+      throw new ConvexError('NO_ACCESS')
+    }
+    assertInvitableRole(invitation.role)
+    if (!canInviteAs(env.actor, invitation.role)) {
+      throw new ConvexError('NO_ACCESS')
     }
     if (invitation.claimedAt !== undefined)
       throw new ConvexError('ALREADY_MEMBER')
@@ -463,6 +476,11 @@ export const revoke = mutation({
     const invitation = await ctx.db.get(invitationId)
     if (!invitation || invitation.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
+    }
+    // The owner withdraws any invitation; a contractor, only their own
+    // (`canManageInvitation`).
+    if (!canManageInvitation(env.actor, invitation)) {
+      throw new ConvexError('NO_ACCESS')
     }
     // A claimed invitation is the record of how someone joined. Revoking it
     // would erase that; removing their access is a membership action.
