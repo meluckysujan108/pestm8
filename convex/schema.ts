@@ -1646,4 +1646,26 @@ export default defineSchema({
     /** Set once `attempts` reaches the limit; ms since epoch. */
     lockedUntil: v.optional(v.number()),
   }).index('by_userId', ['userId']),
+
+  /**
+   * Which session made each account's current two-step key — the claim that
+   * lets the set-up screen carry on with a key it already showed, and only
+   * the screen that showed it (convex/lib/twoFactorSetup.ts has the why: a
+   * key nobody has proven yet can be made by anyone holding the password).
+   *
+   * Written by the auth after-hook once `/two-factor/enable` has made its
+   * key, and only if the row it finds is the one that request made
+   * (convex/twoStepSetups.ts). One row per account, replaced by the next
+   * enable; a claim whose `twoFactorId` no longer names the account's row
+   * counts for nothing, so a reset or a turn-off needs no clean-up here.
+   * `userId`, `sessionId` and `twoFactorId` are Better Auth ids, strings
+   * (those tables live in the component). New table, so nothing to migrate —
+   * a key made before this existed has no claim and reads as `elsewhere`,
+   * which starts again with a new key and a warning.
+   */
+  twoStepSetups: defineTable({
+    userId: v.string(),
+    sessionId: v.string(),
+    twoFactorId: v.string(),
+  }).index('by_userId', ['userId']),
 })

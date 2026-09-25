@@ -33,7 +33,8 @@ export type AuthUser = Awaited<ReturnType<typeof authComponent.getAuthUser>>
  * - `auth.getCurrentUser` — name and email for the set-up screen and the
  *   account menu; reveals nothing they did not type themselves.
  * - `auth.twoFactorStatus` — whether they still have to enrol, which is how
- *   the client knows where to send them.
+ *   the client knows where to send them, and how far a set-up has got so the
+ *   set-up screen can carry on with the same key (a word, never the key).
  * - `invitations.preview` — works signed out by design, so there is nothing
  *   to gate.
  *
