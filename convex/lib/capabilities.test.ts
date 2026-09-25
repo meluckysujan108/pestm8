@@ -27,6 +27,7 @@ import {
   licenceStatus,
   mergeDraft,
   recomputeGrants,
+  releasedGrants,
   resolveActorForRead,
   resolveActorForWrite,
   switchTargets,
@@ -681,6 +682,40 @@ describe('a technician’s colour is the owner’s to set', () => {
     expect(
       canSetColour(self(owner()), sub({ businessId: OTHER_BUSINESS })),
     ).toBe(false)
+  })
+})
+
+describe('a team released when its contractor stops being one', () => {
+  test('keeps what the old ceiling let through, and no more', () => {
+    // The owner turned the contractor's own prices off; Kevin's row still
+    // says on, which the ceiling was holding off.
+    const former = member(CONTRACTOR, 'contractor', {
+      grants: grants({ prices: false, otherSchedules: true }),
+    })
+    const kevin = sub({
+      grants: grants({
+        prices: true,
+        otherSchedules: true,
+        clientDirectory: true,
+        switchInto: CONTRACTOR,
+      }),
+    })
+    expect(capabilitiesOf(kevin, former)['prices.see']).toBe(false)
+
+    const released = releasedGrants(kevin, former)
+    expect(released).toEqual(
+      grants({ prices: false, otherSchedules: true, clientDirectory: true }),
+    )
+    // Answering to nobody, there is no ceiling any more — so the stored
+    // toggles are now the whole answer, and they must not have widened.
+    const alone = { ...kevin, parentMembershipId: null, grants: released }
+    expect(capabilitiesOf(alone, null)['prices.see']).toBe(false)
+    expect(capabilitiesOf(alone, null)['schedules.seeOthers']).toBe(true)
+  })
+
+  test('the grant into the old contractor’s account goes with them', () => {
+    const kevin = sub({ grants: grants({ switchInto: CONTRACTOR }) })
+    expect(releasedGrants(kevin, contractor()).switchInto).toBeNull()
   })
 })
 

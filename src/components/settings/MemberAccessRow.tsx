@@ -141,6 +141,12 @@ export function MemberAccessRow({
   const [releasing, setReleasing] = useState(false)
   const displayName = member.name || member.email || 'this person'
 
+  // Demoting a contractor who has people under them hands those people to the
+  // owner (`releaseTeam`), which the select alone gives no hint of — so it
+  // says who, and asks. With nobody under them it is a plain change.
+  const team = teamOf(member, others)
+  const [demoting, setDemoting] = useState(false)
+
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
       <div className="flex items-center gap-3">
@@ -256,14 +262,23 @@ export function MemberAccessRow({
               <span className="text-caption text-muted">Role</span>
               <select
                 value={member.role}
-                disabled={setRole.isPending}
-                onChange={(e) =>
+                disabled={setRole.isPending || demoting}
+                onChange={(e) => {
+                  const role = e.target.value as 'subcontractor' | 'contractor'
+                  if (
+                    member.role === 'contractor' &&
+                    role === 'subcontractor' &&
+                    team.length > 0
+                  ) {
+                    setDemoting(true)
+                    return
+                  }
                   setRole.mutate({
                     businessId,
                     membershipId: member._id,
-                    role: e.target.value as 'subcontractor' | 'contractor',
+                    role,
                   })
-                }
+                }}
                 className="h-9 rounded-xl bg-surface-3 px-2.5 text-body text-ink outline-none focus:ring-2 focus:ring-blue disabled:opacity-50"
               >
                 <option value="subcontractor">Subcontractor</option>
@@ -309,6 +324,45 @@ export function MemberAccessRow({
               </select>
             </label>
           )}
+        </div>
+      )}
+
+      {demoting && (
+        <div className="mt-3 rounded-xl bg-surface-2 p-3">
+          <p className="text-body text-ink">
+            Make {displayName} a subcontractor?
+          </p>
+          <p className="mt-1 text-caption text-muted">
+            {listNames(team)} {team.length === 1 ? 'answers' : 'answer'} to{' '}
+            {displayName} now, and will answer to you instead, keeping what they
+            can see today.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setDemoting(false)}
+              className="h-11 flex-1 rounded-xl bg-surface text-body font-semibold text-ink transition active:scale-[.975]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={setRole.isPending}
+              onClick={() =>
+                setRole.mutate(
+                  {
+                    businessId,
+                    membershipId: member._id,
+                    role: 'subcontractor',
+                  },
+                  { onSettled: () => setDemoting(false) },
+                )
+              }
+              className="h-11 flex-1 rounded-xl bg-blue text-body font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+            >
+              {setRole.isPending ? 'Changing…' : 'Make subcontractor'}
+            </button>
+          </div>
         </div>
       )}
 
@@ -481,6 +535,7 @@ function RemoveMember({
 }) {
   const [confirming, setConfirming] = useState(false)
   const [reassignTo, setReassignTo] = useState<Id<'memberships'> | ''>('')
+  const team = teamOf(member, others)
 
   const preview = useQuery({
     ...convexQuery(api.team.removalPreview, {
@@ -532,6 +587,14 @@ function RemoveMember({
           ? 'Checking what they have on…'
           : describeWork(preview.data)}
       </p>
+      {/* Only a contractor has anyone under them, and only the owner may
+          remove a contractor — so "you" is always the owner here. */}
+      {team.length > 0 && (
+        <p className="mt-1 text-caption text-muted">
+          {listNames(team)} will answer to you instead, keeping what they can
+          see today.
+        </p>
+      )}
 
       {handover && (
         <label className="mt-3 flex flex-col gap-1.5">
@@ -587,6 +650,19 @@ function RemoveMember({
       </div>
     </div>
   )
+}
+
+/** Who works under this person — only ever a contractor's people. */
+function teamOf(member: Member, others: Array<Member>): Array<Member> {
+  return others.filter((m) => m.parentMembershipId === member._id)
+}
+
+/** "Kevin", "Kevin and Mia", "Kevin, Mia and 3 others". */
+function listNames(people: Array<Member>): string {
+  const names = people.map((m) => m.name || m.email || 'Someone')
+  if (names.length <= 2) return names.join(' and ')
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`
+  return `${names[0]}, ${names[1]} and ${names.length - 2} others`
 }
 
 function describeWork(
