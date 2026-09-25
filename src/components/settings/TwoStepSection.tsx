@@ -11,7 +11,6 @@ import { rq } from '#/lib/routeQueries'
 import { describeTwoFactorError } from '#/lib/twoStep'
 import {
   markRecoveryCodesUnsaved,
-  markSetUpStarted,
   recoveryCodesUnsaved,
 } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
@@ -63,8 +62,10 @@ export function TwoStepSection() {
   const [error, setError] = useState<string | null>(null)
   const [codes, setCodes] = useState<Array<string> | null>(null)
   // Codes shown at set-up but never confirmed saved — a reload between the
-  // code and "I've saved these" (lib/twoStepReminders). Read after hydration:
-  // the server has no browser storage to agree with.
+  // code and "I've saved these" — or never made at all, when set-up could
+  // not make them after the code, or never heard that its code was accepted
+  // (lib/twoStepReminders). Read after hydration: the server has no browser
+  // storage to agree with.
   const [unsaved, setUnsaved] = useState(false)
   useEffect(() => {
     if (on) setUnsaved(recoveryCodesUnsaved(user._id))
@@ -123,10 +124,10 @@ export function TwoStepSection() {
       return
     }
     markRecoveryCodesUnsaved(user._id, false)
-    // The PestM8 entry in their authenticator is dead now. If they turn it on
-    // again on this phone, set-up warns them to delete it first — otherwise
-    // two entries with the same name, and the old one's codes never match.
-    markSetUpStarted(user._id, true)
+    // The PestM8 entry in their authenticator is dead now, and the form above
+    // told them to delete it. Turned on again, set-up says the same on its
+    // key (`scanStepNotice` in lib/twoStep.ts) — on any device, where this
+    // used to be a flag in this phone's storage.
     window.location.reload()
   }
 

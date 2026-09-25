@@ -5,11 +5,13 @@ import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { fieldInputClass } from '#/components/forms/FormField'
-import { useAccess } from '#/lib/access'
+import { useAccess, useCan } from '#/lib/access'
+import { useAssigneeOptions } from '#/lib/assignees'
 import { useHydrated } from '#/lib/useHydrated'
 import { ColourPicker } from './ColourPicker'
 import { ResetTwoStepButton } from './ResetTwoStepButton'
 import { MemberLicenceButton } from './MemberLicenceButton'
+import { canSetLicence, needsLicence } from './needsLicence'
 import { useSavedFlash } from './useJustSaved'
 import {
   DANGER_ROW_CLASS,
@@ -31,7 +33,18 @@ export type Member = {
   role: Role
   grants: Grants
   canViewOtherAccounts: boolean
+  /** From the roster: whether this viewer may change this person's access at
+   * all (`canManageMember`) — the owner, anyone but themselves; a contractor,
+   * their own team. Every control below the licence sits behind it. */
   canManage: boolean
+  /** From the roster: whether this viewer may change this person's role — the
+   * owner only (`canSetRole`). Absent from an older backend; see `roleEditable`
+   * below for what that means. */
+  canSetRole?: boolean
+  /** From the roster: whether this viewer may hand work to this person
+   * (`canDispatchTo`) — who may take over a departing member's bookings.
+   * Absent from an older backend; `useAssigneeOptions` falls back. */
+  bookable?: boolean
   parentMembershipId?: Id<'memberships'> | null
   licenceNumber?: string
   colour: string
@@ -66,7 +79,8 @@ export const ROLE_LABEL: Record<Role, string> = {
  * Each control is offered only where the server will take it. `canManage`
  * is the roster's own answer (`canManageMember`): an owner manages everyone
  * but themselves, a contractor only their own team, and nobody the owner.
- * A licence number is the owner's to set for anyone, or a person's own
+ * A role is the owner's alone to change (`canSetRole`), and a licence number
+ * is the owner's to set for anyone, or a person's own
  * (`memberships.setLicence`).
  */
 export function MemberSettings({
@@ -82,11 +96,30 @@ export function MemberSettings({
   /** After they have been removed, so the page can go back to the list. */
   onRemoved: () => void
 }) {
+  // Everything below is gated on what the server will accept from THIS
+  // viewer, not on who the person is. A contractor holds `team.manage` for
+  // their own team only, and was being shown role, team, access, reset and
+  // remove controls on everyone — each of which the server refuses.
   const access = useAccess()
-  const isOwner = member.role === 'owner'
-  const manages = !isOwner && member.canManage
-  const canSetLicence =
-    access.role === 'owner' || member._id === access.membershipId
+  const viewerIsOwner = access.role === 'owner'
+  const canManage = member.canManage
+  // An older backend sends no `canSetRole`. Its rule was never narrower than
+  // this — the owner, on anyone they manage — so this is safe on either.
+  const roleEditable = member.canSetRole ?? (viewerIsOwner && canManage)
+
+  // Where this person may be put (`canAssignTo`). The owner places anyone under
+  // any contractor. A contractor may keep their own people or let them go back
+  // to the owner, never hand them to another contractor.
+  const contractors = others.filter(
+    (m) => m.role === 'contractor' && m.status === 'active',
+  )
+  const parents = viewerIsOwner
+    ? contractors
+    : contractors.filter((c) => c._id === access.membershipId)
+  // Only a subcontractor belongs to a team — a contractor's place is beside
+  // the owner, and the model is one level deep.
+  const showTeam =
+    canManage && member.role === 'subcontractor' && parents.length > 0
 
   return (
     <>
@@ -108,17 +141,30 @@ export function MemberSettings({
       <LicenceGroup
         businessId={businessId}
         member={member}
-        canEdit={canSetLicence}
+        canEdit={canSetLicence(member, access)}
+        // Worth knowing on their own team even where the contractor cannot
+        // type it in for them: it is the reason a certificate will not sign.
+        // The rule the Team page's badge and the hub's count use.
+        missing={needsLicence(member, access)}
       />
 
-      {manages && (
-        <RoleGroup businessId={businessId} member={member} others={others} />
+      {(roleEditable || showTeam) && (
+        <RoleGroup
+          businessId={businessId}
+          member={member}
+          roleEditable={roleEditable}
+          parents={showTeam ? parents : []}
+        />
       )}
 
-      {manages && <AccessGroup businessId={businessId} member={member} />}
+      {/* Only on people this viewer manages — never the owner's page (owners
+          already see everything, so a toggle would imply it could be turned
+          off), never their own, and for a contractor only their own team. */}
+      {canManage && <AccessGroup businessId={businessId} member={member} />}
 
-      {manages && (
+      {canManage && (
         <DangerGroup>
+          {/* The button checks the rest itself: the owner, as themselves. */}
           <ResetTwoStepButton
             businessId={businessId}
             membershipId={member._id}
@@ -149,10 +195,14 @@ function LicenceGroup({
   businessId,
   member,
   canEdit,
+  missing,
 }: {
   businessId: Id<'businesses'>
   member: Member
+  /** Whether this viewer may type the number in (`canSetLicence`). */
   canEdit: boolean
+  /** Whether its absence is this viewer's to act on (`needsLicence`). */
+  missing: boolean
 }) {
   const inputId = useId()
   const convexSetLicence = useConvexMutation(api.memberships.setLicence)
@@ -173,8 +223,6 @@ function LicenceGroup({
   // The server trims what it stores, so "1234 " is not a change from "1234".
   const dirty = typed !== null && typed.trim() !== (member.licenceNumber ?? '')
   const saved = useSavedFlash()
-
-  const missing = !member.licenceNumber
 
   return (
     <SettingsGroup
@@ -270,17 +318,28 @@ function LicenceGroup({
   )
 }
 
+/**
+ * Their role, and whose team they are on. Shown to whoever may change either:
+ * the owner, on anyone they manage; a contractor, on their own crew — whose
+ * team they may keep them on or let go of, but whose role is not theirs to
+ * change.
+ */
 function RoleGroup({
   businessId,
   member,
-  others,
+  roleEditable,
+  parents,
 }: {
   businessId: Id<'businesses'>
   member: Member
-  others: Array<Member>
+  /** The owner's call alone (`canSetRole`). */
+  roleEditable: boolean
+  /** Whom they may be put under (`canAssignTo`); none hides "Works under". */
+  parents: Array<Member>
 }) {
   const hydrated = useHydrated()
   const access = useAccess()
+  const viewerIsOwner = access.role === 'owner'
   const roleId = useId()
   const parentId = useId()
 
@@ -302,10 +361,12 @@ function RoleGroup({
     }) => convexAssignTo(args),
   })
 
-  const contractors = others.filter(
-    (m) => m.role === 'contractor' && m.status === 'active',
-  )
+  // Letting someone go is one-way for a contractor: once they answer to the
+  // owner, they are off this contractor's team and only the owner can put
+  // them back. So it asks first. The owner's moves are all reversible.
+  const [releasing, setReleasing] = useState(false)
 
+  // A change the server refused used to just snap the select back.
   const failed = setRole.isError
     ? setRole.error
     : assignTo.isError
@@ -313,39 +374,52 @@ function RoleGroup({
       : null
 
   return (
-    <SettingsGroup title="Role">
+    <SettingsGroup
+      title="Role"
+      footer={
+        roleEditable ? undefined : 'Only the business owner can change a role.'
+      }
+    >
       {/* Each saves as it changes: there is nothing to type, so nothing to
           hold back for a Save. Disabled until the page has hydrated — a
           change before then lands on a select with no handler, and is
           lost. */}
-      <FieldRow id={roleId} label="Role">
-        <select
-          id={roleId}
-          value={member.role}
-          disabled={setRole.isPending || !hydrated}
-          onChange={(e) =>
-            setRole.mutate({
-              businessId,
-              membershipId: member._id,
-              role: e.target.value as 'subcontractor' | 'contractor',
-            })
-          }
-          className={`${fieldInputClass()} disabled:opacity-50`}
-        >
-          <option value="subcontractor">Subcontractor</option>
-          <option value="contractor">Contractor</option>
-        </select>
-      </FieldRow>
+      {/* The owner's call alone: a role decides who has a team, so a
+          contractor promoting one of their own would be minting a peer. */}
+      {roleEditable ? (
+        <FieldRow id={roleId} label="Role">
+          <select
+            id={roleId}
+            value={member.role}
+            disabled={setRole.isPending || !hydrated}
+            onChange={(e) =>
+              setRole.mutate({
+                businessId,
+                membershipId: member._id,
+                role: e.target.value as 'subcontractor' | 'contractor',
+              })
+            }
+            className={`${fieldInputClass()} disabled:opacity-50`}
+          >
+            <option value="subcontractor">Subcontractor</option>
+            <option value="contractor">Contractor</option>
+          </select>
+        </FieldRow>
+      ) : (
+        <SettingsRow title="Role" value={ROLE_LABEL[member.role]} />
+      )}
 
-      {/* Only a subcontractor belongs to a team — a contractor's place is
-          beside the owner, and the model is one level deep. */}
-      {member.role === 'subcontractor' && contractors.length > 0 && (
+      {parents.length > 0 && (
         <FieldRow id={parentId} label="Works under">
           <select
             id={parentId}
             value={member.parentMembershipId ?? ''}
-            disabled={assignTo.isPending || !hydrated}
-            onChange={(e) =>
+            disabled={assignTo.isPending || releasing || !hydrated}
+            onChange={(e) => {
+              if (e.target.value === '' && !viewerIsOwner) {
+                setReleasing(true)
+                return
+              }
               assignTo.mutate({
                 businessId,
                 membershipId: member._id,
@@ -354,24 +428,62 @@ function RoleGroup({
                     ? null
                     : (e.target.value as Id<'memberships'>),
               })
-            }
+            }}
             className={`${fieldInputClass()} disabled:opacity-50`}
           >
             {/* `null` is the owner (team.assignTo), whoever is looking: to
                 a contractor moving one of their own crew, "you" would read
                 as themselves. */}
             <option value="">
-              {access.role === 'owner'
+              {viewerIsOwner
                 ? 'Nobody — answers to you'
                 : 'Nobody — answers to the owner'}
             </option>
-            {contractors.map((c) => (
+            {parents.map((c) => (
               <option key={c._id} value={c._id}>
-                {c.name || c.email}
+                {c._id === access.membershipId ? 'You' : c.name || c.email}
               </option>
             ))}
           </select>
         </FieldRow>
+      )}
+
+      {releasing && (
+        <div className="px-3.5 py-3">
+          <p className="text-body text-ink">
+            Hand {memberName(member)} back to the owner?
+          </p>
+          <p className="mt-1 text-caption text-muted">
+            They leave your team straight away, and only the owner can put them
+            back on it.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setReleasing(false)}
+              className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={assignTo.isPending}
+              onClick={() =>
+                assignTo.mutate(
+                  {
+                    businessId,
+                    membershipId: member._id,
+                    parentMembershipId: null,
+                  },
+                  { onSettled: () => setReleasing(false) },
+                )
+              }
+              className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            >
+              {assignTo.isPending ? 'Handing back…' : 'Hand back'}
+            </button>
+          </div>
+        </div>
       )}
 
       {failed !== null && (
@@ -383,8 +495,6 @@ function RoleGroup({
   )
 }
 
-// Owners already see everything, so the page offers them none of these: a
-// toggle would imply it could be turned off.
 function AccessGroup({
   businessId,
   member,
@@ -393,6 +503,10 @@ function AccessGroup({
   member: Member
 }) {
   const hydrated = useHydrated()
+  // A contractor can only give away what they hold (`grantCeiling`); the
+  // server clamps anything more to off, so the switch would only flip back.
+  const canGrantSchedules = useCan('schedules.seeOthers')
+  const canGrantPrices = useCan('prices.see')
 
   const convexSetViewOthers = useConvexMutation(
     api.memberships.setCanViewOtherAccounts,
@@ -422,35 +536,39 @@ function AccessGroup({
 
   return (
     <SettingsGroup title="Access">
-      <SwitchRow
-        label="Can view all jobs"
-        description="Read-only view of every schedule and property history."
-        checked={member.grants.otherSchedules}
-        disabled={setGrants.isPending || !hydrated}
-        onChange={(checked) =>
-          setGrants.mutate({
-            businessId,
-            membershipId: member._id,
-            grants: { ...member.grants, otherSchedules: checked },
-          })
-        }
-      />
-      <SwitchRow
-        label="Can see job prices"
-        description="Prices on jobs and revenue on the dashboard."
-        checked={member.grants.prices}
-        disabled={setGrants.isPending || !hydrated}
-        onChange={(checked) =>
-          // The whole object with one field changed. Sending only the
-          // change would make every other toggle false the first time a
-          // legacy row gets a `grants` object written to it.
-          setGrants.mutate({
-            businessId,
-            membershipId: member._id,
-            grants: { ...member.grants, prices: checked },
-          })
-        }
-      />
+      {canGrantSchedules && (
+        <SwitchRow
+          label="Can view all jobs"
+          description="Read-only view of every schedule and property history."
+          checked={member.grants.otherSchedules}
+          disabled={setGrants.isPending || !hydrated}
+          onChange={(checked) =>
+            setGrants.mutate({
+              businessId,
+              membershipId: member._id,
+              grants: { ...member.grants, otherSchedules: checked },
+            })
+          }
+        />
+      )}
+      {canGrantPrices && (
+        <SwitchRow
+          label="Can see job prices"
+          description="Prices on jobs and revenue on the dashboard."
+          checked={member.grants.prices}
+          disabled={setGrants.isPending || !hydrated}
+          onChange={(checked) =>
+            // The whole object with one field changed. Sending only the
+            // change would make every other toggle false the first time a
+            // legacy row gets a `grants` object written to it.
+            setGrants.mutate({
+              businessId,
+              membershipId: member._id,
+              grants: { ...member.grants, prices: checked },
+            })
+          }
+        />
+      )}
       <SwitchRow
         label="Can view other accounts"
         description="Switch to other subcontractors' views — never the owner's."
@@ -566,6 +684,11 @@ function RemoveMember({
   const handover =
     (preview.data?.futureJobs ?? 0) + (preview.data?.activeRecurrences ?? 0) > 0
 
+  // Their work goes only where the remover could have booked it
+  // (`canDispatchTo`, which `team.remove` checks): the owner, onto anyone; a
+  // contractor, onto themselves or their own team.
+  const { options: successors } = useAssigneeOptions(others)
+
   if (!confirming) {
     return (
       <button
@@ -602,7 +725,7 @@ function RemoveMember({
             className={fieldInputClass()}
           >
             <option value="">Choose someone…</option>
-            {others.map((other) => (
+            {successors.map((other) => (
               <option key={other._id} value={other._id}>
                 {other.name || other.email}
               </option>
@@ -677,5 +800,8 @@ function removeError(error: unknown) {
     return 'That person cannot take over the work. Pick an active member.'
   }
   if (message.includes('LAST_OWNER')) return 'The owner cannot be removed.'
+  if (message.includes('NO_ACCESS')) {
+    return 'They are no longer yours to remove. Ask the business owner.'
+  }
   return 'Could not remove them. Check your connection and try again.'
 }

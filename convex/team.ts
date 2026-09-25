@@ -6,8 +6,11 @@ import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
 import {
+  canAssignTo,
+  canDispatchTo,
   canManageMember,
   canSetColour,
+  canSetRole,
   NO_GRANTS,
   recomputeGrants,
 } from './lib/capabilities'
@@ -104,10 +107,16 @@ export const removalPreview = query({
     membershipId: v.id('memberships'),
   },
   handler: async (ctx, { businessId, membershipId }) => {
-    requireCapability(await requireActor(ctx, businessId), 'team.manage')
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'team.manage')
     const target = await ctx.db.get(membershipId)
     if (!target || target.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
+    }
+    // Someone else's workload is not a contractor's to read, any more than
+    // they are theirs to remove.
+    if (!canManageMember(env.actor, factsFromMembership(target))) {
+      throw new ConvexError('NO_ACCESS')
     }
 
     const user = await authComponent.getAnyUserById(ctx, target.userId)
@@ -315,6 +324,26 @@ export const remove = mutation({
     // inside the app at all, which also makes "last owner" unreachable here.
     if (target.role === 'owner') throw new ConvexError('LAST_OWNER')
     if (target.status === 'removed') throw new ConvexError('NOT_FOUND')
+    // `team.manage` says they may manage somebody; this says whether it is
+    // this somebody. A contractor holds the capability business-wide and the
+    // reach of their own team only — without this, they could remove anyone
+    // in the business but the owner.
+    if (!canManageMember(env.actor, factsFromMembership(target))) {
+      throw new ConvexError('NO_ACCESS')
+    }
+    // And their work goes only where this person could have booked it
+    // (`canDispatchTo`): a contractor hands it to themselves or their own
+    // team, not onto another contractor's calendar. `offboard` still checks
+    // the rest — active, this business, not the person leaving.
+    if (reassignTo !== undefined) {
+      const successor = await ctx.db.get(reassignTo)
+      if (
+        successor &&
+        !canDispatchTo(env.actor, factsFromMembership(successor))
+      ) {
+        throw new ConvexError('INVALID_ASSIGNEE')
+      }
+    }
 
     return offboard(ctx, {
       actor,
@@ -402,6 +431,17 @@ export const roster = query({
             /** Whether this caller may change any of it — an owner may manage
              * anyone but themselves; a contractor, only their own team. */
             canManage: canManageMember(env.actor, facts),
+            /** Whether this caller may change this person's role — the owner
+             * only (`canSetRole`); a contractor manages their team but does
+             * not hand out roles. An added field, so an older client ignores
+             * it. */
+            canSetRole: canSetRole(env.actor, facts),
+            /** Whether this caller may hand work to this person — what
+             * `team.remove` asks of the successor (`canDispatchTo`), and the
+             * same flag `memberships.listForBusiness` carries. A contractor
+             * hands a departing person's work to themselves or their own
+             * team. An added field, like the two above. */
+            bookable: canDispatchTo(env.actor, facts),
             /** Whether this caller may set this person's colour — the owner,
              * for anyone including themselves (`canSetColour`). An added
              * field, so an older client simply shows no picker. */
@@ -475,6 +515,18 @@ export const assignTo = mutation({
         throw new ConvexError('NOT_FOUND')
       }
       parent = row
+    }
+    // Who may be moved was settled above; this is where to. A contractor may
+    // let their own people go back to the owner, not hand them to another
+    // contractor (`canAssignTo`).
+    if (
+      !canAssignTo(
+        env.actor,
+        factsFromMembership(target),
+        parent && factsFromMembership(parent),
+      )
+    ) {
+      throw new ConvexError('NO_ACCESS')
     }
 
     const moved = {

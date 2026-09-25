@@ -37,7 +37,7 @@ Two auth switches are **off unless set**, and both belong on production only:
 | Env var               | Effect                                                                                                                         |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
 | `AUTH_INVITE_ONLY=on` | Sign-up requires a live invitation token. Without it anyone can create an account (they join nothing, but the account exists). |
-| `AUTH_RATE_LIMIT=on`  | Database-backed rate limiting on sign-in, sign-up and password reset.                                                          |
+| `AUTH_RATE_LIMIT=on`  | Database-backed rate limiting on sign-in, sign-up, password reset and the two-step endpoints (codes: 10 a minute per IP).      |
 
 They stay off in dev and e2e because the test suite creates ~150 accounts per
 run. Before turning `AUTH_RATE_LIMIT` on, check what client IP actually reaches

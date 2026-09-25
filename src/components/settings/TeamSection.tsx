@@ -21,6 +21,7 @@ import {
   SettingsRow,
 } from './ui'
 import type { Member } from './MemberAccessRow'
+import type { FunctionReturnType } from 'convex/server'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Role } from '../../../convex/lib/capabilities'
 import { useAccess } from '#/lib/access'
@@ -60,7 +61,8 @@ export function TeamSection({
     // carrying them.
     rq.team(businessId),
   )
-  const { data: invitations } = useSuspenseQuery(rq.invitations(businessId))
+  const { data: rows } = useSuspenseQuery(rq.invitations(businessId))
+  const invitations: ReadonlyArray<PendingInvitation> = rows
 
   const [email, setEmail] = useState('')
   const [freshLink, setFreshLink] = useState<{
@@ -69,7 +71,10 @@ export function TeamSection({
   } | null>(null)
 
   const hydrated = useHydrated()
-  const { membershipId } = useAccess()
+  // The real person, as every team mutation decides on: the Team screen is
+  // not reachable while switched (`team.manage` drops).
+  const access = useAccess()
+  const viewerIsOwner = access.role === 'owner'
   const emailId = useId()
   const warnings = useSaveWarnings()
 
@@ -160,14 +165,14 @@ export function TeamSection({
               <Initial name={memberName(member)} colour={member.colour} />
             }
             title={memberName(member)}
-            subtitle={`${ROLE_LABEL[member.role]}${member.licenceNumber ? ` · Licence ${member.licenceNumber}` : ''}`}
+            subtitle={subtitleFor(member, access)}
             // Only for something that needs doing: without a number they
             // cannot finalise a regulated report, and nobody finds that out
             // until a certificate will not sign. Only on someone this viewer
-            // can chase (their own crew, or themselves), by the rule the
+            // can type it in for or chase (`needsLicence`), by the rule the
             // hub's count uses.
             badge={
-              needsLicence(member, membershipId) ? (
+              needsLicence(member, access) ? (
                 <RowBadge tone="amber">No licence</RowBadge>
               ) : undefined
             }
@@ -184,42 +189,59 @@ export function TeamSection({
             ) : undefined
           }
         >
-          {invitations.map((invitation) => (
-            <SettingsRow
-              key={invitation._id}
-              icon={Mail}
-              tint="grey"
-              title={invitation.email}
-              subtitle={expiryLabel(invitation.expiresAt, invitation.state)}
-            >
-              <button
-                type="button"
-                aria-label={`New link for ${invitation.email}`}
-                disabled={regenerate.isPending || !hydrated}
-                onClick={() =>
-                  regenerate.mutate({
-                    businessId,
-                    invitationId: invitation._id,
-                    email: invitation.email,
-                  })
-                }
-                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+          {invitations.map((invitation) => {
+            // What `revoke` and `regenerate` accept from this viewer: the
+            // owner, any invitation; a contractor, the ones they sent. An
+            // older backend sends neither flag, so only the owner is
+            // offered them there — the one caller every backend accepts.
+            const canCancel = invitation.canManage ?? viewerIsOwner
+            const canReissue =
+              invitation.canReissue ??
+              (viewerIsOwner && invitation.role !== 'owner')
+            return (
+              <SettingsRow
+                key={invitation._id}
+                icon={Mail}
+                tint="grey"
+                title={invitation.email}
+                subtitle={expiryLabel(invitation.expiresAt, invitation.state)}
               >
-                <RefreshCw size={15} strokeWidth={2} />
-              </button>
-              <button
-                type="button"
-                aria-label={`Cancel invitation for ${invitation.email}`}
-                disabled={revoke.isPending || !hydrated}
-                onClick={() =>
-                  revoke.mutate({ businessId, invitationId: invitation._id })
-                }
-                className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
-              >
-                <X size={15} strokeWidth={2} />
-              </button>
-            </SettingsRow>
-          ))}
+                {canReissue && (
+                  <button
+                    type="button"
+                    aria-label={`New link for ${invitation.email}`}
+                    disabled={regenerate.isPending || !hydrated}
+                    onClick={() =>
+                      regenerate.mutate({
+                        businessId,
+                        invitationId: invitation._id,
+                        email: invitation.email,
+                      })
+                    }
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+                  >
+                    <RefreshCw size={15} strokeWidth={2} />
+                  </button>
+                )}
+                {canCancel && (
+                  <button
+                    type="button"
+                    aria-label={`Cancel invitation for ${invitation.email}`}
+                    disabled={revoke.isPending || !hydrated}
+                    onClick={() =>
+                      revoke.mutate({
+                        businessId,
+                        invitationId: invitation._id,
+                      })
+                    }
+                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+                  >
+                    <X size={15} strokeWidth={2} />
+                  </button>
+                )}
+              </SettingsRow>
+            )
+          })}
         </SettingsGroup>
       )}
 
@@ -274,6 +296,11 @@ export function TeamSection({
                 <p className="text-caption text-muted">
                   You'll get a link to text them. It works once, expires in 3
                   days, and only that email address can use it.
+                  {/* True of the backend today: redeeming creates a member
+                      with no team, so they would otherwise vanish from a
+                      contractor's reach with no explanation. */}
+                  {!viewerIsOwner &&
+                    ' They join answering to the owner, who can put them on your team.'}
                 </p>
                 <SaveWarningsPanel className="mt-1" />
                 <FormAlert
@@ -308,6 +335,26 @@ function ownersFirst(members: Array<Member>): Array<Member> {
     ...members.filter((m) => m.role === 'owner'),
     ...members.filter((m) => m.role !== 'owner'),
   ]
+}
+
+/**
+ * A row's line under the name: their role, and their licence number. For a
+ * contractor, "Your team" on the people they run, second so it survives the
+ * truncation — it is why some rows open onto controls and others do not.
+ */
+function subtitleFor(
+  member: Member,
+  viewer: { membershipId: Id<'memberships'>; role: Role },
+): string {
+  const parts = [ROLE_LABEL[member.role]]
+  if (
+    viewer.role !== 'owner' &&
+    member.parentMembershipId === viewer.membershipId
+  ) {
+    parts.push('Your team')
+  }
+  if (member.licenceNumber) parts.push(`Licence ${member.licenceNumber}`)
+  return parts.join(' · ')
 }
 
 /** A person as a coloured initial — theirs, in their schedule colour, as the
@@ -389,6 +436,16 @@ function InviteLinkCard({ email, url }: { email: string; url: string }) {
     </div>
   )
 }
+
+/**
+ * An invitation as this screen reads it. The permission flags are optional
+ * because this build can meet a backend from before they existed — the two
+ * deploy separately (CLAUDE.md) — and absent has to be handled, not assumed.
+ */
+type PendingInvitation = Omit<
+  FunctionReturnType<typeof api.invitations.listForBusiness>[number],
+  'canManage' | 'canReissue'
+> & { canManage?: boolean; canReissue?: boolean }
 
 /** The invite's own words for describeError: it creates, it does not save. */
 const INVITE_COPY = {

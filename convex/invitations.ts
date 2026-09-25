@@ -26,7 +26,7 @@ import {
   requireAssignableRole,
   requireCapability,
 } from './lib/actor'
-import { NO_GRANTS } from './lib/capabilities'
+import { canInviteAs, canManageInvitation, NO_GRANTS } from './lib/capabilities'
 import type { Role } from './lib/capabilities'
 
 /**
@@ -94,6 +94,9 @@ export const store = internalMutation({
     requireCapability(env, 'team.manage')
     const actor = env.actor.real
     assertInvitableRole(args.role)
+    // A contractor holds `team.manage` too, but only the owner makes
+    // contractors (`canInviteAs`).
+    if (!canInviteAs(env.actor, args.role)) throw new ConvexError('NO_ACCESS')
 
     // Lower-cased whole, not just the domain as a client's email is: the
     // invitation is matched to the account that redeems it, and sign-in
@@ -187,6 +190,16 @@ export const applyNewToken = internalMutation({
     const invitation = await ctx.db.get(args.invitationId)
     if (!invitation || invitation.businessId !== args.businessId) {
       throw new ConvexError('NOT_FOUND')
+    }
+    // Only an invitation this person may manage (`canManageInvitation`), and
+    // only for a role they could invite as today: reissuing is issuing, and a
+    // row from before these rules may name a role nobody may hand out now.
+    if (!canManageInvitation(env.actor, invitation)) {
+      throw new ConvexError('NO_ACCESS')
+    }
+    assertInvitableRole(invitation.role)
+    if (!canInviteAs(env.actor, invitation.role)) {
+      throw new ConvexError('NO_ACCESS')
     }
     if (invitation.claimedAt !== undefined)
       throw new ConvexError('ALREADY_MEMBER')
@@ -429,7 +442,8 @@ export const checkForSignUp = internalQuery({
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    requireCapability(await requireActor(ctx, businessId), 'team.manage')
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'team.manage')
     const now = Date.now()
 
     const rows = await ctx.db
@@ -438,14 +452,25 @@ export const listForBusiness = query({
       .collect()
 
     return rows
-      .map((invitation) => ({
-        _id: invitation._id,
-        email: invitation.email,
-        role: invitation.role,
-        createdAt: invitation.createdAt,
-        expiresAt: invitation.expiresAt,
-        state: inviteState(invitation, now),
-      }))
+      .map((invitation) => {
+        // What `revoke` and `regenerate` will accept from this caller, so the
+        // Team screen offers nothing the server refuses. Added fields: an
+        // older client ignores them.
+        const canManage = canManageInvitation(env.actor, invitation)
+        return {
+          _id: invitation._id,
+          email: invitation.email,
+          role: invitation.role,
+          createdAt: invitation.createdAt,
+          expiresAt: invitation.expiresAt,
+          state: inviteState(invitation, now),
+          /** May withdraw it: the owner, any; a contractor, their own. */
+          canManage,
+          /** May mint a new link for it: as above, and only for a role the
+           * caller could invite as today (`applyNewToken`). */
+          canReissue: canManage && canInviteAs(env.actor, invitation.role),
+        }
+      })
       .filter((row) => row.state === 'valid' || row.state === 'legacy')
       .sort((a, b) => b.createdAt - a.createdAt)
   },
@@ -463,6 +488,11 @@ export const revoke = mutation({
     const invitation = await ctx.db.get(invitationId)
     if (!invitation || invitation.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
+    }
+    // The owner withdraws any invitation; a contractor, only their own
+    // (`canManageInvitation`).
+    if (!canManageInvitation(env.actor, invitation)) {
+      throw new ConvexError('NO_ACCESS')
     }
     // A claimed invitation is the record of how someone joined. Revoking it
     // would erase that; removing their access is a membership action.

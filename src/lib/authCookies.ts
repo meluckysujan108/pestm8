@@ -81,3 +81,31 @@ export function pickAuthCookie(cookies: Array<string>): string | null {
     durable[durable.length - 1].raw
   )
 }
+
+/**
+ * Whether the proxy passes `pickAuthCookie`'s choice on to the browser, in
+ * answer to a `method` request: always, except a session cookie being
+ * CLEARED in answer to a read (GET).
+ *
+ * A read that went out on a cookie since replaced is answered "no such
+ * session", and Better Auth clears the session cookie in the same answer.
+ * The browser applies that clearing to whatever cookie it holds when the
+ * answer lands, which by then can be the new one. Setting up two-step
+ * sign-in is where it happened: the right code deletes the page's session
+ * and sets a new cookie, while the page's own reads — the Convex token
+ * fetched again after each auth call, the session check on coming back from
+ * the authenticator app — are still going out on the old one. The late
+ * "signed out" wiped the new cookie, and someone who had just turned two-step
+ * sign-in on was sent to the sign-in screen (convex/twoStepFlow.test.ts, "a
+ * read already on its way when the code is checked").
+ *
+ * A read cannot know whether a newer cookie exists, so it never clears one.
+ * Its answer still says "signed out", which is what the app acts on; the
+ * dead cookie left behind is sent and refused until the next sign-in or
+ * sign-out (both POSTs, which still clear it) replaces it — as harmless as
+ * the one sign-out used to leave behind (rule 3 above).
+ */
+export function passesOn(method: string, cookie: string): boolean {
+  const { name, cleared } = parse(cookie)
+  return !(method === 'GET' && cleared && name.includes(SESSION))
+}

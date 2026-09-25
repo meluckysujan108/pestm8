@@ -17,6 +17,7 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import { Bone } from '#/components/shell/Pending'
 import { ShowMyLicenceButton } from '#/components/settings/ShowMyLicence'
 import { needsLicence } from '#/components/settings/needsLicence'
+import type { LicenceViewer } from '#/components/settings/needsLicence'
 import {
   DANGER_ROW_CLASS,
   DangerGroup,
@@ -289,7 +290,7 @@ function SettingsHub() {
               <TeamRow
                 businessId={business._id}
                 businessSlug={businessSlug}
-                membershipId={membership._id}
+                viewer={access}
               />
             )}
             {showReportsRow && (
@@ -348,11 +349,12 @@ function SettingsHub() {
 function TeamRow({
   businessId,
   businessSlug,
-  membershipId,
+  viewer,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
-  membershipId: Id<'memberships'>
+  /** The real person (`useAccess`), whom the licence rule is about. */
+  viewer: LicenceViewer
 }) {
   const members = useQuery(rq.team(businessId)).data
   const invitations = useQuery(rq.invitations(businessId)).data
@@ -362,7 +364,7 @@ function TeamRow({
   // and himself, a contractor's own crew and himself — the same rule the
   // Team page badges its rows by, so the count is what it shows.
   const needLicence =
-    members?.filter((m) => needsLicence(m, membershipId)).length ?? 0
+    members?.filter((m) => needsLicence(m, viewer)).length ?? 0
   const invited = invitations?.length ?? 0
 
   return (
