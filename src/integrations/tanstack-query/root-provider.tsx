@@ -1,5 +1,6 @@
 import { MutationCache, QueryCache, QueryClient } from '@tanstack/react-query'
 import { ConvexQueryClient } from '@convex-dev/react-query'
+import { HandoverConvexClient } from '#/lib/convexClient'
 import { flagIfTwoStepNeeded, watchForTwoStepRefusals } from '#/lib/twoStep'
 
 /**
@@ -43,9 +44,16 @@ export function getContext() {
   // else in the same browser. Every route past `/join` still enforces its
   // own membership check server-side, so an early, unauthenticated request
   // firing here is a non-issue — it either succeeds against a function that
-  // needs no auth (this one) or is refused and quietly refetched once the
-  // real token lands.
-  const convexQueryClient = new ConvexQueryClient(convexUrl)
+  // needs no auth (this one) or is refused, and answered again once the real
+  // token lands, because the socket re-runs every live query when its token
+  // changes. That is harmless for a react-query entry that has data: a pushed
+  // error does not throw. It is not harmless for convex/react's own hooks,
+  // which throw it, so the socket must never be told "nobody" while someone
+  // is signed in — see HandoverConvexClient for how that used to happen on
+  // every page load.
+  const convexQueryClient = new ConvexQueryClient(
+    new HandoverConvexClient(convexUrl),
+  )
 
   const queryClient = new QueryClient({
     queryCache: new QueryCache({
