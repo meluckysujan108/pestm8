@@ -64,11 +64,12 @@ export default async function globalSetup() {
 }
 
 /**
- * Two-step sign-in is compulsory by default (convex/lib/mfa.ts), and every
- * account this suite makes signs up with a password and nothing else — it
- * cannot read an authenticator app. On a deployment without
- * `AUTH_MFA_REQUIRED=off`, the first app call of every spec is refused and
- * the whole run fails with errors that look like anything but this.
+ * Two-step sign-in is optional unless a deployment sets
+ * `AUTH_MFA_REQUIRED=on` (convex/lib/mfa.ts), and every account this suite
+ * makes signs up with a password and nothing else — it cannot read an
+ * authenticator app. Where it is compulsory, the first app call of every spec
+ * is refused and the whole run fails with errors that look like anything but
+ * this.
  *
  * `auth.twoFactorStatus` answers a signed-out caller, so asking costs no
  * account. Skipped when there is no VITE_CONVEX_URL: fixtures.ts refuses that
@@ -85,8 +86,8 @@ async function assertTwoStepOff() {
     throw new Error(
       `Two-step sign-in is compulsory on the e2e deployment (${url}), and the ` +
         `suite's accounts cannot use an authenticator app, so every spec ` +
-        `would fail. Set it off on THAT deployment — never prod:\n` +
-        `  npx convex env set AUTH_MFA_REQUIRED off   (against the e2e deployment)`,
+        `would fail. Make it optional on THAT deployment — never prod:\n` +
+        `  npx convex env remove AUTH_MFA_REQUIRED   (against the e2e deployment)`,
     )
   }
 }

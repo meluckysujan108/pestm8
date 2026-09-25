@@ -250,7 +250,33 @@ describe('two-step sign-in, end to end', () => {
     expect(phone.has('session_token')).toBe(false)
   })
 
-  test('nobody can switch it off, or set it up again over itself', async () => {
+  test('the account holder can switch it off with their password', async () => {
+    const t = testApp()
+    const browser = await signUp(t, 'ann@example.test')
+    await enrol(browser)
+
+    const wrong = await browser.post('/two-factor/disable', {
+      password: 'not-the-password',
+    })
+    expect(wrong.status).not.toBe(200)
+
+    const disabled = await browser.post('/two-factor/disable', {
+      password: PASSWORD,
+    })
+    expect(disabled.status).toBe(200)
+
+    // Off means off: the next sign-in is the password alone.
+    const phone = new Browser(t)
+    const signIn = await phone.post('/sign-in/email', {
+      email: 'ann@example.test',
+      password: PASSWORD,
+    })
+    expect(signIn.json.twoFactorRedirect).toBeUndefined()
+    expect(phone.has('session_token')).toBe(true)
+  })
+
+  test('where it is compulsory, nobody can switch it off', async () => {
+    process.env.AUTH_MFA_REQUIRED = 'on'
     const t = testApp()
     const browser = await signUp(t, 'ann@example.test')
     await enrol(browser)
@@ -260,6 +286,12 @@ describe('two-step sign-in, end to end', () => {
     })
     expect(disabled.status).toBe(403)
     expect(disabled.json.code).toBe('MFA_REQUIRED')
+  })
+
+  test('nobody can set it up again over itself', async () => {
+    const t = testApp()
+    const browser = await signUp(t, 'ann@example.test')
+    await enrol(browser)
 
     const again = await browser.post('/two-factor/enable', {
       password: PASSWORD,
@@ -322,9 +354,75 @@ describe('two-step sign-in, end to end', () => {
           where: [{ field: 'email', value: 'half@example.test' }],
         }),
     )
-    // Not enrolled, so `requireAuthUser` refuses this session everything and
-    // the client sends it to /two-step.
+    // Not enrolled: where two-step sign-in is compulsory, `requireAuthUser`
+    // refuses this session everything and the client sends it to /two-step.
     expect(user?.twoFactorEnabled).not.toBe(true)
+  })
+})
+
+describe('how long a sign-in lasts', () => {
+  const DAY = 24 * 60 * 60 * 1000
+
+  async function expiryOf(t: TestApp, email: string): Promise<number> {
+    const userId = await userIdOf(t, email)
+    const page = await t.run(
+      async (ctx): Promise<{ page: Array<{ expiresAt: number }> }> =>
+        ctx.runQuery(components.betterAuth.adapter.findMany, {
+          model: 'session',
+          where: [{ field: 'userId', value: userId }],
+          paginationOpts: { numItems: 10, cursor: null },
+        }),
+    )
+    return Math.max(...page.page.map((s) => s.expiresAt))
+  }
+
+  test('a password sign-in lasts until sign-out, not seven days', async () => {
+    const t = testApp()
+    await signUp(t, 'long@example.test')
+    const phone = new Browser(t)
+    const signedInAt = Date.now()
+    await phone.post('/sign-in/email', {
+      email: 'long@example.test',
+      password: PASSWORD,
+    })
+    const left = (await expiryOf(t, 'long@example.test')) - signedInAt
+    // 400 days, the longest any browser keeps a cookie (convex/auth.ts).
+    expect(left).toBeGreaterThan(399 * DAY)
+    expect(left).toBeLessThanOrEqual(400 * DAY + 60_000)
+  })
+
+  test('so does a sign-in finished with a code', async () => {
+    const t = testApp()
+    const browser = await signUp(t, 'coded@example.test')
+    const { totpURI } = await enrol(browser)
+    const phone = new Browser(t)
+    await phone.post('/sign-in/email', {
+      email: 'coded@example.test',
+      password: PASSWORD,
+    })
+    const signedInAt = Date.now()
+    const verified = await phone.post('/two-factor/verify-totp', {
+      code: await totp(totpURI),
+    })
+    expect(verified.status).toBe(200)
+    const left = (await expiryOf(t, 'coded@example.test')) - signedInAt
+    expect(left).toBeGreaterThan(399 * DAY)
+  })
+
+  test('signing out still ends it', async () => {
+    const t = testApp()
+    await signUp(t, 'out@example.test')
+    const phone = new Browser(t)
+    await phone.post('/sign-in/email', {
+      email: 'out@example.test',
+      password: PASSWORD,
+    })
+    expect(phone.has('session_token')).toBe(true)
+    await phone.post('/sign-out', {})
+    const userId = await userIdOf(t, 'out@example.test')
+    const left = await sessionTokensOf(t, userId)
+    // signUp's own browser is still signed in; the phone's session is gone.
+    expect(left).toHaveLength(1)
   })
 })
 

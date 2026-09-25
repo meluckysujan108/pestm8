@@ -152,10 +152,11 @@ const inviteOnly = process.env.AUTH_INVITE_ONLY === 'on'
 const SIGN_UP_PATH = '/sign-up/email'
 
 /**
- * Compulsory two-step sign-in: `AUTH_MFA_REQUIRED`, read through
- * `isMfaRequired()` in `lib/mfa.ts` so this file and the server-side gate
- * (`requireAuthUser`) can never disagree. Defaults ON; only `off` turns it off,
- * and only the e2e deployment should say that.
+ * Two-step sign-in, optional per person: whoever turns it on in Settings is
+ * asked for a code at every sign-in from then on. `AUTH_MFA_REQUIRED=on` makes
+ * it compulsory for every account, read through `isMfaRequired()` in
+ * `lib/mfa.ts` so this file and the server-side gate (`requireAuthUser`) can
+ * never disagree.
  *
  * The method is an authenticator app (TOTP) plus ten single-use recovery
  * codes. Not email codes: report email only reaches the account owner's own
@@ -168,14 +169,17 @@ const TWO_FACTOR_PREFIX = '/two-factor/'
  * What the two-factor endpoints may and may not be asked to do here, as a
  * plain function so it can be tested without an HTTP round trip.
  *
- * - `trustDevice` is refused on every verify path. "Require MFA on every
- *   subsequent login" means exactly that: the plugin would otherwise let the
- *   client opt a device out of the code for 30 days, and a phone left on a
- *   ute's dashboard is the device that matters.
- * - `/two-factor/disable` is refused while two-step sign-in is compulsory.
- *   Compulsory means the account holder cannot switch it off; the business
- *   owner's reset (`team.resetTwoFactor`) is the only way to clear it, and it
- *   leaves the account unable to use the app until it is set up again.
+ * - `trustDevice` is refused on every verify path. Someone who turned
+ *   two-step sign-in on asked for a code at every sign-in: the plugin would
+ *   otherwise let the client opt a device out of the code for 30 days, and a
+ *   phone left on a ute's dashboard is the device that matters. (Sessions
+ *   last until sign-out — see `SESSION_LIFETIME` — so a code is asked for
+ *   rarely anyway: at a real sign-in, not every morning.)
+ * - `/two-factor/disable` is refused only while two-step sign-in is
+ *   compulsory (`AUTH_MFA_REQUIRED=on`). Optional means the account holder
+ *   can switch it off again, with their password; compulsory means they
+ *   cannot, and the business owner's reset (`team.resetTwoFactor`) is the
+ *   only way to clear it.
  *
  * Before-hooks run ahead of the endpoint's own validation, so nothing here may
  * assume a shape.
@@ -382,11 +386,34 @@ async function challengeUserId(
 
 export const authComponent = createClient<DataModel>(components.betterAuth)
 
+/**
+ * Signed in until you sign out (the owner's call, 2026-09-25).
+ *
+ * Better Auth's default ends a session 7 days after it was last renewed, so a
+ * technician back from a week off found themselves at the sign-in screen in a
+ * client's driveway. Now the session and its cookie last 400 days — the most
+ * any browser will keep a cookie (Chrome caps Max-Age there, and Safari
+ * follows it) — and every use renews it, at most once a day (`updateAge`), so
+ * anyone who opens PestM8 at least once a year is never asked to sign in
+ * again. Signing out, the owner removing someone (`team.offboard`), a
+ * two-step reset, and turning two-step sign-in on all still end sessions:
+ * each deletes the rows, and `getAuthUser` re-reads the row on every call.
+ *
+ * `freshAge` is untouched. It only gates `/list-sessions` and
+ * `/unlink-account`, neither of which this app calls, so a year-old session
+ * loses nothing it uses.
+ */
+const SESSION_LIFETIME = {
+  expiresIn: 60 * 60 * 24 * 400,
+  updateAge: 60 * 60 * 24,
+}
+
 export const createAuth = (ctx: GenericCtx<DataModel>) =>
   betterAuth({
     baseURL: siteUrl,
     trustedOrigins,
     database: authComponent.adapter(ctx),
+    session: SESSION_LIFETIME,
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,

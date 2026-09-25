@@ -16,7 +16,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
  *
  * It asks first and says exactly what happens, because the consequence is
  * real in both directions: the person is signed out everywhere, and until
- * they set it up again their password alone gets them to the set-up screen.
+ * they turn it on again their password alone signs them in.
  * So: confirm it really is them before pressing it.
  */
 export function ResetTwoStepButton({
@@ -50,7 +50,8 @@ export function ResetTwoStepButton({
   if (twoStepOn !== true) {
     return reset.isSuccess ? (
       <p className="mt-3 border-t border-hairline-2 pt-3 text-caption text-muted">
-        Two-step sign-in reset. {name} sets it up again at their next sign-in.
+        Two-step sign-in reset. {name} signs in with just their password until
+        they turn it on again in Settings.
       </p>
     ) : null
   }
@@ -77,8 +78,8 @@ export function ResetTwoStepButton({
       <p className="mt-1 text-caption text-muted">
         For when they have lost their phone and their recovery codes. They are
         signed out on every device, their old authenticator and codes stop
-        working, and at their next sign-in they set it up again on their new
-        phone. Their password is not changed or shown to you.
+        working, and they can turn it on again with their new phone from
+        Settings. Their password is not changed or shown to you.
       </p>
       <p className="mt-2 text-caption text-orange-ink">
         Until they set it up again, their password alone gets into their

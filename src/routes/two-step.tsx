@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Check, Copy } from 'lucide-react'
@@ -23,12 +23,13 @@ import {
 import { useHydrated } from '#/lib/useHydrated'
 
 /**
- * Setting up two-step sign-in — compulsory for every account
- * (convex/lib/mfa.ts), so this is where the app sends anyone signed in who
- * has not done it yet: at their first sign-in after release, straight after
- * creating an account from an invitation, and after the owner has reset them.
- * The server refuses them everything else until it is done
- * (`requireAuthUser`), so there is nothing to skip to.
+ * Setting up two-step sign-in. Optional (convex/lib/mfa.ts): people arrive
+ * here from "Turn on two-step sign-in" in Settings → Profile, and "Not now"
+ * takes them back. Where a deployment makes it compulsory
+ * (`AUTH_MFA_REQUIRED=on`), this is also where the app sends anyone signed in
+ * who has not done it — after creating an account from an invitation, after
+ * the owner has reset them — the server refuses them everything else until it
+ * is done (`requireAuthUser`), and the way out is Sign out instead.
  *
  * Three steps: confirm the password (the server asks for it — a phone left
  * unlocked on a bench is not enough to change how its owner signs in), add
@@ -49,9 +50,7 @@ export const Route = createFileRoute('/two-step')({
       convexQuery(api.auth.twoFactorStatus, {}),
     )
     if (!status.signedIn) throw redirect({ to: '/login' })
-    // Already set up: nothing to do here. (Where it is not compulsory —
-    // AUTH_MFA_REQUIRED=off — the page still works for anyone who chooses to
-    // set it up from Settings.)
+    // Already set up: nothing to do here.
     if (status.enabled) throw redirect({ href: safeNext(search.next) })
   },
   component: TwoStepPage,
@@ -66,6 +65,11 @@ type Setup = {
 
 function TwoStepPage() {
   const { next } = Route.useSearch()
+  const router = useRouter()
+  // Already in the cache from beforeLoad. Compulsory changes the words and
+  // the way out: nothing to go back to, so Sign out rather than Not now.
+  const required =
+    useQuery(convexQuery(api.auth.twoFactorStatus, {})).data?.required === true
   const [setup, setSetup] = useState<Setup | null>(null)
   const [verified, setVerified] = useState(false)
   // Whose set-up this is, for the reminders (lib/twoStepReminders). Held once
@@ -96,9 +100,9 @@ function TwoStepPage() {
         </h1>
         {!verified && (
           <p className="mt-2 text-body text-muted">
-            Every PestM8 account now signs in with a password and a 6-digit code
-            from an authenticator app on your phone. It keeps client records
-            safe if a password gets out. It takes about a minute.
+            {required
+              ? 'Every PestM8 account now signs in with a password and a 6-digit code from an authenticator app on your phone. It keeps client records safe if a password gets out. It takes about a minute.'
+              : 'Once it is on, signing in asks for your password and a 6-digit code from an authenticator app on your phone, so a password that gets out is not enough on its own. You stay signed in until you sign out, so the code is only asked for when you sign in again. It takes about a minute.'}
           </p>
         )}
       </div>
@@ -132,7 +136,19 @@ function TwoStepPage() {
         />
       )}
 
-      {!verified && (
+      {!verified && !required && (
+        <button
+          type="button"
+          // Leaving half-way leaves nothing half-done: `twoFactorEnabled`
+          // only flips at the code.
+          onClick={() => void router.navigate({ href: safeNext(next) })}
+          className="mt-8 min-h-11 text-body text-blue"
+        >
+          Not now
+        </button>
+      )}
+
+      {!verified && required && (
         <button
           type="button"
           // A reload, as Settings' sign-out does: whoever signs in next must

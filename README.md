@@ -44,45 +44,39 @@ run. Before turning `AUTH_RATE_LIMIT` on, check what client IP actually reaches
 Convex through the Vercel proxy — if it resolves to nothing, every request
 shares one bucket and a tight limit locks out the whole business at once.
 
-Two switches run the other way — **on unless set**, because a security check
+One switch runs the other way — **on unless set**, because a security check
 should not disappear when an environment variable goes missing:
 
-| Env var                 | Effect                                                                                                                  |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| `AUTH_BREACH_CHECK=off` | Stops checking passwords against Have I Been Pwned. Set on the e2e deployment only.                                     |
-| `AUTH_MFA_REQUIRED=off` | Two-step sign-in (authenticator app + recovery codes) stops being compulsory. Set on the e2e deployment only.           |
+| Env var                 | Effect                                                                              |
+| ----------------------- | ----------------------------------------------------------------------------------- |
+| `AUTH_BREACH_CHECK=off` | Stops checking passwords against Have I Been Pwned. Set on the e2e deployment only. |
 
-With `AUTH_MFA_REQUIRED` unset, every app function refuses a signed-in account
-that has not set up two-step sign-in (`MFA_ENROLMENT_REQUIRED`, which the client
-turns into the `/two-step` set-up screen), nobody can switch it off, and a code
-is asked for at every sign-in — there is no "trust this device". A technician
-who loses their phone signs in with a recovery code; one who has lost both is
-reset by the business owner from Settings → Team. The e2e suite signs up
-accounts that cannot read an authenticator app, so that deployment needs
-`off` (`e2e/globalSetup.ts` refuses to run the suite without it). Setting up
-two-step sign-in signs the account out on every other device, and ten wrong
-codes in a row lock the account's code check for 15 minutes.
+**Two-step sign-in** (authenticator app + ten recovery codes) is optional:
+each person turns it on or off in Settings → Profile, with their password.
+Once on, a code is asked for at every sign-in — there is no "trust this
+device". A technician who loses their phone signs in with a recovery code; one
+who has lost both is reset by the business owner from Settings → Team. Turning
+it on signs the account out on every other device, and ten wrong codes in a
+row lock the account's code check for 15 minutes.
 
-**Releasing compulsory two-step sign-in to a deployment that has users.**
-Enforcement starts the moment the backend deploys, for every open app — so
-stage it rather than let it land on a stale frontend or mid-shift:
+`AUTH_MFA_REQUIRED=on` makes it compulsory on that deployment: every app
+function then refuses a signed-in account that has not set it up
+(`MFA_ENROLMENT_REQUIRED`, which the client turns into the `/two-step` set-up
+screen), and nobody can switch it off. Nothing sets it today. Before turning
+it on where people are working, deploy the frontend first, give open apps time
+to pick up the new bundle, and tell the team they will need an authenticator
+app. The e2e suite's accounts cannot read one, so `e2e/globalSetup.ts` refuses
+to run against a deployment where it is on.
 
-1. `npx convex env set AUTH_MFA_REQUIRED off` on that deployment, BEFORE
-   deploying the backend. Nothing is refused yet.
-2. Deploy the backend, then the frontend, and confirm Vercel's newest
-   _successful_ build is this commit (the frontend must have `/two-step` and
-   the set-up prompt before anyone is refused; see CLAUDE.md on stale builds).
-3. Give open apps time to pick up the new bundle — the service worker only
-   offers a reload, it never forces one. Out of hours is best.
-4. `npx convex env remove AUTH_MFA_REQUIRED`. Anyone already inside the app
-   sees a "Set up two-step sign-in" card over the page they are on (nothing
-   they typed is thrown away); everyone else is sent to set-up at their next
-   sign-in. Tell the team beforehand that they will need an authenticator app.
+**Sessions last until sign-out**: 400 days, renewed on every use (at most once
+a day), so anyone who opens PestM8 at least once a year stays signed in.
+Signing out, removal from the team and a two-step reset still end sessions
+(`SESSION_LIFETIME` in `convex/auth.ts`).
 
 Every password set or changed otherwise costs one live HTTPS call to
 `api.pwnedpasswords.com`, and the e2e suite makes ~120 of them per run — an
 outage of that service once failed 54 of 127 tests. Production keeps the check
-on; it refuses a breached password as before, but an *unreachable* service no
+on; it refuses a breached password as before, but an _unreachable_ service no
 longer refuses anything, so a third party being down cannot lock anyone out of
 `/change-password` or `/reset-password`.
 

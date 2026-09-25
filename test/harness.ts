@@ -62,11 +62,10 @@ export type TestActor = {
  * that identity. `emailVerified` defaults to false because that is what a real
  * sign-up produces today — tests that care about verification should say so.
  *
- * `twoFactorEnabled` defaults to TRUE, the opposite choice and for the same
- * reason: two-step sign-in is compulsory (convex/lib/mfa.ts), so every account
- * that can use the app has it set up, and `requireAuthUser` refuses the rest.
- * Tests exercise the gate as it runs in production rather than switching it
- * off; the ones about the gate itself pass `false`.
+ * `twoFactorEnabled` defaults to TRUE, so that the same tests hold where a
+ * deployment makes two-step sign-in compulsory (`AUTH_MFA_REQUIRED=on`,
+ * convex/lib/mfa.ts) and `requireAuthUser` refuses anyone without it. The
+ * tests about the gate itself, and about optional two-step, pass `false`.
  */
 export async function createActor(
   t: TestApp,

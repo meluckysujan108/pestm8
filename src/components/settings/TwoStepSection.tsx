@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link, useRouterState } from '@tanstack/react-router'
-import { useSuspenseQuery } from '@tanstack/react-query'
+import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
+import { convexQuery } from '@convex-dev/react-query'
 import { ShieldCheck } from 'lucide-react'
+import { api } from '../../../convex/_generated/api'
 import { RecoveryCodes } from '#/components/auth/RecoveryCodes'
 import { authClient } from '#/lib/auth-client'
 import { rq } from '#/lib/routeQueries'
@@ -15,13 +17,14 @@ import { useHydrated } from '#/lib/useHydrated'
 /**
  * Two-step sign-in, in the person's own settings.
  *
- * There is no switch to turn it off: it is compulsory, and the server refuses
- * that request anyway (convex/auth.ts). What there is: confirmation that it is
- * on, and new recovery codes — for someone who has used a few, or who is not
- * sure where they put the first lot. Making new ones cancels the old ones, so
- * a set someone else found stops working. The password is asked again,
- * because a phone left unlocked on a bench should not be enough to mint a way
- * into the account.
+ * Optional (convex/lib/mfa.ts): off, it offers to set it up; on, it offers new
+ * recovery codes — for someone who has used a few, or who is not sure where
+ * they put the first lot — and a way to turn it off again. Making new codes
+ * cancels the old ones, so a set someone else found stops working. Both ask
+ * for the password again, because a phone left unlocked on a bench should not
+ * be enough to change how its owner signs in. Where a deployment makes it
+ * compulsory (`AUTH_MFA_REQUIRED=on`), Turn off is not offered and the server
+ * refuses it anyway.
  *
  * Lost phone AND codes is not handled here — they cannot sign in to see this.
  * That is the owner's reset, in Settings → Team.
@@ -30,11 +33,16 @@ export function TwoStepSection() {
   // Already in the cache: the Profile section above reads the same query.
   const { data: user } = useSuspenseQuery(rq.currentUser())
   const on = user.twoFactorEnabled === true
+  // Not suspended on: until it answers, Turn off shows, and the server has
+  // the last word if the deployment makes two-step sign-in compulsory.
+  const required =
+    useQuery(convexQuery(api.auth.twoFactorStatus, {})).data?.required === true
 
   const hydrated = useHydrated()
   // Back to this page once set up.
   const here = useRouterState({ select: (state) => state.location.href })
-  const [open, setOpen] = useState(false)
+  // Which password form is open, if any.
+  const [open, setOpen] = useState<'codes' | 'off' | null>(null)
   const [password, setPassword] = useState('')
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,7 +56,7 @@ export function TwoStepSection() {
   }, [on, user._id])
 
   function close() {
-    setOpen(false)
+    setOpen(null)
     setPassword('')
     setError(null)
     // Done on a fresh set means they have been saved.
@@ -61,6 +69,7 @@ export function TwoStepSection() {
 
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
+    if (open === 'off') return turnOff()
     setError(null)
     setPending(true)
     const result = await authClient.twoFactor
@@ -78,6 +87,30 @@ export function TwoStepSection() {
     setCodes(result.data.backupCodes)
   }
 
+  /**
+   * Better Auth replaces the session when two-step sign-in is switched off,
+   * and the Convex client holds a token for the old one until a page load —
+   * so a reload, as set-up ends with one, rather than a page whose every
+   * query is refused.
+   */
+  async function turnOff() {
+    setError(null)
+    setPending(true)
+    const result = await authClient.twoFactor
+      .disable({ password })
+      .catch(() => ({
+        data: null,
+        error: { message: 'Could not reach PestM8. Try again.' },
+      }))
+    if (result.error) {
+      setPending(false)
+      setError(describeTwoFactorError(result.error).message)
+      return
+    }
+    markRecoveryCodesUnsaved(user._id, false)
+    window.location.reload()
+  }
+
   return (
     <>
       <h2 className="section-label mb-2">Two-step sign-in</h2>
@@ -90,12 +123,12 @@ export function TwoStepSection() {
           />
           <div className="min-w-0">
             <p className="text-body font-semibold text-ink">
-              {on ? 'On' : 'Not set up'}
+              {on ? 'On' : 'Off'}
             </p>
             <p className="mt-0.5 text-caption text-muted">
               {on
                 ? 'Every sign-in asks for a code from your authenticator app. Lost your phone? Sign in with one of your recovery codes.'
-                : 'Set it up to protect your account with a code from your phone.'}
+                : 'Optional. Turn it on and signing in also asks for a 6-digit code from an app on your phone, so a password that gets out is not enough on its own.'}
             </p>
           </div>
         </div>
@@ -106,11 +139,11 @@ export function TwoStepSection() {
             search={{ next: here }}
             className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975]"
           >
-            Set up two-step sign-in
+            Turn on two-step sign-in
           </Link>
         )}
 
-        {on && !open && unsaved && (
+        {on && open === null && unsaved && (
           <p
             role="status"
             className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
@@ -121,24 +154,35 @@ export function TwoStepSection() {
           </p>
         )}
 
-        {on && !open && (
+        {on && open === null && (
           <button
             type="button"
-            onClick={() => setOpen(true)}
+            onClick={() => setOpen('codes')}
             className="mt-3 h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975]"
           >
             Get new recovery codes
           </button>
         )}
 
-        {on && open && codes === null && (
+        {on && open === null && !required && (
+          <button
+            type="button"
+            onClick={() => setOpen('off')}
+            className="mt-2 inline-flex min-h-11 w-full items-center justify-center text-caption font-semibold text-red"
+          >
+            Turn off two-step sign-in
+          </button>
+        )}
+
+        {on && open !== null && codes === null && (
           <form
             onSubmit={onSubmit}
             className="mt-3 flex flex-col gap-3 border-t border-hairline-2 pt-3"
           >
             <p className="text-caption text-muted">
-              Your old recovery codes stop working as soon as the new ones are
-              made. Enter your password to continue.
+              {open === 'off'
+                ? 'Signing in will only ask for your password again, and your authenticator entry and recovery codes stop working. Enter your password to turn it off.'
+                : 'Your old recovery codes stop working as soon as the new ones are made. Enter your password to continue.'}
             </p>
             <label className="flex flex-col gap-1.5">
               <span className="section-label">Password</span>
@@ -172,7 +216,13 @@ export function TwoStepSection() {
                 disabled={pending || !hydrated}
                 className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
               >
-                {pending ? 'Making codes…' : 'Make new codes'}
+                {open === 'off'
+                  ? pending
+                    ? 'Turning off…'
+                    : 'Turn off'
+                  : pending
+                    ? 'Making codes…'
+                    : 'Make new codes'}
               </button>
             </div>
           </form>

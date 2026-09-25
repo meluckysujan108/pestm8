@@ -1,6 +1,7 @@
 /**
- * Client half of compulsory two-step sign-in. The server refuses an account
- * that has not set it up (convex/lib/access.ts, `requireAuthUser`) with
+ * Client half of two-step sign-in. Where a deployment makes it compulsory
+ * (`AUTH_MFA_REQUIRED=on`), the server refuses an account that has not set
+ * it up (convex/lib/access.ts, `requireAuthUser`) with
  * MFA_ENROLMENT_REQUIRED; everything here is about turning that refusal into
  * the set-up screen instead of an error, and back to where the person was
  * going once they are done.

@@ -9,8 +9,9 @@ export type Membership = Doc<'memberships'>
 export type AuthUser = Awaited<ReturnType<typeof authComponent.getAuthUser>>
 
 /**
- * The signed-in person, for every app function — and the one place compulsory
- * two-step sign-in is enforced on the server.
+ * The signed-in person, for every app function — and the one place
+ * two-step sign-in is enforced on the server, where a deployment makes it
+ * compulsory (`AUTH_MFA_REQUIRED=on`, lib/mfa.ts; optional otherwise).
  *
  * The sign-in screen asking for a code is not the control. Anyone signed in
  * before this shipped still holds a live session that never saw a code, and a

@@ -1,5 +1,5 @@
 /// <reference types="vite/client" />
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { APIError } from 'better-auth/api'
 import { api, components, internal } from './_generated/api'
 import { twoFactorPolicy } from './auth'
@@ -8,12 +8,11 @@ import type { Id } from './_generated/dataModel'
 import type { TestActor, TestApp } from '../test/harness'
 
 /**
- * Compulsory two-step sign-in, where it is actually enforced: on the server,
- * in every function that resolves the caller (`requireAuthUser`), and in the
- * owner's reset for someone who has lost their phone and their codes.
- *
- * The sign-in screen asking for a code is not the control — a session opened
- * before release never saw one — so these are the tests that matter.
+ * Two-step sign-in on the server: optional by default, compulsory where a
+ * deployment sets `AUTH_MFA_REQUIRED=on` — and then enforced in every
+ * function that resolves the caller (`requireAuthUser`), not by the sign-in
+ * screen. Also the owner's reset for someone who has lost their phone and
+ * their codes, which works either way.
  */
 
 afterEach(() => {
@@ -71,7 +70,11 @@ async function business() {
   return { t, owner, businessId, ownerMembershipId, kevin }
 }
 
-describe('the server-side gate', () => {
+describe('the server-side gate, where two-step sign-in is compulsory', () => {
+  beforeEach(() => {
+    process.env.AUTH_MFA_REQUIRED = 'on'
+  })
+
   test('an account without two-step sign-in is refused everything', async () => {
     const { t, businessId, kevin } = await business()
     // Signed in before release: a live session, never enrolled.
@@ -192,11 +195,12 @@ describe('the server-side gate', () => {
     const joined = await invitee.as.action(api.invitations.redeem, { token })
     expect(joined.businessId).toBe(businessId)
   })
+})
 
-  test('AUTH_MFA_REQUIRED=off turns the gate off', async () => {
+describe('optional two-step sign-in (the default)', () => {
+  test('an account without it uses the app as normal', async () => {
     const { t, businessId, kevin } = await business()
     await setEnrolled(t, kevin.person.userId, false)
-    process.env.AUTH_MFA_REQUIRED = 'off'
 
     const roster = await kevin.person.as.query(
       api.memberships.listForBusiness,
@@ -210,15 +214,21 @@ describe('the server-side gate', () => {
     })
   })
 
-  test('anything but exactly "off" leaves it on', async () => {
+  test('only exactly "on" makes it compulsory', async () => {
     const { t, businessId, kevin } = await business()
     await setEnrolled(t, kevin.person.userId, false)
-    for (const value of ['', 'false', 'OFF', '0', 'no']) {
+    for (const value of ['', 'off', 'true', 'ON', '1', 'yes']) {
       process.env.AUTH_MFA_REQUIRED = value
-      await expect(
-        kevin.person.as.query(api.memberships.listForBusiness, { businessId }),
-      ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
+      const roster = await kevin.person.as.query(
+        api.memberships.listForBusiness,
+        { businessId },
+      )
+      expect(roster.length).toBeGreaterThan(0)
     }
+    process.env.AUTH_MFA_REQUIRED = 'on'
+    await expect(
+      kevin.person.as.query(api.memberships.listForBusiness, { businessId }),
+    ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
   })
 })
 
@@ -508,7 +518,8 @@ describe("the owner's reset", () => {
     ).rejects.toThrow(/NOT_FOUND/)
   })
 
-  test('is refused to an owner who has not set up two-step themselves', async () => {
+  test('is refused to an owner who has not set up two-step themselves, where it is compulsory', async () => {
+    process.env.AUTH_MFA_REQUIRED = 'on'
     const { t, owner, businessId, kevin } = await business()
     await setEnrolled(t, owner.userId, false)
     await expect(
