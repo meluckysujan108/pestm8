@@ -1,6 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { handler } from '#/lib/auth-server'
-import { pickAuthCookie } from '#/lib/authCookies'
+import { passesOn, pickAuthCookie } from '#/lib/authCookies'
 
 /**
  * This TanStack Start / Nitro build emits only the LAST Set-Cookie header on a
@@ -52,7 +52,9 @@ async function proxy(request: Request): Promise<Response> {
   response.headers.forEach((value, key) => {
     if (key.toLowerCase() !== 'set-cookie') headers.set(key, value)
   })
-  headers.set('set-cookie', keep)
+  // Not a read's "signed out" clearing the session cookie, which can land on
+  // a newer cookie than the one it was sent with (`passesOn`).
+  if (passesOn(request.method, keep)) headers.set('set-cookie', keep)
 
   return new Response(response.body, {
     status: response.status,

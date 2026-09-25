@@ -2,15 +2,31 @@ import { betterAuth } from 'better-auth/minimal'
 import { createClient } from '@convex-dev/better-auth'
 import { convex } from '@convex-dev/better-auth/plugins'
 import { haveIBeenPwned } from 'better-auth/plugins/haveibeenpwned'
-import { twoFactor } from 'better-auth/plugins/two-factor'
-import { APIError, createAuthMiddleware, isAPIError } from 'better-auth/api'
+import {
+  TWO_FACTOR_ERROR_CODES,
+  twoFactor,
+} from 'better-auth/plugins/two-factor'
+import {
+  APIError,
+  createAuthMiddleware,
+  getSessionFromCtx,
+  isAPIError,
+} from 'better-auth/api'
+import { symmetricDecrypt } from 'better-auth/crypto'
 import authConfig from './auth.config'
 import { components, internal } from './_generated/api'
 import { query } from './_generated/server'
 import { hashInviteToken } from './lib/inviteTokens'
 import { isMfaRequired } from './lib/mfa'
+import {
+  NEW_KEY_HEADER,
+  NEW_KEY_HEADER_VALUE,
+  otpauthCarriesSecret,
+} from './lib/twoFactorSetup'
+import { setupStateFor } from './twoStepSetups'
 import type { GenericCtx } from '@convex-dev/better-auth'
 import type { DataModel } from './_generated/dataModel'
+import type { TwoFactorSetupState } from './lib/twoFactorSetup'
 
 /**
  * Named rather than asserted with `!`, because the assertion turns a missing
@@ -245,6 +261,13 @@ export function generateRecoveryCodes(): Array<string> {
   return codes
 }
 
+/** get-totp-uri's refusal once two-step sign-in is on. */
+const KEY_SHOWN_ONLY_WHILE_SETTING_UP = {
+  message:
+    'The set-up key is only shown while setting up. Ask the business owner to reset two-step sign-in if you need to add it again.',
+  code: 'MFA_ALREADY_ENABLED',
+}
+
 /**
  * Better Auth's two-factor plugin, fitted to the component this app runs.
  *
@@ -266,8 +289,8 @@ export function generateRecoveryCodes(): Array<string> {
  * new challenge costs one request to someone holding the password, and the
  * rate limit is per IP, and off unless AUTH_RATE_LIMIT says otherwise.
  *
- * Two endpoints also get a check the plugin does not make, run after its own
- * session middleware so it sees the session however it was sent — a cookie
+ * Three endpoints also get checks the plugin does not make, run after its
+ * own session lookup so they see the session however it was sent — a cookie
  * or an `Authorization: Bearer` token (see `refuseOnceEnabled`):
  *
  * - `/two-factor/enable` over a working set-up. The plugin would swap the
@@ -275,12 +298,24 @@ export function generateRecoveryCodes(): Array<string> {
  *   anyone holding a session and the password could take over the account's
  *   second factor — and a double tap on the set-up screen would leave the
  *   authenticator on the phone out of step. A lost phone is the owner's reset,
- *   which clears it properly first.
+ *   which clears it properly first. Short of that, enable never replaces a
+ *   key that is already there unless asked to on purpose, and never touches
+ *   it for a wrong password (`startFromNothing`).
  * - `/two-factor/get-totp-uri` once set up. The secret is shown while setting
  *   up and never again; a copy read later is a second authenticator nobody
- *   knows about.
+ *   knows about. Until then it is how the set-up screen carries on with the
+ *   key it already showed rather than calling enable again, which would make
+ *   a new one and leave the entry the person already added dead — and only
+ *   the session that made the key is given it, checked before the endpoint
+ *   reads it and again after (`onlyWhereItStarted`, `onlyItsOwnKey`;
+ *   lib/twoFactorSetup.ts has why).
+ * - `/two-factor/verify-totp` from a signed-in session once set up. The
+ *   plugin answers it with a plain success that changes nothing, which a
+ *   second set-up tab would read as "you have just turned it on" and show
+ *   recovery codes that no longer work. Signing in with a code has no
+ *   session yet, so it is untouched.
  */
-function twoStep() {
+function twoStep(ctx: GenericCtx<DataModel>) {
   const plugin = twoFactor({
     issuer: 'PestM8',
     // twoFactorEnabled only flips once a code from the new authenticator has
@@ -304,9 +339,13 @@ function twoStep() {
     code: 'MFA_ALREADY_ENABLED',
   })
   startFromNothing(plugin.endpoints.enableTwoFactor)
-  refuseOnceEnabled(plugin.endpoints.getTOTPURI, {
-    message:
-      'The set-up key is only shown while setting up. Ask the business owner to reset two-step sign-in if you need to add it again.',
+  refuseOnceEnabled(
+    plugin.endpoints.getTOTPURI,
+    KEY_SHOWN_ONLY_WHILE_SETTING_UP,
+  )
+  onlyWhereItStarted(plugin.endpoints.getTOTPURI, ctx)
+  refuseOnceEnabled(plugin.endpoints.verifyTOTP, {
+    message: 'Two-step sign-in is already on for this account.',
     code: 'MFA_ALREADY_ENABLED',
   })
   return {
@@ -318,10 +357,23 @@ function twoStep() {
   }
 }
 
+/** The plugin's endpoints, as far as adding a middleware needs them. The
+ * list is typed per endpoint (and absent from the type of one that has
+ * none), so it is reached through this rather than each endpoint's type. */
+type PluginEndpoint = { options: object }
+
+function addMiddleware(endpoint: PluginEndpoint, middleware: unknown): void {
+  const options = endpoint.options as { use?: Array<unknown> }
+  options.use = [...(options.use ?? []), middleware]
+}
+
 /**
  * Adds a check to a two-factor endpoint that runs AFTER its own
  * `sessionMiddleware`, and refuses an account that already has two-step
- * sign-in set up.
+ * sign-in set up. On an endpoint with no session middleware of its own
+ * (`verify-totp`, which also serves sign-in, where there is no session yet)
+ * the session is looked up here the same way, and a request without one is
+ * let through to the endpoint untouched.
  *
  * Not a before-hook, which is where this used to be, because a before-hook
  * cannot see every session. Better Auth runs `hooks.before` first and the
@@ -341,51 +393,309 @@ function twoStep() {
  * to prove it.
  */
 function refuseOnceEnabled(
-  endpoint: { options: { use?: Array<unknown> } },
+  endpoint: PluginEndpoint,
   refusal: { message: string; code: string },
 ): void {
   const guard = createAuthMiddleware(async (ctx) => {
-    const session = ctx.context.session as {
+    // The session the endpoint's own middleware found, when it has one —
+    // `getSessionFromCtx` hands back what is already on the context — and
+    // otherwise the same lookup the endpoint itself is about to make.
+    const session = (await getSessionFromCtx(ctx)) as {
       user?: { twoFactorEnabled?: boolean | null }
     } | null
     if (session?.user?.twoFactorEnabled === true) {
       throw new APIError('BAD_REQUEST', refusal)
     }
   })
-  endpoint.options.use = [...(endpoint.options.use ?? []), guard]
+  addMiddleware(endpoint, guard)
 }
 
 /**
  * Clears any two-factor row an account that is NOT set up still has, before
- * `/two-factor/enable` runs.
+ * `/two-factor/enable` runs — but only for the right password, and only when
+ * the request asked for a new key.
  *
- * The plugin marks a new secret verified at once when an earlier row was
- * verified, and then its first code never flips `twoFactorEnabled`. Normally
- * no such row survives — turning two-step off deletes it — but turning it off
- * is two writes (the flag, then the row), each its own transaction here. If
- * the second one fails, the account is left off with a verified row, and
- * every "Turn on" after that looks as if it worked and leaves it off: the
- * person thinks they are protected and is not. Starting from nothing makes
- * that half state heal itself on the next set-up.
+ * Why clear it: the plugin marks a new secret verified at once when an
+ * earlier row was verified, and then its first code never flips
+ * `twoFactorEnabled`. Normally no such row survives — turning two-step off
+ * deletes it — but turning it off is two writes (the flag, then the row),
+ * each its own transaction here. If the second one fails, the account is
+ * left off with a verified row, and every "Turn on" after that looks as if it
+ * worked and leaves it off: the person thinks they are protected and is not.
+ * Starting from nothing makes that half state heal itself on the next set-up.
+ *
+ * Why the password first: this runs before the endpoint, and the endpoint
+ * checks the password itself — so it used to clear the row for any request
+ * with a session, and a wrong password (or a session cookie and nothing
+ * else) wiped a set-up the person was part-way through, key and all. The
+ * same check the endpoint makes, with the same refusal, before anything is
+ * touched.
+ *
+ * Why only on purpose: every enable makes a new key, and an unproven key is
+ * usually one the person has just added to their authenticator app. Making
+ * another by accident — a double tap, a page whose live state dropped to
+ * "nothing started", a phone still running an older build of the set-up
+ * screen — kills that entry, and its codes never match again (the production
+ * bug; lib/twoFactorSetup.ts). So a key that is already there is replaced
+ * only when the request carries `NEW_KEY_HEADER`, which the set-up screen
+ * sends only with the warning to delete every PestM8 entry on screen.
+ * Anything else is refused, and the screen goes back to carrying on with the
+ * key there is.
  *
  * Runs after `refuseOnceEnabled`, so an account that is set up never gets
  * this far.
  */
-function startFromNothing(endpoint: {
-  options: { use?: Array<unknown> }
-}): void {
+function startFromNothing(endpoint: PluginEndpoint): void {
   const clear = createAuthMiddleware(async (ctx) => {
     const session = ctx.context.session as {
       user?: { id?: string; twoFactorEnabled?: boolean | null }
     } | null
     const userId = session?.user?.id
     if (!userId || session.user?.twoFactorEnabled === true) return
+    // Throws the endpoint's own INVALID_PASSWORD.
+    await ctx.context.password.checkPassword(userId, ctx)
+    const existing = await ctx.context.adapter.findOne({
+      model: 'twoFactor',
+      where: [{ field: 'userId', value: userId }],
+    })
+    if (existing === null) return
+    if (ctx.getHeader(NEW_KEY_HEADER) !== NEW_KEY_HEADER_VALUE) {
+      // Worded for the set-up screen that does NOT know this code — the
+      // current one shows its own words for it (`describeTwoFactorError`).
+      // An older build shows the server's message as it stands: the live
+      // one in the minutes between this backend deploying and Vercel serving
+      // the new screen, or a phone still holding last week's. That screen
+      // has no way to carry on with a key — it only knows Start, which lands
+      // here again — so this must not promise the same key, must say
+      // nothing changed, and must point at the one thing that helps: a
+      // reload, which picks up the new screen once it is being served (the
+      // service worker fetches pages network-first, src/sw.ts), and then
+      // carries on or starts again as the server allows.
+      throw new APIError('CONFLICT', {
+        message:
+          'Setting up two-step sign-in was already started for this account, so nothing has been changed. Reload this page to carry on. If you see this again, wait a few minutes for PestM8 to update, then reload.',
+        code: 'MFA_SETUP_STARTED',
+      })
+    }
     await ctx.context.adapter.deleteMany({
       model: 'twoFactor',
       where: [{ field: 'userId', value: userId }],
     })
   })
-  endpoint.options.use = [...(endpoint.options.use ?? []), clear]
+  addMiddleware(endpoint, clear)
+}
+
+/** get-totp-uri's refusal of a key that is not this session's to carry on
+ * with, before the endpoint and after it. */
+const KEY_UNAVAILABLE = {
+  message:
+    'That set-up key is only shown where setting up started. Start again here with a new key.',
+  code: 'MFA_SETUP_KEY_UNAVAILABLE',
+}
+
+/**
+ * `/two-factor/get-totp-uri` hands a set-up key back only to the session that
+ * made it (the claim `claimNewKey` records), and never a key that is already
+ * marked verified with the flag off (`stale`, which has to start again).
+ * Anyone else signed in to the account — another device, another browser,
+ * someone holding a password that got out — is refused, however right their
+ * password: the key is the second factor, and a copy handed to the wrong
+ * session is a working second factor for whoever holds it. That session
+ * starts again with a new key instead, with a warning.
+ *
+ * Only `unfinished` goes through. No key at all (`none`) is refused here
+ * too, with the endpoint's own TOTP_NOT_ENABLED, rather than left for the
+ * endpoint to find: this check and the endpoint's read of the row are two
+ * transactions, and "nothing started" is the state of every account without
+ * two-step sign-in. Let through on it, a request with only a leaked password
+ * could have its read land just after the real person's first enable made a
+ * key, and be handed that key — the endpoint reads whatever row it finds.
+ * Refusing costs nothing: with no row the endpoint could only have failed.
+ * `on` gets the refusal `refuseOnceEnabled` gives, for a flag turned on
+ * since this session's copy of the account was read.
+ *
+ * This is the early answer, before the password is hashed. It is not the
+ * one that makes the key safe: `unfinished` has the same gap (the row can be
+ * replaced between this check and the read), which only a check after the
+ * read can close — `onlyItsOwnKey`, which ties the key read to the claim.
+ *
+ * Runs after the endpoint's own session middleware and `refuseOnceEnabled`.
+ */
+function onlyWhereItStarted(
+  endpoint: PluginEndpoint,
+  convexCtx: GenericCtx<DataModel>,
+): void {
+  const guard = createAuthMiddleware(async (ctx) => {
+    const session = ctx.context.session as {
+      session?: { id?: string }
+      user?: { id?: string }
+    } | null
+    const userId = session?.user?.id
+    const sessionId = session?.session?.id
+    if (!userId || !sessionId) return
+    const state = await convexCtx.runQuery(internal.twoStepSetups.stateFor, {
+      userId,
+      sessionId,
+    })
+    switch (state) {
+      case 'unfinished':
+        return
+      case 'none':
+        throw APIError.from(
+          'BAD_REQUEST',
+          TWO_FACTOR_ERROR_CODES.TOTP_NOT_ENABLED,
+        )
+      case 'on':
+        throw new APIError('BAD_REQUEST', KEY_SHOWN_ONLY_WHILE_SETTING_UP)
+      case 'elsewhere':
+      case 'stale':
+        throw new APIError('FORBIDDEN', KEY_UNAVAILABLE)
+    }
+  })
+  addMiddleware(endpoint, guard)
+}
+
+const GET_TOTP_URI_PATH = `${TWO_FACTOR_PREFIX}get-totp-uri`
+
+/**
+ * After `/two-factor/get-totp-uri` has read a key and before it goes out:
+ * the key must be the one THIS session made, still the account's, still
+ * unproven. Anything else — including anything that could not be checked —
+ * is replaced by the 403 `onlyWhereItStarted` gives.
+ *
+ * Why after as well as before: every read here is its own transaction (the
+ * component's adapter sends each through `ctx.runQuery`), so the claim the
+ * check before the endpoint read and the row the endpoint then read and
+ * decrypted are not tied together. The real person starting again with a
+ * new key between the two — exactly what their screen does when it sees a
+ * set-up that is not theirs — put their new row where the stranger's was,
+ * and the stranger's request, already past the check, read it and was
+ * handed the key the person was about to turn on
+ * (convex/twoStepSetupRace.test.ts makes that interleaving happen).
+ *
+ * So the row is read again here, the key in the response must be that row's
+ * (`otpauthCarriesSecret` on its decrypted secret), and then that row, by
+ * id, must be this session's to carry on with (`twoStepSetups.holdsKey`).
+ * Sound whatever order the reads land in: a claim naming this session and
+ * that row was only written by this session's own enable after it made the
+ * row, and a row's secret never changes under its id — so a key that passes
+ * is one this session was already shown.
+ *
+ * Fails closed, unlike `claimNewKey`: a key handed to the wrong session
+ * cannot be taken back, and the person refused here only starts again with
+ * a new key and a warning.
+ */
+async function onlyItsOwnKey(
+  h: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0],
+  convexCtx: GenericCtx<DataModel>,
+): Promise<void> {
+  const returned: unknown = h.context.returned
+  // A refusal already (a wrong password, TOTP_NOT_ENABLED, the checks
+  // before): nothing is going out.
+  if (isAPIError(returned)) return
+  const totpURI =
+    typeof returned === 'object' && returned !== null
+      ? (returned as { totpURI?: unknown }).totpURI
+      : undefined
+  const session = h.context.session as {
+    session?: { id?: string }
+    user?: { id?: string }
+  } | null
+  const userId = session?.user?.id
+  const sessionId = session?.session?.id
+  let theirs = false
+  try {
+    if (
+      typeof totpURI === 'string' &&
+      userId &&
+      sessionId &&
+      'runQuery' in convexCtx
+    ) {
+      const row = await h.context.adapter.findOne<{
+        id: string
+        secret: string
+      }>({
+        model: 'twoFactor',
+        where: [{ field: 'userId', value: userId }],
+      })
+      if (row) {
+        const secret = await symmetricDecrypt({
+          key: h.context.secretConfig,
+          data: row.secret,
+        })
+        theirs =
+          otpauthCarriesSecret(totpURI, secret) &&
+          (await convexCtx.runQuery(internal.twoStepSetups.holdsKey, {
+            userId,
+            sessionId,
+            twoFactorId: row.id,
+          }))
+      }
+    }
+  } catch (error) {
+    console.error('Could not check whose set-up key this is', { error })
+  }
+  if (!theirs) throw new APIError('FORBIDDEN', KEY_UNAVAILABLE)
+}
+
+const ENABLE_PATH = `${TWO_FACTOR_PREFIX}enable`
+
+/**
+ * After `/two-factor/enable` has made a key: records that THIS session made
+ * it (`twoStepSetups.claim`), so this session — and only this one — can carry
+ * on with it later (`onlyWhereItStarted`, `auth.twoFactorStatus`).
+ *
+ * The claim names the row, and only the row this request made. Two enables
+ * for one account at once each delete and create; if the row found here is
+ * not the one whose key this response carries, another request replaced it
+ * and will claim it itself — claiming it here would hand that other
+ * session's key to this one. So the row's secret is decrypted and compared
+ * with the key in the response before anything is written.
+ *
+ * Never fails the request. Without a claim the key is still on this screen
+ * and its code still turns two-step sign-in on; only carrying on with it
+ * after a reload is lost, and that starts again with a new key and a warning
+ * — the safe side.
+ */
+async function claimNewKey(
+  h: Parameters<Parameters<typeof createAuthMiddleware>[0]>[0],
+  convexCtx: GenericCtx<DataModel>,
+): Promise<void> {
+  const returned: unknown = h.context.returned
+  if (typeof returned !== 'object' || returned === null) return
+  if (isAPIError(returned)) return
+  const totpURI = (returned as { totpURI?: unknown }).totpURI
+  const session = h.context.session as {
+    session?: { id?: string }
+    user?: { id?: string }
+  } | null
+  const userId = session?.user?.id
+  const sessionId = session?.session?.id
+  if (typeof totpURI !== 'string' || !userId || !sessionId) return
+  if (!('runMutation' in convexCtx)) return
+  try {
+    const row = await h.context.adapter.findOne<{ id: string; secret: string }>(
+      {
+        model: 'twoFactor',
+        where: [{ field: 'userId', value: userId }],
+      },
+    )
+    if (!row) return
+    const secret = await symmetricDecrypt({
+      key: h.context.secretConfig,
+      data: row.secret,
+    })
+    if (!otpauthCarriesSecret(totpURI, secret)) return
+    await convexCtx.runMutation(internal.twoStepSetups.claim, {
+      userId,
+      sessionId,
+      twoFactorId: row.id,
+    })
+  } catch (error) {
+    console.error('Could not record which session started two-step set-up', {
+      error,
+    })
+  }
 }
 
 /** The code checks the per-account cap counts (`twoStepAttempts`). */
@@ -448,6 +758,20 @@ const SESSION_LIFETIME = {
 
 export const createAuth = (ctx: GenericCtx<DataModel>) =>
   betterAuth({
+    /**
+     * The name an authenticator app files the codes under. The two-factor
+     * plugin's own `issuer: 'PestM8'` (below) only reaches
+     * `/two-factor/enable`: `/two-factor/get-totp-uri` reads the issuer from
+     * the plugin's TOTP options, which the plugin never hands it (better-auth
+     * 1.6.30; the option's type even omits it), and falls back to this —
+     * "Better Auth" when unset. Set-up now carries on with get-totp-uri's key
+     * (src/routes/two-step.tsx), so without this the same secret would be
+     * added as "Better Auth", next to any "PestM8" entry from the first
+     * showing. Nothing else in this build reads `appName` (cookie names come
+     * from `advanced.cookiePrefix`). `twoStepFlow.test.ts` checks the two
+     * URIs match exactly.
+     */
+    appName: 'PestM8',
     baseURL: siteUrl,
     trustedOrigins,
     database: authComponent.adapter(ctx),
@@ -466,6 +790,26 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
         '/sign-in/email': { window: 60, max: 30 },
         '/sign-up/email': { window: 3600, max: 20 },
         '/request-password-reset': { window: 3600, max: 10 },
+        /**
+         * The six-digit code, at sign-in and at set-up. The two-factor
+         * plugin's own rule for every `/two-factor/*` path is 3 per 10 s,
+         * and the window restarts from each request it lets through — so a
+         * thumb that slips three times, each retry typed within ten seconds
+         * of the last, was told "Too many tries" on the fourth, ahead of any
+         * of the app's own worded limits. At sign-in that is five codes per
+         * password (the plugin's per-challenge count) and ten per account
+         * (`twoStepAttempts`), and those are what should speak; at set-up
+         * there is neither, so this is the limit a person meets.
+         *
+         * Ten per minute is no gift to a guesser: the buckets are per
+         * (IP, path) either way, and ten a minute is fewer than the plugin's
+         * eighteen once sustained. What stops a stolen password is still the
+         * per-account cap, which no IP change resets. A custom rule overrides
+         * the plugin's for this path alone (better-auth 1.6.30,
+         * `resolveRateLimitConfig`): enable, get-totp-uri and the recovery
+         * codes keep 3 per 10 s. convex/twoStepRateLimit.test.ts holds both.
+         */
+        '/two-factor/verify-totp': { window: 60, max: 10 },
       },
     },
     hooks: {
@@ -538,6 +882,14 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
       // hands out a session only for a right code, so a new session on a
       // code-check path is the success signal; a wrong one stays counted.
       after: createAuthMiddleware(async (h) => {
+        if (h.path === ENABLE_PATH) {
+          await claimNewKey(h, ctx)
+          return
+        }
+        if (h.path === GET_TOTP_URI_PATH) {
+          await onlyItsOwnKey(h, ctx)
+          return
+        }
         if (!CODE_CHECK_PATHS.has(h.path)) return
         const signedIn = h.context.newSession?.user.id
         if (signedIn && 'runMutation' in ctx) {
@@ -619,7 +971,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
      * credential for someone who has not finished signing in should not
      * exist at all.
      */
-    plugins: [breachCheck(), twoStep(), convex({ authConfig })],
+    plugins: [breachCheck(), twoStep(ctx), convex({ authConfig })],
   })
 
 /**
@@ -638,15 +990,45 @@ export const getCurrentUser = query({
  * account; and it answers a signed-out caller too (`signedIn: false`) rather
  * than throwing, because it is read on the way to the sign-in screen as well
  * as away from it.
+ *
+ * `setup` says how far set-up has got, as seen from THIS session
+ * (lib/twoFactorSetup.ts), so the set-up screen can carry on with the key the
+ * person may already have added to their authenticator instead of making a
+ * new one and leaving that entry dead — and knows when a set-up exists that
+ * is not its to carry on with. It is a word, never the row: the secret and
+ * the recovery codes stay inside the component (`select` keeps them from even
+ * reaching this function), and the key itself is only ever handed out by
+ * `/two-factor/get-totp-uri`, which asks for the password, answers only the
+ * session that made the key, and is refused once set-up is done.
+ *
+ * Added to this query rather than beside it so an older client, or a client
+ * newer than the backend it is talking to, still works: one that does not
+ * know the field ignores it, and one that finds it missing starts set-up the
+ * way it always has (`passwordStepAction` in src/lib/twoStep.ts).
  */
 export const twoFactorStatus = query({
   args: {},
   handler: async (ctx) => {
     const user = await authComponent.safeGetAuthUser(ctx)
+    // Signed out is `none`: there is nobody to set up. The session is the
+    // one `safeGetAuthUser` has just found live (the token's `sessionId`).
+    let setup: TwoFactorSetupState = 'none'
+    if (user !== undefined) {
+      const identity = await ctx.auth.getUserIdentity()
+      const sessionId =
+        typeof identity?.sessionId === 'string' ? identity.sessionId : null
+      setup = await setupStateFor(
+        ctx,
+        user._id,
+        user.twoFactorEnabled === true,
+        sessionId,
+      )
+    }
     return {
       signedIn: user !== undefined,
       required: isMfaRequired(),
       enabled: user?.twoFactorEnabled === true,
+      setup,
     }
   },
 })
