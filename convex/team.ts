@@ -10,6 +10,7 @@ import {
   canDispatchTo,
   canManageMember,
   canSetColour,
+  canSetRole,
   NO_GRANTS,
   recomputeGrants,
 } from './lib/capabilities'
@@ -430,6 +431,17 @@ export const roster = query({
             /** Whether this caller may change any of it — an owner may manage
              * anyone but themselves; a contractor, only their own team. */
             canManage: canManageMember(env.actor, facts),
+            /** Whether this caller may change this person's role — the owner
+             * only (`canSetRole`); a contractor manages their team but does
+             * not hand out roles. An added field, so an older client ignores
+             * it. */
+            canSetRole: canSetRole(env.actor, facts),
+            /** Whether this caller may hand work to this person — what
+             * `team.remove` asks of the successor (`canDispatchTo`), and the
+             * same flag `memberships.listForBusiness` carries. A contractor
+             * hands a departing person's work to themselves or their own
+             * team. An added field, like the two above. */
+            bookable: canDispatchTo(env.actor, facts),
             /** Whether this caller may set this person's colour — the owner,
              * for anyone including themselves (`canSetColour`). An added
              * field, so an older client simply shows no picker. */

@@ -4,6 +4,8 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Switch } from 'radix-ui'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { useAccess, useCan } from '#/lib/access'
+import { useAssigneeOptions } from '#/lib/assignees'
 import { ColourPicker } from './ColourPicker'
 import { ResetTwoStepButton } from './ResetTwoStepButton'
 import { MemberLicenceButton } from './MemberLicenceButton'
@@ -17,7 +19,18 @@ export type Member = {
   role: Role
   grants: Grants
   canViewOtherAccounts: boolean
+  /** From the roster: whether this viewer may change this person's access at
+   * all (`canManageMember`) — the owner, anyone but themselves; a contractor,
+   * their own team. Every control below the licence sits behind it. */
   canManage: boolean
+  /** From the roster: whether this viewer may change this person's role — the
+   * owner only (`canSetRole`). Absent from an older backend; see `roleEditable`
+   * below for what that means. */
+  canSetRole?: boolean
+  /** From the roster: whether this viewer may hand work to this person
+   * (`canDispatchTo`) — who may take over a departing member's bookings.
+   * Absent from an older backend; `useAssigneeOptions` falls back. */
+  bookable?: boolean
   parentMembershipId?: Id<'memberships'> | null
   licenceNumber?: string
   colour: string
@@ -95,7 +108,38 @@ export function MemberAccessRow({
     }) => convexSetGrants(args),
   })
 
-  const isOwner = member.role === 'owner'
+  // Everything below is gated on what the server will accept from THIS
+  // viewer, not on who the row is. A contractor holds `team.manage` for their
+  // own team only, and was being shown role, team, access, reset and remove
+  // controls on everyone — each of which the server refuses.
+  const access = useAccess()
+  const viewerIsOwner = access.role === 'owner'
+  const isMe = member._id === access.membershipId
+  const canManage = member.canManage
+  // An older backend sends no `canSetRole`. Its rule was never narrower than
+  // this — the owner, on anyone they manage — so this is safe on either.
+  const roleEditable = member.canSetRole ?? (viewerIsOwner && canManage)
+  // `memberships.setLicence`: the owner sets anyone's, everyone else only
+  // their own.
+  const licenceEditable = viewerIsOwner || isMe
+  // A contractor can only give away what they hold (`grantCeiling`); the
+  // server clamps anything more to off, so the switch would only flip back.
+  const canGrantSchedules = useCan('schedules.seeOthers')
+  const canGrantPrices = useCan('prices.see')
+
+  // Where this person may be put (`canAssignTo`). The owner places anyone under
+  // any contractor. A contractor may keep their own people or let them go back
+  // to the owner, never hand them to another contractor.
+  const parents = viewerIsOwner
+    ? contractors
+    : contractors.filter((c) => c._id === access.membershipId)
+  const showTeam =
+    canManage && member.role === 'subcontractor' && parents.length > 0
+  // Letting someone go is one-way for a contractor: once they answer to the
+  // owner, they are off this contractor's team and only the owner can put
+  // them back. So it asks first. The owner's moves are all reversible.
+  const [releasing, setReleasing] = useState(false)
+  const displayName = member.name || member.email || 'this person'
 
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
@@ -112,6 +156,12 @@ export function MemberAccessRow({
           <p className="truncate text-caption capitalize text-muted">
             {member.role}
             {member.licenceNumber ? ` · Licence ${member.licenceNumber}` : ''}
+            {/* Why some rows have controls and others do not, for a
+                contractor: these are the people they run. */}
+            {!viewerIsOwner &&
+              member.parentMembershipId === access.membershipId && (
+                <span className="normal-case"> · Your team</span>
+              )}
           </p>
         </div>
       </div>
@@ -136,46 +186,50 @@ export function MemberAccessRow({
         Leaving it self-service meant the only way to prepare a team for that
         rule was to ask every technician to go and type it in themselves.
       */}
-      <form
-        className="mt-3 flex items-end gap-2 border-t border-hairline-2 pt-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          saveLicence.mutate({
-            businessId,
-            membershipId: member._id,
-            licenceNumber: licence,
-          })
-        }}
-      >
-        <label className="min-w-0 flex-1">
-          <span className="section-label">Licence number</span>
-          <input
-            value={licence}
-            onChange={(e) => setLicence(e.target.value)}
-            placeholder="Not set"
-            className="mt-1 h-11 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          />
-        </label>
-        <button
-          type="submit"
-          disabled={
-            saveLicence.isPending || licence === (member.licenceNumber ?? '')
-          }
-          className="h-11 shrink-0 rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+      {licenceEditable && (
+        <form
+          className="mt-3 flex items-end gap-2 border-t border-hairline-2 pt-3"
+          onSubmit={(e) => {
+            e.preventDefault()
+            saveLicence.mutate({
+              businessId,
+              membershipId: member._id,
+              licenceNumber: licence,
+            })
+          }}
         >
-          {saveLicence.isPending
-            ? 'Saving…'
-            : saveLicence.isSuccess
-              ? 'Saved'
-              : 'Save'}
-        </button>
-      </form>
+          <label className="min-w-0 flex-1">
+            <span className="section-label">Licence number</span>
+            <input
+              value={licence}
+              onChange={(e) => setLicence(e.target.value)}
+              placeholder="Not set"
+              className="mt-1 h-11 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={
+              saveLicence.isPending || licence === (member.licenceNumber ?? '')
+            }
+            className="h-11 shrink-0 rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+          >
+            {saveLicence.isPending
+              ? 'Saving…'
+              : saveLicence.isSuccess
+                ? 'Saved'
+                : 'Save'}
+          </button>
+        </form>
+      )}
       {/* A failed save used to leave only the button saying "Save" again. */}
       <FormAlert
         error={saveLicence.isError ? saveLicence.error : null}
         className="mt-2"
       />
-      {!member.licenceNumber && (
+      {/* Worth knowing on their own team even where the contractor cannot
+          type it in for them: it is the reason a certificate will not sign. */}
+      {!member.licenceNumber && (licenceEditable || canManage) && (
         <p className="mt-1.5 text-caption text-amber-ink">
           Without this they cannot finalise a termite certificate, timber pest
           inspection or treatment record.
@@ -193,36 +247,44 @@ export function MemberAccessRow({
         </div>
       )}
 
-      {!isOwner && (
+      {(roleEditable || showTeam) && (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-hairline-2 pt-3">
-          <label className="flex items-center gap-2">
-            <span className="text-caption text-muted">Role</span>
-            <select
-              value={member.role}
-              disabled={setRole.isPending}
-              onChange={(e) =>
-                setRole.mutate({
-                  businessId,
-                  membershipId: member._id,
-                  role: e.target.value as 'subcontractor' | 'contractor',
-                })
-              }
-              className="h-9 rounded-xl bg-surface-3 px-2.5 text-body text-ink outline-none focus:ring-2 focus:ring-blue disabled:opacity-50"
-            >
-              <option value="subcontractor">Subcontractor</option>
-              <option value="contractor">Contractor</option>
-            </select>
-          </label>
+          {/* The owner's call alone: a role decides who has a team, so a
+              contractor promoting one of their own would be minting a peer. */}
+          {roleEditable && (
+            <label className="flex items-center gap-2">
+              <span className="text-caption text-muted">Role</span>
+              <select
+                value={member.role}
+                disabled={setRole.isPending}
+                onChange={(e) =>
+                  setRole.mutate({
+                    businessId,
+                    membershipId: member._id,
+                    role: e.target.value as 'subcontractor' | 'contractor',
+                  })
+                }
+                className="h-9 rounded-xl bg-surface-3 px-2.5 text-body text-ink outline-none focus:ring-2 focus:ring-blue disabled:opacity-50"
+              >
+                <option value="subcontractor">Subcontractor</option>
+                <option value="contractor">Contractor</option>
+              </select>
+            </label>
+          )}
 
           {/* Only a subcontractor belongs to a team — a contractor's place is
               beside the owner, and the model is one level deep. */}
-          {member.role === 'subcontractor' && contractors.length > 0 && (
+          {showTeam && (
             <label className="flex items-center gap-2">
               <span className="text-caption text-muted">Works under</span>
               <select
                 value={member.parentMembershipId ?? ''}
-                disabled={assignTo.isPending}
-                onChange={(e) =>
+                disabled={assignTo.isPending || releasing}
+                onChange={(e) => {
+                  if (e.target.value === '' && !viewerIsOwner) {
+                    setReleasing(true)
+                    return
+                  }
                   assignTo.mutate({
                     businessId,
                     membershipId: member._id,
@@ -231,13 +293,17 @@ export function MemberAccessRow({
                         ? null
                         : (e.target.value as Id<'memberships'>),
                   })
-                }
+                }}
                 className="h-9 rounded-xl bg-surface-3 px-2.5 text-body text-ink outline-none focus:ring-2 focus:ring-blue disabled:opacity-50"
               >
-                <option value="">Nobody — answers to you</option>
-                {contractors.map((c) => (
+                <option value="">
+                  {viewerIsOwner
+                    ? 'Nobody — answers to you'
+                    : 'Nobody — answers to the owner'}
+                </option>
+                {parents.map((c) => (
                   <option key={c._id} value={c._id}>
-                    {c.name || c.email}
+                    {c._id === access.membershipId ? 'You' : c.name || c.email}
                   </option>
                 ))}
               </select>
@@ -246,9 +312,51 @@ export function MemberAccessRow({
         </div>
       )}
 
-      {/* Owners already see everything, so offering the toggle would imply it
-          could be turned off. */}
-      {!isOwner && (
+      {releasing && (
+        <div className="mt-3 rounded-xl bg-surface-2 p-3">
+          <p className="text-body text-ink">
+            Hand {displayName} back to the owner?
+          </p>
+          <p className="mt-1 text-caption text-muted">
+            They leave your team straight away, and only the owner can put them
+            back on it.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setReleasing(false)}
+              className="h-11 flex-1 rounded-xl bg-surface text-body font-semibold text-ink transition active:scale-[.975]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={assignTo.isPending}
+              onClick={() =>
+                assignTo.mutate(
+                  {
+                    businessId,
+                    membershipId: member._id,
+                    parentMembershipId: null,
+                  },
+                  { onSettled: () => setReleasing(false) },
+                )
+              }
+              className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            >
+              {assignTo.isPending ? 'Handing back…' : 'Hand back'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* A change the server refused used to just snap the select back. */}
+      <FormAlert error={setRole.error ?? assignTo.error} className="mt-2" />
+
+      {/* Only on people this viewer manages — never the owner's row (owners
+          already see everything, so the toggle would imply it could be turned
+          off), never their own, and for a contractor only their own team. */}
+      {canManage && canGrantSchedules && (
         <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
           <span className="min-w-0">
             <span className="block text-body text-ink">Can view all jobs</span>
@@ -274,7 +382,7 @@ export function MemberAccessRow({
         </label>
       )}
 
-      {!isOwner && (
+      {canManage && canGrantPrices && (
         <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
           <span className="min-w-0">
             <span className="block text-body text-ink">Can see job prices</span>
@@ -303,7 +411,7 @@ export function MemberAccessRow({
         </label>
       )}
 
-      {!isOwner && (
+      {canManage && (
         <label className="mt-3 flex items-start justify-between gap-3 border-t border-hairline-2 pt-3">
           <span className="min-w-0">
             <span className="block text-body text-ink">
@@ -332,7 +440,13 @@ export function MemberAccessRow({
         </label>
       )}
 
-      {!isOwner && (
+      <FormAlert
+        error={setGrants.error ?? setViewOthers.error}
+        className="mt-2"
+      />
+
+      {/* The button checks the rest itself: the owner, as themselves. */}
+      {canManage && (
         <ResetTwoStepButton
           businessId={businessId}
           membershipId={member._id}
@@ -341,7 +455,7 @@ export function MemberAccessRow({
         />
       )}
 
-      {!isOwner && (
+      {canManage && (
         <RemoveMember businessId={businessId} member={member} others={others} />
       )}
     </div>
@@ -389,6 +503,11 @@ function RemoveMember({
   const handover =
     (preview.data?.futureJobs ?? 0) + (preview.data?.activeRecurrences ?? 0) > 0
 
+  // Their work goes only where the remover could have booked it
+  // (`canDispatchTo`, which `team.remove` checks): the owner, onto anyone; a
+  // contractor, onto themselves or their own team.
+  const { options: successors } = useAssigneeOptions(others)
+
   if (!confirming) {
     return (
       <div className="mt-3 border-t border-hairline-2 pt-3">
@@ -425,7 +544,7 @@ function RemoveMember({
             className="h-11 rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
           >
             <option value="">Choose someone…</option>
-            {others.map((other) => (
+            {successors.map((other) => (
               <option key={other._id} value={other._id}>
                 {other.name || other.email}
               </option>
@@ -505,5 +624,8 @@ function removeError(error: unknown) {
     return 'That person cannot take over the work. Pick an active member.'
   }
   if (message.includes('LAST_OWNER')) return 'The owner cannot be removed.'
+  if (message.includes('NO_ACCESS')) {
+    return 'They are no longer yours to remove. Ask the business owner.'
+  }
   return 'Could not remove them. Check your connection and try again.'
 }
