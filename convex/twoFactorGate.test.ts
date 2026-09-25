@@ -159,6 +159,7 @@ describe('the server-side gate, where two-step sign-in is compulsory', () => {
       signedIn: true,
       required: true,
       enabled: false,
+      setup: 'none',
     })
   })
 
@@ -168,6 +169,7 @@ describe('the server-side gate, where two-step sign-in is compulsory', () => {
       signedIn: false,
       required: true,
       enabled: false,
+      setup: 'none',
     })
   })
 
@@ -211,6 +213,7 @@ describe('optional two-step sign-in (the default)', () => {
       signedIn: true,
       required: false,
       enabled: false,
+      setup: 'none',
     })
   })
 
