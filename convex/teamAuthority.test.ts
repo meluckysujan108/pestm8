@@ -516,3 +516,104 @@ describe('invitations', () => {
     ).rejects.toThrow(/OWNER_INVITE_FORBIDDEN/)
   })
 })
+
+/**
+ * The Team screen offers a control only where its row says the server will
+ * accept it, so each flag must be computed by the function the mutation
+ * enforces. These pin the flags against the same business the refusals above
+ * are tested on.
+ */
+describe('what the Team screen is told', () => {
+  test('the owner may change every role but their own, and hand work to anyone', async () => {
+    const s = await business()
+    const roster = await s.terence.as.query(api.team.roster, {
+      businessId: s.businessId,
+    })
+    const byId = new Map(roster.map((m) => [m._id, m]))
+
+    expect(byId.get(s.ownerMembershipId)).toMatchObject({
+      canManage: false,
+      canSetRole: false,
+      bookable: true,
+    })
+    for (const id of [s.joId, s.samId, s.kevinId, s.priyaId, s.aliId]) {
+      expect(byId.get(id)).toMatchObject({
+        canManage: true,
+        canSetRole: true,
+        bookable: true,
+      })
+    }
+  })
+
+  test('a contractor manages only their own team, sets no roles, and hands work only within it', async () => {
+    const s = await business()
+    const roster = await s.jo.as.query(api.team.roster, {
+      businessId: s.businessId,
+    })
+    const flags = Object.fromEntries(
+      roster.map((m) => [m._id, [m.canManage, m.canSetRole, m.bookable]]),
+    )
+
+    expect(flags).toEqual({
+      [s.ownerMembershipId]: [false, false, false],
+      [s.joId]: [false, false, true],
+      [s.samId]: [false, false, false],
+      [s.kevinId]: [true, false, true],
+      [s.priyaId]: [false, false, false],
+      [s.aliId]: [false, false, false],
+    })
+  })
+
+  test('invitations say who may withdraw and reissue them', async () => {
+    const s = await business()
+    const { invitationId: joSent } = await s.jo.as.action(
+      api.invitations.create,
+      {
+        businessId: s.businessId,
+        email: 'jo-hire@coastal.test',
+        role: 'subcontractor',
+      },
+    )
+    const { invitationId: ownerSent } = await s.terence.as.action(
+      api.invitations.create,
+      {
+        businessId: s.businessId,
+        email: 'owner-hire@coastal.test',
+        role: 'contractor',
+      },
+    )
+    // From before the rules: nobody may reissue an owner invitation, the owner
+    // included, though the owner may still withdraw it.
+    const legacyOwner = await s.t.run(async (ctx) =>
+      ctx.db.insert('invitations', {
+        businessId: s.businessId,
+        email: 'second-owner@coastal.test',
+        role: 'owner',
+        invitedByMembershipId: s.ownerMembershipId,
+        createdAt: Date.now(),
+        tokenHash: 'legacy-hash',
+        expiresAt: Date.now() + 60 * 60 * 1000,
+      }),
+    )
+
+    const flagsFor = async (who: TestActor) =>
+      Object.fromEntries(
+        (
+          await who.as.query(api.invitations.listForBusiness, {
+            businessId: s.businessId,
+          })
+        ).map((i) => [i._id, [i.canManage, i.canReissue]]),
+      )
+
+    expect(await flagsFor(s.terence)).toEqual({
+      [joSent]: [true, true],
+      [ownerSent]: [true, true],
+      [legacyOwner]: [true, false],
+    })
+    expect(await flagsFor(s.jo)).toEqual({
+      [joSent]: [true, true],
+      [ownerSent]: [false, false],
+      [legacyOwner]: [false, false],
+    })
+  })
+})

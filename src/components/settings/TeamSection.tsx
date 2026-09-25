@@ -12,8 +12,10 @@ import {
   useSaveWarnings,
 } from '#/components/forms/SaveWarnings'
 import { MemberAccessRow } from './MemberAccessRow'
+import type { FunctionReturnType } from 'convex/server'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Role } from '../../../convex/lib/capabilities'
+import { useAccess } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
 import { rq } from '#/lib/routeQueries'
 
@@ -33,7 +35,8 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
     // carrying them.
     rq.team(businessId),
   )
-  const { data: invitations } = useSuspenseQuery(rq.invitations(businessId))
+  const { data: rows } = useSuspenseQuery(rq.invitations(businessId))
+  const invitations: ReadonlyArray<PendingInvitation> = rows
 
   const [email, setEmail] = useState('')
   const [freshLink, setFreshLink] = useState<{
@@ -42,6 +45,9 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
   } | null>(null)
 
   const hydrated = useHydrated()
+  // The real person, as every team mutation decides on: the Team screen is
+  // not reachable while switched (`team.manage` drops).
+  const viewerIsOwner = useAccess().role === 'owner'
   const emailId = useId()
   const warnings = useSaveWarnings()
 
@@ -165,6 +171,11 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
         <p className="mt-2 text-caption text-muted">
           You'll get a link to text them. It works once, expires in 3 days, and
           only that email address can use it.
+          {/* True of the backend today: redeeming creates a member with no
+              team, so they would otherwise vanish from a contractor's
+              reach with no explanation. */}
+          {!viewerIsOwner &&
+            ' They join answering to the owner, who can put them on your team.'}
         </p>
       )}
 
@@ -172,48 +183,65 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
         <>
           <h3 className="section-label mb-2 mt-6">Waiting to join</h3>
           <div className="flex flex-col gap-2">
-            {invitations.map((invitation) => (
-              <div
-                key={invitation._id}
-                className="flex items-center gap-3 rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation"
-              >
-                <Mail size={17} strokeWidth={1.7} className="text-muted" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-body text-ink">
-                    {invitation.email}
-                  </span>
-                  <span className="block text-caption text-muted">
-                    {expiryLabel(invitation.expiresAt, invitation.state)}
-                  </span>
-                </span>
-                <button
-                  type="button"
-                  aria-label={`New link for ${invitation.email}`}
-                  disabled={regenerate.isPending}
-                  onClick={() =>
-                    regenerate.mutate({
-                      businessId,
-                      invitationId: invitation._id,
-                      email: invitation.email,
-                    })
-                  }
-                  className="flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+            {invitations.map((invitation) => {
+              // What `revoke` and `regenerate` accept from this viewer: the
+              // owner, any invitation; a contractor, the ones they sent. An
+              // older backend sends neither flag, so only the owner is
+              // offered them there — the one caller every backend accepts.
+              const canCancel = invitation.canManage ?? viewerIsOwner
+              const canReissue =
+                invitation.canReissue ??
+                (viewerIsOwner && invitation.role !== 'owner')
+              return (
+                <div
+                  key={invitation._id}
+                  className="flex items-center gap-3 rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation"
                 >
-                  <RefreshCw size={15} strokeWidth={2} />
-                </button>
-                <button
-                  type="button"
-                  aria-label={`Cancel invitation for ${invitation.email}`}
-                  disabled={revoke.isPending}
-                  onClick={() =>
-                    revoke.mutate({ businessId, invitationId: invitation._id })
-                  }
-                  className="flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
-                >
-                  <X size={15} strokeWidth={2} />
-                </button>
-              </div>
-            ))}
+                  <Mail size={17} strokeWidth={1.7} className="text-muted" />
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-body text-ink">
+                      {invitation.email}
+                    </span>
+                    <span className="block text-caption text-muted">
+                      {expiryLabel(invitation.expiresAt, invitation.state)}
+                    </span>
+                  </span>
+                  {canReissue && (
+                    <button
+                      type="button"
+                      aria-label={`New link for ${invitation.email}`}
+                      disabled={regenerate.isPending}
+                      onClick={() =>
+                        regenerate.mutate({
+                          businessId,
+                          invitationId: invitation._id,
+                          email: invitation.email,
+                        })
+                      }
+                      className="flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+                    >
+                      <RefreshCw size={15} strokeWidth={2} />
+                    </button>
+                  )}
+                  {canCancel && (
+                    <button
+                      type="button"
+                      aria-label={`Cancel invitation for ${invitation.email}`}
+                      disabled={revoke.isPending}
+                      onClick={() =>
+                        revoke.mutate({
+                          businessId,
+                          invitationId: invitation._id,
+                        })
+                      }
+                      className="flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+                    >
+                      <X size={15} strokeWidth={2} />
+                    </button>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </>
       )}
@@ -313,6 +341,16 @@ function InviteLinkCard({
     </div>
   )
 }
+
+/**
+ * An invitation as this screen reads it. The permission flags are optional
+ * because this build can meet a backend from before they existed — the two
+ * deploy separately (CLAUDE.md) — and absent has to be handled, not assumed.
+ */
+type PendingInvitation = Omit<
+  FunctionReturnType<typeof api.invitations.listForBusiness>[number],
+  'canManage' | 'canReissue'
+> & { canManage?: boolean; canReissue?: boolean }
 
 /** The invite's own words for describeError: it creates, it does not save. */
 const INVITE_COPY = {

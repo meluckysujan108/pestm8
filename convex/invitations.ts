@@ -442,7 +442,8 @@ export const checkForSignUp = internalQuery({
 export const listForBusiness = query({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {
-    requireCapability(await requireActor(ctx, businessId), 'team.manage')
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'team.manage')
     const now = Date.now()
 
     const rows = await ctx.db
@@ -451,14 +452,25 @@ export const listForBusiness = query({
       .collect()
 
     return rows
-      .map((invitation) => ({
-        _id: invitation._id,
-        email: invitation.email,
-        role: invitation.role,
-        createdAt: invitation.createdAt,
-        expiresAt: invitation.expiresAt,
-        state: inviteState(invitation, now),
-      }))
+      .map((invitation) => {
+        // What `revoke` and `regenerate` will accept from this caller, so the
+        // Team screen offers nothing the server refuses. Added fields: an
+        // older client ignores them.
+        const canManage = canManageInvitation(env.actor, invitation)
+        return {
+          _id: invitation._id,
+          email: invitation.email,
+          role: invitation.role,
+          createdAt: invitation.createdAt,
+          expiresAt: invitation.expiresAt,
+          state: inviteState(invitation, now),
+          /** May withdraw it: the owner, any; a contractor, their own. */
+          canManage,
+          /** May mint a new link for it: as above, and only for a role the
+           * caller could invite as today (`applyNewToken`). */
+          canReissue: canManage && canInviteAs(env.actor, invitation.role),
+        }
+      })
       .filter((row) => row.state === 'valid' || row.state === 'legacy')
       .sort((a, b) => b.createdAt - a.createdAt)
   },
