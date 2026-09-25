@@ -168,6 +168,7 @@ export function MemberSettings({
           member={member}
           roleEditable={roleEditable}
           parents={showTeam ? parents : []}
+          team={teamOf(member, others)}
         />
       )}
 
@@ -334,6 +335,7 @@ function RoleGroup({
   member,
   roleEditable,
   parents,
+  team,
 }: {
   businessId: Id<'businesses'>
   member: Member
@@ -341,6 +343,8 @@ function RoleGroup({
   roleEditable: boolean
   /** Whom they may be put under (`canAssignTo`); none hides "Works under". */
   parents: Array<Member>
+  /** Who works under them — only ever a contractor's people. */
+  team: Array<Member>
 }) {
   const hydrated = useHydrated()
   const access = useAccess()
@@ -371,6 +375,11 @@ function RoleGroup({
   // them back. So it asks first. The owner's moves are all reversible.
   const [releasing, setReleasing] = useState(false)
 
+  // Demoting a contractor who has people under them hands those people to the
+  // owner (`releaseTeam`), which the select alone gives no hint of — so it
+  // says who, and asks. With nobody under them it is a plain change.
+  const [demoting, setDemoting] = useState(false)
+
   // A change the server refused used to just snap the select back.
   const failed = setRole.isError
     ? setRole.error
@@ -396,14 +405,19 @@ function RoleGroup({
           <select
             id={roleId}
             value={member.role}
-            disabled={setRole.isPending || !hydrated}
-            onChange={(e) =>
-              setRole.mutate({
-                businessId,
-                membershipId: member._id,
-                role: e.target.value as 'subcontractor' | 'contractor',
-              })
-            }
+            disabled={setRole.isPending || demoting || !hydrated}
+            onChange={(e) => {
+              const role = e.target.value as 'subcontractor' | 'contractor'
+              if (
+                member.role === 'contractor' &&
+                role === 'subcontractor' &&
+                team.length > 0
+              ) {
+                setDemoting(true)
+                return
+              }
+              setRole.mutate({ businessId, membershipId: member._id, role })
+            }}
             className={`${fieldInputClass()} disabled:opacity-50`}
           >
             <option value="subcontractor">Subcontractor</option>
@@ -451,6 +465,45 @@ function RoleGroup({
             ))}
           </select>
         </FieldRow>
+      )}
+
+      {demoting && (
+        <div className="px-3.5 py-3">
+          <p className="text-body text-ink">
+            Make {memberName(member)} a subcontractor?
+          </p>
+          <p className="mt-1 text-caption text-muted">
+            {listNames(team)} {team.length === 1 ? 'answers' : 'answer'} to{' '}
+            {memberName(member)} now, and will answer to you instead, keeping
+            what they can see today.
+          </p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={() => setDemoting(false)}
+              className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              disabled={setRole.isPending}
+              onClick={() =>
+                setRole.mutate(
+                  {
+                    businessId,
+                    membershipId: member._id,
+                    role: 'subcontractor',
+                  },
+                  { onSettled: () => setDemoting(false) },
+                )
+              }
+              className="h-11 flex-1 rounded-xl bg-blue text-body font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+            >
+              {setRole.isPending ? 'Changing…' : 'Make subcontractor'}
+            </button>
+          </div>
+        </div>
       )}
 
       {releasing && (
@@ -662,6 +715,7 @@ function RemoveMember({
   const reassignId = useId()
   const [confirming, setConfirming] = useState(false)
   const [reassignTo, setReassignTo] = useState<Id<'memberships'> | ''>('')
+  const team = teamOf(member, others)
 
   const preview = useQuery({
     ...convexQuery(api.team.removalPreview, {
@@ -715,6 +769,14 @@ function RemoveMember({
           ? 'Checking what they have on…'
           : describeWork(preview.data)}
       </p>
+      {/* Only a contractor has anyone under them, and only the owner may
+          remove a contractor — so "you" is always the owner here. */}
+      {team.length > 0 && (
+        <p className="mt-1 text-caption text-muted">
+          {listNames(team)} will answer to you instead, keeping what they can
+          see today.
+        </p>
+      )}
 
       {handover && (
         <div className="mt-3 flex flex-col gap-1.5">
@@ -768,6 +830,19 @@ function RemoveMember({
       </div>
     </div>
   )
+}
+
+/** Who works under this person — only ever a contractor's people. */
+function teamOf(member: Member, others: Array<Member>): Array<Member> {
+  return others.filter((m) => m.parentMembershipId === member._id)
+}
+
+/** "Kevin", "Kevin and Mia", "Kevin, Mia and 3 others". */
+function listNames(people: Array<Member>): string {
+  const names = people.map((m) => m.name || m.email || 'Someone')
+  if (names.length <= 2) return names.join(' and ')
+  if (names.length === 3) return `${names[0]}, ${names[1]} and ${names[2]}`
+  return `${names[0]}, ${names[1]} and ${names.length - 2} others`
 }
 
 function describeWork(

@@ -75,6 +75,7 @@ import type * as lib_reportSearch from "../lib/reportSearch.js";
 import type * as lib_richText from "../lib/richText.js";
 import type * as lib_siteContact from "../lib/siteContact.js";
 import type * as lib_svix from "../lib/svix.js";
+import type * as lib_teamRelease from "../lib/teamRelease.js";
 import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
 import type * as lib_twoFactorSetup from "../lib/twoFactorSetup.js";
 import type * as lib_workOrder from "../lib/workOrder.js";
@@ -184,6 +185,7 @@ declare const fullApi: ApiFromModules<{
   "lib/richText": typeof lib_richText;
   "lib/siteContact": typeof lib_siteContact;
   "lib/svix": typeof lib_svix;
+  "lib/teamRelease": typeof lib_teamRelease;
   "lib/templateSnapshot": typeof lib_templateSnapshot;
   "lib/twoFactorSetup": typeof lib_twoFactorSetup;
   "lib/workOrder": typeof lib_workOrder;

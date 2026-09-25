@@ -5,6 +5,7 @@ import { authComponent } from './auth'
 import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
+import { releaseTeam } from './lib/teamRelease'
 import {
   canAssignTo,
   canDispatchTo,
@@ -197,6 +198,19 @@ async function offboard(
     await ctx.db.patch(draft._id, { authorMembershipId: actor._id })
   }
 
+  // A contractor's team does not leave with them. Released to the owner
+  // before the patch below zeroes the grants that were their ceiling — left
+  // pointing at a removed contractor, they lost prices and the schedule.
+  const releasedTeam =
+    target.role === 'contractor'
+      ? await releaseTeam(ctx, {
+          contractor: target,
+          actorId: actor._id,
+          reason: action === 'membership.leave' ? 'left' : 'removed',
+          at: now,
+        })
+      : 0
+
   await ctx.db.patch(target._id, {
     status: 'removed',
     removedAt: now,
@@ -294,6 +308,7 @@ async function offboard(
       transferredDrafts: drafts.length,
       reassignedTo: reassignTo,
       sessionsRevoked: !stillMemberElsewhere,
+      ...(releasedTeam > 0 && { releasedTeam }),
     },
     at: now,
   })
