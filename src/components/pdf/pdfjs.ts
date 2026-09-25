@@ -14,8 +14,9 @@ import type {
  * 18 and later) and `Promise.withResolvers` (Safari 17.4 and later) without
  * polyfilling either, so on an iPhone a couple of iOS versions behind — which
  * is a lot of technicians' phones — the viewer just says it could not load.
- * The legacy build polyfills both and is otherwise the same library. The
- * report viewer (react-pdf) still uses the modern build; it moves over later.
+ * The legacy build polyfills both and is otherwise the same library, and it
+ * is the only pdf.js in the app: every PDF shown here — a product's safety
+ * data sheet, a finalised report, a draft's preview — opens through it.
  *
  * Imported only by the viewer, which is only ever reached through
  * `React.lazy`. pdf.js touches `DOMMatrix` and starts a Worker when it is

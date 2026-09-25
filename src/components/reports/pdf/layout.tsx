@@ -7,9 +7,9 @@ import { COLOURS, FONT, SIZES } from './theme'
  *
  * `fixed` (repeats on every page at this position) plus `position: absolute`
  * for the footer, and the `render` callback for real page numbers — all three
- * silently produce nothing under the browser build `DownloadPdfButton` used to
- * generate from, which is why none of them existed before PDF generation moved
- * server-side. Safe here: this module is only ever rendered inside the Convex
+ * silently produce nothing under the browser build the app's old Download
+ * button used to generate from, which is why none of them existed before PDF
+ * generation moved server-side. Safe here: this module is only ever rendered inside the Convex
  * Node action in `convex/reportPdf.tsx`.
  */
 const styles = StyleSheet.create({

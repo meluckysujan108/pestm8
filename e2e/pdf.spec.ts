@@ -15,6 +15,7 @@ import {
   customTemplateArgs,
   finaliseReport,
 } from './fixtures/reportPayloads'
+import { downloadFromViewer, openReportPdf } from './fixtures/reportViewer'
 import { getTemplate } from '../src/lib/reportTemplates'
 
 /**
@@ -93,15 +94,12 @@ test('an exported inspection PDF carries its findings and scope limits', async (
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
 
-  // The download lives behind the action bar's "PDF" tab (Phase 6), not on
-  // the document itself. The tab stays disabled until the page hydrates; a
-  // click before then would be swallowed by server-rendered markup.
-  await expect(page.getByRole('tab', { name: 'PDF' })).toBeEnabled()
-  await page.getByRole('tab', { name: 'PDF' }).click()
-
-  const downloadPromise = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Download PDF' }).click()
-  const download = await downloadPromise
+  // The file leaves from the app's viewer, not the document on the page: the
+  // action bar's "PDF" tab, View PDF, then Save in the viewer's More menu.
+  // The tab and the button stay disabled until the page hydrates; a click
+  // before then would be swallowed by server-rendered markup.
+  const viewer = await openReportPdf(page)
+  const download = await downloadFromViewer(page, viewer)
   const path = await download.path()
 
   const text = await pdfText(path)

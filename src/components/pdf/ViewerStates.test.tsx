@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { PasswordState } from './ViewerStates'
+import { ErrorState, PasswordState } from './ViewerStates'
 
 /**
  * The password form, rendered. What a technician sees between pressing Open
@@ -43,5 +43,31 @@ describe('PasswordState', () => {
       expect(input?.[0]).not.toContain('disabled')
       expect(input?.[0]).not.toContain('readonly')
     }
+  })
+})
+
+describe('ErrorState', () => {
+  const error = (props: {
+    reason: 'download' | 'damaged'
+    detail: string | null
+  }) => renderToStaticMarkup(<ErrorState {...props} onRetry={() => {}} />)
+
+  it('says what the source said went wrong, rather than blaming the signal', () => {
+    const html = error({
+      reason: 'download',
+      detail: 'Your latest answers haven’t saved yet.',
+    })
+    expect(html).toContain('Your latest answers haven’t saved yet.')
+    expect(html).not.toContain('Check your signal')
+    expect(html).toContain('Try again')
+  })
+
+  it('falls back to its own sentence when the source said nothing useful', () => {
+    expect(error({ reason: 'download', detail: null })).toContain(
+      'Check your signal and try again.',
+    )
+    expect(error({ reason: 'damaged', detail: null })).toContain(
+      'The file may be damaged, or not a PDF.',
+    )
   })
 })

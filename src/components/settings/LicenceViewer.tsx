@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
-import { ViewerHost } from '#/components/products/ViewerHost'
-import { useShareSupport } from '#/components/products/hooks'
+import { ViewerHost } from '#/components/pdf/host/ViewerHost'
+import { useShareSupport } from '#/components/pdf/host/useShareSupport'
 import { ImageViewer } from '#/components/viewer/ImageViewer'
 import { sharePdf } from '#/lib/pdfFiles'
 import { licenceSourceFor } from './licenceSource'

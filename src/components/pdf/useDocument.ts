@@ -6,7 +6,13 @@ import {
   useRef,
   useState,
 } from 'react'
-import { LOADING, askPassword, checkPassword } from './documentState'
+import {
+  DAMAGED,
+  LOADING,
+  askPassword,
+  checkPassword,
+  downloadFailed,
+} from './documentState'
 import { openPdf } from './pdfjs'
 import type { DocumentState } from './documentState'
 import type { PDFDocumentLoadingTask, PDFDocumentProxy } from './pdfjs'
@@ -71,8 +77,8 @@ export function usePdfDocument(
           },
           controller.signal,
         )
-      } catch {
-        show({ phase: 'error', reason: 'download' })
+      } catch (error) {
+        show(downloadFailed(error))
         return
       }
       // Share and Save work from here on, even if pdf.js then cannot read it.
@@ -92,7 +98,7 @@ export function usePdfDocument(
           firstPage: { width: first.width, height: first.height },
         })
       } catch {
-        show({ phase: 'error', reason: 'damaged' })
+        show(DAMAGED)
       }
     }
     void go()

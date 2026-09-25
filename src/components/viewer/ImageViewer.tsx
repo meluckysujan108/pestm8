@@ -53,7 +53,7 @@ export type ImageViewerProps = {
   source: DocumentSource
   onClose: () => void
   /** The system share sheet, for the file itself. Absent: no Share. */
-  share?: (file: File) => Promise<void>
+  share?: (file: File) => Promise<unknown>
   /** What to say when the bytes arrive but are not a picture a browser can
    * draw — worded by the opener, who knows whether the person looking can
    * do anything about it. */

@@ -16,7 +16,16 @@ export type DocumentState =
       /** A password is with pdf.js, being tried. */
       checking: boolean
     }
-  | { phase: 'error'; reason: 'download' | 'damaged' }
+  | {
+      phase: 'error'
+      reason: 'download' | 'damaged'
+      /**
+       * What the source said went wrong, in its own words ("This report has
+       * just been locked…"), when it said anything a person can use. Shown
+       * in place of the viewer's guess at the cause.
+       */
+      detail: string | null
+    }
   | { phase: 'ready'; doc: PDFDocumentProxy; firstPage: PageSize }
 
 export const LOADING: DocumentState = { phase: 'loading', progress: null }
@@ -41,4 +50,49 @@ export function checkPassword(state: DocumentState): DocumentState {
   return state.phase === 'password' && !state.checking
     ? { ...state, checking: true }
     : state
+}
+
+/**
+ * The bytes did not arrive. The source's own words are kept when it gave
+ * some, because it knows why and the viewer does not: a draft preview whose
+ * answers failed to save, a report being locked on another phone, a file
+ * that is no longer there. Put down to the signal instead, each of those
+ * sends someone off to find a bar or two, and back to "Try again", which
+ * then fails the same way every time.
+ */
+export function downloadFailed(error: unknown): DocumentState {
+  return { phase: 'error', reason: 'download', detail: plainWords(error) }
+}
+
+/** pdf.js could not read what arrived. Its errors are for developers. */
+export const DAMAGED: DocumentState = {
+  phase: 'error',
+  reason: 'damaged',
+  detail: null,
+}
+
+/**
+ * A rejection's message, when it is words for a person — which is what a
+ * `DocumentSource` rejects with when something it understands goes wrong.
+ *
+ * Not the platform's own failures, which a source lets through untouched
+ * when it has nothing better to say: a `TypeError` from `fetch` ("Load
+ * failed", "Failed to fetch"), a `DOMException` from storage or an abort,
+ * and a Convex call that failed on the way ("[CONVEX A(…)] Server Error").
+ * Those get the viewer's own sentence.
+ */
+export function plainWords(error: unknown): string | null {
+  if (!(error instanceof Error)) return null
+  if (
+    error instanceof TypeError ||
+    error instanceof RangeError ||
+    error instanceof SyntaxError ||
+    error instanceof ReferenceError ||
+    (typeof DOMException !== 'undefined' && error instanceof DOMException) ||
+    error.name === 'AbortError'
+  ) {
+    return null
+  }
+  const message = error.message.trim()
+  return message === '' || message.startsWith('[CONVEX') ? null : message
 }

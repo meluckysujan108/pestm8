@@ -82,9 +82,10 @@ export async function buildServiceWorker(publicDir: string) {
     swSrc: swDest,
     swDest,
     globDirectory: publicDir,
-    // `mjs` covers the pdf.js worker `PdfViewer.tsx` self-hosts — without it,
-    // that asset silently falls outside the offline precache and the PDF
-    // viewer needs a live connection on every device's first use.
+    // `mjs` covers the pdf.js worker the in-app PDF viewer self-hosts
+    // (`src/components/pdf/pdfjs.ts`, the legacy build's) — without it, that
+    // asset silently falls outside the offline precache and the viewer needs
+    // a live connection on every device's first use.
     globPatterns: ['**/*.{js,mjs,css,html,ico,png,svg,webmanifest,woff2}'],
     // Skip the worker itself and anything already content-hashed by the router.
     // `pdfjs/` is pdf.js's fetch-when-asked files (scripts/copy-pdfjs-assets.mjs):

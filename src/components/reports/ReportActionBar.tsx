@@ -1,25 +1,24 @@
-import { Suspense, lazy, useEffect, useRef, useState } from 'react'
+import { useState } from 'react'
 import { CalendarClock, Send } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { sgarFollowUp } from '#/lib/reportTemplates/sgar'
 import type { ReactNode } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { convexQuery, useConvexAction } from '@convex-dev/react-query'
+import { useQuery } from '@tanstack/react-query'
+import { convexQuery } from '@convex-dev/react-query'
 import { Segmented } from '../primitives/Segmented'
-import { DownloadPdfButton } from './DownloadPdfButton'
 import { api } from '../../../convex/_generated/api'
 import { useHydrated } from '#/lib/useHydrated'
 import { DeliveryHistory, SendSheet } from './SendSheet'
+import { ReportPdfCard } from './ReportPdfCard'
+import { ReportPdfViewer } from './ReportPdfViewer'
+import { replacedBadge } from './reportPdfModel'
+import { useReportPdf } from './useReportPdf'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import { documentIdentity } from '#/lib/reportTemplates/documentModel'
 import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
-
-const LazyPdfViewer = lazy(() =>
-  import('./pdf/PdfViewer').then((m) => ({ default: m.PdfViewer })),
-)
 
 const TABS = [
   { value: 'form' as const, label: 'Form' },
@@ -69,7 +68,11 @@ function SgarNotice({
 
   return (
     <div className="mx-4 mt-4 flex items-start gap-2.5 rounded-2xl border border-amber-line bg-amber-bg px-3.5 py-3">
-      <CalendarClock size={16} strokeWidth={1.9} className="mt-0.5 shrink-0 text-amber-ink" />
+      <CalendarClock
+        size={16}
+        strokeWidth={1.9}
+        className="mt-0.5 shrink-0 text-amber-ink"
+      />
       <div className="min-w-0 flex-1">
         <p className="text-caption text-amber-ink">
           {/* A suspension with replacement label instructions — never a "ban",
@@ -113,31 +116,57 @@ export type SendableReport = {
 }
 
 /**
- * Only shown once a report is finalised — a draft has no PDF to view, no
- * finished document to email, and nothing worth logging yet.
+ * Only shown once a report is finalised — a draft has no finished document to
+ * email and nothing worth logging yet, and its PDF is a watermarked preview
+ * opened from the sheet that locks it (`ReportBuilder`), not a tab.
+ *
+ * The PDF opens full-screen, and the address says so (`?view=pdf`): the route
+ * owns getting there and back, so the phone's back gesture closes the viewer
+ * rather than leaving the report. This owns the PDF itself — the one render
+ * the tab and the viewer share — and mounts the viewer once hydrated.
  */
 export function ReportActionBar({
   businessId,
   businessSlug,
   reportId,
   pdfUrl,
+  title,
   fileName,
   report,
+  replaced,
+  viewing,
+  onView,
+  onCloseView,
   children,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
   reportId: Id<'reports'>
   pdfUrl: string | null
+  /** The document's title, as the PDF prints it. */
+  title: string
   fileName: string
   /** Enough of the finalised report for the send sheet to know who it is for. */
   report: SendableReport
+  /** Set when a correction has replaced this document. */
+  replaced?: {
+    supersededBy: Id<'reports'>
+    reportNumber?: number
+    version?: number
+  }
+  /** The PDF is open full-screen (`?view=pdf`). */
+  viewing: boolean
+  onView: () => void
+  onCloseView: () => void
   children: ReactNode
 }) {
-  const [tab, setTab] = useState<Tab>('form')
+  // Straight onto the PDF tab when the page opened on the viewer (a refresh,
+  // a shared link), so closing it lands where View PDF lives.
+  const [tab, setTab] = useState<Tab>(() => (viewing ? 'pdf' : 'form'))
   // The finalised report is server-rendered: a tap on "PDF" before hydration
   // would land on a button with no handler and quietly do nothing.
   const hydrated = useHydrated()
+  const pdf = useReportPdf({ businessId, reportId, pdfUrl })
 
   return (
     <>
@@ -156,108 +185,40 @@ export function ReportActionBar({
       {tab === 'form' && children}
 
       {tab === 'pdf' && (
-        <PdfTab
-          businessId={businessId}
-          reportId={reportId}
-          pdfUrl={pdfUrl}
-          fileName={fileName}
+        <ReportPdfCard
+          businessSlug={businessSlug}
+          title={title}
+          pdf={pdf}
+          hydrated={hydrated}
+          onView={onView}
+          replaced={replaced}
         />
       )}
 
       {tab === 'email' && (
-        <EmailPanel businessId={businessId} reportId={reportId} report={report} />
+        <EmailPanel
+          businessId={businessId}
+          reportId={reportId}
+          report={report}
+        />
       )}
 
       {tab === 'logs' && (
         <LogsPanel businessId={businessId} reportId={reportId} />
       )}
-    </>
-  )
-}
 
-/**
- * `pdfUrl` is null until something has called `reportPdf.generate` at least
- * once — previously that "something" was only ever a click on
- * `DownloadPdfButton`. Opening the PDF tab is now itself that trigger, so the
- * viewer doesn't need a download click first; the resolved URL is then
- * handed to both the viewer and the download button rather than each
- * independently deciding whether to generate.
- */
-function PdfTab({
-  businessId,
-  reportId,
-  pdfUrl,
-  fileName,
-}: {
-  businessId: Id<'businesses'>
-  reportId: Id<'reports'>
-  pdfUrl: string | null
-  fileName: string
-}) {
-  const hydrated = useHydrated()
-  const [generatedUrl, setGeneratedUrl] = useState<string | null>(null)
-  const [failed, setFailed] = useState(false)
-  const requested = useRef(false)
-
-  const convexGenerate = useConvexAction(api.reportPdf.generate)
-  const generate = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      reportId: Id<'reports'>
-    }) => convexGenerate(args),
-  })
-
-  const url = pdfUrl ?? generatedUrl
-
-  useEffect(() => {
-    if (url || requested.current) return
-    requested.current = true
-    generate
-      .mutateAsync({ businessId, reportId })
-      .then((result) => {
-        if (result.url) setGeneratedUrl(result.url)
-        else setFailed(true)
-      })
-      .catch(() => setFailed(true))
-    // `generate` is a fresh object every render (useMutation) — the `requested`
-    // ref is the real guard against re-firing, not the dependency array.
-  }, [url, businessId, reportId])
-
-  return (
-    <div className="px-4 pt-5 pb-8">
-      {url ? (
-        hydrated ? (
-          <Suspense fallback={<PdfViewerSkeleton />}>
-            <LazyPdfViewer businessId={businessId} reportId={reportId} url={url} />
-          </Suspense>
-        ) : (
-          <PdfViewerSkeleton />
-        )
-      ) : failed ? (
-        <p role="alert" className="text-center text-caption text-amber-ink">
-          Could not prepare the PDF. Check your connection and try again.
-        </p>
-      ) : (
-        <PdfViewerSkeleton />
-      )}
-
-      <div className="mt-4">
-        <DownloadPdfButton
+      {hydrated && viewing && (
+        <ReportPdfViewer
           businessId={businessId}
           reportId={reportId}
-          pdfUrl={url}
+          title={title}
           fileName={fileName}
+          pdf={pdf}
+          badge={replaced ? replacedBadge(replaced.version) : undefined}
+          onClose={onCloseView}
         />
-      </div>
-    </div>
-  )
-}
-
-function PdfViewerSkeleton() {
-  return (
-    <div className="flex h-64 items-center justify-center rounded-xl border border-hairline bg-surface-3">
-      <p className="text-caption text-muted">Preparing viewer…</p>
-    </div>
+      )}
+    </>
   )
 }
 
@@ -382,7 +343,10 @@ function LogRow({
     onBehalfOfName?: string
   }
 }) {
-  const meta = (entry.meta ?? {}) as { to?: string | Array<string>; detail?: string }
+  const meta = (entry.meta ?? {}) as {
+    to?: string | Array<string>
+    detail?: string
+  }
   const to = Array.isArray(meta.to) ? meta.to.join(', ') : meta.to
   return (
     <li className="flex gap-2.5 px-3.5 py-3">

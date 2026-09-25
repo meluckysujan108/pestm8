@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import {
-  convexQuery,
-  useConvexAction,
-  useConvexMutation,
-} from '@convex-dev/react-query'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { ArrowLeft, ArrowRight, CheckCheck, Lock, Save } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { FieldRenderer } from './fields/FieldRenderer'
@@ -34,6 +30,9 @@ import { quickAnswersFor } from '#/lib/reportTemplates/quickAnswers'
 import type { QuickMode } from '#/lib/reportTemplates/quickAnswers'
 import { ReportOverview, SectionNav } from './ReportOverview'
 import { FinaliseSheet } from './FinaliseSheet'
+import { DraftPreviewViewer } from './DraftPreviewViewer'
+import { prefetchViewer } from '#/components/pdf/host/viewerChunk'
+import { documentIdentity } from '#/lib/reportTemplates/documentModel'
 import type { PrefillMap } from '#/lib/reportTemplates/seed'
 import type { SectionProgress } from '#/lib/reportTemplates/progress'
 import type { ReportIssue } from '#/lib/reportTemplates/validate'
@@ -500,39 +499,49 @@ export function ReportBuilder({
     },
   })
 
-  const convexPreview = useConvexAction(api.reportPdf.preview)
-  const preview = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      reportId: Id<'reports'>
-    }) => convexPreview(args),
-  })
-
   /**
-   * A watermarked PDF of the draft, opened in a new tab.
+   * The draft's watermarked preview, open in the app's own viewer
+   * (`DraftPreviewViewer`), or null. A number per opening, so a second look
+   * after an edit is drawn afresh rather than shown from the first.
    *
-   * The tab is opened in the click handler and pointed at the file when the
-   * render lands. Opening it afterwards instead is a popup with no user
-   * gesture behind it, which every browser blocks — and a technician gets
-   * nothing, with nothing to tell them why.
+   * Local state, not the address: a preview belongs to this sitting of the
+   * finalise sheet — it opens from the sheet and goes back to it — and a
+   * refresh or a shared link has no sheet to go back to.
    */
+  const [previewing, setPreviewing] = useState<number | null>(null)
+  const previews = useRef(0)
+  /** Why the last preview could not be drawn, said on the sheet it came from. */
+  const [previewTrouble, setPreviewTrouble] = useState<string | null>(null)
+
+  // The sheet and the viewer are never open together: both are modal, and
+  // two focus traps stacked is one too many (the Products page does the
+  // same). Closing the preview puts the sheet back as it was — the report
+  // passed validation a moment ago, and asking again would only be slower.
   function openPreview() {
-    const tab = typeof window === 'undefined' ? null : window.open('', '_blank')
-    void autosave
-      .flush()
-      .then(() => preview.mutateAsync({ businessId, reportId }))
-      .then(
-        (result) => {
-          if (!result.url) {
-            tab?.close()
-            return
-          }
-          if (tab) tab.location.href = result.url
-          else window.open(result.url, '_blank', 'noopener')
-        },
-        () => tab?.close(),
-      )
+    setConfirming(false)
+    setPreviewTrouble(null)
+    previews.current += 1
+    setPreviewing(previews.current)
   }
+  function closePreview() {
+    setPreviewing(null)
+    setConfirming(true)
+  }
+  // A refusal comes back to the sheet rather than staying in the viewer,
+  // whose error screen blames the signal for everything: "this report has
+  // just been locked" read as "check your signal", with a Try again that
+  // failed the same way every time.
+  function previewRefused(words: string) {
+    closePreview()
+    setPreviewTrouble(words)
+  }
+
+  // The viewer's code, fetched while the sheet that offers the preview is up.
+  useEffect(() => {
+    if (confirming) prefetchViewer()
+  }, [confirming])
+
+  const identity = documentIdentity({ template, property, businessName })
 
   const convexConfirm = useConvexMutation(api.reports.confirmPrefill)
   const confirmSuggestions = useMutation({
@@ -632,6 +641,9 @@ export function ReportBuilder({
     }
     setErrors({})
     setIssues([])
+    // A fresh look at the sheet: what stopped an earlier preview may be
+    // long mended.
+    setPreviewTrouble(null)
     setConfirming(true)
   }
 
@@ -942,7 +954,10 @@ export function ReportBuilder({
 
         <FinaliseSheet
           open={confirming}
-          onClose={() => setConfirming(false)}
+          onClose={() => {
+            setConfirming(false)
+            setPreviewTrouble(null)
+          }}
           onConfirm={onConfirmFinalise}
           pending={finalise.isPending}
           template={template}
@@ -957,8 +972,22 @@ export function ReportBuilder({
             setData((prev) => ({ ...prev, [key]: value }))
           }
           onPreview={openPreview}
-          previewing={preview.isPending}
+          previewTrouble={previewTrouble}
         />
+
+        {hydrated && previewing !== null && (
+          <DraftPreviewViewer
+            key={previewing}
+            nonce={previewing}
+            businessId={businessId}
+            reportId={reportId}
+            title={identity.title}
+            fileName={identity.fileName}
+            flush={autosave.flush}
+            onClose={closePreview}
+            onRefused={previewRefused}
+          />
+        )}
 
         {/* `data-ready` is the readiness signal the e2e suite waits on: the
           footer's buttons change label per screen, so waiting on any one of
