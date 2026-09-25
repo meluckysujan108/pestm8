@@ -16,8 +16,11 @@ import {
 } from './lib/actor'
 import {
   canDispatchTo,
+  canInviteAs,
+  canManageInvitation,
   canManageMember,
   canSetColour,
+  canSetRole,
   clampGrants,
   NO_GRANTS,
   recomputeGrants,
@@ -157,6 +160,10 @@ export const revokeInvitation = mutation({
     if (!invitation || invitation.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
+    // As `invitations.revoke`: a contractor withdraws only their own.
+    if (!canManageInvitation(env.actor, invitation)) {
+      throw new ConvexError('NO_ACCESS')
+    }
     if (invitation.claimedAt !== undefined) {
       throw new ConvexError('ALREADY_MEMBER')
     }
@@ -205,6 +212,8 @@ export const invite = mutation({
     // The owner account is the key to the business; it is never handed out
     // through an invitation, only by the bootstrap runbook.
     requireAssignableRole(args.role)
+    // And a contractor is made only by the owner (`canInviteAs`).
+    if (!canInviteAs(env.actor, args.role)) throw new ConvexError('NO_ACCESS')
 
     const existing = await ctx.db
       .query('memberships')
@@ -463,6 +472,16 @@ export const setRole = mutation({
         (m) => m.role === 'owner' && m.status === 'active',
       )
       if (activeOwners.length <= 1) throw new ConvexError('LAST_OWNER')
+    }
+
+    // `team.manage` says they may manage somebody, and a contractor holds it
+    // business-wide. Without this they could promote or demote anyone who is
+    // not the owner — another contractor, someone else's team, their own
+    // people into peers. Roles are the owner's to hand out (`canSetRole`).
+    // After LAST_OWNER, which `canSetRole` would also refuse, because for the
+    // owner's own row that is the answer that explains itself.
+    if (!canSetRole(env.actor, factsFromMembership(target))) {
+      throw new ConvexError('NO_ACCESS')
     }
 
     /**

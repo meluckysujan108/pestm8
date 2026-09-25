@@ -574,6 +574,78 @@ export function canManageMember(
 }
 
 /**
+ * Who may change someone's role: the owner, for anyone `canManageMember` lets
+ * them manage.
+ *
+ * Narrower than `canManageMember` on purpose, because a role decides who has a
+ * team. The only change a contractor could ever make is promoting one of their
+ * own subcontractors — which takes that person off their team and hands them
+ * `team.manage`, `clients.manage` and a team of their own. That is a
+ * contractor minting a peer, and the shape of the business is the owner's
+ * call.
+ */
+export function canSetRole(actor: ReadActor, target: MembershipFacts): boolean {
+  return actor.real.role === 'owner' && canManageMember(actor, target)
+}
+
+/**
+ * Whether `target` may be put under `parent` — or, with `null`, made to answer
+ * to the owner directly.
+ *
+ * `canManageMember` decides who may be moved; this also decides where to. The
+ * owner places anyone under any contractor. A contractor may let one of their
+ * own people go back to answering to the owner, and nothing else: handing them
+ * to another contractor would give that contractor switch, edit and grant
+ * reach over someone, decided by a peer with no authority over either of them.
+ */
+export function canAssignTo(
+  actor: ReadActor,
+  target: MembershipFacts,
+  parent: MembershipFacts | null,
+): boolean {
+  if (!canManageMember(actor, target)) return false
+  if (actor.real.role === 'owner') return true
+  return parent === null || parent._id === actor.real._id
+}
+
+/**
+ * Who may bring someone new into the business, and as what. `canSetRole` from
+ * the other side: inviting someone as a contractor makes a contractor, so only
+ * the owner may. A contractor invites subcontractors.
+ */
+export function canInviteAs(actor: ReadActor, role: Role): boolean {
+  if (isSwitched(actor)) return false
+  if (!isAssignableRole(role)) return false
+  if (actor.real.role === 'owner') return true
+  return actor.real.role === 'contractor' && role === 'subcontractor'
+}
+
+/**
+ * Who may withdraw or reissue an outstanding invitation: the owner, any of
+ * them; a contractor, the ones they sent.
+ *
+ * An invitation names nobody who is in the business yet, so `canManageMember`
+ * has nothing to decide on and the sender does instead. Reissuing kills the
+ * old link on the spot and hands the caller a fresh one, so a contractor able
+ * to do it to anyone's invitation could take over the owner's.
+ */
+export function canManageInvitation(
+  actor: ReadActor,
+  invitation: {
+    businessId: Id<'businesses'>
+    invitedByMembershipId: Id<'memberships'>
+  },
+): boolean {
+  if (isSwitched(actor)) return false
+  const real = actor.real
+  if (real.businessId !== invitation.businessId) return false
+  if (real.role === 'owner') return true
+  return (
+    real.role === 'contractor' && invitation.invitedByMembershipId === real._id
+  )
+}
+
+/**
  * The most this granter may give this target — arithmetic, not a review step.
  *
  * `switchInto` may only ever name the target's CURRENT contractor. Allowing any
@@ -617,7 +689,8 @@ export function clampGrants(
  *
  * `contractor` was held back until there was a team to scope one to. A
  * contractor holds `team.manage` business-wide and is narrowed to their own
- * people by `canManageMember`, so minting one before anything assigned a
+ * people by `canManageMember` (and kept from handing out roles by `canSetRole`
+ * and `canInviteAs`), so minting one before anything assigned a
  * `parentMembershipId` would have produced a member with more reach than a
  * subcontractor and less structure than an owner. `team.assignTo` exists now,
  * so the role does too.
