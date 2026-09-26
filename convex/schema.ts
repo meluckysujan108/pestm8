@@ -379,6 +379,13 @@ export default defineSchema({
      * freezing the technician into `reports.contextSnapshot` at finalise.
      */
     displayName: v.optional(v.string()),
+    /**
+     * When the owner put away the "{name} joined your team" notice for this
+     * person (convex/teamJoins.ts). Kept on the row, not on a phone, so it
+     * is gone from every device the owner uses, and never flickers in on one
+     * that has not heard.
+     */
+    joinSeenAt: v.optional(v.number()),
     licenceNumber: v.optional(v.string()),
     /**
      * When `licenceNumber` stops being valid. Absent means unknown, and

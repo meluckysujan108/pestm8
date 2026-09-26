@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  clickUntil,
   signInViaUi,
   signUpActor,
   uniqueEmail,
@@ -359,5 +360,11 @@ test('a join link opens for someone signed out, who can join from it', async ({
   await page.getByLabel('Email').fill(email)
   await page.getByLabel('Password').fill(FIXTURE_PASSWORD)
   await submit.click()
-  await expect(page).toHaveURL(new RegExp(`/${slug}/schedule`))
+
+  // Joined: the welcome asks for their licence number first, which can wait,
+  // and then — with no Home Screen to offer this browser — their jobs.
+  await expect(page).toHaveURL(new RegExp(`/welcome\\?business=${slug}`))
+  await clickUntil(page.getByRole('button', { name: 'Add later' }), () =>
+    expect(page).toHaveURL(new RegExp(`/${slug}/schedule`), { timeout: 5_000 }),
+  )
 })

@@ -105,6 +105,7 @@ import type * as reports from "../reports.js";
 import type * as setupGuide from "../setupGuide.js";
 import type * as snippets from "../snippets.js";
 import type * as team from "../team.js";
+import type * as teamJoins from "../teamJoins.js";
 import type * as templateSettings from "../templateSettings.js";
 import type * as twoStepAttempts from "../twoStepAttempts.js";
 import type * as twoStepSetups from "../twoStepSetups.js";
@@ -216,6 +217,7 @@ declare const fullApi: ApiFromModules<{
   setupGuide: typeof setupGuide;
   snippets: typeof snippets;
   team: typeof team;
+  teamJoins: typeof teamJoins;
   templateSettings: typeof templateSettings;
   twoStepAttempts: typeof twoStepAttempts;
   twoStepSetups: typeof twoStepSetups;

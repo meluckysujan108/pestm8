@@ -56,7 +56,7 @@ const FORMS: Record<string, ReadonlyArray<RegExp>> = {
     'abn',
     'website',
   ].map(bare),
-  'TeamSection.tsx': ['email'].map(bare),
+  'TeamSection.tsx': ['email', 'inviteRole'].map(bare),
   'MyDetails.tsx': ['name', 'phone'].map(bare),
   'ReportSettingsForm.tsx': ['title', 'copy', 'settings'].map(bare),
   // Set-up's letterhead and invite, the same forms in another place.

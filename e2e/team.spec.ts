@@ -43,7 +43,7 @@ test('an owner invites a subcontractor, who joins with the link', async ({
   await expect(inviteButton).toBeEnabled()
   await inviteButton.click()
 
-  const sheet = page.getByRole('dialog', { name: 'Invite a subcontractor' })
+  const sheet = page.getByRole('dialog', { name: 'Invite someone' })
   const createLink = sheet.getByRole('button', { name: 'Create link' })
   await expect(createLink).toBeEnabled()
   await sheet.getByLabel('Email address').fill(subEmail)

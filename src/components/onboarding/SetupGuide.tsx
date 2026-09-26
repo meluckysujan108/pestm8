@@ -94,7 +94,7 @@ export function SetupGuideCard({
   const next = data.items.find((item) => !item.done)
 
   return (
-    <div className="px-4 pb-3 pt-3 lg:pb-0 lg:pt-4">
+    <div className="px-4 pt-3 lg:pt-4">
       <div className="flex items-center gap-3 rounded-2xl border border-hairline bg-surface p-3 shadow-elevation">
         <button
           type="button"
@@ -194,7 +194,11 @@ function GuideChecklist({
       case 'firstReport':
         return navigate({ to: '/$businessSlug/reports/new', params })
       case 'team':
-        return navigate({ to: '/$businessSlug/settings/team', params })
+        return navigate({
+          to: '/$businessSlug/settings/team',
+          params,
+          search: { invite: true },
+        })
       case 'business':
         return
     }

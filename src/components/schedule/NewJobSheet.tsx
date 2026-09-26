@@ -75,12 +75,19 @@ export function NewJobSheet({
   timezone,
   open,
   onClose,
+  assignTo,
+  onBooked,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
   timezone: string
   open: boolean
   onClose: () => void
+  /** Who the job starts out for — "give Kevin a job" from his join notice.
+   * Anyone the form would not offer falls back to its usual choice. */
+  assignTo?: Id<'memberships'>
+  /** Once the job is booked — before the sheet closes. */
+  onBooked?: () => void
 }) {
   return (
     <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
@@ -108,6 +115,8 @@ export function NewJobSheet({
                 dayKey={dayKey}
                 timezone={timezone}
                 onClose={onClose}
+                assignTo={assignTo}
+                onBooked={onBooked}
               />
             </Suspense>
           )}
@@ -130,11 +139,15 @@ function NewJobForm({
   dayKey,
   timezone,
   onClose,
+  assignTo,
+  onBooked,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
   timezone: string
   onClose: () => void
+  assignTo?: Id<'memberships'>
+  onBooked?: () => void
 }) {
   const { data: properties } = useSuspenseQuery(
     convexQuery(api.properties.list, { businessId }),
@@ -165,7 +178,7 @@ function NewJobForm({
     ...EMPTY_NEW_SITE,
     state: businessState || EMPTY_NEW_SITE.state,
   }))
-  const [assignee, setAssignee] = useState('')
+  const [assignee, setAssignee] = useState<string>(assignTo ?? '')
   const [jobType, setJobType] = useState<string>(JOB_TYPES[0])
   const [time, setTime] = useState('09:00')
   const [price, setPrice] = useState('')
@@ -300,7 +313,10 @@ function NewJobForm({
             workOrder: job.workOrder,
           }).then(() => undefined)
     },
-    onSuccess: onClose,
+    onSuccess: () => {
+      onBooked?.()
+      onClose()
+    },
   })
 
   /**
