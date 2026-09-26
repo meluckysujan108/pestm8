@@ -143,7 +143,7 @@ export function SetupGuideCard({
         />
       )}
 
-      <Sheet open={open} onClose={() => setOpen(false)} title="Get set up">
+      <Sheet open={open} onClose={() => setOpen(false)} title="Set-up guide">
         <GuideChecklist
           data={data}
           businessSlug={businessSlug}

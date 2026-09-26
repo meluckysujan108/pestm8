@@ -61,6 +61,9 @@ export function ShowMyLicenceButton({
   const viewed = viewing
     ? wallet.licences.find((licence) => licence._id === viewing.licence._id)
     : undefined
+  // The button and the sheet it opens say the same thing, in the number the
+  // person actually has.
+  const plural = wallet.licences.length !== 1
 
   return (
     <>
@@ -76,13 +79,13 @@ export function ShowMyLicenceButton({
           strokeWidth={1.8}
           className="shrink-0 text-blue"
         />
-        Show my licence
+        {plural ? 'Show my licences' : 'Show my licence'}
       </button>
 
       <Sheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        title="My licences"
+        title={plural ? 'My licences' : 'My licence'}
         description={
           wallet.fromPhone
             ? 'No signal — showing the copy kept on this phone.'
