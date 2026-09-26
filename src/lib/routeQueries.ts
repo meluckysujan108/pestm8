@@ -68,7 +68,7 @@ export const rq = {
   currentUser: () => convexQuery(api.auth.getCurrentUser, {}),
   /** A new business's set-up guide — the owner's only (`setupGuide.ts`). */
   setupGuide: (businessId: B) =>
-    convexQuery(api.setupGuide.progress, { businessId }),
+    convexQuery(api.setupGuide.progress, { businessId, withClients: true }),
   /** Who joined lately, for the owner's schedule (`teamJoins.ts`). */
   teamJoins: (businessId: B) =>
     convexQuery(api.teamJoins.recent, {

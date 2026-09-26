@@ -23,7 +23,10 @@ async function newOwner(t: TestApp, team: 'solo' | 'team' = 'solo') {
 }
 
 async function guide(owner: TestActor, businessId: Id<'businesses'>) {
-  const result = await owner.as.query(api.setupGuide.progress, { businessId })
+  const result = await owner.as.query(api.setupGuide.progress, {
+    businessId,
+    withClients: true,
+  })
   return result && Object.fromEntries(result.items.map((i) => [i.key, i.done]))
 }
 
@@ -140,12 +143,34 @@ describe('the set-up guide', () => {
   test('lists bringing the clients across after the licence and before the first job', async () => {
     const t = testApp()
     const { owner, businessId } = await newOwner(t, 'team')
-    const result = await owner.as.query(api.setupGuide.progress, { businessId })
+    const result = await owner.as.query(api.setupGuide.progress, {
+      businessId,
+      withClients: true,
+    })
     expect(result?.items.map((item) => item.key)).toEqual([
       'business',
       'letterhead',
       'licence',
       'clients',
+      'firstJob',
+      'firstReport',
+      'team',
+    ])
+  })
+
+  test('leaves the clients item out for a page from before it', async () => {
+    // An installed app can keep running the page it had for a while after a
+    // release; that page looks each item's words up by key, and one it has
+    // never heard of would throw on the schedule.
+    const t = testApp()
+    const { owner, businessId } = await newOwner(t, 'team')
+    const result = await owner.as.query(api.setupGuide.progress, {
+      businessId,
+    })
+    expect(result?.items.map((item) => item.key)).toEqual([
+      'business',
+      'letterhead',
+      'licence',
       'firstJob',
       'firstReport',
       'team',
@@ -221,7 +246,10 @@ describe('the set-up guide', () => {
     const owner = await createActor(t, { email: 'terence@coastal.test' })
     const { businessId } = await createBusiness(t, owner)
     expect(
-      await owner.as.query(api.setupGuide.progress, { businessId }),
+      await owner.as.query(api.setupGuide.progress, {
+        businessId,
+        withClients: true,
+      }),
     ).toBeNull()
   })
 
@@ -239,7 +267,10 @@ describe('the set-up guide', () => {
     })
 
     expect(
-      await kev.as.query(api.setupGuide.progress, { businessId }),
+      await kev.as.query(api.setupGuide.progress, {
+        businessId,
+        withClients: true,
+      }),
     ).toBeNull()
     await expect(
       kev.as.mutation(api.setupGuide.setHidden, { businessId, hidden: true }),
@@ -255,7 +286,12 @@ describe('the set-up guide', () => {
       hidden: true,
     })
     expect(
-      (await owner.as.query(api.setupGuide.progress, { businessId }))?.hidden,
+      (
+        await owner.as.query(api.setupGuide.progress, {
+          businessId,
+          withClients: true,
+        })
+      )?.hidden,
     ).toBe(true)
 
     await owner.as.mutation(api.setupGuide.setHidden, {

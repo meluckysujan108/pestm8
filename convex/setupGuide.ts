@@ -25,8 +25,20 @@ export type SetupGuideItem =
   | 'team'
 
 export const progress = query({
-  args: { businessId: v.id('businesses') },
-  handler: async (ctx, { businessId }) => {
+  args: {
+    businessId: v.id('businesses'),
+    /**
+     * Whether the page asking knows "Bring your clients across". A page
+     * from before that item — and an installed app can keep running one
+     * for a while after a release — looks each item's words up by key, and
+     * an item it has never heard of throws on the schedule. So the item is
+     * only listed for a page that says it knows it. Once no page from
+     * before it can still be running, this can go and the item always be
+     * listed.
+     */
+    withClients: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { businessId, withClients }) => {
     const env = await requireActor(ctx, businessId)
     // The owner's to do, and not while switched into someone else's account.
     // Everyone else gets nothing, rather than a refusal on the schedule.
@@ -65,7 +77,9 @@ export const progress = query({
       { key: 'licence', done: Boolean(owner?.licenceNumber?.trim()) },
       // Before the first job, which needs someone to book it for. Brought
       // across from the old app or added one at a time, either way counts.
-      { key: 'clients', done: client !== null },
+      ...(withClients === true
+        ? [{ key: 'clients' as const, done: client !== null }]
+        : []),
       { key: 'firstJob', done: job !== null },
       { key: 'firstReport', done: finalised !== null },
     ]
