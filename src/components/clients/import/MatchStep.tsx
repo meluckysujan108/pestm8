@@ -1,5 +1,6 @@
 import { useId, useMemo } from 'react'
 import { Sparkles, TriangleAlert } from 'lucide-react'
+import { FormAlert } from '#/components/forms/FormAlert'
 import { fieldInputClass } from '#/components/forms/FormField'
 import {
   FIELD_LABELS,
@@ -14,12 +15,23 @@ import {
   StepHeading,
   plural,
 } from './ui'
+import type { ReactNode } from 'react'
+import type { ErrorCopy } from '#/components/forms/describeError'
 import type {
   ColumnMapping,
   ImportField,
   ImportSheet,
   SourceApp,
 } from '#/lib/clientImport/types'
+
+/** Continue reads what PestM8 already holds, once, to say what's already
+ * here; this is when that read is turned down. */
+const CONTINUE_COPY: ErrorCopy = {
+  offline:
+    'This device is offline, so the review can’t check what’s already in PestM8. Continue again when you have signal.',
+  default:
+    'Couldn’t read the clients already in PestM8, so the review can’t say what’s already here. Continue again in a moment.',
+}
 
 /** Two of a column's values, so "Column F" or "Field 3" says what it is. */
 function samplesOf(sheet: ImportSheet): Array<Array<string>> {
@@ -44,6 +56,8 @@ export function MatchStep({
   sheet,
   source,
   mapping,
+  error,
+  wait,
   onChange,
   onBack,
   onContinue,
@@ -51,6 +65,12 @@ export function MatchStep({
   sheet: ImportSheet
   source: SourceApp | null
   mapping: ColumnMapping
+  /** Why the last Continue didn't get to the review. */
+  error: unknown
+  /** Why Continue has to wait, while it does: an import being undone
+   * (`UndoHold`) — what's already here is read at Continue, and mid-undo
+   * it would still count what the undo is about to take away. */
+  wait?: ReactNode
   onChange: (mapping: ColumnMapping) => void
   onBack: () => void
   onContinue: () => void
@@ -137,6 +157,8 @@ export function MatchStep({
       </ul>
 
       <BottomBar>
+        <FormAlert error={error} copy={CONTINUE_COPY} className="mb-3" />
+        {wait}
         {problems.length > 0 && (
           <ul
             aria-label="Before you continue"
@@ -165,7 +187,7 @@ export function MatchStep({
           <button
             type="button"
             onClick={onContinue}
-            disabled={!hydrated || problems.length > 0}
+            disabled={!hydrated || problems.length > 0 || Boolean(wait)}
             className={`${PRIMARY_BUTTON} flex-1`}
           >
             Continue

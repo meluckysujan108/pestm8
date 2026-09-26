@@ -10,10 +10,12 @@ import type { ImportSheet } from './types'
  * A cell as a spreadsheet opens it safely. One starting = + - or @ is run
  * as a formula by Excel — a client list is exactly where someone could
  * plant one — so it gets a ' in front, which Excel shows as text and
- * hides. A leading tab or carriage return is the same trick.
+ * hides. A leading tab or carriage return is the same trick. One that
+ * already has a ' (or more) before one of those gets another, as importing
+ * the file again takes exactly one off (read.ts `importCell`).
  */
 function safeCell(value: string): string {
-  const guarded = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value
+  const guarded = /^'*[=+\-@\t\r]/.test(value) ? `'${value}` : value
   return /[",\r\n]/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded
 }
 

@@ -2,7 +2,12 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { api, components } from './_generated/api'
 import { createActor, createBusiness, testApp } from '../test/harness'
-import { IMPORT_BATCH_SIZE } from './lib/clientImport'
+import { docFromPlainText } from './lib/richText'
+import {
+  IMPORT_BATCH_SITES,
+  IMPORT_BATCH_SIZE,
+  UNDO_STUCK_MS,
+} from './lib/clientImport'
 import type { Doc, Id } from './_generated/dataModel'
 import type { ImportClient, ImportSite } from './lib/clientImport'
 import type { TestActor } from '../test/harness'
@@ -172,6 +177,51 @@ async function body(s: Setup, noteId: Id<'notes'>) {
   return snapshot.content
 }
 
+/** Undo steps scheduled and not yet run. */
+async function pendingSteps(s: Setup) {
+  const jobs = await s.t.run((ctx) =>
+    ctx.db.system.query('_scheduled_functions').collect(),
+  )
+  return jobs.filter(
+    (job) => job.name.includes('undoStep') && job.state.kind === 'pending',
+  ).length
+}
+
+/**
+ * Types into a note as the editor does: each edit is sent as it is typed,
+ * and the whole note saved once typing stops — `saved: false` is the moment
+ * in between. `text` is what the note says after the edit, under its title.
+ */
+async function type(
+  who: TestActor,
+  note: Doc<'notes'>,
+  text: string,
+  { saved = true } = {},
+) {
+  const version = (await who.as.query(api.notesSync.latestVersion, {
+    id: note._id,
+  }))!
+  await who.as.mutation(api.notesSync.submitSteps, {
+    id: note._id,
+    version,
+    clientId: who.userId,
+    steps: [
+      JSON.stringify({
+        stepType: 'replace',
+        from: 1,
+        to: 1,
+        slice: { content: [{ type: 'text', text }] },
+      }),
+    ],
+  })
+  if (!saved) return
+  await who.as.mutation(api.notesSync.submitSnapshot, {
+    id: note._id,
+    version: version + 1,
+    content: JSON.stringify(docFromPlainText(`${note.title}\n${text}`)),
+  })
+}
+
 function row<T extends 'clients' | 'properties' | 'clientImports'>(
   s: Setup,
   id: Id<T>,
@@ -249,6 +299,45 @@ describe('who may import', () => {
       }),
     ).rejects.toThrow(/BATCH_TOO_LARGE/)
     expect((await everything(s)).clients).toEqual([])
+  })
+
+  test('a batch of clients carries at most IMPORT_BATCH_SITES sites; one client may carry more on its own', async () => {
+    const s = await setup()
+    const importId = await start(s, s.terence)
+    const sites = (n: number, street: string) =>
+      Array.from({ length: n }, (_, i) => site(`${i + 1} ${street}`))
+
+    // Two clients, one site over: not a batch the page makes.
+    await expect(
+      s.terence.as.mutation(api.clientImports.addBatch, {
+        businessId: s.businessId,
+        importId,
+        clients: [
+          person('c1', 'Mary Brown', sites(IMPORT_BATCH_SITES, 'Rose Street')),
+          person('c2', 'Bob Lee', sites(1, 'Hill Road')),
+        ],
+      }),
+    ).rejects.toThrow(/BATCH_TOO_LARGE/)
+    expect((await everything(s)).properties).toEqual([])
+
+    // At the limit, it lands.
+    const atLimit = await s.terence.as.mutation(api.clientImports.addBatch, {
+      businessId: s.businessId,
+      importId,
+      clients: [
+        person('c1', 'Mary Brown', sites(IMPORT_BATCH_SITES - 1, 'Rose St')),
+        person('c2', 'Bob Lee', sites(1, 'Hill Road')),
+      ],
+    })
+    expect(atLimit.map((r) => r.status)).toEqual(['created', 'created'])
+
+    // A property manager with 300 sites is one client, sent on its own.
+    const big = await s.terence.as.mutation(api.clientImports.addBatch, {
+      businessId: s.businessId,
+      importId,
+      clients: [person('c3', 'Strata Co', sites(300, 'Beach Road'))],
+    })
+    expect(big).toMatchObject([{ status: 'created', sitesCreated: 300 }])
   })
 
   test('names the file sensibly, whatever the page sends', async () => {
@@ -452,6 +541,53 @@ describe('what a batch writes', () => {
     })
   })
 
+  test('knows a site saved with a three-digit postcode, as NT sites were before four digits were asked for', async () => {
+    const s = await setup()
+    const existing = await s.t.run(async (ctx) => {
+      const now = Date.now()
+      const clientId = await ctx.db.insert('clients', {
+        businessId: s.businessId,
+        kind: 'person',
+        name: 'Old Client',
+        createdAt: now,
+        updatedAt: now,
+      })
+      await ctx.db.insert('properties', {
+        businessId: s.businessId,
+        clientId,
+        addressLine: '3 Casuarina Drive',
+        suburb: 'Nightcliff',
+        state: 'NT',
+        postcode: '810',
+        createdAt: now,
+      })
+      return clientId
+    })
+    const darwin = { suburb: 'Nightcliff', state: 'NT', postcode: '0810' }
+
+    const { results } = await importAs(s, s.terence, [
+      person('c1', 'Old Client', [site('3 Casuarina Dr', darwin)], {
+        existingClientId: existing,
+      }),
+      person('c2', 'New Client', [
+        site('3 Casuarina Drive', darwin),
+        site('5 Casuarina Drive', darwin),
+      ]),
+    ])
+
+    expect(results).toMatchObject([
+      { key: 'c1', status: 'skipped', sitesCreated: 0, sitesSkipped: 1 },
+      { key: 'c2', status: 'created', sitesCreated: 1, sitesSkipped: 1 },
+    ])
+    const all = await everything(s)
+    expect(
+      all.properties.map((p) => [p.addressLine, p.postcode]).sort(),
+    ).toEqual([
+      ['3 Casuarina Drive', '810'],
+      ['5 Casuarina Drive', '0810'],
+    ])
+  })
+
   test('adds new sites to a client already here, and changes nothing about it', async () => {
     const s = await setup()
     const here = await alreadyHere(s)
@@ -524,6 +660,45 @@ describe('what a batch writes', () => {
       expect(result.clientId).not.toBe(notThis.clientId)
       expect(await sitesOf(s, notThis.clientId)).toHaveLength(1)
     }
+  })
+
+  test('a name that differs only by an accent is someone else', async () => {
+    const s = await setup()
+    const moller = await alreadyHere(s, { name: 'Hans Möller' })
+    const le = await alreadyHere(s, { name: 'Lê Thị Hà' })
+    const blank = await alreadyHere(s, { name: '?' })
+
+    const { results } = await importAs(s, s.terence, [
+      person('c1', 'Hans Müller', [site('1 Hill Road')], {
+        existingClientId: moller.clientId,
+      }),
+      person('c2', 'Lý Thị Hồ', [site('2 Hill Road')], {
+        existingClientId: le.clientId,
+      }),
+      // Punctuation alone has no name to match on.
+      person('c3', '-', [site('3 Hill Road')], {
+        existingClientId: blank.clientId,
+      }),
+      // The same name, decomposed as macOS writes it, is the same client.
+      person('c4', 'Hans Möller'.normalize('NFD'), [site('4 Hill Road')], {
+        existingClientId: moller.clientId,
+      }),
+    ])
+
+    expect(results.map((r) => r.status)).toEqual([
+      'created',
+      'created',
+      'created',
+      'added',
+    ])
+    expect(results[0].clientId).not.toBe(moller.clientId)
+    expect(results[1].clientId).not.toBe(le.clientId)
+    expect(results[2].clientId).not.toBe(blank.clientId)
+    expect(results[3].clientId).toBe(moller.clientId)
+    expect(
+      (await sitesOf(s, moller.clientId)).map((p) => p.addressLine),
+    ).toEqual(['12 Wattle Street', '4 Hill Road'])
+    expect(await sitesOf(s, le.clientId)).toHaveLength(1)
   })
 
   test('makes a site’s note a pinned, shared note on that site, written by the importer', async () => {
@@ -732,6 +907,248 @@ describe('undo', () => {
     })
   })
 
+  test('the import’s own note goes with its site only while nobody has edited it', async () => {
+    const s = await setup()
+    const { importId, results } = await importAs(s, s.terence, [
+      person('c1', 'Mary Brown', [
+        site('1 Rose Street', { note: 'Gate code 1234' }),
+        site('3 Rose Street', { note: 'Gate code 5678' }),
+        site('5 Rose Street', { note: 'Side gate' }),
+        site('7 Rose Street', { note: 'Key under the mat' }),
+        site('9 Rose Street', { note: 'Dog in the yard' }),
+        site('11 Rose Street', { note: 'Ring first' }),
+      ]),
+    ])
+    const clientId = results[0].clientId!
+    const noteOn = async (addressLine: string) =>
+      (await everything(s)).notes.find((n) => n.title === addressLine)!
+    const untouched = await noteOn('1 Rose Street')
+    const kevins = await noteOn('3 Rose Street')
+    const photographed = await noteOn('5 Rose Street')
+    const importers = await noteOn('7 Rose Street')
+    const kevinThenImporter = await noteOn('9 Rose Street')
+    const unsaved = await noteOn('11 Rose Street')
+
+    // Kevin opens it and reads it, and types nothing.
+    await s.kevin.as.query(api.notesSync.getSnapshot, { id: untouched._id })
+    const opened = await s.kevin.as.query(api.notesSync.latestVersion, {
+      id: untouched._id,
+    })
+    await s.kevin.as.query(api.notesSync.getSteps, {
+      id: untouched._id,
+      version: opened!,
+    })
+
+    // Kevin changes the gate code, in the editor.
+    await type(s.kevin, kevins, 'Gate code 4321')
+    // Terence, who ran the import, adds to his own note.
+    await type(s.terence, importers, 'Key under the mat, spare in the shed')
+    // Kevin notes the dog's name, then Terence adds a line after him: the
+    // note now names Terence as its last editor, and Kevin's words are
+    // still in it.
+    await type(s.kevin, kevinThenImporter, 'Dog in the yard, Rex')
+    await type(s.terence, kevinThenImporter, 'Dog in the yard, Rex. Friendly')
+    // Jo is typing, and the editor has sent the edit but not yet saved the
+    // note: the row still reads as the import wrote it.
+    await type(s.jo, unsaved, 'Ring first, gate sticks', { saved: false })
+    expect(await s.t.run((ctx) => ctx.db.get(unsaved._id))).toMatchObject({
+      lastEditedByMembershipId: s.ownerMembershipId,
+      updatedAt: unsaved.createdAt,
+    })
+
+    // Jo adds a photo of the key box, which leaves the note's text as it
+    // was.
+    const photo = await s.t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(
+        new Blob([new Uint8Array([1, 2, 3])], { type: 'image/png' }),
+      )
+      await ctx.db.insert('noteAttachments', {
+        noteId: photographed._id,
+        storageId,
+        createdAt: Date.now() + 1000,
+      })
+      return storageId
+    })
+
+    await undoAll(s, s.terence, importId)
+
+    // Any edit, by anyone, or a photo, keeps the site and the note, and so
+    // the client; the sites are no longer the import's.
+    expect(
+      (await sitesOf(s, clientId)).map((p) => [p.addressLine, p.importId]),
+    ).toEqual([
+      ['3 Rose Street', undefined],
+      ['5 Rose Street', undefined],
+      ['7 Rose Street', undefined],
+      ['9 Rose Street', undefined],
+      ['11 Rose Street', undefined],
+    ])
+    expect((await row(s, clientId))?.importId).toBeUndefined()
+    const kept = [kevins, photographed, importers, kevinThenImporter, unsaved]
+    const notes = (await everything(s)).notes.map((n) => n._id).sort()
+    expect(notes).toEqual(kept.map((n) => n._id).sort())
+    expect(await body(s, kevins._id)).toContain('Gate code 4321')
+    expect(await body(s, kevinThenImporter._id)).toContain('Rex. Friendly')
+    expect(
+      await s.t.run((ctx) => ctx.db.system.get('_storage', photo)),
+    ).not.toBeNull()
+
+    // Nobody edited it: the site goes, its note and body too.
+    expect(await body(s, untouched._id)).toBeNull()
+    expect(await row(s, importId)).toMatchObject({
+      undoState: 'done',
+      undoRemoved: 1,
+      undoKept: 6,
+    })
+  })
+
+  test('an undo that stopped partway can be carried on, once, and finishes', async () => {
+    const s = await setup()
+    const { importId, results } = await importAs(s, s.jo, [
+      person('c1', 'Mary Brown', [
+        site('1 Rose Street', { note: 'Gate code 1234' }),
+      ]),
+      person('c2', 'Bob Lee', [site('3 Rose Street')]),
+    ])
+    // As `undo` leaves it, with the step it scheduled having failed: marked
+    // undone and running, and nothing removed. `lastStep` is a step that
+    // did run, that long ago.
+    const stopped = async (asked: number, lastStep?: number) =>
+      s.t.run((ctx) =>
+        ctx.db.patch(importId, {
+          undoneAt: Date.now() - asked,
+          undoneByMembershipId: s.joId,
+          undoState: 'running',
+          undoStepAt:
+            lastStep === undefined ? undefined : Date.now() - lastStep,
+          undoRemoved: 0,
+          undoKept: 0,
+        }),
+      )
+    const ask = (actor: TestActor) =>
+      actor.as.mutation(api.clientImports.undo, {
+        businessId: s.businessId,
+        importId,
+      })
+
+    // Too soon to call it stopped: a step may still be on its way.
+    await stopped(UNDO_STUCK_MS - 60 * 1000)
+    await expect(ask(s.jo)).rejects.toThrow(/UNDO_RUNNING/)
+    // Asked for long ago, but a step ran a minute ago: still moving.
+    await stopped(3 * UNDO_STUCK_MS, 60 * 1000)
+    await expect(ask(s.jo)).rejects.toThrow(/UNDO_RUNNING/)
+    expect(await pendingSteps(s)).toBe(0)
+
+    // Stopped: still only for those who may carry it on.
+    await stopped(UNDO_STUCK_MS + 1000)
+    await expect(ask(s.kevin)).rejects.toThrow(/NO_ACCESS/)
+    const rival = await createActor(s.t, { email: 'rival@other.test' })
+    const other = await createBusiness(s.t, rival, 'Other Pest')
+    await expect(
+      rival.as.mutation(api.clientImports.undo, {
+        businessId: other.businessId,
+        importId,
+      }),
+    ).rejects.toThrow(/NOT_FOUND/)
+
+    // Asked for long ago, and no step since the last, a while back either.
+    await stopped(3 * UNDO_STUCK_MS, UNDO_STUCK_MS + 1000)
+    vi.useFakeTimers()
+    await ask(s.jo)
+    // Carrying on is progress: it reads as running again, not stopped…
+    expect((await row(s, importId))?.undoStepAt).toBe(Date.now())
+    expect(await pendingSteps(s)).toBe(1)
+    // …so a second tap straight after starts no second chain of steps.
+    await expect(ask(s.jo)).rejects.toThrow(/UNDO_RUNNING/)
+    expect(await pendingSteps(s)).toBe(1)
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers)
+    vi.useRealTimers()
+
+    for (const result of results) {
+      expect(await row(s, result.clientId!)).toBeNull()
+    }
+    expect(await everything(s)).toMatchObject({
+      clients: [],
+      properties: [],
+      notes: [],
+    })
+    expect(await row(s, importId)).toMatchObject({
+      undoneByMembershipId: s.joId,
+      undoState: 'done',
+      undoRemoved: 4,
+      undoKept: 0,
+    })
+    // Finished, it is undone once and for all.
+    await expect(ask(s.jo)).rejects.toThrow(/ALREADY_UNDONE/)
+    // Asking again is not a second undo in the audit log.
+    const audit = await s.t.run((ctx) =>
+      ctx.db
+        .query('auditLog')
+        .withIndex('by_entity', (q) =>
+          q.eq('entityType', 'clientImports').eq('entityId', importId),
+        )
+        .collect(),
+    )
+    expect(audit.map((a) => a.action)).toEqual(['clients.import'])
+  })
+
+  test('an undo that is still moving is refused, however long ago it was asked for', async () => {
+    const s = await setup()
+    // 75 sites and 25 clients: four steps.
+    const { importId } = await importAs(
+      s,
+      s.terence,
+      Array.from({ length: IMPORT_BATCH_SIZE }, (_, n) =>
+        person(`c${n}`, `Client ${n}`, [
+          site(`${n} Rose Street`),
+          site(`${n} Hill Road`),
+          site(`${n} Lake Drive`),
+        ]),
+      ),
+    )
+    const ask = () =>
+      s.terence.as.mutation(api.clientImports.undo, {
+        businessId: s.businessId,
+        importId,
+      })
+
+    vi.useFakeTimers()
+    const asked = Date.now()
+    await ask()
+    // Straight after: the first step is on its way.
+    await expect(ask()).rejects.toThrow(/UNDO_RUNNING/)
+
+    // The first step runs, nine minutes on.
+    vi.setSystemTime(asked + UNDO_STUCK_MS - 60 * 1000)
+    vi.runOnlyPendingTimers()
+    await s.t.finishInProgressScheduledFunctions()
+    expect(await row(s, importId)).toMatchObject({
+      undoState: 'running',
+      undoneAt: asked,
+      undoStepAt: asked + UNDO_STUCK_MS - 60 * 1000,
+      undoRemoved: 50,
+    })
+
+    // Longer ago than `UNDO_STUCK_MS` since it was asked for, but a step
+    // ran two minutes ago: it is moving, and asking again would only start
+    // a second chain beside it.
+    vi.setSystemTime(asked + UNDO_STUCK_MS + 60 * 1000)
+    await expect(ask()).rejects.toThrow(/UNDO_RUNNING/)
+    expect(await pendingSteps(s)).toBe(1)
+
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers)
+    vi.useRealTimers()
+    expect(await row(s, importId)).toMatchObject({
+      undoState: 'done',
+      undoRemoved: 100,
+      undoKept: 0,
+    })
+    const all = await everything(s)
+    expect(all.clients).toEqual([])
+    expect(all.properties).toEqual([])
+    await expect(ask()).rejects.toThrow(/ALREADY_UNDONE/)
+  })
+
   test('a contractor may not undo the owner’s import; the owner may undo a contractor’s', async () => {
     const s = await setup()
     const owners = await importAs(s, s.terence, [
@@ -855,6 +1272,169 @@ describe('undo', () => {
       undoRemoved: 225,
       undoKept: 0,
     })
+  })
+})
+
+describe('nothing comes in while an undo is running', () => {
+  // Jo has a second file on the review screen when Terence, on his phone,
+  // undoes her first. The sites the undo hasn't reached yet are still here,
+  // so her Import would skip them as already here — then the undo takes
+  // them away, and they are in neither import.
+
+  /** Asks for an undo and leaves it running: its first step not yet run. */
+  async function askUndo(
+    s: Setup,
+    actor: TestActor,
+    importId: Id<'clientImports'>,
+  ) {
+    vi.useFakeTimers()
+    await actor.as.mutation(api.clientImports.undo, {
+      businessId: s.businessId,
+      importId,
+    })
+  }
+
+  /** Lets every step of the undo run, to done. */
+  async function finishUndo(s: Setup) {
+    await s.t.finishAllScheduledFunctions(vi.runAllTimers)
+    vi.useRealTimers()
+  }
+
+  /** As a step that failed leaves it: running, with no step for longer
+   * than `UNDO_STUCK_MS`. */
+  function stall(s: Setup, importId: Id<'clientImports'>) {
+    return s.t.run((ctx) =>
+      ctx.db.patch(importId, {
+        undoneAt: Date.now() - 3 * UNDO_STUCK_MS,
+        undoStepAt: Date.now() - 2 * UNDO_STUCK_MS,
+      }),
+    )
+  }
+
+  const maryBrown = () => person('c1', 'Mary Brown', [site('1 Rose Street')])
+
+  test('no import starts, whether the undo is moving or has stopped, and one does once it is done', async () => {
+    const s = await setup()
+    const first = await importAs(s, s.jo, [maryBrown()])
+    const imports = () =>
+      s.t.run((ctx) => ctx.db.query('clientImports').collect())
+
+    await askUndo(s, s.terence, first.importId)
+    // Moving: its first step is on its way. Not for the importer, and not
+    // for the owner who asked for it.
+    await expect(start(s, s.jo)).rejects.toThrow(/UNDO_IN_PROGRESS/)
+    await expect(start(s, s.terence)).rejects.toThrow(/UNDO_IN_PROGRESS/)
+    // Someone who may not import is told only that.
+    await expect(start(s, s.kevin)).rejects.toThrow(/NO_ACCESS/)
+    // Stopped part-way: what it hasn't reached is still waiting to go.
+    await stall(s, first.importId)
+    await expect(start(s, s.jo)).rejects.toThrow(/UNDO_IN_PROGRESS/)
+    expect((await imports()).map((i) => i._id)).toEqual([first.importId])
+
+    await finishUndo(s)
+    expect((await row(s, first.importId))?.undoState).toBe('done')
+    // Done: Mary Brown went with it, so the second file brings her back, in
+    // an import of its own.
+    const second = await importAs(s, s.jo, [maryBrown()])
+    expect(second.results).toMatchObject([
+      { status: 'created', sitesCreated: 1, sitesSkipped: 0 },
+    ])
+    expect((await everything(s)).properties).toMatchObject([
+      { addressLine: '1 Rose Street', importId: second.importId },
+    ])
+  })
+
+  test('no batch lands while an undo is running, and it does once the undo is done', async () => {
+    const s = await setup()
+    const first = await importAs(s, s.jo, [maryBrown()])
+    // Jo started her second file before Terence undid her first.
+    const second = await start(s, s.jo)
+    const batch = () =>
+      s.jo.as.mutation(api.clientImports.addBatch, {
+        businessId: s.businessId,
+        importId: second,
+        clients: [
+          maryBrown(),
+          person('c2', 'Bob Lee', [site('3 Rose Street')]),
+        ],
+      })
+
+    await askUndo(s, s.terence, first.importId)
+    await expect(batch()).rejects.toThrow(/UNDO_IN_PROGRESS/)
+    await stall(s, first.importId)
+    await expect(batch()).rejects.toThrow(/UNDO_IN_PROGRESS/)
+    // None of it landed: no Bob Lee, and the second import made nothing and
+    // skipped nothing.
+    expect((await everything(s)).clients.map((c) => c.name)).toEqual([
+      'Mary Brown',
+    ])
+    expect(await row(s, second)).toMatchObject({
+      clients: 0,
+      sites: 0,
+      skipped: 0,
+      failed: 0,
+    })
+
+    await finishUndo(s)
+    // Mary Brown's site went with the undo, so it comes in — in the second
+    // import, whose Undo answers for it — rather than being skipped as
+    // already here.
+    expect(await batch()).toMatchObject([
+      { key: 'c1', status: 'created', sitesCreated: 1, sitesSkipped: 0 },
+      { key: 'c2', status: 'created', sitesCreated: 1, sitesSkipped: 0 },
+    ])
+    const all = await everything(s)
+    expect(all.properties.map((p) => [p.addressLine, p.importId])).toEqual([
+      ['1 Rose Street', second],
+      ['3 Rose Street', second],
+    ])
+    expect(await row(s, second)).toMatchObject({ clients: 2, sites: 2 })
+  })
+
+  test('a batch for the import being undone is told it was undone, not to wait', async () => {
+    const s = await setup()
+    const mine = await importAs(s, s.jo, [maryBrown()])
+    const more = () =>
+      s.jo.as.mutation(api.clientImports.addBatch, {
+        businessId: s.businessId,
+        importId: mine.importId,
+        clients: [person('c2', 'Bob Lee', [site('3 Rose Street')])],
+      })
+
+    // Its own undo is running: the rest of it is never to land, however long
+    // it waits.
+    await askUndo(s, s.terence, mine.importId)
+    await expect(more()).rejects.toThrow(/IMPORT_UNDONE/)
+    await stall(s, mine.importId)
+    await expect(more()).rejects.toThrow(/IMPORT_UNDONE/)
+    await finishUndo(s)
+    await expect(more()).rejects.toThrow(/IMPORT_UNDONE/)
+    expect((await everything(s)).clients).toEqual([])
+  })
+
+  test('another business’s undo holds nothing up', async () => {
+    const s = await setup()
+    const rival = await createActor(s.t, { email: 'rival@other.test' })
+    const other = await createBusiness(s.t, rival, 'Other Pest')
+    const theirs = await rival.as.mutation(api.clientImports.start, {
+      businessId: other.businessId,
+      fileName: 'theirs.csv',
+    })
+    await rival.as.mutation(api.clientImports.addBatch, {
+      businessId: other.businessId,
+      importId: theirs,
+      clients: [maryBrown()],
+    })
+    vi.useFakeTimers()
+    await rival.as.mutation(api.clientImports.undo, {
+      businessId: other.businessId,
+      importId: theirs,
+    })
+    expect((await row(s, theirs))?.undoState).toBe('running')
+
+    const { results } = await importAs(s, s.jo, [maryBrown()])
+    expect(results).toMatchObject([{ status: 'created', sitesCreated: 1 }])
+    await finishUndo(s)
   })
 })
 

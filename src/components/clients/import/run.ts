@@ -1,4 +1,7 @@
-import { IMPORT_BATCH_SIZE } from '../../../../convex/lib/clientImport'
+import {
+  IMPORT_BATCH_SITES,
+  IMPORT_BATCH_SIZE,
+} from '../../../../convex/lib/clientImport'
 import { importable, statusOf } from '#/lib/clientImport/convert'
 import type { ImportResult } from '../../../../convex/lib/clientImport'
 import type { ReviewClient } from '#/lib/clientImport/types'
@@ -10,15 +13,38 @@ import type { ReviewClient } from '#/lib/clientImport/types'
  * the file's rows didn't go in.
  */
 
-/** The clients to send, `IMPORT_BATCH_SIZE` at a time, in the file's order. */
-export function toBatches<T>(
-  items: Array<T>,
-  size = IMPORT_BATCH_SIZE,
+/**
+ * The clients to send, in the file's order, a batch at a time. A batch
+ * closes at `IMPORT_BATCH_SIZE` clients or `IMPORT_BATCH_SITES` sites,
+ * whichever comes first: twenty-five one-site clients are a small batch,
+ * but twenty-five property managers with forty sites and a note each are
+ * not. A client is never split — one with more sites than a batch holds
+ * goes on its own, which the server allows.
+ */
+export function toBatches<T extends { sites: ReadonlyArray<unknown> }>(
+  clients: Array<T>,
+  limits: { clients: number; sites: number } = {
+    clients: IMPORT_BATCH_SIZE,
+    sites: IMPORT_BATCH_SITES,
+  },
 ): Array<Array<T>> {
   const batches: Array<Array<T>> = []
-  for (let at = 0; at < items.length; at += size) {
-    batches.push(items.slice(at, at + size))
+  let batch: Array<T> = []
+  let sites = 0
+  for (const client of clients) {
+    const count = client.sites.length
+    if (
+      batch.length > 0 &&
+      (batch.length >= limits.clients || sites + count > limits.sites)
+    ) {
+      batches.push(batch)
+      batch = []
+      sites = 0
+    }
+    batch.push(client)
+    sites += count
   }
+  if (batch.length > 0) batches.push(batch)
   return batches
 }
 
@@ -63,17 +89,49 @@ export type RunOutcome = {
   /** Sites already in PestM8: the ones the review knew about and didn't
    * send, and the ones the server found when it looked. */
   skippedSites: number
-  /** Every client that didn't go in, with why: refused by the server, or
-   * never sent — it couldn't be imported as it was, or was left out. */
+  /** Every client that didn't go in, with why: refused by the server,
+   * turned away as already here, or never sent — it couldn't be imported as
+   * it was, or the import stopped first. */
   notImported: Array<{ key: string; name: string; reason: string }>
+  /** The clients the person chose to leave out: not a failure, so said
+   * apart from the ones that couldn't go in. */
+  leftOut: Array<{ key: string; name: string }>
 }
 
 const NOT_SENT = 'Not sent — the import stopped before this one'
 
+/**
+ * Why the server turned a whole client away as already here. Not "Already
+ * in PestM8": the review would have said so, and didn't — the address is on
+ * another client, came in since the review was read, or went in earlier in
+ * this same file under someone else. The client itself isn't in PestM8.
+ */
+function alreadyHere(client: ReviewClient | undefined): string {
+  const sent = client?.sites.filter((site) => !site.duplicate).length ?? 1
+  return sent > 1
+    ? 'Its addresses are already in PestM8, or earlier in this file'
+    : 'Its address is already in PestM8, or earlier in this file'
+}
+
+/** A client that went in without one of its sites: whatever that site's
+ * row held — a note, above all — is not in PestM8. */
+const SITE_TURNED_AWAY =
+  'An address was already here or earlier in this file — anything on its row (a note) didn’t come across'
+
 /** The first thing stopping a client, in the review's words. */
 function whyNot(client: ReviewClient): string {
   if (!client.included) return 'Left out'
-  if (statusOf(client) === 'duplicate') return 'Already in PestM8'
+  if (statusOf(client) === 'duplicate') {
+    // Its address is here, on another client: this one isn't.
+    const holders = new Set(client.sites.map((site) => site.heldBy))
+    const [holder] = holders
+    if (holder === undefined || holders.has(undefined)) {
+      return 'Already in PestM8'
+    }
+    return holders.size === 1
+      ? `Its address is already in PestM8, on ${holder}`
+      : `Its addresses are already in PestM8, on ${holder} and others`
+  }
   const error = client.issues.find(
     (issue) =>
       issue.level === 'error' &&
@@ -95,6 +153,7 @@ export function outcomeOf(
     notes: 0,
     skippedSites: 0,
     notImported: [],
+    leftOut: [],
   }
 
   for (const result of results) {
@@ -103,11 +162,16 @@ export function outcomeOf(
     outcome.skippedSites += result.sitesSkipped
     if (result.status === 'created') outcome.created += 1
     if (result.status === 'added') outcome.added += 1
-    if (result.status === 'failed') {
+    if (result.status === 'failed' || result.status === 'skipped') {
+      const client = byKey.get(result.key)
       outcome.notImported.push({
         key: result.key,
-        name: byKey.get(result.key)?.name ?? '',
-        reason: result.reason ?? 'Refused by PestM8',
+        name: client?.name ?? '',
+        reason:
+          result.reason ??
+          (result.status === 'failed'
+            ? 'Refused by PestM8'
+            : alreadyHere(client)),
       })
     }
   }
@@ -120,11 +184,7 @@ export function outcomeOf(
       continue
     }
     if (!client.included) {
-      outcome.notImported.push({
-        key: client.key,
-        name: client.name,
-        reason: 'Left out',
-      })
+      outcome.leftOut.push({ key: client.key, name: client.name })
       continue
     }
     if (statusOf(client) === 'duplicate') {
@@ -147,8 +207,11 @@ export function outcomeOf(
  *
  * Before the import (`results` absent): every client that won't be sent.
  * After it: those, and the ones the server refused or found already here.
- * Rows of a client that went in are never listed, even when one of its
- * sites was already here: importing that row again would change nothing.
+ * A client that went in is listed only when the server turned away one of
+ * the sites it was sent — the review never sends a site it knows is here,
+ * so that one was a surprise, and its row's note is not in PestM8. Which of
+ * its rows that was isn't said, so they all are; importing one that did go
+ * in again changes nothing.
  */
 export function rowsNotImported(
   review: Array<ReviewClient>,
@@ -164,7 +227,9 @@ export function rowsNotImported(
       if (result.status === 'failed') {
         reason = result.reason ?? 'Refused by PestM8'
       } else if (result.status === 'skipped') {
-        reason = 'Already in PestM8'
+        reason = result.reason ?? alreadyHere(client)
+      } else if (result.sitesSkipped > 0) {
+        reason = SITE_TURNED_AWAY
       }
     } else if (!importable(client)) {
       reason = whyNot(client)

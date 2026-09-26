@@ -1,4 +1,12 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Plus } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
@@ -6,92 +14,19 @@ import { FieldMessage } from '#/components/forms/FieldMessage'
 import { FormField } from '#/components/forms/FormField'
 import { useHydrated } from '#/lib/useHydrated'
 import { AU_STATE_CODES } from '../../../../convex/lib/clientImport'
+import { applyDraft, blankSite, draftOf } from './draft'
 import { PRIMARY_BUTTON } from './ui'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
+import type { Draft, SiteDraft } from './draft'
 import type { ReviewClient, ReviewIssue } from '#/lib/clientImport/types'
 
-type SiteDraft = {
-  addressLine: string
-  suburb: string
-  state: string
-  postcode: string
-  siteContactName: string
-  siteContactPhone: string
-  note: string
-  duplicate: boolean
-}
+/** What the review said, by field and site, for looking up rather than
+ * searching: a client with hundreds of sites has hundreds of issues, and
+ * every box asks on every keystroke. */
+type IssueAt = ReadonlyMap<string, ReviewIssue>
 
-type Draft = {
-  kind: 'person' | 'business'
-  name: string
-  contactPerson: string
-  phone: string
-  email: string
-  abn: string
-  sites: Array<SiteDraft>
-}
-
-function draftOf(client: ReviewClient): Draft {
-  return {
-    kind: client.kind,
-    name: client.name,
-    contactPerson: client.contactPerson ?? '',
-    phone: client.phone ?? '',
-    email: client.email ?? '',
-    abn: client.abn ?? '',
-    sites: client.sites.map((site) => ({
-      addressLine: site.addressLine,
-      suburb: site.suburb,
-      state: site.state,
-      postcode: site.postcode,
-      siteContactName: site.siteContactName ?? '',
-      siteContactPhone: site.siteContactPhone ?? '',
-      note: site.note ?? '',
-      duplicate: site.duplicate === true,
-    })),
-  }
-}
-
-/** Blank is "none": left off rather than kept as '', as the import sends it. */
-function given<TKey extends string>(key: TKey, value: string) {
-  const trimmed = value.trim()
-  return (trimmed ? { [key]: trimmed } : {}) as Partial<Record<TKey, string>>
-}
-
-/**
- * The draft as the client it makes. Only the fields are changed: the issues
- * are the old ones, for `recheckClient` to judge again — which keeps what
- * was put right on the way in only while it still holds.
- */
-function applyDraft(client: ReviewClient, draft: Draft): ReviewClient {
-  const {
-    contactPerson: _contactPerson,
-    phone: _phone,
-    email: _email,
-    abn: _abn,
-    ...rest
-  } = client
-  return {
-    ...rest,
-    kind: draft.kind,
-    name: draft.name.replace(/\s+/g, ' ').trim(),
-    ...given('contactPerson', draft.contactPerson),
-    ...given('phone', draft.phone),
-    ...given('email', draft.email),
-    ...given('abn', draft.abn),
-    sites: draft.sites.map((site) => ({
-      addressLine: site.addressLine.replace(/\s+/g, ' ').trim(),
-      suburb: site.suburb.replace(/\s+/g, ' ').trim(),
-      state: site.state,
-      postcode: site.postcode.trim(),
-      ...given('siteContactName', site.siteContactName),
-      ...given('siteContactPhone', site.siteContactPhone),
-      ...given('note', site.note),
-      // `recheckClient` works out afresh whether it is already here.
-      ...(site.duplicate ? { duplicate: true } : {}),
-    })),
-  }
-}
+const issueKey = (field: ReviewIssue['field'], siteIndex?: number) =>
+  `${field}|${siteIndex ?? ''}`
 
 /**
  * Everything about one client, to put right what the file got wrong: its
@@ -104,12 +39,15 @@ function applyDraft(client: ReviewClient, draft: Draft): ReviewClient {
 export function EditClientSheet({
   client,
   businessState,
+  returnFocusRef,
   onClose,
   onSave,
 }: {
   /** The client being edited; null while the sheet is shut. */
   client: ReviewClient | null
   businessState: string
+  /** Where focus goes back to when the sheet shuts: the card's Edit. */
+  returnFocusRef?: RefObject<HTMLElement | null>
   onClose: () => void
   onSave: (client: ReviewClient) => void
 }) {
@@ -119,6 +57,7 @@ export function EditClientSheet({
     <Sheet
       open={client !== null}
       onClose={onClose}
+      returnFocusRef={returnFocusRef}
       title="Edit client"
       description="Changes are checked again when you save. Nothing is imported yet."
       footer={
@@ -159,9 +98,23 @@ function EditForm({
   const hydrated = useHydrated()
   const ids = useId()
   const form = useRef<HTMLFormElement>(null)
-  const [draft, setDraft] = useState(() => draftOf(client))
-  const original = useRef(draftOf(client)).current
+  const addSite = useRef<HTMLButtonElement>(null)
+  const added = useRef(0)
+  // The client as the review saw it, taken once: what a field is compared
+  // with to know whether the review's words about it still apply.
+  const [original] = useState(() => draftOf(client))
+  const [draft, setDraft] = useState(original)
   const business = draft.kind === 'business'
+
+  const issueAt: IssueAt = useMemo(() => {
+    const found = new Map<string, ReviewIssue>()
+    for (const issue of client.issues) {
+      if (issue.level === 'fixed') continue
+      const key = issueKey(issue.field, issue.siteIndex)
+      if (!found.has(key)) found.set(key, issue)
+    }
+    return found
+  }, [client])
 
   // The first thing to put right, brought into view once the sheet has
   // slid up. Not focused: on a phone that would throw the keyboard over
@@ -176,69 +129,31 @@ function EditForm({
   }, [])
 
   const set = (patch: Partial<Draft>) => setDraft((d) => ({ ...d, ...patch }))
-  const setSite = (index: number, patch: Partial<SiteDraft>) =>
-    setDraft((d) => ({
-      ...d,
-      sites: d.sites.map((site, i) =>
-        i === index ? { ...site, ...patch } : site,
-      ),
-    }))
-
-  /** What the review said about a field, while it still has the value the
-   * review saw. */
-  const said = (
-    field: ReviewIssue['field'],
-    siteIndex?: number,
-  ): ReviewIssue | undefined => {
-    const now =
-      siteIndex === undefined
-        ? (draft as Record<string, unknown>)[field]
-        : (draft.sites[siteIndex] as Record<string, unknown> | undefined)?.[
-            field
-          ]
-    const was =
-      siteIndex === undefined
-        ? (original as Record<string, unknown>)[field]
-        : (original.sites[siteIndex] as Record<string, unknown> | undefined)?.[
-            field
-          ]
-    if (now !== was) return undefined
-    return client.issues.find(
-      (issue) =>
-        issue.field === field &&
-        issue.siteIndex === siteIndex &&
-        issue.level !== 'fixed',
-    )
-  }
-
-  const input = (
-    id: string,
-    label: string,
-    value: string,
-    onChange: (value: string) => void,
-    issue: ReviewIssue | undefined,
-    extra: { inputMode?: 'numeric' | 'tel' | 'email'; type?: string } = {},
-  ) => (
-    <FormField
-      id={id}
-      label={label}
-      size="md"
-      className="mt-4"
-      error={issue?.level === 'error' ? issue.message : undefined}
-      warning={issue?.level === 'warning' ? issue.message : undefined}
-    >
-      {(control) => (
-        <input
-          {...control}
-          type={extra.type ?? 'text'}
-          inputMode={extra.inputMode}
-          value={value}
-          disabled={!hydrated}
-          onChange={(event) => onChange(event.target.value)}
-        />
-      )}
-    </FormField>
+  // Stable, so typing in one site draws that site's boxes again and no
+  // other's (`SiteFields` is memoised).
+  const setSite = useCallback(
+    (id: string, patch: Partial<SiteDraft>) =>
+      setDraft((d) => ({
+        ...d,
+        sites: d.sites.map((site) =>
+          site.id === id ? { ...site, ...patch } : site,
+        ),
+      })),
+    [],
   )
+  const removeSite = useCallback((id: string) => {
+    setDraft((d) => ({ ...d, sites: d.sites.filter((site) => site.id !== id) }))
+    // Its Remove button has gone with it; the keyboard carries on from the
+    // end of the sites rather than the top of the sheet.
+    requestAnimationFrame(() => addSite.current?.focus())
+  }, [])
+
+  /** What the review said about one of the client's own fields, while it
+   * still has the value the review saw. */
+  const said = (
+    field: 'name' | 'contactPerson' | 'phone' | 'email' | 'abn',
+  ): ReviewIssue | undefined =>
+    draft[field] === original[field] ? issueAt.get(issueKey(field)) : undefined
 
   // An issue about the client as a whole: "No address — a client needs at
   // least one site." Said until one is added.
@@ -280,136 +195,72 @@ function EditForm({
         />
       </div>
 
-      {input(
-        `${ids}-name`,
-        business ? 'Business name' : 'Client name',
-        draft.name,
-        (name) => set({ name }),
-        said('name'),
+      <TextField
+        id={`${ids}-name`}
+        label={business ? 'Business name' : 'Client name'}
+        value={draft.name}
+        onChange={(name) => set({ name })}
+        issue={said('name')}
+        disabled={!hydrated}
+      />
+      {business && (
+        <TextField
+          id={`${ids}-contact`}
+          label="Contact person"
+          value={draft.contactPerson}
+          onChange={(contactPerson) => set({ contactPerson })}
+          issue={said('contactPerson')}
+          disabled={!hydrated}
+        />
       )}
-      {business &&
-        input(
-          `${ids}-contact`,
-          'Contact person',
-          draft.contactPerson,
-          (contactPerson) => set({ contactPerson }),
-          said('contactPerson'),
-        )}
-      {input(
-        `${ids}-phone`,
-        business ? 'Main phone' : 'Phone',
-        draft.phone,
-        (phone) => set({ phone }),
-        said('phone'),
-        { type: 'tel', inputMode: 'tel' },
+      <TextField
+        id={`${ids}-phone`}
+        label={business ? 'Main phone' : 'Phone'}
+        value={draft.phone}
+        onChange={(phone) => set({ phone })}
+        issue={said('phone')}
+        disabled={!hydrated}
+        type="tel"
+        inputMode="tel"
+      />
+      <TextField
+        id={`${ids}-email`}
+        label={business ? 'Main email' : 'Email'}
+        value={draft.email}
+        onChange={(email) => set({ email })}
+        issue={said('email')}
+        disabled={!hydrated}
+        type="email"
+        inputMode="email"
+      />
+      {business && (
+        <TextField
+          id={`${ids}-abn`}
+          label="ABN"
+          value={draft.abn}
+          onChange={(abn) => set({ abn })}
+          issue={said('abn')}
+          disabled={!hydrated}
+          inputMode="numeric"
+        />
       )}
-      {input(
-        `${ids}-email`,
-        business ? 'Main email' : 'Email',
-        draft.email,
-        (email) => set({ email }),
-        said('email'),
-        { type: 'email', inputMode: 'email' },
-      )}
-      {business &&
-        input(
-          `${ids}-abn`,
-          'ABN',
-          draft.abn,
-          (abn) => set({ abn }),
-          said('abn'),
-          { inputMode: 'numeric' },
-        )}
 
       {draft.sites.map((site, i) => (
-        <fieldset
-          key={i}
-          className="mt-6 rounded-2xl border border-hairline bg-surface px-3.5 pb-4 pt-3"
-        >
-          <legend className="sr-only">
-            {draft.sites.length > 1 ? `Site ${i + 1}` : 'Site'}
-          </legend>
-          <p aria-hidden className="text-row-title text-ink">
-            {draft.sites.length > 1 ? `Site ${i + 1}` : 'Site'}
-          </p>
-          {site.duplicate && (
-            <p className="mt-0.5 text-caption text-grey-ink">
-              Already in PestM8 — it won’t be imported again. Change the address
-              if it’s a different place.
-            </p>
-          )}
-          {input(
-            `${ids}-${i}-street`,
-            'Street',
-            site.addressLine,
-            (addressLine) => setSite(i, { addressLine }),
-            said('addressLine', i),
-          )}
-          {input(
-            `${ids}-${i}-suburb`,
-            'Suburb',
-            site.suburb,
-            (suburb) => setSite(i, { suburb }),
-            said('suburb', i),
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <StateSelect
-              id={`${ids}-${i}-state`}
-              value={site.state}
-              disabled={!hydrated}
-              issue={said('state', i)}
-              onChange={(state) => setSite(i, { state })}
-            />
-            {input(
-              `${ids}-${i}-postcode`,
-              'Postcode',
-              site.postcode,
-              (postcode) => setSite(i, { postcode }),
-              said('postcode', i),
-              { inputMode: 'numeric' },
-            )}
-          </div>
-          {business && (
-            <>
-              {input(
-                `${ids}-${i}-contact`,
-                'Site contact',
-                site.siteContactName,
-                (siteContactName) => setSite(i, { siteContactName }),
-                undefined,
-              )}
-              {input(
-                `${ids}-${i}-contact-phone`,
-                'Site contact’s phone',
-                site.siteContactPhone,
-                (siteContactPhone) => setSite(i, { siteContactPhone }),
-                said('siteContactPhone', i),
-                { type: 'tel', inputMode: 'tel' },
-              )}
-            </>
-          )}
-          <FormField
-            id={`${ids}-${i}-note`}
-            label="Site note"
-            size="md"
-            className="mt-4"
-            hint="Pinned on the site, for whoever goes there."
-          >
-            {(control) => (
-              <textarea
-                {...control}
-                value={site.note}
-                rows={3}
-                disabled={!hydrated}
-                onChange={(event) => setSite(i, { note: event.target.value })}
-                className={control.className.replace(
-                  /\bh-11\b/,
-                  'min-h-24 py-2.5',
-                )}
-              />
-            )}
-          </FormField>
-        </fieldset>
+        <SiteFields
+          key={site.id}
+          idPrefix={ids}
+          site={site}
+          original={
+            site.from === undefined ? undefined : original.sites[site.from]
+          }
+          position={i}
+          count={draft.sites.length}
+          business={business}
+          disabled={!hydrated}
+          issueAt={issueAt}
+          onChange={setSite}
+          onRemove={removeSite}
+        />
       ))}
 
       {general.map((issue) => (
@@ -418,32 +269,232 @@ function EditForm({
         </FieldMessage>
       ))}
       <button
+        ref={addSite}
         type="button"
         disabled={!hydrated}
-        onClick={() =>
+        onClick={() => {
+          added.current += 1
+          const id = `new-${added.current}`
           setDraft((d) => ({
             ...d,
-            sites: [
-              ...d.sites,
-              {
-                addressLine: '',
-                suburb: '',
-                state: businessState,
-                postcode: '',
-                siteContactName: '',
-                siteContactPhone: '',
-                note: '',
-                duplicate: false,
-              },
-            ],
+            sites: [...d.sites, blankSite(id, businessState)],
           }))
-        }
+        }}
         className="mt-4 inline-flex min-h-11 items-center gap-1.5 text-[15px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
       >
         <Plus aria-hidden size={17} strokeWidth={2.2} />
         Add a site
       </button>
     </form>
+  )
+}
+
+/**
+ * One site's boxes. Memoised, and handed stable callbacks: a keystroke in
+ * one site of a property manager's three hundred draws that site again,
+ * not all of them.
+ */
+const SiteFields = memo(function SiteFields({
+  idPrefix,
+  site,
+  original,
+  position,
+  count,
+  business,
+  disabled,
+  issueAt,
+  onChange,
+  onRemove,
+}: {
+  idPrefix: string
+  site: SiteDraft
+  /** The site as the review saw it; absent for one added here. */
+  original: SiteDraft | undefined
+  /** Where it is in the list now, for its heading. */
+  position: number
+  count: number
+  business: boolean
+  disabled: boolean
+  issueAt: IssueAt
+  onChange: (id: string, patch: Partial<SiteDraft>) => void
+  onRemove: (id: string) => void
+}) {
+  const id = `${idPrefix}-${site.id}`
+  const heading = count > 1 ? `Site ${position + 1}` : 'Site'
+
+  /** What the review said about this site's field, while it still has the
+   * value the review saw. */
+  const said = (
+    field:
+      | 'addressLine'
+      | 'suburb'
+      | 'state'
+      | 'postcode'
+      | 'siteContactPhone'
+      | 'note',
+  ): ReviewIssue | undefined =>
+    original !== undefined &&
+    site.from !== undefined &&
+    site[field] === original[field]
+      ? issueAt.get(issueKey(field, site.from))
+      : undefined
+
+  const noteIssue = said('note')
+
+  return (
+    <fieldset className="mt-6 rounded-2xl border border-hairline bg-surface px-3.5 pb-4 pt-3">
+      <legend className="sr-only">{heading}</legend>
+      <div className="flex min-h-9 items-center justify-between gap-3">
+        <p aria-hidden className="text-row-title text-ink">
+          {heading}
+        </p>
+        {/* Down to one, not none: a client needs a site, and a wrong one is
+            better put right than removed. */}
+        {count > 1 && (
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onRemove(site.id)}
+            className="inline-flex min-h-9 items-center text-[14px] font-semibold text-red transition active:opacity-60 disabled:opacity-50"
+          >
+            Remove this site
+          </button>
+        )}
+      </div>
+      {site.duplicate && (
+        <p className="mt-0.5 text-caption text-grey-ink">
+          {site.heldBy
+            ? `Already in PestM8, on ${site.heldBy}`
+            : 'Already in PestM8'}{' '}
+          — it won’t be imported again. Change the address if it’s a different
+          place.
+        </p>
+      )}
+      <TextField
+        id={`${id}-street`}
+        label="Street"
+        value={site.addressLine}
+        onChange={(addressLine) => onChange(site.id, { addressLine })}
+        issue={said('addressLine')}
+        disabled={disabled}
+      />
+      <TextField
+        id={`${id}-suburb`}
+        label="Suburb"
+        value={site.suburb}
+        onChange={(suburb) => onChange(site.id, { suburb })}
+        issue={said('suburb')}
+        disabled={disabled}
+      />
+      <div className="grid grid-cols-2 gap-3">
+        <StateSelect
+          id={`${id}-state`}
+          value={site.state}
+          disabled={disabled}
+          issue={said('state')}
+          onChange={(state) => onChange(site.id, { state })}
+        />
+        <TextField
+          id={`${id}-postcode`}
+          label="Postcode"
+          value={site.postcode}
+          onChange={(postcode) => onChange(site.id, { postcode })}
+          issue={said('postcode')}
+          disabled={disabled}
+          inputMode="numeric"
+        />
+      </div>
+      {business && (
+        <>
+          <TextField
+            id={`${id}-contact`}
+            label="Site contact"
+            value={site.siteContactName}
+            onChange={(siteContactName) =>
+              onChange(site.id, { siteContactName })
+            }
+            issue={undefined}
+            disabled={disabled}
+          />
+          <TextField
+            id={`${id}-contact-phone`}
+            label="Site contact’s phone"
+            value={site.siteContactPhone}
+            onChange={(siteContactPhone) =>
+              onChange(site.id, { siteContactPhone })
+            }
+            issue={said('siteContactPhone')}
+            disabled={disabled}
+            type="tel"
+            inputMode="tel"
+          />
+        </>
+      )}
+      <FormField
+        id={`${id}-note`}
+        label="Site note"
+        size="md"
+        className="mt-4"
+        hint="Pinned on the site, for whoever goes there."
+        error={noteIssue?.level === 'error' ? noteIssue.message : undefined}
+        warning={noteIssue?.level === 'warning' ? noteIssue.message : undefined}
+      >
+        {(control) => (
+          <textarea
+            {...control}
+            value={site.note}
+            rows={3}
+            disabled={disabled}
+            onChange={(event) =>
+              onChange(site.id, { note: event.target.value })
+            }
+            className={control.className.replace(/\bh-11\b/, 'min-h-24 py-2.5')}
+          />
+        )}
+      </FormField>
+    </fieldset>
+  )
+})
+
+function TextField({
+  id,
+  label,
+  value,
+  onChange,
+  issue,
+  disabled,
+  type = 'text',
+  inputMode,
+}: {
+  id: string
+  label: string
+  value: string
+  onChange: (value: string) => void
+  issue: ReviewIssue | undefined
+  disabled: boolean
+  type?: string
+  inputMode?: 'numeric' | 'tel' | 'email'
+}) {
+  return (
+    <FormField
+      id={id}
+      label={label}
+      size="md"
+      className="mt-4"
+      error={issue?.level === 'error' ? issue.message : undefined}
+      warning={issue?.level === 'warning' ? issue.message : undefined}
+    >
+      {(control) => (
+        <input
+          {...control}
+          type={type}
+          inputMode={inputMode}
+          value={value}
+          disabled={disabled}
+          onChange={(event) => onChange(event.target.value)}
+        />
+      )}
+    </FormField>
   )
 }
 

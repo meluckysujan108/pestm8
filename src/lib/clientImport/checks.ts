@@ -149,36 +149,42 @@ export async function checkClientOffline(
   return check(client, opts.businessState, new Map())
 }
 
-/** How many clients are checked between breaths, so the page can paint
- * "Checking addresses…" and its count. */
-const CHUNK = 100
+/** How long the checks run before a breath, in milliseconds: under a frame,
+ * so the page can paint "Checking addresses…" and its count, and a tap on
+ * Back is answered. */
+const SLICE_MS = 12
 
 /**
  * Every client's address checks. The tables load once per state; after
- * that the checks are quick, but 2,000 of them in one go would still hold
- * the page still, so they run a chunk at a time with a pause between.
+ * that most checks are quick, but 2,000 of them in one go would still hold
+ * the page still. So they run one client at a time, with a breath whenever
+ * 12 ms have gone by: by the clock, not by a count, as a suburb the tables
+ * don't have takes far longer to check than one they do (it is compared
+ * with every name of about its length for "Did you mean").
  */
 export async function runOfflineChecks(
   clients: Array<ReviewClient>,
   opts: {
     businessState: string
-    /** Called after each chunk, for a count on the page. */
+    /** Called at each breath and at the end, for a count on the page. */
     onProgress?: (done: number, total: number) => void
+    /** True once the result is no longer wanted (the person went back, or
+     * started again): the run stops at its next breath. */
+    stopped?: () => boolean
   },
 ): Promise<Array<ReviewClient>> {
   const answers: Answers = new Map()
   const out: Array<ReviewClient> = []
-  for (let at = 0; at < clients.length; at += CHUNK) {
-    const chunk = clients.slice(at, at + CHUNK)
-    out.push(
-      ...(await Promise.all(
-        chunk.map((client) => check(client, opts.businessState, answers)),
-      )),
-    )
-    opts.onProgress?.(out.length, clients.length)
-    if (out.length < clients.length) {
+  let since = performance.now()
+  for (const client of clients) {
+    out.push(await check(client, opts.businessState, answers))
+    if (out.length < clients.length && performance.now() - since >= SLICE_MS) {
+      opts.onProgress?.(out.length, clients.length)
       await new Promise((resolve) => setTimeout(resolve, 0))
+      if (opts.stopped?.()) return out
+      since = performance.now()
     }
   }
+  if (clients.length > 0) opts.onProgress?.(out.length, clients.length)
   return out
 }

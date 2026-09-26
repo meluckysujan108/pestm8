@@ -1,20 +1,37 @@
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
-import { CircleX, Download, MapPin, StickyNote, Users } from 'lucide-react'
+import {
+  CircleX,
+  Download,
+  MapPin,
+  StickyNote,
+  UserMinus,
+  Users,
+} from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { downloadText, rowsCsv } from '#/lib/clientImport/skipped'
 import { useHydrated } from '#/lib/useHydrated'
 import { recentImports } from './queries'
 import { notImportedFileName, outcomeOf, rowsNotImported } from './run'
-import { DrawnCheck, PRIMARY_BUTTON, SECONDARY_BUTTON, plural } from './ui'
+import {
+  DrawnCheck,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  STEP_HEADING,
+  STEP_HEADING_CLASS,
+  plural,
+} from './ui'
 import {
   UNDO_ERROR_COPY,
   UndoDialog,
+  UndoHold,
+  undoHolding,
   useUndoImport,
   withinUndoWindow,
 } from './undo'
 import type { RunOutcome } from './run'
+import type { UndoClock } from './undo'
 import type { ReactNode } from 'react'
 import type { ImportResult } from '../../../../convex/lib/clientImport'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -38,7 +55,8 @@ function headline(outcome: RunOutcome): string {
 /**
  * The end: what went in, what was already here, what didn't make it and
  * why — and, while it can still be taken back, Undo, right where the person
- * is most likely to want it.
+ * is most likely to want it. Once undone, what went in is no longer the
+ * story, so it goes, and the screen says what the undo did instead.
  */
 export function DoneStep({
   businessId,
@@ -47,6 +65,7 @@ export function DoneStep({
   review,
   results,
   importId,
+  clock,
   onAnother,
 }: {
   businessId: Id<'businesses'>
@@ -55,6 +74,8 @@ export function DoneStep({
   review: Array<ReviewClient>
   results: Array<ImportResult>
   importId: Id<'clientImports'> | null
+  /** The page's one clock for its undos (`useUndoClock`). */
+  clock: UndoClock
   onAnother: () => void
 }) {
   const hydrated = useHydrated()
@@ -67,16 +88,21 @@ export function DoneStep({
   const { data } = useQuery(recentImports(businessId))
   const run = importId ? data?.find((row) => row._id === importId) : undefined
   const undo = useUndoImport(businessId)
-  const [now] = useState(() => Date.now())
 
   /** The import, once someone has asked for it to be undone. */
   const undone = run?.undoneAt !== undefined ? run : null
   const takenBack = undone?.undoState === 'done'
+  const stuck = undone !== null && clock.stuck(undone)
+  /** Any undo not yet done — this import's, or another's, and stopped
+   * ones too — holds another file back (`undoUnderway`). This import's is
+   * said in its own box; another's under the buttons. */
+  const holding = undoHolding(data, clock)
+  const heldByAnother = holding !== null && holding.row._id !== importId
   const canUndo =
     run !== undefined &&
     run.canUndo &&
     !undone &&
-    withinUndoWindow(run.createdAt, now)
+    withinUndoWindow(run.createdAt, clock.deviceNow)
 
   const download = () => {
     const csv = rowsCsv(sheet, behind.rowNumbers, behind.reasons)
@@ -99,15 +125,28 @@ export function DoneStep({
       text: `${plural(outcome.skippedSites, 'site')} already here, skipped`,
     })
   }
+  if (outcome.leftOut.length > 0) {
+    lines.push({
+      Icon: UserMinus,
+      text: `${plural(outcome.leftOut.length, 'client')} left out`,
+    })
+  }
   const missed = outcome.notImported
 
   return (
-    <div className="mx-auto max-w-lg pt-6">
-      <DrawnCheck />
-      <h2 className="mt-5 text-sheet-title text-ink">
-        {takenBack ? 'This import has been undone' : headline(outcome)}
+    <div className="pt-6">
+      {!undone && <DrawnCheck />}
+      <h2
+        {...STEP_HEADING}
+        className={`${undone ? '' : 'mt-5'} text-sheet-title text-ink ${STEP_HEADING_CLASS}`}
+      >
+        {takenBack
+          ? 'This import has been undone'
+          : undone
+            ? 'Undoing this import'
+            : headline(outcome)}
       </h2>
-      <p className="mt-1.5 text-body text-muted">
+      <p className="mt-1.5 text-body text-muted [overflow-wrap:anywhere]">
         From {sheet.fileName}.
         {outcome.sites > 0 &&
           !undone &&
@@ -115,17 +154,29 @@ export function DoneStep({
       </p>
 
       {undone && (
-        <p
+        <div
           role="status"
           className="mt-4 rounded-xl border border-hairline bg-surface-2 px-3 py-2 text-caption text-ink-2"
         >
-          {undone.undoState === 'done'
+          {takenBack
             ? undoneSentence(undone.undoRemoved ?? 0, undone.undoKept ?? 0)
-            : 'Undoing… the clients and sites this import brought in are being taken back.'}
-        </p>
+            : stuck
+              ? 'This undo stopped part-way, so some of what came in is still here. Carry it on, and you can import another file once it’s done.'
+              : 'Undoing… the clients and sites this import brought in are being taken back. You can import another file once it’s done.'}
+          {stuck && undone.canUndo && importId && (
+            <button
+              type="button"
+              onClick={() => undo.mutation.mutate(importId)}
+              disabled={!hydrated || undo.mutation.isPending}
+              className="mt-1 flex min-h-11 items-center font-semibold text-red transition active:opacity-60 disabled:opacity-50"
+            >
+              {undo.mutation.isPending ? 'Undoing…' : 'Carry on undoing'}
+            </button>
+          )}
+        </div>
       )}
 
-      {(lines.length > 0 || missed.length > 0) && (
+      {!undone && (lines.length > 0 || missed.length > 0) && (
         <ul className="mt-5 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
           {lines.map(({ Icon, text }) => (
             <Line key={text} icon={<Icon size={17} strokeWidth={1.8} />}>
@@ -167,7 +218,9 @@ export function DoneStep({
         >
           Go to clients
         </Link>
-        {behind.rowNumbers.length > 0 && (
+        {/* Once undone, the rows that went in are out again as well: the
+            file itself is the list to import from now. */}
+        {!undone && behind.rowNumbers.length > 0 && (
           <button
             type="button"
             onClick={download}
@@ -182,7 +235,7 @@ export function DoneStep({
           <button
             type="button"
             onClick={onAnother}
-            disabled={!hydrated}
+            disabled={!hydrated || holding !== null}
             className="min-h-11 text-[15px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
           >
             Import another file
@@ -198,6 +251,15 @@ export function DoneStep({
             </button>
           )}
         </div>
+        {heldByAnother && (
+          <UndoHold
+            businessId={businessId}
+            row={holding.row}
+            stopped={holding.stopped}
+            then="import another file"
+            className="flex flex-col items-center text-center"
+          />
+        )}
       </div>
 
       <FormAlert

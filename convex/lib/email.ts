@@ -116,18 +116,26 @@ export const COMMON_EMAIL_DOMAINS = [
 
 /**
  * Real providers a letter or two from a common one, which must never be
- * "corrected": mail.com is not a slip of gmail.com.
+ * "corrected": mail.com is not a slip of gmail.com, and y7mail.com (Yahoo7),
+ * exemail.com.au (Exetel), tpgi.com.au (TPG) and amnet.net.au (Amnet, Perth)
+ * are Australian addresses in use, not slips of gmail, ozemail, tpg and
+ * iinet.
  */
 const REAL_LOOKALIKES = new Set([
   'mail.com',
   'email.com',
   'ymail.com',
+  'y7mail.com',
   'aol.com',
   'gmx.com',
   'gmx.net',
   'live.net',
   'outlook.net',
   'iinet.com.au',
+  'exemail.com.au',
+  'tpgi.com.au',
+  'amnet.net.au',
+  'protonmail.ch',
   'fastmail.com',
   'zoho.com',
 ])

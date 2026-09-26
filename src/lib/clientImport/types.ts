@@ -44,6 +44,10 @@ export type ImportSheet = {
   headers: Array<string>
   /** Data rows only. Each is padded or cut to `headers.length`. */
   rows: Array<Array<string>>
+  /** Each data row's number as the person's spreadsheet shows it (the
+   * heading row, and any title or blank rows above or between, counted),
+   * for messages that point at a row. Absent: data row i is row i + 2. */
+  sourceRows?: Array<number>
 }
 
 /** The app a file looks like it came from, by its headers. */
@@ -78,6 +82,7 @@ export type ReviewIssue = {
     | 'state'
     | 'postcode'
     | 'siteContactPhone'
+    | 'note'
   /** Which site, for a site field. */
   siteIndex?: number
   message: string
@@ -88,6 +93,9 @@ export type ReviewIssue = {
 export type ReviewSite = ImportSite & {
   /** Already in PestM8 (same street, suburb and postcode): not imported. */
   duplicate?: boolean
+  /** For a duplicate, the client in PestM8 it is on, when that is another
+   * client than this one ("Already in PestM8, on Jane Doe"). Never sent. */
+  heldBy?: string
 }
 
 export type ReviewClient = {
@@ -96,6 +104,10 @@ export type ReviewClient = {
   /** The file's row numbers this client came from (1 = the first data row),
    * for the "rows not imported" download. */
   rowNumbers: Array<number>
+  /** The same rows as the person's spreadsheet numbers them (`sourceRows`),
+   * for messages that point at one: "Same address as Jo Smith (row 7)".
+   * Absent: each of `rowNumbers` plus 1. */
+  sheetRows?: Array<number>
   kind: 'person' | 'business'
   name: string
   contactPerson?: string
@@ -125,4 +137,7 @@ export type ExistingIndex = {
   clientsByName: Map<string, Id<'clients'>>
   /** `siteKey(site)` of every site already in PestM8. */
   siteKeys: Set<string>
+  /** `siteKey(site)` → the name of the client that site is on, so the review
+   * can say whose it is when that isn't the client being imported. */
+  siteHolders?: Map<string, string>
 }

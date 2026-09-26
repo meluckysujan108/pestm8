@@ -1,6 +1,6 @@
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 
 /**
  * A bottom sheet, as this app draws them.
@@ -21,6 +21,7 @@ export function Sheet({
   description,
   children,
   footer,
+  returnFocusRef,
 }: {
   open: boolean
   onClose: () => void
@@ -30,12 +31,30 @@ export function Sheet({
   children: ReactNode
   /** Pinned below the scrolling content — a Done button, usually. */
   footer?: ReactNode
+  /**
+   * Where focus goes when the sheet shuts — the button that opened it.
+   * These sheets are opened from state, not a Drawer.Trigger, so without
+   * this focus goes back to no trigger at all: the top of the page, for a
+   * keyboard or screen reader. Left out, the sheet behaves as it always has.
+   */
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   return (
     <Drawer.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-black/30" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
+        <Drawer.Content
+          className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none"
+          onCloseAutoFocus={
+            returnFocusRef
+              ? (event) => {
+                  // Instead of Radix's own, which is the missing trigger.
+                  event.preventDefault()
+                  returnFocusRef.current?.focus()
+                }
+              : undefined
+          }
+        >
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
 
           <div className="px-4 pb-2 pt-3">

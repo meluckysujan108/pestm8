@@ -1,8 +1,13 @@
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Download, LoaderCircle } from 'lucide-react'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { FormAlert } from '#/components/forms/FormAlert'
-import { importable, statusOf, summarise } from '#/lib/clientImport/convert'
+import {
+  bucketOf,
+  importable,
+  statusOf,
+  summarise,
+} from '#/lib/clientImport/convert'
 import { downloadText, rowsCsv } from '#/lib/clientImport/skipped'
 import { useHydrated } from '#/lib/useHydrated'
 import { EditClientSheet } from './EditClientSheet'
@@ -13,19 +18,25 @@ import {
   PRIMARY_BUTTON,
   ProgressBar,
   SECONDARY_BUTTON,
+  STEP_HEADING,
+  STEP_HEADING_CLASS,
   StepHeading,
   plural,
 } from './ui'
+import type { ReactNode } from 'react'
+import type { ErrorCopy } from '#/components/forms/describeError'
+import type { ReviewBucket } from '#/lib/clientImport/convert'
 import type {
   ImportSheet,
   ReviewClient,
   ReviewIssue,
-  ReviewStatus,
 } from '#/lib/clientImport/types'
 
 /** The review's filter: its statuses, with "fine as it is" and "fine, with
- * something put right" as one — both simply go in. */
-type Filter = 'all' | 'warning' | 'error' | 'duplicate' | 'ready'
+ * something put right" as one — both simply go in — and the clients left
+ * out on their own, whatever they were: leaving one out is dealing with it,
+ * so it leaves "Can't import" or "Needs a look" as a fix would. */
+type Filter = 'all' | 'warning' | 'error' | 'duplicate' | 'ready' | 'excluded'
 
 const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: 'all', label: 'All' },
@@ -33,14 +44,60 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: 'error', label: 'Can’t import' },
   { key: 'duplicate', label: 'Already in PestM8' },
   { key: 'ready', label: 'Ready' },
+  { key: 'excluded', label: 'Left out' },
 ]
 
-const filterOf = (status: ReviewStatus): Filter =>
-  status === 'fixed' ? 'ready' : status
+const filterOf = (bucket: ReviewBucket): Filter =>
+  bucket === 'fixed' ? 'ready' : bucket
 
 /** Cards drawn at once. A 2,000-client file is 2,000 cards with an issue
  * list each; a hundred is more than a screen, and cheap. */
 const PAGE = 100
+
+/** Reading PestM8 again after an undo (`RecheckNote`), turned down. */
+const RECHECK_COPY: ErrorCopy = {
+  offline:
+    'This device is offline, so the review can’t check what’s in PestM8 since the undo. Check again when you have signal.',
+  default:
+    'Couldn’t read what’s in PestM8 since the undo, so Import waits. Check again in a moment.',
+}
+
+/**
+ * Why Import waits once an undo is done (recheck.ts): what's in PestM8 is
+ * being read again, as the review's picture of it is from before the undo
+ * — or that read failed, with the way to try it again. The page hands it to
+ * the review as `wait`.
+ */
+export function RecheckNote({
+  error,
+  onRetry,
+}: {
+  /** Why the last read failed; null while it is under way. */
+  error: unknown
+  onRetry: () => void
+}) {
+  const hydrated = useHydrated()
+  if (error === null || error === undefined) {
+    return (
+      <p role="status" className="mb-3 text-caption text-ink-2">
+        Checking what’s in PestM8 again after the undo…
+      </p>
+    )
+  }
+  return (
+    <div className="mb-3">
+      <FormAlert error={error} copy={RECHECK_COPY} />
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={!hydrated}
+        className="mt-1 min-h-11 text-[15px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+      >
+        Check again
+      </button>
+    </div>
+  )
+}
 
 /**
  * Step three: every client the file makes, before any of it is saved —
@@ -54,6 +111,7 @@ export function ReviewStep({
   progress,
   checkFailed,
   businessState,
+  wait,
   onFix,
   onSave,
   onToggle,
@@ -67,6 +125,10 @@ export function ReviewStep({
   /** The suburb tables couldn't be read: nothing was checked against them. */
   checkFailed: boolean
   businessState: string
+  /** Why Import has to wait, while it does: an import being undone
+   * (`UndoHold`) since the review was built — what it says is already in
+   * PestM8 may be going — and then PestM8 being read again (`RecheckNote`). */
+  wait?: ReactNode
   onFix: (client: ReviewClient, issue: ReviewIssue) => void
   onSave: (client: ReviewClient) => void
   onToggle: (client: ReviewClient) => void
@@ -93,11 +155,32 @@ export function ReviewStep({
     () =>
       filter === 'all'
         ? all
-        : all.filter((c) => filterOf(statuses.get(c.key)!) === filter),
-    [all, filter, statuses],
+        : all.filter((c) => filterOf(bucketOf(c)) === filter),
+    [all, filter],
   )
 
-  const edit = useCallback((client: ReviewClient) => setEditing(client.key), [])
+  /** The Edit button the sheet was opened from, which focus goes back to
+   * when it shuts (`returnFocusRef`); and the card beside it, for when a
+   * save takes that card out of the filter, its button with it. */
+  const editedFrom = useRef<HTMLElement | null>(null)
+  const beside = useRef<HTMLElement | null>(null)
+  const edit = useCallback((client: ReviewClient, from: HTMLElement) => {
+    const card = from.closest('li')
+    editedFrom.current = from
+    beside.current = (card?.nextElementSibling ??
+      card?.previousElementSibling ??
+      null) as HTMLElement | null
+    setEditing(client.key)
+  }, [])
+  // After every change to the list, before the sheet has finished sliding
+  // away: a button that has gone hands over to the card beside it, or to
+  // the step's heading when there is none (`STEP_HEADING`).
+  useEffect(() => {
+    if (editedFrom.current?.isConnected !== false) return
+    editedFrom.current = beside.current?.isConnected
+      ? beside.current
+      : document.querySelector<HTMLElement>('[data-step-heading]')
+  })
   const editingClient = editing
     ? (all.find((client) => client.key === editing) ?? null)
     : null
@@ -115,15 +198,32 @@ export function ReviewStep({
           size={28}
           className="animate-spin text-muted motion-reduce:animate-none"
         />
-        <p className="mt-4 text-row-title text-ink">Checking addresses…</p>
+        {/* Where focus goes after Continue (`focusStepHeading`): the
+            button that had it has gone with the Match step. */}
+        <h2
+          {...STEP_HEADING}
+          className={`mt-4 text-row-title text-ink ${STEP_HEADING_CLASS}`}
+        >
+          {progress ? 'Checking addresses…' : 'Checking what’s in PestM8…'}
+        </h2>
         <p className="mt-1 text-caption text-muted">
-          {total > 0
+          {progress
             ? `${done.toLocaleString('en-AU')} of ${plural(total, 'client')}, against Australia’s suburb list`
-            : 'Against Australia’s suburb list'}
+            : 'So nothing already here comes in twice'}
         </p>
         <div className="mt-5 w-full max-w-xs">
           <ProgressBar label="Checking addresses" done={done} total={total} />
         </div>
+        {/* With no signal, what's in PestM8 waits for it; this is the way
+            out meanwhile. */}
+        <button
+          type="button"
+          onClick={onBack}
+          disabled={!hydrated}
+          className="mt-4 min-h-11 text-[15px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+        >
+          Change the columns
+        </button>
       </div>
     )
   }
@@ -188,10 +288,17 @@ export function ReviewStep({
 
       {visible.length === 0 ? (
         <div className="mt-4">
-          <EmptyState
-            title="Nothing left here"
-            body="Everything in this list has been put right or left out."
-          />
+          {filter === 'excluded' ? (
+            <EmptyState
+              title="Nothing left out"
+              body="Every client you left out is back in."
+            />
+          ) : (
+            <EmptyState
+              title="Nothing left here"
+              body="Everything in this list has been put right or left out."
+            />
+          )}
         </div>
       ) : (
         <ul aria-label="Clients" className="mt-4 flex flex-col gap-2.5">
@@ -224,6 +331,7 @@ export function ReviewStep({
       )}
 
       <BottomBar>
+        {wait}
         <div className="flex gap-2">
           {behind.rowNumbers.length > 0 && (
             <button
@@ -241,7 +349,7 @@ export function ReviewStep({
           <button
             type="button"
             onClick={onImport}
-            disabled={!hydrated || going === 0}
+            disabled={!hydrated || going === 0 || Boolean(wait)}
             className={`${PRIMARY_BUTTON} min-w-0 flex-1`}
           >
             {going === 0
@@ -254,6 +362,7 @@ export function ReviewStep({
       <EditClientSheet
         client={editingClient}
         businessState={businessState}
+        returnFocusRef={editedFrom}
         onClose={() => setEditing(null)}
         onSave={(client) => {
           onSave(client)

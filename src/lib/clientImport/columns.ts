@@ -514,6 +514,23 @@ export function autoMap(sheet: ImportSheet): ColumnMapping {
   return mapping
 }
 
+/** Every heading autoMap can take for a field, normalised. */
+const KNOWN_HEADINGS = new Set<string>([
+  ...Object.values(SYNONYMS).flat(),
+  ...[SITE_HEADINGS, PLAIN_HEADINGS, BILLING_HEADINGS].flatMap((headings) =>
+    Object.values(headings).flat(),
+  ),
+])
+
+/**
+ * Whether a heading is one autoMap knows a field for — "Client Name",
+ * "Suburb", "Service Street 1" — so read.ts can tell the headings from a
+ * title above them or the clients below them.
+ */
+export function isKnownHeading(header: string): boolean {
+  return KNOWN_HEADINGS.has(normalise(header))
+}
+
 // ---------------------------------------------------------------- problems
 
 /** What stops Continue, as sentences for the Match step. */

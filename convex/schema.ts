@@ -671,6 +671,9 @@ export default defineSchema({
     undoneAt: v.optional(v.number()),
     undoneByMembershipId: v.optional(v.id('memberships')),
     undoState: v.optional(v.union(v.literal('running'), v.literal('done'))),
+    /** When an undo last made progress (each step, and a carry-on, sets it):
+     * one that hasn't for a while has stopped, and may be carried on. */
+    undoStepAt: v.optional(v.number()),
     undoRemoved: v.optional(v.number()),
     undoKept: v.optional(v.number()),
   }).index('by_business', ['businessId']),

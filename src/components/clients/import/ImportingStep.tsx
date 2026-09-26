@@ -1,7 +1,14 @@
 import { LoaderCircle } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { useHydrated } from '#/lib/useHydrated'
-import { PRIMARY_BUTTON, ProgressBar, SECONDARY_BUTTON } from './ui'
+import {
+  PRIMARY_BUTTON,
+  ProgressBar,
+  SECONDARY_BUTTON,
+  STEP_HEADING,
+  STEP_HEADING_CLASS,
+} from './ui'
+import type { ReactNode } from 'react'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type { RunState } from './useImportRun'
 
@@ -11,12 +18,22 @@ const STOPPED_COPY: ErrorCopy = {
   NO_ACCESS:
     'Your access no longer covers importing clients, so the rest wasn’t sent. Ask the business owner.',
   NOT_FOUND: 'This import isn’t there any more, so the rest wasn’t sent.',
+  // Another import's undo, from another screen: batches wait for it
+  // (convex/clientImports.ts `refuseWhileUndoing`), so this one is paused,
+  // not stopped. Refused at the start instead, nothing has gone in, and the
+  // page goes back to its review (`refusedBeforeStart`).
+  UNDO_IN_PROGRESS:
+    'An earlier import is still being undone. Once it’s finished, Try again carries on from here.',
   // One of the refusals useImportRun won't try again, so not "paused".
   BATCH_TOO_LARGE:
     'PestM8 turned a batch down as too big, so the rest wasn’t sent. Split the file and import each part.',
   offline:
     'This device is offline, so the import is paused. Try again when you have signal.',
-  default: 'The connection dropped, so the import is paused.',
+  // Not the connection: a dropped one holds a batch and sends it again
+  // itself, and never lands here. What does is the server turning a batch
+  // down, most often once and for a moment, sometimes every time.
+  default:
+    'PestM8 couldn’t take the last few clients, so the import is paused. Try again — if it stops at the same place, choose Stop here and the rest will be in the download.',
 }
 
 /**
@@ -26,10 +43,15 @@ const STOPPED_COPY: ErrorCopy = {
  */
 export function ImportingStep({
   state,
+  wait,
   onRetry,
   onFinish,
 }: {
   state: RunState
+  /** Another import's undo, still running: said under the alert — with
+   * Carry on undoing, when it has stopped — and Try again waits for it,
+   * since until it's done every batch is turned down (UNDO_IN_PROGRESS). */
+  wait?: ReactNode
   onRetry: () => void
   onFinish: () => void
 }) {
@@ -39,8 +61,11 @@ export function ImportingStep({
 
   if (state.status === 'failed') {
     return (
-      <div className="mx-auto mt-10 max-w-md">
-        <h2 className="text-sheet-title text-ink">
+      <div className="mt-10">
+        <h2
+          {...STEP_HEADING}
+          className={`text-sheet-title text-ink ${STEP_HEADING_CLASS}`}
+        >
           {state.retryable ? 'The import is paused' : 'The import stopped'}
         </h2>
         <p className="mt-1.5 text-body text-muted">
@@ -48,10 +73,11 @@ export function ImportingStep({
             ? `${count} clients went in before it stopped.`
             : 'None of the clients had gone in yet.'}
         </p>
-        <div className="mt-4">
+        <div className="mt-4 max-w-md">
           <ProgressBar label="Imported" done={sent} total={total} />
         </div>
         <FormAlert error={state.error} copy={STOPPED_COPY} className="mt-4" />
+        {state.retryable && wait && <div className="mt-3">{wait}</div>}
         {state.retryable && (
           <p className="mt-3 text-caption text-muted">
             Nothing is sent twice: Try again carries on from the first client
@@ -63,7 +89,7 @@ export function ImportingStep({
             <button
               type="button"
               onClick={onRetry}
-              disabled={!hydrated}
+              disabled={!hydrated || Boolean(wait)}
               className={PRIMARY_BUTTON}
             >
               Try again
@@ -83,20 +109,24 @@ export function ImportingStep({
   }
 
   return (
-    <div
-      role="status"
-      className="mx-auto mt-16 flex max-w-md flex-col items-center text-center"
-    >
+    <div role="status" className="mt-16 flex flex-col items-center text-center">
       <LoaderCircle
         aria-hidden
         size={28}
         className="animate-spin text-muted motion-reduce:animate-none"
       />
-      <p className="mt-4 text-row-title text-ink">Importing… {count}</p>
+      {/* Where focus goes after Import and Try again (`focusStepHeading`):
+          the button that had it has gone. */}
+      <h2
+        {...STEP_HEADING}
+        className={`mt-4 text-row-title text-ink ${STEP_HEADING_CLASS}`}
+      >
+        Importing… {count}
+      </h2>
       <p className="mt-1 text-caption text-muted">
         Keep this page open until it’s done.
       </p>
-      <div className="mt-5 w-full">
+      <div className="mt-5 w-full max-w-md">
         <ProgressBar label="Importing" done={sent} total={total} />
       </div>
     </div>

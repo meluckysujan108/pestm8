@@ -29,6 +29,15 @@ describe('rowsCsv', () => {
     ])
   })
 
+  test("a cell already starting ' before one of those gets another", () => {
+    const sheet: ImportSheet = {
+      fileName: 'clients.csv',
+      headers: ['Name', 'Notes'],
+      rows: [["'=Odd", "'Jo"]],
+    }
+    expect(rowsCsv(sheet, [1]).split('\r\n')[1]).toBe(`''=Odd,'Jo`)
+  })
+
   test('with reasons, a last column says why', () => {
     const csv = rowsCsv(
       SHEET,

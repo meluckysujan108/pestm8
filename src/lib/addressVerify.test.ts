@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { editDistance } from '../../convex/lib/contactNames'
 import { stateOfPostcode } from '../../convex/lib/postcodes'
 import {
   addressErrors,
@@ -6,6 +7,7 @@ import {
   checkAddressAtSave,
   checkAddressOffline,
   checkStreetOnline,
+  closestSuburb,
   loadLocalities,
   parseLocalities,
   readStreetCheck,
@@ -13,10 +15,12 @@ import {
   stillAsPicked,
   streetCheckUrl,
   suburbKey,
+  suburbWords,
+  withinDistance,
 } from './addressVerify'
 import { LOOKUP_UNDER_AUTOMATION_KEY } from './addressLookup'
 import { STRUCTURED } from './addressVerify.fixtures'
-import type { AddressValue } from './addressVerify'
+import type { AddressValue, Locality, LocalityTable } from './addressVerify'
 
 function address(
   addressLine: string,
@@ -154,6 +158,153 @@ describe('the suburb tables', () => {
     expect(suburbKey('Fanny Bay')).not.toBe(suburbKey('Fannie Bay'))
   })
 })
+
+/** A repeatable run of random numbers in [0, 1), so a failure can be run
+ * again as it was. */
+function seeded(seed: number): () => number {
+  let s = seed >>> 0
+  return () => {
+    s = (Math.imul(s, 1664525) + 1013904223) >>> 0
+    return s / 2 ** 32
+  }
+}
+
+/** `closestSuburb` as it was before `withinDistance`: `editDistance` in
+ * full against every name of about the same length. The answers it gave
+ * are the ones to keep. */
+function closestSuburbBefore(
+  table: LocalityTable,
+  typed: string,
+  postcode: string,
+): Locality | null {
+  const key = suburbKey(typed)
+  if (key.length < 4) return null
+  const allowed = key.length <= 7 ? 1 : 2
+  const typedPostcode = table.postcodes.has(postcode) ? postcode : ''
+  let best: Locality | null = null
+  let bestScore = Infinity
+  for (const locality of table.all) {
+    if (Math.abs(locality.key.length - key.length) > allowed) continue
+    const distance = editDistance(key, locality.key)
+    if (distance > allowed) continue
+    const uses = typedPostcode !== '' && locality.postcodes.includes(postcode)
+    const score = uses ? distance : distance + allowed + 1
+    if (score < bestScore) {
+      best = locality
+      bestScore = score
+    }
+  }
+  if (best) return best
+  const words = suburbWords(typed)
+  const starting = table.all.filter((locality) => {
+    const theirs = suburbWords(locality.name)
+    return (
+      theirs.length > words.length && words.every((w, i) => theirs[i] === w)
+    )
+  })
+  return starting.length === 1 ? starting[0] : null
+}
+
+describe('closestSuburb: quick, with the answers it always gave', () => {
+  test('withinDistance is editDistance, up to the most it is asked about', () => {
+    expect(withinDistance('jhon', 'john', 1)).toBe(1)
+    expect(withinDistance('fanniebay', 'fannybay', 2)).toBe(2)
+    expect(withinDistance('fanniebay', 'fannybay', 1)).toBe(2)
+    expect(withinDistance('abcd', 'wxyz', 2)).toBe(3)
+    expect(withinDistance('', 'ab', 2)).toBe(2)
+    expect(withinDistance('', 'ab', 1)).toBe(2)
+    expect(withinDistance('mountlawley', 'mountlawley', 0)).toBe(0)
+    // Longer than the rows it starts with: they grow.
+    const long = 'a'.repeat(90)
+    expect(withinDistance(long, `${long}b`, 2)).toBe(1)
+
+    // A small alphabet, so swaps, repeats and near misses are common.
+    const random = seeded(7)
+    const letters = 'abc'
+    const word = (length: number) =>
+      Array.from(
+        { length },
+        () => letters[Math.floor(random() * letters.length)],
+      ).join('')
+    const differ: Array<string> = []
+    for (let n = 0; n < 5000; n++) {
+      const a = word(Math.floor(random() * 9))
+      const b =
+        random() < 0.5 ? word(Math.floor(random() * 9)) : misspell(a, random)
+      const max = Math.floor(random() * 4)
+      const want = Math.min(editDistance(a, b), max + 1)
+      if (withinDistance(a, b, max) !== want) differ.push(`${a}|${b}|${max}`)
+    }
+    expect(differ).toEqual([])
+  })
+
+  test("the same suburb as before for a few hundred slips, in every state's table", async () => {
+    const random = seeded(2026)
+    const states = ['ACT', 'NSW', 'NT', 'QLD', 'SA', 'TAS', 'VIC', 'WA']
+    const differ: Array<string> = []
+    let found = 0
+    let asked = 0
+    for (const state of states) {
+      const table = (await loadLocalities(state))!
+      const postcodes = [...table.postcodes]
+      for (let n = 0; n < 50; n++) {
+        const locality = table.all[Math.floor(random() * table.all.length)]
+        const pick = random()
+        const typed =
+          pick < 0.7
+            ? misspell(locality.name, random)
+            : pick < 0.85
+              ? // The start of a name, for the "starts with" guess.
+                locality.name.split(' ').slice(0, -1).join(' ') ||
+                locality.name.slice(0, 5)
+              : // A name nothing like any.
+                `${misspell(locality.name, random)} Heights Estate`
+        const which = random()
+        const postcode =
+          which < 0.4
+            ? locality.postcodes[0]
+            : which < 0.7
+              ? postcodes[Math.floor(random() * postcodes.length)]
+              : which < 0.85
+                ? ''
+                : '9999'
+        const now = closestSuburb(table, typed, postcode)
+        const before = closestSuburbBefore(table, typed, postcode)
+        asked += 1
+        if (now) found += 1
+        if (now !== before) {
+          differ.push(
+            `${state} "${typed}" ${postcode}: ${now?.name} (was ${before?.name})`,
+          )
+        }
+      }
+    }
+    expect(differ).toEqual([])
+    expect(asked).toBe(400)
+    // Enough of both kinds of answer for the comparison to mean something.
+    expect(found).toBeGreaterThan(150)
+    expect(asked - found).toBeGreaterThan(50)
+  }, 60_000)
+})
+
+/** One to three slips of the kind people make: a letter changed, left out,
+ * doubled or swapped with its neighbour, or a space lost. */
+function misspell(text: string, random: () => number): string {
+  let out = text
+  const slips = 1 + Math.floor(random() * 3)
+  for (let n = 0; n < slips; n++) {
+    const at = Math.floor(random() * Math.max(out.length, 1))
+    const kind = Math.floor(random() * 5)
+    const letter = 'abcdefghijklmnopqrstuvwxyz'[Math.floor(random() * 26)]
+    if (kind === 0) out = out.slice(0, at) + letter + out.slice(at + 1)
+    else if (kind === 1) out = out.slice(0, at) + out.slice(at + 1)
+    else if (kind === 2) out = out.slice(0, at) + out[at] + out.slice(at)
+    else if (kind === 3 && at + 1 < out.length) {
+      out = out.slice(0, at) + out[at + 1] + out[at] + out.slice(at + 2)
+    } else out = out.replace(' ', '')
+  }
+  return out
+}
 
 describe('checkAddressOffline', () => {
   test('a suburb with its own postcode, in the work area, is fine', async () => {

@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { FileSpreadsheet, FileUp, ListOrdered, Rows3 } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
-import { useLatest } from '#/components/forms/SaveWarnings'
 import { useHydrated } from '#/lib/useHydrated'
 import { RecentImports } from './RecentImports'
 import { PRIMARY_BUTTON, StepHeading } from './ui'
+import { UndoHold } from './undo'
 import type { DragEvent } from 'react'
+import type { RecentImport } from './queries'
+import type { UndoClock } from './undo'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 /** What the picker offers. The types as well as the endings: an iPhone's
@@ -29,11 +31,16 @@ const TIPS = [
  * Step one: the file. A button for a phone, and a place to drop it for a
  * laptop, where the export has just landed in Downloads. Nothing is read
  * until one is chosen, and nothing leaves the browser until Import.
+ *
+ * The drop itself is the page's (import.tsx): a file let go of anywhere on
+ * it is taken as chosen, not just one on the box. This only lights the box.
  */
 export function ChooseStep({
   businessId,
   timezone,
   reading,
+  holding,
+  clock,
   error,
   onChoose,
 }: {
@@ -41,6 +48,11 @@ export function ChooseStep({
   timezone: string
   /** A file is being read (an Excel workbook can take a moment). */
   reading: boolean
+  /** An import being undone — moving, or stopped part-way — which a new
+   * file waits for (`undoHolding`); null when there is none. */
+  holding: { row: RecentImport; stopped: boolean } | null
+  /** The page's clock for its undos (`useUndoClock`), for Recent imports. */
+  clock: UndoClock
   /** Why the last file couldn't be read, in words for the page. */
   error: string | null
   onChoose: (file: File) => void
@@ -48,36 +60,13 @@ export function ChooseStep({
   const hydrated = useHydrated()
   const input = useRef<HTMLInputElement>(null)
   const [over, setOver] = useState(false)
-  const ready = hydrated && !reading
+  const ready = hydrated && !reading && holding === null
 
   const dragging = (event: DragEvent) => {
     if (!event.dataTransfer.types.includes('Files')) return
     event.preventDefault()
     if (ready) setOver(true)
   }
-
-  // A file let go of anywhere on the page is taken as chosen — a near miss
-  // of the box would otherwise have the browser open the file in place of
-  // the page, and the person is left looking at their spreadsheet as text.
-  const latest = useLatest({ ready, onChoose })
-  useEffect(() => {
-    const hold = (event: globalThis.DragEvent) => {
-      if (event.dataTransfer?.types.includes('Files')) event.preventDefault()
-    }
-    const drop = (event: globalThis.DragEvent) => {
-      const file = event.dataTransfer?.files[0]
-      if (!file) return
-      event.preventDefault()
-      setOver(false)
-      if (latest.current.ready) latest.current.onChoose(file)
-    }
-    window.addEventListener('dragover', hold)
-    window.addEventListener('drop', drop)
-    return () => {
-      window.removeEventListener('dragover', hold)
-      window.removeEventListener('drop', drop)
-    }
-  }, [])
 
   return (
     <>
@@ -95,6 +84,8 @@ export function ChooseStep({
             setOver(false)
           }
         }}
+        // Taken by the page's own drop, which this reaches first.
+        onDrop={() => setOver(false)}
         className={`mt-5 flex flex-col items-center rounded-2xl border-2 border-dashed px-5 py-9 text-center transition-colors ${
           over ? 'border-blue bg-blue/8' : 'border-hairline bg-surface'
         }`}
@@ -120,6 +111,15 @@ export function ChooseStep({
         >
           {reading ? 'Reading…' : 'Choose a file'}
         </button>
+        {holding && (
+          <UndoHold
+            businessId={businessId}
+            row={holding.row}
+            stopped={holding.stopped}
+            then="choose a file"
+            className="mt-3 flex max-w-sm flex-col items-center"
+          />
+        )}
         {/* The button above is what a person uses; this is what the browser
             needs to show its picker. Out of the accessibility tree, so the
             page has one "Choose a file", not two. */}
@@ -157,7 +157,11 @@ export function ChooseStep({
         ))}
       </ul>
 
-      <RecentImports businessId={businessId} timezone={timezone} />
+      <RecentImports
+        businessId={businessId}
+        timezone={timezone}
+        clock={clock}
+      />
     </>
   )
 }

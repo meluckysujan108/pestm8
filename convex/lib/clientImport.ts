@@ -23,8 +23,22 @@ export const MAX_IMPORT_ROWS = 2000
  * transaction's limits with several sites and a note each. */
 export const IMPORT_BATCH_SIZE = 25
 
+/** Sites per `addBatch` call, as well: a batch closes at whichever limit
+ * comes first. One client with more sites than this goes on its own. */
+export const IMPORT_BATCH_SITES = 200
+
+/** The longest site note an import writes; the review says when a note is
+ * longer, so nothing is cut unseen. */
+export const MAX_IMPORT_NOTE = 5000
+
 /** How long an import can be undone for. */
 export const IMPORT_UNDO_DAYS = 7
+
+/** An undo that has made no progress for this long — no step since the last
+ * one, or since it was asked for — has stopped, and can be carried on: each
+ * step only removes what still carries the import's id, so going again never
+ * removes anything twice. */
+export const UNDO_STUCK_MS = 10 * 60 * 1000
 
 export const AU_STATE_CODES = [
   'ACT',
@@ -93,59 +107,129 @@ export type ImportResult = Infer<typeof importResultValidator>
 
 // ---------------------------------------------------------------- keys
 
-/** A name as compared for "already here": case, spacing and punctuation
- * don't make two clients different. */
+/**
+ * A name as compared for "already here": case, spacing and punctuation
+ * don't make two clients different. Letters do, in every script and with
+ * their accents: Lê and Lý, Müller and Möller are different people, and
+ * a name matched to the wrong one files its sites under someone else. So
+ * "Nguyen" in one file doesn't find "Nguyễn" in PestM8 either: a missed
+ * match only makes a second client of the same name, which is the safer
+ * way to be wrong.
+ *
+ * NFC first: the same accented name can arrive composed (é as one
+ * character) or decomposed (an e, then the accent), as macOS and some Excel
+ * exports write it.
+ */
 export function nameKey(name: string): string {
   return name
+    .normalize('NFC')
     .toLowerCase()
     .replace(/&/g, ' and ')
-    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ')
     .trim()
 }
 
+/**
+ * Street types, to one spelling each: the full word and the other ways
+ * Australian lists write it. Every word of the line is looked up, not only
+ * the last, so a spelling must never be another word's too ("cr" is only
+ * ever a crescent here, and "pt" is left out: point or port).
+ */
 const STREET_WORDS: Record<string, string> = {
   street: 'st',
   road: 'rd',
   avenue: 'ave',
   av: 'ave',
   drive: 'dr',
+  drv: 'dr',
+  dve: 'dr',
   court: 'ct',
+  crt: 'ct',
   crescent: 'cres',
   cr: 'cres',
+  crs: 'cres',
+  cresc: 'cres',
   place: 'pl',
   parade: 'pde',
   highway: 'hwy',
+  freeway: 'fwy',
   terrace: 'tce',
+  terr: 'tce',
   close: 'cl',
   lane: 'ln',
   boulevard: 'blvd',
+  boulevarde: 'blvd',
+  bvd: 'blvd',
+  bvde: 'blvd',
   circuit: 'cct',
   grove: 'gr',
+  gve: 'gr',
+  gardens: 'gdns',
+  parkway: 'pkwy',
+  pwy: 'pkwy',
   way: 'way',
   square: 'sq',
   esplanade: 'esp',
+  espl: 'esp',
+  promenade: 'prom',
+  approach: 'app',
+  retreat: 'rtt',
+  heights: 'hts',
+  ridge: 'rdge',
 }
+
+/** Suburb words, to the short form lists write them in: Mount Lawley is Mt
+ * Lawley, Port Hedland is Pt Hedland, Point Cook is Pt Cook. Short, because
+ * "Pt" is written for both Port and Point: folding it to either long word
+ * would miss the other. Whole words only — Mountain Creek stays itself. */
+const SUBURB_WORDS: Record<string, string> = {
+  mount: 'mt',
+  port: 'pt',
+  point: 'pt',
+}
+
+/** A unit word, where a unit is written: first, before its number. "12
+ * Flat Rock Rd" is a street called Flat Rock. */
+const UNIT_WORD = /^(?:unit|u|apartment|apt|flat)\.?\s*(?=\d)/u
+
+/** A unit and its street number, once the unit word is gone: "3, 12" and
+ * "3 12" are how "Unit 3, 12" and "U3 12" leave them. */
+const UNIT_AND_NUMBER = /^(\d+\p{L}?)[\s,]+(\d+\p{L}?)(?![\p{L}\p{N}])/u
 
 /**
  * A site as compared for "already here": the same street in the same suburb
  * and postcode, however it was written — "12 Wattle Street" and "12 wattle
- * st." are one house; "Unit 2/14" and "2/14" are one unit.
+ * st." are one house; "Unit 3, 12", "U3/12" and "3/12" are one unit; Mt
+ * Lawley is Mount Lawley and Pt Cook is Point Cook; and 810 is 0810 (an NT
+ * postcode saved before the app asked for four digits).
+ *
+ * Only ever compared, never stored: changing it changes what counts as
+ * already here, and nothing else.
  */
 export function siteKey(site: {
   addressLine: string
   suburb: string
   postcode: string
 }): string {
-  const street = site.addressLine
-    .toLowerCase()
-    .replace(/\bunit\b|\bu\b|\bapartment\b|\bapt\b|\bflat\b/g, ' ')
-    .replace(/[^a-z0-9/]+/g, ' ')
+  let line = site.addressLine.normalize('NFC').toLowerCase().trim()
+  const unit = UNIT_WORD.exec(line)
+  if (unit) {
+    line = line.slice(unit[0].length).replace(UNIT_AND_NUMBER, '$1/$2')
+  }
+  const street = line
+    .replace(/[^\p{L}\p{M}\p{N}/]+/gu, ' ')
     .trim()
     .split(/\s+/)
     .map((word) => STREET_WORDS[word] ?? word)
     .join(' ')
     .replace(/\s*\/\s*/g, '/')
-  return `${street}|${nameKey(site.suburb)}|${site.postcode.trim()}`
+  const suburb = nameKey(site.suburb)
+    .split(' ')
+    .map((word) => SUBURB_WORDS[word] ?? word)
+    .join(' ')
+  const digits = site.postcode.trim()
+  const postcode = /^\d{3}$/.test(digits) ? `0${digits}` : digits
+  return `${street}|${suburb}|${postcode}`
 }
 
 // ---------------------------------------------------------------- rules
@@ -171,6 +255,19 @@ export function phoneProblem(raw: string): string | null {
   return null
 }
 
+/**
+ * A note at most `MAX_IMPORT_NOTE` characters long, counted in whole
+ * characters (code points). Cut by UTF-16 units instead, an emoji at the
+ * cut would be split in half, and Convex refuses a string that isn't valid
+ * Unicode — the whole batch with it.
+ */
+function capNote(note: string): string {
+  const chars = Array.from(note)
+  return chars.length > MAX_IMPORT_NOTE
+    ? chars.slice(0, MAX_IMPORT_NOTE).join('')
+    : note
+}
+
 export type ClientCheck =
   { ok: true; client: ImportClient } | { ok: false; reason: string }
 
@@ -179,7 +276,8 @@ export type ClientCheck =
  * with — the same normalising the app's own forms use (ABN, email, phone).
  * Stricter than `properties.create`, which saves a blank name or a
  * three-digit postcode as sent: a file can hold hundreds of those, and each
- * would be a client nobody can book.
+ * would be a client nobody can book. A note longer than `MAX_IMPORT_NOTE`
+ * is cut to it (the review says so first).
  *
  * `reason` is a sentence for the review screen. It refuses rather than
  * throws, whatever it is sent: a throw would cost the whole batch for one
@@ -235,7 +333,7 @@ export function checkImportClient(input: ImportClient): ClientCheck {
       ...(siteContactPhone
         ? { siteContactPhone: normalisePhone(siteContactPhone) }
         : {}),
-      ...(site.note?.trim() ? { note: site.note.trim().slice(0, 5000) } : {}),
+      ...(site.note?.trim() ? { note: capNote(site.note.trim()) } : {}),
     })
   }
 

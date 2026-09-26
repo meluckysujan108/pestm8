@@ -1,5 +1,6 @@
 import Papa from 'papaparse'
 import { MAX_IMPORT_ROWS } from '../../../convex/lib/clientImport'
+import { isKnownHeading } from './columns'
 import type { ImportSheet } from './types'
 
 /**
@@ -115,6 +116,7 @@ async function readText(file: File): Promise<Array<Array<string>>> {
   let text = decodeText(new Uint8Array(await file.arrayBuffer()))
 
   // Excel reads, and some exports write, a first line naming the separator.
+  // Excel doesn't show it as a row, so it isn't counted as one.
   let delimiter: string | undefined
   const hint = /^sep=(.)\r?\n/i.exec(text)
   if (hint) {
@@ -122,19 +124,27 @@ async function readText(file: File): Promise<Array<Array<string>>> {
     text = text.slice(hint[0].length)
   }
 
-  // Papa guesses the separator (, ; tab |) from the first rows when not told.
-  const parsed = Papa.parse<Array<string>>(text, {
-    skipEmptyLines: 'greedy',
-    ...(delimiter ? { delimiter } : {}),
-  })
-  // An opening quote never closed swallows every row after it into one
-  // cell, so what would be read is not the file. Anything else Papa reports
-  // (a row short of cells) is padded out below.
-  const unclosed = parsed.errors.find((e) => e.code === 'MissingQuotes')
-  if (unclosed) {
-    const row = unclosed.row === undefined ? '' : ` ${unclosed.row + 1}`
+  // Papa guesses the separator (, ; tab |) from the first rows when not
+  // told, passing over blank ones. The file is then read with its blank
+  // rows kept, so that row i is the file's row i + 1 as a spreadsheet counts
+  // them — a quoted cell across lines is one row — and toSheet drops them.
+  delimiter ??= Papa.parse(text, { preview: 1, skipEmptyLines: 'greedy' }).meta
+    .delimiter
+  const parsed = Papa.parse<Array<string>>(text, { delimiter })
+  // A quote mark that opens a cell and never closes it, or closes it
+  // part-way through ("Beware" of dog), makes Papa read on to the next
+  // quote that does end a cell — the rows in between vanish into one note.
+  // What would be read is not the file, so it's refused. Excel, Sheets and
+  // Numbers never write either. Anything else Papa reports (a row short of
+  // cells) is padded out below.
+  const broken = parsed.errors.find(
+    (e) => e.code === 'MissingQuotes' || e.code === 'InvalidQuotes',
+  )
+  if (broken) {
+    // Papa counts rows as a spreadsheet does, blank ones included.
+    const row = broken.row === undefined ? '' : ` ${broken.row + 1}`
     throw new ImportFileError(
-      `Row${row} of the file opens a quote mark (") that never closes, so the rows after it can't be read. Fix that row and try again.`,
+      `Row${row} of the file has a quote mark (") that doesn't open or close a cell properly, so the rows after it can't be read. Fix that row and try again.`,
     )
   }
   return parsed.data
@@ -144,7 +154,8 @@ async function readText(file: File): Promise<Array<Array<string>>> {
 
 async function readExcel(file: File): Promise<Array<Array<unknown>>> {
   // Loaded only when a workbook is chosen: most files are CSVs, and the
-  // reader is the bulk of this page's code.
+  // reader is the bulk of this page's code. It fills the gaps between the
+  // rows it finds with empty ones, from row 1, so row i is sheet row i + 1.
   const { readSheet } = await import('read-excel-file/browser')
   try {
     return await readSheet(file)
@@ -197,6 +208,17 @@ function isBlankRow(row: Array<string>): boolean {
   return row.every((cell) => cell === '')
 }
 
+/** How many of a row's cells have something in them. */
+function filledCount(row: Array<string>): number {
+  return row.reduce((n, cell) => (cell === '' ? n : n + 1), 0)
+}
+
+/** The index of a row's last cell with something in it; -1 for none. */
+function lastFilled(row: Array<string>): number {
+  for (let i = row.length - 1; i >= 0; i--) if (row[i] !== '') return i
+  return -1
+}
+
 function columnName(index: number): string {
   let name = ''
   for (let n = index + 1; n > 0; n = Math.floor((n - 1) / 26)) {
@@ -206,38 +228,150 @@ function columnName(index: number): string {
 }
 
 /**
- * Rows of cells as a sheet: the first row with something in it is the
- * headings, every blank row is gone, and every row is exactly as wide as the
- * headings.
+ * One cell as the text to import, trimmed.
+ *
+ * "Download rows that won't import" (skipped.ts) puts a ' in front of a
+ * cell starting = + - @ tab or return, so a spreadsheet shows it as text
+ * rather than running it. That file is made to be fixed and brought back
+ * here, so the ' comes off again: exactly one, and only in front of those
+ * characters — every +61 mobile and "- dog in yard" note would otherwise
+ * come back with it. A cell that already had ' in front of them was given
+ * one more, so one comes off that too.
+ */
+function importCell(cell: unknown): string {
+  return cellToText(cell)
+    .replace(/^'(?='*[=+\-@\t\r])/, '')
+    .trim()
+}
+
+/** How far down the headings are looked for. */
+const HEADING_SEARCH_ROWS = 10
+
+/** How many of a row's cells are headings the Match step knows. */
+function knownCount(row: Array<string>): number {
+  return row.reduce((n, cell) => (isKnownHeading(cell) ? n + 1 : n), 0)
+}
+
+/**
+ * Which row is the headings. Usually the first, but a sheet kept by hand
+ * often has a title above them ("Client list 2024", merged across the top,
+ * perhaps with a date out to the side), or a band of grouped headings
+ * ("Client", "Address") over the real ones.
+ *
+ * The first row is the headings unless nothing in it is a heading the
+ * Match step knows (isKnownHeading) and it fills fewer cells than the
+ * fullest row near the top. Then:
+ *  - the first row near the top that is mostly headings the Match step
+ *    knows is the headings — a title over headings that cover only some of
+ *    the columns ("Name", "Address" over five), or a title of two cells
+ *    over a sheet only three wide;
+ *  - failing that, a first row filling fewer than half as many cells as
+ *    the fullest (or just one) is a title, and the headings are the first
+ *    row under it that fills at least half as many.
+ * A first row with a known heading, or as full as any, is the headings as
+ * it stands: a sheet's own headings ("Cust", "Addr") may know none, and a
+ * client's details can hold two ("Business", "Email") — searching further
+ * down for known words would lose that client into the headings.
+ *
+ * When the headings are a band over the real ones, the row straight under
+ * is taken instead (see isBand).
+ */
+function headingRow(rows: Array<Array<string>>): number {
+  const top = rows.slice(0, HEADING_SEARCH_ROWS)
+  const known = top.map(knownCount)
+  const filled = top.map(filledCount)
+  // Ten rows at most, so spreading them is fine.
+  const fullest = Math.max(...filled)
+  const narrowTop = known[0] === 0 && filled[0] < fullest
+  const mostlyKnown = narrowTop
+    ? known.findIndex((k, i) => k >= 2 && k * 2 >= filled[i])
+    : -1
+  const title = narrowTop && (filled[0] <= 1 || filled[0] * 2 < fullest)
+  let at =
+    mostlyKnown !== -1
+      ? mostlyKnown
+      : title
+        ? filled.findIndex((n, i) => i > 0 && n * 2 >= fullest)
+        : 0
+  while (at + 1 < top.length && isBand(at, known, filled)) at++
+  return at
+}
+
+/**
+ * Whether heading row `at` is a band of grouped headings over the real
+ * ones in the row under it. A band is headings the Match step knows (two
+ * or more, as band fill in toSheet takes them), merged across the columns
+ * it groups: the row under knows more headings and fills more cells, and
+ * at least half its cells are headings the Match step knows — which a
+ * client's row seldom is, whatever "Business" or "Email" it holds. Only a
+ * band of known headings is stepped over: under one of the sheet's own
+ * ("Cust", or "Name" over unheaded columns) is the first client.
+ */
+function isBand(
+  at: number,
+  known: Array<number>,
+  filled: Array<number>,
+): boolean {
+  const below = at + 1
+  return (
+    known[at] >= 2 &&
+    known[below] > known[at] &&
+    filled[below] > filled[at] &&
+    known[below] * 2 >= filled[below]
+  )
+}
+
+/**
+ * Rows of cells as a sheet: the headings (see headingRow) with anything
+ * above them dropped, every blank row gone, and every row exactly as wide
+ * as the last column with something in it — a heading or a cell. Each row
+ * that's left keeps the number a spreadsheet shows beside it, counting
+ * what was dropped: raw row i is row i + 1.
  *
  * The one exception is the "{}" MYOB puts on the first line of its exports,
  * which is passed over rather than taken as the headings.
  */
 function toSheet(fileName: string, raw: Array<Array<unknown>>): ImportSheet {
-  const rows = raw
-    .map((row) => row.map((cell) => cellToText(cell).trim()))
-    .filter((row) => !isBlankRow(row))
+  const rows: Array<Array<string>> = []
+  const numbers: Array<number> = []
+  raw.forEach((cells, i) => {
+    const row = cells.map(importCell)
+    if (isBlankRow(row)) return
+    rows.push(row)
+    numbers.push(i + 1)
+  })
 
   if (rows.length > 1 && rows[0].filter(Boolean).join('') === '{}') {
     rows.shift()
+    numbers.shift()
   }
+  if (rows.length === 0) throw new ImportFileError(`“${fileName}” is empty.`)
 
-  const first = rows.shift()
-  if (!first) throw new ImportFileError(`“${fileName}” is empty.`)
+  const at = headingRow(rows)
+  const first = rows[at]
+  const body = rows.slice(at + 1)
+  const sourceRows = numbers.slice(at + 1)
+  // Under a band of grouped headings, a heading merged down across both
+  // rows ("Name", beside "Street" and "Suburb" under "Address") is in the
+  // band's row only, so a heading left blank takes the band's cell above.
+  const band = at > 0 && knownCount(rows[at - 1]) >= 2 ? rows[at - 1] : []
 
-  // Trailing empty headings are Excel's formatting reaching past the data,
-  // not columns.
-  let width = first.length
-  while (width > 0 && first[width - 1] === '') width--
-  const headers = first
-    .slice(0, width)
-    .map((h, i) => h.replace(/\s+/g, ' ').trim() || columnName(i))
-
-  const data = rows
-    .map((row) => Array.from({ length: width }, (_, i) => row[i] ?? ''))
-    // Cut to the headings' width, a row whose only cells were past them is
-    // blank now.
-    .filter((row) => !isBlankRow(row))
+  // Trailing empty cells are Excel's formatting reaching past the data,
+  // not columns. A column with data but no heading is still a column: its
+  // heading is named for it, as a blank one in the middle is. (A loop, not
+  // Math.max(...): a 5 MB file can have more rows than a call takes
+  // arguments.)
+  let last = lastFilled(first)
+  for (const row of body) last = Math.max(last, lastFilled(row))
+  const width = last + 1
+  const headers = Array.from(
+    { length: width },
+    (_, i) =>
+      (first[i] || band[i] || '').replace(/\s+/g, ' ').trim() || columnName(i),
+  )
+  const data = body.map((row) =>
+    Array.from({ length: width }, (_, i) => row[i] ?? ''),
+  )
 
   if (data.length === 0) {
     throw new ImportFileError(
@@ -249,5 +383,5 @@ function toSheet(fileName: string, raw: Array<Array<unknown>>): ImportSheet {
       `“${fileName}” has ${count(data.length)} rows; PestM8 takes up to ${count(MAX_IMPORT_ROWS)} at a time — split it and import each part.`,
     )
   }
-  return { fileName, headers, rows: data }
+  return { fileName, headers, rows: data, sourceRows }
 }

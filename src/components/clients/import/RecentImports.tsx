@@ -1,4 +1,3 @@
-import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { FileSpreadsheet } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
@@ -14,6 +13,7 @@ import {
   withinUndoWindow,
 } from './undo'
 import type { RecentImport } from './queries'
+import type { UndoClock } from './undo'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 /**
@@ -24,16 +24,22 @@ import type { Id } from '../../../../convex/_generated/dataModel'
 export function RecentImports({
   businessId,
   timezone,
+  clock,
 }: {
   businessId: Id<'businesses'>
   timezone: string
+  /** The page's one clock for its undos (`useUndoClock`), so this row and
+   * the message beside Choose a file agree on whether one has stopped. */
+  clock: UndoClock
 }) {
   const hydrated = useHydrated()
   const { data } = useQuery(recentImports(businessId))
   const undo = useUndoImport(businessId)
-  // Read once per visit. The week is days long; a page left open past its
-  // end is refused by the server, which says so.
-  const [now] = useState(() => Date.now())
+  // The week is days long, and a page left open past its end is refused by
+  // the server, which says so; but an undo that stops part-way is noticed
+  // while the page is open (the clock ticks while one runs). The week goes
+  // by this device's clock (`UndoClock.deviceNow`).
+  const now = clock.deviceNow
 
   if (!data || data.length === 0) return null
 
@@ -52,6 +58,7 @@ export function RecentImports({
             withinUndoWindow(row.createdAt, now)
           const pending =
             undo.mutation.isPending && undo.mutation.variables === row._id
+          const stuck = clock.stuck(row)
           return (
             <li key={row._id} className="px-3.5 py-3">
               <div className="flex items-center gap-3">
@@ -67,7 +74,7 @@ export function RecentImports({
                     {summary(row, timezone)}
                   </p>
                 </div>
-                <State row={row} />
+                <State row={row} stuck={stuck} />
                 {undoable && (
                   <button
                     type="button"
@@ -80,6 +87,31 @@ export function RecentImports({
                   </button>
                 )}
               </div>
+              {/* A stopped undo still holds a new file back (`undoUnderway`):
+                  whoever can't carry it on is told who can. */}
+              {stuck && (
+                <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 pl-[42px]">
+                  <p className="text-caption text-orange-ink">
+                    {row.canUndo
+                      ? 'This undo stopped part-way.'
+                      : 'This undo stopped part-way. Whoever ran this import, or the business owner, can carry it on.'}
+                  </p>
+                  {/* Asked already, when it was started: no second question. */}
+                  {row.canUndo && (
+                    <button
+                      type="button"
+                      disabled={!hydrated || pending}
+                      onClick={() => undo.mutation.mutate(row._id)}
+                      aria-label={
+                        pending ? undefined : `Carry on undoing ${row.fileName}`
+                      }
+                      className="min-h-11 shrink-0 rounded-lg px-2 text-[15px] font-semibold text-red transition active:opacity-60 disabled:opacity-50"
+                    >
+                      {pending ? 'Undoing…' : 'Carry on undoing'}
+                    </button>
+                  )}
+                </div>
+              )}
               {failedId === row._id && (
                 <FormAlert
                   error={undo.mutation.error}
@@ -118,12 +150,10 @@ function summary(row: RecentImport, timezone: string): string {
     .join(' · ')
 }
 
-/** Undone, or on its way there. Nothing for an import that stands. */
-function State({ row }: { row: RecentImport }) {
+/** Undone, on its way there, or stopped on the way. Nothing for an import
+ * that stands. */
+function State({ row, stuck }: { row: RecentImport; stuck: boolean }) {
   if (row.undoneAt === undefined) return null
-  return row.undoState === 'done' ? (
-    <RowBadge tone="grey">Undone</RowBadge>
-  ) : (
-    <RowBadge tone="amber">Undoing…</RowBadge>
-  )
+  if (row.undoState === 'done') return <RowBadge tone="grey">Undone</RowBadge>
+  return <RowBadge tone="amber">{stuck ? 'Undo stopped' : 'Undoing…'}</RowBadge>
 }

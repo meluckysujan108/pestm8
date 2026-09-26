@@ -204,6 +204,45 @@ test('indexExisting: names and sites, archived clients left out', () => {
   ).toBe(true)
 })
 
+test('indexExisting: whose each site is, by the client it carries or its id', () => {
+  const index = indexExisting(
+    [
+      { _id: 'a' as Id<'clients'>, name: 'Jane Doe' },
+      { _id: 'b' as Id<'clients'>, name: 'Old & Co', archivedAt: 1 },
+    ],
+    [
+      {
+        addressLine: '1 Rose Street',
+        suburb: 'Bayswater',
+        postcode: '6053',
+        clientId: 'a' as Id<'clients'>,
+        client: { name: 'Jane Doe' },
+      },
+      // An archived client's site is still here, and still theirs.
+      {
+        addressLine: '9 Hill Road',
+        suburb: 'Morley',
+        postcode: '6062',
+        clientId: 'b' as Id<'clients'>,
+      },
+      // The same house again, on someone else: the first one found says.
+      {
+        addressLine: '1 rose st',
+        suburb: 'Bayswater',
+        postcode: '6053',
+        client: { name: 'John Smith' },
+      },
+      { addressLine: '3 Bay Pde', suburb: 'Perth', postcode: '6000' },
+    ],
+  )
+  const holder = (addressLine: string, suburb: string, postcode: string) =>
+    index.siteHolders?.get(siteKey({ addressLine, suburb, postcode }))
+  expect(holder('1 Rose St', 'Bayswater', '6053')).toBe('Jane Doe')
+  expect(holder('9 Hill Rd', 'Morley', '6062')).toBe('Old & Co')
+  expect(holder('3 Bay Pde', 'Perth', '6000')).toBeUndefined()
+  expect(index.siteKeys.size).toBe(3)
+})
+
 test('summarise: a count per status, and all', () => {
   expect(
     summarise([
@@ -213,5 +252,14 @@ test('summarise: a count per status, and all', () => {
       client({ sites: [{ ...SITE, duplicate: true }] }),
       client({ issues: [issue('fixed')] }),
     ]),
-  ).toEqual({ all: 5, error: 2, duplicate: 1, warning: 0, fixed: 1, ready: 1 })
+  ).toEqual({
+    all: 5,
+    error: 1,
+    duplicate: 1,
+    warning: 0,
+    fixed: 1,
+    ready: 1,
+    // Left out, whatever it was: not also counted as "Can't import".
+    excluded: 1,
+  })
 })

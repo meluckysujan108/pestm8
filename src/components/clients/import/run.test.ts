@@ -6,8 +6,19 @@ import {
   sendBatches,
   toBatches,
 } from './run'
+import {
+  IMPORT_BATCH_SITES,
+  IMPORT_BATCH_SIZE,
+} from '../../../../convex/lib/clientImport'
 import type { ImportResult } from '../../../../convex/lib/clientImport'
-import type { ReviewClient } from '#/lib/clientImport/types'
+import type { ReviewClient, ReviewSite } from '#/lib/clientImport/types'
+
+const SITE: ReviewSite = {
+  addressLine: '1 Main St',
+  suburb: 'Perth',
+  state: 'WA',
+  postcode: '6000',
+}
 
 function client(key: string, over: Partial<ReviewClient> = {}): ReviewClient {
   return {
@@ -44,11 +55,66 @@ function result(
   }
 }
 
+/** A client to batch: its place in the file, and how many sites. */
+const withSites = (id: number, sites: number) => ({
+  id,
+  sites: Array.from({ length: sites }, () => SITE),
+})
+
+const ids = (batches: Array<Array<{ id: number }>>) =>
+  batches.map((batch) => batch.map((c) => c.id))
+
 describe('toBatches', () => {
-  it('cuts the clients into batches of the server’s size, in order', () => {
-    const batches = toBatches(Array.from({ length: 60 }, (_, i) => i))
-    expect(batches.map((b) => b.length)).toEqual([25, 25, 10])
-    expect(batches[1][0]).toBe(25)
+  it('cuts one-site clients into batches of the server’s size, in order', () => {
+    const batches = toBatches(
+      Array.from({ length: 60 }, (_, i) => withSites(i, 1)),
+    )
+    expect(batches.map((b) => b.length)).toEqual([
+      IMPORT_BATCH_SIZE,
+      IMPORT_BATCH_SIZE,
+      60 - 2 * IMPORT_BATCH_SIZE,
+    ])
+    expect(batches[1][0].id).toBe(IMPORT_BATCH_SIZE)
+  })
+
+  it('closes a batch early when its sites would pass the limit', () => {
+    const batches = toBatches(
+      [withSites(1, 3), withSites(2, 4), withSites(3, 2), withSites(4, 1)],
+      { clients: 25, sites: 6 },
+    )
+    // 3 + 4 would be 7; 4 + 2 is 6, and one more would be 7.
+    expect(ids(batches)).toEqual([[1], [2, 3], [4]])
+  })
+
+  it('never splits a client: one with more sites than a batch goes alone', () => {
+    const batches = toBatches(
+      [withSites(1, 1), withSites(2, 9), withSites(3, 1)],
+      { clients: 25, sites: 5 },
+    )
+    expect(ids(batches)).toEqual([[1], [2], [3]])
+  })
+
+  it('stops at whichever limit comes first', () => {
+    const batches = toBatches(
+      Array.from({ length: 5 }, (_, i) => withSites(i, 1)),
+      { clients: 2, sites: 100 },
+    )
+    expect(ids(batches)).toEqual([[0, 1], [2, 3], [4]])
+  })
+
+  it('keeps every multi-client batch inside the server’s site limit', () => {
+    const clients = Array.from({ length: 300 }, (_, i) =>
+      withSites(i, (i * 7) % 60),
+    )
+    const batches = toBatches(clients)
+    for (const batch of batches) {
+      const sites = batch.reduce((n, c) => n + c.sites.length, 0)
+      expect(batch.length).toBeLessThanOrEqual(IMPORT_BATCH_SIZE)
+      if (batch.length > 1) {
+        expect(sites).toBeLessThanOrEqual(IMPORT_BATCH_SITES)
+      }
+    }
+    expect(batches.flat().map((c) => c.id)).toEqual(clients.map((c) => c.id))
   })
 
   it('makes no batch of nothing', () => {
@@ -185,8 +251,41 @@ describe('outcomeOf', () => {
         name: 'Client c3',
         reason: 'The ABN does not pass the ATO check.',
       },
-      { key: 'c4', name: 'Client c4', reason: 'Left out' },
       { key: 'c5', name: 'Client c5', reason: 'No suburb.' },
+    ])
+    // Left out is the person's choice, not a failure: said apart.
+    expect(outcome.leftOut).toEqual([{ key: 'c4', name: 'Client c4' }])
+  })
+
+  it('names a client the server turned away as already here, without saying it’s in PestM8', () => {
+    const outcome = outcomeOf(
+      [
+        client('c1'),
+        client('c2', { sites: [SITE, { ...SITE, addressLine: '2 Main St' }] }),
+        client('c3'),
+      ],
+      [
+        result('c1', 'created'),
+        result('c2', 'skipped', { sitesSkipped: 2 }),
+        result('c3', 'skipped', {
+          reason: '1 Main St is already on Jo Bloggs',
+        }),
+      ],
+    )
+    expect(outcome.created).toBe(1)
+    expect(outcome.skippedSites).toBe(3)
+    expect(outcome.notImported).toEqual([
+      {
+        key: 'c2',
+        name: 'Client c2',
+        reason: 'Its addresses are already in PestM8, or earlier in this file',
+      },
+      // The server's own words, when it gives them.
+      {
+        key: 'c3',
+        name: 'Client c3',
+        reason: '1 Main St is already on Jo Bloggs',
+      },
     ])
   })
 
@@ -233,6 +332,23 @@ describe('rowsNotImported', () => {
     expect(reasons.get(5)).toBe('Already in PestM8')
   })
 
+  it('says whose an address is, when it’s on another client', () => {
+    const { reasons } = rowsNotImported([
+      client('c1', {
+        sites: [{ ...SITE, duplicate: true, heldBy: 'Jane Doe' }],
+      }),
+      client('c2', {
+        sites: [
+          { ...SITE, duplicate: true, heldBy: 'Jane Doe' },
+          { ...SITE, addressLine: '3 Bay Pde', duplicate: true },
+        ],
+      }),
+    ])
+    expect(reasons.get(1)).toBe('Its address is already in PestM8, on Jane Doe')
+    // One of them is the client's own, already here: it is in PestM8.
+    expect(reasons.get(2)).toBe('Already in PestM8')
+  })
+
   it('after it: also the ones the server refused or found already here', () => {
     const withMore = [...review, client('c6'), client('c7')]
     const { rowNumbers, reasons } = rowsNotImported(withMore, [
@@ -244,10 +360,36 @@ describe('rowsNotImported', () => {
     ])
     expect(rowNumbers).toEqual([3, 4, 5, 6, 7])
     expect(reasons.get(6)).toBe('x21 is not a phone number.')
-    expect(reasons.get(7)).toBe('Already in PestM8')
-    // The client that went in keeps its rows out of the download.
+    // Not "Already in PestM8": the review said it wasn't, and the client
+    // itself isn't — only its address is, or went in earlier in the file.
+    expect(reasons.get(7)).toBe(
+      'Its address is already in PestM8, or earlier in this file',
+    )
+    // The client that went in whole keeps its rows out of the download.
     expect(reasons.has(1)).toBe(false)
     expect(reasons.has(2)).toBe(false)
+  })
+
+  it('lists a client that went in without a site the server turned away', () => {
+    const reviewed = [
+      client('c1', {
+        rowNumbers: [1, 2],
+        sites: [SITE, { ...SITE, addressLine: '2 Main St', note: 'Gate 4321' }],
+      }),
+      // A site the review knew was here, never sent: nothing was lost.
+      client('c2', {
+        rowNumbers: [3, 4],
+        sites: [SITE, { ...SITE, addressLine: '9 High St', duplicate: true }],
+      }),
+    ]
+    const { rowNumbers, reasons } = rowsNotImported(reviewed, [
+      result('c1', 'created', { sitesCreated: 1, sitesSkipped: 1 }),
+      result('c2', 'added', { sitesCreated: 1, sitesSkipped: 0 }),
+    ])
+    expect(rowNumbers).toEqual([1, 2])
+    expect(reasons.get(2)).toBe(
+      'An address was already here or earlier in this file — anything on its row (a note) didn’t come across',
+    )
   })
 })
 

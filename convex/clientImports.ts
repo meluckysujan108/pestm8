@@ -1,12 +1,14 @@
 import { ConvexError, v } from 'convex/values'
-import { internal } from './_generated/api'
+import { components, internal } from './_generated/api'
 import { internalMutation, mutation, query } from './_generated/server'
 import { requireActor, requireCapability, requireWriteActor } from './lib/actor'
 import { forSelf, recordAudit } from './lib/audit'
 import {
+  IMPORT_BATCH_SITES,
   IMPORT_BATCH_SIZE,
   IMPORT_UNDO_DAYS,
   MAX_IMPORT_ROWS,
+  UNDO_STUCK_MS,
   checkImportClient,
   importClientValidator,
   importResultValidator,
@@ -55,9 +57,18 @@ import type { ImportClient, ImportResult, ImportSite } from './lib/clientImport'
  * and nothing else: sites added to an existing client go, and the client
  * stays. Anything worked on since stays too (`siteWorkedOn`,
  * `clientWorkedOn`) — a site with a job, a report or a repeating series would
- * leave those pointing at nothing, and a note or contact someone has added is
- * their work, not the import's. It runs in steps (`undoStep`), because two
- * thousand sites with a note each is more than one transaction should hold.
+ * leave those pointing at nothing, and a note or contact someone has added —
+ * or an edit to the import's own note — is their work, not the import's. It
+ * runs in steps (`undoStep`), because two thousand sites with a note each is
+ * more than one transaction should hold. A step that fails is not retried,
+ * so an undo with no step for `UNDO_STUCK_MS` (`undoStepAt`) can be asked
+ * for again, and carries on where it stopped. One still moving is refused
+ * (`UNDO_RUNNING`).
+ *
+ * While any undo of the business's is running — moving or stopped — no
+ * import starts and no batch lands (`UNDO_IN_PROGRESS`): a site the undo
+ * hasn't reached yet is still here, so the batch would skip it as already
+ * here, then the undo would take it away, and it would be in neither.
  */
 
 const DAY = 24 * 60 * 60 * 1000
@@ -68,6 +79,35 @@ const UNDO_BATCH = 50
 
 /** Recent imports, for the page's "Recent imports" and their Undo. */
 const RECENT_IMPORTS = 10
+
+/**
+ * How far back, newest first, `refuseWhileUndoing` looks for a running undo —
+ * a bound, so the check is one small read however many imports a business
+ * has run. It is enough: the page offers Undo, and Carry on, only on its last
+ * `RECENT_IMPORTS`, and once an undo is running `start` refuses, so no newer
+ * import can push it further down than it was when it was asked for.
+ */
+const RUNNING_UNDO_LOOKBACK = 50
+
+/**
+ * Refuses while an undo of this business's imports is running, moving or
+ * stopped — see the top of this file. A batch's own import being undone is
+ * refused before this, as `IMPORT_UNDONE`: that is for good, where this
+ * lifts once the undo is done.
+ */
+async function refuseWhileUndoing(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+) {
+  const recent = await ctx.db
+    .query('clientImports')
+    .withIndex('by_business', (q) => q.eq('businessId', businessId))
+    .order('desc')
+    .take(RUNNING_UNDO_LOOKBACK)
+  if (recent.some((run) => run.undoState === 'running')) {
+    throw new ConvexError('UNDO_IN_PROGRESS')
+  }
+}
 
 // ------------------------------------------------------------------ start
 
@@ -82,6 +122,7 @@ export const start = mutation({
   handler: async (ctx, { businessId, fileName, source }) => {
     const env = await requireWriteActor(ctx, businessId)
     requireCapability(env, 'clients.manage')
+    await refuseWhileUndoing(ctx, businessId)
 
     // A name for the list of recent imports, nothing more; a phone's share
     // sheet can hand over a file called nothing at all.
@@ -133,11 +174,17 @@ export const addBatch = mutation({
     const env = await requireWriteActor(ctx, businessId)
     requireCapability(env, 'clients.manage')
 
-    // The page sends `IMPORT_BATCH_SIZE`; the sites cap is what one client
-    // with a whole file's worth of sites could reach, and no more — past it
-    // this is not a batch any page made.
+    // The page closes a batch at `IMPORT_BATCH_SIZE` clients or
+    // `IMPORT_BATCH_SITES` sites, whichever comes first — each site can mean
+    // a note, and a note is a component call. One client bigger than that
+    // goes on its own, up to a whole file's worth of sites and no more: past
+    // any of these this is not a batch any page made.
     const siteCount = clients.reduce((n, c) => n + c.sites.length, 0)
-    if (clients.length > IMPORT_BATCH_SIZE || siteCount > MAX_IMPORT_ROWS) {
+    if (
+      clients.length > IMPORT_BATCH_SIZE ||
+      (clients.length > 1 && siteCount > IMPORT_BATCH_SITES) ||
+      siteCount > MAX_IMPORT_ROWS
+    ) {
       throw new ConvexError('BATCH_TOO_LARGE')
     }
 
@@ -151,6 +198,9 @@ export const addBatch = mutation({
     // Undone mid-import (from another tab, or by the owner): what is still
     // to come would land after the undo, with nothing left to take it back.
     if (run.undoneAt !== undefined) throw new ConvexError('IMPORT_UNDONE')
+    // Another import's undo, still running: this batch would skip what it
+    // hasn't reached yet as already here. Once it is done, the batch lands.
+    await refuseWhileUndoing(ctx, businessId)
 
     const known = knownSites(ctx, businessId)
     const results: Array<ImportResult> = []
@@ -256,11 +306,15 @@ async function existingClient(
 ): Promise<Doc<'clients'> | null> {
   if (!client.existingClientId) return null
   const row = await ctx.db.get(client.existingClientId)
+  const key = nameKey(client.name)
   if (
     !row ||
     row.businessId !== businessId ||
     row.archivedAt !== undefined ||
-    nameKey(row.name) !== nameKey(client.name)
+    // A name of punctuation alone has no key, and "" matching "" is no
+    // evidence of anything.
+    key === '' ||
+    nameKey(row.name) !== key
   ) {
     return null
   }
@@ -277,20 +331,27 @@ type KnownSites = ReturnType<typeof knownSites>
  */
 function knownSites(ctx: MutationCtx, businessId: Id<'businesses'>) {
   const byPostcode = new Map<string, Set<string>>()
+  // Every site in one postcode, which is what the index is for: a business
+  // has hundreds there at the very most, and stopping short would let a
+  // duplicate through.
+  const sitesIn = (postcode: string) =>
+    ctx.db
+      .query('properties')
+      .withIndex('by_business_and_postcode', (q) =>
+        q.eq('businessId', businessId).eq('postcode', postcode),
+      )
+      .collect()
   return {
     /** True when the site is new, and claimed: the next one like it is not. */
     async claim(site: ImportSite): Promise<boolean> {
       let keys = byPostcode.get(site.postcode)
       if (!keys) {
-        // Every site in one postcode, which is what the index is for: a
-        // business has hundreds there at the very most, and stopping short
-        // would let a duplicate through.
-        const rows = await ctx.db
-          .query('properties')
-          .withIndex('by_business_and_postcode', (q) =>
-            q.eq('businessId', businessId).eq('postcode', site.postcode),
-          )
-          .collect()
+        const rows = await sitesIn(site.postcode)
+        // An NT or ACT site saved before the app asked for four digits has
+        // "810" for 0810; `siteKey` pads it, so it matches once it is read.
+        if (/^0\d{3}$/.test(site.postcode)) {
+          rows.push(...(await sitesIn(site.postcode.slice(1))))
+        }
         keys = new Set(rows.map(siteKey))
         byPostcode.set(site.postcode, keys)
       }
@@ -396,10 +457,29 @@ export const undo = mutation({
       throw new ConvexError('NOT_FOUND')
     }
     if (!mayUndo(env, run)) throw new ConvexError('NO_ACCESS')
-    if (run.undoneAt !== undefined) throw new ConvexError('ALREADY_UNDONE')
+    const now = Date.now()
+    if (run.undoneAt !== undefined) {
+      if (run.undoState !== 'running') throw new ConvexError('ALREADY_UNDONE')
+      // Still running, and moving: every step marks `undoStepAt`, one after
+      // another. Asking again would only start a second chain of steps
+      // beside it.
+      if (now - (run.undoStepAt ?? run.undoneAt) <= UNDO_STUCK_MS) {
+        throw new ConvexError('UNDO_RUNNING')
+      }
+      // Running, with no step for a while: one failed, and nothing scheduled
+      // the next. Asking again carries it on — every step reads what still
+      // carries the import's id, so nothing is removed twice. Marked as
+      // progress, so a second tap straight after is refused above rather
+      // than starting a second chain, and the page reads it as running
+      // again. Past the week too: this finishes an undo asked for inside it.
+      await ctx.db.patch(importId, { undoStepAt: now })
+      await ctx.scheduler.runAfter(0, internal.clientImports.undoStep, {
+        importId,
+      })
+      return null
+    }
     // A week is long enough to notice a column matched wrong. Past it the
     // clients are the business's own, however they arrived.
-    const now = Date.now()
     if (now > run.createdAt + IMPORT_UNDO_DAYS * DAY) {
       throw new ConvexError('UNDO_EXPIRED')
     }
@@ -432,6 +512,9 @@ export const undo = mutation({
  * Every step reads what still carries the import's id rather than
  * remembering where it got to: a site or client it keeps has the id cleared,
  * so the next step moves past it, and one it removes is simply gone.
+ *
+ * Each marks `undoStepAt` in the same write as its work: that is how `undo`
+ * and the page tell an undo that is moving from one that has stopped.
  */
 export const undoStep = internalMutation({
   args: { importId: v.id('clientImports') },
@@ -439,6 +522,7 @@ export const undoStep = internalMutation({
   handler: async (ctx, { importId }) => {
     const run = await ctx.db.get(importId)
     if (!run || run.undoState !== 'running') return null
+    const now = Date.now()
 
     let removed = 0
     let kept = 0
@@ -468,7 +552,7 @@ export const undoStep = internalMutation({
         .take(UNDO_BATCH)
 
       if (clients.length === 0) {
-        await ctx.db.patch(importId, { undoState: 'done' })
+        await ctx.db.patch(importId, { undoState: 'done', undoStepAt: now })
         return null
       }
       for (const client of clients) {
@@ -489,6 +573,7 @@ export const undoStep = internalMutation({
     await ctx.db.patch(importId, {
       undoRemoved: (run.undoRemoved ?? 0) + removed,
       undoKept: (run.undoKept ?? 0) + kept,
+      undoStepAt: now,
     })
     await ctx.scheduler.runAfter(0, internal.clientImports.undoStep, {
       importId,
@@ -506,7 +591,9 @@ export const undoStep = internalMutation({
  *    restored;
  *  - a repeating series, even one with no visit booked yet;
  *  - a note that is not the import's own: a gate code the office took down
- *    over the phone is someone's work, and the import has no right to it.
+ *    over the phone is someone's work, and the import has no right to it —
+ *    nor to the import's own note once anyone has edited it or added a
+ *    photo to it.
  *
  * Changing the site's own fields does not count — the import made it, and
  * undo is for taking back a list that came in wrong.
@@ -544,16 +631,53 @@ async function siteWorkedOn(
     .withIndex('by_property', (q) => q.eq('propertyId', site._id))
   for await (const note of onSite) {
     // The import's own note: pinned by the importer in the same write as the
-    // site (`importClient`). Edited since or not, it is still the one the
-    // file brought in.
+    // site (`importClient`), and never edited since, by anyone. The editor
+    // only records the LATEST editor, so "someone else edited it" can't be
+    // read off the note — Kevin changes the gate code, the importer adds a
+    // line, and it reads as the importer's. So any edit keeps it, the
+    // importer's own too: what was typed since is no longer only the list.
+    // So does a photo on it, which leaves the note's text as it was.
     const own =
       note.authorMembershipId === run.createdByMembershipId &&
       note.createdAt === site.createdAt &&
-      note.jobId === undefined
+      note.jobId === undefined &&
+      !(await noteEdited(ctx, note)) &&
+      (await ctx.db
+        .query('noteAttachments')
+        .withIndex('by_note', (q) => q.eq('noteId', note._id))
+        .first()) === null
     if (!own) return worked
     notes.push(note)
   }
   return { worked: false, notes }
+}
+
+/**
+ * Has this note's text changed since it was written? Either says so:
+ *
+ *  - its row: a saved edit (`notesSync.applyDerived`) moves `updatedAt` on
+ *    from `createdAt` and names its editor. So does bringing it back from
+ *    Recently Deleted, or moving it off and back — a person's doing too.
+ *  - its body: `pinSiteNote` writes it as version 1, and every edit is a
+ *    later version. The editor sends each edit as it is typed and saves the
+ *    whole note only once typing stops, so an edit can be in the body with
+ *    the row not yet told.
+ */
+async function noteEdited(
+  ctx: MutationCtx,
+  note: Doc<'notes'>,
+): Promise<boolean> {
+  if (
+    note.updatedAt !== note.createdAt ||
+    note.lastEditedByMembershipId !== note.authorMembershipId
+  ) {
+    return true
+  }
+  const version = await ctx.runQuery(
+    components.prosemirrorSync.lib.latestVersion,
+    { id: note._id },
+  )
+  return version !== null && version > 1
 }
 
 /**
@@ -613,6 +737,8 @@ const importView = v.object({
   failed: v.number(),
   undoneAt: v.optional(v.number()),
   undoState: v.optional(v.union(v.literal('running'), v.literal('done'))),
+  /** When the undo last made progress: see `undoStep`. */
+  undoStepAt: v.optional(v.number()),
   /** Clients and sites together. */
   undoRemoved: v.optional(v.number()),
   undoKept: v.optional(v.number()),
@@ -667,6 +793,7 @@ export const list = query({
         failed: row.failed,
         undoneAt: row.undoneAt,
         undoState: row.undoState,
+        undoStepAt: row.undoStepAt,
         undoRemoved: row.undoRemoved,
         undoKept: row.undoKept,
         byName: await nameOf(row.createdByMembershipId),

@@ -2,6 +2,7 @@ import { STREET_TYPES } from '#/lib/addressLookup'
 import { abnDigits, formatAbn, isValidAbn } from '../../../convex/lib/abn'
 import {
   AU_STATE_CODES,
+  MAX_IMPORT_NOTE,
   nameKey,
   phoneProblem,
   siteKey,
@@ -9,6 +10,7 @@ import {
 import { emailProblem, emailTypoFix } from '../../../convex/lib/email'
 import { checkPhone } from '../../../convex/lib/phone'
 import { stateOfPostcode } from '../../../convex/lib/postcodes'
+import { importable } from './convert'
 import type {
   ColumnMapping,
   ExistingIndex,
@@ -90,6 +92,48 @@ function patchSite(
       i === index ? { ...site, ...patch } : site,
     ),
   }
+}
+
+/**
+ * The client without one of its sites, and what was said about it. What
+ * was said about a later site moves down one with it; a held issue's test,
+ * and a fix, were made for the sites as they were numbered, so each is
+ * shown the client with the site put back where it was.
+ */
+export function withoutSite(client: ReviewClient, index: number): ReviewClient {
+  const gone = client.sites[index]
+  const putBack = (c: ReviewClient): ReviewClient => ({
+    ...c,
+    sites: [...c.sites.slice(0, index), gone, ...c.sites.slice(index)],
+  })
+  const takeOut = (c: ReviewClient): ReviewClient => ({
+    ...c,
+    sites: c.sites.filter((_, i) => i !== index),
+  })
+  const issues: Array<ReviewIssue> = []
+  for (const issue of client.issues) {
+    const at = issue.siteIndex
+    if (at === index) continue
+    if (at === undefined || at < index) {
+      issues.push(issue)
+      continue
+    }
+    // A spread keeps the tags checks.ts and checkAcrossClients go by.
+    const moved: ReviewIssue = { ...issue, siteIndex: at - 1 }
+    const fix = issue.fix
+    if (fix) {
+      moved.fix = {
+        label: fix.label,
+        apply: (c) => {
+          const next = takeOut(fix.apply(putBack(c)))
+          return { ...next, issues: next.issues.filter((i) => i !== moved) }
+        },
+      }
+    }
+    const still = (issue as Held)[STILL]
+    issues.push(still ? holdWhile(moved, (c) => still(putBack(c))) : moved)
+  }
+  return { ...takeOut(client), issues }
 }
 
 const LEVEL_ORDER = { error: 0, warning: 1, fixed: 2 } as const
@@ -312,6 +356,16 @@ function looksLikeBusiness(name: string): boolean {
   return BUSINESS_WORDS.test(name) || AND_CO.test(name)
 }
 
+/** Whether two names have a word in common, as `nameKey` splits them:
+ * "John & Mary Smith" and "John Smith" do; "Bayview Motel" and "Bob Jones"
+ * don't. */
+function sharesWord(a: string, b: string): boolean {
+  const words = new Set(nameKey(a).split(' '))
+  return nameKey(b)
+    .split(' ')
+    .some((word) => word !== '' && words.has(word))
+}
+
 /** An "Is a company?" or customer-type cell that says so, either way. */
 const YES =
   /^(?:y|yes|true|1|x|company|business|commercial|organisation|organization|corporate)$/i
@@ -346,6 +400,8 @@ type SiteNote = (siteIndex: number) => ReviewIssue
 
 type Draft = {
   rowNumber: number
+  /** The row as the person's spreadsheet numbers it. */
+  sheetRow: number
   kind: 'person' | 'business'
   name: string
   contactPerson?: string
@@ -357,8 +413,9 @@ type Draft = {
   notes: Array<ReviewIssue>
 }
 
-/** A phone as the file had it, with a lost leading 0 put back and Excel's
- * exponent written out when no digit was lost to it. */
+/** A phone as the file had it, with a lost leading 0 put back, +61 written
+ * as the number is dialled here, and Excel's exponent written out when no
+ * digit was lost to it. */
 function repairPhone(raw: string): string {
   const excel = excelNumber(raw)
   const text = excel && excel !== 'lost' ? excel.digits : raw.trim()
@@ -368,6 +425,13 @@ function repairPhone(raw: string): string {
   if (/^[42378]\d{8}$/.test(compact)) {
     const restored = `0${compact}`
     return checkPhone(restored).tidy ?? restored
+  }
+  // Excel reads +61 412 345 678 as a sum, and saves 61412345678 — which a
+  // phone here can't dial. Written with its 0, as every other number is;
+  // "+61 (0)8 …" too, whose 0 isn't dialled after the 61.
+  if (/^(?:\+|00)?61/.test(compact) || text.includes('(0)')) {
+    const check = checkPhone(text)
+    if (check.level === 'ok' && check.tidy?.startsWith('0')) return check.tidy
   }
   return text
 }
@@ -414,6 +478,7 @@ function typoFix(email: string): string | null {
 function draftOf(
   row: Array<string>,
   rowNumber: number,
+  sheetRow: number,
   sheet: ImportSheet,
   mapping: ColumnMapping,
   opts: Opts,
@@ -454,31 +519,41 @@ function draftOf(
     first !== '' &&
     last !== '' &&
     (nameColumn === '' || nameKey(nameColumn) === nameKey(person))
-  // The file's own word beats every guess; then a real ABN, which a
-  // household doesn't give its pest controller (Xero has no company
-  // column, only a tax number); then the name.
+  // A name column beside a first and a last it shares no word with: a
+  // place named for itself and the person to ask for — Xero's "Bayview
+  // Motel" with Bob Jones, ServiceM8's name beside its Contact First/Last.
+  // "John & Mary Smith" beside John Smith is still the Smiths.
+  const namedApart =
+    nameColumn !== '' && person !== '' && !sharesWord(nameColumn, person)
+  // The file's own word beats every guess — Jobber's "Is Company?" false
+  // beside a Company Name is a person who works there. Then a company
+  // column; then a real ABN, which a household doesn't give its pest
+  // controller (Xero has no company column, only a tax number); then the
+  // name.
   const flag = tidy(v.isCompany)
   const business =
-    company !== '' ||
     YES.test(flag) ||
-    myobCompany ||
     (!NO.test(flag) &&
-      ((abnValue !== undefined && isValidAbn(abnValue)) ||
+      (company !== '' ||
+        myobCompany ||
+        namedApart ||
+        (abnValue !== undefined && isValidAbn(abnValue)) ||
         (!splitAsPerson && looksLikeBusiness(nameColumn || person))))
   const kind = business ? 'business' : 'person'
-  const name = business ? company || nameColumn || person : nameColumn || person
+  // A person is named for themselves; the company only when the row has
+  // nothing else to call them.
+  const name = business
+    ? company || nameColumn || person
+    : nameColumn || person || company
 
-  let contactPerson: string | undefined
-  if (business) {
-    const candidates = [
-      tidy(v.contactPerson),
-      person,
-      company ? nameColumn : '',
-    ]
-    contactPerson = candidates.find(
-      (c) => c !== '' && nameKey(c) !== nameKey(name),
-    )
-  }
+  // Worked out for a person too, and kept: flipped to Business in the edit
+  // sheet, the client still has its contact. What is sent for a person
+  // leaves it out (convert.ts).
+  const contactPerson = [
+    tidy(v.contactPerson),
+    person,
+    company ? nameColumn : '',
+  ].find((c) => c !== '' && nameKey(c) !== nameKey(name))
 
   // ---- phone: one per client, the mobile first — unless the mobile can't
   // be dialled and the other number can.
@@ -680,32 +755,34 @@ function draftOf(
     if (note) site.note = note
 
     // A site contact is a business's: the caretaker, the store manager.
-    if (business) {
-      const contactName = tidy(v.siteContactName)
-      if (contactName) site.siteContactName = contactName
-      const sitePhone = readPhone(v.siteContactPhone)
-      const value = sitePhone.value
-      if (value) {
-        site.siteContactPhone = value
-        for (const message of sitePhone.changes) {
-          siteNotes.push((i) =>
-            holdWhile(
-              {
-                level: 'fixed',
-                field: 'siteContactPhone',
-                siteIndex: i,
-                message,
-              },
-              (c) => c.sites[i]?.siteContactPhone === value,
-            ),
-          )
-        }
+    // Kept on a person's site as well, unshown and unsent (convert.ts), so
+    // a flip to Business in the edit sheet brings it back.
+    const contactName = tidy(v.siteContactName)
+    if (contactName) site.siteContactName = contactName
+    const sitePhone = readPhone(v.siteContactPhone)
+    const value = sitePhone.value
+    if (value) {
+      site.siteContactPhone = value
+      for (const message of sitePhone.changes) {
+        siteNotes.push((i) =>
+          holdWhile(
+            {
+              level: 'fixed',
+              field: 'siteContactPhone',
+              siteIndex: i,
+              message,
+            },
+            (c) =>
+              c.kind === 'business' && c.sites[i]?.siteContactPhone === value,
+          ),
+        )
       }
     }
   }
 
   return {
     rowNumber,
+    sheetRow,
     kind,
     name,
     ...(contactPerson ? { contactPerson } : {}),
@@ -721,22 +798,40 @@ function draftOf(
 // ---------------------------------------------------------------- grouping
 
 /** What says two rows of one name are one client: the same email or phone,
- * or neither having any. */
+ * or neither having any. A phone is compared as it is dialled here, so
+ * +61 412 345 678 is 0412 345 678 — but not with an area code only
+ * guessed at, which might make it someone else's. */
 function contactIds(draft: Draft): Array<string> {
   const ids: Array<string> = []
   if (draft.email) ids.push(draft.email.toLowerCase())
   if (draft.phone) {
-    const digits = draft.phone.replace(/\D/g, '')
+    const check = checkPhone(draft.phone)
+    const national =
+      check.level === 'ok' && check.tidy ? check.tidy : draft.phone
+    const digits = national.replace(/\D/g, '')
     if (digits) ids.push(digits)
   }
   return ids
 }
 
-function sameClient(a: Draft, b: Draft): boolean {
-  const ours = contactIds(a)
-  const theirs = contactIds(b)
-  if (ours.length === 0 && theirs.length === 0) return true
-  return ours.some((id) => theirs.includes(id))
+/** Two of one client's sites at one address as one site: the first, its
+ * note and the other's joined, and a site contact it lacks taken from the
+ * other. */
+function joinSites(kept: ReviewSite, other: ReviewSite): ReviewSite {
+  const was = kept.note?.trim() ?? ''
+  const more = other.note?.trim() ?? ''
+  const note =
+    more && more !== was ? [was, more].filter(Boolean).join('\n\n') : ''
+  const name = other.siteContactName?.trim()
+  const phone = other.siteContactPhone?.trim()
+  return {
+    ...kept,
+    ...(note ? { note } : {}),
+    ...(!kept.siteContactName?.trim() && name ? { siteContactName: name } : {}),
+    ...(!kept.siteContactPhone?.trim() && phone
+      ? { siteContactPhone: phone }
+      : {}),
+  }
 }
 
 function merge(drafts: Array<Draft>, opts: Opts): ReviewClient {
@@ -758,33 +853,19 @@ function merge(drafts: Array<Draft>, opts: Opts): ReviewClient {
   // One house on two rows (a Jobber row per visit type, say) is one site,
   // its notes joined.
   const sites: Array<ReviewSite> = []
-  const keys: Array<string> = []
+  const keys = new Map<string, number>()
   for (const draft of drafts) {
     if (!draft.site) continue
     const key = siteKey(draft.site)
-    const at = keys.indexOf(key)
-    if (at === -1) {
+    const at = keys.get(key)
+    if (at === undefined) {
       const index = sites.length
       sites.push(draft.site)
-      keys.push(key)
+      keys.set(key, index)
       notes.push(...draft.siteNotes.map((note) => note(index)))
       continue
     }
-    const kept = sites[at]
-    const note =
-      draft.site.note && draft.site.note !== kept.note
-        ? [kept.note, draft.site.note].filter(Boolean).join('\n\n')
-        : kept.note
-    sites[at] = {
-      ...kept,
-      ...(note ? { note } : {}),
-      ...(!kept.siteContactName && draft.site.siteContactName
-        ? { siteContactName: draft.site.siteContactName }
-        : {}),
-      ...(!kept.siteContactPhone && draft.site.siteContactPhone
-        ? { siteContactPhone: draft.site.siteContactPhone }
-        : {}),
-    }
+    sites[at] = joinSites(sites[at], draft.site)
   }
 
   const kind = drafts.some((d) => d.kind === 'business') ? 'business' : 'person'
@@ -795,9 +876,11 @@ function merge(drafts: Array<Draft>, opts: Opts): ReviewClient {
   const client: ReviewClient = {
     key: `c${head.rowNumber}`,
     rowNumbers: drafts.map((d) => d.rowNumber),
+    sheetRows: drafts.map((d) => d.sheetRow),
     kind,
     name: head.name,
-    ...(kind === 'business' && contactPerson ? { contactPerson } : {}),
+    // A person's too, unsent, for a flip to Business (see draftOf).
+    ...(contactPerson ? { contactPerson } : {}),
     ...(phone ? { phone } : {}),
     ...(email ? { email } : {}),
     ...(abn ? { abn } : {}),
@@ -812,33 +895,87 @@ function merge(drafts: Array<Draft>, opts: Opts): ReviewClient {
  * Every row of the sheet as clients to review. Rows with the same name and
  * the same email or phone (or neither) are one client with a site each —
  * Jobber's one row per property. Each client is checked, tidied and matched
- * against what PestM8 already holds; nothing is sent.
+ * against what PestM8 already holds, and the clients against each other;
+ * nothing is sent.
  */
 export function buildReview(
   sheet: ImportSheet,
   mapping: ColumnMapping,
   opts: { businessState: string; existing: ExistingIndex },
 ): Array<ReviewClient> {
-  const groups: Array<Array<Draft>> = []
-  const byName = new Map<string, Array<Array<Draft>>>()
-  sheet.rows.forEach((row, i) => {
-    const draft = draftOf(row, i + 1, sheet, mapping, opts)
-    const key = nameKey(draft.name)
-    // No name, nothing to group by: each is its own client, and an error.
-    const candidates = key ? (byName.get(key) ?? []) : []
-    const group = candidates.find((g) => sameClient(g[0], draft))
-    if (group) {
-      group.push(draft)
-      return
+  // Each group of rows, by the order its first row came in, and the group
+  // it has joined: a row with the email of one and the phone of another
+  // says they are one client, whichever order the rows are in, and the
+  // later joins the earlier. Only a group's own entry names itself.
+  const joined: Array<number> = []
+  const whole = (group: number): number => {
+    let at = group
+    while (joined[at] !== at) at = joined[at]
+    // Every group on the way points straight at it from now on.
+    for (let step = group; joined[step] !== at;) {
+      const next = joined[step]
+      joined[step] = at
+      step = next
     }
-    const fresh = [draft]
-    groups.push(fresh)
-    if (key) byName.set(key, [...candidates, fresh])
+    return at
+  }
+  // "name|email-or-phone" → a group of that name with that email or phone
+  // on one of its rows; "name|" → the first of that name whose first row
+  // had neither. A look-up or two a row, however many share a name.
+  const index = new Map<string, number>()
+  const placed: Array<{ draft: Draft; group: number }> = []
+  sheet.rows.forEach((row, i) => {
+    const sheetRow = sheet.sourceRows?.[i] ?? i + 2
+    const draft = draftOf(row, i + 1, sheetRow, sheet, mapping, opts)
+    const key = nameKey(draft.name)
+    const ids = contactIds(draft)
+    // No name, nothing to group by: each is its own client, and an error.
+    const hits = !key
+      ? []
+      : ids.length === 0
+        ? [index.get(`${key}|`)]
+        : ids.map((id) => index.get(`${key}|${id}`))
+    const groups = hits.flatMap((hit) =>
+      hit === undefined ? [] : [whole(hit)],
+    )
+    let at: number
+    if (groups.length === 0) {
+      at = joined.length
+      joined.push(at)
+      if (key && ids.length === 0) index.set(`${key}|`, at)
+    } else {
+      // The earliest of them is the client; the rest join it.
+      at = Math.min(...groups)
+      for (const group of groups) joined[group] = at
+    }
+    if (key) for (const id of ids) index.set(`${key}|${id}`, at)
+    placed.push({ draft, group: at })
   })
-  return groups.map((drafts) => merge(drafts, opts))
+
+  // Each client's rows in file order. A group's first row is earlier than
+  // any row of a group that joins it, so the clients come in the order of
+  // their first rows, as each key (`c${first row}`) says.
+  const clients = new Map<number, Array<Draft>>()
+  for (const { draft, group } of placed) {
+    const at = whole(group)
+    const drafts = clients.get(at)
+    if (drafts) drafts.push(draft)
+    else clients.set(at, [draft])
+  }
+  return checkAcrossClients(
+    [...clients.values()].map((drafts) => merge(drafts, opts)),
+  )
 }
 
 // ---------------------------------------------------------------- judging
+
+/** An address for post only — "PO Box 12", "P.O. Box", "GPO Box",
+ * "Locked Bag 5", "Private Bag 3" — which a technician can't visit. Most
+ * often a billing address taken for want of a site one. */
+const POSTAL_ONLY =
+  /^(?:(?:p\.?\s*o\.?|g\.?\s*p\.?\s*o\.?|post\s+office)\s*box|(?:locked|private)\s+(?:mail\s+)?bag)\b/i
+
+const count = (n: number) => n.toLocaleString('en-AU')
 
 /** What is wrong with a phone as it is now, and the fix. */
 function phoneIssues(
@@ -972,6 +1109,21 @@ function currentIssues(client: ReviewClient, opts: Opts): Array<ReviewIssue> {
           : issue,
       )
     }
+    if (POSTAL_ONLY.test(site.addressLine.trim())) {
+      const issue = {
+        level: 'warning' as const,
+        field: 'addressLine' as const,
+        ...at,
+        message:
+          'A PO box isn’t a place to visit — use the property’s street address.',
+      }
+      // Left out, it has to leave the client another site.
+      issues.push(
+        client.sites.length > 1
+          ? withFix(issue, 'Leave this site out', (c) => withoutSite(c, i))
+          : issue,
+      )
+    }
     if (client.kind === 'business' && site.siteContactPhone?.trim()) {
       issues.push(
         ...phoneIssues(
@@ -982,6 +1134,21 @@ function currentIssues(client: ReviewClient, opts: Opts): Array<ReviewIssue> {
           (c) => patchSite(c, i, { siteContactPhone: undefined }),
         ),
       )
+    }
+    // The server keeps the first MAX_IMPORT_NOTE; said here, from the note
+    // as it is, so an edit that shortens it takes this away. Counted as the
+    // server counts, in whole characters (an emoji is one); a note no longer
+    // than that in UTF-16 units can't be longer in characters.
+    const note = site.note?.trim() ?? ''
+    const noteLength =
+      note.length > MAX_IMPORT_NOTE ? Array.from(note).length : 0
+    if (noteLength > MAX_IMPORT_NOTE) {
+      issues.push({
+        level: 'warning',
+        field: 'note',
+        ...at,
+        message: `This note is ${count(noteLength)} characters — only the first ${count(MAX_IMPORT_NOTE)} come across.`,
+      })
     }
   })
 
@@ -1052,24 +1219,247 @@ function currentIssues(client: ReviewClient, opts: Opts): Array<ReviewIssue> {
   return issues
 }
 
+// ---------------------------------------------------------------- across clients
+
+const ACROSS = Symbol('across clients')
+
+type Across = ReviewIssue & { [ACROSS]?: true }
+
+const isAcross = (issue: ReviewIssue) => (issue as Across)[ACROSS] === true
+
+function across(issue: ReviewIssue): ReviewIssue {
+  ;(issue as Across)[ACROSS] = true
+  return issue
+}
+
+/** A client as another's issue names it: its name, and its first row as the
+ * person's spreadsheet numbers it — the headings being row 1 when the sheet
+ * doesn't say (a client made in a test, say). */
+function whoIs(client: ReviewClient): string {
+  const name = client.name.trim() || 'a client with no name'
+  const first = client.rowNumbers[0] as number | undefined
+  const row =
+    client.sheetRows?.[0] ?? (first === undefined ? undefined : first + 1)
+  return row === undefined ? name : `${name} (row ${row})`
+}
+
+/** The client with one of its sites folded into an earlier one at the same
+ * address, as two rows for one house are when the review is built: the
+ * notes joined, a site contact the earlier lacks taken from the later. */
+function putTogether(
+  client: ReviewClient,
+  into: number,
+  from: number,
+): ReviewClient {
+  const joinedSite = joinSites(client.sites[into], client.sites[from])
+  return withoutSite(patchSite(client, into, joinedSite), from)
+}
+
+/** Whether the client would be sent as it stands, by what is said of it
+ * alone — what `checkAcrossClients` says of it left out. */
+const wouldSend = (client: ReviewClient) =>
+  importable({
+    ...client,
+    issues: client.issues.filter((issue) => !isAcross(issue)),
+  })
+
+/** The same issues in the same order, as the review shows them. */
+const sameIssues = (a: Array<ReviewIssue>, b: Array<ReviewIssue>) =>
+  a.length === b.length &&
+  a.every(
+    (issue, i) =>
+      issue.level === b[i].level &&
+      issue.field === b[i].field &&
+      issue.siteIndex === b[i].siteIndex &&
+      issue.message === b[i].message,
+  )
+
+/**
+ * The checks that need every client at once, run at the end of
+ * `buildReview` and again over the whole list after any change to it — an
+ * edit, a fix, a client left out or brought back:
+ *
+ * - An address two clients in the file both have. The server writes the
+ *   clients it is sent in file order and keeps one client per address, so
+ *   the later client's site is skipped: a warning on each such site, or,
+ *   when every site it would send is taken, an error — the server would
+ *   write nothing of it, so the review can't count it in. Only a client
+ *   that will be sent claims an address: one left out, one that can't be
+ *   imported yet and one with every site already in PestM8 claim nothing,
+ *   so a later client at the address has it. Fixed or brought back, the
+ *   earlier client claims it again on the next run, and the later is told.
+ * - Two of one client's own sites at one address — made so by a fix or an
+ *   edit, as the review joins them when it is built. The server keeps the
+ *   first and skips the other, note and all: a warning on the later, with
+ *   a fix that puts the two together.
+ * - Two clients that would both be sent and both join one client already
+ *   in PestM8 (it matches by name alone), said on each so the person can
+ *   leave one out.
+ *
+ * Idempotent: it takes off what it said last time before saying it again,
+ * and returns a client unchanged when nothing it says has changed.
+ * `recheckClient` sees one client only, so it drops these issues; running
+ * this over the list after it puts them back.
+ */
+export function checkAcrossClients(
+  clients: Array<ReviewClient>,
+): Array<ReviewClient> {
+  // siteKey → the first client in the file to send that address.
+  const claims = new Map<string, ReviewClient>()
+  const found = new Map<ReviewClient, Array<ReviewIssue>>()
+  // The clients the import would send as things stand.
+  const sending = new Set<ReviewClient>()
+  for (const client of clients) {
+    if (!client.included) continue
+    const issues: Array<ReviewIssue> = []
+    const sent = client.sites.flatMap((site, i) =>
+      site.duplicate ? [] : [{ site, i, key: siteKey(site) }],
+    )
+    const what = (site: ReviewSite) =>
+      site.note?.trim() ? 'this site and its note' : 'this site'
+    const taken = sent.flatMap((s) => {
+      const by = claims.get(s.key)
+      return by ? [{ ...s, by }] : []
+    })
+    const shutOut = taken.length > 0 && taken.length === sent.length
+    if (shutOut) {
+      const first = taken[0]
+      issues.push(
+        across({
+          level: 'error',
+          field: 'addressLine',
+          siteIndex: first.i,
+          message: `Same address as ${whoIs(first.by)} — an address can only belong to one client in PestM8.`,
+        }),
+      )
+    } else {
+      for (const { site, i, by } of taken) {
+        issues.push(
+          across({
+            level: 'warning',
+            field: 'addressLine',
+            siteIndex: i,
+            message: `Same address as ${whoIs(by)} — ${what(site)} will be skipped.`,
+          }),
+        )
+      }
+      // Its own sites, of the addresses no earlier client has: what an
+      // earlier client has is said above, once a site.
+      const firstAt = new Map<string, number>()
+      for (const { site, i, key } of sent) {
+        if (claims.has(key)) continue
+        const at = firstAt.get(key)
+        if (at === undefined) {
+          firstAt.set(key, i)
+          continue
+        }
+        issues.push(
+          across(
+            withFix(
+              {
+                level: 'warning',
+                field: 'addressLine',
+                siteIndex: i,
+                message: `Same address as site ${at + 1} — ${what(site)} will be skipped.`,
+              },
+              'Put them together',
+              (c) => putTogether(c, at, i),
+            ),
+          ),
+        )
+      }
+      // A partly taken client claims the rest, once all its sites have been
+      // looked at — but only if it will be sent: an address the server is
+      // never sent is free for the next client in the file.
+      if (wouldSend(client)) {
+        sending.add(client)
+        for (const { key } of sent) {
+          if (!claims.has(key)) claims.set(key, client)
+        }
+      }
+    }
+    found.set(client, issues)
+  }
+
+  // existingClientId → the clients that would add sites to it.
+  const joining = new Map<string, Array<ReviewClient>>()
+  for (const client of clients) {
+    const id = client.existingClientId
+    if (!id || !sending.has(client)) continue
+    const group = joining.get(id)
+    if (group) group.push(client)
+    else joining.set(id, [client])
+  }
+  for (const group of joining.values()) {
+    if (group.length < 2) continue
+    const all = group.length === 2 ? 'both' : `all ${count(group.length)}`
+    const leave =
+      group.length === 2
+        ? 'Leave one out if they’re different people.'
+        : 'Leave out any that are different people.'
+    for (const client of group) {
+      // Two by name at most: a name column mapped wrong can match hundreds.
+      const named = group
+        .slice(0, 3)
+        .filter((c) => c !== client)
+        .slice(0, 2)
+        .map(whoIs)
+        .join(', ')
+      const others = group.length - 1
+      const more = others > 2 ? ` and ${count(others - 2)} more` : ''
+      found.get(client)?.push(
+        across({
+          level: 'warning',
+          field: 'name',
+          message: `Also matched: ${named}${more} — ${all} would be added to the same client in PestM8. ${leave}`,
+        }),
+      )
+    }
+  }
+
+  return clients.map((client) => {
+    const said = sortIssues(found.get(client) ?? [])
+    const before = client.issues.filter(isAcross)
+    if (sameIssues(before, said)) return client
+    const kept = client.issues.filter((issue) => !isAcross(issue))
+    return { ...client, issues: sortIssues([...kept, ...said]) }
+  })
+}
+
+/** What the review says of a site already in PestM8, and whose it is when
+ * that isn't the client's own. */
+export function duplicateSiteMessage(site: ReviewSite): string {
+  return site.heldBy
+    ? `Already in PestM8, on ${site.heldBy} — this site is skipped`
+    : 'Already in PestM8 — this site is skipped'
+}
+
+// ---------------------------------------------------------------- one client
+
 /**
  * The client judged again after an edit or a fix: its issues worked out
  * afresh from its fields, the notes of what was fixed on the way in kept
  * while they still hold, and whether it — and each site — is already in
  * PestM8. The address tables' warnings are checks.ts's; run
- * `checkClientOffline` after this.
+ * `checkClientOffline` after this. What `checkAcrossClients` said is
+ * dropped, as this sees one client only: run that over the list after.
  */
 export function recheckClient(
   client: ReviewClient,
   opts: { businessState: string; existing: ExistingIndex },
 ): ReviewClient {
-  const sites = client.sites.map((site): ReviewSite => {
-    const duplicate = opts.existing.siteKeys.has(siteKey(site))
-    if (duplicate) return { ...site, duplicate: true }
-    const { duplicate: _gone, ...rest } = site
-    return rest
-  })
   const key = nameKey(client.name)
+  const sites = client.sites.map((site): ReviewSite => {
+    const { duplicate: _was, heldBy: _by, ...rest } = site
+    const at = siteKey(site)
+    if (!opts.existing.siteKeys.has(at)) return rest
+    // Whose it is, when that is another client: "Already in PestM8" alone
+    // would say this client is there, which it may not be.
+    const holder = opts.existing.siteHolders?.get(at)
+    return holder && nameKey(holder) !== key
+      ? { ...rest, duplicate: true, heldBy: holder }
+      : { ...rest, duplicate: true }
+  })
   const existingClientId = key
     ? opts.existing.clientsByName.get(key)
     : undefined

@@ -97,36 +97,63 @@ export function toImportClient(client: ReviewClient): ImportClient {
  * What PestM8 already holds, from `api.clients.list` and
  * `api.properties.list`. An archived client isn't matched: the server won't
  * add sites to one. Of two with one name, the older is matched, as the list
- * comes oldest first.
+ * comes oldest first. Each site also says whose it is, so the review can
+ * tell "already yours" from "already on someone else".
  */
 export function indexExisting(
   clients: Array<{ _id: Id<'clients'>; name: string; archivedAt?: number }>,
-  properties: Array<{ addressLine: string; suburb: string; postcode: string }>,
+  properties: Array<{
+    addressLine: string
+    suburb: string
+    postcode: string
+    clientId?: Id<'clients'>
+    /** `properties.list` carries its client; an archived one's too. */
+    client?: { name: string } | null
+  }>,
 ): ExistingIndex {
   const clientsByName = new Map<string, Id<'clients'>>()
+  const names = new Map<Id<'clients'>, string>()
   for (const client of clients) {
+    names.set(client._id, client.name)
     if (client.archivedAt !== undefined) continue
     const key = nameKey(client.name)
     if (key && !clientsByName.has(key)) clientsByName.set(key, client._id)
   }
-  return {
-    clientsByName,
-    siteKeys: new Set(properties.map((p) => siteKey(p))),
+  const siteKeys = new Set<string>()
+  const siteHolders = new Map<string, string>()
+  for (const property of properties) {
+    const key = siteKey(property)
+    siteKeys.add(key)
+    const holder =
+      property.client?.name ??
+      (property.clientId ? names.get(property.clientId) : undefined)
+    if (holder && !siteHolders.has(key)) siteHolders.set(key, holder)
   }
+  return { clientsByName, siteKeys, siteHolders }
 }
 
-/** The review's counts, for its filter: each status, and every client. */
+/** Where the review files a client: its status, or "left out" whatever its
+ * status — a client the person has set aside isn't still waiting to be
+ * fixed. */
+export type ReviewBucket = ReviewStatus | 'excluded'
+
+export function bucketOf(client: ReviewClient): ReviewBucket {
+  return client.included ? statusOf(client) : 'excluded'
+}
+
+/** The review's counts, for its filter: each bucket, and every client. */
 export function summarise(
   clients: Array<ReviewClient>,
-): Record<ReviewStatus | 'all', number> {
-  const counts: Record<ReviewStatus | 'all', number> = {
+): Record<ReviewBucket | 'all', number> {
+  const counts: Record<ReviewBucket | 'all', number> = {
     all: clients.length,
     error: 0,
     duplicate: 0,
     warning: 0,
     fixed: 0,
     ready: 0,
+    excluded: 0,
   }
-  for (const client of clients) counts[statusOf(client)]++
+  for (const client of clients) counts[bucketOf(client)]++
   return counts
 }

@@ -32,6 +32,23 @@ export function ImportBody({ children }: { children: ReactNode }) {
   )
 }
 
+/**
+ * What makes a step's heading the place focus goes when the step changes
+ * (`focusStepHeading`): the step that held focus has just gone, and without
+ * this a keyboard or screen reader is sent back to the top of the document.
+ * Focusable from script only, and with no ring — it is where reading starts,
+ * not a control.
+ */
+export const STEP_HEADING = { tabIndex: -1, 'data-step-heading': '' } as const
+export const STEP_HEADING_CLASS = 'outline-none'
+
+/** Moves focus to the step now showing, without scrolling there itself. */
+export function focusStepHeading(): boolean {
+  const heading = document.querySelector<HTMLElement>('[data-step-heading]')
+  heading?.focus({ preventScroll: true })
+  return heading !== null
+}
+
 export function StepHeading({
   title,
   lede,
@@ -44,9 +61,19 @@ export function StepHeading({
 }) {
   return (
     <div className="mt-5">
-      <h2 className="text-sheet-title text-ink">{title}</h2>
+      <h2
+        {...STEP_HEADING}
+        className={`text-sheet-title text-ink ${STEP_HEADING_CLASS}`}
+      >
+        {title}
+      </h2>
       {children}
-      {lede && <p className="mt-1.5 text-body text-muted">{lede}</p>}
+      {lede && (
+        // A lede names the file, and an export's name can be one long word.
+        <p className="mt-1.5 text-body text-muted [overflow-wrap:anywhere]">
+          {lede}
+        </p>
+      )}
     </div>
   )
 }

@@ -4,6 +4,7 @@ import {
   FIELD_ORDER,
   autoMap,
   detectSource,
+  isKnownHeading,
   mappingProblems,
 } from './columns'
 import type { ColumnMapping, ImportField, ImportSheet } from './types'
@@ -374,6 +375,53 @@ describe('autoMap', () => {
     // "Client name" beats "Name" when both are there, and "Phone" beats
     // "Telephone".
     expect(autoMap(s)).toEqual([null, 'name', 'phone', null, null])
+  })
+})
+
+describe('isKnownHeading', () => {
+  test('a heading autoMap has a field for, however it is written', () => {
+    for (const heading of [
+      'Client Name',
+      'NAME',
+      'Suburb',
+      'E-mails',
+      'Service Street 1',
+      'SAAddressLine1',
+      'Co./Last Name',
+      '*ContactName',
+      'Billing Zip code',
+    ]) {
+      expect(isKnownHeading(heading), heading).toBe(true)
+    }
+  })
+
+  test('a title, a heading of its own, or a client’s details is not', () => {
+    for (const cell of [
+      '',
+      'Client list 2024',
+      'Cust',
+      'Addr',
+      'Sub',
+      'PC',
+      'Jane Smith',
+      '1 A St',
+      'Bayswater',
+      'WA',
+      '6053',
+      '0412 345 678',
+    ]) {
+      expect(isKnownHeading(cell), cell).toBe(false)
+    }
+  })
+
+  test('every column autoMap maps in an app’s export has a known heading', () => {
+    for (const headers of [JOBBER, XERO, MYOB, GORILLADESK]) {
+      const mapping = autoMap(sheet(headers))
+      const unknown = headers.filter(
+        (h, i) => mapping[i] !== null && !isKnownHeading(h),
+      )
+      expect(unknown).toEqual([])
+    }
   })
 })
 
