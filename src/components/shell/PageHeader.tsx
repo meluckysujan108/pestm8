@@ -28,13 +28,11 @@ export function PageHeader({
   const ref = useScrolledUnder('top')
 
   return (
-    // The hairline shows only once content is under the header — and not
-    // while the schedule's week strip is pinned beneath it, which carries the
-    // hairline for both so the two read as one pane of glass. The border
-    // itself stays, transparent, because the header's height is load-bearing.
+    // The hairline shows only once content is under the header. The border
+    // itself stays, transparent, so the header's height does not change.
     <header
       ref={ref}
-      className="chrome-bar sticky top-0 z-30 flex items-end justify-between gap-3 border-b border-transparent px-4 pb-3 pt-[calc(12px+env(safe-area-inset-top))] transition-colors data-scrolled:border-hairline [body:has([data-schedule-chrome][data-scrolled])_&]:border-transparent"
+      className="chrome-bar sticky top-0 z-30 flex items-end justify-between gap-3 border-b border-transparent px-4 pb-3 pt-[calc(12px+env(safe-area-inset-top))] transition-colors data-scrolled:border-hairline"
     >
       {/* Collapse control lives with the page title rather than in the sidebar
           itself, so it stays reachable once the sidebar is down to icons.
@@ -60,9 +58,8 @@ export function PageHeader({
           ) : (
             <p className="section-label mb-0.5 truncate">{kicker}</p>
           ))}
-        {/* Truncated rather than wrapped: the header's height is load-bearing
-            (the schedule's week strip is pinned beneath it), and the view
-            menu leaves the longest titles less room on a phone. */}
+        {/* Truncated rather than wrapped: the header's height stays put, and
+            the view menu leaves the longest titles less room on a phone. */}
         <h1 className="truncate text-page-title text-ink">{title}</h1>
       </div>
       {/* Hidden when empty — no action, and no view menu for anyone but the

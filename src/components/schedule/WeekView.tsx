@@ -405,8 +405,9 @@ function JobBlock({
  * Brings the focused day into view: when the week first opens on a day other
  * than its Monday, and whenever a day is picked on the strip or grid.
  * Measured against whatever sticky chrome covers the top of the page — the
- * page header everywhere, and the week strip (`data-schedule-chrome`) on a
- * phone — so the day's heading lands just under it rather than behind it.
+ * page header, and the week strip (`data-schedule-chrome`) if it is sticky,
+ * which it no longer is — so the day's heading lands just under it rather
+ * than behind it.
  */
 function useScrollToDay(focusKey: string, weekStart: string, tick: number) {
   const first = useRef(true)

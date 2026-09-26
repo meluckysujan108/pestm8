@@ -370,6 +370,45 @@ describe('autoMap', () => {
     expect(autoMap(s)).toEqual(['company', 'contactPerson', 'address'])
   })
 
+  test('an accounts contact list: Billing Name is the client, Primary Contact the person', () => {
+    const s = sheet(
+      [
+        'ID',
+        'Status',
+        'Contact Type',
+        'Primary Contact',
+        'Billing Name',
+        'Phone',
+        'Email',
+        'Address',
+        'Latest Note',
+      ],
+      [
+        [
+          '1916',
+          'Active',
+          'Customer',
+          'Ashley Metcalfe',
+          'Little Sprouts Early Learning',
+          '0402 924 325',
+          'ashley@example.com',
+          '26 Fathom Ramble, Waikiki Western Australia, 6169 Australia',
+          'Daycare $295 GPC',
+        ],
+      ],
+    )
+    expect(mapped(s)).toEqual({
+      'Contact Type': 'contactType',
+      'Primary Contact': 'contactPerson',
+      'Billing Name': 'name',
+      Phone: 'phone',
+      Email: 'email',
+      Address: 'address',
+      'Latest Note': 'notes',
+    })
+    expect(mappingProblems(autoMap(s))).toEqual([])
+  })
+
   test('each field claimed once; the rest left for the person', () => {
     const s = sheet(['Name', 'Client name', 'Phone', 'Telephone', 'Colour'])
     // "Client name" beats "Name" when both are there, and "Phone" beats

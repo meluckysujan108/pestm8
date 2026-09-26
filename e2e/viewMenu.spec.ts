@@ -174,10 +174,8 @@ test('nobody else gets the menu', async ({ page }) => {
 })
 
 /**
- * The header's height is load-bearing on a phone: the week strip is pinned at
- * a hard-coded 75px beneath it (schedule.tsx) — a hair inside the header's
- * 75.4px, so no slit of page shows between them — and a fourth control that
- * grew the header would slide it over the strip.
+ * The header's height should not change with the menu in it: a fourth
+ * control that grew the header would push every page down under a thumb.
  */
 test('the header keeps its height with the menu in it', async ({ page }) => {
   const { owner, slug } = await ownerWithKevinsJob('view-header')
