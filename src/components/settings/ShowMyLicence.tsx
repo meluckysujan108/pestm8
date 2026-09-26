@@ -5,7 +5,7 @@ import { formatBytes } from '#/lib/pdfFiles'
 import { useHydrated } from '#/lib/useHydrated'
 import { ExpiryBadge, FileThumb } from './LicenceBits'
 import { LicenceViewer } from './LicenceViewer'
-import { formatExpiryDate } from './licenceExpiry'
+import { licenceSubtitle } from './licenceExpiry'
 import type { Wallet, WalletLicence } from './useMyLicences'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -153,9 +153,9 @@ function LicenceCard({
         </p>
       )}
       <p className="text-caption text-muted">
-        {licence.expiresOn
-          ? `Expires ${formatExpiryDate(licence.expiresOn)}`
-          : 'No expiry'}
+        {/* The number sits on its own line above, so only the date part of
+            the list's subtitle — "Expired …" once it has run out. */}
+        {licenceSubtitle({ expiresOn: licence.expiresOn }, today)}
       </p>
       {licence.files.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-2">
