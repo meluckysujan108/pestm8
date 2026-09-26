@@ -362,31 +362,6 @@ export default defineSchema({
      * never been filled in.
      */
     licenceExpiresOn: v.optional(v.number()),
-    /**
-     * RETIRED — the Phase 8.1 licence document: one photo of the card or the
-     * regulator's PDF. Superseded by the licence wallet (`memberLicences`,
-     * `memberLicenceFiles`); nothing sets it any more, and nobody can open it.
-     * `migrations/licenceWalletV1` copied each one into its holder's wallet
-     * under the same storage id, and `migrations/licenceFileContractV1`
-     * clears the copies; then this field and its index are dropped. Until
-     * then a storage id here still counts as a licence (`heldAsLicence`).
-     */
-    licenceFile: v.optional(
-      v.object({
-        storageId: v.id('_storage'),
-        /** Which viewer opens it: the PDF viewer or the image viewer. */
-        kind: v.union(v.literal('pdf'), v.literal('image')),
-        /** As claimed: application/pdf, image/png or image/jpeg. */
-        contentType: v.string(),
-        /** Tidied, ending in the extension of what it is. */
-        fileName: v.string(),
-        /** Bytes, from storage — never from the client. */
-        size: v.number(),
-        /** Also the identity of this version of the file, for the copy kept
-         * on the holder's phone. */
-        uploadedAt: v.number(),
-      }),
-    ),
     phone: v.optional(v.string()),
     /**
      * This member's own signature, saved once and reused on their own reports.
@@ -425,12 +400,7 @@ export default defineSchema({
     // "Who is on my team" on every dispatch, roster and switch-target read.
     // Without it that answer is a full scan of the business filtered in
     // memory, which is also how an owner-row leak gets written by accident.
-    .index('by_business_parent', ['businessId', 'parentMembershipId'])
-    // "Is this upload already someone's licence?" — asked before any feature
-    // claims a file, so one file is never two people's, and before anything
-    // deletes one. The table is a business's handful of people, so the
-    // backfill on deploy is nothing.
-    .index('by_licenceFile_storageId', ['licenceFile.storageId']),
+    .index('by_business_parent', ['businessId', 'parentMembershipId']),
 
   /**
    * My licences: every licence a person holds — pest management, fumigation,
@@ -443,8 +413,9 @@ export default defineSchema({
    * decides whether one may be finalised. Nothing here feeds that.
    *
    * Per membership, like the rest of a person's standing in a business: the
-   * same person in two businesses keeps two wallets. New table, so nothing to
-   * migrate but the Phase 8.1 document (`migrations/licenceWalletV1`).
+   * same person in two businesses keeps two wallets. It replaced the single
+   * Phase 8.1 document on the membership, which `migrations/licenceWalletV1`
+   * copied in (2026-09-26) before that field was dropped.
    */
   memberLicences: defineTable({
     businessId: v.id('businesses'),
@@ -473,9 +444,9 @@ export default defineSchema({
    * PDF. One row per file, not an array on the licence, so adding one never
    * rewrites the others. Capped at MAX_LICENCE_FILES per licence.
    *
-   * The same shape and the same claim as `memberships.licenceFile`
-   * (`claimLicenceFile` in lib/licenceClaims.ts), and never deleted with its
-   * row — no `ctx.storage.delete` for a licence, ever (`memberLicences.ts`).
+   * Claimed by `claimLicenceFile` (lib/licenceClaims.ts), and never deleted
+   * with its row — no `ctx.storage.delete` for a licence, ever
+   * (`memberLicences.ts`).
    */
   memberLicenceFiles: defineTable({
     /** Copied from the licence, so a row answers who may read it by itself. */

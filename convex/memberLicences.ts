@@ -52,10 +52,8 @@ import type { MemberLicenceRefusal } from './lib/memberLicences'
  * ── Files are never deleted ──────────────────────────────────────────────
  *
  * Removing a file or a whole licence deletes the rows that point at the files
- * — the wallet's, and the Phase 8.1 pointer on the membership when it is the
- * same file (`dropCopiedDocument`) — and nothing else: no
- * `ctx.storage.delete`, for the reason `products.ts` gives: an id a client
- * handed in may be a file something else still needs.
+ * and nothing else: no `ctx.storage.delete`, for the reason `products.ts`
+ * gives: an id a client handed in may be a file something else still needs.
  *
  * ── Storage ids stay on the server ───────────────────────────────────────
  *
@@ -105,8 +103,9 @@ const listView = v.object({
 
 /**
  * How many of a person's licences one read takes. Past `MAX_LICENCES` on
- * purpose: the cap is kept on `create`, but the migration copies a Phase 8.1
- * document into the wallet whatever it holds, rather than lose it.
+ * purpose: the cap is kept on `create`, but the move from the Phase 8.1
+ * document (`migrations/licenceWalletV1`, since removed) copied one in
+ * whatever the wallet held, rather than lose it.
  */
 const READ_LIMIT = 50
 
@@ -300,9 +299,6 @@ export const update = mutation({
  * Deletes a licence of the caller's own, with its files' rows. The files stay
  * in storage. Already gone (a retry, or removed on another device) is done,
  * not an error.
- *
- * The Phase 8.1 document goes with it when one of its files is that document
- * (`dropCopiedDocument`).
  */
 export const remove = mutation({
   args: {
@@ -316,19 +312,14 @@ export const remove = mutation({
     if (!licence) return null
     requireHolder(env, businessId, licence)
 
-    const storageIds: Array<Id<'_storage'>> = []
+    let files = 0
     for await (const file of ctx.db
       .query('memberLicenceFiles')
       .withIndex('by_licence', (q) => q.eq('licenceId', licence._id))) {
       await ctx.db.delete('memberLicenceFiles', file._id)
-      storageIds.push(file.storageId)
+      files++
     }
     await ctx.db.delete('memberLicences', licence._id)
-    const droppedDocument = await dropCopiedDocument(
-      ctx,
-      licence.membershipId,
-      storageIds,
-    )
 
     await recordAudit(ctx, forSelf(licence.membershipId), {
       businessId,
@@ -338,8 +329,7 @@ export const remove = mutation({
       meta: {
         licenceId: licence._id,
         name: licence.name,
-        files: storageIds.length,
-        ...(droppedDocument ? { clearedLicenceFile: true } : {}),
+        files,
       },
       at: Date.now(),
     })
@@ -427,8 +417,7 @@ export const addFile = mutation({
 
 /**
  * Takes a file off a licence of the caller's own. The file stays in storage.
- * Already gone is done, not an error. The Phase 8.1 document goes with it
- * when that is what the file is (`dropCopiedDocument`).
+ * Already gone is done, not an error.
  */
 export const removeFile = mutation({
   args: {
@@ -448,9 +437,6 @@ export const removeFile = mutation({
     if (licence) {
       await ctx.db.patch('memberLicences', licence._id, { updatedAt: now })
     }
-    const droppedDocument = await dropCopiedDocument(ctx, file.membershipId, [
-      file.storageId,
-    ])
     await recordAudit(ctx, forSelf(file.membershipId), {
       businessId,
       action: 'membership.removeLicenceFile',
@@ -461,7 +447,6 @@ export const removeFile = mutation({
         fileId: file._id,
         kind: file.kind,
         size: file.size,
-        ...(droppedDocument ? { clearedLicenceFile: true } : {}),
       },
       at: now,
     })
@@ -485,39 +470,6 @@ export async function licenceCountOf(
     .withIndex('by_membership', (q) => q.eq('membershipId', membershipId))
     .take(READ_LIMIT)
   return rows.length
-}
-
-/**
- * Takes the Phase 8.1 document off the holder's membership
- * (`memberships.licenceFile`) when it is one of `removed` — files just taken
- * out of their wallet. Returns whether it did.
- *
- * `migrations/licenceWalletV1` copied each document into the wallet under the
- * SAME storage id and left the membership's pointer where it was, for the
- * frontend that still read it. So the wallet file and the document are one
- * licence, and deleting it in the wallet has to delete both: left behind, a
- * second run of the migration would put it back in the wallet, and
- * `migrations/licenceFileContractV1` — which clears only documents a wallet
- * file still holds — would find it uncopied and leave it, holding up the
- * drop of the field. No audit row of its own: the caller's row for the
- * removal says it happened (`clearedLicenceFile`), as one change the holder
- * made. Goes with the field, once that contract has run everywhere.
- *
- * A document replaced since the copy (from the old Profile page) is a
- * different storage id, and stays.
- */
-async function dropCopiedDocument(
-  ctx: MutationCtx,
-  membershipId: Id<'memberships'>,
-  removed: ReadonlyArray<Id<'_storage'>>,
-): Promise<boolean> {
-  const holder = await ctx.db.get('memberships', membershipId)
-  const document = holder?.licenceFile
-  if (!holder || !document || !removed.includes(document.storageId)) {
-    return false
-  }
-  await ctx.db.patch('memberships', holder._id, { licenceFile: undefined })
-  return true
 }
 
 /** A licence's files as the page is given them, oldest first. */

@@ -83,8 +83,6 @@ import type * as memberLicences from "../memberLicences.js";
 import type * as memberships from "../memberships.js";
 import type * as migrations_accessV3 from "../migrations/accessV3.js";
 import type * as migrations_jobStatusV1 from "../migrations/jobStatusV1.js";
-import type * as migrations_licenceFileContractV1 from "../migrations/licenceFileContractV1.js";
-import type * as migrations_licenceWalletV1 from "../migrations/licenceWalletV1.js";
 import type * as migrations_memberColoursV1 from "../migrations/memberColoursV1.js";
 import type * as migrations_notesV2 from "../migrations/notesV2.js";
 import type * as migrations_propertyFixesV1 from "../migrations/propertyFixesV1.js";
@@ -193,8 +191,6 @@ declare const fullApi: ApiFromModules<{
   memberships: typeof memberships;
   "migrations/accessV3": typeof migrations_accessV3;
   "migrations/jobStatusV1": typeof migrations_jobStatusV1;
-  "migrations/licenceFileContractV1": typeof migrations_licenceFileContractV1;
-  "migrations/licenceWalletV1": typeof migrations_licenceWalletV1;
   "migrations/memberColoursV1": typeof migrations_memberColoursV1;
   "migrations/notesV2": typeof migrations_notesV2;
   "migrations/propertyFixesV1": typeof migrations_propertyFixesV1;

@@ -819,7 +819,7 @@ async function spared(run: Run, file: Id<'_storage'>): Promise<boolean> {
     }
   }
 
-  // Someone's licence document (Phase 8.1), in any business: a licence
+  // Someone's licence file (memberLicences.ts), in any business: a licence
   // claims only an upload nothing holds, but a hand-made row can break that,
   // and a person's licence is not the demo's to delete.
   if (await heldAsLicence(ctx, file)) return true

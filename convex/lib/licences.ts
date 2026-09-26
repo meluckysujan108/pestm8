@@ -1,6 +1,6 @@
 /**
- * Licence documents (Phase 8.1): what a technician's uploaded licence may be,
- * in one place both ends can read.
+ * Licence files: what a technician's uploaded licence may be, in one place
+ * both ends can read.
  *
  * Pure and import-free on purpose, like `lib/products.ts`, whose rules these
  * follow: the licence screens import this directly so they can turn away a
