@@ -142,7 +142,14 @@ test('a certificate’s author adds their licence on the draft, before finishing
   const notice = page.getByText('Add your licence number before you finish')
   await expect(notice).toBeVisible()
   const save = page.getByRole('button', { name: 'Save', exact: true })
-  await page.getByLabel('Pest management technician licence').fill('PMT-4471')
+  const field = page.getByLabel('Pest management technician licence')
+  // The notice is in the server's render, so it can be typed into before the
+  // page hydrates — which wipes the field. Typed again until it holds, which
+  // is when Save wakes up.
+  await expect(async () => {
+    await field.fill('PMT-4471')
+    await expect(save).toBeEnabled({ timeout: 1_000 })
+  }).toPass({ timeout: 15_000 })
   await clickUntil(save, () =>
     expect(notice).toHaveCount(0, { timeout: 5_000 }),
   )
