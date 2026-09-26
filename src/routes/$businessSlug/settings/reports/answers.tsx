@@ -54,7 +54,7 @@ function AnswerListsPage() {
             to="/$businessSlug/settings/reports"
             params={{ businessSlug: business.slug }}
           >
-            Reports
+            Report settings
           </BackLink>
         }
       />

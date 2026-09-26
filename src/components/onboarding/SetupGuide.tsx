@@ -101,7 +101,9 @@ export function SetupGuideCard({
           type="button"
           onClick={() => setOpen(true)}
           disabled={!hydrated}
-          aria-label={`Set-up guide: ${done} of ${total} done`}
+          // Starts with the words on the card, so saying "tap Finish setting
+          // up" reaches it (a voice-control name must contain the label).
+          aria-label={`${complete ? 'You’re all set' : 'Finish setting up'}, ${done} of ${total} done`}
           className="flex min-w-0 flex-1 items-center gap-3 text-left transition active:opacity-70"
         >
           <ProgressRing done={done} total={total} />

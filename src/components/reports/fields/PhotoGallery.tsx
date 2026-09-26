@@ -5,12 +5,14 @@ import {
   Camera,
   ChevronDown,
   ChevronUp,
+  Ellipsis,
   Image as ImageIcon,
   PenLine,
   Star,
   Trash2,
 } from 'lucide-react'
 import { api } from '../../../../convex/_generated/api'
+import { DropdownMenu } from 'radix-ui'
 import { AnnotationEditor } from './AnnotationEditor'
 import { useHydrated } from '#/lib/useHydrated'
 import { prepareUpload } from '#/lib/images/prepareUpload'
@@ -337,48 +339,65 @@ function GalleryTile({
         className="h-9 w-full rounded-lg bg-surface-3 px-2 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
       />
 
+      {/* Three 44px tools fit the tile; five did not, so reordering sits
+          behind "⋯" and the two that act on the photo stay out. */}
       <span className="flex items-center justify-between">
-        <span className="flex">
-          <button
-            type="button"
-            disabled={index === 0}
-            aria-label={`Move ${label} photo ${ordinal} up`}
-            onClick={() =>
-              void move({ businessId, reportId, photoId: photo._id, direction: 'up' })
-            }
-            className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger
+            aria-label={`More actions for ${label} photo ${ordinal}`}
+            disabled={total < 2}
+            className="flex size-11 items-center justify-center rounded-full text-muted outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.95] disabled:opacity-30"
           >
-            <ChevronUp size={15} strokeWidth={2} />
-          </button>
-          <button
-            type="button"
-            disabled={index === total - 1}
-            aria-label={`Move ${label} photo ${ordinal} down`}
-            onClick={() =>
-              void move({ businessId, reportId, photoId: photo._id, direction: 'down' })
-            }
-            className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
-          >
-            <ChevronDown size={15} strokeWidth={2} />
-          </button>
-        </span>
+            <Ellipsis size={18} strokeWidth={2} />
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              align="start"
+              sideOffset={4}
+              className="z-50 w-44 rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
+            >
+              <DropdownMenu.Item
+                disabled={index === 0}
+                aria-label={`Move ${label} photo ${ordinal} up`}
+                onSelect={() =>
+                  void move({ businessId, reportId, photoId: photo._id, direction: 'up' })
+                }
+                className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl px-2.5 text-body text-ink outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2"
+              >
+                <ChevronUp size={17} strokeWidth={2} className="text-muted" />
+                Move up
+              </DropdownMenu.Item>
+              <DropdownMenu.Item
+                disabled={index === total - 1}
+                aria-label={`Move ${label} photo ${ordinal} down`}
+                onSelect={() =>
+                  void move({ businessId, reportId, photoId: photo._id, direction: 'down' })
+                }
+                className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl px-2.5 text-body text-ink outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2"
+              >
+                <ChevronDown size={17} strokeWidth={2} className="text-muted" />
+                Move down
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
         <span className="flex">
           <button
             type="button"
             disabled={!photo.url}
             aria-label={`Annotate ${label} photo ${ordinal}`}
             onClick={() => setAnnotating(true)}
-            className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-11 items-center justify-center rounded-full text-muted outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.95] disabled:opacity-30"
           >
-            <PenLine size={14} strokeWidth={1.8} />
+            <PenLine size={16} strokeWidth={1.8} />
           </button>
           <button
             type="button"
             aria-label={`Remove ${label} photo ${ordinal}`}
             onClick={() => void remove({ businessId, reportId, photoId: photo._id })}
-            className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+            className="flex size-11 items-center justify-center rounded-full text-muted outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.95] disabled:opacity-30"
           >
-            <Trash2 size={14} strokeWidth={1.8} />
+            <Trash2 size={16} strokeWidth={1.8} />
           </button>
         </span>
       </span>

@@ -353,13 +353,21 @@ function JobDetailBody({
                 ) : (
                   <StatusPill status={job.status} />
                 )}
+                {/* Each part kept whole, so a narrow screen breaks the line
+                    at a "·" and never leaves "min" alone under the pill. */}
                 <span className="text-body text-muted">
-                  {formatJobDate(
-                    dayKeyOf(job.scheduledAt, timezone),
-                    dayKeyOf(Date.now(), timezone),
-                  )}{' '}
-                  · {formatTime(job.scheduledAt, timezone)} ·{' '}
-                  {formatDuration(job.durationMinutes)}
+                  <span className="whitespace-nowrap">
+                    {formatJobDate(
+                      dayKeyOf(job.scheduledAt, timezone),
+                      dayKeyOf(Date.now(), timezone),
+                    )}
+                  </span>{' '}
+                  <span className="whitespace-nowrap">
+                    · {formatTime(job.scheduledAt, timezone)}
+                  </span>{' '}
+                  <span className="whitespace-nowrap">
+                    · {formatDuration(job.durationMinutes)}
+                  </span>
                 </span>
               </div>
 
