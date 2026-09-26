@@ -17,7 +17,10 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { Sheet } from '#/components/primitives/Sheet'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * Every report this business has made, a page at a time.
@@ -213,7 +216,7 @@ export function ReportsLibrary({
           <button
             type="button"
             onClick={() => paged.loadMore(PAGE_SIZE)}
-            className="mt-3 h-11 w-full rounded-xl bg-surface-2 text-[15px] font-semibold text-ink"
+            className={`${SECONDARY_BUTTON_COMPACT} mt-3 w-full`}
           >
             Show more
           </button>
@@ -449,7 +452,7 @@ function TrashActions({
           type="button"
           disabled={restore.isPending}
           onClick={() => restore.mutate({ businessId, reportId: row._id })}
-          className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink disabled:opacity-50"
+          className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-1.5`}
         >
           <RotateCcw size={15} strokeWidth={2} />
           Restore

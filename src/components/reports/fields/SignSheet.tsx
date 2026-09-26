@@ -5,7 +5,11 @@ import { PenLine, RotateCcw } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /**
  * Signing, as its own screen.
@@ -206,7 +210,7 @@ export function SignSheet({
           <button
             type="button"
             onClick={clear}
-            className="flex h-12 items-center gap-1.5 rounded-xl bg-surface-2 px-4 text-[15px] font-semibold text-ink"
+            className={`${SECONDARY_BUTTON} flex items-center gap-1.5 px-4`}
           >
             <RotateCcw size={15} strokeWidth={2} />
             Clear
@@ -240,7 +244,7 @@ export function SignSheet({
             onChange={(event) => setName(event.target.value)}
             autoComplete="name"
             placeholder="Who is signing"
-            className="h-12 rounded-xl border border-hairline bg-surface px-3.5 text-[16px] text-ink outline-none"
+            className={FIELD}
           />
         </label>
       )}
@@ -269,7 +273,7 @@ export function SignSheet({
           type="button"
           disabled={busy}
           onClick={() => void useSaved()}
-          className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-hairline bg-surface text-[15px] font-semibold text-ink disabled:opacity-50"
+          className={`${SECONDARY_BUTTON} mt-3 flex w-full items-center justify-center gap-2`}
         >
           <PenLine size={16} strokeWidth={2} />
           Use my saved signature

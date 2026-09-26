@@ -15,7 +15,8 @@ import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 import { useCan } from '#/lib/access'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { NEUTRAL_BUTTON_COMPACT, PRIMARY_BUTTON, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 export const Route = createFileRoute('/$businessSlug/reports/templates/')({
   component: TemplatesPage,
@@ -125,14 +126,14 @@ function BuiltinRow({
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
-          className="h-10 flex-1 rounded-xl bg-ink text-[15px] font-semibold text-surface transition active:scale-[.98]"
+          className={`${NEUTRAL_BUTTON_COMPACT} flex-1`}
         >
           Settings
         </button>
         <button
           type="button"
           onClick={() => setSheetOpen(true)}
-          className="h-10 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Clone &amp; edit
         </button>
@@ -225,7 +226,7 @@ function CloneBuiltinSheet({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                className={`${FIELD} w-full`}
               />
             </label>
             {/* A failed clone used to leave the sheet open with nothing said. */}
@@ -318,7 +319,7 @@ function CustomRow({
         <Link
           to="/$businessSlug/reports/templates/$templateId"
           params={{ businessSlug: business.slug, templateId: template._id }}
-          className="flex h-10 flex-1 items-center justify-center rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center`}
         >
           Edit
         </Link>
@@ -421,7 +422,7 @@ function DuplicateSheet({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                className={`${FIELD} w-full`}
               />
             </label>
             <FormAlert

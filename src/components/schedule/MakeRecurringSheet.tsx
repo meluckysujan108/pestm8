@@ -10,6 +10,7 @@ import {
 } from './RecurrenceFields'
 import type { IntervalDraft } from './RecurrenceFields'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Turning an existing job into a Recurring Job.
@@ -80,7 +81,7 @@ export function MakeRecurringSheet({
         <button
           type="submit"
           disabled={parsed === null || save.isPending}
-          className="mt-4 h-12 w-full rounded-xl bg-blue text-[16px] font-semibold text-white transition active:scale-[.99] disabled:opacity-40"
+          className={`${PRIMARY_BUTTON} mt-4 w-full`}
         >
           {save.isPending ? 'Setting up…' : 'Make recurring'}
         </button>

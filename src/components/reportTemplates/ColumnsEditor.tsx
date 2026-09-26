@@ -3,6 +3,7 @@ import { ChevronDown, ChevronUp, Pencil, Plus, Trash2 } from 'lucide-react'
 import { FieldConfigForm } from './FieldConfigForm'
 import { CELL_FIELD_KINDS, FIELD_KIND_LABELS, defaultField, slugifyKey } from './fieldKinds'
 import type { CellDef } from '#/lib/reportTemplates'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * A repeater's columns, edited inline rather than through `AddFieldSheet` —
@@ -57,7 +58,7 @@ export function ColumnsEditor({
         <button
           type="button"
           onClick={() => setEditingIndex(null)}
-          className="h-10 rounded-xl bg-surface text-[14px] font-semibold text-ink transition active:scale-[.98]"
+          className={SECONDARY_BUTTON_COMPACT}
         >
           Done
         </button>
@@ -144,7 +145,7 @@ export function ColumnsEditor({
         <button
           type="button"
           onClick={() => setPicking(true)}
-          className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-1.5`}
         >
           <Plus size={15} strokeWidth={2} />
           Add column

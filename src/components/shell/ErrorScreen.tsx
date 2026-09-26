@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
 import { RotateCw, WifiOff } from 'lucide-react'
 import type { ErrorComponentProps } from '@tanstack/react-router'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { LINK_BUTTON, PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * The router's error screen for everything the special cases in router.tsx
@@ -65,7 +65,7 @@ export function ErrorScreen({ error }: ErrorComponentProps) {
           </button>
           <Link
             to="/"
-            className="flex h-12 items-center justify-center rounded-xl bg-surface-2 text-[17px] font-semibold text-blue transition active:scale-[.975]"
+            className={`${LINK_BUTTON} flex items-center justify-center`}
           >
             Start from the top
           </Link>

@@ -34,7 +34,10 @@ import { useAccess } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
 import { rq } from '#/lib/routeQueries'
 import { needsLicence } from './needsLicence'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
 
 /**
  * Settings → Team: who is on the team, each a row that opens their own page,
@@ -291,7 +294,7 @@ export function TeamSection({
               <button
                 type="button"
                 onClick={closeSheet}
-                className="mt-4 h-12 w-full rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975]"
+                className={`${SECONDARY_BUTTON} mt-4 w-full`}
               >
                 Done
               </button>

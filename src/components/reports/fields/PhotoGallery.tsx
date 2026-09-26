@@ -17,6 +17,7 @@ import { prepareUpload } from '#/lib/images/prepareUpload'
 import type { EditorProps } from './registry'
 import type { FieldDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * Serves both photo-set kinds. A `cover` is a gallery of exactly one whose
@@ -163,7 +164,7 @@ export function GalleryControl({ field, ctx }: GalleryField) {
           disabled={busy || atMax || !hydrated}
           aria-label={`${field.label} — add photos`}
           onClick={() => camera.current?.click()}
-          className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-40"
+          className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-1.5`}
         >
           <Camera size={16} strokeWidth={1.9} />
           {busy ? 'Uploading…' : atMax ? 'Limit reached' : 'Take photo'}
@@ -173,7 +174,7 @@ export function GalleryControl({ field, ctx }: GalleryField) {
           disabled={busy || atMax || !hydrated}
           aria-label={`${field.label} — choose from library`}
           onClick={() => library.current?.click()}
-          className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 px-4 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-40"
+          className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-1.5 px-4`}
         >
           <ImageIcon size={16} strokeWidth={1.9} />
           Library
@@ -333,7 +334,7 @@ function GalleryTile({
             void updateCaption({ businessId, reportId, photoId: photo._id, caption })
           }
         }}
-        className="h-9 w-full rounded-lg bg-surface-3 px-2 text-[13px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        className="h-9 w-full rounded-lg bg-surface-3 px-2 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
       />
 
       <span className="flex items-center justify-between">

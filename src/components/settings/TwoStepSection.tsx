@@ -25,7 +25,10 @@ import {
   SettingsLinkRow,
   SettingsRow,
 } from './ui'
-import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * Two-step sign-in, in the person's own settings.
@@ -167,7 +170,7 @@ export function TwoStepSection() {
         <button
           type="button"
           onClick={close}
-          className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Cancel
         </button>

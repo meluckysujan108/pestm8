@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { FileWarning, LoaderCircle, Lock } from 'lucide-react'
 import type { LoadProgress } from './types'
+import {
+  LINK_BUTTON_COMPACT,
+  NEUTRAL_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
+import { FIELD_COMPACT } from '#/components/forms/FormField'
 
 /**
  * What the viewer shows before there are pages to show: the download, a
@@ -138,7 +144,7 @@ export function PasswordState({
           autoFocus
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="h-11 w-full rounded-xl border border-hairline bg-surface px-3 text-[16px] text-ink outline-none focus-visible:ring-2 focus-visible:ring-blue"
+          className={`${FIELD_COMPACT} w-full focus-visible:ring-2 focus-visible:ring-blue`}
         />
         {rejected && (
           <p
@@ -153,7 +159,7 @@ export function PasswordState({
           <button
             type="button"
             onClick={onCancel}
-            className="h-11 flex-1 rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:opacity-60"
+            className={`${SECONDARY_BUTTON_COMPACT} flex-1 active:opacity-60`}
           >
             Cancel
           </button>
@@ -164,7 +170,7 @@ export function PasswordState({
             // that closes the keyboard, and a wrong password would then have
             // no keyboard to type the next one on.
             onMouseDown={(event) => event.preventDefault()}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-blue text-[16px] font-semibold text-on-tint transition active:opacity-60 disabled:opacity-40"
+            className={`${NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
           >
             {checking && (
               <LoaderCircle aria-hidden size={16} className="animate-spin" />
@@ -208,7 +214,7 @@ export function ErrorState({
       <button
         type="button"
         onClick={onRetry}
-        className="mt-3 h-11 rounded-xl bg-surface px-5 text-[16px] font-semibold text-blue shadow-elevation transition active:opacity-60"
+        className={`${LINK_BUTTON_COMPACT} mt-3 px-5 shadow-elevation active:opacity-60`}
       >
         Try again
       </button>

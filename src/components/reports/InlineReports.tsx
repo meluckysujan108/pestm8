@@ -10,6 +10,10 @@ import { useHydrated } from '#/lib/useHydrated'
 import type { ReactNode } from 'react'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
+import {
+  NEUTRAL_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * Reports, shown inside a job sheet or a client sheet.
@@ -186,7 +190,7 @@ export function StartReportButtons({
         to="/$businessSlug/reports/new"
         params={{ businessSlug }}
         search={{ propertyId, jobId }}
-        className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+        className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
       >
         <Plus size={16} strokeWidth={1.8} />
         New report
@@ -211,7 +215,7 @@ export function StartReportButtons({
             data: {},
           })
         }
-        className="flex h-10 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[14px] font-semibold text-surface transition active:scale-[.98] disabled:opacity-50"
+        className={`${NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
       >
         <Plus size={16} strokeWidth={1.8} />
         {create.isPending ? 'Starting…' : `Start ${suggested.shortName}`}
@@ -220,7 +224,7 @@ export function StartReportButtons({
         to="/$businessSlug/reports/new"
         params={{ businessSlug }}
         search={{ propertyId, jobId }}
-        className="flex h-10 items-center justify-center rounded-xl bg-surface-2 px-3 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+        className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center px-3`}
       >
         Other…
       </Link>

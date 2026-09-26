@@ -45,6 +45,9 @@
   --surface-3: #f4f4f8;
   --canvas: #ededf1;
   --fill-track: rgba(118, 118, 128, 0.08);
+  /* A grey button's fill (buttons.ts). Translucent, as iOS's tertiary fill,
+     so it reads on a white card and on the grey canvas alike. */
+  --fill-secondary: rgba(118, 118, 128, 0.12);
 
   --red: #ff3b30;
   /* Red behind white text: buttons, the selected day. The brand red is
@@ -153,6 +156,7 @@
   --surface-3: #2a2a2c;
   --canvas: #000000;
   --fill-track: rgba(120, 120, 128, 0.28);
+  --fill-secondary: rgba(118, 118, 128, 0.24);
 
   --red: #ff453a;
   /* The same as light: white text on it needs the same depth. */
@@ -286,6 +290,7 @@
   --color-surface-3: var(--surface-3);
   --color-canvas: var(--canvas);
   --color-fill-track: var(--fill-track);
+  --color-fill-secondary: var(--fill-secondary);
   --color-chrome: var(--chrome);
   --color-scrim: var(--scrim);
   --color-red: var(--red);

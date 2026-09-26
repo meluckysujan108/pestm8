@@ -1,5 +1,6 @@
 import { Segmented } from '#/components/primitives/Segmented'
 import type { Condition, Scalar } from '#/lib/reportTemplates/visibility'
+import { FIELD_COMPACT } from '#/components/forms/FormField'
 
 /**
  * v1 scope, by design: a single leaf condition against one other field
@@ -86,7 +87,7 @@ export function VisibleWhenEditor({
             <select
               value={when}
               onChange={(e) => onChange(rebuild(matchType, e.target.value, value))}
-              className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD_COMPACT} w-full`}
             >
               {candidates.map((c) => (
                 <option key={c.key} value={c.key}>
@@ -118,7 +119,7 @@ export function VisibleWhenEditor({
                 value={valueText(value)}
                 onChange={(e) => onChange(withValue(matchType, when, e.target.value))}
                 placeholder={matchType === 'eq' ? 'e.g. true, or a choice label' : ''}
-                className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                className={`${FIELD_COMPACT} w-full`}
               />
             </label>
           )}

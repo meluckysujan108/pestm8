@@ -7,7 +7,11 @@ import { FilePenLine, History } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { Sheet } from '#/components/primitives/Sheet'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
+import { FIELD_SURFACE } from '#/components/forms/FormField'
 
 /**
  * What a client holding two documents with the same number is owed.
@@ -205,7 +209,7 @@ export function AmendButton({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className="flex h-11 items-center justify-center gap-2 rounded-xl bg-surface-2 px-4 text-[15px] font-semibold text-ink transition active:scale-[.98]"
+        className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-2 px-4`}
       >
         <FilePenLine size={16} strokeWidth={1.9} />
         Issue a correction
@@ -235,7 +239,7 @@ export function AmendButton({
             rows={3}
             placeholder="Wrong product recorded against the second treatment"
             aria-label="What was wrong?"
-            className="w-full rounded-xl bg-surface-3 p-3 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD_SURFACE} w-full p-3`}
           />
         </label>
         <p className="mt-2 text-caption text-muted">

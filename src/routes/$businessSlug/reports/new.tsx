@@ -15,6 +15,7 @@ import { suggestTemplate } from '#/lib/reportTemplates/suggest'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
+import { FIELD } from '#/components/forms/FormField'
 
 export const Route = createFileRoute('/$businessSlug/reports/new')({
   // Arriving from a job's detail sheet ($businessSlug/schedule via
@@ -138,7 +139,7 @@ function NewReportPage() {
                 <select
                   value={propertyId}
                   onChange={(e) => setPropertyId(e.target.value)}
-                  className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                  className={`${FIELD} w-full`}
                 >
                   {properties.map((p) => (
                     <option key={p._id} value={p._id}>

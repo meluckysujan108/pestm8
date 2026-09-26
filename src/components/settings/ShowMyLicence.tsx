@@ -8,6 +8,7 @@ import { LicenceViewer } from './LicenceViewer'
 import { licenceSubtitle } from './licenceExpiry'
 import type { Wallet, WalletLicence } from './useMyLicences'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * The hub's "Show my licence": every licence the signed-in person holds, as
@@ -71,7 +72,7 @@ export function ShowMyLicenceButton({
         type="button"
         onClick={() => setSheetOpen(true)}
         disabled={!hydrated}
-        className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+        className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
       >
         <IdCard
           aria-hidden

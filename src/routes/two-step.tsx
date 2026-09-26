@@ -37,7 +37,11 @@ import {
 } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
 import type { SetupFlow, SetupStatus } from '#/lib/twoStep'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /**
  * Setting up two-step sign-in. Optional (convex/lib/mfa.ts): people arrive
@@ -492,7 +496,7 @@ function PasswordStep({
           autoComplete="current-password"
           enterKeyHint="go"
           onChange={(e) => setPassword(e.target.value)}
-          className="h-12 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          className={FIELD}
         />
         <span className="text-caption text-muted">{copy.hint}</span>
       </label>
@@ -628,7 +632,7 @@ function ScanStep({
         </p>
         <a
           href={setup.totpURI}
-          className="flex h-12 items-center justify-center rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON} flex items-center justify-center`}
         >
           Add to authenticator app
         </a>
@@ -713,7 +717,7 @@ function ScanStep({
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="h-12 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975]"
+              className={SECONDARY_BUTTON}
             >
               Reload
             </button>
@@ -754,7 +758,7 @@ function ScanStep({
               type="button"
               disabled={pending}
               onClick={() => setConfirming(false)}
-              className="h-12 flex-1 rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+              className={`${SECONDARY_BUTTON} flex-1`}
             >
               Keep this key
             </button>

@@ -5,18 +5,36 @@ import type { FieldFix } from './FieldMessage'
 export type FieldSize = 'lg' | 'md'
 
 /**
+ * The one text-field look — the grey well — without a height or a focus ring,
+ * so `fieldInputClass` can ring an invalid field red instead.
+ *
+ * 16px text in every size: iOS Safari zooms the whole page into any field set
+ * smaller than 16px the moment it is tapped, and does not zoom back out. The
+ * md size was 15px, and zoomed.
+ */
+const FIELD_BASE =
+  'rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none disabled:opacity-60'
+
+/** The field look with its focus ring and no height: a textarea (which sets
+ * its own `min-h-*`), or a field whose height its content decides. */
+export const FIELD_SURFACE = `${FIELD_BASE} focus:ring-2 focus:ring-blue`
+/** A 48px field: new-client and new-job sheets, sign-in, most forms. */
+export const FIELD = `h-12 ${FIELD_SURFACE}`
+/** A 44px field: the denser edit sheets and editor rows. */
+export const FIELD_COMPACT = `h-11 ${FIELD_SURFACE}`
+
+/**
  * lg is the new-client and new-job sheets (NewClientFields), md the denser
- * edit sheets (ClientSheet). 16px is also the smallest text iOS will not
- * zoom into when the field is focused; md's 15px is kept where it already was.
+ * edit sheets (ClientSheet).
  */
 export const FIELD_SIZES: Record<FieldSize, string> = {
-  lg: 'h-12 px-3.5 text-[16px]',
-  md: 'h-11 px-3.5 text-[15px]',
+  lg: 'h-12',
+  md: 'h-11',
 }
 
 /** The input look every form shares, red-ringed while its error shows. */
 export function fieldInputClass(size: FieldSize = 'lg', invalid = false) {
-  return `${FIELD_SIZES[size]} w-full rounded-xl bg-surface-3 text-ink outline-none ${invalid ? 'ring-2 ring-red' : 'focus:ring-2 focus:ring-blue'}`
+  return `${FIELD_SIZES[size]} w-full ${FIELD_BASE} ${invalid ? 'ring-2 ring-red' : 'focus:ring-2 focus:ring-blue'}`
 }
 
 /** The id of a field's hint, error or warning line, for aria-describedby. */

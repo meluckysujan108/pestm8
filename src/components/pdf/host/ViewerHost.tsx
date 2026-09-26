@@ -4,6 +4,10 @@ import { FileWarning, LoaderCircle } from 'lucide-react'
 import { loadViewer } from './viewerChunk'
 import type { ErrorInfo, ReactNode } from 'react'
 import type { DocumentViewerProps } from '#/components/pdf/types'
+import {
+  NEUTRAL_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * The PDF viewer, as every page opens it — a product's PDF, a finalised
@@ -137,14 +141,14 @@ class ViewerBoundary extends Component<
           <button
             type="button"
             onClick={this.props.onClose}
-            className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+            className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
           >
             Close
           </button>
           <button
             type="button"
             onClick={() => window.location.reload()}
-            className="h-11 flex-1 rounded-xl bg-blue text-[15px] font-semibold text-on-tint transition active:scale-[.975]"
+            className={`${NEUTRAL_BUTTON_COMPACT} flex-1`}
           >
             Reload
           </button>

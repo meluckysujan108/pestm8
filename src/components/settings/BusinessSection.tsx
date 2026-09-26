@@ -25,6 +25,7 @@ import { useHydrated } from '#/lib/useHydrated'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import type { AddressValue } from '#/lib/addressVerify'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /** The business as the layout's route context carries it. */
 export type BusinessRecord = NonNullable<
@@ -357,7 +358,7 @@ export function BusinessSection({
                 type="button"
                 disabled={logoBusy || !hydrated}
                 onClick={() => fileInput.current?.click()}
-                className="min-h-11 shrink-0 rounded-xl bg-surface-2 px-3.5 text-[15px] font-semibold text-blue transition active:scale-[.98] disabled:opacity-50"
+                className={`${LINK_BUTTON_COMPACT} shrink-0 px-3.5`}
               >
                 {logoBusy
                   ? 'Uploading…'

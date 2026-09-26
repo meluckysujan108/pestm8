@@ -1,5 +1,7 @@
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react'
 import type { Option } from '#/lib/reportTemplates'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { FIELD_COMPACT } from '#/components/forms/FormField'
 
 /**
  * The options list every `select`/`radio`/`chips`/`checks` field needs.
@@ -41,7 +43,7 @@ export function OptionsListEditor({
             value={option.label}
             onChange={(e) => updateLabel(index, e.target.value)}
             placeholder={`Option ${index + 1}`}
-            className="h-11 flex-1 rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD_COMPACT} flex-1`}
           />
           <button
             type="button"
@@ -74,7 +76,7 @@ export function OptionsListEditor({
       <button
         type="button"
         onClick={() => onChange([...options, { value: '', label: '' }])}
-        className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+        className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-1.5`}
       >
         <Plus size={15} strokeWidth={2} />
         Add option
