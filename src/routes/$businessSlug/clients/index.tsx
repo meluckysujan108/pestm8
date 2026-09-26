@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { Link, createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useSuspenseQuery } from '@tanstack/react-query'
-import { Plus } from 'lucide-react'
+import { Plus, Upload } from 'lucide-react'
 import { z } from 'zod'
 import { PageHeader } from '#/components/shell/PageHeader'
 import {
+  EMPTY_ACTION_CLASS,
   EmptyState,
   EmptyStateButton,
   NoMatches,
@@ -81,15 +82,32 @@ function ClientsPage() {
         kicker={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}`}
         title="Clients"
         action={
-          <button
-            type="button"
-            aria-label="New client"
-            disabled={!hydrated}
-            onClick={() => setNewOpen(true)}
-            className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
-          >
-            <Plus size={20} strokeWidth={2} />
-          </button>
+          <>
+            {/* Beside the +, quieter than it: most days a client is added
+                one at a time, and a list is brought across once. A link,
+                so it works before the page has hydrated. Only for those
+                who may import — the server refuses anyone else. */}
+            {canManageClients && (
+              <Link
+                to="/$businessSlug/clients/import"
+                params={{ businessSlug: business.slug }}
+                aria-label="Import clients"
+                className="relative tap-target flex h-9 items-center gap-1.5 rounded-full bg-surface-2 px-3.5 text-body font-semibold text-blue transition active:scale-[.97]"
+              >
+                <Upload aria-hidden size={16} strokeWidth={2.2} />
+                Import
+              </Link>
+            )}
+            <button
+              type="button"
+              aria-label="New client"
+              disabled={!hydrated}
+              onClick={() => setNewOpen(true)}
+              className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+            >
+              <Plus size={20} strokeWidth={2} />
+            </button>
+          </>
         }
       />
 
@@ -138,12 +156,25 @@ function ClientsPage() {
               title="No clients yet"
               body="Add a client to start booking work for them."
               action={
-                <EmptyStateButton
-                  onClick={() => setNewOpen(true)}
-                  disabled={!hydrated}
-                >
-                  Add a client
-                </EmptyStateButton>
+                <div className="flex flex-wrap justify-center gap-2">
+                  <EmptyStateButton
+                    onClick={() => setNewOpen(true)}
+                    disabled={!hydrated}
+                  >
+                    Add a client
+                  </EmptyStateButton>
+                  {/* A business moving from another app has hundreds, not
+                      one: the list is where most of them start. */}
+                  {canManageClients && (
+                    <Link
+                      to="/$businessSlug/clients/import"
+                      params={{ businessSlug: business.slug }}
+                      className={EMPTY_ACTION_CLASS}
+                    >
+                      Import a list
+                    </Link>
+                  )}
+                </div>
               }
             />
           )

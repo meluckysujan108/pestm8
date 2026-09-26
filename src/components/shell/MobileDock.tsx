@@ -4,6 +4,7 @@ import { Drawer } from 'vaul'
 import { Menu } from 'lucide-react'
 import { JOB_TO, MORE_ITEMS, NOTES_TO, PRIMARY_NAV } from './navItems'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
+import { useScrolledUnder } from '#/lib/useScrolledUnder'
 import { SheetShell } from '#/components/primitives/Sheet'
 
 /**
@@ -33,6 +34,7 @@ export function MobileDock({
   overdueJobs?: number
 }) {
   const [moreOpen, setMoreOpen] = useState(false)
+  const dockRef = useScrolledUnder('bottom')
 
   // The sections behind the burger have no cell of their own, so while one
   // is open the burger is the lit cell — otherwise nothing in the dock says
@@ -51,8 +53,9 @@ export function MobileDock({
   return (
     <>
       <nav
+        ref={dockRef}
         aria-label="Tabs"
-        className="chrome-blur fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-hairline pb-[env(safe-area-inset-bottom)] lg:hidden"
+        className="chrome-dock fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-transparent transition-colors data-scrolled:border-hairline pb-[env(safe-area-inset-bottom)] lg:hidden"
       >
         {PRIMARY_NAV.map((item) => (
           <Link

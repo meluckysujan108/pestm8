@@ -27,6 +27,10 @@ const COPY: Record<SetupGuideItem, { title: string; hint: string }> = {
     title: 'Add your licence number',
     hint: 'Certificates and inspection reports can’t be finalised without it.',
   },
+  clients: {
+    title: 'Bring your clients across',
+    hint: 'Import them from a spreadsheet or your old app — or add them as you go.',
+  },
   firstJob: {
     title: 'Book your first job',
     hint: 'Put a real job on the schedule.',
@@ -192,6 +196,8 @@ function GuideChecklist({
         return navigate({ to: '/$businessSlug/settings/business', params })
       case 'licence':
         return navigate({ to: '/$businessSlug/settings/licence', params })
+      case 'clients':
+        return navigate({ to: '/$businessSlug/clients/import', params })
       case 'firstJob':
         return onBookJob()
       case 'firstReport':

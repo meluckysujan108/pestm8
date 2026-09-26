@@ -46,7 +46,7 @@ test('the set-up guide ticks itself, opens New Job, and can be put away and brou
   await expect(page).toHaveURL(new RegExp(`/${slug}/schedule`))
 
   const card = page.getByRole('button', { name: /^Finish setting up, / })
-  await expect(card).toHaveAccessibleName('Finish setting up, 1 of 5 done')
+  await expect(card).toHaveAccessibleName('Finish setting up, 1 of 6 done')
 
   // Done elsewhere, ticked here — the guide reads the business, live.
   await owner.client.mutation(api.memberships.setLicence, {
@@ -54,7 +54,7 @@ test('the set-up guide ticks itself, opens New Job, and can be put away and brou
     membershipId,
     licenceNumber: 'PMT-4471',
   })
-  await expect(card).toHaveAccessibleName('Finish setting up, 2 of 5 done')
+  await expect(card).toHaveAccessibleName('Finish setting up, 2 of 6 done')
 
   // An empty day says what to do about it.
   await expect(page.getByRole('button', { name: 'Book a job' })).toBeVisible()
@@ -84,7 +84,7 @@ test('the set-up guide ticks itself, opens New Job, and can be put away and brou
   // …and brought back from Settings, to the schedule where it lives.
   await page.goto(`/${slug}/settings`)
   const row = page.getByRole('button', { name: /Set-up guide/ })
-  await expect(row).toContainText('2 of 5 done')
+  await expect(row).toContainText('2 of 6 done')
   await clickUntil(row, () =>
     expect(page).toHaveURL(new RegExp(`/${slug}/schedule`), { timeout: 3_000 }),
   )

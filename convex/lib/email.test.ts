@@ -210,6 +210,24 @@ describe('real providers and endings that look like slips', () => {
     },
   )
 
+  // Each of these was once offered a "fix" to a bigger provider (the one
+  // after the arrow), which would have broken a working address.
+  test.each([
+    ['bob@y7mail.com', 'gmail.com'],
+    ['bob@exemail.com.au', 'ozemail.com.au'],
+    ['bob@tpgi.com.au', 'tpg.com.au'],
+    ['bob@amnet.net.au', 'iinet.net.au'],
+    ['bob@protonmail.ch', 'protonmail.com'],
+  ])('%j is a real address, not a slip of %s', (email) => {
+    expect(emailTypoFix(email)).toBeNull()
+    expect(emailTypoFix(email.toUpperCase())).toBeNull()
+  })
+
+  test('a slipped ending on one of them is put right to it, not to gmail', () => {
+    expect(emailTypoFix('bob@y7mail.con')).toBe('bob@y7mail.com')
+    expect(emailTypoFix('bob@tpgi.com.u')).toBe('bob@tpgi.com.au')
+  })
+
   test('an Oman address keeps its .om ending', () => {
     expect(emailTypoFix('bob@business.om')).toBeNull()
   })

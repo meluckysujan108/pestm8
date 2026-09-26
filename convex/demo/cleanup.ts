@@ -484,6 +484,16 @@ const clearClients: Step = async (run) => {
   )
 }
 
+/** The record of any client import someone tried in the demo
+ * (clientImports.ts), once the clients and sites it made are gone. */
+const clearImports: Step = (run) =>
+  sweep(run, 'clientImports', (n) =>
+    run.ctx.db
+      .query('clientImports')
+      .withIndex('by_business', (q) => q.eq('businessId', run.business._id))
+      .take(n),
+  )
+
 /**
  * Anyone working in someone else's account, or on "just my jobs", while
  * trying the demo out. Keyed by session, so found through the memberships
@@ -681,6 +691,7 @@ const STEPS: Array<Step> = [
   clearProducts,
   clearJobs,
   clearClients,
+  clearImports,
   clearSessions,
   clearLicences,
   clearInvitations,
@@ -921,6 +932,12 @@ export const status = internalQuery({
       properties: (
         await ctx.db
           .query('properties')
+          .withIndex('by_business', (q) => q.eq('businessId', businessId))
+          .take(STATUS_CAP)
+      ).length,
+      clientImports: (
+        await ctx.db
+          .query('clientImports')
           .withIndex('by_business', (q) => q.eq('businessId', businessId))
           .take(STATUS_CAP)
       ).length,

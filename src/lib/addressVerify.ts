@@ -163,7 +163,7 @@ const LEADING_SHORT_FORMS: ReadonlyMap<string, string> = new Map([
   ['w', 'west'],
 ])
 
-function suburbWords(name: string): Array<string> {
+export function suburbWords(name: string): Array<string> {
   return normaliseForSearch(name.replace(/['’]/g, ''))
     .split(/\s+/)
     .filter(Boolean)
@@ -265,6 +265,70 @@ function findSuburb(table: LocalityTable, typed: string): SuburbMatch | null {
   return null
 }
 
+/** The rows `withinDistance` works in, kept between calls: one suburb is
+ * compared with a couple of thousand. Grown for a longer name. */
+let distanceRows = [new Int32Array(64), new Int32Array(64), new Int32Array(64)]
+
+/**
+ * `editDistance(a, b)` when that is `max` or less, else `max + 1`: the same
+ * count (a swap of neighbours is one edit), made quick for `closestSuburb`.
+ * A suburb that isn't in the table is compared with every one of about its
+ * length, 1,800 of NSW's 4,415, and nearly all are nothing like it. So it
+ * works in three reused rows rather than a new table a pair, and gives up
+ * as soon as every count in a row is over `max`: a row's smallest count
+ * never goes down in the rows after it, a swap included.
+ */
+export function withinDistance(a: string, b: string, max: number): number {
+  const over = max + 1
+  if (Math.abs(a.length - b.length) > max) return over
+  const width = b.length + 1
+  if (distanceRows[0].length < width) {
+    distanceRows = distanceRows.map(() => new Int32Array(width * 2))
+  }
+  // Two rows back, the last row, and this one.
+  let [back, last, row] = distanceRows
+  for (let j = 0; j < width; j++) last[j] = j
+  for (let i = 1; i <= a.length; i++) {
+    const letter = a.charCodeAt(i - 1)
+    const before = i > 1 ? a.charCodeAt(i - 2) : -1
+    row[0] = i
+    let least = i
+    for (let j = 1; j < width; j++) {
+      const theirs = b.charCodeAt(j - 1)
+      let d = last[j - 1] + (letter === theirs ? 0 : 1)
+      if (last[j] + 1 < d) d = last[j] + 1
+      if (row[j - 1] + 1 < d) d = row[j - 1] + 1
+      if (
+        i > 1 &&
+        j > 1 &&
+        letter === b.charCodeAt(j - 2) &&
+        before === theirs &&
+        back[j - 2] + 1 < d
+      ) {
+        d = back[j - 2] + 1
+      }
+      row[j] = d
+      if (d < least) least = d
+    }
+    if (least > max) return over
+    ;[back, last, row] = [last, row, back]
+  }
+  return Math.min(last[b.length], over)
+}
+
+/** Each locality's `suburbWords`, worked out the first time a guess needs
+ * them rather than for every name in the table each time. */
+const localityWords = new WeakMap<Locality, Array<string>>()
+
+function wordsOf(locality: Locality): Array<string> {
+  let words = localityWords.get(locality)
+  if (!words) {
+    words = suburbWords(locality.name)
+    localityWords.set(locality, words)
+  }
+  return words
+}
+
 /**
  * The suburb most likely meant, in one state's table, or null. A slip of a
  * letter or two ("Fanny Bay", "Fannybay" for Fannie Bay; one for a short
@@ -274,8 +338,10 @@ function findSuburb(table: LocalityTable, typed: string): SuburbMatch | null {
  * The postcode typed, when it is one of this state's, goes first: of the
  * close names, one whose addresses use it beats a closer one whose do not.
  * "Artadale 6156" is Attadale, not Armadale.
+ *
+ * Exported for the tests.
  */
-function closestSuburb(
+export function closestSuburb(
   table: LocalityTable,
   typed: string,
   postcode: string,
@@ -288,7 +354,7 @@ function closestSuburb(
   let bestScore = Infinity
   for (const locality of table.all) {
     if (Math.abs(locality.key.length - key.length) > allowed) continue
-    const distance = editDistance(key, locality.key)
+    const distance = withinDistance(key, locality.key, allowed)
     if (distance > allowed) continue
     const uses = typedPostcode !== '' && locality.postcodes.includes(postcode)
     const score = uses ? distance : distance + allowed + 1
@@ -303,7 +369,7 @@ function closestSuburb(
   // dozens, and guessing one is worse than saying nothing.
   const words = suburbWords(typed)
   const starting = table.all.filter((locality) => {
-    const theirs = suburbWords(locality.name)
+    const theirs = wordsOf(locality)
     return (
       theirs.length > words.length && words.every((w, i) => theirs[i] === w)
     )

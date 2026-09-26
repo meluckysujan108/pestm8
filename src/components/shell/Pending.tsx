@@ -42,7 +42,7 @@ export function PagePending() {
       <span className="sr-only">Loading</span>
       <div
         aria-hidden
-        className="chrome-blur sticky top-0 z-30 flex items-end justify-between gap-3 border-b border-hairline px-4 pb-3 pt-[calc(12px+env(safe-area-inset-top))]"
+        className="chrome-bar sticky top-0 z-30 flex items-end justify-between gap-3 border-b border-transparent px-4 pb-3 pt-[calc(12px+env(safe-area-inset-top))]"
       >
         {/* PageHeader's sidebar toggle, so the title does not shift on lg. */}
         <Bone className="mb-1 hidden size-8 shrink-0 lg:block" />

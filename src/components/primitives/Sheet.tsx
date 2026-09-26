@@ -1,6 +1,6 @@
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
-import type { ReactNode } from 'react'
+import type { ReactNode, RefObject } from 'react'
 
 /**
  * The frame every bottom sheet in the app is drawn in: the dimmed backdrop,
@@ -18,6 +18,7 @@ export function SheetShell({
   onClose,
   children,
   className = '',
+  returnFocusRef,
 }: {
   open: boolean
   /** Dragged down, tapped outside, or ✕: the one way the sheet closes. */
@@ -26,6 +27,8 @@ export function SheetShell({
   /** Extra classes on the panel — only for a sheet whose content does not
    * scroll, and so has to clear the home indicator itself. */
   className?: string
+  /** Where focus goes when the sheet shuts (see `Sheet`). */
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   return (
     <Drawer.Root open={open} onOpenChange={(next) => !next && onClose()}>
@@ -33,6 +36,15 @@ export function SheetShell({
         <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Drawer.Content
           className={`fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-sheet bg-canvas outline-none ${className}`}
+          onCloseAutoFocus={
+            returnFocusRef
+              ? (event) => {
+                  // Instead of Radix's own, which is the missing trigger.
+                  event.preventDefault()
+                  returnFocusRef.current?.focus()
+                }
+              : undefined
+          }
         >
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
           {children}
@@ -63,6 +75,7 @@ export function Sheet({
   description,
   children,
   footer,
+  returnFocusRef,
 }: {
   open: boolean
   onClose: () => void
@@ -72,9 +85,16 @@ export function Sheet({
   children: ReactNode
   /** Pinned below the scrolling content — a Done button, usually. */
   footer?: ReactNode
+  /**
+   * Where focus goes when the sheet shuts — the button that opened it.
+   * These sheets are opened from state, not a Drawer.Trigger, so without
+   * this focus goes back to no trigger at all: the top of the page, for a
+   * keyboard or screen reader. Left out, the sheet behaves as it always has.
+   */
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   return (
-    <SheetShell open={open} onClose={onClose}>
+    <SheetShell open={open} onClose={onClose} returnFocusRef={returnFocusRef}>
       <div className="px-4 pb-2 pt-3">
         <Drawer.Title className="pr-10 text-sheet-title text-ink">
           {title}
