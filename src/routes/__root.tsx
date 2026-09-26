@@ -19,6 +19,7 @@ import { useHydrated } from '#/lib/useHydrated'
 import { authClient } from '#/lib/auth-client'
 import { getInitialState } from '#/lib/initialState'
 import {
+  forgetKeptLicences,
   forgetRootState,
   hasRootState,
   resolveRootState,
@@ -158,6 +159,9 @@ function SessionWatch() {
   useEffect(() => {
     if (!signedOut || !hasRootState()) return
     forgetRootState()
+    // Signed out in another tab, whose sign-out dropped them already — but
+    // not a keep this tab had in flight, which may have put some back.
+    void forgetKeptLicences()
     void router.invalidate()
   }, [signedOut, router])
 

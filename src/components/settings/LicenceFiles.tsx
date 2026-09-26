@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { LoaderCircle, Trash2, Upload } from 'lucide-react'
@@ -40,14 +40,45 @@ import type { Id } from '../../../convex/_generated/dataModel'
 /** How long to wait for an upload URL before calling it no signal. */
 const UPLOAD_URL_WAIT_MS = 20_000
 
+/** How long to wait for the file, once uploaded, to be put on the licence
+ * before saying it has not been confirmed. */
+const ADD_FILE_WAIT_MS = 20_000
+
+/**
+ * How long an upload may take before it is given up on: a minute, and a
+ * second more for every 16 KB — about what one bar of signal still manages.
+ * A few hundred KB photo gets a minute and a half; the largest PDF allowed,
+ * over twenty minutes.
+ *
+ * A deadline rather than a stall timer (`fetchWithProgress`'s `stallMs`),
+ * because `fetch` reports nothing while a body goes UP: an upload still
+ * crawling and one that died cannot be told apart until it answers. So this
+ * is sized for the slowest link worth waiting on, and is there for the one
+ * that will never answer — which otherwise leaves "Uploading…" on the row
+ * for as long as the page is open.
+ */
+const UPLOAD_FLOOR_MS = 60_000
+const UPLOAD_SLOWEST_BYTES_PER_SECOND = 16 * 1024
+
+function uploadDeadlineMs(bytes: number): number {
+  return UPLOAD_FLOOR_MS + (bytes / UPLOAD_SLOWEST_BYTES_PER_SECOND) * 1000
+}
+
 /** A photo's long side as uploaded: a card's small print legible, the file
  * a few hundred KB rather than several MB. */
 const PHOTO_MAX_EDGE = 2400
 
-/** `promise`, or a "timed out" error once `ms` has passed without it. */
-function withinMs<T>(promise: Promise<T>, ms: number): Promise<T> {
+/**
+ * `promise`, or `late()` — by default a "timed out" error, which reads as no
+ * signal — once `ms` has passed without it.
+ */
+function withinMs<T>(
+  promise: Promise<T>,
+  ms: number,
+  late: () => Error = () => new Error('Timed out'),
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => reject(new Error('Timed out')), ms)
+    const timer = setTimeout(() => reject(late()), ms)
     promise.then(
       (value) => {
         clearTimeout(timer)
@@ -59,6 +90,46 @@ function withinMs<T>(promise: Promise<T>, ms: number): Promise<T> {
       },
     )
   })
+}
+
+/**
+ * `uploadToStorage`, given up on when the page goes (`leaving`) — nobody is
+ * left to see it arrive, and a phone on one bar should not keep sending a
+ * 20 MB scan for nothing — or once it is past `uploadDeadlineMs`, when it is
+ * UPLOAD_STALLED, which the row puts into words.
+ */
+async function uploadWithin(
+  uploadUrl: string,
+  blob: Blob,
+  contentType: string,
+  leaving: AbortSignal | undefined,
+): Promise<string> {
+  const controller = new AbortController()
+  const onLeaving = () => controller.abort(leaving?.reason)
+  if (leaving?.aborted) onLeaving()
+  else leaving?.addEventListener('abort', onLeaving, { once: true })
+  const timer = setTimeout(() => {
+    controller.abort(
+      new DOMException('The upload took too long.', 'TimeoutError'),
+    )
+  }, uploadDeadlineMs(blob.size))
+  try {
+    return await uploadToStorage(
+      uploadUrl,
+      blob,
+      contentType,
+      controller.signal,
+    )
+  } catch (error) {
+    // Given up on, and not because the page went: the deadline passed.
+    if (controller.signal.aborted && !leaving?.aborted) {
+      throw licenceRefusal('UPLOAD_STALLED')
+    }
+    throw error
+  } finally {
+    clearTimeout(timer)
+    leaving?.removeEventListener('abort', onLeaving)
+  }
 }
 
 /** Where an upload is up to, for the row to say. */
@@ -95,6 +166,7 @@ export function LicenceFiles({
 }) {
   const hydrated = useHydrated()
   const picker = useRef<HTMLInputElement>(null)
+  const addButton = useRef<HTMLButtonElement>(null)
   const [viewing, setViewing] = useState<string | null>(null)
   const [confirming, setConfirming] = useState<LicenceFileView | null>(null)
   // Its name stays in the dialog's title while the dialog fades out.
@@ -105,6 +177,14 @@ export function LicenceFiles({
 
   const count = licence.files.length
   const room = Math.max(0, MAX_LICENCE_FILES - count)
+
+  // Fired when this page goes, so an upload still on its way stops.
+  const leaving = useRef<AbortController | null>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    leaving.current = controller
+    return () => controller.abort()
+  }, [])
 
   const convexUploadUrl = useConvexMutation(
     api.memberLicences.generateUploadUrl,
@@ -157,17 +237,25 @@ export function LicenceFiles({
           convexUploadUrl({ businessId }),
           UPLOAD_URL_WAIT_MS,
         )
-        const storageId = await uploadToStorage(
+        const storageId = await uploadWithin(
           uploadUrl,
           blob,
           type.contentType,
+          leaving.current?.signal,
         )
-        const { fileId, uploadedAt } = await convexAddFile({
-          businessId,
-          licenceId: licence._id as Id<'memberLicences'>,
-          storageId: storageId as Id<'_storage'>,
-          fileName: file.name,
-        })
+        // Not cancellable once sent — a Convex mutation queued on a dropped
+        // socket goes when it comes back — so a slow answer is "not
+        // confirmed yet", never "failed".
+        const { fileId, uploadedAt } = await withinMs(
+          convexAddFile({
+            businessId,
+            licenceId: licence._id as Id<'memberLicences'>,
+            storageId: storageId as Id<'_storage'>,
+            fileName: file.name,
+          }),
+          ADD_FILE_WAIT_MS,
+          () => licenceRefusal('ADD_FILE_UNCONFIRMED'),
+        )
 
         // On the phone already: opening it next costs nothing, the
         // background keep need not download it again, and it is there on
@@ -243,6 +331,7 @@ export function LicenceFiles({
           <div key={file._id} className="flex items-center">
             <button
               type="button"
+              data-licence-file-open={file._id}
               onClick={() => setViewing(file._id)}
               disabled={!hydrated}
               className={`${ROW_CLASS} min-w-0 flex-1 disabled:opacity-60`}
@@ -266,6 +355,7 @@ export function LicenceFiles({
             {!readOnly && (
               <button
                 type="button"
+                data-licence-file-remove={file._id}
                 onClick={() => {
                   upload.reset()
                   removeFile.reset()
@@ -283,6 +373,7 @@ export function LicenceFiles({
 
         {!readOnly && (
           <button
+            ref={addButton}
             type="button"
             onClick={choose}
             disabled={busy || !hydrated || room === 0}
@@ -364,6 +455,19 @@ export function LicenceFiles({
           if (confirming) removeFile.mutate(confirming._id)
           setConfirming(null)
         }}
+        returnFocus={(removed) => {
+          const file = confirmed.current
+          if (!file) return null
+          if (!removed) return fileButton('remove', file._id)
+          // Its row is about to go, and focus with it: the next file's
+          // instead, or the one before, or Add when it was the only one.
+          const at = licence.files.findIndex((f) => f._id === file._id)
+          const rest = licence.files.filter((f) => f._id !== file._id)
+          const neighbour = rest.at(Math.min(at, rest.length - 1))
+          return neighbour
+            ? fileButton('open', neighbour._id)
+            : addButton.current
+        }}
       />
 
       {viewing !== null && (
@@ -379,6 +483,16 @@ export function LicenceFiles({
         />
       )}
     </>
+  )
+}
+
+/** A file row's button — to open it, or to remove it — by the file's id. */
+function fileButton(
+  which: 'open' | 'remove',
+  fileId: string,
+): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `[data-licence-file-${which}="${CSS.escape(fileId)}"]`,
   )
 }
 

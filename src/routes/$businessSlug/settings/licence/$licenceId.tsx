@@ -35,7 +35,7 @@ import {
 import { useMyLicences } from '#/components/settings/useMyLicences'
 import { useSavedFlash } from '#/components/settings/useJustSaved'
 import { licenceErrorCopy } from '#/lib/licenceErrors'
-import { rq, settleWithin, warm } from '#/lib/routeQueries'
+import { browserOnly, rq, settleWithin, warm } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import type { ReactNode } from 'react'
 import type {
@@ -62,7 +62,11 @@ export const Route = createFileRoute(
   loader: ({ context: { queryClient, business, membership } }) =>
     settleWithin(
       LOADER_WAIT_MS,
-      warm(queryClient, rq.memberLicences(business._id, membership._id)),
+      warm(
+        queryClient,
+        // In the browser only: never in the HTML (`keptOutOfHtml`).
+        ...browserOnly(rq.memberLicences(business._id, membership._id)),
+      ),
     ),
   component: LicencePage,
 })
@@ -208,6 +212,7 @@ function LicenceLoaded({
   })
 
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const deleteButton = useRef<HTMLButtonElement>(null)
   const convexRemove = useConvexMutation(api.memberLicences.remove)
   const remove = useMutation({
     mutationFn: async () => {
@@ -309,6 +314,7 @@ function LicenceLoaded({
       {!readOnly && (
         <DangerGroup>
           <button
+            ref={deleteButton}
             type="button"
             onClick={() => {
               remove.reset()
@@ -338,6 +344,9 @@ function LicenceLoaded({
           onLeaving(true)
           remove.mutate(undefined, { onError: () => onLeaving(false) })
         }}
+        // Kept: back on the button. Deleted: the page is on its way to the
+        // list, and this does nothing.
+        returnFocus={() => deleteButton.current}
       />
 
       <SaveBar

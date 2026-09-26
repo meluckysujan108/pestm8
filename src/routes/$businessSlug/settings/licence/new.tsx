@@ -16,7 +16,7 @@ import {
   SettingsGroup,
 } from '#/components/settings/ui'
 import { licenceErrorCopy } from '#/lib/licenceErrors'
-import { rq, settleWithin, warm } from '#/lib/routeQueries'
+import { browserOnly, rq, settleWithin, warm } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import type {
   LicenceDraft,
@@ -33,7 +33,11 @@ export const Route = createFileRoute('/$businessSlug/settings/licence/new')({
   loader: ({ context: { queryClient, business, membership } }) =>
     settleWithin(
       LOADER_WAIT_MS,
-      warm(queryClient, rq.memberLicences(business._id, membership._id)),
+      warm(
+        queryClient,
+        // In the browser only: never in the HTML (`keptOutOfHtml`).
+        ...browserOnly(rq.memberLicences(business._id, membership._id)),
+      ),
     ),
   component: AddLicencePage,
 })

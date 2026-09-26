@@ -35,8 +35,8 @@ import { useAccess, useActing, useCan } from '#/lib/access'
 import { APP_VERSION } from '#/lib/appVersion'
 import { roleLabel } from '#/lib/assignees'
 import { authClient } from '#/lib/auth-client'
-import { forgetCachedPages } from '#/lib/rootState'
-import { rq, settleWithin, warm } from '#/lib/routeQueries'
+import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
+import { browserOnly, rq, settleWithin, warm } from '#/lib/routeQueries'
 import { recoveryCodesUnsaved } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Access } from '#/lib/access'
@@ -97,7 +97,9 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
   // licences kept on their phone to show an inspector. The page has its own
   // answer for late data (the name suspends on its own, every row's value
   // simply fills in, and the licence button falls back to the kept copy), so
-  // the loader must not hold it back.
+  // the loader must not hold it back. The licences are warmed in the browser
+  // only: they never go into the HTML (`keptOutOfHtml`), so on a full load
+  // they arrive over the socket once the page is up.
   loader: ({ context: { queryClient, business, membership } }) => {
     const access = queryClient.getQueryData<Access>(
       rq.access(business._id).queryKey,
@@ -108,7 +110,7 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
       warm(
         queryClient,
         rq.currentUser(),
-        rq.memberLicences(business._id, membership._id),
+        ...browserOnly(rq.memberLicences(business._id, membership._id)),
         ...(team ? [rq.team(business._id), rq.invitations(business._id)] : []),
       ),
     )
@@ -344,6 +346,9 @@ function SettingsHub() {
             // can, like every other control that needs the script.
             disabled={!hydrated}
             onClick={async () => {
+              // Before the request, so nothing kept on this phone for them
+              // is written again while it is in flight (rootState.ts).
+              beginSignOut()
               await authClient.signOut()
               await forgetCachedPages()
               // A full reload, not a soft navigation, so every cached query

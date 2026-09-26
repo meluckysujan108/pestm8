@@ -439,7 +439,13 @@ describe('limits and checks', () => {
 
   test('the name, number and expiry are checked on the way in', async () => {
     const s = await setup()
-    for (const name of ['', '   ', 'x'.repeat(MAX_LICENCE_NAME_LENGTH + 1)]) {
+    for (const name of [
+      '',
+      '   ',
+      // Nothing that shows: a row with no name on the owner's screen.
+      '\u200B\u200D',
+      'x'.repeat(MAX_LICENCE_NAME_LENGTH + 1),
+    ]) {
       await expect(create(s, s.kevin, name)).rejects.toThrow(/INVALID_NAME/)
     }
     await expect(
@@ -716,6 +722,55 @@ describe('who may read and write a person’s licences', () => {
     }
   })
 
+  test('the owner of another business cannot reach them through their own business', async () => {
+    const s = await setup()
+    const { licenceId, fileId } = await kevinsLicence(s)
+    const rival = await createActor(s.t, { email: 'rival@other.test' })
+    const { businessId: rivalBusinessId } = await createBusiness(
+      s.t,
+      rival,
+      'Other Pest',
+    )
+    // Their own business, where they hold `business.manage` — so it is the
+    // holder's business, not the capability, that refuses them.
+    const theirs = { businessId: rivalBusinessId }
+
+    await expect(
+      rival.as.query(api.memberLicences.list, {
+        ...theirs,
+        membershipId: s.kevinMembershipId,
+      }),
+    ).rejects.toThrow(/NO_ACCESS/)
+
+    const before = await rows(s)
+    const theirUpload = await upload(s)
+    for (const attempt of [
+      () =>
+        rival.as.mutation(api.memberLicences.update, {
+          ...theirs,
+          licenceId,
+          name: 'Taken',
+        }),
+      () =>
+        rival.as.mutation(api.memberLicences.remove, { ...theirs, licenceId }),
+      () =>
+        rival.as.mutation(api.memberLicences.addFile, {
+          ...theirs,
+          licenceId,
+          storageId: theirUpload,
+          fileName: 'licence.pdf',
+        }),
+      () =>
+        rival.as.mutation(api.memberLicences.removeFile, {
+          ...theirs,
+          fileId,
+        }),
+    ]) {
+      await expect(attempt()).rejects.toThrow(/NO_ACCESS/)
+    }
+    expect(await rows(s)).toEqual(before)
+  })
+
   test('an owner switched into a technician’s account cannot touch the technician’s, and keeps only their own', async () => {
     const s = await setup()
     const { licenceId, fileId } = await kevinsLicence(s)
@@ -805,6 +860,52 @@ describe('who may read and write a person’s licences', () => {
       [s.joMembershipId]: 1,
       [s.samMembershipId]: undefined,
     })
+  })
+
+  test('the roster tells nobody how many a member not active holds', async () => {
+    const s = await setup()
+    await kevinsLicence(s)
+    await s.owner.as.mutation(api.team.remove, {
+      businessId: s.businessId,
+      membershipId: s.kevinMembershipId,
+    })
+    // Invited back: on the roster again, as invited, with their rows still
+    // there — which nobody may open until they have joined.
+    await s.owner.as.mutation(api.memberships.invite, {
+      businessId: s.businessId,
+      userId: s.kevin.userId,
+      role: 'subcontractor',
+    })
+    const roster = await s.owner.as.query(api.team.roster, {
+      businessId: s.businessId,
+    })
+    const kevin = roster.find((m) => m._id === s.kevinMembershipId)
+    expect(kevin?.status).toBe('invited')
+    expect(kevin?.licenceCount).toBeUndefined()
+    expect((await rows(s)).licences).toHaveLength(1)
+  })
+})
+
+describe('other features never take a wallet file', () => {
+  test('a note cannot claim one as its picture', async () => {
+    const s = await setup()
+    const { storageId } = await kevinsLicence(s)
+    for (const who of [s.kevin, s.priya]) {
+      const noteId = await who.as.mutation(api.notes.create, {
+        businessId: s.businessId,
+      })
+      await expect(
+        who.as.mutation(api.notes.addAttachment, {
+          businessId: s.businessId,
+          noteId,
+          storageId,
+        }),
+      ).rejects.toThrow(/ALREADY_ATTACHED/)
+    }
+    const attachments = await s.t.run(async (ctx) =>
+      ctx.db.query('noteAttachments').collect(),
+    )
+    expect(attachments).toEqual([])
   })
 })
 
@@ -913,8 +1014,156 @@ describe('moving the Phase 8.1 document into the wallet', () => {
       dryRun: false,
       copied: [],
       alreadyCopied: 2,
+      skippedInactive: 0,
     })
     expect(await rows(s)).toEqual(before)
+  })
+
+  /** Kevin's copied licence and its one file, after the run. */
+  async function copied(s: Setup) {
+    await run(s)
+    const [licence] = (await list(s, s.kevin, s.kevinMembershipId)).licences
+    return { licenceId: licence._id, fileId: licence.files[0]._id }
+  }
+
+  const documentOf = (s: Setup) =>
+    s.kevin.as.query(api.licences.file, {
+      businessId: s.businessId,
+      membershipId: s.kevinMembershipId,
+    })
+
+  async function ownersRosterRow(s: Setup) {
+    const roster = await s.owner.as.query(api.team.roster, {
+      businessId: s.businessId,
+    })
+    return roster.find((m) => m._id === s.kevinMembershipId)
+  }
+
+  test('deleting the copied licence takes the document with it, and no second run brings it back', async () => {
+    const { s } = await withDocuments()
+    const { licenceId } = await copied(s)
+
+    await s.kevin.as.mutation(api.memberLicences.remove, {
+      businessId: s.businessId,
+      licenceId,
+    })
+
+    // Nobody reads it through the Phase 8.1 query any more — the owner
+    // included — and the roster no longer says there is one.
+    expect(await documentOf(s)).toBeNull()
+    expect(
+      await s.owner.as.query(api.licences.file, {
+        businessId: s.businessId,
+        membershipId: s.kevinMembershipId,
+      }),
+    ).toBeNull()
+    expect(await ownersRosterRow(s)).toMatchObject({
+      hasLicenceFile: false,
+      licenceCount: 0,
+    })
+    // Nothing left to copy, and a run copies nothing back.
+    expect(await remaining(s)).toBe(0)
+    expect((await run(s)).copied).toEqual([])
+    expect((await list(s, s.kevin, s.kevinMembershipId)).licences).toEqual([])
+    // The owner's own document, not deleted, is untouched.
+    expect(
+      await s.owner.as.query(api.licences.file, {
+        businessId: s.businessId,
+        membershipId: s.ownerMembershipId,
+      }),
+    ).not.toBeNull()
+    // One change, one line in Kevin's history, which says so.
+    const [row] = (await auditOf(s, s.kevinMembershipId)).filter(
+      (entry) => entry.action === 'membership.removeLicence',
+    )
+    expect(row.meta).toMatchObject({ licenceId, clearedLicenceFile: true })
+  })
+
+  test('taking the copied file off does the same; taking another file off does not', async () => {
+    const { s, kevinsDocument } = await withDocuments()
+    const { licenceId, fileId } = await copied(s)
+    const back = await addFile(s, s.kevin, licenceId, await upload(s), 'b.png')
+
+    // Another file on the same licence: the document stays.
+    await s.kevin.as.mutation(api.memberLicences.removeFile, {
+      businessId: s.businessId,
+      fileId: back.fileId,
+    })
+    expect(await documentOf(s)).not.toBeNull()
+
+    await s.kevin.as.mutation(api.memberLicences.removeFile, {
+      businessId: s.businessId,
+      fileId,
+    })
+    expect(await documentOf(s)).toBeNull()
+    expect(await ownersRosterRow(s)).toMatchObject({ hasLicenceFile: false })
+    expect(await remaining(s)).toBe(0)
+    expect((await run(s)).copied).toEqual([])
+    // The licence stays, now with no file; the file stays in storage.
+    const [licence] = (await list(s, s.kevin, s.kevinMembershipId)).licences
+    expect(licence).toMatchObject({ _id: licenceId, files: [] })
+    expect(await stored(s, kevinsDocument)).not.toBeNull()
+
+    const history = await auditOf(s, s.kevinMembershipId)
+    const removals = history.filter(
+      (entry) => entry.action === 'membership.removeLicenceFile',
+    )
+    expect(removals.map((entry) => entry.meta?.clearedLicenceFile)).toEqual([
+      undefined,
+      true,
+    ])
+  })
+
+  test('a document replaced since the copy is a new licence, and stays', async () => {
+    const { s } = await withDocuments()
+    const { licenceId } = await copied(s)
+    // Replaced from the old Profile page after the run.
+    await s.kevin.as.mutation(api.licences.setFile, {
+      businessId: s.businessId,
+      membershipId: s.kevinMembershipId,
+      storageId: await upload(s, 50),
+      fileName: 'new card.png',
+    })
+
+    await s.kevin.as.mutation(api.memberLicences.remove, {
+      businessId: s.businessId,
+      licenceId,
+    })
+    expect(await documentOf(s)).toMatchObject({ fileName: 'new card.png' })
+    expect(await remaining(s)).toBe(1)
+  })
+
+  test('a member who is not active is not copied, and not counted as left to do', async () => {
+    const { s } = await withDocuments()
+    await s.owner.as.mutation(api.team.remove, {
+      businessId: s.businessId,
+      membershipId: s.kevinMembershipId,
+    })
+    expect(await remaining(s)).toBe(1) // the owner's
+
+    const result = await run(s)
+    expect(result.copied.map((c) => c.membershipId)).toEqual([
+      s.ownerMembershipId,
+    ])
+    expect(result.skippedInactive).toBe(1)
+    expect(await remaining(s)).toBe(0)
+    const kevins = (await rows(s)).licences.filter(
+      (l) => l.membershipId === s.kevinMembershipId,
+    )
+    expect(kevins).toEqual([])
+    // The document is where it was, on the membership.
+    const membership = await s.t.run(async (ctx) =>
+      ctx.db.get(s.kevinMembershipId),
+    )
+    expect(membership?.licenceFile).toBeDefined()
+
+    // Invited back but not yet joined: still not active, still not copied.
+    await s.owner.as.mutation(api.memberships.invite, {
+      businessId: s.businessId,
+      userId: s.kevin.userId,
+      role: 'subcontractor',
+    })
+    expect(await run(s)).toMatchObject({ copied: [], skippedInactive: 1 })
   })
 })
 

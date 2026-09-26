@@ -1,4 +1,4 @@
-import { useId } from 'react'
+import { useId, useRef } from 'react'
 import {
   MAX_LICENCE_NAME_LENGTH,
   MAX_LICENCE_NUMBER_LENGTH,
@@ -87,6 +87,8 @@ export function LicenceFields({
   const nameId = useId()
   const numberId = useId()
   const expiryId = useId()
+  const nameInput = useRef<HTMLInputElement>(null)
+  const expiryInput = useRef<HTMLInputElement>(null)
   const set = (field: keyof LicenceDraft, value: string) =>
     onChange({ ...draft, [field]: value })
 
@@ -94,6 +96,7 @@ export function LicenceFields({
     <>
       <FieldRow id={nameId} label="Name">
         <input
+          ref={nameInput}
           id={nameId}
           value={draft.name}
           onChange={(e) => set('name', e.target.value)}
@@ -124,7 +127,10 @@ export function LicenceFields({
               <button
                 key={name}
                 type="button"
-                onClick={() => set('name', name)}
+                onClick={(e) => {
+                  handFocusOn(e.currentTarget, nameInput.current)
+                  set('name', name)
+                }}
                 disabled={!hydrated}
                 className="min-h-8 rounded-full bg-surface-2 px-3 text-caption font-semibold text-ink-2 outline-none transition active:scale-[.97] focus-visible:ring-2 focus-visible:ring-blue"
               >
@@ -166,6 +172,7 @@ export function LicenceFields({
       >
         <div className="flex items-center gap-2">
           <input
+            ref={expiryInput}
             id={expiryId}
             type="date"
             value={draft.expiresOn}
@@ -181,7 +188,10 @@ export function LicenceFields({
           {draft.expiresOn !== '' && !disabled && (
             <button
               type="button"
-              onClick={() => set('expiresOn', '')}
+              onClick={(e) => {
+                handFocusOn(e.currentTarget, expiryInput.current)
+                set('expiresOn', '')
+              }}
               disabled={!hydrated}
               aria-label="Clear expiry date"
               className="h-12 shrink-0 rounded-xl px-3 text-[16px] font-semibold text-blue transition active:opacity-50"
@@ -198,4 +208,16 @@ export function LicenceFields({
       </FieldRow>
     </>
   )
+}
+
+/**
+ * For a button that removes itself when pressed — a suggestion, gone once
+ * there is a name; Clear, gone once there is no date — focus on it goes to
+ * its field rather than falling to the page, which would send someone on a
+ * keyboard or a screen reader back to the top. Only when it HAD focus: a tap
+ * on an iPhone never gives a button focus, and moving it to the field would
+ * put up a keyboard, or the date wheel, that nobody asked for.
+ */
+function handFocusOn(from: HTMLElement, to: HTMLElement | null): void {
+  if (document.activeElement === from) to?.focus()
 }

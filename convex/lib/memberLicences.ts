@@ -54,16 +54,30 @@ function tidy(input: string): string {
 }
 
 /**
+ * Characters that draw nothing: format characters (a zero-width space, a
+ * zero-width joiner, a soft hyphen) and separators. Only ever used to ask
+ * whether anything VISIBLE is left, never to strip — the joiner is what holds
+ * an emoji like 👷‍♀️ together, and a name may have one.
+ */
+const INVISIBLE = /[\p{Cf}\p{Z}]/gu
+
+/** Whether `value` would show as nothing at all. */
+function looksBlank(value: string): boolean {
+  return value.replace(INVISIBLE, '') === ''
+}
+
+/**
  * A licence's name as kept — whatever the person calls it ("Pest management
- * (WA)", "Fumigation", "White card") — or INVALID_NAME when nothing is left of
- * it or it runs past `MAX_LICENCE_NAME_LENGTH`. Required: it is the only thing
- * that tells one licence from another in the list.
+ * (WA)", "Fumigation", "White card") — or INVALID_NAME when nothing visible is
+ * left of it or it runs past `MAX_LICENCE_NAME_LENGTH`. Required: it is the
+ * only thing that tells one licence from another in the list, and a name of
+ * zero-width spaces is a row with no name on the owner's screen.
  */
 export function cleanLicenceName(
   input: string,
 ): { ok: true; value: string } | { ok: false; refusal: 'INVALID_NAME' } {
   const value = tidy(input)
-  if (value === '' || value.length > MAX_LICENCE_NAME_LENGTH) {
+  if (looksBlank(value) || value.length > MAX_LICENCE_NAME_LENGTH) {
     return { ok: false, refusal: 'INVALID_NAME' }
   }
   return { ok: true, value }
@@ -71,9 +85,11 @@ export function cleanLicenceName(
 
 /**
  * A licence's number as kept, or undefined when there is none — an empty or
- * blank field means "no number", not a refusal. INVALID_NUMBER past
- * `MAX_LICENCE_NUMBER_LENGTH`: a number cut short to fit would be a different
- * number, so it is refused rather than trimmed.
+ * blank field means "no number", not a refusal, and so does one of nothing
+ * but invisible characters (a pasted zero-width space): it looks blank to the
+ * person who typed it, and "That number is too long" would make no sense to
+ * them. INVALID_NUMBER past `MAX_LICENCE_NUMBER_LENGTH`: a number cut short to
+ * fit would be a different number, so it is refused rather than trimmed.
  */
 export function cleanLicenceNumber(
   input: string,
@@ -81,7 +97,7 @@ export function cleanLicenceNumber(
   | { ok: true; value: string | undefined }
   | { ok: false; refusal: 'INVALID_NUMBER' } {
   const value = tidy(input)
-  if (value === '') return { ok: true, value: undefined }
+  if (looksBlank(value)) return { ok: true, value: undefined }
   if (value.length > MAX_LICENCE_NUMBER_LENGTH) {
     return { ok: false, refusal: 'INVALID_NUMBER' }
   }

@@ -107,6 +107,40 @@ async function listOf(
   })
 }
 
+/**
+ * A share sheet that takes files, as a phone has. Headless Chromium has none,
+ * and the viewer offers Share only where one exists — so without this, Share
+ * missing from a viewer would say nothing about whether it is allowed there.
+ */
+async function withShareSheet(page: Page) {
+  await page.addInitScript(() => {
+    Object.defineProperty(Navigator.prototype, 'canShare', {
+      configurable: true,
+      value: () => true,
+    })
+    Object.defineProperty(Navigator.prototype, 'share', {
+      configurable: true,
+      value: () => Promise.resolve(),
+    })
+  })
+}
+
+/** Whether this browser holds any licence kept for offline use. */
+function hasKeptLicences(page: Page) {
+  return page.evaluate(() => caches.has('pestm8-kept-licence-v2'))
+}
+
+/** How many licence files this browser keeps for offline use. */
+function keptFileCount(page: Page) {
+  return page.evaluate(async () => {
+    const name = 'pestm8-kept-licence-v2'
+    if (!(await caches.has(name))) return 0
+    const keys = await (await caches.open(name)).keys()
+    return keys.filter((key) => new URL(key.url).pathname.includes('/files/'))
+      .length
+  })
+}
+
 /** "Add photo or PDF", and the file picker it opens, given `file`. */
 async function addFile(
   page: Page,
@@ -201,6 +235,7 @@ test('a technician adds a PDF and a photo, reads them in the viewer, renames the
   const licenceId = await addLicence(s.sub, s.businessId, {
     name: 'White card',
   })
+  await withShareSheet(page)
   await signInViaUi(page, s.sub.email)
   await page.goto(`/${s.slug}/settings/licence/${licenceId}`)
   await expect(
@@ -239,6 +274,8 @@ test('a technician adds a PDF and a photo, reads them in the viewer, renames the
   await expect(pdfViewer.getByText('1 page', { exact: true })).toBeVisible({
     timeout: VIEWER_TIMEOUT,
   })
+  // Their own: Share is offered (the owner's look, below, has none).
+  await expect(pdfViewer.getByRole('button', { name: 'Share' })).toBeVisible()
   await pdfViewer.getByRole('button', { name: 'Next file' }).click()
 
   const photoViewer = page.getByRole('dialog', {
@@ -250,6 +287,7 @@ test('a technician adds a PDF and a photo, reads them in the viewer, renames the
   await expect(
     photoViewer.getByRole('img', { name: 'White card' }),
   ).toBeVisible({ timeout: VIEWER_TIMEOUT })
+  await expect(photoViewer.getByRole('button', { name: 'Share' })).toBeVisible()
   await expect(
     photoViewer.getByRole('button', { name: 'Next file' }),
   ).toBeDisabled()
@@ -318,6 +356,8 @@ test('the owner reads a subcontractor’s licences on their Team page, and can c
     ],
   })
 
+  // A share sheet the viewer WOULD offer Share on, were this the owner's own.
+  await withShareSheet(page)
   await signInViaUi(page, s.owner.email)
   await page.goto(`/${s.slug}/settings/team/${s.subMembershipId}`)
   await expect(
@@ -332,19 +372,10 @@ test('the owner reads a subcontractor’s licences on their Team page, and can c
   await expect(row).toContainText('FUM-77')
   await expect(row).toContainText('Expired')
 
-  // Nothing to change them with.
+  // Read-only, and it says whose they are to change.
   await expect(
-    page.getByRole('button', { name: /^Add photo or PDF/ }),
-  ).toHaveCount(0)
-  await expect(
-    page.getByRole('button', { name: 'Delete licence' }),
-  ).toHaveCount(0)
-  await expect(
-    page.getByRole('button', { name: /^Remove Fumigation/ }),
-  ).toHaveCount(0)
-  await expect(
-    page.getByRole('link', { name: /^Fumigation licence/ }),
-  ).toHaveCount(0)
+    page.getByText('Read-only. Only Kevin can add or change these.'),
+  ).toBeVisible()
 
   // Read in the app, with no Share.
   await expect(row).toBeEnabled()
@@ -362,6 +393,8 @@ test('the owner reads a subcontractor’s licences on their Team page, and can c
   await expect(viewer.getByRole('button', { name: 'Share' })).toHaveCount(0)
   await viewer.getByRole('button', { name: 'Done' }).click()
   await expect(viewer).toBeHidden()
+  // And nothing of Kevin's kept on the owner's phone.
+  expect(await hasKeptLicences(page)).toBe(false)
 
   // And the server says the same: the owner reads, and only the holder writes.
   await expectRejected(
@@ -452,22 +485,27 @@ test.describe('licences kept on this phone', () => {
 
     // Kept without being opened: the list answering is enough.
     await expect
-      .poll(
-        () =>
-          page.evaluate(async () => {
-            const name = 'pestm8-kept-licence-v2'
-            if (!(await caches.has(name))) return 0
-            const keys = await (await caches.open(name)).keys()
-            return keys.filter((key) =>
-              new URL(key.url).pathname.includes('/files/'),
-            ).length
-          }),
-        { timeout: SAVE_TIMEOUT },
-      )
+      .poll(() => keptFileCount(page), { timeout: SAVE_TIMEOUT })
       .toBe(1)
+
+    // Added elsewhere — the office laptop — AFTER the page the service
+    // worker will serve offline was cached. The list answers again on this
+    // open page, and the phone keeps the new one too.
+    await addLicence(s.sub, s.businessId, {
+      name: 'Fumigation licence',
+      number: 'FUM-2',
+      files: [
+        { name: 'Fumigation.png', type: 'image/png', body: solidPng(200, 120) },
+      ],
+    })
+    await expect
+      .poll(() => keptFileCount(page), { timeout: SAVE_TIMEOUT })
+      .toBe(2)
 
     await context.setOffline(true)
     try {
+      // The cached page is from before the second licence. Nothing in it
+      // may stand for the list: what shows is what the phone kept, both.
       await page.reload()
       await expect(
         page.getByRole('heading', { name: 'Settings', level: 1 }),
@@ -478,8 +516,17 @@ test.describe('licences kept on this phone', () => {
         page.getByRole('button', { name: 'Show my licence' }),
         () => expect(sheet).toBeVisible({ timeout: 2_000 }),
       )
+      await expect(
+        sheet.getByText('No signal — showing the copy kept on this phone.'),
+      ).toBeVisible()
       await expect(sheet.getByText('White card', { exact: true })).toBeVisible()
       await expect(sheet.getByText('WC-1')).toBeVisible()
+      await expect(
+        sheet.getByText('Fumigation licence', { exact: true }),
+      ).toBeVisible()
+      await expect(sheet.getByText('FUM-2')).toBeVisible()
+      // And the phone's copy is as it was: the old page forgot nothing.
+      expect(await keptFileCount(page)).toBe(2)
 
       await sheet.getByRole('button', { name: /^Open White card/ }).click()
       const viewer = page.getByRole('dialog', {

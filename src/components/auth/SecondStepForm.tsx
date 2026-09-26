@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { authClient } from '#/lib/auth-client'
+import { forgetRootState } from '#/lib/rootState'
 import {
   describeTwoFactorError,
   normaliseRecoveryCode,
@@ -48,6 +49,11 @@ export function SecondStepForm({
    */
   const cleared = useRef<Promise<unknown> | null>(null)
   useEffect(() => {
+    // Whoever that was is no longer signed in on this page, from now — so
+    // nothing is kept on the phone for them meanwhile (rootState.ts). Not
+    // `beginSignOut`: on the join page this person signs in next without a
+    // reload, and must then count as signed in.
+    forgetRootState()
     cleared.current = authClient.signOut().catch(() => undefined)
     inputRef.current?.focus()
   }, [])

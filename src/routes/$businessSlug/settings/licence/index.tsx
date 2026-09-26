@@ -3,7 +3,7 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import { MyLicenceNumber } from '#/components/settings/MyLicence'
 import { MyLicencesList } from '#/components/settings/MyLicencesList'
 import { BackLink, SettingsBody } from '#/components/settings/ui'
-import { rq, settleWithin, warm } from '#/lib/routeQueries'
+import { browserOnly, rq, settleWithin, warm } from '#/lib/routeQueries'
 
 /** How long the loader holds the navigation for its query, at most. */
 const LOADER_WAIT_MS = 2000
@@ -17,7 +17,11 @@ export const Route = createFileRoute('/$businessSlug/settings/licence/')({
   loader: ({ context: { queryClient, business, membership } }) =>
     settleWithin(
       LOADER_WAIT_MS,
-      warm(queryClient, rq.memberLicences(business._id, membership._id)),
+      warm(
+        queryClient,
+        // In the browser only: never in the HTML (`keptOutOfHtml`).
+        ...browserOnly(rq.memberLicences(business._id, membership._id)),
+      ),
     ),
   component: LicencesPage,
 })

@@ -27,6 +27,18 @@ import type { Id } from '../../../convex/_generated/dataModel'
 /** How long the live list may wait before the kept copy stands in. */
 const KEPT_FALLBACK_AFTER_MS = 4000
 
+/**
+ * When this page load began, on this phone's clock — the same clock
+ * react-query stamps an answer with (`dataUpdatedAt`) when the Convex client
+ * delivers it. An answer stamped earlier did not come from this page load's
+ * socket: it came in the page's HTML (the server's clock, at the time the
+ * HTML was made), which the service worker may be serving days later.
+ */
+const PAGE_LOADED_AT =
+  typeof performance === 'undefined'
+    ? 0
+    : performance.timeOrigin || Date.now() - performance.now()
+
 /** One licence as a page shows it, from the live list or the phone's copy. */
 export type WalletLicence = {
   _id: string
@@ -56,6 +68,13 @@ export type Wallet = {
  * the office laptop is on the phone the next time the phone opens Settings,
  * without anyone opening each file.
  *
+ * Only an answer from this page load counts as live. The list is kept out of
+ * the page's HTML (`keptOutOfHtml`), but if an older answer ever reached the
+ * query cache some other way — a copy of the page the service worker kept,
+ * say — it is neither shown as current nor used to bring the kept copy into
+ * line: that would put back the list as it was then, and forget every file
+ * kept since. `syncKeptWallet` refuses a list older than the kept one too.
+ *
  * One hook for the hub, the Licences page, a licence's page and the Show my
  * licence sheet, so none of them can disagree about what the phone can show
  * an inspector. Never suspends: with no signal a Convex query waits rather
@@ -67,17 +86,25 @@ export function useMyLicences(
 ) {
   const live = useQuery(rq.memberLicences(businessId, membershipId))
   const online = useOnline()
-  const late = useStillPendingAfter(live.isPending, KEPT_FALLBACK_AFTER_MS)
   const kept = useKeptWallet(businessId, membershipId)
 
-  const data = live.data
+  const answeredAt = live.dataUpdatedAt
+  const data =
+    live.data !== undefined && answeredAt >= PAGE_LOADED_AT
+      ? live.data
+      : undefined
+  const late = useStillPendingAfter(data === undefined, KEPT_FALLBACK_AFTER_MS)
+
+  // On `answeredAt` as well as `data`: an answer the same as the last keeps
+  // the same object, and is still news that the list is current as of now.
   useEffect(() => {
     if (!data?.mine) return
     void syncKeptWallet(businessId, membershipId, data, {
+      answeredAt,
       inHand: (fileId, uploadedAt) =>
         heldLicenceFile(licenceFileKeyOf(membershipId, fileId, uploadedAt)),
     })
-  }, [businessId, membershipId, data])
+  }, [businessId, membershipId, data, answeredAt])
 
   const standIn = data === undefined && (late || !online || live.isError)
   // The same object from render to render while nothing changes: the viewer

@@ -42,6 +42,13 @@ const WORDS: Record<string, string> = {
   WRONG_FILE_TYPE: 'That file isn’t a PDF, PNG or JPG. Choose one of those.',
   FILE_TOO_LARGE: `That file is too big: a PDF can be up to ${mb(MAX_LICENCE_PDF_BYTES)} MB, a photo up to ${mb(MAX_LICENCE_IMAGE_BYTES)} MB.`,
   FILE_NOT_FOUND: 'The upload took too long to finish. Try again.',
+  // The page's own, not the server's: an upload given up on
+  // (`LicenceFiles.tsx`), and a file uploaded whose save has not been
+  // confirmed — which may yet land, so the words do not say it failed.
+  UPLOAD_STALLED:
+    'The upload stopped getting through, so nothing was added. Try again where the signal is better.',
+  ADD_FILE_UNCONFIRMED:
+    'The file went up, but PestM8 hasn’t confirmed it yet. If it isn’t listed here in a minute, add it again.',
   ALREADY_ATTACHED: 'That file is already used elsewhere. Choose another.',
   NOT_FOUND: 'This licence has been deleted, perhaps on another phone.',
   NO_ACCESS: 'Only the person who holds a licence can change it.',

@@ -241,6 +241,27 @@ describe('fetchWithProgress', () => {
     )
   })
 
+  test('asks the HTTP cache to keep nothing when told to, and leaves it be otherwise', async () => {
+    const fetchMock = vi.fn(async () => streamed(['%PDF-']))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchWithProgress('https://files/theirs', () => {}, undefined, {
+      cache: 'no-store',
+    })
+    await fetchWithProgress('https://files/mine', () => {})
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      'https://files/theirs',
+      expect.objectContaining({ cache: 'no-store' }),
+    )
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      'https://files/mine',
+      expect.not.objectContaining({ cache: expect.anything() }),
+    )
+  })
+
   test('no length means no total; no type means a PDF', async () => {
     vi.stubGlobal('fetch', async () => streamed(['%PDF-']))
     const seen: Array<LoadProgress> = []

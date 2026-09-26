@@ -44,6 +44,30 @@ describe('cleanLicenceName', () => {
       refusal: 'INVALID_NAME',
     })
   })
+
+  test('nothing visible is no name: zero-width and format characters alone', () => {
+    for (const name of [
+      '​', // zero-width space
+      '​‌‍', // with the non-joiner and joiner
+      '⁠', // word joiner
+      '­', // soft hyphen
+      ' ​ 　 ', // among spaces, an ideographic one included
+    ]) {
+      expect(cleanLicenceName(name), JSON.stringify(name)).toEqual({
+        ok: false,
+        refusal: 'INVALID_NAME',
+      })
+    }
+  })
+
+  test('what is visible keeps its invisible parts, so an emoji stays whole', () => {
+    // A zero-width joiner holds the worker and the sign together.
+    expect(cleanLicenceName('👷‍♀️')).toEqual({ ok: true, value: '👷‍♀️' })
+    expect(cleanLicenceName('White​card')).toEqual({
+      ok: true,
+      value: 'White​card',
+    })
+  })
 })
 
 describe('cleanLicenceNumber', () => {
@@ -53,6 +77,19 @@ describe('cleanLicenceNumber', () => {
     expect(cleanLicenceNumber(' PMT 1234 ')).toEqual({
       ok: true,
       value: 'PMT 1234',
+    })
+  })
+
+  test('nothing visible is blank too, never an invisible number', () => {
+    for (const number of ['​', '⁠‍', ' ­ ']) {
+      expect(cleanLicenceNumber(number), JSON.stringify(number)).toEqual({
+        ok: true,
+        value: undefined,
+      })
+    }
+    expect(cleanLicenceNumber('PMT​1234')).toEqual({
+      ok: true,
+      value: 'PMT​1234',
     })
   })
 

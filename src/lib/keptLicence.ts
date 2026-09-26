@@ -38,12 +38,27 @@ import { signedInUserId } from '#/lib/rootState'
  *    person signed in (`signedInUserId`) before anything here is read or
  *    written. Someone else, and every kept licence goes. They also go at
  *    every sign-in and sign-out — `forgetCachedPages` (rootState.ts) drops
- *    this cache by name — because a licence card is personal information:
- *    losing the copies to a lapsed session costs one quiet re-download the
- *    next time the list answers with signal.
- *  - At most `KEEP_BUDGET_BYTES` of files, in the order the list gives them
- *    (oldest licence first, and its files oldest first). Past that, the rest
- *    open with signal only.
+ *    this cache by name, and so does `SessionWatch` when the session ends in
+ *    another tab — because a licence card is personal information: losing
+ *    the copies to a lapsed session costs one quiet re-download the next time
+ *    the list answers with signal.
+ *  - A write is for the person signed in when it started, and checked again
+ *    around every `put` (`putFor`). A background keep can be half way through
+ *    a download when someone signs out; without that, it would finish after
+ *    the sign-out had dropped this cache, and make it again with the last
+ *    person's card in it. Signing out marks itself before it starts
+ *    (`beginSignOut`), so the check fails from that moment on.
+ *  - At most `KEEP_BUDGET_BYTES` of files in the whole cache — every wallet
+ *    this person keeps here, in every business — however they arrive: the
+ *    background keep, a file just uploaded, a file just opened. A keep that
+ *    would go past it is REFUSED, not made room for: what is already here
+ *    stays, and the file opens with signal only. Nothing is evicted, because
+ *    the phone cannot tell which card the person will be asked for on site,
+ *    and a keep that quietly dropped another would lose one they were
+ *    counting on; the background keep fills the budget in the list's order
+ *    (oldest licence first, and its files oldest first), and a file taken off
+ *    anywhere frees its room at the next one. Thumbnails are not counted:
+ *    a few kilobytes each, at most one per file.
  *
  * Every call is guarded and never throws: `caches` is missing on the server,
  * outside a secure context and in Firefox's private windows, and any write
@@ -95,7 +110,8 @@ export type KeptLicence = {
 
 /** What the phone has of the wallet: the list, as it last answered. */
 export type KeptWallet = {
-  /** When the list was kept. */
+  /** When the list said this: the answer's own time (react-query's
+   * `dataUpdatedAt`), so no older answer can replace it. */
   keptAt: number
   licences: Array<KeptLicence>
 }
@@ -203,26 +219,90 @@ async function openForRead(): Promise<Cache | null> {
   return null
 }
 
+/** Thrown inside a write whose person is no longer the one signed in. */
+class NotSignedIn extends Error {}
+
+/**
+ * Throws when `userId` is no longer the person signed in — signed out, or
+ * someone else signed in, since the write began — and takes the cache with
+ * it: what it holds is `userId`'s, or no one's yet, and the sign-out that
+ * ended their session meant it to be gone. Unless it is already labelled for
+ * whoever has signed in since, whose it then is.
+ */
+async function requireStillSignedIn(userId: string): Promise<void> {
+  const now = signedInUserId()
+  if (now === userId) return
+  try {
+    if (now === null || (await currentKeeper()) !== now) {
+      await caches.delete(KEPT_LICENCE_CACHE)
+    }
+  } catch {
+    // Nothing more can be done from here; the next sign-in drops it.
+  }
+  throw new NotSignedIn()
+}
+
+/** Whose the cache is, without making it; null for none, or unlabelled. */
+async function currentKeeper(): Promise<string | null> {
+  if (!(await caches.has(KEPT_LICENCE_CACHE))) return null
+  return keeperOf(await caches.open(KEPT_LICENCE_CACHE))
+}
+
+/**
+ * `cache.put`, for `userId` only: refused before it starts if they are no
+ * longer signed in, and taken back — the whole cache with it — if they
+ * stopped being while it ran.
+ */
+async function putFor(
+  userId: string,
+  cache: Cache,
+  key: string,
+  res: Response,
+): Promise<void> {
+  await requireStillSignedIn(userId)
+  await cache.put(key, res)
+  await requireStillSignedIn(userId)
+}
+
 /**
  * The cache, for writing, once it is provably `userId`'s: anyone else's goes
  * first, and one not yet labelled is labelled before anything is put in it.
  * (Everything kept goes at every sign-in and sign-out, so an unlabelled one
  * can only be this session's own, caught between its making and its label.)
+ * Opening it makes it, so whether `userId` is still signed in is asked again
+ * once it is open.
  */
 async function openForWrite(userId: string): Promise<Cache> {
+  await requireStillSignedIn(userId)
   if (await caches.has(KEPT_LICENCE_CACHE)) {
     const cache = await caches.open(KEPT_LICENCE_CACHE)
     const keeper = await keeperOf(cache)
-    if (keeper === userId) return cache
+    if (keeper === userId) {
+      await requireStillSignedIn(userId)
+      return cache
+    }
     if (keeper === null) {
-      await cache.put(KEEPER_KEY, json({ userId }))
+      await putFor(userId, cache, KEEPER_KEY, json({ userId }))
       return cache
     }
     await caches.delete(KEPT_LICENCE_CACHE)
   }
   const cache = await caches.open(KEPT_LICENCE_CACHE)
-  await cache.put(KEEPER_KEY, json({ userId }))
+  await putFor(userId, cache, KEEPER_KEY, json({ userId }))
   return cache
+}
+
+/**
+ * Runs `work` once every write queued before it has finished: a keep's check
+ * of the budget and its `put` happen together, so two keeps at once (the
+ * background keep, and a file just opened) cannot both fit into the room for
+ * one.
+ */
+let writes: Promise<unknown> = Promise.resolve()
+function oneAtATime<T>(work: () => Promise<T>): Promise<T> {
+  const run = writes.then(work, work)
+  writes = run.catch(() => {})
+  return run
 }
 
 // ── Validation ─────────────────────────────────────────────────────────────
@@ -295,24 +375,30 @@ function fileMetaOf(res: Response): KeptLicenceFile | null {
 
 /**
  * Keeps the list of this person's licences — names, numbers, expiry dates and
- * what each file is. Nothing while nobody is known to be signed in: a copy
- * nobody's name is on could not be checked before it was shown. Resolves true
- * when it was kept.
+ * what each file is — as the list said it at `answeredAt` (by default, now).
+ * Nothing while nobody is known to be signed in: a copy nobody's name is on
+ * could not be checked before it was shown. Resolves true when it was kept.
  */
 export async function keepWalletIndex(
   businessId: string,
   membershipId: string,
   licences: ReadonlyArray<KeptLicence>,
+  answeredAt: number = Date.now(),
 ): Promise<boolean> {
   const userId = signedInUserId()
   if (!userId || !cachesAvailable()) return false
   try {
     const cache = await openForWrite(userId)
     const wallet: KeptWallet = {
-      keptAt: Date.now(),
+      keptAt: answeredAt,
       licences: licences.map(licenceOf),
     }
-    await cache.put(indexKey(businessId, membershipId), json(wallet))
+    await putFor(
+      userId,
+      cache,
+      indexKey(businessId, membershipId),
+      json(wallet),
+    )
     changed()
     return true
   } catch {
@@ -365,46 +451,62 @@ export async function makeLicenceThumbnail(blob: Blob): Promise<Blob | null> {
 
 /**
  * Keeps one of this person's files, and a photo's thumbnail with it when
- * there is one. Resolves true when the file was kept.
+ * there is one. Resolves true when the file was kept, false when it was not —
+ * refused for want of room (`budget`, the whole cache's: see the top of this
+ * file), nobody signed in, or storage that failed.
  */
-export async function keepLicenceFile(
+export function keepLicenceFile(
   businessId: string,
   membershipId: string,
   file: KeptLicenceFile,
   blob: Blob,
   thumbnail: Blob | null = null,
+  budget: number = KEEP_BUDGET_BYTES,
 ): Promise<boolean> {
   const userId = signedInUserId()
-  if (!userId || !cachesAvailable()) return false
+  if (!userId || !cachesAvailable()) return Promise.resolve(false)
   const meta = encodeURIComponent(JSON.stringify(fileOf(file)))
-  try {
-    const cache = await openForWrite(userId)
-    await cache.put(
-      fileKey(businessId, membershipId, file._id, file.uploadedAt),
-      new Response(blob, {
-        headers: {
-          'Content-Type': file.contentType,
-          'Content-Length': String(blob.size),
-          [META_HEADER]: meta,
-        },
-      }),
-    )
-    if (thumbnail) {
-      await cache.put(
-        thumbKey(businessId, membershipId, file._id, file.uploadedAt),
-        new Response(thumbnail, {
+  const key = fileKey(businessId, membershipId, file._id, file.uploadedAt)
+  return oneAtATime(async () => {
+    try {
+      const cache = await openForWrite(userId)
+      // This file kept before (kept again, with a thumbnail made this time)
+      // is not more of the budget.
+      const others = (await keptFilesIn(cache)).filter(
+        (entry) => entry.path !== key,
+      )
+      if (bytesOf(others) + file.size > budget) return false
+      await putFor(
+        userId,
+        cache,
+        key,
+        new Response(blob, {
           headers: {
-            'Content-Type': thumbnail.type || 'image/jpeg',
+            'Content-Type': file.contentType,
+            'Content-Length': String(blob.size),
             [META_HEADER]: meta,
           },
         }),
       )
+      if (thumbnail) {
+        await putFor(
+          userId,
+          cache,
+          thumbKey(businessId, membershipId, file._id, file.uploadedAt),
+          new Response(thumbnail, {
+            headers: {
+              'Content-Type': thumbnail.type || 'image/jpeg',
+              [META_HEADER]: meta,
+            },
+          }),
+        )
+      }
+      changed()
+      return true
+    } catch {
+      return false
     }
-    changed()
-    return true
-  } catch {
-    return false
-  }
+  })
 }
 
 async function readEntry(key: string): Promise<Blob | null> {
@@ -439,24 +541,31 @@ export function readKeptThumbnail(
   return readEntry(thumbKey(businessId, membershipId, fileId, uploadedAt))
 }
 
-/** What is kept of this person's files: which, and how big. */
-async function keptFilesOf(
-  cache: Cache,
-  businessId: string,
-  membershipId: string,
-): Promise<Array<KeptLicenceFile>> {
-  const prefix = filesRoot(businessId, membershipId)
-  const found: Array<KeptLicenceFile> = []
+/** A file kept here, where it is kept, and which file it is. */
+type KeptEntry = { path: string; file: KeptLicenceFile }
+
+/**
+ * Every file kept in the cache — each wallet's, in every business — and
+ * where. Anything under a `files/` path that does not say which file it is
+ * goes: it could not be shown, or counted.
+ */
+async function keptFilesIn(cache: Cache): Promise<Array<KeptEntry>> {
+  const found: Array<KeptEntry> = []
   for (const request of await cache.keys()) {
     // Keys come back as whole URLs; what was put was the path.
     const path = new URL(request.url, 'https://kept.invalid').pathname
-    if (!path.startsWith(prefix)) continue
+    if (!path.startsWith(`${ROOT}/`) || !path.includes('/files/')) continue
     const res = await cache.match(path)
     const meta = res ? fileMetaOf(res) : null
-    if (meta) found.push(meta)
+    if (meta) found.push({ path, file: meta })
     else await cache.delete(path)
   }
   return found
+}
+
+/** How many bytes of files `entries` come to. */
+function bytesOf(entries: ReadonlyArray<KeptEntry>): number {
+  return entries.reduce((total, entry) => total + entry.file.size, 0)
 }
 
 async function forgetFile(
@@ -473,24 +582,12 @@ async function forgetFile(
   )
 }
 
-/** Drops everything kept of every licence: both caches, the old one too. */
-export async function forgetKeptLicences(): Promise<void> {
-  try {
-    if (cachesAvailable()) {
-      await Promise.all([
-        caches.delete(KEPT_LICENCE_CACHE),
-        caches.delete(OLD_KEPT_LICENCE_CACHE),
-      ])
-    }
-  } catch {
-    // A browser that refuses the cache has nothing kept in it.
-  }
-  changed()
-}
-
 // ── Keeping the wallet up to date ──────────────────────────────────────────
 
 export type SyncOptions = {
+  /** When the list answered (react-query's `dataUpdatedAt`); now, if not
+   * said. A list older than the one kept changes nothing. */
+  answeredAt?: number
   /** Bytes this page already has for a file — just uploaded from this
    * phone, or opened a moment ago — so it is not downloaded again. */
   inHand?: (fileId: string, uploadedAt: number) => Blob | null
@@ -498,7 +595,8 @@ export type SyncOptions = {
   fetchFile?: (url: string) => Promise<Blob>
   /** How a photo's thumbnail is made (`makeLicenceThumbnail`). */
   makeThumbnail?: (blob: Blob) => Promise<Blob | null>
-  /** The most bytes of files to keep (`KEEP_BUDGET_BYTES`). */
+  /** The most bytes of files to keep, in the whole cache
+   * (`KEEP_BUDGET_BYTES`). */
   budget?: number
 }
 
@@ -514,9 +612,24 @@ async function syncOnce(
   const userId = signedInUserId()
   if (!wallet.mine || !userId || !cachesAvailable()) return
   const stillThem = () => signedInUserId() === userId
+  const answeredAt = options.answeredAt ?? Date.now()
   const budget = options.budget ?? KEEP_BUDGET_BYTES
   const fetchFile = options.fetchFile ?? fetchForKeeping
   const makeThumbnail = options.makeThumbnail ?? makeLicenceThumbnail
+
+  // An answer older than the list kept here — a page served from the service
+  // worker's copy, still holding the list as it was when that copy was made
+  // — must not put that list back, nor forget the files kept since. A kept
+  // time in the future is a clock that has since been put right, and says
+  // nothing.
+  const keptList = await readKeptWallet(businessId, membershipId)
+  if (
+    keptList &&
+    answeredAt < keptList.keptAt &&
+    keptList.keptAt <= Date.now()
+  ) {
+    return
+  }
 
   // The Phase 8.1 copy: the wallet has it now, if it is still held.
   try {
@@ -525,7 +638,14 @@ async function syncOnce(
     // Only space is lost.
   }
 
-  if (!(await keepWalletIndex(businessId, membershipId, wallet.licences))) {
+  if (
+    !(await keepWalletIndex(
+      businessId,
+      membershipId,
+      wallet.licences,
+      answeredAt,
+    ))
+  ) {
     return
   }
 
@@ -537,15 +657,19 @@ async function syncOnce(
   }
 
   // What is kept already, and what is kept but no longer on any licence —
-  // taken off, or its licence deleted, here or on another phone.
+  // taken off, or its licence deleted, here or on another phone. What the
+  // other wallets kept here hold counts against the budget too.
   const have = new Set<string>()
   let total = 0
   try {
     const cache = await openForWrite(userId)
+    const mineRoot = filesRoot(businessId, membershipId)
     let forgot = false
-    for (const kept of await keptFilesOf(cache, businessId, membershipId)) {
+    for (const { path, file: kept } of await keptFilesIn(cache)) {
       const key = `${kept._id}:${kept.uploadedAt}`
-      if (wanted.has(key)) {
+      if (!path.startsWith(mineRoot)) {
+        total += kept.size
+      } else if (wanted.has(key)) {
         have.add(key)
         total += kept.size
       } else {
@@ -558,7 +682,9 @@ async function syncOnce(
     return
   }
 
-  // What is not: one at a time, in the list's order, until the budget.
+  // What is not: one at a time, in the list's order, until the budget —
+  // checked here so nothing is downloaded that will not fit, and again by
+  // `keepLicenceFile`, which counts whatever else was kept meanwhile.
   for (const [key, file] of wanted) {
     if (have.has(key)) continue
     if (total + file.size > budget) return
@@ -580,7 +706,14 @@ async function syncOnce(
       file.kind === 'image' ? await makeThumbnail(blob).catch(() => null) : null
     if (!stillThem()) return
     if (
-      !(await keepLicenceFile(businessId, membershipId, file, blob, thumbnail))
+      !(await keepLicenceFile(
+        businessId,
+        membershipId,
+        file,
+        blob,
+        thumbnail,
+        budget,
+      ))
     ) {
       // Out of room, most likely: the next file would not fit either.
       return

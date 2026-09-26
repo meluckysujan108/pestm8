@@ -72,6 +72,16 @@ describe('licenceErrorCopy', () => {
     )
   })
 
+  test('an upload given up on, and a save not yet confirmed, say which', () => {
+    const copy = licenceErrorCopy('upload')
+    for (const code of ['UPLOAD_STALLED', 'ADD_FILE_UNCONFIRMED']) {
+      const words = describeError(licenceRefusal(code), copy)
+      expect(words).toBe(copy[code])
+      expect(words).not.toBe(copy.offline)
+      expect(words).not.toBe(copy.default)
+    }
+  })
+
   test('no signal before anything was sent says so', () => {
     const copy = licenceErrorCopy('upload')
     expect(describeError(new Error('offline'), copy)).toBe(copy.offline)

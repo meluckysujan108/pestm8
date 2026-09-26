@@ -16,23 +16,30 @@ import type { MutationCtx, QueryCtx } from '../_generated/server'
  * claimed with. Written directly, not through `claimLicenceFile`: the file is
  * already this person's, and the claim would refuse it as held (by the
  * membership's own pointer) and as past its claim window. The licence is
- * dated from the upload, which is when the person put it up. Every holder is
- * copied, whatever their status: a removed member's copy is as unreadable as
- * their document (`memberLicences.list` refuses anyone not active).
+ * dated from the upload, which is when the person put it up.
+ *
+ * Only ACTIVE members are copied. Someone removed (or removed and invited
+ * back, but not yet joined) can neither read nor take down a wallet —
+ * `memberLicences.list` refuses anyone not active — so a copy would be a
+ * second place holding a former worker's date of birth and home address that
+ * nobody could see or delete. Their document stays on the membership, where
+ * it already was, and is counted in `skippedInactive`, not in `remaining`. If
+ * they come back, a run after they have joined copies it then.
  *
  * "Already copied" is a `memberLicenceFiles` row holding that storage id, so a
  * second run copies nothing. `memberships.licenceFile` is left in place: the
  * live frontend reads it until the wallet's ships, and a later contract
- * removes it. No audit rows (nobody in the business made these changes); the
- * run returns each copy instead, and a dry run returns them without writing.
+ * removes it — after a last run for anyone who has come back since. Deleting
+ * the copy in the wallet takes the document with it (`dropCopiedDocument` in
+ * memberLicences.ts), so a licence someone deleted is never copied back. No
+ * audit rows (nobody in the business made these changes); the run returns
+ * each copy instead, and a dry run returns them without writing.
  *
  * WHEN: after this backend is deployed, once the frontend that reads the
  * wallet is live (Vercel's newest successful build includes it) — until
  * then, the Profile page can still replace the document, and a document
  * replaced after the run is a new storage id that a second run would copy as
- * a second "Licence". For the same reason do not re-run it after holders have
- * started using the wallet: a copied licence someone has since deleted would
- * come back. `remaining` says whether there is anything to do.
+ * a second "Licence". `remaining` says whether there is anything to do.
  *
  * EVERY COMMAND NAMES ITS DEPLOYMENT (see jobStatusV1.ts). Production is
  * rare-retriever-156 (CLAUDE.md), which had exactly one document to copy on
@@ -69,16 +76,19 @@ type Holder = Doc<'memberships'> & {
 }
 
 /**
- * Every membership whose document is not in a wallet yet. Read through the
- * index on the document's storage id, which files a membership without one
- * under `undefined` — below every id — so only holders are read: a handful
- * in the whole deployment.
+ * Every active membership whose document is not in a wallet yet. Read
+ * through the index on the document's storage id, which files a membership
+ * without one under `undefined` — below every id — so only holders are read:
+ * a handful in the whole deployment.
  */
-async function holdersToCopy(
-  ctx: QueryCtx | MutationCtx,
-): Promise<{ due: Array<Holder>; alreadyCopied: number }> {
+async function holdersToCopy(ctx: QueryCtx | MutationCtx): Promise<{
+  due: Array<Holder>
+  alreadyCopied: number
+  skippedInactive: number
+}> {
   const due: Array<Holder> = []
   let alreadyCopied = 0
+  let skippedInactive = 0
   for await (const membership of ctx.db
     .query('memberships')
     .withIndex('by_licenceFile_storageId', (q) =>
@@ -91,9 +101,10 @@ async function holdersToCopy(
       .withIndex('by_storage', (q) => q.eq('storageId', document.storageId))
       .first()
     if (copied) alreadyCopied++
+    else if (membership.status !== 'active') skippedInactive++
     else due.push({ ...membership, licenceFile: document })
   }
-  return { due, alreadyCopied }
+  return { due, alreadyCopied, skippedInactive }
 }
 
 export const run = internalMutation({
@@ -102,9 +113,11 @@ export const run = internalMutation({
     dryRun: v.boolean(),
     copied: v.array(copyValidator),
     alreadyCopied: v.number(),
+    /** Documents of members not active, left where they are (see above). */
+    skippedInactive: v.number(),
   }),
   handler: async (ctx, { dryRun = false }) => {
-    const { due, alreadyCopied } = await holdersToCopy(ctx)
+    const { due, alreadyCopied, skippedInactive } = await holdersToCopy(ctx)
     const copied: Array<Copy> = []
 
     for (const holder of due) {
@@ -137,11 +150,12 @@ export const run = internalMutation({
       })
     }
 
-    return { dryRun, copied, alreadyCopied }
+    return { dryRun, copied, alreadyCopied, skippedInactive }
   },
 })
 
-/** How many documents the run would still copy. Must be 0 after it. */
+/** How many documents the run would still copy — active members' only.
+ * Must be 0 after it. */
 export const remaining = internalQuery({
   args: {},
   returns: v.number(),

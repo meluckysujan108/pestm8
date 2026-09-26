@@ -97,7 +97,14 @@ export function licenceFileSource(
         )
       }
 
-      const blob = await fetchWithProgress(file.url, onProgress, signal)
+      // Someone else's card leaves nothing in this phone's HTTP cache
+      // either; the holder's own goes as any download does, and is kept.
+      const blob = await fetchWithProgress(
+        file.url,
+        onProgress,
+        signal,
+        mine ? {} : { cache: 'no-store' },
+      )
       // As stored, not as the server labelled it: a picture served with no
       // type would otherwise be kept as a PDF.
       const typed =

@@ -8,7 +8,7 @@ import { api } from '../../convex/_generated/api'
 import { QrCode } from '#/components/auth/QrCode'
 import { RecoveryCodes } from '#/components/auth/RecoveryCodes'
 import { authClient } from '#/lib/auth-client'
-import { forgetCachedPages } from '#/lib/rootState'
+import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import {
   RECOVERY_CODES_NOT_MADE,
   SETUP_CLEARED,
@@ -314,12 +314,14 @@ function TwoStepPage() {
             type="button"
             // A reload, as Settings' sign-out does: whoever signs in next
             // must not be shown this person's cached answers.
-            onClick={() =>
-              authClient
+            onClick={() => {
+              // Before the request (rootState.ts has why).
+              beginSignOut()
+              void authClient
                 .signOut()
                 .then(forgetCachedPages)
                 .then(() => window.location.replace('/login'))
-            }
+            }}
             className="min-h-11 text-body text-blue"
           >
             Sign out

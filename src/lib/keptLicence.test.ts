@@ -3,7 +3,6 @@ import {
   KEEP_BUDGET_BYTES,
   KEPT_LICENCE_CACHE,
   OLD_KEPT_LICENCE_CACHE,
-  forgetKeptLicences,
   keepLicenceFile,
   keepWalletIndex,
   onKeptLicencesChange,
@@ -15,6 +14,7 @@ import {
 import { FileTransferError } from './pdfFiles'
 import {
   forgetCachedPages,
+  forgetKeptLicences,
   forgetRootState,
   resolveRootState,
 } from './rootState'
@@ -245,8 +245,17 @@ describe('the kept list', () => {
     expect(heard).toHaveBeenCalled()
     stop()
     heard.mockClear()
-    await forgetKeptLicences()
+    await keepWalletIndex('b1', 'm1', [live([FRONT])])
     expect(heard).not.toHaveBeenCalled()
+  })
+
+  test('goes when the session ends in another tab, and the pages stay for its own sign-out', async () => {
+    await keepWalletIndex('b1', 'm1', [live([FRONT])])
+    await storage.open('pages')
+    // What SessionWatch does when it sees the session gone.
+    await forgetKeptLicences()
+    expect(storage.named.has(KEPT_LICENCE_CACHE)).toBe(false)
+    expect(storage.named.has('pages')).toBe(true)
   })
 
   test('uses the cache names rootState.ts drops by name', () => {
@@ -432,5 +441,191 @@ describe('keeping the wallet up to date', () => {
     expect(
       await readKeptLicenceFile('b1', 'm1', 'f1', FRONT.uploadedAt),
     ).toBeNull()
+  })
+})
+
+describe('an old answer', () => {
+  test('changes nothing kept from a newer one, and forgets nothing', async () => {
+    const network = fakeNetwork()
+    await syncKeptWallet('b1', 'm1', mine(live([FRONT, CERTIFICATE])), {
+      ...network,
+      answeredAt: 2_000,
+    })
+    // The list as a copy of the page from before either file was added
+    // still has it.
+    await syncKeptWallet('b1', 'm1', mine(live([])), {
+      ...network,
+      answeredAt: 1_000,
+    })
+    const kept = await readKeptWallet('b1', 'm1')
+    expect(kept?.keptAt).toBe(2_000)
+    expect(kept?.licences[0].files).toEqual([FRONT, CERTIFICATE])
+    expect(
+      await readKeptLicenceFile('b1', 'm1', 'f2', CERTIFICATE.uploadedAt),
+    ).not.toBeNull()
+
+    // A newer one does change it.
+    await syncKeptWallet('b1', 'm1', mine(live([FRONT])), {
+      ...network,
+      answeredAt: 3_000,
+    })
+    expect(
+      await readKeptLicenceFile('b1', 'm1', 'f2', CERTIFICATE.uploadedAt),
+    ).toBeNull()
+    expect((await readKeptWallet('b1', 'm1'))?.keptAt).toBe(3_000)
+  })
+
+  test('is not held back by a kept time in the future, from a clock since put right', async () => {
+    await keepWalletIndex('b1', 'm1', [live([FRONT])], Date.now() + 86_400_000)
+    await syncKeptWallet('b1', 'm1', mine(), {
+      ...fakeNetwork(),
+      answeredAt: Date.now(),
+    })
+    expect((await readKeptWallet('b1', 'm1'))?.licences).toEqual([])
+  })
+})
+
+describe('the budget', () => {
+  test('counts every wallet kept here, and refuses a keep past it rather than make room', async () => {
+    const blob = new Blob(['x'])
+    // 40 of 100, in one business.
+    expect(await keepLicenceFile('b1', 'm1', FRONT, blob, null, 100)).toBe(true)
+    // 70 more, in another business's wallet: refused, and nothing evicted.
+    expect(
+      await keepLicenceFile('b2', 'm9', CERTIFICATE, blob, null, 100),
+    ).toBe(false)
+    expect(
+      await readKeptLicenceFile('b2', 'm9', 'f2', CERTIFICATE.uploadedAt),
+    ).toBeNull()
+    expect(
+      await readKeptLicenceFile('b1', 'm1', 'f1', FRONT.uploadedAt),
+    ).not.toBeNull()
+    // Kept again (with a thumbnail, this time) is not counted twice.
+    expect(
+      await keepLicenceFile(
+        'b1',
+        'm1',
+        { ...FRONT, size: 60 },
+        blob,
+        new Blob(['thumb']),
+        100,
+      ),
+    ).toBe(true)
+    // What still fits, fits.
+    expect(
+      await keepLicenceFile(
+        'b2',
+        'm9',
+        { ...CERTIFICATE, size: 40 },
+        blob,
+        null,
+        100,
+      ),
+    ).toBe(true)
+  })
+
+  test('the background keep counts the other wallets’ files as well as its own', async () => {
+    await keepLicenceFile('b2', 'm9', CERTIFICATE, new Blob(['x']), null, 100)
+    const network = fakeNetwork()
+    await syncKeptWallet('b1', 'm1', mine(live([FRONT])), {
+      ...network,
+      budget: 100,
+    })
+    // 70 kept for the other business, and 40 more would be 110.
+    expect(network.asked).toEqual([])
+  })
+
+  test('two keeps at once cannot both fit into the room for one', async () => {
+    const blob = new Blob(['x'])
+    const results = await Promise.all([
+      keepLicenceFile('b1', 'm1', { ...FRONT, size: 60 }, blob, null, 100),
+      keepLicenceFile(
+        'b1',
+        'm1',
+        { ...CERTIFICATE, size: 60 },
+        blob,
+        null,
+        100,
+      ),
+    ])
+    expect(results.sort()).toEqual([false, true])
+  })
+})
+
+describe('signing out while a keep is under way', () => {
+  // `beginSignOut` holds until the page is reloaded, so each test here loads
+  // the modules afresh, as a page load does.
+  async function freshPage() {
+    vi.resetModules()
+    const kept = await import('./keptLicence')
+    const root = await import('./rootState')
+    const { getInitialState: initial } = await import('#/lib/initialState')
+    vi.mocked(initial).mockResolvedValue({
+      token: jwtFor('u1'),
+      theme: 'system',
+    })
+    await root.resolveRootState()
+    return { kept, root }
+  }
+
+  test('nobody counts as signed in from the moment it begins, whatever the server still says', async () => {
+    const { root } = await freshPage()
+    expect(root.signedInUserId()).toBe('u1')
+    root.beginSignOut()
+    expect(root.signedInUserId()).toBeNull()
+    // A preload asking while the sign-out request is still out: the cookie
+    // still works, and the server says u1.
+    await root.resolveRootState()
+    expect(root.signedInUserId()).toBeNull()
+  })
+
+  test('a download under way puts nothing back once the caches are dropped', async () => {
+    const { kept, root } = await freshPage()
+    let release: () => void = () => {}
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const asked: Array<string> = []
+    const syncing = kept.syncKeptWallet('b1', 'm1', mine(live([FRONT])), {
+      fetchFile: async (url) => {
+        asked.push(url)
+        await gate
+        return new Blob(['front'])
+      },
+      makeThumbnail: thumbnails,
+    })
+    await vi.waitFor(() => expect(asked).toHaveLength(1))
+    expect(storage.named.has(KEPT_LICENCE_CACHE)).toBe(true)
+
+    // Settings' Sign out, as it runs.
+    root.beginSignOut()
+    await root.forgetCachedPages()
+    release()
+    await syncing
+    expect(storage.named.has(KEPT_LICENCE_CACHE)).toBe(false)
+  })
+
+  test('a keep asked for as it begins writes nothing, and makes no cache', async () => {
+    const { kept, root } = await freshPage()
+    const keeping = kept.keepLicenceFile('b1', 'm1', FRONT, new Blob(['front']))
+    root.beginSignOut()
+    expect(await keeping).toBe(false)
+    expect(await kept.keepWalletIndex('b1', 'm1', [live([FRONT])])).toBe(false)
+    expect(storage.named.has(KEPT_LICENCE_CACHE)).toBe(false)
+  })
+
+  test('a keep whose person went while it ran takes back what it wrote', async () => {
+    const { kept, root } = await freshPage()
+    // The file's put is under way when the sign-out starts.
+    const cache = await storage.open(KEPT_LICENCE_CACHE)
+    const put = cache.put.bind(cache)
+    cache.put = async (key: string, res: Response) => {
+      if (key.includes('/files/')) root.beginSignOut()
+      await put(key, res)
+    }
+    expect(
+      await kept.keepLicenceFile('b1', 'm1', FRONT, new Blob(['front'])),
+    ).toBe(false)
+    expect(storage.named.has(KEPT_LICENCE_CACHE)).toBe(false)
   })
 })

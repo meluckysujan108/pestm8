@@ -52,6 +52,9 @@ let askedAt = 0
 // Bumped by every forget, so an answer already in flight when the session
 // ended cannot put the old sign-in back.
 let generation = 0
+// Set by `beginSignOut` for the rest of this page load, which a sign-out
+// always ends with a full load of its own.
+let signingOut = false
 
 /** Once per page load, from the root context SSR handed over. */
 export function seedRootState(state: RootState): void {
@@ -69,7 +72,10 @@ export async function resolveRootState(): Promise<RootState> {
   asking ??= getInitialState()
   try {
     const fresh = await asking
-    if (asked === generation) {
+    // Not while signing out: the session cookie is still good until the
+    // sign-out request lands, and a preload asking in that moment would put
+    // the person back just as they leave.
+    if (asked === generation && !signingOut) {
       token = fresh.token
       askedAt = Date.now()
       // Signing in on the join page lands here, with no page load between
@@ -124,6 +130,27 @@ export function forgetRootState(): void {
 }
 
 /**
+ * Before `authClient.signOut()`, on a path that ends in a full load (Settings'
+ * Sign out, the two-step screen's, the join page's "Not you?"): from here on
+ * nobody is signed in, as far as this page is concerned.
+ *
+ * Marked BEFORE the sign-out, not after it. Things kept on this phone for the
+ * person (src/lib/keptLicence.ts) are written in the background, a download
+ * at a time, each for the person signed in when it began, and each checks
+ * `signedInUserId` again before and after it writes. A write that got past
+ * that check while the sign-out was in flight would finish after
+ * `forgetCachedPages` had dropped its cache — and make it again, with their
+ * licence card in it, for whoever uses this phone next. So the check has to
+ * fail from the moment the person asks to leave, and until the page is gone:
+ * not even a navigation's fresh answer from the server (the cookie still
+ * works until the sign-out lands) puts them back.
+ */
+export function beginSignOut(): void {
+  signingOut = true
+  forgetRootState()
+}
+
+/**
  * Before a full load that changes who is signed in.
  *
  * `src/sw.ts` serves navigations NetworkFirst with a 4-second timeout, and
@@ -146,13 +173,26 @@ export function forgetRootState(): void {
 export async function forgetCachedPages(): Promise<void> {
   try {
     if (typeof caches !== 'undefined') {
-      await Promise.all([
-        caches.delete('pages'),
-        ...KEPT_LICENCE_CACHES.map((name) => caches.delete(name)),
-      ])
+      await Promise.all([caches.delete('pages'), forgetKeptLicences()])
     }
   } catch {
     // A browser that refuses the cache has nothing stale to serve from it.
+  }
+}
+
+/**
+ * Drops the person's licences kept on this phone — at every sign-in and
+ * sign-out (`forgetCachedPages`), and when `SessionWatch` sees the session
+ * end some other way: signed out in another tab, whose own sign-out dropped
+ * them already but not a keep this tab had in flight.
+ */
+export async function forgetKeptLicences(): Promise<void> {
+  try {
+    if (typeof caches !== 'undefined') {
+      await Promise.all(KEPT_LICENCE_CACHES.map((name) => caches.delete(name)))
+    }
+  } catch {
+    // A browser that refuses the cache has nothing kept in it.
   }
 }
 
@@ -177,7 +217,7 @@ const KEPT_LICENCE_CACHES = [
  * do — the server checks the token properly on every request.
  */
 export function signedInUserId(): string | null {
-  return userIdOfToken(token)
+  return signingOut ? null : userIdOfToken(token)
 }
 
 /** The `sub` claim of a JWT, or null. Exported for its test. */
