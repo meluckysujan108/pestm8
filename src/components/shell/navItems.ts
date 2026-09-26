@@ -35,14 +35,14 @@ export type NavItem = {
  */
 export const PRIMARY_NAV: Array<NavItem> = [
   { to: '/$businessSlug/schedule', label: 'Schedule', icon: CalendarDays },
-  { to: '/$businessSlug/clients', label: 'Client', icon: Users },
+  { to: '/$businessSlug/clients', label: 'Clients', icon: Users },
   { to: '/$businessSlug/reports', label: 'Reports', icon: FileText },
   { to: NOTES_TO, label: 'Notes', icon: StickyNote },
 ]
 
 /** Behind the burger: the sections that are not a daily destination. */
 export const MORE_NAV: Array<NavItem> = [
-  { to: JOB_TO, label: 'Job', icon: Briefcase },
+  { to: JOB_TO, label: 'Jobs', icon: Briefcase },
   { to: '/$businessSlug/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/$businessSlug/products', label: 'Products', icon: Package },
   { to: '/$businessSlug/leads', label: 'Leads', icon: Target },

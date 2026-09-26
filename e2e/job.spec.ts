@@ -31,7 +31,7 @@ test('the Job tab lists every job newest first, with its status', async ({
   await signInViaUi(page, s.owner.email)
   await page.goto(`/${s.slug}/job`)
 
-  await expect(page.getByRole('heading', { name: 'Job' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible()
 
   const cards = page.getByRole('button', {
     name: /General Pest Control|Termite Inspection/,
@@ -105,7 +105,7 @@ test('Recurring Job is a view of its own within the section', async ({
     views.getByRole('tab', { name: 'Recurring Job' }),
   ).toHaveAttribute('aria-selected', 'true')
   // The header stays: it is the section's, not the view's.
-  await expect(page.getByRole('heading', { name: 'Job' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible()
 })
 
 test('the phone reaches Job through the More menu', async ({
@@ -119,17 +119,17 @@ test('the phone reaches Job through the More menu', async ({
 
   const dock = page.getByRole('navigation').last()
   // Job is not one of the four daily destinations.
-  await expect(dock.getByRole('link', { name: 'Job' })).toHaveCount(0)
+  await expect(dock.getByRole('link', { name: 'Jobs' })).toHaveCount(0)
 
   await clickUntil(dock.getByRole('button', { name: 'More' }), () =>
     expect(
-      page.getByRole('dialog').getByRole('link', { name: 'Job' }),
+      page.getByRole('dialog').getByRole('link', { name: 'Jobs' }),
     ).toBeVisible({
       timeout: 2_000,
     }),
   )
-  await page.getByRole('dialog').getByRole('link', { name: 'Job' }).click()
+  await page.getByRole('dialog').getByRole('link', { name: 'Jobs' }).click()
 
   await expect(page).toHaveURL(new RegExp(`/${s.slug}/job$`))
-  await expect(page.getByRole('heading', { name: 'Job' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Jobs' })).toBeVisible()
 })

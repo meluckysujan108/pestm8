@@ -78,7 +78,7 @@ function ClientsPage() {
         businessId={business._id}
         businessSlug={business.slug}
         kicker={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}`}
-        title="Client"
+        title="Clients"
         action={
           <button
             type="button"

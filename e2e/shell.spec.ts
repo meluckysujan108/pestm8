@@ -84,7 +84,7 @@ test('collapsing the sidebar to icons keeps every link findable by name', async 
   )
   await expect.poll(widthOf).toBeLessThan(expandedWidth)
 
-  for (const name of ['Schedule', 'Client', 'Reports', 'Notes', 'Analytics', 'Settings']) {
+  for (const name of ['Schedule', 'Clients', 'Reports', 'Notes', 'Analytics', 'Settings']) {
     await expect(sidebar.getByRole('link', { name })).toBeVisible()
   }
 
