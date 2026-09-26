@@ -7,7 +7,8 @@ import {
   emailTypoFix,
   isValidEmail,
 } from '../../../../convex/lib/email'
-import { isOffline, networkLookupsAllowed } from '#/lib/addressLookup'
+import { networkLookupsAllowed } from '#/lib/addressLookup'
+import { isOffline } from '#/lib/online'
 import { checkEmailDomain } from '#/lib/emailDomainCheck'
 import type { DomainMail } from '#/lib/emailDomainCheck'
 import { RichTextView } from '../RichText'

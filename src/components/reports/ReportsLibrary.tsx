@@ -9,6 +9,7 @@ import { api } from '../../../convex/_generated/api'
 import {
   EMPTY_ACTION_CLASS,
   EmptyState,
+  NoMatches,
 } from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { ListPending } from '#/components/shell/Pending'
@@ -177,15 +178,21 @@ export function ReportsLibrary({
       <section className="px-4 pb-6 pt-4">
         {loading ? (
           <ListPending label="Loading reports" count={3} />
+        ) : rows.length === 0 && searching ? (
+          <NoMatches
+            term={query}
+            hint="Try a client, a street, a form name or a report number."
+            clearLabel="Clear search"
+            onClear={() => onQuery('')}
+          />
         ) : rows.length === 0 ? (
           <EmptyState
-            title={emptyTitle(segment, searching)}
-            body={emptyBody(segment, searching)}
+            title={emptyTitle(segment)}
+            body={emptyBody(segment)}
             action={
-              // Only the true empty — every report, no search — has
-              // nothing to do but start one.
-              segment === 'all' &&
-              !searching && (
+              // Only the true empty — every report — has nothing to do but
+              // start one.
+              segment === 'all' && (
                 <Link
                   to="/$businessSlug/reports/new"
                   params={{ businessSlug }}
@@ -282,16 +289,13 @@ function StaleDrafts({
   )
 }
 
-function emptyTitle(segment: Segment, searching: boolean): string {
-  if (searching) return 'No matches'
+function emptyTitle(segment: Segment): string {
   if (segment === 'trash') return 'Nothing deleted'
   if (segment === 'draft') return 'No drafts'
   return 'No reports yet'
 }
 
-function emptyBody(segment: Segment, searching: boolean): string {
-  if (searching)
-    return 'Try a client, a street, a form name or a report number.'
+function emptyBody(segment: Segment): string {
   if (segment === 'trash') {
     return 'Deleted drafts wait here for 30 days. Finalised reports are never deleted.'
   }

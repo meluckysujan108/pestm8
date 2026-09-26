@@ -4,7 +4,7 @@ import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Archive, ArchiveRestore, Copy, Trash2 } from 'lucide-react'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { api } from '../../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
@@ -205,7 +205,7 @@ function CloneBuiltinSheet({
   return (
     <SheetShell open={open} onClose={onClose}>
       <form
-        className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+        className={`${SHEET_BODY} pt-3`}
         onSubmit={(e) => {
           e.preventDefault()
           clone.mutate({ businessId, sourceTemplateId, name })
@@ -447,7 +447,7 @@ function DuplicateSheet({
   return (
     <SheetShell open={open} onClose={onClose}>
       <form
-        className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+        className={`${SHEET_BODY} pt-3`}
         onSubmit={(e) => {
           e.preventDefault()
           duplicate.mutate({ businessId, templateId, name })

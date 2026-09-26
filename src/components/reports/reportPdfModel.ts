@@ -6,6 +6,7 @@ import {
   MIN_COORDINATE,
 } from '../../../convex/lib/reportMarkup'
 import type { MarkupPoint, MarkupStroke } from '#/components/pdf/types'
+import { isOffline } from '#/lib/online'
 
 /**
  * The thinking behind a report's PDF on screen, kept apart from React so it
@@ -323,5 +324,5 @@ export function markupProblem(
 
 /** What the phone says about its connection: only "offline" is worth trusting. */
 export function phoneIsOffline(): boolean {
-  return typeof navigator !== 'undefined' && navigator.onLine === false
+  return isOffline()
 }

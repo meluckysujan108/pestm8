@@ -7,6 +7,7 @@ import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
 import type { Segment } from '#/components/reports/ReportsLibrary'
 import { useCan } from '#/lib/access'
 import { reportsFirstPage, rq, searchParam, warm } from '#/lib/routeQueries'
+import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
 
 const SEGMENTS = ['all', 'draft', 'finalised', 'sent', 'trash'] as const
 
@@ -67,7 +68,7 @@ function ReportsPage() {
               to="/$businessSlug/reports/new"
               params={{ businessSlug: business.slug }}
               aria-label="New report"
-              className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95]"
+              className={HEADER_ADD_BUTTON}
             >
               <Plus size={20} strokeWidth={2} />
             </Link>

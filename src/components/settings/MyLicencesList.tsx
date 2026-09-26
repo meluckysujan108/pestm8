@@ -1,12 +1,13 @@
-import { LoaderCircle, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { MAX_LICENCES } from '../../../convex/lib/memberLicences'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { licenceErrorCopy } from '#/lib/licenceErrors'
 import { ExpiryBadge, LicenceLeading } from './LicenceBits'
 import { licenceSubtitle } from './licenceExpiry'
-import { ROW_CLASS, SettingsGroup, SettingsLinkRow, SettingsRow } from './ui'
+import { SettingsGroup, SettingsLinkRow, SettingsRow } from './ui'
 import { useBusinessToday, useMyLicences } from './useMyLicences'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { RowPending } from '#/components/shell/Pending'
 
 /**
  * "My licences" on the Licences page: one row per licence the person holds —
@@ -55,17 +56,7 @@ export function MyLicencesList({
             subtitle="Your licences show here once this phone has signal."
           />
         ) : (
-          <div className={`${ROW_CLASS} justify-center`}>
-            <LoaderCircle
-              aria-hidden
-              size={20}
-              strokeWidth={1.7}
-              className="animate-spin text-muted"
-            />
-            <span className="sr-only" role="status">
-              Loading your licences
-            </span>
-          </div>
+          <RowPending label="Loading your licences" />
         )
       ) : (
         <>

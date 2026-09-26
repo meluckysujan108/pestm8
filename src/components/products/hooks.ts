@@ -1,4 +1,4 @@
-import { useEffect, useState, useSyncExternalStore } from 'react'
+import { useEffect, useState } from 'react'
 import { readKeptPhoto } from '#/lib/keptProducts'
 
 /**
@@ -10,28 +10,8 @@ import { readKeptPhoto } from '#/lib/keptProducts'
  * host: `#/components/pdf/host/useShareSupport`.)
  */
 
-function subscribeToConnection(onChange: () => void): () => void {
-  window.addEventListener('online', onChange)
-  window.addEventListener('offline', onChange)
-  return () => {
-    window.removeEventListener('online', onChange)
-    window.removeEventListener('offline', onChange)
-  }
-}
-
-/**
- * Whether the phone says it has a connection. Only "false" is worth trusting:
- * a phone with one bar of signal still says online, which is why the page
- * also falls back to the kept copies when the list is merely slow. True on
- * the server, so nothing renders as offline before the browser has said so.
- */
-export function useOnline(): boolean {
-  return useSyncExternalStore(
-    subscribeToConnection,
-    () => navigator.onLine,
-    () => true,
-  )
-}
+/** Kept under its old name for the products screens; see src/lib/online.ts. */
+export { useOnline } from '#/lib/online'
 
 /**
  * An object URL for a Blob, revoked when the Blob changes or the component

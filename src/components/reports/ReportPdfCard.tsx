@@ -14,6 +14,7 @@ import {
   NEUTRAL_BUTTON,
   SECONDARY_BUTTON,
 } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * The PDF tab: what the document is, whether it is ready, and the one way in —
@@ -90,14 +91,7 @@ export function ReportPdfCard({
           </div>
         </div>
 
-        {failed && (
-          <p
-            role="alert"
-            className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
-            {status.problem}
-          </p>
-        )}
+        {failed && <FormAlert className="mt-3">{status.problem}</FormAlert>}
 
         <div className="mt-4 flex gap-2">
           {failed && (

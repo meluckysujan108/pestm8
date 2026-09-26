@@ -1,6 +1,10 @@
 import { AU_STATES } from '#/lib/au'
 import { normaliseForSearch } from '#/lib/searchMatch'
 import { stateOfPostcode } from '../../convex/lib/postcodes'
+import { isOffline } from './online'
+
+// Re-exported for the address and email checks that have always asked here.
+export { isOffline }
 
 /**
  * Street address suggestions for the client and site forms (Prompt 6.2).
@@ -491,12 +495,6 @@ export function networkLookupsAllowed(): boolean {
   } catch {
     return false
   }
-}
-
-/** The browser says there is no connection at all. One bar that answers
- * nothing still counts as online, which is what the time limits are for. */
-export function isOffline(): boolean {
-  return typeof navigator !== 'undefined' && navigator.onLine === false
 }
 
 /**

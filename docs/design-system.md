@@ -235,7 +235,7 @@ Spacing uses Tailwind's 4px scale. These are the recurring values; use them befo
 - the dock pads its own bottom;
 - `main` pads `pb-[calc(68px+env(safe-area-inset-bottom))]` above the dock.
 
-Anything fixed to the bottom on a phone must account for both the dock and the safe area.
+A bar fixed or pinned to the bottom of a phone screen sits directly on the dock at `ABOVE_DOCK` (`shell/dock.ts`), which counts both the dock and the safe area.
 
 ### 2.7 Stacking order
 
@@ -312,7 +312,7 @@ Motion is quiet and quick.
 - Both need a position and a z-index, plus a 1px border on the edge facing the content. Keep that border transparent until something scrolls under it: `useScrolledUnder` sets `data-scrolled`, and `data-scrolled:border-hairline` shows the line.
 - **Glass anywhere else** (a viewer's bars, a floating notice, a builder's bottom bar) is `chrome-blur`.
 
-**The page's create action** is the round red + in the header. It is `relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95]`, with `Plus` at size 20 and an `aria-label` naming what it adds.
+**The page's create action** is the round red + in the header: `HEADER_ADD_BUTTON`, with `Plus` at size 20 and an `aria-label` naming what it adds.
 
 **A Settings page** is `PageHeader back=…` then `SettingsBody`, a column of `SettingsGroup`s, the `DangerGroup` last, and a `SaveBar` if anything is edited (see 4.7).
 
@@ -354,20 +354,21 @@ Look here before writing markup. The drift test fails if any export of these mod
 
 These are class strings. Put them on a `<button>` or a `<Link>`, plus layout classes (`w-full`, `flex-1`, `px-4`).
 
-| Constant                   | Looks                       | Use for                                                                          |
-| -------------------------- | --------------------------- | -------------------------------------------------------------------------------- |
-| `PRIMARY_BUTTON`           | Red fill, white, 48px, 17px | The action that **commits**: Save, Book job, Send, Finalise & lock. One per view |
-| `PRIMARY_BUTTON_COMPACT`   | Same, 44px, 15px            | That action in a dialog, a sheet footer beside another, an edit-in-place pair    |
-| `NEUTRAL_BUTTON`           | Ink fill, 48px              | The main action when nothing is saved: Continue, Next, Open                      |
-| `NEUTRAL_BUTTON_COMPACT`   | Same, 44px                  | The same, compact                                                                |
-| `SECONDARY_BUTTON`         | Grey fill, ink word, 48px   | The alternative beside a primary: Cancel, Back, Clear, Skip                      |
-| `SECONDARY_BUTTON_COMPACT` | Same, 44px                  | A dialog's way out                                                               |
-| `LINK_BUTTON`              | Grey fill, blue word, 48px  | Goes somewhere or opens something: Open PDF, Add a contact                       |
-| `LINK_BUTTON_COMPACT`      | Same, 44px                  | The same, compact                                                                |
+| Constant                   | Looks                                     | Use for                                                                                                              |
+| -------------------------- | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| `PRIMARY_BUTTON`           | Red fill, white, 48px, 17px               | The action that **commits**: Save, Book job, Send, Finalise & lock. One per view                                     |
+| `PRIMARY_BUTTON_COMPACT`   | Same, 44px, 15px                          | That action in a dialog, a sheet footer beside another, an edit-in-place pair                                        |
+| `NEUTRAL_BUTTON`           | Ink fill, 48px                            | The main action when nothing is saved: Continue, Next, Open                                                          |
+| `NEUTRAL_BUTTON_COMPACT`   | Same, 44px                                | The same, compact                                                                                                    |
+| `SECONDARY_BUTTON`         | Grey fill, ink word, 48px                 | The alternative beside a primary: Cancel, Back, Clear, Skip                                                          |
+| `SECONDARY_BUTTON_COMPACT` | Same, 44px                                | A dialog's way out                                                                                                   |
+| `LINK_BUTTON`              | Grey fill, blue word, 48px                | Goes somewhere or opens something: Open PDF, Add a contact                                                           |
+| `LINK_BUTTON_COMPACT`      | Same, 44px                                | The same, compact                                                                                                    |
+| `HEADER_ADD_BUTTON`        | Round red +, 36px drawn, 44px to a finger | The page's create action in `PageHeader`: New job, New client, New report. With an `aria-label` and a size-20 `Plus` |
 
 **Rules:**
 
-- **Red means commit.** One red button per view (the header's + aside). A destructive confirm is red too, but only inside `ConfirmDialog`. No button is ever filled blue.
+- **Red means commit.** One red button per view (`HEADER_ADD_BUTTON` aside). A destructive confirm is red too, but only inside `ConfirmDialog`. No button is ever filled blue.
 - **A button's words are the verb it performs:**
   - A create commits with the verb and the noun ("Book job", "Add product").
   - An edit form commits with "Save".

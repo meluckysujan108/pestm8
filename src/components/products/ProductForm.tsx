@@ -20,6 +20,7 @@ import {
   SECONDARY_BUTTON,
 } from '#/components/primitives/buttons'
 import { FIELD_SURFACE } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * The product form, for a new product and for editing one.
@@ -372,14 +373,7 @@ export function ProductForm({
       </div>
       {pdfError && <FieldError>{pdfError}</FieldError>}
 
-      {save.error && (
-        <p
-          role="alert"
-          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          {save.error}
-        </p>
-      )}
+      {save.error && <FormAlert className="mt-4">{save.error}</FormAlert>}
 
       <div className="mt-5 flex gap-2">
         {onCancel && (

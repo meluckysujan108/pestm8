@@ -10,6 +10,7 @@ import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * Accepting an invitation.
@@ -111,7 +112,7 @@ function JoinPage() {
       </p>
 
       {redeem.isError && !isMfaEnrolmentError(redeem.error) && (
-        <Alert>{redeemMessage(redeem.error, emailHint)}</Alert>
+        <FormAlert>{redeemMessage(redeem.error, emailHint)}</FormAlert>
       )}
 
       {signedInEmail && wrongAccount ? (
@@ -220,16 +221,5 @@ function Shell({
       <h1 className="text-page-title text-ink">{title}</h1>
       {children}
     </main>
-  )
-}
-
-function Alert({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-    >
-      {children}
-    </p>
   )
 }

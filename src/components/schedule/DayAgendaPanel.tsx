@@ -5,6 +5,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import {
   EmptyState,
   EmptyStateButton,
+  NoMatches,
 } from '#/components/primitives/EmptyState'
 import { formatDayLabel } from '#/lib/format'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
@@ -154,26 +155,24 @@ export function DayAgendaPanel({
         />
       )}
 
-      {filteredJobs.length === 0 ? (
+      {jobs.length === 0 ? (
         <EmptyState
-          title={
-            jobs.length === 0
-              ? mode === 'mine'
-                ? 'Nothing booked for you'
-                : 'Nothing booked'
-              : 'No matching jobs'
-          }
-          body={
-            jobs.length === 0
-              ? 'This day is clear.'
-              : 'No jobs match this filter.'
-          }
+          title={mode === 'mine' ? 'Nothing booked for you' : 'Nothing booked'}
+          body="This day is clear."
           action={
-            jobs.length === 0 &&
             onNewJob && (
               <EmptyStateButton onClick={onNewJob}>Book a job</EmptyStateButton>
             )
           }
+        />
+      ) : filteredJobs.length === 0 ? (
+        <NoMatches
+          hint="No jobs on this day match these filters."
+          clearLabel="Clear filters"
+          onClear={() => {
+            setStatus('all')
+            setStaffId('all')
+          }}
         />
       ) : (
         <div className="grid grid-cols-1 items-stretch gap-3 xl:grid-cols-2">

@@ -18,6 +18,7 @@ import { NotesRail, useLibraryFolders } from './NotesRail'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { LibraryFilter } from './NoteList'
 import { TextPending } from '#/components/shell/Pending'
+import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
 
 export function NotesLibrary({
   business,
@@ -82,7 +83,7 @@ export function NotesLibrary({
       aria-label="New note"
       disabled={!hydrated || create.isPending}
       onClick={() => create.mutate()}
-      className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+      className={HEADER_ADD_BUTTON}
     >
       <Plus size={20} strokeWidth={2} />
     </button>
@@ -155,6 +156,7 @@ export function NotesLibrary({
               timezone={business.timezone}
               filter={folder}
               query={query}
+              onClearSearch={() => onQuery('')}
               selectedId={noteId}
               onSelect={onOpen}
               onNew={() => create.mutate()}

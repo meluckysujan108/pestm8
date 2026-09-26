@@ -7,6 +7,7 @@ import {
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
 import { FIELD_COMPACT } from '#/components/forms/FormField'
+import { NoMatches } from '#/components/primitives/EmptyState'
 
 /**
  * Choosing from a long list, on a phone, with gloves on.
@@ -200,9 +201,13 @@ export function PickerSheet({
         ))}
 
         {matches.length === 0 && (
-          <li className="px-1 py-3 text-caption text-muted">
-            Nothing matches “{query.trim()}”.
-            {onAdd ? ' Add it below.' : ''}
+          <li>
+            <NoMatches
+              term={query}
+              hint={onAdd ? 'Add it below.' : undefined}
+              clearLabel="Clear search"
+              onClear={() => setQuery('')}
+            />
           </li>
         )}
       </ul>

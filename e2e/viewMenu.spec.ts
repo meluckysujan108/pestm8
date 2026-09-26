@@ -69,7 +69,7 @@ test('God view shows everyone; "Just my jobs" shows his own and simplifies', asy
 /**
  * Filtered to Kevin in God view, then switched to his own jobs: without the
  * reset, the list would hold only the owner's jobs and the filter would still
- * want Kevin's — "No matching jobs", with the staff picker hidden in that view
+ * want Kevin's — "No matches", with the staff picker hidden in that view
  * and so no way to see why.
  */
 test('changing view starts the filters over', async ({ page }) => {
@@ -92,7 +92,7 @@ test('changing view starts the filters over', async ({ page }) => {
   await choose(page, /Just my jobs/)
 
   await expect(ownJob(page)).toBeVisible()
-  await expect(page.getByText('No matching jobs')).toBeHidden()
+  await expect(page.getByText('No matches', { exact: true })).toBeHidden()
 })
 
 test('the choice belongs to this device: another sign-in stays in God view', async ({

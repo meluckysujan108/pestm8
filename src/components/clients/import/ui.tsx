@@ -1,5 +1,6 @@
 import { Check } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { ABOVE_DOCK } from '#/components/shell/dock'
 
 /**
  * The pieces every step of "Bring your clients across" is laid out with, so
@@ -134,7 +135,9 @@ export function Stepper({ current }: { current: StepKey }) {
  */
 export function BottomBar({ children }: { children: ReactNode }) {
   return (
-    <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-20 -mx-4 mt-6 border-t border-hairline bg-canvas/90 px-4 py-3 backdrop-blur lg:bottom-0">
+    <div
+      className={`sticky ${ABOVE_DOCK} z-20 -mx-4 mt-6 border-t border-hairline bg-canvas/90 px-4 py-3 backdrop-blur lg:bottom-0`}
+    >
       {children}
     </div>
   )
