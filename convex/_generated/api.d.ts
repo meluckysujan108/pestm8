@@ -102,6 +102,7 @@ import type * as reportAnnotations from "../reportAnnotations.js";
 import type * as reportPdf from "../reportPdf.js";
 import type * as reportPipeline from "../reportPipeline.js";
 import type * as reports from "../reports.js";
+import type * as setupGuide from "../setupGuide.js";
 import type * as snippets from "../snippets.js";
 import type * as team from "../team.js";
 import type * as templateSettings from "../templateSettings.js";
@@ -212,6 +213,7 @@ declare const fullApi: ApiFromModules<{
   reportPdf: typeof reportPdf;
   reportPipeline: typeof reportPipeline;
   reports: typeof reports;
+  setupGuide: typeof setupGuide;
   snippets: typeof snippets;
   team: typeof team;
   templateSettings: typeof templateSettings;

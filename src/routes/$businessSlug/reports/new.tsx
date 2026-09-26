@@ -5,7 +5,11 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { z } from 'zod'
 import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
-import { EmptyState } from '#/components/primitives/EmptyState'
+import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
+import {
+  EmptyState,
+  EmptyStateButton,
+} from '#/components/primitives/EmptyState'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
 import { suggestTemplate } from '#/lib/reportTemplates/suggest'
 import type { TemplateId } from '#/lib/reportTemplates'
@@ -30,6 +34,9 @@ function NewReportPage() {
 
   const navigate = useNavigate()
   const [propertyId, setPropertyId] = useState('')
+  // Straight from "No properties yet": the client and address, here, and
+  // then the picker below with it chosen.
+  const [newClientOpen, setNewClientOpen] = useState(false)
 
   const { data: properties } = useSuspenseQuery(
     convexQuery(api.properties.list, { businessId: business._id }),
@@ -103,7 +110,15 @@ function NewReportPage() {
         {properties.length === 0 ? (
           <EmptyState
             title="No properties yet"
-            body="Add a client property first — a report is always about an address."
+            body="Add a client first — a report is always about an address."
+            action={
+              <EmptyStateButton
+                onClick={() => setNewClientOpen(true)}
+                disabled={!hydrated}
+              >
+                Add a client
+              </EmptyStateButton>
+            }
           />
         ) : (
           <>
@@ -211,6 +226,12 @@ function NewReportPage() {
           </>
         )}
       </div>
+
+      <NewPropertySheet
+        businessId={business._id}
+        open={newClientOpen}
+        onClose={() => setNewClientOpen(false)}
+      />
     </>
   )
 }

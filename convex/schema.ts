@@ -329,6 +329,9 @@ export default defineSchema({
         /** Their answer to "Who works with you?", for what comes after. */
         team: v.optional(v.union(v.literal('solo'), v.literal('team'))),
         finishedAt: v.optional(v.number()),
+        /** The owner put the set-up guide away (convex/setupGuide.ts).
+         * Settings brings it back. */
+        guideHiddenAt: v.optional(v.number()),
       }),
     ),
   }).index('by_slug', ['slug']),
