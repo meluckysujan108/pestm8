@@ -17,7 +17,11 @@ export const COLOURS = {
   /** Body prose and secondary values. */
   ink2: '#3A3A3C',
   muted: '#8E8E93',
-  red: '#FF3B30',
+  // The screen's red-fill (styles.css), not the brand #FF3B30: the band and
+  // the table header put white text on it, which the brand red holds at
+  // 3.5:1 and this at 4.8:1, and the red headings on white paper gain the
+  // same. Decided 2026-09-26 (design-survey 6.3).
+  red: '#DC2A1F',
   /** The label column of every key/value table. */
   labelTint: '#FFF2F2',
   hairline: '#E5E5EA',

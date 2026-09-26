@@ -591,7 +591,7 @@ async function suburbIssue(
     return {
       field: 'suburb',
       level: 'warning',
-      message: `Couldn't find ${suburb} in ${state}. Did you mean ${close.name}?`,
+      message: `Could not find ${suburb} in ${state}. Did you mean ${close.name}?`,
       fix: { label: `Use ${close.name}`, patch: { suburb: close.name } },
     }
   }
@@ -617,7 +617,7 @@ async function suburbIssue(
     return {
       field: 'suburb',
       level: 'warning',
-      message: `Couldn't find ${suburb} in ${state}. Did you mean ${closeThere.name}, ${postcodeState}?`,
+      message: `Could not find ${suburb} in ${state}. Did you mean ${closeThere.name}, ${postcodeState}?`,
       fix: {
         label: `Use ${closeThere.name} ${postcodeState}`,
         patch: { suburb: closeThere.name, state: postcodeState },
@@ -633,7 +633,7 @@ async function suburbIssue(
     return {
       field: 'suburb',
       level: 'warning',
-      message: `Couldn't find ${suburb} in ${state}. ${opts.postcode} is ${possessive(usingPostcode.name)} postcode.`,
+      message: `Could not find ${suburb} in ${state}. ${opts.postcode} is ${possessive(usingPostcode.name)} postcode.`,
       fix: {
         label: `Use ${usingPostcode.name}`,
         patch: { suburb: usingPostcode.name },
@@ -644,7 +644,7 @@ async function suburbIssue(
   return {
     field: 'suburb',
     level: 'warning',
-    message: `Couldn't find a suburb called ${suburb} in ${state}.`,
+    message: `Could not find a suburb called ${suburb} in ${state}.`,
   }
 }
 
@@ -905,7 +905,7 @@ export function readStreetCheck(
       issue: {
         field: 'suburb',
         level: 'warning',
-        message: `Couldn't find ${shown} in ${where} itself on the map, only in ${listed(inCity)}.`,
+        message: `Could not find ${shown} in ${where} itself on the map, only in ${listed(inCity)}.`,
       },
     }
   }
@@ -919,8 +919,8 @@ export function readStreetCheck(
       field: 'addressLine',
       level: 'warning',
       message: close
-        ? `Couldn't find ${shown} in ${where} on the map. Did you mean ${close}?`
-        : `Couldn't find ${shown} in ${where} on the map.`,
+        ? `Could not find ${shown} in ${where} on the map. Did you mean ${close}?`
+        : `Could not find ${shown} in ${where} on the map.`,
       ...(line
         ? { fix: { label: `Use ${close}`, patch: { addressLine: line } } }
         : {}),

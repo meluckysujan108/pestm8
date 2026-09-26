@@ -42,6 +42,7 @@ import {
   SECONDARY_BUTTON,
 } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * Setting up two-step sign-in. Optional (convex/lib/mfa.ts): people arrive
@@ -266,7 +267,7 @@ function TwoStepPage() {
         </p>
       ) : after?.kind === 'no-codes' ? (
         <div className="flex flex-col gap-4">
-          <Alert>{RECOVERY_CODES_NOT_MADE}</Alert>
+          <FormAlert>{RECOVERY_CODES_NOT_MADE}</FormAlert>
           <button
             type="button"
             onClick={() => void finish()}
@@ -405,7 +406,7 @@ function PasswordStep({
     // goes to sign-in.
     return (
       <div className="flex flex-col gap-3">
-        <Alert>{SIGNED_OUT_HERE}</Alert>
+        <FormAlert>{SIGNED_OUT_HERE}</FormAlert>
         <button
           type="button"
           disabled={!hydrated}
@@ -501,14 +502,14 @@ function PasswordStep({
         <span className="text-caption text-muted">{copy.hint}</span>
       </label>
 
-      {error && <Alert>{error}</Alert>}
+      {error && <FormAlert>{error}</FormAlert>}
 
       <button
         type="submit"
         disabled={pending || !hydrated || step === 'wait'}
         className={`${PRIMARY_BUTTON} mt-2`}
       >
-        {pending ? 'Just a moment…' : copy.submit}
+        {pending ? 'Checking…' : copy.submit}
       </button>
     </form>
   )
@@ -607,8 +608,8 @@ function ScanStep({
 
   return (
     <div className="flex flex-col gap-5">
-      <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4">
-        <p className="section-label">1 · Add PestM8 to your authenticator</p>
+      <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4 shadow-elevation">
+        <h2 className="section-label">1 · Add PestM8 to your authenticator</h2>
         {notice.tone === 'warn' && (
           <Warning>
             {notice.text}
@@ -626,7 +627,7 @@ function ScanStep({
           </p>
         )}
         <p className="text-body text-muted">
-          Use Google Authenticator, Microsoft Authenticator, or the iPhone's own
+          Use Google Authenticator, Microsoft Authenticator, or the iPhone’s own
           Passwords app. On this phone, tap the button — it opens the app with
           PestM8 filled in.
         </p>
@@ -687,7 +688,7 @@ function ScanStep({
           e.preventDefault()
           void verify(code)
         }}
-        className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4"
+        className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4 shadow-elevation"
       >
         <label className="flex flex-col gap-1.5">
           <span className="section-label">
@@ -706,14 +707,14 @@ function ScanStep({
               setCode(next)
               if (next.length === 6) void verify(next)
             }}
-            className="h-12 rounded-xl bg-surface-3 px-3.5 text-center font-mono text-[22px] tracking-[0.3em] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className="h-12 rounded-xl bg-surface-3 px-3.5 text-center font-mono text-sheet-title font-medium tracking-[0.3em] text-ink outline-none focus:ring-2 focus:ring-blue"
           />
         </label>
 
         {lost ? (
           // An iPhone home-screen app has no reload button of its own.
           <div className="flex flex-col gap-3">
-            <Alert>{SETUP_SIGN_IN_LOST}</Alert>
+            <FormAlert>{SETUP_SIGN_IN_LOST}</FormAlert>
             <button
               type="button"
               onClick={() => window.location.reload()}
@@ -723,7 +724,7 @@ function ScanStep({
             </button>
           </div>
         ) : (
-          error && <Alert>{error}</Alert>
+          error && <FormAlert>{error}</FormAlert>
         )}
 
         <button
@@ -747,8 +748,8 @@ function ScanStep({
       )}
 
       {onStartOver && confirming && (
-        <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4">
-          <p className="section-label">Start over with a new key</p>
+        <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4 shadow-elevation">
+          <h2 className="section-label">Start over with a new key</h2>
           <Warning>
             {START_OVER_WARNING}
             <span className="mt-1 block">{howToDelete}</span>
@@ -768,24 +769,12 @@ function ScanStep({
               onClick={() => void startOver()}
               className={`${PRIMARY_BUTTON} flex-1`}
             >
-              {pending ? 'Just a moment…' : 'Make a new key'}
+              {pending ? 'Making a new key…' : 'Make a new key'}
             </button>
           </div>
         </section>
       )}
     </div>
-  )
-}
-
-/** Something that went wrong, announced as it appears. */
-function Alert({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-    >
-      {children}
-    </p>
   )
 }
 

@@ -24,6 +24,7 @@ import type { ChangeEvent } from 'react'
 import type { LicenceFileView } from './licenceSource'
 import type { WalletLicence } from './useMyLicences'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { isOffline } from '#/lib/online'
 
 /**
  * A licence's files, on its own page: each opens in the viewer, each can be
@@ -229,7 +230,7 @@ export function LicenceFiles({
         // failing, and the row would say "Uploading…" for as long as the
         // phone is out of range. Say so now instead, and give up on a URL
         // that has not come back in a while — both are worded as offline.
-        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        if (isOffline()) {
           throw new Error('offline')
         }
         setStage({ step: 'uploading', n, of: files.length })
@@ -286,7 +287,7 @@ export function LicenceFiles({
   const convexRemoveFile = useConvexMutation(api.memberLicences.removeFile)
   const removeFile = useMutation({
     mutationFn: async (fileId: string) => {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      if (isOffline()) {
         throw new Error('offline')
       }
       return convexRemoveFile({
@@ -450,6 +451,7 @@ export function LicenceFiles({
         }}
         title={`Remove ${confirmed.current?.fileName ?? 'this file'}?`}
         body="It goes from this licence, and from this phone. You can add it again at any time."
+        cancel="Keep file"
         confirm="Remove"
         onConfirm={() => {
           if (confirming) removeFile.mutate(confirming._id)

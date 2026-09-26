@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { DropdownMenu } from 'radix-ui'
 import {
   Camera,
@@ -50,6 +50,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 /**
  * Loaded on demand, not with the schedule.
@@ -177,13 +179,13 @@ function JobDetailBody({
   jobId: Id<'jobs'>
   canReassign: boolean
 }) {
-  const { data: job } = useQuery(
-    convexQuery(api.jobs.get, { businessId, jobId }),
-  )
+  const jobQuery = useQuery(convexQuery(api.jobs.get, { businessId, jobId }))
+  const job = jobQuery.data
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
   const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] = useState(false)
   const [makeRecurringOpen, setMakeRecurringOpen] = useState(false)
   const [editing, setEditing] = useState(false)
+  const hydrated = useHydrated()
 
   // The notes and reports sections render only once `job` has arrived. Asking
   // for their code now lets it load alongside the job rather than after it.
@@ -264,7 +266,7 @@ function JobDetailBody({
   return (
     <>
       {job ? (
-        <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
+        <div className={`${SHEET_BODY} pt-3`}>
           {/* A short, sayable number — the opaque Convex id is useless over
               the phone or on a paper docket (older jobs predate this field
               and simply have none). */}
@@ -360,26 +362,26 @@ function JobDetailBody({
               {/* The business asked to be stopped here. Said where the tap
                   happened, and naming the way out — the report section is
                   directly below. */}
-              {complete.isError && (
-                <p
-                  role="alert"
-                  className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-                >
-                  {complete.error.message.includes('REPORT_REQUIRED')
-                    ? 'Finalise this job’s report first — your business asks for one before a job is marked complete.'
-                    : 'Could not mark this job complete.'}
-                </p>
-              )}
-              {setStatus.isError && (
-                <p
-                  role="alert"
-                  className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-                >
-                  {setStatus.error.message.includes('REPORT_REQUIRED')
-                    ? 'Finalise this job’s report first — your business asks for one before a job is marked invoiced.'
-                    : 'Could not change this job’s status.'}
-                </p>
-              )}
+              <FormAlert
+                className="mt-2"
+                error={complete.isError ? complete.error : null}
+                copy={{
+                  REPORT_REQUIRED:
+                    'Finalise this job’s report first — your business asks for one before a job is marked complete.',
+                  default:
+                    'Could not mark this job complete. Check your signal and try again.',
+                }}
+              />
+              <FormAlert
+                className="mt-2"
+                error={setStatus.isError ? setStatus.error : null}
+                copy={{
+                  REPORT_REQUIRED:
+                    'Finalise this job’s report first — your business asks for one before a job is marked invoiced.',
+                  default:
+                    'Could not change this job’s status. Check your signal and try again.',
+                }}
+              />
 
               <Section label="Property">
                 <p className="text-row-title text-ink">
@@ -399,7 +401,7 @@ function JobDetailBody({
                     still shown: it is who to ask for at the door. */}
                 {siteContact && (
                   <div className="mt-3 border-t border-hairline-2 pt-3">
-                    <p className="section-label mb-1">Site contact</p>
+                    <h4 className="section-label mb-1">Site contact</h4>
                     {siteContact.name && (
                       <p className="text-body text-ink">{siteContact.name}</p>
                     )}
@@ -431,7 +433,7 @@ function JobDetailBody({
                     }
                   >
                     {captionOffice && (
-                      <p className="section-label mb-1">Head office</p>
+                      <h4 className="section-label mb-1">Head office</h4>
                     )}
                     <ContactButtons
                       name={job.property.client.name}
@@ -494,8 +496,9 @@ function JobDetailBody({
                 {job.canEdit && job.status !== 'invoiced' && (
                   <button
                     type="button"
+                    disabled={!hydrated}
                     onClick={() => setConfirmStopRepeatingOpen(true)}
-                    className="relative tap-target mt-3 text-caption font-semibold text-red"
+                    className="relative tap-target mt-3 text-caption font-semibold text-red disabled:opacity-50"
                   >
                     Stop repeating
                   </button>
@@ -511,8 +514,9 @@ function JobDetailBody({
                 {job.canEdit && job.status !== 'invoiced' && (
                   <button
                     type="button"
+                    disabled={!hydrated}
                     onClick={() => setMakeRecurringOpen(true)}
-                    className="relative tap-target mt-3 text-caption font-semibold text-blue"
+                    className="relative tap-target mt-3 text-caption font-semibold text-blue disabled:opacity-50"
                   >
                     Make recurring
                   </button>
@@ -575,7 +579,7 @@ function JobDetailBody({
             body={
               <>
                 {job.jobType} for {job.property?.client?.name} at{' '}
-                {formatTime(job.scheduledAt, timezone)} won't happen as booked.
+                {formatTime(job.scheduledAt, timezone)} won’t happen as booked.
                 Nothing is deleted — the visit stays in the schedule marked
                 cancelled, and you can reopen it as booked any time.
               </>
@@ -627,6 +631,15 @@ function JobDetailBody({
           <p className="mt-1 text-body text-muted">
             This job does not exist, or you do not have access to it.
           </p>
+        </div>
+      ) : jobQuery.isError ? (
+        <div className="px-4 py-10">
+          <Drawer.Title className="text-sheet-title text-ink">Job</Drawer.Title>
+          <LoadFailed
+            className="mt-3"
+            what="this job"
+            onRetry={() => void jobQuery.refetch()}
+          />
         </div>
       ) : (
         // The sheet's own shape while the job loads, so it opens at its
@@ -936,14 +949,11 @@ function JobEditForm({
       </EditFieldGroup>
 
       {save.isError && (
-        <p
-          role="alert"
-          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
+        <FormAlert>
           {save.error.message === REPEAT_STEP_FAILED
             ? 'Your changes were saved, but this job was not made recurring. Use “Make recurring” on the job to try again.'
             : 'Could not save these changes.'}
-        </p>
+        </FormAlert>
       )}
 
       <div className="flex gap-2">
@@ -1177,9 +1187,10 @@ function JobReports({
   jobType: string
   timezone: string
 }) {
-  const { data } = useQuery(
+  const reportsQuery = useQuery(
     convexQuery(api.reports.listByProperty, { businessId, propertyId }),
   )
+  const data = reportsQuery.data
 
   // `undefined` while the query is out, so the section shows its loading
   // row rather than "no reports for this visit yet" about reports it has not
@@ -1196,6 +1207,8 @@ function JobReports({
         timezone={timezone}
         label="Reports for this visit"
         reports={forThisJob}
+        failed={reportsQuery.isError}
+        onRetry={() => void reportsQuery.refetch()}
         empty="Nothing yet for this visit."
         action={
           <StartReportButtons
@@ -1214,6 +1227,8 @@ function JobReports({
           timezone={timezone}
           label="Other reports at this property"
           reports={elsewhere}
+          failed={reportsQuery.isError}
+          onRetry={() => void reportsQuery.refetch()}
           empty=""
         />
       )}
@@ -1252,8 +1267,11 @@ function JobPhotos({
   canEdit: boolean
 }) {
   const input = useRef<HTMLInputElement>(null)
+  const addButton = useRef<HTMLButtonElement>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState<JobPhoto | null>(null)
+  const hydrated = useHydrated()
 
   const { data } = useQuery(convexQuery(api.jobs.photos, { businessId, jobId }))
   const photos = (data ?? []) as Array<JobPhoto>
@@ -1305,7 +1323,7 @@ function JobPhotos({
     <Section label="Photos">
       {photos.length > 0 && (
         <div className="mb-3 grid grid-cols-3 gap-2">
-          {photos.map((photo) => (
+          {photos.map((photo, index) => (
             <div key={photo._id} className="relative">
               <img
                 src={photo.url ?? undefined}
@@ -1315,10 +1333,13 @@ function JobPhotos({
               {canEdit && (
                 <button
                   type="button"
-                  aria-label="Remove photo"
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate({ businessId, jobId, photoId: photo._id })}
-                  className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
+                  aria-label={`Remove photo ${index + 1} of ${photos.length}`}
+                  disabled={!hydrated || remove.isPending}
+                  onClick={() => {
+                    remove.reset()
+                    setConfirmRemove(photo)
+                  }}
+                  className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-[.95]"
                 >
                   <Trash2 size={12} strokeWidth={2.4} />
                 </button>
@@ -1331,6 +1352,7 @@ function JobPhotos({
       {canEdit && (
         <>
           <button
+            ref={addButton}
             type="button"
             disabled={busy}
             onClick={() => input.current?.click()}
@@ -1353,9 +1375,35 @@ function JobPhotos({
           />
           {failed && (
             <p role="alert" className="mt-2 text-caption text-amber-ink">
-              Upload failed. Check your connection and try again.
+              Upload failed. Check your signal and try again.
             </p>
           )}
+          <ConfirmDialog
+            open={confirmRemove !== null}
+            onOpenChange={(open) => !open && setConfirmRemove(null)}
+            title="Remove this photo?"
+            body="It comes off this job for everyone who can see it, and can’t be brought back."
+            confirm="Remove"
+            cancel="Keep it"
+            closeOnConfirm={false}
+            pending={remove.isPending}
+            pendingLabel="Removing…"
+            error={
+              remove.isError
+                ? 'Could not remove the photo. Check your signal and try again.'
+                : null
+            }
+            // The photo's own button goes with it; Add photos is the next
+            // thing in the section.
+            returnFocus={(confirmed) => (confirmed ? addButton.current : null)}
+            onConfirm={() => {
+              if (!confirmRemove) return
+              remove.mutate(
+                { businessId, jobId, photoId: confirmRemove._id },
+                { onSuccess: () => setConfirmRemove(null) },
+              )
+            }}
+          />
         </>
       )}
     </Section>

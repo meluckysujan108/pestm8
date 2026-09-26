@@ -28,7 +28,7 @@ import type { ViewerActions, ViewerPager } from './types'
  */
 
 const BAR_MOTION =
-  'transition-[translate,opacity,visibility] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] motion-reduce:transition-none'
+  'transition-[translate,opacity,visibility] duration-300 ease-sheet motion-reduce:transition-none'
 
 export function TopBar({
   barRef,

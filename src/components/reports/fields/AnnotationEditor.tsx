@@ -197,7 +197,7 @@ export function AnnotationEditor({
 
       {failed && (
         <p role="alert" className="mt-2 text-center text-caption text-amber-ink">
-          Could not save the annotation. Check your connection and try again.
+          Could not save the annotation. Check your signal and try again.
         </p>
       )}
     </div>

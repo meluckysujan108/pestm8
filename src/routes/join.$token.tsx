@@ -10,6 +10,7 @@ import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * Accepting an invitation.
@@ -106,18 +107,18 @@ function JoinPage() {
   return (
     <Shell title={`Join ${businessName}`}>
       <p className="mt-2 text-body text-muted">
-        You've been invited as a {roleLabel}. This link works once, and only for{' '}
+        You’ve been invited as a {roleLabel}. This link works once, and only for{' '}
         <span className="text-ink">{emailHint}</span>.
       </p>
 
       {redeem.isError && !isMfaEnrolmentError(redeem.error) && (
-        <Alert>{redeemMessage(redeem.error, emailHint)}</Alert>
+        <FormAlert>{redeemMessage(redeem.error, emailHint)}</FormAlert>
       )}
 
       {signedInEmail && wrongAccount ? (
         <div className="mt-6">
           <p className="text-body text-ink-2">
-            You're signed in as{' '}
+            You’re signed in as{' '}
             <span className="text-ink">{signedInEmail}</span>, but this
             invitation is for <span className="text-ink">{emailHint}</span>.
             Sign out, then carry on with that address.
@@ -198,13 +199,13 @@ function redeemMessage(error: unknown, emailHint: string) {
   if (message.includes('INVITE_EMAIL_MISMATCH')) {
     return `This invitation was sent to ${emailHint}. Sign out, then carry on with that address.`
   }
-  if (message.includes('ALREADY_MEMBER')) return "You're already on this team."
+  if (message.includes('ALREADY_MEMBER')) return 'You’re already on this team.'
   if (message.includes('INVITE_ALREADY_USED')) {
     return 'This link has already been used.'
   }
   if (message.includes('INVITE_EXPIRED')) return 'This link has expired.'
   if (message.includes('INVITE_REVOKED')) return 'This link was withdrawn.'
-  return 'Could not join. Check your connection and try again.'
+  return 'Could not join. Check your signal and try again.'
 }
 
 function Shell({
@@ -220,16 +221,5 @@ function Shell({
       <h1 className="text-page-title text-ink">{title}</h1>
       {children}
     </main>
-  )
-}
-
-function Alert({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-    >
-      {children}
-    </p>
   )
 }

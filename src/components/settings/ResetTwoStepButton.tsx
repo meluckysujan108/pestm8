@@ -10,6 +10,7 @@ import {
   PRIMARY_BUTTON_COMPACT,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * The owner's way back in for a technician who has lost their phone AND their
@@ -105,12 +106,7 @@ export function ResetTwoStepButton({
       </p>
 
       {reset.isError && (
-        <p
-          role="alert"
-          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          {resetError(reset.error)}
-        </p>
+        <FormAlert className="mt-2">{resetError(reset.error)}</FormAlert>
       )}
 
       <div className="mt-3 flex gap-2">
@@ -122,7 +118,7 @@ export function ResetTwoStepButton({
           }}
           className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
-          Cancel
+          Keep it
         </button>
         <button
           type="button"
@@ -148,5 +144,5 @@ function resetError(error: unknown): string {
   if (message.includes('NO_ACCESS')) {
     return 'Only the business owner, working as themselves, can do this.'
   }
-  return 'Could not reset. Check your connection and try again.'
+  return 'Could not reset. Check your signal and try again.'
 }

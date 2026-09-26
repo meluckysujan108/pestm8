@@ -6,6 +6,7 @@ import { forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 export const Route = createFileRoute('/login')({ component: LoginPage })
 
@@ -42,13 +43,16 @@ function LoginPage() {
 
     const result = await authClient.signIn.email({ email, password }).catch(
       // A dropped connection rejects rather than answering, and without this
-      // the button sits on "Just a moment…" for good.
+      // the button sits on "Signing in…" for good.
       () => ({ error: { message: 'Could not reach PestM8. Try again.' } }),
     )
 
     if (result.error) {
       setPending(false)
-      setError(result.error.message ?? 'Something went wrong.')
+      setError(
+        result.error.message ??
+          'Could not sign in. Check your signal and try again.',
+      )
       return
     }
 
@@ -113,21 +117,14 @@ function LoginPage() {
             autoComplete="current-password"
           />
 
-          {error && (
-            <p
-              role="alert"
-              className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-            >
-              {error}
-            </p>
-          )}
+          {error && <FormAlert>{error}</FormAlert>}
 
           <button
             type="submit"
             disabled={pending || !hydrated}
             className={`${PRIMARY_BUTTON} mt-2`}
           >
-            {pending ? 'Just a moment…' : 'Sign in'}
+            {pending ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
       )}

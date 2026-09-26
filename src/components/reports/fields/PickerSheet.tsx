@@ -7,6 +7,7 @@ import {
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
 import { FIELD_COMPACT } from '#/components/forms/FormField'
+import { NoMatches } from '#/components/primitives/EmptyState'
 
 /**
  * Choosing from a long list, on a phone, with gloves on.
@@ -45,12 +46,12 @@ function OptionRow({
         disabled={locked}
         onClick={onPick}
         className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition disabled:opacity-60 ${
-          on ? 'border-red bg-red/8' : 'border-hairline bg-surface'
+          on ? 'border-blue bg-blue/8' : 'border-hairline bg-surface'
         }`}
       >
         <span className="flex-1 text-body text-ink">{option.label}</span>
         {on && (
-          <Check size={17} strokeWidth={2.2} className="shrink-0 text-red" />
+          <Check size={17} strokeWidth={2.2} className="shrink-0 text-blue" />
         )}
       </button>
     </li>
@@ -161,7 +162,7 @@ export function PickerSheet({
           it to distinguish from — on a list where everything is usual, the
           word is noise. */}
       {preferred.length > 0 && rest.length > 0 && (
-        <p className="section-label mt-3">Usually</p>
+        <h3 className="section-label mt-3">Usually</h3>
       )}
 
       <ul className="mt-2 flex flex-col gap-1.5">
@@ -181,7 +182,7 @@ export function PickerSheet({
       </ul>
 
       {preferred.length > 0 && rest.length > 0 && (
-        <p className="section-label mt-4">Everything else</p>
+        <h3 className="section-label mt-4">Everything else</h3>
       )}
 
       <ul className="mt-2 flex flex-col gap-1.5">
@@ -200,9 +201,13 @@ export function PickerSheet({
         ))}
 
         {matches.length === 0 && (
-          <li className="px-1 py-3 text-caption text-muted">
-            Nothing matches “{query.trim()}”.
-            {onAdd ? ' Add it below.' : ''}
+          <li>
+            <NoMatches
+              term={query}
+              hint={onAdd ? 'Add it below.' : undefined}
+              clearLabel="Clear search"
+              onClear={() => setQuery('')}
+            />
           </li>
         )}
       </ul>
@@ -262,7 +267,7 @@ export function PickerTrigger({
           ? `${label} — choose`
           : `${label} — ${values.join(', ')}`
       }
-      className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-hairline bg-surface px-3 py-2.5 text-left transition active:scale-[.995]"
+      className="flex min-h-12 w-full items-center justify-between gap-3 rounded-xl border border-hairline bg-surface px-3 py-2.5 text-left transition active:scale-[.99]"
     >
       {values.length === 0 ? (
         <span className="text-body text-muted">{placeholder}</span>
@@ -275,7 +280,7 @@ export function PickerTrigger({
           ))}
         </span>
       )}
-      <span className="shrink-0 text-caption font-semibold text-red">
+      <span className="shrink-0 text-caption font-semibold text-blue">
         {values.length === 0 ? 'Choose' : 'Change'}
       </span>
     </button>

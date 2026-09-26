@@ -31,7 +31,7 @@ const ADDRESS_ROWS =
 const SAVE_COPY = {
   offline:
     'Could not save: this device is offline. Try again when you have signal, or add these later.',
-  default: 'Could not save. Check your connection and try again.',
+  default: 'Could not save. Check your signal and try again.',
 }
 
 /**
@@ -207,7 +207,7 @@ export function BrandStep({
               </div>
               {logoFailed && (
                 <p role="alert" className="mt-2 text-caption text-amber-ink">
-                  Upload failed. Check your connection and try again.
+                  Upload failed. Check your signal and try again.
                 </p>
               )}
             </div>

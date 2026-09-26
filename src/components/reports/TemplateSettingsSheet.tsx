@@ -7,8 +7,10 @@ import { api } from '../../../convex/_generated/api'
 import { fieldsOf, getTemplate } from '#/lib/reportTemplates'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD_COMPACT } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { Bone } from '#/components/shell/Pending'
 
 /**
  * What a business may change about a form it did not write.
@@ -89,128 +91,153 @@ export function TemplateSettingsSheet({
       open={open}
       onClose={() => {
         setDraft(null)
+        save.reset()
         onClose()
       }}
       title={`${template.name} settings`}
-      description="The form's questions and wording stay as they are. These are the parts that are yours."
+      description="The form’s questions and wording stay as they are. These are the parts that are yours."
       footer={
-        <button
-          type="button"
-          disabled={save.isPending || saved === undefined}
-          onClick={() =>
-            save.mutate({
-              businessId,
-              templateRef: templateId,
-              coverTitle: current.coverTitle,
-              coverSubtitle: current.coverSubtitle,
-              formName: current.formName,
-              requiredSigners: current.requiredSigners,
-            })
-          }
-          className={`${NEUTRAL_BUTTON} w-full`}
-        >
-          {save.isPending ? 'Saving…' : 'Save'}
-        </button>
+        <div className="flex flex-col gap-2">
+          <FormAlert
+            error={save.isError ? save.error : null}
+            copy={{
+              default:
+                'Could not save these settings. Check your signal and try again.',
+            }}
+          />
+          <button
+            type="button"
+            disabled={save.isPending || saved === undefined}
+            onClick={() =>
+              save.mutate({
+                businessId,
+                templateRef: templateId,
+                coverTitle: current.coverTitle,
+                coverSubtitle: current.coverSubtitle,
+                formName: current.formName,
+                requiredSigners: current.requiredSigners,
+              })
+            }
+            className={`${PRIMARY_BUTTON} w-full`}
+          >
+            {save.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       }
     >
-      {template.print?.cover && (
+      {saved === undefined ? (
+        // The form is not shown empty while the saved settings load: typing
+        // into it would be overwritten when they land.
+        <div role="status" className="flex flex-col gap-3">
+          <span className="sr-only">Loading settings</span>
+          <Bone className="h-11 rounded-xl" />
+          <Bone className="h-11 rounded-xl" />
+          <Bone className="h-11 rounded-xl" />
+        </div>
+      ) : (
         <>
-          <p className="section-label">On the cover</p>
-          <div className="mt-1.5 flex flex-col gap-2">
-            <Field
-              label="Title"
-              placeholder={template.print.cover.title}
-              value={current.coverTitle}
-              onChange={(value) => update({ coverTitle: value })}
-            />
-            <Field
-              label="Subtitle"
-              placeholder={template.print.cover.subtitle ?? ''}
-              value={current.coverSubtitle}
-              onChange={(value) => update({ coverSubtitle: value })}
-            />
-          </div>
-        </>
-      )}
+          {template.print?.cover && (
+            <>
+              <h3 className="section-label">On the cover</h3>
+              <div className="mt-1.5 flex flex-col gap-2">
+                <Field
+                  label="Title"
+                  placeholder={template.print.cover.title}
+                  value={current.coverTitle}
+                  onChange={(value) => update({ coverTitle: value })}
+                />
+                <Field
+                  label="Subtitle"
+                  placeholder={template.print.cover.subtitle ?? ''}
+                  value={current.coverSubtitle}
+                  onChange={(value) => update({ coverSubtitle: value })}
+                />
+              </div>
+            </>
+          )}
 
-      {template.print && (
-        <>
-          <p className="section-label mt-4">In the footer and the title band</p>
-          <div className="mt-1.5">
-            <Field
-              label="What this form is called"
-              placeholder={template.print.formName}
-              value={current.formName}
-              onChange={(value) => update({ formName: value })}
-            />
-          </div>
-        </>
-      )}
+          {template.print && (
+            <>
+              <h3 className="section-label mt-4">
+                In the footer and the title band
+              </h3>
+              <div className="mt-1.5">
+                <Field
+                  label="What this form is called"
+                  placeholder={template.print.formName}
+                  value={current.formName}
+                  onChange={(value) => update({ formName: value })}
+                />
+              </div>
+            </>
+          )}
 
-      {signers.length > 0 && (
-        <>
-          <p className="section-label mt-4">
-            Must sign before it can be locked
+          {signers.length > 0 && (
+            <>
+              <h3 className="section-label mt-4">
+                Must sign before it can be locked
+              </h3>
+              <ul className="mt-1.5 flex flex-col gap-1.5">
+                {signers.map((field) => {
+                  const on = current.requiredSigners.includes(field.slot)
+                  return (
+                    <li key={field.slot}>
+                      <button
+                        type="button"
+                        aria-pressed={on}
+                        onClick={() =>
+                          update({
+                            requiredSigners: on
+                              ? current.requiredSigners.filter(
+                                  (slot) => slot !== field.slot,
+                                )
+                              : [...current.requiredSigners, field.slot],
+                          })
+                        }
+                        className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left ${
+                          on
+                            ? 'border-ink/15 bg-surface'
+                            : 'border-hairline bg-surface-2'
+                        }`}
+                      >
+                        <span
+                          className={`flex size-5 shrink-0 items-center justify-center rounded-md ${
+                            on ? 'bg-ink text-surface' : 'bg-surface-3'
+                          }`}
+                        >
+                          {on && <Check size={13} strokeWidth={2.2} />}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-body text-ink">
+                          {field.label.replace(/:$/, '')}
+                        </span>
+                        {/* The forms label both pads "Signature" and
+                            "Technician's Signature", so on their own the two rows
+                            read almost the same. The role is the difference. */}
+                        <span className="shrink-0 text-caption text-muted">
+                          {field.role === 'client' ? 'client' : 'technician'}
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+              </ul>
+              {/* The honest version of "owner-relaxable": turning one off is a
+                  real decision about evidence, not a preference. */}
+              <p className="mt-1.5 text-caption text-muted">
+                A report cannot be locked until every pad ticked here holds a
+                signature. Turning one off does not remove the pad — it stops
+                the app insisting on it.
+              </p>
+            </>
+          )}
+
+          <p className="mt-4 text-caption text-muted">
+            Changing a question, an answer list or the printed wording is a
+            different thing: clone this form first, and your copy stops
+            receiving corrections to the original.
           </p>
-          <ul className="mt-1.5 flex flex-col gap-1.5">
-            {signers.map((field) => {
-              const on = current.requiredSigners.includes(field.slot)
-              return (
-                <li key={field.slot}>
-                  <button
-                    type="button"
-                    aria-pressed={on}
-                    onClick={() =>
-                      update({
-                        requiredSigners: on
-                          ? current.requiredSigners.filter(
-                              (slot) => slot !== field.slot,
-                            )
-                          : [...current.requiredSigners, field.slot],
-                      })
-                    }
-                    className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left ${
-                      on
-                        ? 'border-ink/15 bg-surface'
-                        : 'border-hairline bg-surface-2'
-                    }`}
-                  >
-                    <span
-                      className={`flex size-5 shrink-0 items-center justify-center rounded-md ${
-                        on ? 'bg-ink text-surface' : 'bg-surface-3'
-                      }`}
-                    >
-                      {on && <Check size={13} strokeWidth={2.2} />}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate text-body text-ink">
-                      {field.label.replace(/:$/, '')}
-                    </span>
-                    {/* The forms label both pads "Signature" and
-                        "Technician's Signature", so on their own the two rows
-                        read almost the same. The role is the difference. */}
-                    <span className="shrink-0 text-caption text-muted">
-                      {field.role === 'client' ? 'client' : 'technician'}
-                    </span>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
-          {/* The honest version of "owner-relaxable": turning one off is a
-              real decision about evidence, not a preference. */}
-          <p className="mt-1.5 text-caption text-muted">
-            A report cannot be locked until every pad ticked here holds a
-            signature. Turning one off does not remove the pad — it stops the
-            app insisting on it.
-          </p>
         </>
       )}
-
-      <p className="mt-4 text-caption text-muted">
-        Changing a question, an answer list or the printed wording is a
-        different thing: clone this form first, and your copy stops receiving
-        corrections to the original.
-      </p>
     </Sheet>
   )
 }

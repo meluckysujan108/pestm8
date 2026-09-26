@@ -188,7 +188,7 @@ export function ColourPicker({
       )}
       {save.isError && (
         <p role="alert" className="mt-1.5 px-1.5 text-caption text-amber-ink">
-          Could not change the colour. Check your connection and try again.
+          Could not change the colour. Check your signal and try again.
         </p>
       )}
     </div>

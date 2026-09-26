@@ -23,3 +23,6 @@ playwright-report
 # pdf.js runtime files, copied from node_modules/pdfjs-dist by
 # scripts/copy-pdfjs-assets.mjs before every dev server and build.
 public/pdfjs
+
+# Screenshots from the UI harness (pnpm ui:shots)
+tools/ui-harness/shots/

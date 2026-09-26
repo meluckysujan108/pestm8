@@ -4,11 +4,12 @@ import { convexQuery } from '@convex-dev/react-query'
 import { usePaginatedQuery } from 'convex/react'
 import { ListPending } from '#/components/shell/Pending'
 import { NOTES_PAGE, notesFirstPage, rq } from '#/lib/routeQueries'
-import { Briefcase, ListChecks, Lock, MapPin, Pin, User } from 'lucide-react'
+import { Briefcase, EyeOff, ListChecks, MapPin, Pin, User } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
   EmptyState,
   EmptyStateButton,
+  NoMatches,
 } from '#/components/primitives/EmptyState'
 import { useAccess } from '#/lib/access'
 import { editedLabel, noteGroupLabel, noteGroupOf } from '#/lib/noteDates'
@@ -55,7 +56,7 @@ const EMPTY: Record<LibraryFilter, { title: string; body: string }> = {
     body: 'Procedures, mix ratios, supplier numbers.',
   },
   trash: {
-    title: 'Recently Deleted is empty',
+    title: 'Recently deleted is empty',
     body: 'Deleted notes stay here for 30 days.',
   },
 }
@@ -82,6 +83,7 @@ export function NoteList({
   timezone,
   filter,
   query,
+  onClearSearch,
   selectedId,
   onSelect,
   onNew,
@@ -91,6 +93,8 @@ export function NoteList({
   timezone: string
   filter: LibraryFilter
   query: string
+  /** Empties the search box, for a search that found nothing. */
+  onClearSearch: () => void
   selectedId: Id<'notes'> | null
   onSelect: (id: Id<'notes'>) => void
   /** A new note of your own — offered where one would be listed. */
@@ -219,9 +223,11 @@ export function NoteList({
     return (
       <div className="px-4 py-4">
         {searching ? (
-          <EmptyState
-            title="No matches"
-            body={`Nothing in ${folderLabel(filter)} mentions “${query.trim()}”.`}
+          <NoMatches
+            term={query}
+            hint={`Nothing in ${folderLabel(filter)} mentions it.`}
+            clearLabel="Clear search"
+            onClear={onClearSearch}
           />
         ) : (
           <EmptyState
@@ -335,7 +341,7 @@ function NoteRow({
             {note.title || 'New note'}
           </span>
           {note.private && (
-            <Lock
+            <EyeOff
               size={12}
               strokeWidth={2.4}
               aria-label="Personal"

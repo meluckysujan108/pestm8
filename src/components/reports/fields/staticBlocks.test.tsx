@@ -82,7 +82,7 @@ describe('the lines under the recipient box', () => {
       },
     ])
     expect(noMailMessage('x.com.au')).toBe(
-      "x.com.au doesn't look like it receives email.",
+      'x.com.au doesn’t look like it receives email.',
     )
   })
 

@@ -107,7 +107,7 @@ export function FieldRenderer({
         <p className="mt-1 text-caption text-muted">{field.note}</p>
       )}
       {error && (
-        <p role="alert" className="mt-1 text-caption text-red">
+        <p role="alert" className="mt-1 text-caption text-red-ink">
           {error}
         </p>
       )}

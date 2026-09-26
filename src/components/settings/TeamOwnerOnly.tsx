@@ -11,11 +11,11 @@ export function TeamOwnerOnly() {
   const { isSwitched } = useActing()
   return (
     <EmptyState
-      title="Only the business owner can change these."
+      title="Owners only"
       body={
         isSwitched
-          ? 'Switch back to your own account to manage the team.'
-          : undefined
+          ? 'Only the business owner can change these. Switch back to your own account to manage the team.'
+          : 'Only the business owner can change these.'
       }
     />
   )

@@ -6,10 +6,10 @@ import { DropdownMenu, Popover } from 'radix-ui'
 import {
   Briefcase,
   ChevronLeft,
+  Ellipsis,
+  EyeOff,
   Link2,
-  Lock,
   MapPin,
-  MoreHorizontal,
   Pin,
   PinOff,
   RotateCcw,
@@ -26,6 +26,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { RowPending } from '#/components/shell/Pending'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 type NoteMeta = {
   _id: Id<'notes'>
@@ -161,7 +162,7 @@ export function NoteEditorHeader({
                 type="button"
                 disabled={!hydrated || restore.isPending}
                 onClick={() => restore.mutate(args)}
-                className="flex h-9 items-center gap-1 rounded-full bg-blue/12 px-3 text-caption font-semibold text-blue disabled:opacity-50"
+                className="flex h-11 items-center gap-1 rounded-full bg-blue/12 px-3.5 text-caption font-semibold text-blue disabled:opacity-50"
               >
                 <RotateCcw size={13} strokeWidth={2} />
                 Restore
@@ -170,7 +171,7 @@ export function NoteEditorHeader({
                 type="button"
                 disabled={!hydrated || remove.isPending}
                 onClick={() => setConfirmPurgeOpen(true)}
-                className="flex h-9 items-center gap-1 rounded-full px-3 text-caption font-semibold text-red disabled:opacity-50"
+                className="flex h-11 items-center gap-1 rounded-full px-3.5 text-caption font-semibold text-red disabled:opacity-50"
               >
                 <Trash2 size={14} strokeWidth={2} />
                 Delete now
@@ -200,7 +201,7 @@ export function NoteEditorHeader({
                   disabled={!hydrated}
                   className="flex size-9 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 disabled:opacity-50"
                 >
-                  <MoreHorizontal size={19} strokeWidth={1.7} />
+                  <Ellipsis size={19} strokeWidth={1.7} />
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content
@@ -242,7 +243,7 @@ export function NoteEditorHeader({
                         site or client is already part of that record. */}
                     {note.mine && !note.private && note.kind === 'team' && (
                       <MenuItem
-                        icon={<Lock size={16} strokeWidth={2} />}
+                        icon={<EyeOff size={16} strokeWidth={2} />}
                         onSelect={() => setVisibility.mutate('private')}
                       >
                         Make personal
@@ -267,14 +268,14 @@ export function NoteEditorHeader({
 
       <p className="mt-1 truncate px-1 text-caption text-muted">
         {inTrash
-          ? 'In Recently Deleted · gone for good after 30 days'
+          ? 'In Recently deleted · gone for good after 30 days'
           : `Edited ${note.editorName ? `by ${note.editorName} · ` : ''}${editedLabel(note.updatedAt, timezone, Date.now())}`}
       </p>
       {/* Said on every personal note, so nobody finds out later that the
           owner could read what they wrote. */}
       {note.private && (
         <p className="mt-0.5 flex items-center gap-1 px-1 text-caption text-muted">
-          <Lock size={12} strokeWidth={2.4} className="shrink-0" />
+          <EyeOff size={12} strokeWidth={2.4} className="shrink-0" />
           <span className="truncate">
             {note.mine
               ? `Personal · ${isOwner ? 'only you can see this' : 'only you and the owner can see this'}`
@@ -443,7 +444,8 @@ function JobPickerList({
 }) {
   const [now] = useState(() => Date.now())
   const [query, setQuery] = useState('')
-  const { data: jobs } = useQuery(convexQuery(api.notes.jobOptions, { businessId, now }))
+  const jobsQuery = useQuery(convexQuery(api.notes.jobOptions, { businessId, now }))
+  const jobs = jobsQuery.data
 
   const q = query.trim().toLowerCase()
   const shown = (jobs ?? []).filter(
@@ -479,7 +481,9 @@ function JobPickerList({
             Detach from job
           </button>
         )}
-        {jobs === undefined ? (
+        {jobs === undefined && jobsQuery.isError ? (
+          <LoadFailed what="the jobs" onRetry={() => void jobsQuery.refetch()} />
+        ) : jobs === undefined ? (
           <RowPending label="Loading jobs" className="px-2.5 py-3" />
         ) : shown.length === 0 ? (
           <p className="px-2.5 py-3 text-center text-caption text-muted">No jobs match</p>

@@ -1,9 +1,9 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
@@ -56,6 +56,7 @@ import {
 } from '#/components/clients/ClientRecordBits'
 import { clientNumberFromText } from '../../../convex/lib/clientRecord'
 import type { ClientStatus } from '../../../convex/lib/clientRecord'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 type ClientKind = 'person' | 'business'
 
@@ -66,7 +67,7 @@ function actionCopy(action: string): ErrorCopy {
     offline: `Could not ${action}: this device is offline. Try again when you have signal.`,
     NOT_FOUND: `Could not ${action}: it has changed since you opened this. Close it and look again.`,
     NO_ACCESS: `Could not ${action}: your access does not cover this. Ask the business owner.`,
-    default: `Could not ${action}. Check your connection and try again.`,
+    default: `Could not ${action}. Check your signal and try again.`,
   }
 }
 
@@ -123,9 +124,10 @@ function ClientBody({
   clientId: Id<'clients'>
   onClose: () => void
 }) {
-  const { data: client } = useQuery(
+  const clientQuery = useQuery(
     convexQuery(api.clients.get, { businessId, clientId }),
   )
+  const client = clientQuery.data
   // The contact person is the primary contact (Prompt 6.1), not a field of
   // its own. The same query the Contacts section runs, so no second fetch.
   // Read for a person client too: flipping one back to business in the edit
@@ -151,6 +153,19 @@ function ClientBody({
     void loadLocalities(businessState)
   }, [businessState])
 
+  if (client === undefined && clientQuery.isError) {
+    return (
+      <div className="px-4 py-10">
+        <Drawer.Title className="text-sheet-title text-ink">Client</Drawer.Title>
+        <LoadFailed
+          className="mt-3"
+          what="this client"
+          onRetry={() => void clientQuery.refetch()}
+        />
+      </div>
+    )
+  }
+
   if (client === undefined) {
     return (
       // The sheet's own shape while the client loads, so it opens at its
@@ -175,7 +190,7 @@ function ClientBody({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
+    <div className={`${SHEET_BODY} pt-3`}>
       <div className="flex items-center justify-between gap-2">
         <Drawer.Title className="text-sheet-title text-ink">
           {client.name}
@@ -665,6 +680,9 @@ function ClientContacts({
     convexQuery(api.clientContacts.list, { businessId, clientId }),
   )
   const [adding, setAdding] = useState(false)
+  // Where focus goes once a contact is removed: its row, and the button
+  // that opened the dialog, go with it.
+  const addButton = useRef<HTMLButtonElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   // The primary contact is the client's contact person (Prompt 6.1), shown
   // under its name and edited from the client form, so removing them asks
@@ -794,6 +812,7 @@ function ClientContacts({
         />
       ) : (
         <button
+          ref={addButton}
           type="button"
           onClick={() => setAdding(true)}
           className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
@@ -811,6 +830,7 @@ function ClientContacts({
         cancel="Keep contact"
         confirm="Remove"
         pending={remove.isPending}
+        returnFocus={(confirmed) => (confirmed ? addButton.current : null)}
         onConfirm={() => confirmRemove && removeContact(confirmRemove._id)}
       />
     </Section>
@@ -1177,7 +1197,7 @@ function PropertySiteContact({
   if (!contact) return null
   return (
     <div className="mt-3 border-t border-hairline-2 pt-3">
-      <p className="section-label mb-1">Site contact</p>
+      <h4 className="section-label mb-1">Site contact</h4>
       {contact.name && <p className="text-body text-ink">{contact.name}</p>}
       {contact.phone && (
         <>
@@ -1564,9 +1584,10 @@ function ClientReports({
   clientName: string
   timezone: string
 }) {
-  const { data: reports } = useQuery(
+  const reportsQuery = useQuery(
     convexQuery(api.clients.reports, { businessId, clientId }),
   )
+  const reports = reportsQuery.data
 
   return (
     <InlineReportsSection
@@ -1574,6 +1595,8 @@ function ClientReports({
       timezone={timezone}
       label="Reports"
       reports={reports}
+      failed={reportsQuery.isError}
+      onRetry={() => void reportsQuery.refetch()}
       empty="No reports yet. They are created from a job at one of their properties."
       // Bounded to the newest twenty, so a long-standing client's sheet does
       // not become their whole history.

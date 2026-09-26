@@ -114,7 +114,7 @@ export function RepeaterControl({
             newRow(field.columns),
           ])
         }
-        className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.98] disabled:opacity-40"
+        className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975] disabled:opacity-40"
       >
         <Plus size={16} strokeWidth={2.2} />
         {field.addLabel ?? `Add ${field.label.toLowerCase()}`}

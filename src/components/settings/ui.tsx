@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { ABOVE_DOCK } from '#/components/shell/dock'
 
 /**
  * The pieces every Settings page is built from, so the hub and each page it
@@ -48,7 +49,7 @@ export function IconTile({
   return (
     <span
       aria-hidden
-      className={`flex size-[30px] shrink-0 items-center justify-center rounded-[8px] ${TINT[tint]}`}
+      className={`flex size-[30px] shrink-0 items-center justify-center rounded-sm ${TINT[tint]}`}
     >
       <Icon size={17} strokeWidth={2} />
     </span>
@@ -290,7 +291,9 @@ export function SaveBar({
 }) {
   if (!visible) return null
   return (
-    <div className="sticky bottom-[calc(55px+env(safe-area-inset-bottom))] z-20 -mx-4 mt-4 border-t border-hairline bg-canvas/90 px-4 py-3 backdrop-blur lg:bottom-0">
+    <div
+      className={`sticky ${ABOVE_DOCK} z-20 -mx-4 mt-4 border-t border-hairline bg-canvas/90 px-4 py-3 backdrop-blur lg:bottom-0`}
+    >
       <button
         type="submit"
         form={form}
@@ -299,6 +302,12 @@ export function SaveBar({
       >
         {pending ? 'Saving…' : label}
       </button>
+      {/* The button's word changing is silent to a screen reader; this says
+          it. Mounted with the bar, so it is already listening when "Saved"
+          arrives. */}
+      <span role="status" className="sr-only">
+        {!pending && label === 'Saved' ? 'Saved' : ''}
+      </span>
     </div>
   )
 }

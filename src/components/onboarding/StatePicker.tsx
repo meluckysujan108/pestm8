@@ -41,7 +41,7 @@ export function StatePicker({
               aria-label={s.name}
               onClick={() => onChange(s.code)}
               disabled={!hydrated}
-              className={`h-11 rounded-xl text-body font-semibold transition active:scale-[.96] ${
+              className={`h-11 rounded-xl text-body font-semibold transition active:scale-[.975] ${
                 selected ? 'bg-ink text-canvas' : 'bg-surface-3 text-ink-2'
               }`}
             >

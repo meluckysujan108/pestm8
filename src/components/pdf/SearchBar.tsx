@@ -1,10 +1,4 @@
-import {
-  ChevronDown,
-  ChevronUp,
-  CircleX,
-  LoaderCircle,
-  Search,
-} from 'lucide-react'
+import { ChevronDown, ChevronUp, LoaderCircle, Search, X } from 'lucide-react'
 import type { RefObject } from 'react'
 
 /**
@@ -104,7 +98,7 @@ export function SearchBar({
               }}
               className="absolute right-0 top-0 flex size-11 items-center justify-center text-muted"
             >
-              <CircleX size={17} strokeWidth={2} />
+              <X size={17} strokeWidth={2.2} />
             </button>
           </>
         )}

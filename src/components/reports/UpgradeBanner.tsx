@@ -96,7 +96,7 @@ export function UpgradeBanner({
             // --amber-ink is warning *text*, so it inverts between themes: a
             // dark orange on a pale well in light, a bright one on a dark
             // well in dark. White would be unreadable on the second.
-            className="mt-2 h-9 rounded-xl bg-amber-ink px-3 text-[14px] font-semibold text-canvas transition active:scale-[.975]"
+            className="mt-2 h-11 rounded-xl bg-amber-ink px-4 text-body font-semibold text-canvas outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.975]"
           >
             {switching ? 'Switch to the new form' : 'Start again'}
           </button>
@@ -114,10 +114,10 @@ export function UpgradeBanner({
               : 'A new, empty draft opens for the same property and job. This draft is removed from your list; its photos are kept, not deleted.'}
           </>
         }
-        cancel="Not now"
+        cancel="Keep this version"
         confirm={switching ? 'Switch' : 'Start again'}
         pending={busy}
-        error={failed ? "That didn't go through. Check your connection and try again." : undefined}
+        error={failed ? "That didn’t go through. Check your signal and try again." : undefined}
         closeOnConfirm={false}
         onConfirm={confirm}
       />

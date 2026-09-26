@@ -66,7 +66,7 @@ export function NoMatches({
 
 /** Quieter than a page's red button: an invitation, not an alarm. */
 export const EMPTY_ACTION_CLASS =
-  'inline-flex min-h-11 items-center justify-center rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-blue transition active:scale-[.98] disabled:opacity-50'
+  'inline-flex min-h-11 items-center justify-center rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-blue transition active:scale-[.975] disabled:opacity-50'
 
 export function EmptyStateButton({
   onClick,
@@ -86,5 +86,41 @@ export function EmptyStateButton({
     >
       {children}
     </button>
+  )
+}
+
+/**
+ * Something inside a page that could not load: said in a line, with the way
+ * to ask again, instead of a placeholder that waits for good. For what the
+ * page works without — a job's notes, a sheet's detail, a list in Settings.
+ * A page that cannot load at all throws to ErrorScreen instead.
+ */
+export function LoadFailed({
+  what,
+  onRetry,
+  className = '',
+}: {
+  /** What did not load, as it would follow "Could not load": "the notes". */
+  what: string
+  /** Asks again — usually the query's `refetch`. */
+  onRetry?: () => void
+  className?: string
+}) {
+  return (
+    <p
+      role="alert"
+      className={`flex items-center justify-between gap-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink ${className}`}
+    >
+      <span>Could not load {what}. Check your signal.</span>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="relative tap-target shrink-0 font-semibold underline underline-offset-2"
+        >
+          Try again
+        </button>
+      )}
+    </p>
   )
 }

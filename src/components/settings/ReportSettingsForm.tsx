@@ -155,7 +155,7 @@ export function ReportSettingsForm({
           // own Send button carries no copy, so this does not claim one.
           // With no business email on file there is nothing to fall back to,
           // and the line says what the placeholder does.
-          footer={`Copied on the emails a form sends as it's finalised.${
+          footer={`Copied on the emails a form sends as it’s finalised.${
             loading
               ? ''
               : settings.email
@@ -185,7 +185,7 @@ export function ReportSettingsForm({
               This lets those sends go straight away. */}
           <ReportSwitchRow
             title="Technicians can email new addresses"
-            description="Off, a report to an address not on the client's record waits for your approval."
+            description="Off, a report to an address not on the client’s record waits for your approval."
             checked={settings?.allowTechnicianRecipients}
             disabled={!hydrated || setTechnicianRecipients.isPending}
             failed={setTechnicianRecipients.isError}

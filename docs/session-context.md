@@ -217,7 +217,7 @@ Before editing Convex code, read `convex/_generated/ai/guidelines.md`. CLAUDE.md
 - The app works offline for reading only; there is no mutation queue.
 - Report drafts are mirrored to IndexedDB (`draftMirror.ts`), and product and licence PDFs can be kept on the device.
 
-**Design tokens:** light and dark themes, per ARCHITECTURE §2.1. There is a status colour ramp per job status (`src/lib/statusColours.ts`), and technician colours come from `convex/lib/colours.ts`.
+**Design system:** `docs/design-system.md` is the guide to building UI (read it first). Light and dark themes, per ARCHITECTURE §2.1. There is a status colour ramp per job status (`src/lib/statusColours.ts`), and technician colours come from `convex/lib/colours.ts`.
 
 ## 7. How the work has gone (timeline)
 

@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Camera } from 'lucide-react'
@@ -26,6 +26,7 @@ import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import type { AddressValue } from '#/lib/addressVerify'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { useSavedFlash } from './useJustSaved'
 
 /** The business as the layout's route context carries it. */
 export type BusinessRecord = NonNullable<
@@ -141,12 +142,7 @@ export function BusinessSection({
     (value: Draft[TKey]) =>
       setEdits((prev) => ({ ...prev, [key]: value }))
 
-  const [savedAt, setSavedAt] = useState<number | null>(null)
-  useEffect(() => {
-    if (savedAt === null) return
-    const timer = setTimeout(() => setSavedAt(null), SAVED_SHOWN_MS)
-    return () => clearTimeout(timer)
-  }, [savedAt])
+  const flash = useSavedFlash(SAVED_SHOWN_MS)
 
   const convexUpdate = useConvexMutation(api.businesses.update)
   const save = useMutation({
@@ -167,7 +163,7 @@ export function BusinessSection({
         }
         return next
       })
-      setSavedAt(Date.now())
+      flash.mark()
     },
   })
 
@@ -250,7 +246,7 @@ export function BusinessSection({
 
   const timezone = TIMEZONE_BY_STATE[values.state]
   const showSaveBar =
-    dirty || save.isPending || savedAt !== null || warnings.checking
+    dirty || save.isPending || flash.recently || warnings.checking
 
   return (
     <SaveWarningsProvider value={warnings}>
@@ -380,7 +376,7 @@ export function BusinessSection({
             </div>
             {logoFailed && (
               <p role="alert" className="mt-2 text-caption text-amber-ink">
-                Upload failed. Check your connection and try again.
+                Upload failed. Check your signal and try again.
               </p>
             )}
           </div>
@@ -443,7 +439,7 @@ export function BusinessSection({
           pending={save.isPending}
           disabled={!hydrated || !dirty}
           label={warnings.saveLabel(
-            dirty || savedAt === null ? 'Save' : 'Saved',
+            dirty || !flash.recently ? 'Save' : 'Saved',
           )}
         />
       </form>

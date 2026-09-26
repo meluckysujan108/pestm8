@@ -98,26 +98,26 @@ export function SectionEditor({
         <button
           type="button"
           disabled={isFirst}
-          aria-label="Move section up"
+          aria-label={`Move ${section.title || 'this section'} up`}
           onClick={() => onMove('up')}
-          className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
         >
           <ChevronUp size={16} strokeWidth={2.2} />
         </button>
         <button
           type="button"
           disabled={isLast}
-          aria-label="Move section down"
+          aria-label={`Move ${section.title || 'this section'} down`}
           onClick={() => onMove('down')}
-          className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
         >
           <ChevronDown size={16} strokeWidth={2.2} />
         </button>
         <button
           type="button"
-          aria-label="Remove section"
+          aria-label={`Remove ${section.title || 'this section'}`}
           onClick={onRemove}
-          className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+          className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
         >
           <Trash2 size={16} strokeWidth={2} />
         </button>
@@ -134,7 +134,7 @@ export function SectionEditor({
         {section.fields.map((field, index) => (
           <div
             key={field.key}
-            className="flex items-center gap-1.5 rounded-xl bg-surface-2 px-3 py-2"
+            className="flex items-center gap-0.5 rounded-xl bg-surface-2 py-0.5 pl-3 pr-0.5"
           >
             <span className="flex-1 truncate text-body text-ink">
               {field.label}{' '}
@@ -145,34 +145,34 @@ export function SectionEditor({
             <button
               type="button"
               disabled={index === 0}
-              aria-label={`Move field ${index + 1} up`}
+              aria-label={`Move ${field.label || `field ${index + 1}`} up`}
               onClick={() => moveField(index, 'up')}
-              className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+              className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
             >
               <ChevronUp size={15} strokeWidth={2.2} />
             </button>
             <button
               type="button"
               disabled={index === section.fields.length - 1}
-              aria-label={`Move field ${index + 1} down`}
+              aria-label={`Move ${field.label || `field ${index + 1}`} down`}
               onClick={() => moveField(index, 'down')}
-              className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+              className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
             >
               <ChevronDown size={15} strokeWidth={2.2} />
             </button>
             <button
               type="button"
-              aria-label={`Edit field ${index + 1}`}
+              aria-label={`Edit ${field.label || `field ${index + 1}`}`}
               onClick={() => openEdit(index)}
-              className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+              className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
             >
               <Pencil size={14} strokeWidth={2} />
             </button>
             <button
               type="button"
-              aria-label={`Remove field ${index + 1}`}
+              aria-label={`Remove ${field.label || `field ${index + 1}`}`}
               onClick={() => removeField(index)}
-              className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+              className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
             >
               <Trash2 size={15} strokeWidth={2} />
             </button>

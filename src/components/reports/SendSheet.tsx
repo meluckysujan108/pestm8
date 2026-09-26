@@ -17,6 +17,10 @@ import type { ReportTemplate } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
 import { RowPending } from '#/components/shell/Pending'
+import { formatWhen } from '#/lib/format'
+import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 /**
  * Sending a finished report to the people it is for.
@@ -47,10 +51,12 @@ export const SEND_ERROR: Record<string, string> = {
   // An address on file from before addresses were checked ("bob@gmail"):
   // the server refuses it, and saying only "could not send" hid why.
   INVALID_EMAIL: 'That address can’t receive email. Check it for a typo.',
-  EMAIL_NOT_CONFIGURED: 'Email sending isn’t set up for this business yet.',
+  EMAIL_NOT_CONFIGURED:
+    'Email sending isn’t set up for this business yet. Open the PDF and share it from there for now.',
   RECIPIENT_NEEDS_APPROVAL:
     'Sent to the owner to approve — it will go once they say yes.',
-  REPORT_NOT_FINALISED: 'This report isn’t finalised yet.',
+  REPORT_NOT_FINALISED:
+    'This report isn’t finalised yet. Finalise it, then send it.',
   PDF_UNAVAILABLE: 'Could not prepare the PDF to attach.',
   EMAIL_SEND_FAILED: 'The email failed to send. The history below says why.',
   SEND_RATE_LIMITED:
@@ -507,14 +513,11 @@ export function SendSheet({
             </p>
           )}
           {failed.map((result) => (
-            <p
-              key={result.address}
-              className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-            >
+            <FormAlert key={result.address}>
               {result.address} —{' '}
               {(result.code && SEND_ERROR[result.code]) ??
                 'Could not send the email.'}
-            </p>
+            </FormAlert>
           ))}
         </div>
       )}
@@ -580,10 +583,20 @@ export function DeliveryHistory({
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
 }) {
-  const { data: rows } = useQuery(
+  const timezone = useBusinessTimezone()
+  const history = useQuery(
     convexQuery(api.deliveries.forReport, { businessId, reportId }),
   )
+  const rows = history.data
 
+  if (rows === undefined && history.isError) {
+    return (
+      <LoadFailed
+        what="the delivery history"
+        onRetry={() => void history.refetch()}
+      />
+    )
+  }
   // Loading is not the same as nothing: "Not sent yet." under a report the
   // form already opened a delivery for is a lie, and one a technician would
   // act on by sending it again.
@@ -603,10 +616,7 @@ export function DeliveryHistory({
           </p>
           <p className="text-caption text-muted">
             {row.sentBy?.name ? `${row.sentBy.name} · ` : ''}
-            {new Intl.DateTimeFormat('en-AU', {
-              dateStyle: 'medium',
-              timeStyle: 'short',
-            }).format(new Date(row.sentAt ?? row.createdAt))}
+            {formatWhen(row.sentAt ?? row.createdAt, timezone)}
             {row.trigger === 'finalise' ? ' · asked for by the form' : ''}
           </p>
           {row.status === 'pendingApproval' && row.approvedBy === null && (

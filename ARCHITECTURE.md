@@ -33,6 +33,12 @@ A calendar-first job scheduling and compliance-reporting tool for small Australi
 
 # Part 2 — Design System (extracted from `PestM8_dc.html`)
 
+> *Amended (2026-09-26):* how to build with this system — which component,
+> which token, every screen state, the copy rules — is now
+> [`docs/design-system.md`](docs/design-system.md), which is checked against
+> the code. This Part stays as the record of why the tokens and screens are
+> what they are; where the two differ on how to build something, the guide wins.
+
 ## 2.1 Tokens
 ```
 Colour — light / dark. Both themes ship; the app follows the OS unless the

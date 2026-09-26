@@ -9,6 +9,9 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
+import { formatTime } from '#/lib/format'
+import { deviceTimezone } from '#/lib/useBusinessTimezone'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * The last screen before a document becomes a record.
@@ -82,7 +85,7 @@ export function FinaliseSheet({
       open={open}
       onClose={onClose}
       title="Ready to lock"
-      description="A locked report can't be edited. Corrections go out as a new report."
+      description="A locked report can’t be edited. Corrections go out as a new report."
       footer={
         <>
           {/* Read it before you lock it. Everything above is a summary; this
@@ -90,12 +93,7 @@ export function FinaliseSheet({
               view only, with nothing to share or save, so no copy of a
               document that is not finished can leave the phone. */}
           {onPreview && previewTrouble && (
-            <p
-              role="alert"
-              className="mb-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-            >
-              {previewTrouble}
-            </p>
+            <FormAlert className="mb-2">{previewTrouble}</FormAlert>
           )}
           {onPreview && (
             <button
@@ -121,7 +119,7 @@ export function FinaliseSheet({
     >
       {summary.length > 0 && (
         <>
-          <p className="section-label">In this report</p>
+          <h3 className="section-label">In this report</h3>
           <dl className="mt-1.5 overflow-hidden rounded-xl border border-hairline bg-surface">
             {summary.map((line) => (
               <div
@@ -184,7 +182,7 @@ export function FinaliseSheet({
 
       {recipients.length > 0 && (
         <div className="mt-4">
-          <p className="section-label">Copy to</p>
+          <h3 className="section-label">Copy to</h3>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {recipients.map((address) => (
               <span
@@ -199,7 +197,7 @@ export function FinaliseSheet({
               the form asked for. Sending is its own step, from the finished
               report, and saying "will be emailed" here would promise it. */}
           <p className="mt-1.5 text-caption text-muted">
-            Recorded on the report. Send it from the report once it's locked.
+            Recorded on the report. Send it from the report once it’s locked.
           </p>
         </div>
       )}
@@ -244,11 +242,9 @@ function nowAsTime(): string {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 }
 
+/** `2:05pm` — what `nowAsTime` stored, said the way the app says a time. */
 function readableNow(): string {
-  return new Intl.DateTimeFormat('en-AU', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date())
+  return formatTime(Date.now(), deviceTimezone())
 }
 
 /**

@@ -2,12 +2,12 @@ import {
   BarChart3,
   Briefcase,
   CalendarDays,
+  Contact,
   FileText,
   Package,
   Settings,
   StickyNote,
   Target,
-  Users,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
@@ -35,7 +35,9 @@ export type NavItem = {
  */
 export const PRIMARY_NAV: Array<NavItem> = [
   { to: '/$businessSlug/schedule', label: 'Schedule', icon: CalendarDays },
-  { to: '/$businessSlug/clients', label: 'Clients', icon: Users },
+  // Contact, not Users: Users is the team, and the two sat side by side in
+  // the sidebar and Settings meaning different people.
+  { to: '/$businessSlug/clients', label: 'Clients', icon: Contact },
   { to: '/$businessSlug/reports', label: 'Reports', icon: FileText },
   { to: NOTES_TO, label: 'Notes', icon: StickyNote },
 ]

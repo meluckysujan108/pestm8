@@ -141,6 +141,13 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
   await page
     .getByRole('button', { name: 'Remove Report Photos photo 1', exact: true })
     .click()
+  // A photo is evidence: taking one out asks first.
+  const confirmRemove = page.getByRole('alertdialog', {
+    name: 'Remove Report Photos photo 1?',
+  })
+  await confirmRemove
+    .getByRole('button', { name: 'Remove', exact: true })
+    .click()
   await expect(
     page.getByLabel('Report Photos photo 2 — caption', { exact: true }),
   ).toHaveCount(0)

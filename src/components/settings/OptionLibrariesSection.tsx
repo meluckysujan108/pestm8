@@ -30,6 +30,7 @@ import {
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
 import { FIELD_COMPACT } from '#/components/forms/FormField'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 /**
  * The words a business's own reports offer.
@@ -62,13 +63,19 @@ export function OptionLibrariesSection({
   businessId: Id<'businesses'>
 }) {
   const hydrated = useHydrated()
-  const { data: lists } = useQuery(rq.answerLists(businessId))
+  const listsQuery = useQuery(rq.answerLists(businessId))
+  const lists = listsQuery.data
   const [open, setOpen] = useState<OptionSetKey | null>(null)
   const editing = lists?.find((list) => list.key === open)
 
   return (
     <>
-      {lists === undefined ? (
+      {lists === undefined && listsQuery.isError ? (
+        <LoadFailed
+          what="the answer lists"
+          onRetry={() => void listsQuery.refetch()}
+        />
+      ) : lists === undefined ? (
         <ListPending label="Loading answer lists" count={3} />
       ) : (
         <SettingsGroup footer="Changing a list changes every form that uses it. Finalised reports keep theirs.">
@@ -91,7 +98,7 @@ export function OptionLibrariesSection({
                     {/* Worth saying: an untouched list is still exactly what
                         the form ships with, and a correction to it will
                         arrive. */}
-                    {list.isDefault ? " · the form's own" : ' · yours'}
+                    {list.isDefault ? ' · the form’s own' : ' · yours'}
                   </>
                 }
                 chevron
@@ -115,9 +122,10 @@ export function OptionLibrariesSection({
   )
 }
 
-/** The small square buttons on an option's row. */
+/** The square buttons on an option's row: 44px, the smallest a gloved
+ * thumb lands on, with no room between them for a smaller hit area to grow. */
 const ICON_BUTTON =
-  'flex size-9 shrink-0 items-center justify-center rounded-lg transition active:bg-surface-2 disabled:opacity-30'
+  'flex size-11 shrink-0 items-center justify-center rounded-lg transition active:bg-surface-2 disabled:opacity-30'
 
 function OptionListSheet({
   businessId,
@@ -134,6 +142,7 @@ function OptionListSheet({
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmingReset, setConfirmingReset] = useState(false)
+  const hydrated = useHydrated()
 
   // Written out rather than wrapped in a helper that calls `useMutation`:
   // a hook behind a function is a rule-of-hooks trap waiting for the first
@@ -293,13 +302,13 @@ function OptionListSheet({
                       submitRename(option.value)
                     }}
                     aria-label={`Rename ${option.label}`}
-                    className="h-10 min-w-0 flex-1 rounded-lg bg-surface-3 px-2.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                    className={`${FIELD_COMPACT} min-w-0 flex-1`}
                   />
                   <button
                     type="button"
                     disabled={rename.isPending}
                     onClick={() => submitRename(option.value)}
-                    className="h-10 shrink-0 rounded-lg bg-ink px-3 text-caption font-semibold text-surface disabled:opacity-50"
+                    className={`${NEUTRAL_BUTTON_COMPACT} shrink-0 px-3.5`}
                   >
                     Save
                   </button>
@@ -444,7 +453,7 @@ function OptionListSheet({
                   onClick={() => setConfirmingReset(false)}
                   className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                 >
-                  Cancel
+                  Keep my list
                 </button>
                 <button
                   type="button"
@@ -462,6 +471,7 @@ function OptionListSheet({
           ) : (
             <button
               type="button"
+              disabled={!hydrated}
               onClick={() => setConfirmingReset(true)}
               className={`${DANGER_ROW_CLASS} gap-1.5`}
             >

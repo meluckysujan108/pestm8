@@ -30,7 +30,7 @@ const INVITE_COPY = {
   INVALID_EMAIL: 'Check that email address.',
   offline:
     'Could not create the invite: this device is offline. Try again when you have signal.',
-  default: 'Could not create the invite. Check your connection and try again.',
+  default: 'Could not create the invite. Check your signal and try again.',
 }
 
 /**
@@ -216,7 +216,7 @@ function Choice({
       aria-checked={selected}
       onClick={onSelect}
       disabled={disabled}
-      className={`relative flex flex-col items-start rounded-2xl border bg-surface p-4 text-left shadow-elevation transition active:scale-[.98] ${
+      className={`relative flex flex-col items-start rounded-2xl border bg-surface p-4 text-left shadow-elevation transition active:scale-[.99] ${
         selected ? 'border-blue ring-2 ring-blue/30' : 'border-hairline'
       }`}
     >

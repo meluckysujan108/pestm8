@@ -22,6 +22,7 @@ import type {
   LicenceDraft,
   LicenceFieldErrors,
 } from '#/components/settings/LicenceFields'
+import { isOffline } from '#/lib/online'
 
 /** How long the loader holds the navigation for its query, at most. */
 const LOADER_WAIT_MS = 2000
@@ -71,7 +72,7 @@ function AddLicencePage() {
       // With no signal a Convex mutation waits for the socket rather than
       // failing, and the button would say "Saving…" for as long as the
       // phone is out of range. Say so now instead.
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      if (isOffline()) {
         throw new Error('offline')
       }
       return convexCreate({ businessId: business._id, ...value })

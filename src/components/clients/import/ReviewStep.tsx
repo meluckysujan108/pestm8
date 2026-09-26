@@ -62,7 +62,7 @@ const RECHECK_COPY: ErrorCopy = {
   offline:
     'This device is offline, so the review can’t check what’s in PestM8 since the undo. Check again when you have signal.',
   default:
-    'Couldn’t read what’s in PestM8 since the undo, so Import waits. Check again in a moment.',
+    'Could not read what’s in PestM8 since the undo, so Import waits. Check again in a moment.',
 }
 
 /**

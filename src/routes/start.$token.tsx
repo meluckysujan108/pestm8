@@ -12,6 +12,7 @@ import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
 import type { LucideIcon } from 'lucide-react'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * Starting a business on PestM8, from the link its owner was sent
@@ -119,13 +120,15 @@ function StartPage() {
       </p>
 
       {claim.isError && !isMfaEnrolmentError(claim.error) && (
-        <Alert>{claimMessage(claim.error, emailHint)}</Alert>
+        <FormAlert className="mt-4">
+          {claimMessage(claim.error, emailHint)}
+        </FormAlert>
       )}
 
       {signedInEmail && wrongAccount ? (
         <div className="mt-6">
           <p className="text-body text-ink-2">
-            You're signed in as{' '}
+            You’re signed in as{' '}
             <span className="text-ink">{signedInEmail}</span>, but this link is
             for <span className="text-ink">{emailHint}</span>. Sign out, then{' '}
             {taken ? 'sign in' : 'create your account'} with that address.
@@ -150,7 +153,7 @@ function StartPage() {
             onClick={() => claim.mutate()}
             className={`${PRIMARY_BUTTON} mt-3 w-full`}
           >
-            {claim.isPending ? 'Just a moment…' : 'Set up my business'}
+            {claim.isPending ? 'Setting up…' : 'Set up my business'}
           </button>
           <button
             type="button"
@@ -173,7 +176,7 @@ function StartPage() {
 
       {!taken && (
         <section className="mt-10">
-          <p className="section-label mb-3">About two minutes to set up</p>
+          <h2 className="section-label mb-3">About two minutes to set up</h2>
           <ul className="space-y-3">
             <Ahead icon={Building2} text="Your business name and ABN" />
             <Ahead icon={Palette} text="Your logo and contact details" />
@@ -212,7 +215,7 @@ function claimMessage(error: unknown, emailHint: string) {
   }
   if (message.includes('INVITE_EXPIRED')) return 'This link has expired.'
   if (message.includes('INVITE_REVOKED')) return 'This link was withdrawn.'
-  return 'Could not continue. Check your connection and try again.'
+  return 'Could not continue. Check your signal and try again.'
 }
 
 function Ahead({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
@@ -242,16 +245,5 @@ function Shell({
       <h1 className="text-page-title text-ink">{title}</h1>
       {children}
     </main>
-  )
-}
-
-function Alert({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-    >
-      {children}
-    </p>
   )
 }

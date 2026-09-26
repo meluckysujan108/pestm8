@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { FieldConfigForm } from './FieldConfigForm'
 import { ColumnsEditor } from './ColumnsEditor'
 import { ALL_FIELD_KINDS, FIELD_KIND_HINTS, FIELD_KIND_LABELS, defaultField, slugifyKey } from './fieldKinds'
@@ -84,7 +84,7 @@ export function AddFieldSheet({
               onClose()
               reset()
             }}>
-      <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
+      <div className={`${SHEET_BODY} pt-3`}>
         <Drawer.Title className="pr-10 text-sheet-title text-ink">
           {editing ? 'Edit field' : kind ? FIELD_KIND_LABELS[kind] : 'Add a field'}
         </Drawer.Title>
@@ -98,7 +98,7 @@ export function AddFieldSheet({
                 onClick={() => pickKind(k)}
                 className="rounded-xl border border-hairline bg-surface p-3 text-left transition active:scale-[.97]"
               >
-                <p className="text-[14px] font-semibold text-ink">
+                <p className="text-body font-semibold text-ink">
                   {FIELD_KIND_LABELS[k]}
                 </p>
                 <p className="mt-0.5 text-caption text-muted">

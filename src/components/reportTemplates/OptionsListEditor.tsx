@@ -48,26 +48,26 @@ export function OptionsListEditor({
           <button
             type="button"
             disabled={index === 0}
-            aria-label={`Move option ${index + 1} up`}
+            aria-label={`Move ${option.label || `option ${index + 1}`} up`}
             onClick={() => move(index, 'up')}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
             <ChevronUp size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
             disabled={index === options.length - 1}
-            aria-label={`Move option ${index + 1} down`}
+            aria-label={`Move ${option.label || `option ${index + 1}`} down`}
             onClick={() => move(index, 'down')}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
             <ChevronDown size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
-            aria-label={`Remove option ${index + 1}`}
+            aria-label={`Remove ${option.label || `option ${index + 1}`}`}
             onClick={() => remove(index)}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
             <Trash2 size={15} strokeWidth={2} />
           </button>

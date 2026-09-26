@@ -109,3 +109,11 @@ Convex agent skills for common tasks can be installed by running
 `npx convex ai-files install`.
 
 <!-- convex-ai-end -->
+
+## Building UI
+
+Before writing or changing anything that renders, read
+`docs/design-system.md` (components, tokens, states, copy). It is checked
+against the code by `src/lib/designSystem.test.ts` and `eslint.config.js`;
+update it in the same commit as a new token or shared component. Screenshot
+your change in both themes with `pnpm ui:shots` (`tools/ui-harness/README.md`).

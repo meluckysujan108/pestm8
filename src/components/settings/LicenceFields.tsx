@@ -132,7 +132,7 @@ export function LicenceFields({
                   set('name', name)
                 }}
                 disabled={!hydrated}
-                className="min-h-8 rounded-full bg-surface-2 px-3 text-caption font-semibold text-ink-2 outline-none transition active:scale-[.97] focus-visible:ring-2 focus-visible:ring-blue"
+                className="min-h-11 rounded-full bg-surface-2 px-3.5 text-caption font-semibold text-ink-2 outline-none transition active:scale-[.97] focus-visible:ring-2 focus-visible:ring-blue"
               >
                 {name}
               </button>

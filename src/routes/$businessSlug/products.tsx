@@ -40,6 +40,7 @@ import type { HistoryState } from '@tanstack/react-router'
 import type { EditState, SheetStatus } from '#/components/products/ProductSheet'
 import type { LiveProductRow } from '#/components/products/model'
 import type { ProductDraft } from '#/lib/productForm'
+import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Products (Phase 7.1): the business's shelf — each product's name, a few
@@ -351,7 +352,7 @@ function ProductsPage() {
             // Adding needs the server; with only the kept list there is none.
             disabled={!hydrated || fallback}
             onClick={() => setNewOpen(true)}
-            className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+            className={HEADER_ADD_BUTTON}
           >
             <Plus size={20} strokeWidth={2} />
           </button>
@@ -407,7 +408,7 @@ function ProductsPage() {
           ) : live ? (
             <EmptyState
               title="No products yet"
-              body="Add the products your team uses — the label, the safety data sheet, the supplier's page — so anyone can pull them up on site."
+              body="Add the products your team uses — the label, the safety data sheet, the supplier’s page — so anyone can pull them up on site."
               action={
                 <EmptyStateButton
                   onClick={() => setNewOpen(true)}
@@ -420,7 +421,7 @@ function ProductsPage() {
           ) : (
             <EmptyState
               title="Nothing kept on this phone"
-              body="With signal, open a product and tap Keep on this phone. Its PDF will then open here when there's no signal."
+              body="With signal, open a product and tap Keep on this phone. Its PDF will then open here when there’s no signal."
             />
           )
         ) : (

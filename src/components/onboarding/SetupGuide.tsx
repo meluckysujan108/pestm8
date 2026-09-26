@@ -49,7 +49,7 @@ const COPY: Record<SetupGuideItem, { title: string; hint: string }> = {
 const HIDE_COPY = {
   offline:
     'Could not hide the guide: this device is offline. Try again when you have signal.',
-  default: 'Could not hide the guide. Check your connection and try again.',
+  default: 'Could not hide the guide. Check your signal and try again.',
 }
 
 type Progress = NonNullable<ReturnType<typeof useGuide>['data']>
@@ -234,7 +234,7 @@ function GuideChecklist({
         </span>
       </div>
 
-      <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface">
+      <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
         {data.items.map((item) => {
           const copy = COPY[item.key]
           return (

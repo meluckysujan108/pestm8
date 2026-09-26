@@ -44,6 +44,7 @@ import type {
 } from '#/components/settings/LicenceFields'
 import type { WalletLicence } from '#/components/settings/useMyLicences'
 import type { Id } from '../../../../../convex/_generated/dataModel'
+import { isOffline } from '#/lib/online'
 
 /** How long the loader holds the navigation for its query, at most. */
 const LOADER_WAIT_MS = 2000
@@ -144,7 +145,7 @@ function LicencePage() {
         <Link
           to="/$businessSlug/settings/licence"
           params={{ businessSlug: business.slug }}
-          className="text-body font-semibold text-blue"
+          className="relative tap-target text-body font-semibold text-blue"
         >
           Back to Licences
         </Link>
@@ -200,7 +201,7 @@ function LicenceLoaded({
       expiresOn: string | null
     }) => {
       // With no signal a Convex mutation waits rather than fails; say so.
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      if (isOffline()) {
         throw new Error('offline')
       }
       return convexUpdate({
@@ -216,7 +217,7 @@ function LicenceLoaded({
   const convexRemove = useConvexMutation(api.memberLicences.remove)
   const remove = useMutation({
     mutationFn: async () => {
-      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      if (isOffline()) {
         throw new Error('offline')
       }
       return convexRemove({

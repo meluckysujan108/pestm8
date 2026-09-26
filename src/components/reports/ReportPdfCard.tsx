@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import {
   Check,
   FileText,
-  Loader2,
+  LoaderCircle,
   RotateCcw,
   TriangleAlert,
 } from 'lucide-react'
@@ -14,6 +14,7 @@ import {
   NEUTRAL_BUTTON,
   SECONDARY_BUTTON,
 } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * The PDF tab: what the document is, whether it is ready, and the one way in —
@@ -90,14 +91,7 @@ export function ReportPdfCard({
           </div>
         </div>
 
-        {failed && (
-          <p
-            role="alert"
-            className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
-            {status.problem}
-          </p>
-        )}
+        {failed && <FormAlert className="mt-3">{status.problem}</FormAlert>}
 
         <div className="mt-4 flex gap-2">
           {failed && (
@@ -146,7 +140,7 @@ function StatusLine({ status }: { status: ReportPdfStatus }) {
         </>
       ) : status.phase === 'preparing' ? (
         <>
-          <Loader2
+          <LoaderCircle
             aria-hidden
             size={14}
             strokeWidth={2}
@@ -162,7 +156,7 @@ function StatusLine({ status }: { status: ReportPdfStatus }) {
             strokeWidth={2}
             className="shrink-0"
           />
-          Couldn’t prepare the PDF
+          Could not prepare the PDF
         </>
       )}
     </p>

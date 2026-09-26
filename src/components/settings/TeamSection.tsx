@@ -9,6 +9,8 @@ import { Mail, RefreshCw, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { EmailInput } from '#/components/forms/EmailInput'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { describeError } from '#/components/forms/describeError'
+import { ConfirmDialog } from './ConfirmDialog'
 import {
   SaveWarningsPanel,
   SaveWarningsProvider,
@@ -132,6 +134,12 @@ export function TeamSection({
       invitationId: Id<'invitations'>
     }) => convexRevoke(args),
   })
+  // Cancelling kills a link someone may be about to tap, and a new one has
+  // to be sent to undo it, so it asks first.
+  const [cancelling, setCancelling] = useState<{
+    invitationId: Id<'invitations'>
+    email: string
+  } | null>(null)
 
   const convexRegenerate = useConvexAction(api.invitations.regenerate)
   const regenerate = useMutation({
@@ -162,11 +170,8 @@ export function TeamSection({
   }
 
   const people = ownersFirst(members)
-  const pendingError = regenerate.isError
-    ? regenerate.error
-    : revoke.isError
-      ? revoke.error
-      : null
+  // A failed cancel is said in its own dialog, which stays open for it.
+  const pendingError = regenerate.isError ? regenerate.error : null
 
   return (
     <>
@@ -178,7 +183,7 @@ export function TeamSection({
           owner's own words. */}
       <SettingsGroup
         title="People"
-        footer="PestM8 has no timesheets or rosters by design — contractors aren't employees."
+        footer="PestM8 has no timesheets or rosters by design — contractors aren’t employees."
       >
         {people.map((member) => (
           <SettingsLinkRow
@@ -254,12 +259,13 @@ export function TeamSection({
                     type="button"
                     aria-label={`Cancel invitation for ${invitation.email}`}
                     disabled={revoke.isPending || !hydrated}
-                    onClick={() =>
-                      revoke.mutate({
-                        businessId,
+                    onClick={() => {
+                      revoke.reset()
+                      setCancelling({
                         invitationId: invitation._id,
+                        email: invitation.email,
                       })
-                    }
+                    }}
                     className="relative tap-target flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
                     <X size={15} strokeWidth={2.2} />
@@ -270,6 +276,28 @@ export function TeamSection({
           })}
         </SettingsGroup>
       )}
+
+      <ConfirmDialog
+        open={cancelling !== null}
+        onOpenChange={(open) => !open && setCancelling(null)}
+        title={`Cancel the invitation for ${cancelling?.email ?? ''}?`}
+        body="Their link stops working straight away. You can invite them again at any time."
+        confirm="Cancel invitation"
+        cancel="Keep invitation"
+        closeOnConfirm={false}
+        pending={revoke.isPending}
+        pendingLabel="Cancelling…"
+        error={
+          revoke.isError ? describeError(revoke.error, PENDING_COPY) : null
+        }
+        onConfirm={() => {
+          if (!cancelling) return
+          revoke.mutate(
+            { businessId, invitationId: cancelling.invitationId },
+            { onSuccess: () => setCancelling(null) },
+          )
+        }}
+      />
 
       <Sheet
         open={inviteOpen}
@@ -346,7 +374,7 @@ export function TeamSection({
                   placeholder="kevin@example.com"
                 />
                 <p className="text-caption text-muted">
-                  You'll get a link to text them. It works once, expires in 3
+                  You’ll get a link to text them. It works once, expires in 3
                   days, and only that email address can use it.
                   {/* Redeeming a contractor's link puts the new member on
                       that contractor's team (`joinsUnder`). */}
@@ -413,7 +441,7 @@ function Initial({ name, colour }: { name: string; colour: string }) {
   return (
     <span
       aria-hidden
-      className="flex size-[30px] shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white"
+      className="flex size-[30px] shrink-0 items-center justify-center rounded-full text-caption font-semibold text-white"
       style={{ backgroundColor: colour }}
     >
       {name.trim().charAt(0).toUpperCase()}
@@ -451,12 +479,13 @@ const INVITE_ROLE_HINT: Record<InviteRole, string> = {
 
 /** The invite's own words for describeError: it creates, it does not save. */
 const INVITE_COPY = {
-  ALREADY_MEMBER: "They're already on your team.",
+  ALREADY_MEMBER: 'They’re already on your team.',
   INVALID_EMAIL: 'Check that email address.',
-  OWNER_INVITE_FORBIDDEN: 'Owner access cannot be invited.',
+  OWNER_INVITE_FORBIDDEN:
+    'Owner access cannot be invited. Choose another role for them.',
   offline:
     'Could not create the invite: this device is offline. Try again when you have signal.',
-  default: 'Could not create the invite. Check your connection and try again.',
+  default: 'Could not create the invite. Check your signal and try again.',
 }
 
 /** A new link or a cancel on a waiting invite, when it did not go through. */
@@ -465,8 +494,7 @@ const PENDING_COPY = {
   NOT_FOUND: 'That invitation is no longer open.',
   offline:
     'Could not change the invitation: this device is offline. Try again when you have signal.',
-  default:
-    'Could not change the invitation. Check your connection and try again.',
+  default: 'Could not change the invitation. Check your signal and try again.',
 }
 
 function expiryLabel(expiresAt: number | undefined, state: string) {

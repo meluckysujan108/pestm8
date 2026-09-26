@@ -92,7 +92,7 @@ test('a business client’s work order is asked for, saved, shown, and can be co
   // waited for first: the sheet renders a placeholder while it loads, and an
   // absence checked then would prove nothing.
   await expect(
-    sheet.getByRole('button', { name: '+ Add work order' }),
+    sheet.getByRole('button', { name: 'Add work order' }),
   ).toBeVisible()
   await expect(sheet.getByLabel('Work Order (Optional)')).toHaveCount(0)
   await chooseProperty(page, sheet, 'coastal', /Coastal Cafe Group/)
@@ -100,7 +100,7 @@ test('a business client’s work order is asked for, saved, shown, and can be co
   const field = sheet.getByLabel('Work Order (Optional)')
   await expect(field).toBeVisible()
   await expect(
-    sheet.getByRole('button', { name: '+ Add work order' }),
+    sheet.getByRole('button', { name: 'Add work order' }),
   ).toHaveCount(0)
   await field.fill('  WO-448120 ')
   await sheet.getByLabel('Start').fill('08:30')
@@ -182,7 +182,7 @@ test('anyone else’s job can still carry one, a tap away', async ({ page }) => 
   const sheet = page.getByRole('dialog')
   await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
   await expect(sheet.getByLabel('Work Order (Optional)')).toHaveCount(0)
-  await sheet.getByRole('button', { name: '+ Add work order' }).click()
+  await sheet.getByRole('button', { name: 'Add work order' }).click()
   // The tap opens the field and puts the cursor in it; it does not book.
   await expect(sheet).toBeVisible()
   const field = sheet.getByLabel('Work Order (Optional)')
@@ -239,18 +239,18 @@ test('a work order typed for a business client is never sent unseen', async ({
   await field.fill('WO-1')
 
   // Switched to a person client, the field would normally fold away behind
-  // "+ Add work order". Holding a value, it stays where it can be seen.
+  // "Add work order". Holding a value, it stays where it can be seen.
   await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
   await expect(field).toBeVisible()
   await expect(field).toHaveValue('WO-1')
   await expect(
-    sheet.getByRole('button', { name: '+ Add work order' }),
+    sheet.getByRole('button', { name: 'Add work order' }),
   ).toHaveCount(0)
 
   // Emptied, it folds away — and nothing is sent.
   await field.fill('')
   await expect(
-    sheet.getByRole('button', { name: '+ Add work order' }),
+    sheet.getByRole('button', { name: 'Add work order' }),
   ).toBeVisible()
   await sheet.getByLabel('Start').fill('11:00')
   await sheet.getByRole('button', { name: 'Book job' }).click()
@@ -278,13 +278,13 @@ test('a new business client typed in is asked for its work order too', async ({
   const sheet = page.getByRole('dialog')
   await sheet.getByRole('radio', { name: 'New client' }).click()
   await expect(
-    sheet.getByRole('button', { name: '+ Add work order' }),
+    sheet.getByRole('button', { name: 'Add work order' }),
   ).toBeVisible()
   await sheet.getByRole('radio', { name: 'Business' }).click()
   const field = sheet.getByLabel('Work Order (Optional)')
   await expect(field).toBeVisible()
   await expect(
-    sheet.getByRole('button', { name: '+ Add work order' }),
+    sheet.getByRole('button', { name: 'Add work order' }),
   ).toHaveCount(0)
 
   await sheet.getByLabel('Business name').fill('Harbour Strata')

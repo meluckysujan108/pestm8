@@ -711,7 +711,7 @@ describe('what the page refuses', () => {
 
   test('a file that says .xlsx and isn’t one', async () => {
     const e = await error(readImportFile(file('Name\nJo\n', 'clients.xlsx')))
-    expect(e.message).toMatch(/Couldn't read “clients.xlsx” as an Excel/)
+    expect(e.message).toMatch(/Could not read “clients.xlsx” as an Excel/)
   })
 })
 

@@ -6,6 +6,7 @@ import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import {
   EMPTY_ACTION_CLASS,
   EmptyState,
+  NoMatches,
 } from '#/components/primitives/EmptyState'
 import { FilterDropdown } from '#/components/primitives/FilterDropdown'
 import { JOB_LIST_STATUS_OPTIONS } from '#/lib/scheduleFilters'
@@ -15,6 +16,7 @@ import { useOverdueRecurring } from '#/lib/useOverdueRecurring'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { useJobsWeather } from '#/lib/weather'
 import { WeatherCredit } from '#/components/schedule/WeatherCredit'
+import { ChevronRight } from 'lucide-react'
 
 const STATUS_VALUES = JOB_LIST_STATUS_OPTIONS.map((option) => option.value)
 
@@ -87,7 +89,7 @@ function JobListPage() {
           <Link
             to="/$businessSlug/job/recurring"
             params={{ businessSlug: business.slug }}
-            className="mb-3 flex min-h-11 items-center gap-2 rounded-xl bg-surface px-3 text-caption text-ink shadow-elevation transition active:scale-[.99]"
+            className="mb-3 flex min-h-11 items-center gap-2 rounded-xl border border-hairline bg-surface px-3 text-caption text-ink shadow-elevation transition active:scale-[.99]"
           >
             <span
               className={`rounded-full px-2 text-[12px] font-semibold leading-5 ${OVERDUE_CHIP}`}
@@ -95,32 +97,38 @@ function JobListPage() {
               {overdue} overdue
             </span>
             recurring {overdue === 1 ? 'visit' : 'visits'} to book
-            <span className="ml-auto font-semibold text-blue">
-              Recurring Job ›
+            <span className="ml-auto inline-flex items-center gap-0.5 font-semibold text-blue">
+              Recurring Job
+              <ChevronRight size={15} strokeWidth={2.2} />
             </span>
           </Link>
         )}
 
-        {shown.length === 0 ? (
+        {data.jobs.length === 0 ? (
           <EmptyState
-            title={data.jobs.length === 0 ? 'No jobs yet' : 'No matching jobs'}
-            body={
-              data.jobs.length === 0
-                ? 'Jobs you book appear here, newest first.'
-                : 'No jobs match this status.'
-            }
+            title="No jobs yet"
+            body="Jobs you book appear here, newest first."
             action={
-              data.jobs.length === 0 && (
-                // Jobs are booked on the schedule; this opens New Job there.
-                <Link
-                  to="/$businessSlug/schedule"
-                  params={{ businessSlug: business.slug }}
-                  search={{ newJob: true }}
-                  className={EMPTY_ACTION_CLASS}
-                >
-                  Book a job
-                </Link>
-              )
+              // Jobs are booked on the schedule; this opens New Job there.
+              <Link
+                to="/$businessSlug/schedule"
+                params={{ businessSlug: business.slug }}
+                search={{ newJob: true }}
+                className={EMPTY_ACTION_CLASS}
+              >
+                Book a job
+              </Link>
+            }
+          />
+        ) : shown.length === 0 ? (
+          <NoMatches
+            hint="No jobs match this status."
+            clearLabel="Show all statuses"
+            onClear={() =>
+              navigate({
+                search: (prev) => ({ ...prev, status: undefined }),
+                replace: true,
+              })
             }
           />
         ) : (

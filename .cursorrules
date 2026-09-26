@@ -1,3 +1,5 @@
+UI work: read docs/design-system.md first (components, tokens, states, copy), and keep it true — src/lib/designSystem.test.ts checks it against the code.
+
 This document serves as some special instructions when working with Convex.
 
 # Schemas

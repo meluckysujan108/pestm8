@@ -3,6 +3,7 @@ import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { AtSign, Bold, Heading, Italic, List, ListChecks } from 'lucide-react'
 import type { Editor } from '@tiptap/core'
 import type { ReactNode } from 'react'
+import { ABOVE_DOCK } from '#/components/shell/dock'
 
 /**
  * On a phone this sits where the phone's Notes app puts its "Aa" row: pinned
@@ -81,7 +82,7 @@ export function FormatBar({
       className={
         inline
           ? 'flex items-center gap-0.5 rounded-xl border border-hairline bg-surface-2/60 px-2 py-1.5'
-          : 'chrome-blur fixed inset-x-0 bottom-[calc(68px+env(safe-area-inset-bottom))] z-40 flex items-center gap-0.5 border-t border-hairline px-2 py-1.5 lg:static lg:inset-auto lg:rounded-xl lg:border lg:bg-surface-2/60 lg:backdrop-filter-none'
+          : `chrome-blur fixed inset-x-0 ${ABOVE_DOCK} z-40 flex items-center gap-0.5 border-t border-hairline px-2 py-1.5 lg:static lg:inset-auto lg:rounded-xl lg:border lg:bg-surface-2/60 lg:backdrop-filter-none`
       }
     >
       {button(

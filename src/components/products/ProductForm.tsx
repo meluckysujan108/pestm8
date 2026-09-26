@@ -20,6 +20,7 @@ import {
   SECONDARY_BUTTON,
 } from '#/components/primitives/buttons'
 import { FIELD_SURFACE } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * The product form, for a new product and for editing one.
@@ -160,8 +161,8 @@ export function ProductForm({
       }}
     >
       {/* ── Photo ─────────────────────────────────────────────────────── */}
-      <p className="section-label mb-1.5 mt-4">Photo</p>
-      <div className="flex items-center gap-3 rounded-2xl bg-surface p-3 shadow-elevation">
+      <h3 className="section-label mb-1.5 mt-4">Photo</h3>
+      <div className="flex items-center gap-3 rounded-2xl border border-hairline bg-surface p-3 shadow-elevation">
         <span className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-2 text-muted">
           {photoBusy ? (
             <LoaderCircle
@@ -182,7 +183,7 @@ export function ProductForm({
             type="button"
             disabled={!hydrated || busy}
             onClick={() => photoInput.current?.click()}
-            className="flex h-11 items-center gap-1.5 rounded-full bg-surface-2 px-4 text-[14px] font-semibold text-blue transition active:scale-[.97] disabled:opacity-50"
+            className="flex h-11 items-center gap-1.5 rounded-full bg-surface-2 px-4 text-body font-semibold text-blue transition active:scale-[.97] disabled:opacity-50"
           >
             <Camera aria-hidden size={16} strokeWidth={2} />
             {photoBusy
@@ -199,7 +200,7 @@ export function ProductForm({
                 setPhotoError(null)
                 set({ photo: { kind: existing?.photoUrl ? 'remove' : 'keep' } })
               }}
-              className="flex min-h-11 items-center px-1 text-[14px] font-semibold text-red disabled:opacity-50"
+              className="flex min-h-11 items-center px-1 text-body font-semibold text-red disabled:opacity-50"
             >
               Remove photo
             </button>
@@ -254,7 +255,7 @@ export function ProductForm({
         onChange={(event) => set({ description: event.target.value })}
         disabled={saving}
         rows={4}
-        placeholder="What it's for, the active, how the team uses it."
+        placeholder="What it’s for, the active, how the team uses it."
         aria-invalid={descriptionProblem ? true : undefined}
         aria-describedby={
           descriptionProblem ? `${ids}-description-problem` : undefined
@@ -292,8 +293,8 @@ export function ProductForm({
       )}
 
       {/* ── PDF ───────────────────────────────────────────────────────── */}
-      <p className="section-label mb-1.5 mt-5">PDF</p>
-      <div className="flex items-center gap-3 rounded-2xl bg-surface p-3 shadow-elevation">
+      <h3 className="section-label mb-1.5 mt-5">PDF</h3>
+      <div className="flex items-center gap-3 rounded-2xl border border-hairline bg-surface p-3 shadow-elevation">
         <PdfTile />
         <div className="min-w-0 flex-1">
           {shownPdf ? (
@@ -321,7 +322,7 @@ export function ProductForm({
               type="button"
               disabled={!hydrated || busy}
               onClick={() => pdfInput.current?.click()}
-              className="flex min-h-11 items-center text-[14px] font-semibold text-blue disabled:opacity-50"
+              className="flex min-h-11 items-center text-body font-semibold text-blue disabled:opacity-50"
             >
               {pdfBusy
                 ? 'Checking…'
@@ -345,7 +346,7 @@ export function ProductForm({
                         : { kind: 'keep' },
                   })
                 }}
-                className="flex min-h-11 items-center text-[14px] font-semibold text-red disabled:opacity-50"
+                className="flex min-h-11 items-center text-body font-semibold text-red disabled:opacity-50"
               >
                 {draft.pdf.kind === 'remove'
                   ? 'Keep the PDF'
@@ -372,14 +373,7 @@ export function ProductForm({
       </div>
       {pdfError && <FieldError>{pdfError}</FieldError>}
 
-      {save.error && (
-        <p
-          role="alert"
-          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          {save.error}
-        </p>
-      )}
+      {save.error && <FormAlert className="mt-4">{save.error}</FormAlert>}
 
       <div className="mt-5 flex gap-2">
         {onCancel && (
@@ -421,7 +415,7 @@ export function PdfTile({ size = 'md' }: { size?: 'md' | 'lg' }) {
       className={`flex ${box} shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg bg-red-bg text-red`}
     >
       <FileText size={size === 'lg' ? 22 : 18} strokeWidth={1.7} />
-      <span className="text-[9px] font-bold leading-none tracking-wide">
+      <span className="text-tab-label font-bold leading-none tracking-wide">
         PDF
       </span>
     </span>

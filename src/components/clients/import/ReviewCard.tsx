@@ -252,7 +252,7 @@ export const ReviewCard = memo(function ReviewCard({
             onClick={() => setAllSites((all) => !all)}
             // Drawn 36px, tapped at 44 (`tap-target`): nothing that can be
             // pressed sits within reach above or below it.
-            className="relative tap-target mt-1 inline-flex min-h-9 items-center pl-6 text-[14px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+            className="relative tap-target mt-1 inline-flex min-h-9 items-center pl-6 text-body font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
           >
             {allSites
               ? 'Show fewer sites'
@@ -319,7 +319,7 @@ export const ReviewCard = memo(function ReviewCard({
                   onClick={() => setAllIssues((all) => !all)}
                   // 44px outright, not a widened hit area: the line above
                   // can end in a fix, whose padding reaches down to here.
-                  className="inline-flex min-h-11 items-center pl-5.5 text-[14px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+                  className="inline-flex min-h-11 items-center pl-5.5 text-body font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
                 >
                   {allIssues
                     ? 'Show fewer'

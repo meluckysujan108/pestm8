@@ -7,7 +7,8 @@ import {
   emailTypoFix,
   isValidEmail,
 } from '../../../../convex/lib/email'
-import { isOffline, networkLookupsAllowed } from '#/lib/addressLookup'
+import { networkLookupsAllowed } from '#/lib/addressLookup'
+import { isOffline } from '#/lib/online'
 import { checkEmailDomain } from '#/lib/emailDomainCheck'
 import type { DomainMail } from '#/lib/emailDomainCheck'
 import { RichTextView } from '../RichText'
@@ -48,7 +49,7 @@ export function NoteBlock({ field }: Of<'note'>) {
   return (
     <div className={`rounded-xl border px-3.5 py-3 ${TONE_CLASS[tone]}`}>
       {field.heading && (
-        <p className="text-subhead font-semibold text-ink">
+        <p className="text-body font-semibold text-ink">
           {tone === 'important' ? `IMPORTANT: ${field.heading}` : field.heading}
         </p>
       )}
@@ -159,7 +160,7 @@ const COMMON: ReadonlySet<string> = new Set(COMMON_EMAIL_DOMAINS)
 /** The words for a domain DNS says takes no mail — EmailInput's, so a client
  * record and a report say the same thing about the same address. */
 export function noMailMessage(domain: string): string {
-  return `${domain} doesn't look like it receives email.`
+  return `${domain} doesn’t look like it receives email.`
 }
 
 /**

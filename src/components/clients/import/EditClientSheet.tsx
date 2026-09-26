@@ -358,7 +358,7 @@ const SiteFields = memo(function SiteFields({
             disabled={disabled}
             onClick={() => onRemove(site.id)}
             // Drawn 36px, tapped at 44 (`tap-target`).
-            className="relative tap-target inline-flex min-h-9 items-center text-[14px] font-semibold text-red transition active:opacity-60 disabled:opacity-50"
+            className="relative tap-target inline-flex min-h-9 items-center text-body font-semibold text-red transition active:opacity-60 disabled:opacity-50"
           >
             Remove this site
           </button>

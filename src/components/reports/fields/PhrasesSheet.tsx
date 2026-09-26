@@ -105,14 +105,14 @@ export function PhrasesSheet({
                   onPick(phrase)
                   close()
                 }}
-                className="min-h-12 flex-1 rounded-xl border border-hairline bg-surface px-3 py-2.5 text-left text-body text-ink transition active:scale-[.995] disabled:opacity-60"
+                className="min-h-12 flex-1 rounded-xl border border-hairline bg-surface px-3 py-2.5 text-left text-body text-ink transition active:scale-[.99] disabled:opacity-60"
               >
                 {phrase.text}
               </button>
               {removing && phrase.canRemove && (
                 <button
                   type="button"
-                  aria-label={`Remove phrase: ${phrase.text}`}
+                  aria-label={`Remove “${phrase.text}”`}
                   onClick={() => {
                     setError(null)
                     void onRemove(phrase).catch(() =>

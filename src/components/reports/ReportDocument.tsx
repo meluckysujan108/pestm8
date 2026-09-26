@@ -21,6 +21,8 @@ import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { OptionSetOverrides } from '#/lib/reportTemplates/optionSets'
 import type { TemplateSettings } from '#/lib/reportTemplates/settings'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
+import { dateTimeFormat } from '../../../convex/lib/dates'
 
 /**
  * The finished document, on screen.
@@ -80,6 +82,7 @@ export function ReportDocument({
   report: ReportDoc
   businessId: Id<'businesses'>
 }) {
+  const timezone = useBusinessTimezone()
   const template = resolveReportTemplate({
     template: report.template,
     templateVersion: report.templateVersion,
@@ -153,7 +156,7 @@ export function ReportDocument({
               which would otherwise print the title twice. */}
           <h1 className="sr-only">{template.name}</h1>
           {model.headings.map((line) => (
-            <p key={line} className="mt-1 text-subhead font-semibold text-ink">
+            <p key={line} className="mt-1 text-row-title text-ink">
               {line}
             </p>
           ))}
@@ -173,14 +176,13 @@ export function ReportDocument({
       </span>
 
       {model.titleBand && (
-        // The PDF's title band, drawn as it prints (brand red).
-        // eslint-disable-next-line no-restricted-syntax -- mirrors the PDF
-        <div className="mt-4 flex items-stretch overflow-hidden rounded-xl bg-red text-white">
-          <p className="flex-1 px-3 py-2 text-subhead font-semibold">
+        // The PDF's title band, drawn as it prints (red-fill, as the PDF now prints it).
+        <div className="mt-4 flex items-stretch overflow-hidden rounded-xl bg-red-fill text-white">
+          <p className="flex-1 px-3 py-2 text-body font-semibold">
             {model.titleBand.text}
           </p>
           {model.titleBand.date && (
-            <p className="border-l border-white/40 px-3 py-2 text-subhead font-semibold">
+            <p className="border-l border-white/40 px-3 py-2 text-body font-semibold">
               {model.titleBand.date}
             </p>
           )}
@@ -233,7 +235,7 @@ export function ReportDocument({
         <p className="mt-6 text-caption text-muted">
           {model.footer.submittedBy
             ? `Submitted by: ${model.footer.submittedBy}`
-            : `Finalised ${new Intl.DateTimeFormat('en-AU', { dateStyle: 'long' }).format(new Date(report.finalisedAt))}`}
+            : `Finalised ${dateTimeFormat('en-AU', { dateStyle: 'long', timeZone: timezone }).format(new Date(report.finalisedAt))}`}
           {model.footer.submissionId !== undefined &&
             ` · Submission ID: ${model.footer.submissionId}`}
           {` · Version: ${model.footer.version}`}
@@ -270,7 +272,7 @@ function Section({ section }: { section: DocSection }) {
 const BAR_CLASS: Record<DocBar, string> = {
   good: 'bg-green',
   warn: 'bg-amber-ink',
-  danger: 'bg-red',
+  danger: 'bg-red-fill',
 }
 
 function Block({ block }: { block: DocBlock }) {
@@ -287,7 +289,9 @@ function Block({ block }: { block: DocBlock }) {
     case 'heading':
       return (
         <div className="mt-4 first:mt-0">
-          <h3 className="text-body font-semibold text-red">{block.text}</h3>
+          <h3 className="text-body font-semibold text-red-fill">
+            {block.text}
+          </h3>
           {block.note && (
             <p className="mt-0.5 text-caption text-muted">{block.note}</p>
           )}
@@ -307,7 +311,7 @@ function Block({ block }: { block: DocBlock }) {
           }`}
         >
           {block.heading && (
-            <p className="text-subhead font-semibold text-ink">
+            <p className="text-body font-semibold text-ink">
               {tone === 'important'
                 ? `IMPORTANT: ${block.heading}`
                 : block.heading}
@@ -327,8 +331,7 @@ function Block({ block }: { block: DocBlock }) {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-caption">
               <thead>
-                {/* eslint-disable-next-line no-restricted-syntax -- mirrors the PDF's table header */}
-                <tr className="bg-red text-white">
+                <tr className="bg-red-fill text-white">
                   {block.columns.map((column) => (
                     <th
                       key={column.label}
@@ -365,7 +368,7 @@ function Block({ block }: { block: DocBlock }) {
     case 'photos':
       return (
         <div className="mt-3">
-          <p className="section-label mb-2">{block.label}</p>
+          <h3 className="section-label mb-2">{block.label}</h3>
           <PhotoGrid photos={block.photos} label={block.label} />
         </div>
       )

@@ -28,7 +28,7 @@ const CONTINUE_COPY: ErrorCopy = {
   offline:
     'This device is offline, so the review can’t check what’s already in PestM8. Continue again when you have signal.',
   default:
-    'Couldn’t read the clients already in PestM8, so the review can’t say what’s already here. Continue again in a moment.',
+    'Could not read the clients already in PestM8, so the review can’t say what’s already here. Continue again in a moment.',
 }
 
 /** Two of a column's values, so "Column F" or "Field 3" says what it is. */

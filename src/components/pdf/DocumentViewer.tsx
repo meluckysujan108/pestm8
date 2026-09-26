@@ -356,7 +356,7 @@ export function DocumentViewer({
   const openSearch = useCallback(() => {
     if (!ready) return
     // Rendered and focused inside the tap, or iOS shows the caret and no
-    // keyboard (see "+ Add site contact" in NewClientFields).
+    // keyboard (see "Add site contact" in NewClientFields).
     flushSync(() => {
       setSearchOpen(true)
       setGridOpen(false)
@@ -395,7 +395,7 @@ export function DocumentViewer({
     // inside the tap.
     handOver(
       () => actions.share?.(file),
-      "Couldn't share this PDF",
+      'Could not share this PDF',
       showToast,
       withoutMarks(markup?.shareNote),
     )
@@ -404,7 +404,7 @@ export function DocumentViewer({
     if (!file || !actions.save) return
     handOver(
       () => actions.save?.(file),
-      "Couldn't save this PDF",
+      'Could not save this PDF',
       showToast,
       withoutMarks(markup?.saveNote ?? markup?.shareNote),
     )

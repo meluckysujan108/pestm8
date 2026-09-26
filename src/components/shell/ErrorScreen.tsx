@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
-import { RotateCw, WifiOff } from 'lucide-react'
+import { RotateCcw, WifiOff } from 'lucide-react'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { LINK_BUTTON, PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { isOffline } from '#/lib/online'
 
 /**
  * The router's error screen for everything the special cases in router.tsx
@@ -21,9 +22,7 @@ export function ErrorScreen({ error }: ErrorComponentProps) {
   const [retrying, setRetrying] = useState(false)
   // Read once, on the render that failed: "no signal" is the likeliest cause
   // in the field, and the one with the clearest advice.
-  const [offline] = useState(
-    () => typeof navigator !== 'undefined' && navigator.onLine === false,
-  )
+  const [offline] = useState(isOffline)
   const message = error instanceof Error ? error.message : String(error)
 
   return (
@@ -60,7 +59,7 @@ export function ErrorScreen({ error }: ErrorComponentProps) {
             }}
             className={`${PRIMARY_BUTTON} flex items-center justify-center gap-2`}
           >
-            <RotateCw size={17} strokeWidth={2} aria-hidden />
+            <RotateCcw size={17} strokeWidth={2} aria-hidden />
             {retrying ? 'Trying…' : 'Try again'}
           </button>
           <Link

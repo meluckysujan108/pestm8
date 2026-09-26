@@ -18,6 +18,7 @@ import type {
   newClientFields,
   newPropertyFields,
 } from '../../../convex/properties'
+import { Plus } from 'lucide-react'
 
 export type ClientKind = 'person' | 'business'
 
@@ -135,7 +136,7 @@ export function newSiteArgs(
  * looking everywhere but the ABN.
  */
 export const NEW_CLIENT_ERROR_COPY: ErrorCopy = {
-  INVALID_ABN: "That ABN doesn't pass the ATO check — check the 11 digits.",
+  INVALID_ABN: 'That ABN does not pass the ATO check. Check its 11 digits.',
 }
 
 /**
@@ -266,13 +267,14 @@ export function NewClientFields({
               type="button"
               onClick={() => {
                 // Rendered and focused inside the tap, or iOS shows a focus
-                // ring and no keyboard (see "+ Add work order").
+                // ring and no keyboard (see "Add work order").
                 flushSync(() => setAddingSiteContact(true))
                 siteContactInput.current?.focus()
               }}
-              className="mt-3 text-body font-semibold text-blue"
+              className="relative tap-target mt-3 inline-flex items-center gap-1 text-body font-semibold text-blue"
             >
-              + Add site contact
+              <Plus size={16} strokeWidth={2.2} />
+              Add site contact
             </button>
           )}
         </>

@@ -47,7 +47,7 @@ export function LicenceLeading({
   const thumbnail = useLicenceThumbnail(businessId, membershipId, photo, mine)
   if (!thumbnail) return <IconTile icon={IdCard} tint="green" />
   return (
-    <span className="flex size-[30px] shrink-0 overflow-hidden rounded-[8px] bg-surface-2">
+    <span className="flex size-[30px] shrink-0 overflow-hidden rounded-sm bg-surface-2">
       <img
         src={thumbnail}
         alt=""

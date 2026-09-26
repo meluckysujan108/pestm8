@@ -14,13 +14,13 @@ import type { LibraryFilter } from './NoteList'
 
 export const LIBRARY_FILTERS: Array<{ value: LibraryFilter; label: string; icon: LucideIcon }> = [
   { value: 'mine', label: 'My notes', icon: NotebookPen },
-  { value: 'all', label: 'All Notes', icon: Notebook },
+  { value: 'all', label: 'All notes', icon: Notebook },
   { value: 'mentions', label: 'Mentions', icon: AtSign },
   { value: 'jobs', label: 'Jobs', icon: Briefcase },
   { value: 'sites', label: 'Sites & clients', icon: MapPin },
   { value: 'team', label: 'Team', icon: Users },
   { value: 'everyone', label: 'Everyone’s notes', icon: BookUser },
-  { value: 'trash', label: 'Recently Deleted', icon: Trash2 },
+  { value: 'trash', label: 'Recently deleted', icon: Trash2 },
 ]
 
 /**

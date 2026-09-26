@@ -32,27 +32,33 @@ export function ReportSwitchRow({
   const id = useId()
   const descriptionId = `${id}-description`
   const errorId = `${id}-error`
+  const switchId = `${id}-switch`
 
+  // A row, not a <label>: the failure line sits beside the words, and inside
+  // a label it would toggle the switch when tapped.
   return (
-    <label className={ROW_CLASS}>
+    <div className={ROW_CLASS}>
       <span className="min-w-0 flex-1">
-        <span className="block text-body text-ink">{title}</span>
-        {description && (
-          <span id={descriptionId} className="block text-caption text-muted">
-            {description}
-          </span>
-        )}
+        <label htmlFor={switchId} className="block">
+          <span className="block text-body text-ink">{title}</span>
+          {description && (
+            <span id={descriptionId} className="block text-caption text-muted">
+              {description}
+            </span>
+          )}
+        </label>
         {failed && (
           <span
             id={errorId}
             role="alert"
             className="block text-caption text-amber-ink"
           >
-            Could not save that. Check your connection and try again.
+            Could not save that. Check your signal and try again.
           </span>
         )}
       </span>
       <Switch.Root
+        id={switchId}
         aria-label={title}
         aria-describedby={
           [description && descriptionId, failed && errorId]
@@ -66,6 +72,6 @@ export function ReportSwitchRow({
       >
         <Switch.Thumb className="block size-[27px] translate-x-0.5 rounded-full bg-white shadow-elevation transition-transform will-change-transform data-[state=checked]:translate-x-[22px]" />
       </Switch.Root>
-    </label>
+    </div>
   )
 }

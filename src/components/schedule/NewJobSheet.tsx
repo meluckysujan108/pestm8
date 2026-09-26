@@ -4,7 +4,7 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import { JOB_TYPES } from '#/lib/format'
 import {
@@ -49,6 +49,7 @@ import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
+import { Plus } from 'lucide-react'
 
 /** 'site' is a new site for an existing client (Prompt 6.3). */
 type ClientMode = 'existing' | 'new' | 'site'
@@ -68,7 +69,7 @@ const BOOKING_ERROR_COPY: ErrorCopy = {
     'Could not book this job: your access does not cover that calendar. Ask the business owner.',
   INVALID_ASSIGNEE:
     'Could not book this job: that person is no longer on the team. Choose someone else under Assigned to.',
-  default: 'Could not book this job. Check your connection and try again.',
+  default: 'Could not book this job. Check your signal and try again.',
 }
 
 export function NewJobSheet({
@@ -399,7 +400,7 @@ function NewJobForm({
   return (
     <SaveWarningsProvider value={saveWarnings}>
       <form
-        className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+        className={`${SHEET_BODY} pt-3`}
         onSubmit={(e) => {
           e.preventDefault()
           if (!readyToBook()) return
@@ -483,9 +484,10 @@ function NewJobForm({
                 })
                 clientTrigger.current?.focus()
               }}
-              className="mt-3 text-body font-semibold text-blue"
+              className="relative tap-target mt-3 inline-flex items-center gap-1 text-body font-semibold text-blue"
             >
-              + New site for an existing client
+              <Plus size={16} strokeWidth={2.2} />
+              New site for an existing client
             </button>
           </>
         ) : mode === 'site' ? (
@@ -536,7 +538,7 @@ function NewJobForm({
                 flushSync(() => switchMode(() => 'existing'))
                 propertyTrigger.current?.focus()
               }}
-              className="mt-3 text-body font-semibold text-blue"
+              className="relative tap-target mt-3 text-body font-semibold text-blue"
             >
               Choose an existing site instead
             </button>
@@ -578,9 +580,10 @@ function NewJobForm({
               flushSync(() => setAddingWorkOrder(true))
               workOrderInput.current?.focus()
             }}
-            className="mt-3 text-body font-semibold text-blue"
+            className="relative tap-target mt-3 inline-flex items-center gap-1 text-body font-semibold text-blue"
           >
-            + Add work order
+            <Plus size={16} strokeWidth={2.2} />
+            Add work order
           </button>
         )}
 

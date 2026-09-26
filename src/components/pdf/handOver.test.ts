@@ -41,7 +41,7 @@ const closedWithoutChoosing = async () => {
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
 
 const SENT = 'Sent without the marks — they stay in the app for your team.'
-const FAILED = "Couldn't share this PDF"
+const FAILED = 'Could not share this PDF'
 
 /** A tap on Share with marks on the pages: every toast it gives, in order. */
 async function tap(

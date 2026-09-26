@@ -15,6 +15,7 @@ import {
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
 import { RowPending } from '#/components/shell/Pending'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 /**
  * Reports, shown inside a job sheet or a client sheet.
@@ -48,6 +49,8 @@ export function InlineReportsSection({
   label,
   reports,
   empty,
+  failed = false,
+  onRetry,
   action,
 }: {
   businessSlug: string
@@ -56,6 +59,10 @@ export function InlineReportsSection({
   /** `undefined` while the query is out — which is not the same as none. */
   reports: Array<InlineReport> | undefined
   empty: string
+  /** The query failed: say so, rather than loading for good. */
+  failed?: boolean
+  /** Asks again — the query's `refetch`. */
+  onRetry?: () => void
   /** What to start one with, where the surface offers that. */
   action?: ReactNode
 }) {
@@ -63,7 +70,11 @@ export function InlineReportsSection({
     <section className="mt-6">
       <h3 className="section-label mb-2">{label}</h3>
       <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
-        {reports === undefined ? (
+        {reports === undefined && failed ? (
+          <div className="p-2">
+            <LoadFailed what="the reports" onRetry={onRetry} />
+          </div>
+        ) : reports === undefined ? (
           <RowPending label="Loading reports" />
         ) : reports.length === 0 ? (
           <p className="px-3.5 py-3 text-body text-muted">{empty}</p>
@@ -249,7 +260,7 @@ export function SeeAllReports({
       to="/$businessSlug/reports"
       params={{ businessSlug }}
       search={{ q: term }}
-      className="flex h-9 w-full items-center justify-center rounded-xl text-[14px] font-semibold text-blue"
+      className="flex h-11 w-full items-center justify-center rounded-xl text-body font-semibold text-blue"
     >
       See all in Reports
     </Link>

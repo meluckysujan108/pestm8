@@ -49,10 +49,10 @@ export function RecoveryCodes({
         on any phone, in place of the code from your authenticator app. Each one
         works once. Keep them somewhere{' '}
         <span className="text-ink">other than this phone</span>: your wallet,
-        the ute's glovebox, or with the office.
+        the ute’s glovebox, or with the office.
       </p>
 
-      <ol className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-2xl border border-hairline bg-surface p-4 font-mono text-[16px] text-ink">
+      <ol className="grid grid-cols-2 gap-x-4 gap-y-2 rounded-2xl border border-hairline bg-surface p-4 font-mono text-[16px] text-ink shadow-elevation">
         {codes.map((code) => (
           <li key={code} className="select-all tracking-wide">
             {code}
@@ -108,7 +108,7 @@ export function RecoveryCodes({
 
       <label
         htmlFor={checkId}
-        className="flex items-start gap-3 rounded-2xl border border-hairline bg-surface p-4"
+        className="flex items-start gap-3 rounded-2xl border border-hairline bg-surface p-4 shadow-elevation"
       >
         <input
           id={checkId}
@@ -118,7 +118,7 @@ export function RecoveryCodes({
           className="mt-0.5 size-5 shrink-0 accent-red"
         />
         <span className="text-body text-ink">
-          I've saved these somewhere other than this phone
+          I’ve saved these somewhere other than this phone
         </span>
       </label>
 

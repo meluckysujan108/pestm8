@@ -5,7 +5,8 @@ import {
   emailProblem,
   emailTypoFix,
 } from '../../../convex/lib/email'
-import { isOffline, networkLookupsAllowed } from '#/lib/addressLookup'
+import { networkLookupsAllowed } from '#/lib/addressLookup'
+import { isOffline } from '#/lib/online'
 import { checkEmailDomain, knownDomainMail } from '#/lib/emailDomainCheck'
 import { FieldMessage } from './FieldMessage'
 import {
@@ -129,7 +130,7 @@ export function EmailInput({
               {
                 id: `${id}:domain`,
                 label: fieldName(),
-                message: `${domain} doesn't look like it receives email.`,
+                message: `${domain} doesn’t look like it receives email.`,
                 focus,
               },
             ]

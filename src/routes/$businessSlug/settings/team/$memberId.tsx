@@ -85,7 +85,7 @@ function MemberLoaded() {
     return (
       <MemberFrame title="Not found">
         <EmptyState
-          title="They're no longer on your team."
+          title="No longer on your team"
           body="Whoever this link was for has left, or it was mistyped."
         />
       </MemberFrame>

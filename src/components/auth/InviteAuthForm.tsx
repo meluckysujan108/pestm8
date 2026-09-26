@@ -4,6 +4,7 @@ import { authClient, needsSecondStep } from '#/lib/auth-client'
 import { couldBeInvitee } from '#/lib/inviteEmail'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 type Mode = 'signUp' | 'signIn'
 
@@ -86,7 +87,12 @@ export function InviteAuthForm({
           // valid", which sends people after a new link.
           setError(wrongAddress)
         } else {
-          setError(result.error.message ?? 'Something went wrong.')
+          setError(
+            result.error.message ??
+              (mode === 'signUp'
+                ? 'Could not create your account. Check your signal and try again.'
+                : 'Could not sign in. Check your signal and try again.'),
+          )
         }
         return
       }
@@ -97,7 +103,7 @@ export function InviteAuthForm({
       }
       onAuthed()
     } catch {
-      setError("Couldn't reach PestM8. Check your connection and try again.")
+      setError('Could not reach PestM8. Check your signal and try again.')
     } finally {
       setPending(false)
     }
@@ -151,7 +157,7 @@ export function InviteAuthForm({
         hint={mode === 'signUp' ? 'At least 10 characters.' : undefined}
       />
 
-      {error && <Alert>{error}</Alert>}
+      {error && <FormAlert>{error}</FormAlert>}
 
       <button
         type="submit"
@@ -159,7 +165,9 @@ export function InviteAuthForm({
         className={`${PRIMARY_BUTTON} mt-2`}
       >
         {pending
-          ? 'Just a moment…'
+          ? mode === 'signUp'
+            ? 'Creating your account…'
+            : 'Signing in…'
           : mode === 'signUp'
             ? submitLabels.signUp
             : submitLabels.signIn}
@@ -178,17 +186,6 @@ export function InviteAuthForm({
           : 'Need an account? Create one'}
       </button>
     </form>
-  )
-}
-
-function Alert({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-    >
-      {children}
-    </p>
   )
 }
 

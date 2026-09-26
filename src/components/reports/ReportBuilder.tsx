@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { ArrowLeft, ArrowRight, CheckCheck, Lock, Save } from 'lucide-react'
+import { CheckCheck, ChevronLeft, ChevronRight, Lock, Save } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { FieldRenderer } from './fields/FieldRenderer'
 import { seedData } from './fields/registry'
@@ -58,6 +58,11 @@ import {
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
+import { formatJobDate, formatTime, todayKey } from '#/lib/format'
+import { deviceTimezone } from '#/lib/useBusinessTimezone'
+import { dayKeyOf } from '../../../convex/lib/dates'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { ABOVE_DOCK } from '#/components/shell/dock'
 
 /**
  * Honest about §5.5: there is no offline mutation queue, so a failed save is a
@@ -897,14 +902,11 @@ export function ReportBuilder({
         )}
 
         {autosave.status === 'error' && (
-          <p
-            role="alert"
-            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
+          <FormAlert className="mt-4">
             {clashed
               ? 'Not saved — someone else changed the same answer while you were editing. Reload to see what they wrote; this device keeps your answers and offers them back.'
               : 'Not saved — check your connection, then tap Retry. Your answers are still on this device until you leave the page.'}
-          </p>
+          </FormAlert>
         )}
 
         {/* Not for an incomplete report: that refusal names its questions, and
@@ -912,20 +914,14 @@ export function ReportBuilder({
           A generic "could not finalise" above a precise list of why is the
           same news twice, the vaguer one first. */}
         {finalise.isError && !incompleteIssues(finalise.error) && (
-          <p
-            role="alert"
-            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
+          <FormAlert className="mt-4">
             {finaliseError(finalise.error, { isCorrection, licenceFix })}
-          </p>
+          </FormAlert>
         )}
         {Object.keys(errors).length > 0 && !blocked && (
-          <p
-            role="alert"
-            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
+          <FormAlert className="mt-4">
             Some required details are missing. Check the fields marked above.
-          </p>
+          </FormAlert>
         )}
 
         {/* Offered, never applied on its own: these answers may be older than
@@ -1024,7 +1020,7 @@ export function ReportBuilder({
           // Fixed above the dock on a phone, where it must stay under the thumb;
           // on a desktop it belongs at the end of the form it acts on, rather
           // than floating across the middle of the screen.
-          className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:static lg:mt-8 lg:max-w-none lg:rounded-2xl lg:border lg:border-hairline lg:p-3"
+          className={`chrome-blur fixed inset-x-0 ${ABOVE_DOCK} z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:static lg:mt-8 lg:max-w-none lg:rounded-2xl lg:border lg:border-hairline lg:p-3`}
         >
           {current ? (
             <>
@@ -1034,7 +1030,7 @@ export function ReportBuilder({
                 onClick={() => goToSection(previousSection)}
                 className={`${SECONDARY_BUTTON} flex items-center justify-center gap-2 px-4`}
               >
-                <ArrowLeft size={17} strokeWidth={2} />
+                <ChevronLeft size={17} strokeWidth={2.2} />
                 {previousSection ? 'Back' : 'Overview'}
               </button>
               {nextSection ? (
@@ -1048,7 +1044,11 @@ export function ReportBuilder({
                     Next: {nextSection.number ? `${nextSection.number}. ` : ''}
                     {nextSection.title}
                   </span>
-                  <ArrowRight size={17} strokeWidth={2} className="shrink-0" />
+                  <ChevronRight
+                    size={17}
+                    strokeWidth={2.2}
+                    className="shrink-0"
+                  />
                 </button>
               ) : (
                 <FinaliseButton
@@ -1086,7 +1086,7 @@ export function ReportBuilder({
                   className={`${NEUTRAL_BUTTON} flex flex-1 items-center justify-center gap-2`}
                 >
                   Continue
-                  <ArrowRight size={17} strokeWidth={2} />
+                  <ChevronRight size={17} strokeWidth={2.2} />
                 </button>
               )}
             </>
@@ -1097,16 +1097,16 @@ export function ReportBuilder({
   )
 }
 
-/** `at 2:05 pm today`, `on 14 Sept` — enough to recognise a session by. */
+/** `at 2:05pm today`, `on Mon 14 Sept, 2:05pm` — enough to recognise a
+ * session by. In the phone's own zone: it is about what was typed on it. */
 function whenRoughly(at: number): string {
-  const when = new Date(at)
-  const sameDay = new Date().toDateString() === when.toDateString()
-  const time = new Intl.DateTimeFormat('en-AU', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(when)
-  if (sameDay) return `at ${time} today`
-  return `on ${new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short' }).format(when)}, ${time}`
+  const zone = deviceTimezone()
+  const today = todayKey(zone)
+  const day = dayKeyOf(at, zone)
+  const time = formatTime(at, zone)
+  return day === today
+    ? `at ${time} today`
+    : `on ${formatJobDate(day, today)}, ${time}`
 }
 
 /** The same words, whatever the case: a section title may be set in capitals. */

@@ -284,7 +284,7 @@ test('a new site for an existing business is booked from New Job, without a seco
   )
 
   await sheet
-    .getByRole('button', { name: '+ New site for an existing client' })
+    .getByRole('button', { name: 'New site for an existing client' })
     .click()
   await sheet.getByLabel('Street address').fill('5 Abernethy Road')
   await sheet.getByLabel('Suburb').fill('Belmont')

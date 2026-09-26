@@ -20,6 +20,9 @@ import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
+import { formatWhen } from '#/lib/format'
+import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
+import { dateTimeFormat, dayKeyOf } from '../../../convex/lib/dates'
 
 const TABS = [
   { value: 'form' as const, label: 'Form' },
@@ -49,6 +52,7 @@ function SgarNotice({
   businessSlug: string
   report: SendableReport
 }) {
+  const timezone = useBusinessTimezone()
   const template = resolveReportTemplate({
     template: report.template,
     templateVersion: report.templateVersion,
@@ -62,9 +66,10 @@ function SgarNotice({
   )
   if (!due) return null
 
-  const day = new Intl.DateTimeFormat('en-AU', {
+  const day = dateTimeFormat('en-AU', {
     day: 'numeric',
     month: 'long',
+    timeZone: timezone,
   }).format(new Date(due.dueBy))
 
   return (
@@ -85,7 +90,7 @@ function SgarNotice({
         <Link
           to="/$businessSlug/schedule"
           params={{ businessSlug }}
-          search={{ date: dayKey(due.dueBy) }}
+          search={{ date: dayKeyOf(due.dueBy, timezone) }}
           className="mt-1 inline-block text-caption font-semibold text-amber-ink underline"
         >
           Open that week
@@ -93,14 +98,6 @@ function SgarNotice({
       </div>
     </div>
   )
-}
-
-/** `2026-10-22` — the shape the schedule's `?date=` takes. */
-function dayKey(at: number): string {
-  const when = new Date(at)
-  return `${when.getFullYear()}-${String(when.getMonth() + 1).padStart(2, '0')}-${String(
-    when.getDate(),
-  ).padStart(2, '0')}`
 }
 
 /** What the send sheet needs from `reports.get`, and nothing more. */
@@ -344,6 +341,7 @@ function LogRow({
     onBehalfOfName?: string
   }
 }) {
+  const timezone = useBusinessTimezone()
   const meta = (entry.meta ?? {}) as {
     to?: string | Array<string>
     detail?: string
@@ -372,10 +370,7 @@ function LogRow({
               ? `${entry.actorName}, in ${entry.onBehalfOfName}’s account · `
               : `${entry.actorName} · `
             : ''}
-          {new Intl.DateTimeFormat('en-AU', {
-            dateStyle: 'medium',
-            timeStyle: 'short',
-          }).format(new Date(entry.at))}
+          {formatWhen(entry.at, timezone)}
         </p>
         {meta.detail && (
           <p className="mt-1 text-caption text-amber-ink">{meta.detail}</p>
