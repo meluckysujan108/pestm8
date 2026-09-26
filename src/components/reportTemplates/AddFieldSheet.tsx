@@ -98,7 +98,7 @@ export function AddFieldSheet({
                 onClick={() => pickKind(k)}
                 className="rounded-xl border border-hairline bg-surface p-3 text-left transition active:scale-[.97]"
               >
-                <p className="text-[14px] font-semibold text-ink">
+                <p className="text-body font-semibold text-ink">
                   {FIELD_KIND_LABELS[k]}
                 </p>
                 <p className="mt-0.5 text-caption text-muted">

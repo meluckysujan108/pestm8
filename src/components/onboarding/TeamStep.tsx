@@ -216,7 +216,7 @@ function Choice({
       aria-checked={selected}
       onClick={onSelect}
       disabled={disabled}
-      className={`relative flex flex-col items-start rounded-2xl border bg-surface p-4 text-left shadow-elevation transition active:scale-[.98] ${
+      className={`relative flex flex-col items-start rounded-2xl border bg-surface p-4 text-left shadow-elevation transition active:scale-[.99] ${
         selected ? 'border-blue ring-2 ring-blue/30' : 'border-hairline'
       }`}
     >

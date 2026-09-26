@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { AlertTriangle } from 'lucide-react'
+import { TriangleAlert } from 'lucide-react'
 import { customTemplateSectionsSchema } from '#/lib/reportTemplates/customTemplateSchema'
 import { buildReportModel } from '#/lib/reportTemplates/documentModel'
 import { visibleSections } from '#/lib/reportTemplates/visibility'
@@ -80,7 +80,7 @@ export function TemplatePreview({ draft }: { draft: TemplateDraft }) {
           role="alert"
           className="flex items-start gap-2.5 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-caption text-amber-ink"
         >
-          <AlertTriangle
+          <TriangleAlert
             size={16}
             strokeWidth={2}
             className="mt-0.5 shrink-0"

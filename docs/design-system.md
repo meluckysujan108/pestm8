@@ -161,12 +161,12 @@ Three sizes may be written as literals, because each belongs to a component rath
 
 - **`text-[16px]`: every text input.** Below 16px, iOS zooms the page on focus. `FIELD` and `fieldInputClass` already set it, as does the empty state's button.
 - **`text-[17px]`:** a full-size (48px) button's label. The button constants set it.
-- **`text-[12px]` / `text-[11px]`:** a pill's word and a count badge's number (see 2.2), and the small day labels in the calendars.
+- **`text-[12px]` / `text-[11px]`:** a pill's word and a count badge's number (see 2.2), and the small day labels in the calendars. The dock's badges, which sit on a glyph, are `text-[10px]`.
 
 Anything else is off the scale:
 
-- `text-[13px]` and `text-[15px]` **(lint)**;
-- `text-[14px]`, `text-[21px]`, `text-xs`, `text-sm`.
+- `text-[9px]`, `text-[13px]`, `text-[14px]`, `text-[15px]`, `text-[21px]`, `text-[22px]` **(lint)**;
+- `text-xs`, `text-sm`.
 
 **Weight:**
 
@@ -262,7 +262,7 @@ Motion is quiet and quick.
 
 **Transitions** use `transition` at Tailwind's default 150ms.
 
-**Press feedback** is a scale. Match it to what is pressed:
+**Press feedback** is a scale. Match it to what is pressed; any other value is refused **(lint)**:
 
 | Pressed                                         | Class                                  |
 | ----------------------------------------------- | -------------------------------------- |
@@ -807,7 +807,8 @@ Lint refuses the rules marked **(lint)**; review catches the rest.
 
 **Type and icons:**
 
-- `text-[13px]` or `text-[15px]`: use `text-caption` or `text-body` **(lint)**. Nor any other off-scale size (2.3).
+- An off-scale text size (`text-[13px]`, `[14px]`, `[15px]`, `[21px]`…): use `text-caption`, `text-body`, `text-sheet-title` **(lint)**. See 2.3.
+- A press scale other than `.975`, `.95`, `.97`, `.99` **(lint)**.
 - An icon `strokeWidth` off the scale for its `size` **(lint)**.
 
 **Components:**

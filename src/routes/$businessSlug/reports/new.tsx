@@ -179,7 +179,7 @@ function NewReportPage() {
                     </span>
                   </div>
                   {template.id === suggestedId && job && (
-                    <p className="mt-1 text-caption font-semibold text-red">
+                    <p className="mt-1 text-caption font-semibold text-ink">
                       Suggested for {job.jobType}
                     </p>
                   )}

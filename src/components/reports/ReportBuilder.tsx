@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { ArrowLeft, ArrowRight, CheckCheck, Lock, Save } from 'lucide-react'
+import { CheckCheck, ChevronLeft, ChevronRight, Lock, Save } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { FieldRenderer } from './fields/FieldRenderer'
 import { seedData } from './fields/registry'
@@ -1030,7 +1030,7 @@ export function ReportBuilder({
                 onClick={() => goToSection(previousSection)}
                 className={`${SECONDARY_BUTTON} flex items-center justify-center gap-2 px-4`}
               >
-                <ArrowLeft size={17} strokeWidth={2} />
+                <ChevronLeft size={17} strokeWidth={2.2} />
                 {previousSection ? 'Back' : 'Overview'}
               </button>
               {nextSection ? (
@@ -1044,7 +1044,11 @@ export function ReportBuilder({
                     Next: {nextSection.number ? `${nextSection.number}. ` : ''}
                     {nextSection.title}
                   </span>
-                  <ArrowRight size={17} strokeWidth={2} className="shrink-0" />
+                  <ChevronRight
+                    size={17}
+                    strokeWidth={2.2}
+                    className="shrink-0"
+                  />
                 </button>
               ) : (
                 <FinaliseButton
@@ -1082,7 +1086,7 @@ export function ReportBuilder({
                   className={`${NEUTRAL_BUTTON} flex flex-1 items-center justify-center gap-2`}
                 >
                   Continue
-                  <ArrowRight size={17} strokeWidth={2} />
+                  <ChevronRight size={17} strokeWidth={2.2} />
                 </button>
               )}
             </>

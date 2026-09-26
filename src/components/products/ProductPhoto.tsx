@@ -86,7 +86,7 @@ export function ProductHero({
         <button
           type="button"
           onClick={onAddPhoto}
-          className="mt-1 flex h-11 items-center gap-1.5 rounded-full bg-surface px-4 text-[14px] font-semibold text-blue shadow-elevation transition active:scale-[.97]"
+          className="mt-1 flex h-11 items-center gap-1.5 rounded-full bg-surface px-4 text-body font-semibold text-blue shadow-elevation transition active:scale-[.97]"
         >
           <ImagePlus aria-hidden size={16} strokeWidth={2} />
           Add photo

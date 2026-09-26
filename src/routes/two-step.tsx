@@ -608,7 +608,7 @@ function ScanStep({
 
   return (
     <div className="flex flex-col gap-5">
-      <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4">
+      <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4 shadow-elevation">
         <h2 className="section-label">1 · Add PestM8 to your authenticator</h2>
         {notice.tone === 'warn' && (
           <Warning>
@@ -688,7 +688,7 @@ function ScanStep({
           e.preventDefault()
           void verify(code)
         }}
-        className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4"
+        className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4 shadow-elevation"
       >
         <label className="flex flex-col gap-1.5">
           <span className="section-label">
@@ -707,7 +707,7 @@ function ScanStep({
               setCode(next)
               if (next.length === 6) void verify(next)
             }}
-            className="h-12 rounded-xl bg-surface-3 px-3.5 text-center font-mono text-[22px] tracking-[0.3em] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className="h-12 rounded-xl bg-surface-3 px-3.5 text-center font-mono text-sheet-title font-medium tracking-[0.3em] text-ink outline-none focus:ring-2 focus:ring-blue"
           />
         </label>
 
@@ -748,7 +748,7 @@ function ScanStep({
       )}
 
       {onStartOver && confirming && (
-        <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4">
+        <section className="flex flex-col gap-3 rounded-2xl border border-hairline bg-surface p-4 shadow-elevation">
           <h2 className="section-label">Start over with a new key</h2>
           <Warning>
             {START_OVER_WARNING}

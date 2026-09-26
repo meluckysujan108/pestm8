@@ -6,10 +6,10 @@ import { DropdownMenu, Popover } from 'radix-ui'
 import {
   Briefcase,
   ChevronLeft,
+  Ellipsis,
   Link2,
   Lock,
   MapPin,
-  MoreHorizontal,
   Pin,
   PinOff,
   RotateCcw,
@@ -200,7 +200,7 @@ export function NoteEditorHeader({
                   disabled={!hydrated}
                   className="flex size-9 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 disabled:opacity-50"
                 >
-                  <MoreHorizontal size={19} strokeWidth={1.7} />
+                  <Ellipsis size={19} strokeWidth={1.7} />
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content

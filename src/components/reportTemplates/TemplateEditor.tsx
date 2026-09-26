@@ -372,7 +372,7 @@ export function TemplateEditor({
             type="button"
             disabled={discard.isPending}
             onClick={() => discard.mutate()}
-            className="h-9 rounded-xl text-caption font-semibold text-muted transition active:scale-[.98] disabled:opacity-50"
+            className="h-11 rounded-xl text-caption font-semibold text-muted transition active:scale-[.975] disabled:opacity-50"
           >
             Discard these changes
           </button>

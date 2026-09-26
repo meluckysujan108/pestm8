@@ -1,4 +1,4 @@
-import { AlertTriangle } from 'lucide-react'
+import { TriangleAlert } from 'lucide-react'
 
 /**
  * The durable notice cannot be automated (§1.4): AS 3660.2 / NCC require a
@@ -15,7 +15,7 @@ export function DurableNoticePreview({ text }: { text: string }) {
       </pre>
 
       <p className="mt-2 flex gap-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-caption text-amber-ink">
-        <AlertTriangle size={15} strokeWidth={2} className="mt-0.5 shrink-0" />
+        <TriangleAlert size={15} strokeWidth={2} className="mt-0.5 shrink-0" />
         <span>
           This notice must be physically fixed to the building, usually inside
           the meter box. Finalising this certificate adds it to your follow-ups

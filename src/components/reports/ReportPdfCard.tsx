@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import {
   Check,
   FileText,
-  Loader2,
+  LoaderCircle,
   RotateCcw,
   TriangleAlert,
 } from 'lucide-react'
@@ -140,7 +140,7 @@ function StatusLine({ status }: { status: ReportPdfStatus }) {
         </>
       ) : status.phase === 'preparing' ? (
         <>
-          <Loader2
+          <LoaderCircle
             aria-hidden
             size={14}
             strokeWidth={2}

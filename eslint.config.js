@@ -25,8 +25,14 @@ const TOKEN_RULES = [
       'Icon strokeWidth must be 1.7 (18px+), 2 (13–17px), 2.2 (chevron/✕/✓/± at 13–17px) or 2.4 (12px and under).',
   },
   ...classRule(
-    '/(^|\\s)text-\\[(13|15)px\\](\\s|$)/',
-    'Use text-caption (13px) or text-body (15px), not an arbitrary size.',
+    '/(^|[\\s:])text-\\[(9|13|14|15|21|22)px\\](\\s|$)/',
+    'Off the type scale: use text-caption (13px), text-body (15px) or text-sheet-title (21px). See docs/design-system.md §2.3.',
+  ),
+  // Press feedback has four levels, by what is pressed: .975 a button, .95 a
+  // round icon button or chip, .97 a small secondary control, .99 a card.
+  ...classRule(
+    '/(^|[\\s:])active:scale-(?!\\[\\.(95|97|975|99)\\](\\s|$))/',
+    'Press scale: active:scale-[.975] (button), [.95] (icon button, chip), [.97] (small control) or [.99] (card, row). See docs/design-system.md §2.8.',
   ),
   {
     selector:

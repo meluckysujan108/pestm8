@@ -1,4 +1,4 @@
-import { Undo2 } from 'lucide-react'
+import { RotateCcw } from 'lucide-react'
 import { ToolbarButton } from './ViewerChrome'
 import type { Ref } from 'react'
 
@@ -47,7 +47,7 @@ export function MarkupPalette({
           disabled={!canUndo}
           onClick={onUndo}
         >
-          <Undo2 size={22} strokeWidth={1.7} />
+          <RotateCcw size={22} strokeWidth={1.7} />
         </ToolbarButton>
         <div className="flex min-w-0 flex-1 justify-center">
           {/* The app's confirm dialogs sit under the viewer (z-60/70 against

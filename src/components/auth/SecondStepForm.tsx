@@ -138,7 +138,7 @@ export function SecondStepForm({
               // tap too many — and iOS AutoFill pastes all six at once.
               if (next.length === 6) void submit(next)
             }}
-            className="h-12 rounded-xl bg-surface-3 px-3.5 text-center font-mono text-[22px] tracking-[0.3em] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className="h-12 rounded-xl bg-surface-3 px-3.5 text-center font-mono text-sheet-title font-medium tracking-[0.3em] text-ink outline-none focus:ring-2 focus:ring-blue"
           />
         ) : (
           <input

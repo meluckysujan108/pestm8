@@ -108,7 +108,7 @@ function AddTile() {
   return (
     <span
       aria-hidden
-      className="flex size-[30px] shrink-0 items-center justify-center rounded-[8px] bg-blue text-white"
+      className="flex size-[30px] shrink-0 items-center justify-center rounded-sm bg-blue text-white"
     >
       <Plus size={18} strokeWidth={2} />
     </span>
