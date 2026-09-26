@@ -19,6 +19,7 @@ import type {
   newPropertyFields,
 } from '../../../convex/properties'
 import { Plus } from 'lucide-react'
+import { KIND_CHOICES } from '#/lib/clientFilters'
 
 export type ClientKind = 'person' | 'business'
 
@@ -183,14 +184,11 @@ export function NewClientFields({
           label="Client type"
           value={value.kind}
           onChange={(kind) => onChange({ kind })}
-          options={[
-            { value: 'person', label: 'Person' },
-            { value: 'business', label: 'Business' },
-          ]}
+          options={KIND_CHOICES}
         />
       </Field>
 
-      <Field label={business ? 'Business name' : 'Client name'}>
+      <Field label={business ? 'Company name' : 'Client name'}>
         <Input
           value={value.clientName}
           onChange={(clientName) => onChange({ clientName })}

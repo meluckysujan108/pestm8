@@ -57,6 +57,7 @@ import {
 import { clientNumberFromText } from '../../../convex/lib/clientRecord'
 import type { ClientStatus } from '../../../convex/lib/clientRecord'
 import { LoadFailed } from '#/components/primitives/EmptyState'
+import { KIND_CHOICES, KIND_LABELS } from '#/lib/clientFilters'
 
 type ClientKind = 'person' | 'business'
 
@@ -224,7 +225,7 @@ function ClientBody({
                 {clientNumberLabel(client.clientNumber)} ·
               </span>
             )}
-            {client.kind === 'business' ? 'Business' : 'Person'}
+            {KIND_LABELS[client.kind]}
             <ClientStatusPill status={client.status} />
           </p>
           {client.tags && client.tags.length > 0 && (
@@ -249,7 +250,7 @@ function ClientBody({
 
           {client.kind === 'business' && (client.addressLine || client.suburb) && (
             <div className="mt-3">
-              <p className="section-label mb-1">Business address</p>
+              <p className="section-label mb-1">Company address</p>
               <p className="text-body text-ink-2">{client.addressLine}</p>
               <p className="text-caption text-muted">
                 {client.suburb} {client.state} {client.postcode}
@@ -508,14 +509,11 @@ function ClientEditForm({
             label="Client type"
             value={kind}
             onChange={setKind}
-            options={[
-              { value: 'person', label: 'Person' },
-              { value: 'business', label: 'Business' },
-            ]}
+            options={KIND_CHOICES}
           />
         </WrappedField>
         <WrappedField
-          label={kind === 'business' ? 'Business name' : 'Client name'}
+          label={kind === 'business' ? 'Company name' : 'Client name'}
         >
           <TextInput value={name} onChange={setName} required />
         </WrappedField>
@@ -623,7 +621,7 @@ function ClientEditForm({
             className="flex flex-col gap-2.5"
           >
             <p id={addressHeadingId} className="section-label -mb-1">
-              Business address (optional)
+              Company address (optional)
             </p>
             <VerifiedAddressFields
               idPrefix={`${id}-address`}

@@ -18,6 +18,7 @@ import { AU_STATE_CODES } from '../../../../convex/lib/clientImport'
 import { applyDraft, blankSite, draftOf } from './draft'
 import type { ReactNode, RefObject } from 'react'
 import type { Draft, SiteDraft } from './draft'
+import { KIND_CHOICES } from '#/lib/clientFilters'
 import type { ReviewClient, ReviewIssue } from '#/lib/clientImport/types'
 
 /** What the review said, by field and site, for looking up rather than
@@ -190,16 +191,13 @@ function EditForm({
           value={draft.kind}
           disabled={!hydrated}
           onChange={(kind) => set({ kind })}
-          options={[
-            { value: 'person', label: 'Person' },
-            { value: 'business', label: 'Business' },
-          ]}
+          options={KIND_CHOICES}
         />
       </div>
 
       <TextField
         id={`${ids}-name`}
-        label={business ? 'Business name' : 'Client name'}
+        label={business ? 'Company name' : 'Client name'}
         value={draft.name}
         onChange={(name) => set({ name })}
         issue={said('name')}
@@ -366,11 +364,8 @@ const SiteFields = memo(function SiteFields({
       </div>
       {site.duplicate && (
         <p className="mt-0.5 text-caption text-grey-ink">
-          {site.heldBy
-            ? `Already in PestM8, on ${site.heldBy}`
-            : 'Already in PestM8'}{' '}
-          — it won’t be imported again. Change the address if it’s a different
-          place.
+          Already in PestM8 — it won’t be imported again. Change the address if
+          it’s a different place.
         </p>
       )}
       <TextField

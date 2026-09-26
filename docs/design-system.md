@@ -414,12 +414,12 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 
 ### 4.3 Choosing: `primitives/`
 
-| Export           | Use for                                                                                                                                                                           |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Segmented`      | Two to four options, all visible. `kind="tabs"` switches what shows below (Day/Week/Month); `kind="choice"` answers a form question (Person/Business). Never a dropdown for these |
-| `Combobox`       | A searchable single choice from a long list (a property, a job type). `allowCustom` adds what was typed                                                                           |
-| `FilterDropdown` | A compact single-select filter chip in a header row (status, staff)                                                                                                               |
-| `SearchBox`      | A search field whose typing is instant and whose query follows after a pause                                                                                                      |
+| Export           | Use for                                                                                                                                                                                  |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Segmented`      | Two to four options, all visible. `kind="tabs"` switches what shows below (Day/Week/Month); `kind="choice"` answers a form question (Residential/Commercial). Never a dropdown for these |
+| `Combobox`       | A searchable single choice from a long list (a property, a job type). `allowCustom` adds what was typed                                                                                  |
+| `FilterDropdown` | A compact single-select filter chip in a header row (status, staff)                                                                                                                      |
+| `SearchBox`      | A search field whose typing is instant and whose query follows after a pause                                                                                                             |
 
 ### 4.4 Sheets and dialogs
 
@@ -709,35 +709,35 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 
 **One concept, one glyph.** Use the glyph that already means the thing; don't give a glyph a second meaning.
 
-| Concept                        | Icon                                                                              |
-| ------------------------------ | --------------------------------------------------------------------------------- |
-| Add                            | `Plus` (`ImagePlus` for a photo)                                                  |
-| Edit                           | `Pencil`                                                                          |
-| Sign, annotate, mark up        | `PenLine`                                                                         |
-| Delete / remove                | `Trash2`                                                                          |
-| Close, dismiss, clear a search | `X`                                                                               |
-| Back / forward                 | `ChevronLeft` / `ChevronRight`                                                    |
-| Open a menu of more            | `Ellipsis`                                                                        |
-| Search                         | `Search`                                                                          |
-| Share                          | `Share` (the iOS glyph)                                                           |
-| Send                           | `Send`                                                                            |
-| Call / Text / Email / Map      | `Phone` / `MessageSquareText` / `Mail` / `MapPin` (only through `ContactButtons`) |
-| Warning                        | `TriangleAlert`                                                                   |
-| Info                           | `Info`                                                                            |
-| Done, selected                 | `Check`                                                                           |
-| Finalised, locked              | `Lock` (only this: a locked report, locked boilerplate, a password PDF)           |
-| Undo, restore, try again       | `RotateCcw`                                                                       |
-| Replace, regenerate, reload    | `RefreshCw`                                                                       |
-| Recurring                      | `Repeat` (ink, not blue)                                                          |
-| Photo                          | `Camera` (take), `ImageIcon` (library)                                            |
-| Report, document               | `FileText`                                                                        |
-| Offline                        | `WifiOff`                                                                         |
-| Open elsewhere                 | `ExternalLink`                                                                    |
-| Loading                        | `LoaderCircle` with `animate-spin`                                                |
-| Client (a person / a business) | `User` / `Building2`; the Clients tab is `Contact`                                |
-| Team, people in the business   | `Users`                                                                           |
-| Personal (only you can see it) | `EyeOff`                                                                          |
-| Primary, cover, "the usual"    | `Star`                                                                            |
+| Concept                           | Icon                                                                              |
+| --------------------------------- | --------------------------------------------------------------------------------- |
+| Add                               | `Plus` (`ImagePlus` for a photo)                                                  |
+| Edit                              | `Pencil`                                                                          |
+| Sign, annotate, mark up           | `PenLine`                                                                         |
+| Delete / remove                   | `Trash2`                                                                          |
+| Close, dismiss, clear a search    | `X`                                                                               |
+| Back / forward                    | `ChevronLeft` / `ChevronRight`                                                    |
+| Open a menu of more               | `Ellipsis`                                                                        |
+| Search                            | `Search`                                                                          |
+| Share                             | `Share` (the iOS glyph)                                                           |
+| Send                              | `Send`                                                                            |
+| Call / Text / Email / Map         | `Phone` / `MessageSquareText` / `Mail` / `MapPin` (only through `ContactButtons`) |
+| Warning                           | `TriangleAlert`                                                                   |
+| Info                              | `Info`                                                                            |
+| Done, selected                    | `Check`                                                                           |
+| Finalised, locked                 | `Lock` (only this: a locked report, locked boilerplate, a password PDF)           |
+| Undo, restore, try again          | `RotateCcw`                                                                       |
+| Replace, regenerate, reload       | `RefreshCw`                                                                       |
+| Recurring                         | `Repeat` (ink, not blue)                                                          |
+| Photo                             | `Camera` (take), `ImageIcon` (library)                                            |
+| Report, document                  | `FileText`                                                                        |
+| Offline                           | `WifiOff`                                                                         |
+| Open elsewhere                    | `ExternalLink`                                                                    |
+| Loading                           | `LoaderCircle` with `animate-spin`                                                |
+| Client (residential / commercial) | `House` / `Building2`; the Clients tab is `Contact`                               |
+| Team, people in the business      | `Users`                                                                           |
+| Personal (only you can see it)    | `EyeOff`                                                                          |
+| Primary, cover, "the usual"       | `Star`                                                                            |
 
 ---
 
