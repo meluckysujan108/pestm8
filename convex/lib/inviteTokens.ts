@@ -46,6 +46,13 @@ export type InviteState =
  * `legacy` is a row created before token invites existed: it has no hash, so
  * there is no link that opens it. Those are retired by the migration rather
  * than left to look like live invitations.
+ *
+ * Used and withdrawn come first, before `legacy`. An old invitation someone
+ * already joined through is `claimed`, like any other: asked the other way
+ * round it read as `legacy`, so the pending list (which keeps `legacy` rows
+ * for "create a new link") showed people who had joined, and "New link" on
+ * them failed with ALREADY_MEMBER. Withdrawing one never took it off the list
+ * either, for the same reason.
  */
 export function inviteState(
   invitation:
@@ -60,9 +67,9 @@ export function inviteState(
   now: number,
 ): InviteState {
   if (!invitation) return 'invalid'
-  if (!invitation.tokenHash) return 'legacy'
   if (invitation.claimedAt !== undefined) return 'claimed'
   if (invitation.revokedAt !== undefined) return 'revoked'
+  if (!invitation.tokenHash) return 'legacy'
   if (invitation.expiresAt !== undefined && invitation.expiresAt <= now) {
     return 'expired'
   }

@@ -37,6 +37,77 @@ describe('inviteState', () => {
     expect(inviteState({ ...base, expiresAt: now }, now)).toBe('expired')
     expect(inviteState(null, now)).toBe('invalid')
   })
+
+  test('an old invitation someone joined through, or that was withdrawn, is not legacy', () => {
+    // No token hash on either: rows from before token invites.
+    expect(inviteState({ claimedAt: now }, now)).toBe('claimed')
+    expect(inviteState({ revokedAt: now }, now)).toBe('revoked')
+  })
+})
+
+describe('the pending list and old invitations', () => {
+  /** Rows as the pre-token invite flow left them: no hash, no expiry. */
+  async function withOldInvitations() {
+    const { t, owner, businessId } = await ownerWithBusiness()
+    const ownerId = (await t.run(async (ctx) =>
+      ctx.db
+        .query('memberships')
+        .withIndex('by_user_business', (q) =>
+          q.eq('userId', owner.userId).eq('businessId', businessId),
+        )
+        .unique(),
+    ))!._id
+    const old = (email: string, extra: { claimedAt?: number } = {}) =>
+      t.run(async (ctx) =>
+        ctx.db.insert('invitations', {
+          businessId,
+          email,
+          role: 'subcontractor',
+          invitedByMembershipId: ownerId,
+          createdAt: 1,
+          ...extra,
+        }),
+      )
+    return {
+      t,
+      owner,
+      businessId,
+      joined: await old('joined@example.test', { claimedAt: 2 }),
+      waiting: await old('waiting@example.test'),
+    }
+  }
+
+  const pending = async (s: Awaited<ReturnType<typeof withOldInvitations>>) =>
+    (
+      await s.owner.as.query(api.invitations.listForBusiness, {
+        businessId: s.businessId,
+      })
+    ).map((row) => [row.email, row.state])
+
+  test('someone who already joined is not offered a new link', async () => {
+    const s = await withOldInvitations()
+    // Shown as pending with "New link", which then failed ALREADY_MEMBER.
+    expect(await pending(s)).toEqual([['waiting@example.test', 'legacy']])
+  })
+
+  test('withdrawing an old invitation takes it off the list', async () => {
+    const s = await withOldInvitations()
+    await s.owner.as.mutation(api.invitations.revoke, {
+      businessId: s.businessId,
+      invitationId: s.waiting,
+    })
+    expect(await pending(s)).toEqual([])
+  })
+
+  test('an old invitation nobody used still turns into a working link', async () => {
+    const s = await withOldInvitations()
+    const { url } = await s.owner.as.action(api.invitations.regenerate, {
+      businessId: s.businessId,
+      invitationId: s.waiting,
+    })
+    expect(url).toContain('/join/')
+    expect(await pending(s)).toEqual([['waiting@example.test', 'valid']])
+  })
 })
 
 test('maskEmail shows enough to recognise, not enough to publish', () => {
