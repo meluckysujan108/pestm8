@@ -520,7 +520,7 @@ const clearSessions: Step = async (run) => {
  * Anyone's licence wallet in the demo (memberLicences.ts): each licence after
  * its files. Only the rows, as the licence screens themselves only ever drop
  * rows — every file on them is a person's upload, never the seed's, and a
- * licence's file is never deleted (licences.ts).
+ * licence's file is never deleted (memberLicences.ts).
  */
 const clearLicences: Step = (run) =>
   sweep(

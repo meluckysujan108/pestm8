@@ -19,7 +19,7 @@ import type { TestActor, TestApp } from '../test/harness'
  * My licences: each person's wallet of licences — written by its holder
  * alone, read by the holder and the owner, and nobody else.
  *
- * The risks are those of the Phase 8.1 document (licences.test.ts), times
+ * The risks are those of the single Phase 8.1 document before it, times
  * twenty: someone changing another person's licences, a teammate or a
  * contractor reading a licence card (a date of birth and a home address), and
  * the claim — an upload is taken by its storage id, and ids reach clients
@@ -186,6 +186,35 @@ function auditOf(s: Setup, membershipId: Id<'memberships'>) {
       )
       .collect(),
   )
+}
+
+/**
+ * A Phase 8.1 licence document on a membership, as the retired
+ * `licences.setFile` left one — written directly, since nothing sets one any
+ * more. Returns its `uploadedAt`.
+ */
+async function giveDocument(
+  s: Setup,
+  membershipId: Id<'memberships'>,
+  storageId: Id<'_storage'>,
+  fileName = 'licence.pdf',
+): Promise<number> {
+  const pdf = fileName.endsWith('.pdf')
+  const uploadedAt = Date.now()
+  await s.t.run(async (ctx) => {
+    const file = await ctx.db.system.get('_storage', storageId)
+    await ctx.db.patch('memberships', membershipId, {
+      licenceFile: {
+        storageId,
+        kind: pdf ? 'pdf' : 'image',
+        contentType: pdf ? 'application/pdf' : 'image/jpeg',
+        fileName,
+        size: file!.size,
+        uploadedAt,
+      },
+    })
+  })
+  return uploadedAt
 }
 
 /** Kevin with one licence holding one file. */
@@ -550,21 +579,12 @@ describe('what an upload may be', () => {
       name: 'Termidor',
       pdf: { storageId: productPdf, fileName: 'sds.pdf' },
     })
-    // Someone's Phase 8.1 document — Priya's, and Kevin's own.
+    // Someone's Phase 8.1 document — Priya's, and Kevin's own — still on
+    // their membership, as one nobody has copied would be.
     const priyasDocument = await upload(s)
-    await s.priya.as.mutation(api.licences.setFile, {
-      businessId: s.businessId,
-      membershipId: s.priyaMembershipId,
-      storageId: priyasDocument,
-      fileName: 'licence.pdf',
-    })
+    await giveDocument(s, s.priyaMembershipId, priyasDocument)
     const kevinsDocument = await upload(s)
-    await s.kevin.as.mutation(api.licences.setFile, {
-      businessId: s.businessId,
-      membershipId: s.kevinMembershipId,
-      storageId: kevinsDocument,
-      fileName: 'licence.pdf',
-    })
+    await giveDocument(s, s.kevinMembershipId, kevinsDocument)
     // A file in someone's wallet — Priya's, and Kevin's own other licence.
     const priyasLicence = await create(s, s.priya, 'Fumigation')
     const inPriyasWallet = await upload(s)
@@ -585,24 +605,18 @@ describe('what an upload may be', () => {
       )
     }
 
-    // And the other way: a wallet file is refused as anything else — a
-    // product, where the whole business would read it, or a Phase 8.1
-    // document.
-    await expect(
-      s.owner.as.mutation(api.products.create, {
-        businessId: s.businessId,
-        name: 'Not a product',
-        photoStorageId: inPriyasWallet,
-      }),
-    ).rejects.toThrow(/ALREADY_ATTACHED/)
-    await expect(
-      s.priya.as.mutation(api.licences.setFile, {
-        businessId: s.businessId,
-        membershipId: s.priyaMembershipId,
-        storageId: inPriyasWallet,
-        fileName: 'licence.pdf',
-      }),
-    ).rejects.toThrow(/ALREADY_ATTACHED/)
+    // And the other way: a licence file — in a wallet, or a Phase 8.1
+    // document — is refused as a product, where the whole business would
+    // read it.
+    for (const licence of [inPriyasWallet, priyasDocument]) {
+      await expect(
+        s.owner.as.mutation(api.products.create, {
+          businessId: s.businessId,
+          name: 'Not a product',
+          photoStorageId: licence,
+        }),
+      ).rejects.toThrow(/ALREADY_ATTACHED/)
+    }
     const onLicence = (await rows(s)).files.filter(
       (f) => f.licenceId === licenceId,
     )
@@ -913,18 +927,13 @@ describe('moving the Phase 8.1 document into the wallet', () => {
   async function withDocuments() {
     const s = await setup()
     const kevinsDocument = await upload(s, 40)
-    const uploadedAt = await s.kevin.as.mutation(api.licences.setFile, {
-      businessId: s.businessId,
-      membershipId: s.kevinMembershipId,
-      storageId: kevinsDocument,
-      fileName: 'WA licence.PDF',
-    })
-    await s.owner.as.mutation(api.licences.setFile, {
-      businessId: s.businessId,
-      membershipId: s.ownerMembershipId,
-      storageId: await upload(s, 12),
-      fileName: 'card.jpg',
-    })
+    const uploadedAt = await giveDocument(
+      s,
+      s.kevinMembershipId,
+      kevinsDocument,
+      'WA licence.pdf',
+    )
+    await giveDocument(s, s.ownerMembershipId, await upload(s, 12), 'card.jpg')
     // Priya has a licence in her wallet already, and no document.
     await create(s, s.priya, 'Fumigation')
     return { s, kevinsDocument, uploadedAt }
@@ -937,6 +946,15 @@ describe('moving the Phase 8.1 document into the wallet', () => {
     )
   const remaining = (s: Setup) =>
     s.t.query(internal.migrations.licenceWalletV1.remaining, {})
+  /** What is on the membership: the Phase 8.1 document, or null. */
+  const documentOf = (
+    s: Setup,
+    membershipId: Id<'memberships'> = s.kevinMembershipId,
+  ) =>
+    s.t.run(
+      async (ctx) =>
+        (await ctx.db.get('memberships', membershipId))?.licenceFile ?? null,
+    )
 
   test('a dry run says what it would copy and writes nothing', async () => {
     const { s } = await withDocuments()
@@ -990,13 +1008,11 @@ describe('moving the Phase 8.1 document into the wallet', () => {
     )
     expect(file.storageId).toBe(kevinsDocument)
     expect(file.licenceId).toBe(licences[0]._id)
-    // The document stays where the live Profile page reads it.
-    expect(
-      await s.kevin.as.query(api.licences.file, {
-        businessId: s.businessId,
-        membershipId: s.kevinMembershipId,
-      }),
-    ).toMatchObject({ fileName: 'WA licence.pdf', uploadedAt })
+    // The document stays on the membership, for the contract to clear.
+    expect(await documentOf(s, s.kevinMembershipId)).toMatchObject({
+      storageId: kevinsDocument,
+      uploadedAt,
+    })
     // Priya's wallet is as she left it.
     expect(
       (await list(s, s.priya, s.priyaMembershipId)).licences.map((l) => l.name),
@@ -1026,12 +1042,6 @@ describe('moving the Phase 8.1 document into the wallet', () => {
     return { licenceId: licence._id, fileId: licence.files[0]._id }
   }
 
-  const documentOf = (s: Setup) =>
-    s.kevin.as.query(api.licences.file, {
-      businessId: s.businessId,
-      membershipId: s.kevinMembershipId,
-    })
-
   async function ownersRosterRow(s: Setup) {
     const roster = await s.owner.as.query(api.team.roster, {
       businessId: s.businessId,
@@ -1048,30 +1058,15 @@ describe('moving the Phase 8.1 document into the wallet', () => {
       licenceId,
     })
 
-    // Nobody reads it through the Phase 8.1 query any more — the owner
-    // included — and the roster no longer says there is one.
+    // The document is off the membership too, and the roster counts none.
     expect(await documentOf(s)).toBeNull()
-    expect(
-      await s.owner.as.query(api.licences.file, {
-        businessId: s.businessId,
-        membershipId: s.kevinMembershipId,
-      }),
-    ).toBeNull()
-    expect(await ownersRosterRow(s)).toMatchObject({
-      hasLicenceFile: false,
-      licenceCount: 0,
-    })
+    expect(await ownersRosterRow(s)).toMatchObject({ licenceCount: 0 })
     // Nothing left to copy, and a run copies nothing back.
     expect(await remaining(s)).toBe(0)
     expect((await run(s)).copied).toEqual([])
     expect((await list(s, s.kevin, s.kevinMembershipId)).licences).toEqual([])
     // The owner's own document, not deleted, is untouched.
-    expect(
-      await s.owner.as.query(api.licences.file, {
-        businessId: s.businessId,
-        membershipId: s.ownerMembershipId,
-      }),
-    ).not.toBeNull()
+    expect(await documentOf(s, s.ownerMembershipId)).not.toBeNull()
     // One change, one line in Kevin's history, which says so.
     const [row] = (await auditOf(s, s.kevinMembershipId)).filter(
       (entry) => entry.action === 'membership.removeLicence',
@@ -1096,7 +1091,6 @@ describe('moving the Phase 8.1 document into the wallet', () => {
       fileId,
     })
     expect(await documentOf(s)).toBeNull()
-    expect(await ownersRosterRow(s)).toMatchObject({ hasLicenceFile: false })
     expect(await remaining(s)).toBe(0)
     expect((await run(s)).copied).toEqual([])
     // The licence stays, now with no file; the file stays in storage.
@@ -1118,18 +1112,18 @@ describe('moving the Phase 8.1 document into the wallet', () => {
     const { s } = await withDocuments()
     const { licenceId } = await copied(s)
     // Replaced from the old Profile page after the run.
-    await s.kevin.as.mutation(api.licences.setFile, {
-      businessId: s.businessId,
-      membershipId: s.kevinMembershipId,
-      storageId: await upload(s, 50),
-      fileName: 'new card.png',
-    })
+    await giveDocument(
+      s,
+      s.kevinMembershipId,
+      await upload(s, 50),
+      'new card.jpg',
+    )
 
     await s.kevin.as.mutation(api.memberLicences.remove, {
       businessId: s.businessId,
       licenceId,
     })
-    expect(await documentOf(s)).toMatchObject({ fileName: 'new card.png' })
+    expect(await documentOf(s)).toMatchObject({ fileName: 'new card.jpg' })
     expect(await remaining(s)).toBe(1)
   })
 

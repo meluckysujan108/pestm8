@@ -14,10 +14,11 @@ type Ctx = QueryCtx | MutationCtx
  * delete files (a note's purge, a demo's removal), which must never reach a
  * licence.
  *
- * Both places, for as long as both exist: `migrations/licenceWalletV1` copies
- * a membership's document into the wallet under the same storage id and
- * leaves the original pointer until the contract, and a file either one holds
- * is a licence.
+ * Both places, for as long as both exist: `migrations/licenceWalletV1` copied
+ * each membership's document into the wallet under the same storage id and
+ * left the original pointer, which `migrations/licenceFileContractV1` clears
+ * before the field is dropped. Until then a file either one holds is a
+ * licence — a document nobody copied included.
  */
 export async function heldAsLicence(
   ctx: Ctx,

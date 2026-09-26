@@ -16,12 +16,9 @@ afterEach(() => {
 })
 
 describe('keptOutOfHtml', () => {
-  test('a person’s licences, and the Phase 8.1 document, stay out', () => {
+  test('a person’s licences stay out', () => {
     expect(
       keptOutOfHtml(rq.memberLicences(businessId, membershipId).queryKey),
-    ).toBe(true)
-    expect(
-      keptOutOfHtml(['convexQuery', 'licences:file', { businessId }]),
     ).toBe(true)
   })
 

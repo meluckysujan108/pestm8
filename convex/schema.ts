@@ -363,14 +363,13 @@ export default defineSchema({
      */
     licenceExpiresOn: v.optional(v.number()),
     /**
-     * The licence itself (Phase 8.1): a photo of the card or the regulator's
-     * PDF, uploaded by its holder from Profile. See `convex/licences.ts` for
-     * who may read it — the holder and the owner, nobody else.
-     *
-     * Optional and additive, so no migration: absent means none uploaded.
-     * Replacing or removing it drops this pointer and nothing else — the old
-     * file stays in storage, as every file in this app does (`products.ts`
-     * has the reasoning).
+     * RETIRED — the Phase 8.1 licence document: one photo of the card or the
+     * regulator's PDF. Superseded by the licence wallet (`memberLicences`,
+     * `memberLicenceFiles`); nothing sets it any more, and nobody can open it.
+     * `migrations/licenceWalletV1` copied each one into its holder's wallet
+     * under the same storage id, and `migrations/licenceFileContractV1`
+     * clears the copies; then this field and its index are dropped. Until
+     * then a storage id here still counts as a licence (`heldAsLicence`).
      */
     licenceFile: v.optional(
       v.object({
@@ -476,7 +475,7 @@ export default defineSchema({
    *
    * The same shape and the same claim as `memberships.licenceFile`
    * (`claimLicenceFile` in lib/licenceClaims.ts), and never deleted with its
-   * row — no `ctx.storage.delete` for a licence, ever (`licences.ts`).
+   * row — no `ctx.storage.delete` for a licence, ever (`memberLicences.ts`).
    */
   memberLicenceFiles: defineTable({
     /** Copied from the licence, so a row answers who may read it by itself. */

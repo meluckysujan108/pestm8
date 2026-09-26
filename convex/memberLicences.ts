@@ -20,8 +20,8 @@ import type { MemberLicenceRefusal } from './lib/memberLicences'
 /**
  * My licences: every licence a person holds, each with a name they choose, an
  * optional number and expiry, and up to six files — the card front and back,
- * the regulator's PDF. The successor to the single Phase 8.1 document
- * (`licences.ts`), whose rules every one of these files still follows.
+ * the regulator's PDF. The successor to the single Phase 8.1 document on the
+ * membership, whose rules every one of these files still follows.
  *
  * SEPARATE from the licence number on the membership (`licenceNumber`), which
  * prints on reports and decides whether one may be finalised. Nothing here
@@ -31,20 +31,19 @@ import type { MemberLicenceRefusal } from './lib/memberLicences'
  *
  *  - Write — add, rename, change the number or expiry, add or remove files,
  *    delete: the holder, and only the holder, whatever their role. "The
- *    holder" is the REAL person (`env.actor.real`), exactly as in
- *    `licences.ts`: an owner switched into a technician's account writes
- *    nothing of the technician's, and what they add lands in their own
- *    wallet — the way Settings always edits the real person
- *    (`profileEditTarget`). The owner, who keeps the report licence number
- *    for the team, does not keep these: they are the holder's own record of
- *    what they hold.
+ *    holder" is the REAL person (`env.actor.real`): an owner switched into
+ *    a technician's account writes nothing of the technician's, and what
+ *    they add lands in their own wallet — the way Settings always edits the
+ *    real person (`profileEditTarget`). The owner, who keeps the report
+ *    licence number for the team, does not keep these: they are the
+ *    holder's own record of what they hold.
  *  - Read: the holder, and the owner (`business.manage` — which a switch
  *    drops, so the owner reads everyone's from their own account, and nobody
  *    reads them through someone else's). Not a contractor managing a team: a
  *    licence card carries a date of birth and a home address. Everyone else
  *    is refused with NO_ACCESS, the same answer as for a membership outside
  *    the business, so a membership id says nothing about what it holds. Nor
- *    anyone who is no longer active (`licences.file` has the reasoning).
+ *    anyone who is no longer active (`list` has the reasoning).
  *
  * Every write resolves the caller with `requireWriteActor`, which fails closed
  * on a switch that has lapsed, and is audited against the holder's
@@ -496,12 +495,13 @@ export async function licenceCountOf(
  * `migrations/licenceWalletV1` copied each document into the wallet under the
  * SAME storage id and left the membership's pointer where it was, for the
  * frontend that still read it. So the wallet file and the document are one
- * licence, and deleting it in the wallet has to delete both: left behind, the
- * owner would still read the licence the holder has just deleted
- * (`licences.file`), the roster would still say there is one
- * (`hasLicenceFile`), and a second run of the migration would put it back in
- * the wallet. No audit row of its own: the caller's row for the removal says
- * it happened (`clearedLicenceFile`), as one change the holder made.
+ * licence, and deleting it in the wallet has to delete both: left behind, a
+ * second run of the migration would put it back in the wallet, and
+ * `migrations/licenceFileContractV1` — which clears only documents a wallet
+ * file still holds — would find it uncopied and leave it, holding up the
+ * drop of the field. No audit row of its own: the caller's row for the
+ * removal says it happened (`clearedLicenceFile`), as one change the holder
+ * made. Goes with the field, once that contract has run everywhere.
  *
  * A document replaced since the copy (from the old Profile page) is a
  * different storage id, and stays.
