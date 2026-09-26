@@ -85,7 +85,7 @@ All tokens live in `src/styles.css`.
 | `--amber-ink`          | `#985b00`                   | `#ffb340`                   | Warning and failure **text**, on any surface (4.5:1, checked)                                                                      |
 | `--amber-bg`           | `#fff8ec`                   | `#2a1e0a`                   | A warning box's fill                                                                                                               |
 | `--amber-line`         | `#ffe2b8`                   | `#4d3712`                   | A warning box's border                                                                                                             |
-| `--chrome`             | `rgba(255, 255, 255, 0.92)` | `rgba(28, 28, 30, 0.82)`    | Sticky bars behind a blur. Use the `chrome-blur` utility                                                                           |
+| `--chrome`             | `rgba(255, 255, 255, 0.92)` | `rgba(28, 28, 30, 0.86)`    | Glass bars: the tint over a blurred backdrop. Use `chrome-bar`, `chrome-dock` or `chrome-blur`, never the colour alone             |
 | `--scrim`              | `rgba(0, 0, 0, 0.3)`        | `rgba(0, 0, 0, 0.6)`        | Behind sheets and dialogs                                                                                                          |
 | `--paper`              | `#ffffff`                   | `#ffffff`                   | Anything drawn for print: a signature pad, a PDF page                                                                              |
 | `--viewer-backdrop`    | `#f2f2f7`                   | `#0c0c0d`                   | Behind the pages in the document viewer                                                                                            |
@@ -97,6 +97,7 @@ The palette blocks also hold values you don't pick directly:
 
 - `--block-tint`: how much of a technician's colour fills a Week View block.
 - `--elevation`, `--elevation-red` and `--paper-shadow`: see [Elevation](#25-elevation).
+- `--chrome-filter`: the blur behind the glass bars, which the `chrome-*` utilities apply.
 
 **Readable text.** A sentence someone must read uses `ink`, `ink-2` or an `-ink` token.
 
@@ -298,11 +299,18 @@ Motion is quiet and quick.
 
 **A business page** is built like this:
 
-1. `PageHeader` (sticky, `chrome-blur`, `z-30`): a `section-label` kicker over a truncated `text-page-title` `<h1>`, with actions on the right.
+1. `PageHeader` (sticky, `chrome-bar`, `z-30`): a `section-label` kicker over a truncated `text-page-title` `<h1>`, with actions on the right. Its hairline shows only once something has scrolled under it.
    - The kicker is context: the business, a count, or the month. On the schedule it is a blue control that opens the month.
    - A page nested inside another passes `back={<BackLink>}` ("‹ Settings") instead of a kicker.
 2. Optional toolbar rows: search, then `Segmented`, each `px-4 pt-3`.
 3. The content section: `px-4 pt-4 pb-6`.
+
+**Glass bars.** Anything that floats over content is glass: a tint over a blurred backdrop, turning opaque for anyone who asks for less transparency.
+
+- **A bar at the top edge** (the header, the schedule's week strip) is `chrome-bar`.
+- **A bar at the bottom edge** (the dock) is `chrome-dock`.
+- Both need a position and a z-index, plus a 1px border on the edge facing the content. Keep that border transparent until something scrolls under it: `useScrolledUnder` sets `data-scrolled`, and `data-scrolled:border-hairline` shows the line.
+- **Glass anywhere else** (a viewer's bars, a floating notice, a builder's bottom bar) is `chrome-blur`.
 
 **The page's create action** is the round red + in the header. It is `relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95]`, with `Plus` at size 20 and an `aria-label` naming what it adds.
 
