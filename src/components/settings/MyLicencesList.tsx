@@ -59,7 +59,7 @@ export function MyLicencesList({
             <LoaderCircle
               aria-hidden
               size={20}
-              strokeWidth={2}
+              strokeWidth={1.7}
               className="animate-spin text-muted"
             />
             <span className="sr-only" role="status">
@@ -119,7 +119,7 @@ function AddTile() {
       aria-hidden
       className="flex size-[30px] shrink-0 items-center justify-center rounded-[8px] bg-blue text-white"
     >
-      <Plus size={18} strokeWidth={2.4} />
+      <Plus size={18} strokeWidth={2} />
     </span>
   )
 }

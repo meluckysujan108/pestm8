@@ -168,7 +168,7 @@ export function GalleryControl({ field, ctx }: GalleryField) {
           onClick={() => camera.current?.click()}
           className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-1.5`}
         >
-          <Camera size={16} strokeWidth={1.9} />
+          <Camera size={16} strokeWidth={2} />
           {busy ? 'Uploading…' : atMax ? 'Limit reached' : 'Take photo'}
         </button>
         <button
@@ -178,7 +178,7 @@ export function GalleryControl({ field, ctx }: GalleryField) {
           onClick={() => library.current?.click()}
           className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-1.5 px-4`}
         >
-          <ImageIcon size={16} strokeWidth={1.9} />
+          <ImageIcon size={16} strokeWidth={2} />
           Library
         </button>
       </span>
@@ -348,7 +348,7 @@ function GalleryTile({
             disabled={total < 2}
             className="flex size-11 items-center justify-center rounded-full text-muted outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.95] disabled:opacity-30"
           >
-            <Ellipsis size={18} strokeWidth={2} />
+            <Ellipsis size={18} strokeWidth={1.7} />
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
             <DropdownMenu.Content
@@ -364,7 +364,7 @@ function GalleryTile({
                 }
                 className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl px-2.5 text-body text-ink outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2"
               >
-                <ChevronUp size={17} strokeWidth={2} className="text-muted" />
+                <ChevronUp size={17} strokeWidth={2.2} className="text-muted" />
                 Move up
               </DropdownMenu.Item>
               <DropdownMenu.Item
@@ -375,7 +375,7 @@ function GalleryTile({
                 }
                 className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-xl px-2.5 text-body text-ink outline-none data-[disabled]:opacity-40 data-[highlighted]:bg-surface-2"
               >
-                <ChevronDown size={17} strokeWidth={2} className="text-muted" />
+                <ChevronDown size={17} strokeWidth={2.2} className="text-muted" />
                 Move down
               </DropdownMenu.Item>
             </DropdownMenu.Content>
@@ -389,7 +389,7 @@ function GalleryTile({
             onClick={() => setAnnotating(true)}
             className="flex size-11 items-center justify-center rounded-full text-muted outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.95] disabled:opacity-30"
           >
-            <PenLine size={16} strokeWidth={1.8} />
+            <PenLine size={16} strokeWidth={2} />
           </button>
           <button
             type="button"
@@ -397,7 +397,7 @@ function GalleryTile({
             onClick={() => void remove({ businessId, reportId, photoId: photo._id })}
             className="flex size-11 items-center justify-center rounded-full text-muted outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.95] disabled:opacity-30"
           >
-            <Trash2 size={16} strokeWidth={1.8} />
+            <Trash2 size={16} strokeWidth={2} />
           </button>
         </span>
       </span>

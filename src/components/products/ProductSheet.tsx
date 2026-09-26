@@ -291,7 +291,7 @@ function DetailsBody({
               <div className="flex items-center gap-3">
                 <PdfTile size="lg" />
                 <div className="min-w-0 flex-1">
-                  <p className="truncate text-[15px] font-semibold text-ink">
+                  <p className="truncate text-body font-semibold text-ink">
                     {product.pdf.fileName}
                   </p>
                   <p className="text-caption text-muted">
@@ -300,7 +300,7 @@ function DetailsBody({
                   {keep.kept && (
                     <span className="mt-1 inline-flex">
                       <Chip tone="green">
-                        <Smartphone aria-hidden size={12} strokeWidth={2.2} />
+                        <Smartphone aria-hidden size={12} strokeWidth={2.4} />
                         On this phone
                       </Chip>
                     </span>
@@ -355,7 +355,7 @@ function DetailsBody({
                         label={keep.label}
                       >
                         {keep.kept ? (
-                          <Check aria-hidden size={16} strokeWidth={2.4} />
+                          <Check aria-hidden size={16} strokeWidth={2.2} />
                         ) : (
                           <Smartphone aria-hidden size={16} strokeWidth={2} />
                         )}
@@ -491,7 +491,7 @@ function WebsiteCard({
             label={said?.which === 'copy' ? said.text : 'Copy'}
           >
             {said?.which === 'copy' && said.text === 'Copied' ? (
-              <Check aria-hidden size={16} strokeWidth={2.4} />
+              <Check aria-hidden size={16} strokeWidth={2.2} />
             ) : (
               <Copy aria-hidden size={16} strokeWidth={2} />
             )}
@@ -583,7 +583,7 @@ function HeaderButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex h-11 shrink-0 items-center gap-1 rounded-full px-2.5 text-[15px] font-semibold text-blue transition active:opacity-50 disabled:opacity-50"
+      className="flex h-11 shrink-0 items-center gap-1 rounded-full px-2.5 text-body font-semibold text-blue transition active:opacity-50 disabled:opacity-50"
     >
       {children}
       {label}

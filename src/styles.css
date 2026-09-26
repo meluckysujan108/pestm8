@@ -218,8 +218,6 @@
   --radius: 12px;
   --radius-card: 18px;
   --radius-card-lg: 22px;
-  --radius-segmented: 9px;
-  --radius-sheet: 22px;
 }
 
 /*
@@ -359,6 +357,11 @@
   --radius-lg: var(--radius);
   --radius-xl: var(--radius-card);
   --radius-2xl: var(--radius-card-lg);
+  /* rounded-t-sheet, rounded-segmented and rounded-segment: the sheet's top
+     corners, a segmented control's track and its selected segment. */
+  --radius-sheet: 22px;
+  --radius-segmented: 9px;
+  --radius-segment: 7px;
 
   --shadow-elevation: var(--elevation);
   --shadow-red: var(--elevation-red);

@@ -179,7 +179,7 @@ function WeekDay({
         >
           {formatShortDayLabel(dayKey)}
           {phase === 'today' && <span className="sr-only">, today</span>}
-          <ChevronRight size={16} strokeWidth={2} aria-hidden />
+          <ChevronRight size={16} strokeWidth={2.2} aria-hidden />
         </button>
 
         {/* Two numbers, as two elements: booked work, then the day's own
@@ -263,7 +263,7 @@ function WeekDay({
           from earlier days
           <ChevronRight
             size={16}
-            strokeWidth={2}
+            strokeWidth={2.2}
             className="ml-auto"
             aria-hidden
           />
@@ -295,7 +295,7 @@ function RecurringToken({
 
   const body = (
     <>
-      <Repeat size={11} strokeWidth={2.2} aria-hidden />
+      <Repeat size={11} strokeWidth={2.4} aria-hidden />
       {count} {phase === 'today' ? 'due' : 'recurring'}
     </>
   )

@@ -89,9 +89,9 @@ export function FileThumb({
           className="size-full object-cover"
         />
       ) : file.kind === 'pdf' ? (
-        <FileText aria-hidden size={22} strokeWidth={1.6} />
+        <FileText aria-hidden size={22} strokeWidth={1.7} />
       ) : (
-        <ImageIcon aria-hidden size={22} strokeWidth={1.6} />
+        <ImageIcon aria-hidden size={22} strokeWidth={1.7} />
       )}
     </span>
   )

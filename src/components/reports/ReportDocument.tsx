@@ -173,6 +173,8 @@ export function ReportDocument({
       </span>
 
       {model.titleBand && (
+        // The PDF's title band, drawn as it prints (brand red).
+        // eslint-disable-next-line no-restricted-syntax -- mirrors the PDF
         <div className="mt-4 flex items-stretch overflow-hidden rounded-xl bg-red text-white">
           <p className="flex-1 px-3 py-2 text-subhead font-semibold">
             {model.titleBand.text}
@@ -325,6 +327,7 @@ function Block({ block }: { block: DocBlock }) {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-caption">
               <thead>
+                {/* eslint-disable-next-line no-restricted-syntax -- mirrors the PDF's table header */}
                 <tr className="bg-red text-white">
                   {block.columns.map((column) => (
                     <th

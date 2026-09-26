@@ -350,7 +350,7 @@ export function BusinessSection({
                     className="size-full object-contain"
                   />
                 ) : (
-                  <Camera size={22} strokeWidth={1.8} className="text-muted" />
+                  <Camera size={22} strokeWidth={1.7} className="text-muted" />
                 )}
               </span>
               <span className="min-w-0 flex-1 text-body text-ink">Logo</span>

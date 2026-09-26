@@ -256,7 +256,7 @@ function StaleDrafts({
 
   return (
     <div className="mx-4 mt-4 flex items-center gap-2.5 rounded-2xl border border-amber-line bg-amber-bg px-3.5 py-3">
-      <Clock size={16} strokeWidth={1.9} className="shrink-0 text-amber-ink" />
+      <Clock size={16} strokeWidth={2} className="shrink-0 text-amber-ink" />
       <p className="min-w-0 flex-1 text-caption text-amber-ink">
         {data.count === 1
           ? 'A report has been left unfinished for over four days.'
@@ -397,7 +397,7 @@ function DeleteDraft({
         // the report was written to: at the top it sat on "AS 4349.3-2010".
         className="absolute bottom-2 right-2 flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
       >
-        <Trash2 size={16} strokeWidth={1.8} />
+        <Trash2 size={16} strokeWidth={2} />
       </button>
 
       <Sheet
@@ -464,7 +464,7 @@ function TrashActions({
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-red"
+          className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-body font-semibold text-red"
         >
           <Trash2 size={15} strokeWidth={2} />
           Delete now

@@ -80,7 +80,7 @@ export function RepeaterControl({
               }
               className="relative tap-target flex h-8 min-w-8 items-center justify-center gap-1 rounded-full px-1.5 text-caption text-muted transition active:scale-[.95] disabled:opacity-30"
             >
-              <Trash2 size={15} strokeWidth={1.8} />
+              <Trash2 size={15} strokeWidth={2} />
               {/* The source form's own words ("Delete Row") when it has them. The
                   accessible name above stays row-specific either way. */}
               {field.removeLabel && <span>{field.removeLabel}</span>}
@@ -114,9 +114,9 @@ export function RepeaterControl({
             newRow(field.columns),
           ])
         }
-        className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-40"
+        className="flex h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.98] disabled:opacity-40"
       >
-        <Plus size={16} strokeWidth={2} />
+        <Plus size={16} strokeWidth={2.2} />
         {field.addLabel ?? `Add ${field.label.toLowerCase()}`}
       </button>
     </span>

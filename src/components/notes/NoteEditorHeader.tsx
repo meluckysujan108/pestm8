@@ -115,7 +115,7 @@ export function NoteEditorHeader({
           onClick={onBack}
           className="-ml-1 flex h-9 items-center gap-0.5 pr-2 text-[17px] text-blue lg:hidden"
         >
-          <ChevronLeft size={22} strokeWidth={2.2} />
+          <ChevronLeft size={22} strokeWidth={2} />
           Notes
         </button>
 
@@ -125,9 +125,9 @@ export function NoteEditorHeader({
               to="/$businessSlug/schedule"
               params={{ businessSlug }}
               search={{ jobId: note.jobId }}
-              className="flex max-w-56 items-center gap-1 rounded-full border border-blue/30 bg-blue/12 px-2.5 py-1 text-[13px] font-semibold text-blue"
+              className="flex max-w-56 items-center gap-1 rounded-full border border-blue/30 bg-blue/12 px-2.5 py-1 text-caption font-semibold text-blue"
             >
-              <Briefcase size={13} strokeWidth={2.2} className="shrink-0" />
+              <Briefcase size={13} strokeWidth={2} className="shrink-0" />
               <span className="truncate">
                 {note.job.jobNumber ? `#${note.job.jobNumber} · ` : ''}
                 {note.job.jobType}
@@ -135,7 +135,7 @@ export function NoteEditorHeader({
             </Link>
           )}
           {note.kind !== 'team' && (note.addressLine || note.clientName) && (
-            <Chip icon={note.kind === 'client' ? <User size={13} strokeWidth={2.2} /> : <MapPin size={13} strokeWidth={2.2} />}>
+            <Chip icon={note.kind === 'client' ? <User size={13} strokeWidth={2} /> : <MapPin size={13} strokeWidth={2} />}>
               {note.kind === 'client'
                 ? note.clientName
                 : [note.addressLine, note.suburb].filter(Boolean).join(', ')}
@@ -146,9 +146,9 @@ export function NoteEditorHeader({
               type="button"
               disabled={!hydrated}
               onClick={() => setPickerOpen(true)}
-              className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-hairline px-2.5 py-1 text-[13px] font-semibold text-muted transition hover:bg-surface-2 disabled:opacity-50"
+              className="flex shrink-0 items-center gap-1 rounded-full border border-dashed border-hairline px-2.5 py-1 text-caption font-semibold text-muted transition hover:bg-surface-2 disabled:opacity-50"
             >
-              <Link2 size={13} strokeWidth={2.2} />
+              <Link2 size={13} strokeWidth={2} />
               Attach to job
             </button>
           )}
@@ -161,18 +161,18 @@ export function NoteEditorHeader({
                 type="button"
                 disabled={!hydrated || restore.isPending}
                 onClick={() => restore.mutate(args)}
-                className="flex h-9 items-center gap-1 rounded-full bg-blue/12 px-3 text-[13px] font-semibold text-blue disabled:opacity-50"
+                className="flex h-9 items-center gap-1 rounded-full bg-blue/12 px-3 text-caption font-semibold text-blue disabled:opacity-50"
               >
-                <RotateCcw size={13} strokeWidth={2.2} />
+                <RotateCcw size={13} strokeWidth={2} />
                 Restore
               </button>
               <button
                 type="button"
                 disabled={!hydrated || remove.isPending}
                 onClick={() => setConfirmPurgeOpen(true)}
-                className="flex h-9 items-center gap-1 rounded-full px-3 text-[13px] font-semibold text-red disabled:opacity-50"
+                className="flex h-9 items-center gap-1 rounded-full px-3 text-caption font-semibold text-red disabled:opacity-50"
               >
-                <Trash2 size={14} strokeWidth={2.2} />
+                <Trash2 size={14} strokeWidth={2} />
                 Delete now
               </button>
             </div>
@@ -190,7 +190,7 @@ export function NoteEditorHeader({
                   note.pinnedAt ? 'text-amber-ink' : 'text-muted hover:bg-surface-2'
                 } disabled:opacity-50`}
               >
-                {note.pinnedAt ? <Pin size={17} strokeWidth={2.2} fill="currentColor" /> : <Pin size={17} strokeWidth={2} />}
+                {note.pinnedAt ? <Pin size={17} strokeWidth={2} fill="currentColor" /> : <Pin size={17} strokeWidth={2} />}
               </button>
             )}
             {(note.canEdit || note.canDelete) && (
@@ -200,7 +200,7 @@ export function NoteEditorHeader({
                   disabled={!hydrated}
                   className="flex size-9 items-center justify-center rounded-full text-muted transition hover:bg-surface-2 disabled:opacity-50"
                 >
-                  <MoreHorizontal size={19} strokeWidth={2} />
+                  <MoreHorizontal size={19} strokeWidth={1.7} />
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content
@@ -274,7 +274,7 @@ export function NoteEditorHeader({
           owner could read what they wrote. */}
       {note.private && (
         <p className="mt-0.5 flex items-center gap-1 px-1 text-caption text-muted">
-          <Lock size={12} strokeWidth={2.2} className="shrink-0" />
+          <Lock size={12} strokeWidth={2.4} className="shrink-0" />
           <span className="truncate">
             {note.mine
               ? `Personal · ${isOwner ? 'only you can see this' : 'only you and the owner can see this'}`
@@ -355,7 +355,7 @@ function useNoteMutation(
 
 function Chip({ icon, children }: { icon: ReactNode; children: ReactNode }) {
   return (
-    <span className="flex max-w-56 shrink-0 items-center gap-1 rounded-full bg-surface-2 px-2.5 py-1 text-[13px] font-semibold text-ink-2">
+    <span className="flex max-w-56 shrink-0 items-center gap-1 rounded-full bg-surface-2 px-2.5 py-1 text-caption font-semibold text-ink-2">
       {icon}
       <span className="truncate">{children}</span>
     </span>
@@ -459,7 +459,7 @@ function JobPickerList({
   return (
     <>
       <label className="flex items-center gap-2 rounded-xl bg-surface-3 px-3">
-        <Search size={17} strokeWidth={1.7} className="text-muted" />
+        <Search size={17} strokeWidth={2} className="text-muted" />
         <span className="sr-only">Search jobs</span>
         <input
           autoFocus

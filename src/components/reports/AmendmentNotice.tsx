@@ -56,7 +56,7 @@ export function AmendmentNotice({
         <div className="mt-2 flex items-start gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5">
           <FilePenLine
             size={16}
-            strokeWidth={1.9}
+            strokeWidth={2}
             className="mt-0.5 shrink-0 text-blue"
           />
           <p className="min-w-0 flex-1 text-caption text-muted">
@@ -106,7 +106,7 @@ export function ReplacedNotice({
     <div className="flex items-start gap-2.5 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5">
       <History
         size={16}
-        strokeWidth={1.9}
+        strokeWidth={2}
         className="mt-0.5 shrink-0 text-amber-ink"
       />
       <p className="min-w-0 flex-1 text-caption text-amber-ink">
@@ -149,7 +149,7 @@ export function CorrectionUnderWay({
     <div className="flex items-start gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5">
       <FilePenLine
         size={16}
-        strokeWidth={1.9}
+        strokeWidth={2}
         className="mt-0.5 shrink-0 text-blue"
       />
       <p className="min-w-0 flex-1 text-caption text-muted">
@@ -211,7 +211,7 @@ export function AmendButton({
         onClick={() => setOpen(true)}
         className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-2 px-4`}
       >
-        <FilePenLine size={16} strokeWidth={1.9} />
+        <FilePenLine size={16} strokeWidth={2} />
         Issue a correction
       </button>
 

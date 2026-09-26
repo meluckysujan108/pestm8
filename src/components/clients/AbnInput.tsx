@@ -5,7 +5,7 @@ const MESSAGE = 'Check the ABN: it should be 11 digits and pass the ATO check.'
 
 const SIZES = {
   lg: 'h-12 px-3.5 text-[16px]',
-  md: 'h-11 px-3.5 text-[15px]',
+  md: 'h-11 px-3.5 text-body',
 }
 
 /**

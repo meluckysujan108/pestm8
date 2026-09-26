@@ -69,7 +69,7 @@ export function SignatureRow({
       >
         {existing ? (
           <>
-            <Check size={16} strokeWidth={2.4} className="text-green" />
+            <Check size={16} strokeWidth={2.2} className="text-green" />
             Signed — sign again
           </>
         ) : (

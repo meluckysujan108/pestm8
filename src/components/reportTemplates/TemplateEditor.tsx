@@ -278,7 +278,7 @@ export function TemplateEditor({
             onClick={addSection}
             className={`${SECONDARY_BUTTON_COMPACT} mt-2.5 flex w-full items-center justify-center gap-1.5`}
           >
-            <Plus size={16} strokeWidth={2} />
+            <Plus size={16} strokeWidth={2.2} />
             Add section
           </button>
 
@@ -346,7 +346,7 @@ export function TemplateEditor({
             onClick={() => void autosave.flush()}
             className={`${SECONDARY_BUTTON} flex flex-1 items-center justify-center gap-2`}
           >
-            <Save size={17} strokeWidth={1.7} />
+            <Save size={17} strokeWidth={2} />
             {SAVE_LABELS[autosave.status]}
           </button>
 

@@ -180,7 +180,7 @@ export function TemplateSettingsSheet({
                         on ? 'bg-ink text-surface' : 'bg-surface-3'
                       }`}
                     >
-                      {on && <Check size={13} strokeWidth={3} />}
+                      {on && <Check size={13} strokeWidth={2.2} />}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-body text-ink">
                       {field.label.replace(/:$/, '')}

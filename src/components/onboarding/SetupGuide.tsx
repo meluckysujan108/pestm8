@@ -121,7 +121,7 @@ export function SetupGuideCard({
             <ChevronRight
               aria-hidden
               size={18}
-              strokeWidth={2.2}
+              strokeWidth={2}
               className="shrink-0 text-muted-2"
             />
           )}
@@ -247,7 +247,7 @@ function GuideChecklist({
                       : 'border-2 border-hairline'
                   }`}
                 >
-                  {item.done && <Check size={14} strokeWidth={3} />}
+                  {item.done && <Check size={14} strokeWidth={2.2} />}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span
@@ -279,7 +279,7 @@ function GuideChecklist({
         type="button"
         onClick={onHide}
         disabled={hiding}
-        className="mt-4 min-h-11 w-full text-[15px] text-blue transition active:opacity-60 disabled:opacity-50"
+        className="mt-4 min-h-11 w-full text-body text-blue transition active:opacity-60 disabled:opacity-50"
       >
         Hide the guide
       </button>

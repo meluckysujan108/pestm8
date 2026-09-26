@@ -82,7 +82,7 @@ export function TemplatePreview({ draft }: { draft: TemplateDraft }) {
         >
           <AlertTriangle
             size={16}
-            strokeWidth={1.9}
+            strokeWidth={2}
             className="mt-0.5 shrink-0"
           />
           <span>

@@ -170,7 +170,7 @@ export function BrandStep({
                   ) : (
                     <Camera
                       size={22}
-                      strokeWidth={1.8}
+                      strokeWidth={1.7}
                       className="text-muted"
                     />
                   )}

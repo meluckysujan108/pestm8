@@ -52,7 +52,7 @@ export function OptionsListEditor({
             onClick={() => move(index, 'up')}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
-            <ChevronUp size={15} strokeWidth={2} />
+            <ChevronUp size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
@@ -61,7 +61,7 @@ export function OptionsListEditor({
             onClick={() => move(index, 'down')}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
-            <ChevronDown size={15} strokeWidth={2} />
+            <ChevronDown size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
@@ -69,7 +69,7 @@ export function OptionsListEditor({
             onClick={() => remove(index)}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
-            <Trash2 size={15} strokeWidth={1.8} />
+            <Trash2 size={15} strokeWidth={2} />
           </button>
         </div>
       ))}
@@ -78,7 +78,7 @@ export function OptionsListEditor({
         onClick={() => onChange([...options, { value: '', label: '' }])}
         className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-1.5`}
       >
-        <Plus size={15} strokeWidth={2} />
+        <Plus size={15} strokeWidth={2.2} />
         Add option
       </button>
     </div>

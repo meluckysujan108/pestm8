@@ -129,7 +129,7 @@ function ReportLine({
       <span
         className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${REPORT_PILL[bucket]}`}
       >
-        {bucket !== 'draft' && <Lock size={10} strokeWidth={2.6} />}
+        {bucket !== 'draft' && <Lock size={10} strokeWidth={2.4} />}
         {bucket === 'sent'
           ? 'Sent'
           : bucket === 'finalised'
@@ -193,7 +193,7 @@ export function StartReportButtons({
         search={{ propertyId, jobId }}
         className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
       >
-        <Plus size={16} strokeWidth={1.8} />
+        <Plus size={16} strokeWidth={2.2} />
         New report
       </Link>
     )
@@ -218,7 +218,7 @@ export function StartReportButtons({
         }
         className={`${NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
       >
-        <Plus size={16} strokeWidth={1.8} />
+        <Plus size={16} strokeWidth={2.2} />
         {create.isPending ? 'Starting…' : `Start ${suggested.shortName}`}
       </button>
       <Link

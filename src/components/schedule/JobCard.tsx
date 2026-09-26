@@ -206,7 +206,7 @@ export function JobCard({
               <span className="inline-flex min-w-0 items-center gap-1 text-caption font-semibold text-ink-2">
                 <Repeat
                   size={13}
-                  strokeWidth={1.8}
+                  strokeWidth={2}
                   aria-hidden
                   className="shrink-0"
                 />

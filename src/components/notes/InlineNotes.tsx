@@ -57,7 +57,7 @@ export function InlineNotesSection({
             onClick={onAdd}
             className="flex items-center gap-1 text-caption font-semibold text-blue disabled:opacity-50"
           >
-            <Plus size={13} strokeWidth={2.4} />
+            <Plus size={13} strokeWidth={2.2} />
             {addLabel}
           </button>
         )}
@@ -134,7 +134,7 @@ function InlineNote({
             </span>
             {note.checklistTotal ? (
               <span className="flex shrink-0 items-center gap-1">
-                <ListChecks size={12} strokeWidth={2.2} />
+                <ListChecks size={12} strokeWidth={2.4} />
                 {note.checklistDone}/{note.checklistTotal}
               </span>
             ) : null}
@@ -142,7 +142,7 @@ function InlineNote({
         </span>
         <ChevronDown
           size={16}
-          strokeWidth={2}
+          strokeWidth={2.2}
           className={`mt-1 shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
         />
       </button>
@@ -165,7 +165,7 @@ function InlineNote({
                 aria-label="Open in Notes"
                 className="flex size-9 items-center justify-center rounded-lg text-blue"
               >
-                <ArrowUpRight size={18} strokeWidth={2.2} />
+                <ArrowUpRight size={18} strokeWidth={1.7} />
               </Link>
             }
           />

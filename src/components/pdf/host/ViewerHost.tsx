@@ -36,7 +36,7 @@ export function ViewerHost(props: DocumentViewerProps) {
             <LoaderCircle
               aria-hidden
               size={30}
-              strokeWidth={2}
+              strokeWidth={1.7}
               className="animate-spin text-muted"
             />
             <p className="sr-only" role="status">
@@ -90,7 +90,7 @@ function ViewerShell({
               Done
             </button>
           </div>
-          <p className="truncate text-center text-[15px] font-semibold text-ink">
+          <p className="truncate text-center text-body font-semibold text-ink">
             {title}
           </p>
           <div />
@@ -131,7 +131,7 @@ class ViewerBoundary extends Component<
         <FileWarning
           aria-hidden
           size={34}
-          strokeWidth={1.75}
+          strokeWidth={1.7}
           className="text-muted"
         />
         <p role="alert" className="max-w-[300px] text-body text-ink-2">

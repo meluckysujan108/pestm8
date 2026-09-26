@@ -77,7 +77,7 @@ export function ShowMyLicenceButton({
         <IdCard
           aria-hidden
           size={19}
-          strokeWidth={1.8}
+          strokeWidth={1.7}
           className="shrink-0 text-blue"
         />
         {plural ? 'Show my licences' : 'Show my licence'}

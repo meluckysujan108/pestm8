@@ -47,7 +47,7 @@ export function MarkupPalette({
           disabled={!canUndo}
           onClick={onUndo}
         >
-          <Undo2 size={22} strokeWidth={1.8} />
+          <Undo2 size={22} strokeWidth={1.7} />
         </ToolbarButton>
         <div className="flex min-w-0 flex-1 justify-center">
           {/* The app's confirm dialogs sit under the viewer (z-60/70 against
@@ -57,7 +57,7 @@ export function MarkupPalette({
             disabled={!canClear}
             onClick={onClear}
             className={[
-              'h-11 min-w-0 max-w-full truncate rounded-lg px-3 text-[15px] font-semibold outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue disabled:text-muted-2',
+              'h-11 min-w-0 max-w-full truncate rounded-lg px-3 text-body font-semibold outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue disabled:text-muted-2',
               clearArmed && canClear ? 'text-red' : 'text-blue',
             ].join(' ')}
           >

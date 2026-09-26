@@ -365,7 +365,7 @@ export function LicenceFiles({
                 aria-label={`Remove ${file.fileName}`}
                 className="mr-1.5 flex size-11 shrink-0 items-center justify-center rounded-full text-red outline-none transition active:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue disabled:opacity-40"
               >
-                <Trash2 aria-hidden size={19} strokeWidth={1.9} />
+                <Trash2 aria-hidden size={19} strokeWidth={1.7} />
               </button>
             )}
           </div>
@@ -505,7 +505,7 @@ function Spinner() {
     >
       <LoaderCircle
         size={20}
-        strokeWidth={2}
+        strokeWidth={1.7}
         className="animate-spin text-muted"
       />
     </span>

@@ -78,7 +78,7 @@ export function SearchBox({
           // 40% tint it had was 1.5:1 against the well.
           className="relative tap-target flex size-5 items-center justify-center rounded-full bg-muted text-surface"
         >
-          <X size={12} strokeWidth={2.6} />
+          <X size={12} strokeWidth={2.4} />
         </button>
       )}
     </label>

@@ -103,7 +103,7 @@ export function FinaliseSheet({
               onClick={onPreview}
               className={`${SECONDARY_BUTTON_COMPACT} mb-2 flex w-full items-center justify-center gap-2`}
             >
-              <FileText size={15} strokeWidth={1.9} />
+              <FileText size={15} strokeWidth={2} />
               Preview the document
             </button>
           )}
@@ -151,7 +151,7 @@ export function FinaliseSheet({
           onClick={() => onAnswer(finish.key, nowAsTime())}
           className="mt-3 flex w-full items-center gap-2 rounded-xl border border-dashed border-hairline px-3.5 py-2.5 text-left text-body text-ink"
         >
-          <Clock size={15} strokeWidth={1.9} className="text-muted" />
+          <Clock size={15} strokeWidth={2} className="text-muted" />
           {finish.label.replace(/:$/, '')} — set to {readableNow()}
         </button>
       )}
@@ -225,7 +225,7 @@ function Row({
       ) : (
         <Check
           size={15}
-          strokeWidth={2.4}
+          strokeWidth={2.2}
           className={`shrink-0 ${ok ? 'text-green' : 'text-muted'}`}
         />
       )}

@@ -224,7 +224,7 @@ function Choice({
         aria-hidden
         className={`flex size-10 items-center justify-center rounded-full ${selected ? 'bg-blue text-white' : 'bg-surface-3 text-ink-2'}`}
       >
-        <Icon size={20} strokeWidth={1.9} />
+        <Icon size={20} strokeWidth={1.7} />
       </span>
       <span className="mt-3 text-[16px] font-semibold text-ink">{title}</span>
       <span className="mt-0.5 text-caption text-muted">{detail}</span>
@@ -232,7 +232,7 @@ function Choice({
         <Check
           aria-hidden
           size={18}
-          strokeWidth={2.4}
+          strokeWidth={2}
           className="absolute right-3 top-3 text-blue"
         />
       )}
