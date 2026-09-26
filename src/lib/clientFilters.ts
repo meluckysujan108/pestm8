@@ -15,9 +15,25 @@ export const STATUS_FILTER_OPTIONS: Array<{
   { value: 'inactive', label: 'Inactive' },
 ]
 
+/**
+ * What a client's kind is called on screen. Stored as `person` and
+ * `business` (the schema's words, unchanged); shown as residential and
+ * commercial, as a pest business speaks of its jobs.
+ */
+export const KIND_LABELS: Record<ClientKind, string> = {
+  person: 'Residential',
+  business: 'Commercial',
+}
+
+/** The type question on a client form, in the order it is asked. */
+export const KIND_CHOICES: Array<{ value: ClientKind; label: string }> = [
+  { value: 'person', label: KIND_LABELS.person },
+  { value: 'business', label: KIND_LABELS.business },
+]
+
 export const KIND_OPTIONS: Array<{ value: ClientKind; label: string }> = [
-  { value: 'business', label: 'Business' },
-  { value: 'person', label: 'Person' },
+  { value: 'business', label: KIND_LABELS.business },
+  { value: 'person', label: KIND_LABELS.person },
 ]
 
 export type SuburbLoad = { suburb: string; count: number }

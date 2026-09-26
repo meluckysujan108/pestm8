@@ -23,7 +23,7 @@ export const FIELD_LABELS: Record<ImportField, string> = {
   lastName: 'Last name',
   company: 'Company',
   contactPerson: 'Contact person',
-  isCompany: 'Is a company?',
+  isCompany: 'Residential or commercial?',
   contactType: 'Customer or supplier?',
   email: 'Email',
   phone: 'Phone',

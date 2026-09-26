@@ -22,8 +22,6 @@ export type SiteDraft = {
   siteContactPhone: string
   note: string
   duplicate: boolean
-  /** For a site already here, the client it is on, when that's another. */
-  heldBy?: string
 }
 
 export type Draft = {
@@ -55,7 +53,6 @@ export function draftOf(client: ReviewClient): Draft {
       siteContactPhone: site.siteContactPhone ?? '',
       note: site.note ?? '',
       duplicate: site.duplicate === true,
-      ...(site.heldBy ? { heldBy: site.heldBy } : {}),
     })),
   }
 }

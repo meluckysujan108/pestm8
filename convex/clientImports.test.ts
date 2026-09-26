@@ -499,17 +499,17 @@ describe('what a batch writes', () => {
     expect((await everything(s)).clientContacts).toEqual([])
   })
 
-  test('skips a site already here, however it is written, and the same site twice in one file', async () => {
+  test('the same site twice in one client is written once; another client at an address already here gets it too', async () => {
     const s = await setup()
     await alreadyHere(s)
 
     const { importId, results } = await importAs(s, s.terence, [
       person('c1', 'Mary Brown', [
-        site('12 wattle st.'), // already here
+        site('12 wattle st.'), // J. Nguyen's: Mary may have it too
         site('14 Wattle St'),
         site('14 Wattle Street'), // the same, twice in one client
       ]),
-      // Mary's new site again, under someone else: already here by now.
+      // Mary's new site again, under someone else: theirs as well.
       person('c2', 'Bob Lee', [site('14 WATTLE ST')]),
       // Same street, another postcode: another place.
       person('c3', 'Sue Park', [
@@ -518,27 +518,48 @@ describe('what a batch writes', () => {
     ])
 
     expect(results).toMatchObject([
-      { key: 'c1', status: 'created', sitesCreated: 1, sitesSkipped: 2 },
-      { key: 'c2', status: 'skipped', sitesCreated: 0, sitesSkipped: 1 },
+      { key: 'c1', status: 'created', sitesCreated: 2, sitesSkipped: 1 },
+      { key: 'c2', status: 'created', sitesCreated: 1, sitesSkipped: 0 },
       { key: 'c3', status: 'created', sitesCreated: 1, sitesSkipped: 0 },
     ])
-    expect(results[1].clientId).toBeUndefined()
 
     const all = await everything(s)
     expect(all.clients.map((c) => c.name).sort()).toEqual([
+      'Bob Lee',
       'J. Nguyen',
       'Mary Brown',
       'Sue Park',
     ])
     expect(await sitesOf(s, results[0].clientId!)).toMatchObject([
+      { addressLine: '12 wattle st.' },
       { addressLine: '14 Wattle St' },
     ])
     expect(await row(s, importId)).toMatchObject({
-      clients: 2,
-      sites: 2,
-      skipped: 3,
+      clients: 3,
+      sites: 4,
+      skipped: 1,
       failed: 0,
     })
+  })
+
+  test('a client already here keeps its own sites once, however they are written, and one joined twice in a batch gets each site once', async () => {
+    const s = await setup()
+    const here = await alreadyHere(s)
+    const joins = (key: string, sites: Array<ImportSite>) =>
+      person(key, 'J. Nguyen', sites, { existingClientId: here.clientId })
+
+    const { results } = await importAs(s, s.terence, [
+      joins('c1', [site('12 WATTLE ST'), site('3 Hill Road')]),
+      joins('c2', [site('3 hill rd')]),
+    ])
+
+    expect(results).toMatchObject([
+      { key: 'c1', status: 'added', sitesCreated: 1, sitesSkipped: 1 },
+      { key: 'c2', status: 'skipped', sitesCreated: 0, sitesSkipped: 1 },
+    ])
+    expect(
+      (await sitesOf(s, here.clientId)).map((p) => p.addressLine).sort(),
+    ).toEqual(['12 Wattle Street', '3 Hill Road'])
   })
 
   test('knows a site saved with a three-digit postcode, as NT sites were before four digits were asked for', async () => {
@@ -575,14 +596,17 @@ describe('what a batch writes', () => {
       ]),
     ])
 
+    // Old Client's own site, saved as 810, is its own at 0810; a new client
+    // at that address gets it as well.
     expect(results).toMatchObject([
       { key: 'c1', status: 'skipped', sitesCreated: 0, sitesSkipped: 1 },
-      { key: 'c2', status: 'created', sitesCreated: 1, sitesSkipped: 1 },
+      { key: 'c2', status: 'created', sitesCreated: 2, sitesSkipped: 0 },
     ])
     const all = await everything(s)
     expect(
       all.properties.map((p) => [p.addressLine, p.postcode]).sort(),
     ).toEqual([
+      ['3 Casuarina Drive', '0810'],
       ['3 Casuarina Drive', '810'],
       ['5 Casuarina Drive', '0810'],
     ])
@@ -1476,9 +1500,9 @@ describe('the list of recent imports', () => {
         source: 'Jobber',
         createdAt: expect.any(Number),
         clients: 1,
-        sites: 1,
+        sites: 2,
         notes: 1,
-        skipped: 1,
+        skipped: 0,
         failed: 1,
         byName: 'Terence',
         canUndo: true,

@@ -1,4 +1,5 @@
-import { Building2, User } from 'lucide-react'
+import { Building2, House } from 'lucide-react'
+import { KIND_LABELS } from '#/lib/clientFilters'
 import {
   ClientStatusPill,
   TagChips,
@@ -22,8 +23,8 @@ export type ClientPropertyRow = {
 }
 
 const KIND_STYLE: Record<ClientKind, { label: string; className: string; Icon: typeof Building2 }> = {
-  business: { label: 'Business', className: 'bg-surface-2 text-ink-2', Icon: Building2 },
-  person: { label: 'Person', className: 'bg-surface-2 text-ink-2', Icon: User },
+  business: { label: KIND_LABELS.business, className: 'bg-surface-2 text-ink-2', Icon: Building2 },
+  person: { label: KIND_LABELS.person, className: 'bg-surface-2 text-ink-2', Icon: House },
 }
 
 /** Business/person, in the exact slot `StatusPill` occupies on a job card —

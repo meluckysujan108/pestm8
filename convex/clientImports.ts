@@ -45,8 +45,10 @@ import type { ImportClient, ImportResult, ImportSite } from './lib/clientImport'
  * ── What it never does ───────────────────────────────────────────────────
  *
  *  - Change anything already here. A site at the same street, suburb and
- *    postcode is skipped; a client of the same name gets the new sites and
- *    keeps every field it had.
+ *    postcode as one the same client already has is skipped; a client of the
+ *    same name gets the new sites and keeps every field it had. Two
+ *    different clients may share an address — a landlord and a tenant, two
+ *    shops in one centre — and both get it.
  *  - Trust the page. Every client is checked again with `checkImportClient`,
  *    the rules the review screen applied, and one that fails comes back
  *    `failed` with the sentence the page shows — the rest of its batch still
@@ -243,9 +245,15 @@ async function importClient(
 
   const existing = await existingClient(ctx, run.businessId, client)
 
+  // Only this client's own addresses count as here: an existing client's
+  // sites, and the ones earlier in this client. A new client has none yet.
   const fresh: Array<ImportSite> = []
+  const own = new Set<string>()
   for (const site of client.sites) {
-    if (await known.claim(site)) fresh.push(site)
+    const key = siteKey(site)
+    if (own.has(key)) continue
+    own.add(key)
+    if (!existing || (await known.claim(site, existing._id))) fresh.push(site)
   }
   if (fresh.length === 0) {
     return { ...nothing, status: 'skipped', sitesSkipped: client.sites.length }
@@ -258,6 +266,9 @@ async function importClient(
   const clientId = existing
     ? existing._id
     : await insertClient(ctx, run, client, now)
+  // A later client in the batch that joins this one by name must not add
+  // the same site again.
+  if (!existing) for (const site of fresh) await known.claim(site, clientId)
 
   let notesCreated = 0
   for (const site of fresh) {
@@ -325,12 +336,14 @@ async function existingClient(
 type KnownSites = ReturnType<typeof knownSites>
 
 /**
- * "Is this site already here?", asked of one postcode's sites at a time and
- * remembered for the batch. A site this batch writes counts as here from then
- * on, so the same address twice — in one client or across two — is written
- * once.
+ * "Does this client already have this site?", asked of one postcode's sites
+ * at a time and remembered for the batch. A site this batch writes counts as
+ * here from then on, so the same address twice for one client is written
+ * once. Another client's site at the same address is not this client's:
+ * both get it.
  */
 function knownSites(ctx: MutationCtx, businessId: Id<'businesses'>) {
+  // postcode → `${clientId}|${siteKey}` of every site in it.
   const byPostcode = new Map<string, Set<string>>()
   // Every site in one postcode, which is what the index is for: a business
   // has hundreds there at the very most, and stopping short would let a
@@ -343,8 +356,9 @@ function knownSites(ctx: MutationCtx, businessId: Id<'businesses'>) {
       )
       .collect()
   return {
-    /** True when the site is new, and claimed: the next one like it is not. */
-    async claim(site: ImportSite): Promise<boolean> {
+    /** True when the client hasn't this site, and claimed: the next one
+     * like it for the same client is not. */
+    async claim(site: ImportSite, clientId: Id<'clients'>): Promise<boolean> {
       let keys = byPostcode.get(site.postcode)
       if (!keys) {
         const rows = await sitesIn(site.postcode)
@@ -353,10 +367,10 @@ function knownSites(ctx: MutationCtx, businessId: Id<'businesses'>) {
         if (/^0\d{3}$/.test(site.postcode)) {
           rows.push(...(await sitesIn(site.postcode.slice(1))))
         }
-        keys = new Set(rows.map(siteKey))
+        keys = new Set(rows.map((row) => `${row.clientId}|${siteKey(row)}`))
         byPostcode.set(site.postcode, keys)
       }
-      const key = siteKey(site)
+      const key = `${clientId}|${siteKey(site)}`
       if (keys.has(key)) return false
       keys.add(key)
       return true

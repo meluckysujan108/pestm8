@@ -106,8 +106,12 @@ describe('reading PestM8 again once the undo is done', () => {
     expect(c1.existingClientId).toBe('k1')
     expect(importable(c1)).toBe(false)
     expect(importable(c2)).toBe(true)
-    expect(c4.sites.map((s) => s.duplicate === true)).toEqual([true, false])
-    expect(c4.sites[0].heldBy).toBe('Client c1')
+    // Another client at c1's address: not already here — both have it.
+    expect(c4.sites.map((s) => s.duplicate === true)).toEqual([false, false])
+    expect(c4.issues.map((i) => i.message)).toContain(
+      'Client c1 is also at this address in PestM8 — both will have it as a site. Leave this one out if they’re the same client.',
+    )
+    expect(importable(c4)).toBe(true)
   })
 
   it('judges every client afresh, keeping what the person changed', () => {
@@ -124,12 +128,11 @@ describe('reading PestM8 again once the undo is done', () => {
     expect(c2).toEqual(built[1])
     expect(c3.included).toBe(false)
     expect(c4.sites.map((s) => s.duplicate === true)).toEqual([false, false])
-    expect(c4.sites[0].heldBy).toBeUndefined()
   })
 
   it('names the clients now sending a site that was already here, for its address check', () => {
     const freed = newlySent(built, AFTER)
-    expect(freed.map((c) => c.key)).toEqual(['c1', 'c4'])
+    expect(freed.map((c) => c.key)).toEqual(['c1'])
     // Judged again already, ready to be checked.
     expect(freed[0].sites[0].duplicate).toBeUndefined()
     // Nothing is, while the undone import's sites are still here.
