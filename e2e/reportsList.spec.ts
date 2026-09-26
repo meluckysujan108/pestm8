@@ -114,8 +114,14 @@ test('the reports list buckets by status and searches across client, suburb, and
   // the drafts (deliberately — a same-named draft/finalised pair would make
   // this assertion pass by accident). The counts above are server-rendered, so
   // they are no readiness signal; the tabs stay disabled until hydration.
+  // The tab is checked as selected before the list is read: until the tap
+  // resolves, the All list stays on screen, and it shows the three drafts too.
   await expect(page.getByRole('tab', { name: 'Draft' })).toBeEnabled()
   await page.getByRole('tab', { name: 'Draft' }).click()
+  await expect(page.getByRole('tab', { name: 'Draft' })).toHaveAttribute(
+    'aria-selected',
+    'true',
+  )
   await expect(page.getByText(CERTIFICATE, exact)).toBeVisible()
   await expect(page.getByText(TIMBER, exact)).toBeVisible()
   await expect(page.getByText(WALKTHROUGH, exact)).toBeVisible()
