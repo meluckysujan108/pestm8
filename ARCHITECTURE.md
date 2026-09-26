@@ -54,6 +54,7 @@ re-declared per theme, so nothing else in the system is themed twice.
   --chrome       rgba(255,255,255,.92)  rgba(28,28,30,.82)     sticky bars
   --scrim        rgba(0,0,0,.30)        rgba(0,0,0,.60)        sheet backdrop
   --red          #FF3B30                #FF453A    primary action, brand
+  --red-fill     #DC2A1F                #DC2A1F    red behind white text (buttons, selected day): 4.8:1
   --blue         #0A84FF                #0A84FF    links, contact actions
   --green        #34C759                #30D158    success
   --amber        #FF9F0A                #FF9F0A    warning accent

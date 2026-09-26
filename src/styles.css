@@ -47,6 +47,11 @@
   --fill-track: rgba(118, 118, 128, 0.08);
 
   --red: #ff3b30;
+  /* Red behind white text: buttons, the selected day. The brand red is
+     3.5:1 against white, under the 4.5 a 15–17px label needs; this is the
+     same hue a step deeper, 4.8:1 (statusColours.test.ts checks it). The
+     brand red stays for everything that is not white text on red. */
+  --red-fill: #dc2a1f;
   --blue: #0a84ff;
   --green: #34c759;
   --amber: #ff9f0a;
@@ -150,6 +155,8 @@
   --fill-track: rgba(120, 120, 128, 0.28);
 
   --red: #ff453a;
+  /* The same as light: white text on it needs the same depth. */
+  --red-fill: #dc2a1f;
   --blue: #0a84ff;
   --green: #30d158;
   --amber: #ff9f0a;
@@ -282,6 +289,7 @@
   --color-chrome: var(--chrome);
   --color-scrim: var(--scrim);
   --color-red: var(--red);
+  --color-red-fill: var(--red-fill);
   --color-blue: var(--blue);
   --color-green: var(--green);
   --color-amber: var(--amber);

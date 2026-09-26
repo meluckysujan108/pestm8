@@ -187,7 +187,7 @@ function MonthDays({
               className={[
                 'flex size-9 items-center justify-center rounded-full text-[16px] font-semibold tabular-nums transition',
                 isSelected
-                  ? 'bg-red text-white'
+                  ? 'bg-red-fill text-white'
                   : isToday
                     ? 'text-red'
                     : 'text-ink',

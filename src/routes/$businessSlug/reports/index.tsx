@@ -67,7 +67,7 @@ function ReportsPage() {
               to="/$businessSlug/reports/new"
               params={{ businessSlug: business.slug }}
               aria-label="New report"
-              className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95]"
+              className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95]"
             >
               <Plus size={20} strokeWidth={2} />
             </Link>

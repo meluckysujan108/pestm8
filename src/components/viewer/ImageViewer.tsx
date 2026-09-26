@@ -623,7 +623,7 @@ export function ImageViewer({
         <p
           role="alert"
           // Above the file bar, when there is one, rather than over it.
-          className={`chrome-blur pointer-events-none absolute inset-x-4 mx-auto max-w-sm rounded-2xl px-3.5 py-2 text-center text-caption font-semibold text-orange-ink shadow-elevation ${paged ? 'bottom-[calc(env(safe-area-inset-bottom)+68px)]' : 'bottom-[calc(env(safe-area-inset-bottom)+16px)]'}`}
+          className={`chrome-blur pointer-events-none absolute inset-x-4 mx-auto max-w-sm rounded-2xl px-3.5 py-2 text-center text-caption font-semibold text-amber-ink shadow-elevation ${paged ? 'bottom-[calc(env(safe-area-inset-bottom)+68px)]' : 'bottom-[calc(env(safe-area-inset-bottom)+16px)]'}`}
         >
           {shareProblem}
         </p>

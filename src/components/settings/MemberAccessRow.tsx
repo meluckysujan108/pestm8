@@ -253,9 +253,8 @@ function LicenceGroup({
       title="Licence"
       footer={
         missing ? (
-          // orange-ink, as FormAlert: chosen when amber-ink was 3.6:1 on the
-          // canvas. amber-ink now clears 4.5 too (styles.css).
-          <span className="text-orange-ink">
+          // Warning text: amber-ink, which clears 4.5 on the canvas.
+          <span className="text-amber-ink">
             Without this they cannot finalise a termite certificate, timber pest
             inspection or treatment record.
           </span>

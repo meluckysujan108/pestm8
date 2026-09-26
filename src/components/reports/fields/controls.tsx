@@ -204,7 +204,7 @@ export function ChipsControl({ field, value, onChange }: Of<'chips'>) {
             }
             className={`rounded-full px-3 py-1.5 text-body transition ${
               on
-                ? 'bg-red text-white'
+                ? 'bg-red-fill text-white'
                 : 'bg-surface-3 text-ink-2 hover:bg-surface-2'
             }`}
           >

@@ -95,7 +95,7 @@ export function ResetTwoStepButton({
           : 'they can turn it on again with their new phone from Settings.'}{' '}
         Their password is not changed or shown to you.
       </p>
-      <p className="mt-2 text-caption text-orange-ink">
+      <p className="mt-2 text-caption text-amber-ink">
         Until they set it up again, their password alone gets into their
         account. Check it is really them asking — in person, or on a call to the
         number you know.
@@ -104,7 +104,7 @@ export function ResetTwoStepButton({
       {reset.isError && (
         <p
           role="alert"
-          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           {resetError(reset.error)}
         </p>

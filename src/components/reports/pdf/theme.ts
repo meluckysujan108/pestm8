@@ -23,7 +23,9 @@ export const COLOURS = {
   hairline: '#E5E5EA',
   rowRule: '#D8D8DC',
   green: '#34C759',
-  amber: '#B26B00',
+  // Warning text on white paper: the screen's amber-ink (styles.css), 5.5:1.
+  // #B26B00 was 4.2:1.
+  amber: '#985B00',
   white: '#FFFFFF',
 } as const
 

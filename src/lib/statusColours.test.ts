@@ -115,6 +115,16 @@ describe('status colours in the stylesheet', () => {
     )
   }
 
+  for (const [theme, vars] of Object.entries(THEMES)) {
+    // A button's white label is 15–17px, so 4.5:1 — which the brand red
+    // (3.5:1) is not, and why buttons and the selected day take red-fill.
+    test(`${theme}: white text on red-fill clears 4.5:1`, () => {
+      expect(contrastRatio('#ffffff', vars['red-fill'])).toBeGreaterThanOrEqual(
+        4.5,
+      )
+    })
+  }
+
   test('amber keeps meaning "warning" and is none of the status hues', () => {
     expect(Object.values(TONE_PILL).join(' ')).not.toContain('amber')
     expect(OVERDUE_CHIP).not.toContain('amber')

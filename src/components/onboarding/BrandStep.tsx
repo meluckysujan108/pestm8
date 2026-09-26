@@ -205,7 +205,7 @@ export function BrandStep({
                 />
               </div>
               {logoFailed && (
-                <p role="alert" className="mt-2 text-caption text-orange-ink">
+                <p role="alert" className="mt-2 text-caption text-amber-ink">
                   Upload failed. Check your connection and try again.
                 </p>
               )}
