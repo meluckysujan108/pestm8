@@ -5,7 +5,10 @@ import { Plus, WifiOff } from 'lucide-react'
 import { z } from 'zod'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { ListPending } from '#/components/shell/Pending'
-import { EmptyState } from '#/components/primitives/EmptyState'
+import {
+  EmptyState,
+  EmptyStateButton,
+} from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewProductSheet } from '#/components/products/NewProductSheet'
 import { ProductCard } from '#/components/products/ProductCard'
@@ -393,6 +396,14 @@ function ProductsPage() {
             <EmptyState
               title="No products yet"
               body="Add the products your team uses — the label, the safety data sheet, the supplier's page — so anyone can pull them up on site."
+              action={
+                <EmptyStateButton
+                  onClick={() => setNewOpen(true)}
+                  disabled={!hydrated}
+                >
+                  Add a product
+                </EmptyStateButton>
+              }
             />
           ) : (
             <EmptyState

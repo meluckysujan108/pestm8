@@ -7,8 +7,15 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import { WeekStrip } from '#/components/schedule/WeekStrip'
 import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
+import { useConvexMutation } from '@convex-dev/react-query'
+import { api } from '../../../convex/_generated/api'
+import { SetupGuideCard } from '#/components/onboarding/SetupGuide'
+import { TeamJoinedNotices } from '#/components/onboarding/TeamJoined'
 import { NewJobSheet } from '#/components/schedule/NewJobSheet'
-import { EmptyState } from '#/components/primitives/EmptyState'
+import {
+  EmptyState,
+  EmptyStateButton,
+} from '#/components/primitives/EmptyState'
 import {
   addDaysToKey,
   formatDayLabel,
@@ -35,6 +42,8 @@ import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
 import { SCHEDULE_VIEWS, SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
 import { weekDayKeys, weekTotals } from '#/lib/weekView'
 import type { ScheduleView } from '#/lib/scheduleViews'
+import type { Access } from '#/lib/access'
+import type { Id } from '../../../convex/_generated/dataModel'
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
@@ -95,11 +104,21 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
           )
         : [rq.day(business._id, day)]
 
+    // The set-up guide sits above the day, so it is asked for with it — an
+    // owner's only, read off the access the layout already holds — rather
+    // than popping in afterwards and pushing the day down under a thumb.
+    const owner =
+      queryClient.getQueryData<Access>(rq.access(business._id).queryKey)
+        ?.caps['business.manage'] === true
+
     return warm(
       queryClient,
       rq.week(business._id, startOfWeekKey(day)),
       ...weekDays,
       rq.roster(business._id),
+      ...(owner
+        ? [rq.setupGuide(business._id), rq.teamJoins(business._id)]
+        : []),
     )
   },
   component: SchedulePage,
@@ -140,6 +159,9 @@ function SchedulePage() {
       ?.focus()
   }, [shownView])
   const [newJobOpen, setNewJobOpen] = useState(false)
+  // Who a job booked from a join notice is for; nobody in particular else.
+  const [newJobFor, setNewJobFor] = useState<Id<'memberships'>>()
+  const dismissJoined = useConvexMutation(api.teamJoins.dismiss)
   const [monthOpen, setMonthOpen] = useState(false)
   const [monthKey, setMonthKey] = useState<string | null>(null)
   // A button that opens a sheet does nothing before hydration, and does it
@@ -296,6 +318,23 @@ function SchedulePage() {
         }
       />
 
+      {/* The owner's news, above the day: how far a new business's set-up
+          has got, and who has joined lately. Collapses when there is none. */}
+      <div className="pb-3 empty:hidden lg:pb-0">
+        <SetupGuideCard
+          businessId={business._id}
+          businessSlug={business.slug}
+          onBookJob={() => setNewJobOpen(true)}
+        />
+        <TeamJoinedNotices
+          businessId={business._id}
+          onGiveJob={(membershipId) => {
+            setNewJobFor(membershipId)
+            setNewJobOpen(true)
+          }}
+        />
+      </div>
+
       {isDesktop ? (
         // Desktop (§2.4): a persistent month grid + team legend beside a
         // filterable day agenda, in place of the week strip and its sheet.
@@ -343,6 +382,9 @@ function SchedulePage() {
                 view={activeView}
                 onViewChange={setView}
                 onOpenJob={setOpenJobId}
+                // The desktop layout only renders in the browser (it
+                // waits on a media query), so this is always live.
+                onNewJob={() => setNewJobOpen(true)}
                 recurringDue={recurringDue}
               />
             )}
@@ -453,8 +495,18 @@ function SchedulePage() {
                 }
                 body={
                   jobs.length === 0
-                    ? 'This day is clear. Tap + to book a job.'
+                    ? 'This day is clear.'
                     : 'No jobs match this filter.'
+                }
+                action={
+                  jobs.length === 0 && (
+                    <EmptyStateButton
+                      onClick={() => setNewJobOpen(true)}
+                      disabled={!hydrated}
+                    >
+                      Book a job
+                    </EmptyStateButton>
+                  )
                 }
               />
             ) : (
@@ -511,7 +563,21 @@ function SchedulePage() {
         dayKey={requestedKey}
         timezone={business.timezone}
         open={newJobOpen}
-        onClose={() => setNewJobOpen(false)}
+        onClose={() => {
+          setNewJobOpen(false)
+          setNewJobFor(undefined)
+        }}
+        assignTo={newJobFor}
+        // Booked for someone from their join notice: that is the notice
+        // answered, so it goes (on every device).
+        onBooked={() => {
+          if (newJobFor) {
+            void dismissJoined({
+              businessId: business._id,
+              membershipId: newJobFor,
+            }).catch(() => {})
+          }
+        }}
       />
     </>
   )

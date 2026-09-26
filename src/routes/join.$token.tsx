@@ -61,11 +61,13 @@ function JoinPage() {
         replace: true,
       })
     },
+    // Joined: a minute of welcome — their licence number, the Home Screen —
+    // then their jobs (src/routes/welcome.tsx).
     onSuccess: async ({ slug }) => {
       await router.invalidate()
       await router.navigate({
-        to: '/$businessSlug/schedule',
-        params: { businessSlug: slug },
+        to: '/welcome',
+        search: { business: slug },
         replace: true,
       })
     },

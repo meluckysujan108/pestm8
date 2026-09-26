@@ -15,6 +15,7 @@ import {
   useLatest,
   useSaveWarnings,
 } from '#/components/forms/SaveWarnings'
+import { Segmented } from '#/components/primitives/Segmented'
 import { Sheet } from '#/components/primitives/Sheet'
 import { InviteLinkCard } from './InviteLinkCard'
 import { ROLE_LABEL, memberName } from './MemberAccessRow'
@@ -80,6 +81,10 @@ export function TeamSection({
   // not reachable while switched (`team.manage` drops).
   const access = useAccess()
   const viewerIsOwner = access.role === 'owner'
+  // The owner chooses what someone joins as; a contractor's invitee is always
+  // a subcontractor on their team (`canInviteAs`).
+  const [inviteRole, setInviteRole] = useState<InviteRole>('subcontractor')
+  const latestRole = useLatest(inviteRole)
   // Who is asking and for which business, named in the text the link goes
   // out in. The business is the layout's own query, already held.
   const { data: business } = useQuery(
@@ -104,6 +109,9 @@ export function TeamSection({
     }) => convexCreate(args),
     onSuccess: ({ url }, variables) => {
       setEmail('')
+      // Back to the everyday choice: a contractor is a deliberate one, and
+      // must never carry over to the next person by accident.
+      setInviteRole('subcontractor')
       if (sheetOpen.current) setFreshLink({ email: variables.email, url })
     },
   })
@@ -144,6 +152,7 @@ export function TeamSection({
   const closeSheet = () => {
     onInviteOpenChange(false)
     setFreshLink(null)
+    setInviteRole('subcontractor')
     invite.reset()
     warnings.reset()
   }
@@ -215,7 +224,9 @@ export function TeamSection({
                 icon={Mail}
                 tint="grey"
                 title={invitation.email}
-                subtitle={expiryLabel(invitation.expiresAt, invitation.state)}
+                // The role on offer, so a contractor link sent in error can
+                // be seen, and cancelled, before it is used.
+                subtitle={`${ROLE_LABEL[invitation.role]} · ${expiryLabel(invitation.expiresAt, invitation.state)}`}
               >
                 {canReissue && (
                   <button
@@ -261,11 +272,7 @@ export function TeamSection({
         onClose={closeSheet}
         // A contractor's invitee joins their team (`joinsUnder`); the
         // owner's answers to the owner.
-        title={
-          viewerIsOwner
-            ? 'Invite a subcontractor'
-            : 'Invite someone to your team'
-        }
+        title={viewerIsOwner ? 'Invite someone' : 'Invite someone to your team'}
       >
         {/* Clear of the home indicator: this sheet has no footer, because
             the form's own submit has to be inside it — a fix in the
@@ -300,11 +307,28 @@ export function TeamSection({
                     invite.mutateAsync({
                       businessId,
                       email: latestEmail.current,
-                      role: 'subcontractor',
+                      role: viewerIsOwner
+                        ? latestRole.current
+                        : 'subcontractor',
                     }),
                   )
                 }
               >
+                {viewerIsOwner && (
+                  <div className="mb-3 flex flex-col gap-1.5">
+                    <span className={FIELD_LABEL}>Joins as</span>
+                    <Segmented
+                      label="Joins as"
+                      value={inviteRole}
+                      options={INVITE_ROLE_OPTIONS}
+                      onChange={setInviteRole}
+                      disabled={!hydrated}
+                    />
+                    <p className="text-caption text-muted" aria-live="polite">
+                      {INVITE_ROLE_HINT[inviteRole]}
+                    </p>
+                  </div>
+                )}
                 <label htmlFor={emailId} className={FIELD_LABEL}>
                   Email address
                 </label>
@@ -403,6 +427,20 @@ type PendingInvitation = Omit<
   canManage?: boolean
   canReissue?: boolean
   invitedByMembershipId?: Id<'memberships'>
+}
+
+type InviteRole = 'subcontractor' | 'contractor'
+
+const INVITE_ROLE_OPTIONS: Array<{ value: InviteRole; label: string }> = [
+  { value: 'subcontractor', label: 'Subcontractor' },
+  { value: 'contractor', label: 'Contractor' },
+]
+
+/** What each role means in practice, said where it is chosen. */
+const INVITE_ROLE_HINT: Record<InviteRole, string> = {
+  subcontractor: 'Sees your client list and the jobs you give them.',
+  contractor:
+    'Runs a team of their own under you: invites subcontractors to it, and manages your client list.',
 }
 
 /** The invite's own words for describeError: it creates, it does not save. */

@@ -6,7 +6,10 @@ import { ListPending } from '#/components/shell/Pending'
 import { NOTES_PAGE, notesFirstPage, rq } from '#/lib/routeQueries'
 import { Briefcase, ListChecks, Lock, MapPin, Pin, User } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { EmptyState } from '#/components/primitives/EmptyState'
+import {
+  EmptyState,
+  EmptyStateButton,
+} from '#/components/primitives/EmptyState'
 import { useAccess } from '#/lib/access'
 import { editedLabel, noteGroupLabel, noteGroupOf } from '#/lib/noteDates'
 import { LIBRARY_FILTERS } from './NotesRail'
@@ -81,6 +84,8 @@ export function NoteList({
   query,
   selectedId,
   onSelect,
+  onNew,
+  newDisabled = false,
 }: {
   businessId: Id<'businesses'>
   timezone: string
@@ -88,6 +93,10 @@ export function NoteList({
   query: string
   selectedId: Id<'notes'> | null
   onSelect: (id: Id<'notes'>) => void
+  /** A new note of your own — offered where one would be listed. */
+  onNew?: () => void
+  /** Before the page can act on it, or while one is being made. */
+  newDisabled?: boolean
 }) {
   const searching = query.trim() !== ''
   const paging = !searching && filter !== 'mentions'
@@ -215,7 +224,22 @@ export function NoteList({
             body={`Nothing in ${folderLabel(filter)} mentions “${query.trim()}”.`}
           />
         ) : (
-          <EmptyState {...emptyFor(filter, isOwner)} />
+          <EmptyState
+            {...emptyFor(filter, isOwner)}
+            action={
+              // A new note is private, so it shows in My notes and All Notes
+              // and nowhere else: offered only in those.
+              onNew &&
+              (filter === 'mine' || filter === 'all') && (
+                // Not "New note": that is the + button's name, and two
+                // buttons called the same thing are one too many to a
+                // screen reader.
+                <EmptyStateButton onClick={onNew} disabled={newDisabled}>
+                  Write a note
+                </EmptyStateButton>
+              )
+            }
+          />
         )}
       </div>
     )

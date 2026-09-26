@@ -14,6 +14,7 @@ import { Route as BusinessSlugRouteRouteImport } from './routes/$businessSlug/ro
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as TwoStepRouteImport } from './routes/two-step'
+import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as BusinessSlugAnalyticsRouteImport } from './routes/$businessSlug/analytics'
 import { Route as BusinessSlugJobRouteRouteImport } from './routes/$businessSlug/job/route'
 import { Route as BusinessSlugLeadsRouteImport } from './routes/$businessSlug/leads'
@@ -68,6 +69,11 @@ const OnboardingRoute = OnboardingRouteImport.update({
 const TwoStepRoute = TwoStepRouteImport.update({
   id: '/two-step',
   path: '/two-step',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const WelcomeRoute = WelcomeRouteImport.update({
+  id: '/welcome',
+  path: '/welcome',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BusinessSlugAnalyticsRoute = BusinessSlugAnalyticsRouteImport.update({
@@ -246,6 +252,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/two-step': typeof TwoStepRoute
+  '/welcome': typeof WelcomeRoute
   '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
   '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
   '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
@@ -283,6 +290,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/two-step': typeof TwoStepRoute
+  '/welcome': typeof WelcomeRoute
   '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
   '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
   '/$businessSlug/notes': typeof BusinessSlugNotesRoute
@@ -320,6 +328,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
   '/two-step': typeof TwoStepRoute
+  '/welcome': typeof WelcomeRoute
   '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
   '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
   '/$businessSlug/leads': typeof BusinessSlugLeadsRoute
@@ -359,6 +368,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/two-step'
+    | '/welcome'
     | '/$businessSlug/job'
     | '/$businessSlug/analytics'
     | '/$businessSlug/leads'
@@ -396,6 +406,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/two-step'
+    | '/welcome'
     | '/$businessSlug/analytics'
     | '/$businessSlug/leads'
     | '/$businessSlug/notes'
@@ -432,6 +443,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/onboarding'
     | '/two-step'
+    | '/welcome'
     | '/$businessSlug/job'
     | '/$businessSlug/analytics'
     | '/$businessSlug/leads'
@@ -470,6 +482,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
   TwoStepRoute: typeof TwoStepRoute
+  WelcomeRoute: typeof WelcomeRoute
   JoinTokenRoute: typeof JoinTokenRoute
   StartTokenRoute: typeof StartTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
@@ -510,6 +523,13 @@ declare module '@tanstack/react-router' {
       path: '/two-step'
       fullPath: '/two-step'
       preLoaderRoute: typeof TwoStepRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/welcome': {
+      id: '/welcome'
+      path: '/welcome'
+      fullPath: '/welcome'
+      preLoaderRoute: typeof WelcomeRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$businessSlug/analytics': {
@@ -807,6 +827,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
   TwoStepRoute: TwoStepRoute,
+  WelcomeRoute: WelcomeRoute,
   JoinTokenRoute: JoinTokenRoute,
   StartTokenRoute: StartTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,

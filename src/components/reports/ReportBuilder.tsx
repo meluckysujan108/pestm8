@@ -27,6 +27,7 @@ import {
   sectionKey,
 } from '#/lib/reportTemplates/progress'
 import { quickAnswersFor } from '#/lib/reportTemplates/quickAnswers'
+import type { LicenceFix } from './LicenceNotice'
 import type { QuickMode } from '#/lib/reportTemplates/quickAnswers'
 import { ReportOverview, SectionNav } from './ReportOverview'
 import { FinaliseSheet } from './FinaliseSheet'
@@ -86,6 +87,7 @@ export function ReportBuilder({
   property,
   businessName,
   authorLicence,
+  licenceFix,
   onFinalised,
   isCorrection = false,
 }: {
@@ -114,6 +116,9 @@ export function ReportBuilder({
   property: { addressLine: string; suburb: string } | null
   businessName: string
   authorLicence?: string
+  /** Who can add the author's missing licence number, when one is missing
+   * and this form needs it (LicenceNotice) — so a refusal names that fix. */
+  licenceFix?: LicenceFix | null
   onFinalised: () => void
   /** A correction of a finalised report (`supersedesReportId`), which changes
    * how to get unstuck when it cannot be finalised. */
@@ -342,6 +347,17 @@ export function ReportBuilder({
       }
     },
   })
+
+  // A licence added since the refusal (LicenceNotice, above) answers it: the
+  // refusal goes with it, rather than staying on screen with advice that no
+  // longer fits — finalising again is all that is left.
+  const resetFinalise = finalise.reset
+  const licenceWhenRefused = useRef(authorLicence)
+  useEffect(() => {
+    if (licenceWhenRefused.current === authorLicence) return
+    licenceWhenRefused.current = authorLicence
+    resetFinalise()
+  }, [authorLicence, resetFinalise])
 
   const noticeText = useMemo(() => {
     if (!printsDurableNotice(template) || !property) return null
@@ -894,7 +910,7 @@ export function ReportBuilder({
             role="alert"
             className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
           >
-            {finaliseError(finalise.error, { isCorrection })}
+            {finaliseError(finalise.error, { isCorrection, licenceFix })}
           </p>
         )}
         {Object.keys(errors).length > 0 && !blocked && (
@@ -1206,11 +1222,20 @@ function QuickAnswer({
  */
 function finaliseError(
   error: unknown,
-  { isCorrection }: { isCorrection: boolean },
+  {
+    isCorrection,
+    licenceFix,
+  }: { isCorrection: boolean; licenceFix?: LicenceFix | null },
 ) {
   const message = error instanceof Error ? error.message : String(error)
 
   if (message.includes('HOLDER_LICENCE_MISSING')) {
+    // Only ever the author's own refusal: anyone else is refused sooner, as
+    // not the one who signs (HOLDER_MUST_FINALISE). The notice at the top of
+    // the report has the field.
+    if (licenceFix === 'self') {
+      return 'Add your licence number at the top of this report, then finalise again.'
+    }
     return 'This report needs a licence number on the account it belongs to. Ask the owner to add it in Settings → Team, then finalise again.'
   }
   if (message.includes('HOLDER_LICENCE_EXPIRED')) {

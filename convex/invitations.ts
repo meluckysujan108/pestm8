@@ -47,6 +47,14 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
  * it is created by the bootstrap runbook, not handed out over SMS.
  */
 
+/** What the join page calls the role on offer — a contractor invited by the
+ * owner is told they are joining as a contractor, not as a subcontractor. */
+const ROLE_WORD: Record<Role, string> = {
+  owner: 'Owner',
+  contractor: 'Contractor',
+  subcontractor: 'Subcontractor',
+}
+
 function assertInvitableRole(value: Role) {
   requireAssignableRole(value)
 }
@@ -293,7 +301,7 @@ export const previewByHash = internalQuery({
     return {
       state,
       businessName: business?.name ?? null,
-      roleLabel: invitation.role === 'owner' ? 'Owner' : 'Subcontractor',
+      roleLabel: ROLE_WORD[invitation.role],
       emailHint: maskEmail(invitation.email),
     }
   },

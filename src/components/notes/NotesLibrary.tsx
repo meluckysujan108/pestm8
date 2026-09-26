@@ -156,6 +156,8 @@ export function NotesLibrary({
               query={query}
               selectedId={noteId}
               onSelect={onOpen}
+              onNew={() => create.mutate()}
+              newDisabled={!hydrated || create.isPending}
             />
           </div>
         </div>

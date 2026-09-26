@@ -3,7 +3,10 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { z } from 'zod'
 import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
-import { EmptyState } from '#/components/primitives/EmptyState'
+import {
+  EMPTY_ACTION_CLASS,
+  EmptyState,
+} from '#/components/primitives/EmptyState'
 import { FilterDropdown } from '#/components/primitives/FilterDropdown'
 import { JOB_LIST_STATUS_OPTIONS } from '#/lib/scheduleFilters'
 import { useCan } from '#/lib/access'
@@ -105,6 +108,19 @@ function JobListPage() {
               data.jobs.length === 0
                 ? 'Jobs you book appear here, newest first.'
                 : 'No jobs match this status.'
+            }
+            action={
+              data.jobs.length === 0 && (
+                // Jobs are booked on the schedule; this opens New Job there.
+                <Link
+                  to="/$businessSlug/schedule"
+                  params={{ businessSlug: business.slug }}
+                  search={{ newJob: true }}
+                  className={EMPTY_ACTION_CLASS}
+                >
+                  Book a job
+                </Link>
+              )
             }
           />
         ) : (

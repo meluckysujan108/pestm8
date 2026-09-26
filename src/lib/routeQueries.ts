@@ -25,6 +25,17 @@ type B = Id<'businesses'>
  * import anything heavy: type-only imports from components are fine, values
  * are not.
  */
+/**
+ * The start of the join notices' fortnight, rounded down to a UTC day: a
+ * query does not read the clock, so the caller says when "lately" began, and
+ * rounding it lets a page's loader and its render ask the same question —
+ * one cache entry — all day.
+ */
+function joinWindowStart(): number {
+  const day = 24 * 60 * 60 * 1000
+  return Math.floor(Date.now() / day) * day - 14 * day
+}
+
 export const rq = {
   roster: (businessId: B) =>
     convexQuery(api.memberships.listForBusiness, { businessId }),
@@ -55,6 +66,15 @@ export const rq = {
   analytics: (businessId: B) =>
     convexQuery(api.analytics.overview, { businessId }),
   currentUser: () => convexQuery(api.auth.getCurrentUser, {}),
+  /** A new business's set-up guide — the owner's only (`setupGuide.ts`). */
+  setupGuide: (businessId: B) =>
+    convexQuery(api.setupGuide.progress, { businessId }),
+  /** Who joined lately, for the owner's schedule (`teamJoins.ts`). */
+  teamJoins: (businessId: B) =>
+    convexQuery(api.teamJoins.recent, {
+      businessId,
+      since: joinWindowStart(),
+    }),
   access: (businessId: B) => convexQuery(api.access.me, { businessId }),
   team: (businessId: B) => convexQuery(api.team.roster, { businessId }),
   invitations: (businessId: B) =>

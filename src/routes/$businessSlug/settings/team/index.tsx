@@ -1,5 +1,6 @@
-import { Suspense, useState } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { Suspense, useEffect, useState } from 'react'
+import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { z } from 'zod'
 import { Plus } from 'lucide-react'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { SectionPending } from '#/components/shell/Pending'
@@ -15,6 +16,11 @@ import type { Access } from '#/lib/access'
 const LOADER_WAIT_MS = 2000
 
 export const Route = createFileRoute('/$businessSlug/settings/team/')({
+  // Opens the invite sheet on arrival — the set-up guide's "Invite your
+  // team". Taken out of the URL as it opens, so Back does not reopen it.
+  validateSearch: z.object({
+    invite: z.boolean().optional().catch(undefined),
+  }),
   // The roster and the invitations, which the page reads one after the other
   // — for whoever may see them. `access.me` is already in the cache (the
   // layout's beforeLoad warms it), so reading the capability here costs
@@ -42,6 +48,13 @@ function TeamPage() {
   const canManageTeam = useCan('team.manage')
   const hydrated = useHydrated()
   const [inviteOpen, setInviteOpen] = useState(false)
+  const { invite } = Route.useSearch()
+  const navigate = useNavigate({ from: Route.fullPath })
+  useEffect(() => {
+    if (!invite || !hydrated) return
+    if (canManageTeam) setInviteOpen(true)
+    void navigate({ search: {}, replace: true })
+  }, [invite, hydrated, canManageTeam, navigate])
 
   return (
     <>

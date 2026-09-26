@@ -12,6 +12,7 @@ import {
   FileText,
   IdCard,
   Info,
+  ListChecks,
   ShieldCheck,
   SunMoon,
   User,
@@ -39,6 +40,7 @@ import {
   SettingsGroup,
   SettingsLinkRow,
 } from '#/components/settings/ui'
+import { useHiddenGuide } from '#/components/onboarding/SetupGuide'
 import { useAccess, useActing, useCan } from '#/lib/access'
 import { APP_VERSION } from '#/lib/appVersion'
 import { roleLabel } from '#/lib/assignees'
@@ -115,6 +117,7 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
       rq.access(business._id).queryKey,
     )
     const team = access?.caps['team.manage'] === true
+    const owner = access?.caps['business.manage'] === true
     const switches = access !== undefined && !access.view
     return settleWithin(
       LOADER_WAIT_MS,
@@ -123,6 +126,9 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
         rq.currentUser(),
         ...browserOnly(rq.memberLicences(business._id, membership._id)),
         ...(team ? [rq.team(business._id), rq.invitations(business._id)] : []),
+        // The set-up guide's row, so it is there with the rest of the group
+        // rather than arriving under a thumb.
+        ...(owner ? [rq.setupGuide(business._id)] : []),
         ...(switches ? [rq.switchTargets(business._id)] : []),
       ),
     )
@@ -324,6 +330,9 @@ function SettingsHub() {
         {!isSwitched && hasBusinessRows && (
           <SettingsGroup title="Business">
             {canManageBusiness && (
+              <GuideRow businessId={business._id} businessSlug={businessSlug} />
+            )}
+            {canManageBusiness && (
               <SettingsLinkRow
                 to="/$businessSlug/settings/business"
                 params={{ businessSlug }}
@@ -395,6 +404,45 @@ function SettingsHub() {
         </DangerGroup>
       </SettingsBody>
     </>
+  )
+}
+
+/**
+ * The set-up guide, put away with work still left: one row to bring it back.
+ * It returns to the schedule, where the guide lives, rather than opening a
+ * page of its own here.
+ */
+function GuideRow({
+  businessId,
+  businessSlug,
+}: {
+  businessId: Id<'businesses'>
+  businessSlug: string
+}) {
+  const hidden = useHiddenGuide(businessId)
+  const navigate = useNavigate()
+  const setHidden = useConvexMutation(api.setupGuide.setHidden)
+  const show = useMutation({
+    mutationFn: () => setHidden({ businessId, hidden: false }),
+    onSuccess: () =>
+      navigate({ to: '/$businessSlug/schedule', params: { businessSlug } }),
+  })
+  if (!hidden) return null
+  return (
+    <button
+      type="button"
+      onClick={() => show.mutate()}
+      disabled={show.isPending}
+      className={ROW_CLASS}
+    >
+      <RowBody
+        icon={ListChecks}
+        tint="green"
+        title="Set-up guide"
+        subtitle={`${hidden.done} of ${hidden.total} done`}
+        chevron
+      />
+    </button>
   )
 }
 

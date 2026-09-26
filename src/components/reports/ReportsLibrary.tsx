@@ -6,7 +6,10 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { usePaginatedQuery } from 'convex/react'
 import { Clock, Lock, RotateCcw, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { EmptyState } from '#/components/primitives/EmptyState'
+import {
+  EMPTY_ACTION_CLASS,
+  EmptyState,
+} from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { ListPending } from '#/components/shell/Pending'
 import { REPORTS_PAGE, reportsFirstPage, rq } from '#/lib/routeQueries'
@@ -175,6 +178,20 @@ export function ReportsLibrary({
           <EmptyState
             title={emptyTitle(segment, searching)}
             body={emptyBody(segment, searching)}
+            action={
+              // Only the true empty — every report, no search — has
+              // nothing to do but start one.
+              segment === 'all' &&
+              !searching && (
+                <Link
+                  to="/$businessSlug/reports/new"
+                  params={{ businessSlug }}
+                  className={EMPTY_ACTION_CLASS}
+                >
+                  Start a report
+                </Link>
+              )
+            }
           />
         ) : (
           <div className="flex flex-col gap-2.5">
@@ -276,7 +293,7 @@ function emptyBody(segment: Segment, searching: boolean): string {
   if (segment === 'finalised') return 'Reports you have locked show up here.'
   if (segment === 'draft')
     return 'Reports you are still filling in show up here.'
-  return 'Start one from a job, or with the + button.'
+  return 'Start one here, or from a job.'
 }
 
 function ReportRow({
