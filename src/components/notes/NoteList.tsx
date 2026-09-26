@@ -9,6 +9,7 @@ import { api } from '../../../convex/_generated/api'
 import {
   EmptyState,
   EmptyStateButton,
+  NoMatches,
 } from '#/components/primitives/EmptyState'
 import { useAccess } from '#/lib/access'
 import { editedLabel, noteGroupLabel, noteGroupOf } from '#/lib/noteDates'
@@ -82,6 +83,7 @@ export function NoteList({
   timezone,
   filter,
   query,
+  onClearSearch,
   selectedId,
   onSelect,
   onNew,
@@ -91,6 +93,8 @@ export function NoteList({
   timezone: string
   filter: LibraryFilter
   query: string
+  /** Empties the search box, for a search that found nothing. */
+  onClearSearch: () => void
   selectedId: Id<'notes'> | null
   onSelect: (id: Id<'notes'>) => void
   /** A new note of your own — offered where one would be listed. */
@@ -219,9 +223,11 @@ export function NoteList({
     return (
       <div className="px-4 py-4">
         {searching ? (
-          <EmptyState
-            title="No matches"
-            body={`Nothing in ${folderLabel(filter)} mentions “${query.trim()}”.`}
+          <NoMatches
+            term={query}
+            hint={`Nothing in ${folderLabel(filter)} mentions it.`}
+            clearLabel="Clear search"
+            onClear={onClearSearch}
           />
         ) : (
           <EmptyState

@@ -19,9 +19,13 @@ import {
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
 import { FIELD_COMPACT, FIELD_SURFACE } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { ABOVE_DOCK } from '#/components/shell/dock'
 
 const SAVE_LABELS: Record<SaveStatus, string> = {
-  draft: 'Saved',
+  // As the report builder says it: nothing has been written this session
+  // yet, and "Saved" on open would claim otherwise.
+  draft: 'Save draft',
   dirty: 'Unsaved changes',
   saving: 'Saving…',
   saved: 'Saved',
@@ -297,40 +301,36 @@ export function TemplateEditor({
           </label>
 
           {!validation.success && (
-            <p
-              role="alert"
-              className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-            >
+            <FormAlert className="mt-4">
               {validation.error.issues[0]?.message ??
                 'This template has a problem.'}
-            </p>
+            </FormAlert>
           )}
 
           {autosave.status === 'error' && (
-            <p
-              role="alert"
-              className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-            >
+            <FormAlert className="mt-4">
               Not saved — check your connection, then tap Retry.
-            </p>
+            </FormAlert>
           )}
         </>
       )}
 
-      {publish.isError && (
-        <p
-          role="alert"
-          className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          {publish.error.message.includes('INVALID_TEMPLATE')
-            ? 'This form has a problem that has to be fixed before it can be issued.'
-            : publish.error.message.includes('NOTHING_TO_PUBLISH')
-              ? 'Nothing has changed since this form was last issued.'
-              : 'Could not issue this form.'}
-        </p>
-      )}
+      <FormAlert
+        className="mt-4"
+        error={publish.isError ? publish.error : null}
+        copy={{
+          INVALID_TEMPLATE:
+            'This form has a problem that has to be fixed before it can be issued.',
+          NOTHING_TO_PUBLISH:
+            'Nothing has changed since this form was last issued.',
+          default:
+            'Could not issue this form. Check your signal and try again.',
+        }}
+      />
 
-      <div className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] flex-col gap-2 border-t border-hairline p-3 lg:bottom-0">
+      <div
+        className={`chrome-blur fixed inset-x-0 ${ABOVE_DOCK} z-30 mx-auto flex max-w-[460px] flex-col gap-2 border-t border-hairline p-3 lg:bottom-0`}
+      >
         {/* Said plainly, because the whole point of the split is that saving
             and issuing are now different acts. */}
         <p className="text-caption text-muted">

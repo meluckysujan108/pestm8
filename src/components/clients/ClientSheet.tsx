@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
@@ -165,7 +165,7 @@ function ClientBody({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
+    <div className={`${SHEET_BODY} pt-3`}>
       <div className="flex items-center justify-between gap-2">
         <Drawer.Title className="text-sheet-title text-ink">
           {client.name}

@@ -7,6 +7,7 @@ import {
 } from '#/lib/pdfFiles'
 import { signedInUserId } from '#/lib/rootState'
 import type { LoadProgress } from '#/components/pdf/types'
+import { isOffline } from './online'
 
 /**
  * "Keep on this phone": a copy of a product's PDF (and its photo) for sites
@@ -446,14 +447,6 @@ function photoTypeOf(photo: Blob): string {
  * only to throw it away. A keep the person asks for still tries.
  */
 const unstorablePhotos = new Set<string>()
-
-function isOffline(): boolean {
-  try {
-    return typeof navigator !== 'undefined' && navigator.onLine === false
-  } catch {
-    return false
-  }
-}
 
 // ── Whose they are ────────────────────────────────────────────────────────
 

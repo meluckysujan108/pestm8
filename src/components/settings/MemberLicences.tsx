@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { IdCard, LoaderCircle } from 'lucide-react'
+import { IdCard } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { useCan } from '#/lib/access'
 import { licenceErrorCopy } from '#/lib/licenceErrors'
@@ -13,6 +13,7 @@ import { ROW_CLASS, RowBody, SettingsGroup, SettingsRow } from './ui'
 import { useBusinessToday } from './useMyLicences'
 import type { WalletLicence } from './useMyLicences'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { RowPending } from '#/components/shell/Pending'
 
 /**
  * A member's licences on their page under Team, for the owner: each one's
@@ -80,17 +81,7 @@ export function MemberLicences({
               <FormAlert error={list.error} copy={licenceErrorCopy('load')} />
             </div>
           ) : (
-            <div className={`${ROW_CLASS} justify-center`}>
-              <LoaderCircle
-                aria-hidden
-                size={20}
-                strokeWidth={1.7}
-                className="animate-spin text-muted"
-              />
-              <span className="sr-only" role="status">
-                Loading their licences
-              </span>
-            </div>
+            <RowPending label="Loading their licences" />
           )
         ) : licences.length === 0 ? (
           <SettingsRow title="No licences added" />

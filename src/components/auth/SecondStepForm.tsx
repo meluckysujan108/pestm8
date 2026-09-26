@@ -8,6 +8,7 @@ import {
 } from '#/lib/twoStep'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * The second half of signing in: the six-digit code from the authenticator
@@ -157,14 +158,7 @@ export function SecondStepForm({
         )}
       </label>
 
-      {error && (
-        <p
-          role="alert"
-          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          {error}
-        </p>
-      )}
+      {error && <FormAlert>{error}</FormAlert>}
 
       <button
         type="submit"

@@ -15,6 +15,7 @@ import { NewJobSheet } from '#/components/schedule/NewJobSheet'
 import {
   EmptyState,
   EmptyStateButton,
+  NoMatches,
 } from '#/components/primitives/EmptyState'
 import {
   addDaysToKey,
@@ -44,6 +45,7 @@ import { weekDayKeys, weekTotals } from '#/lib/weekView'
 import type { ScheduleView } from '#/lib/scheduleViews'
 import type { Access } from '#/lib/access'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
 
 const searchSchema = z.object({
   // Lives in the URL, not useState: the day a tech is looking at survives a
@@ -211,9 +213,11 @@ function SchedulePage() {
    * desktop, and whose "Just my jobs" has nothing left to narrow. Inside
    * somebody's account it opens on theirs, as it would on their phone.
    */
+  const defaultStaffId =
+    mode === 'everyone' || mode === 'mine' ? 'all' : acting.membershipId
   const { status, setStatus, staffId, setStaffId, filteredJobs } = useScheduleFilters(
     jobs,
-    mode === 'everyone' || mode === 'mine' ? 'all' : acting.membershipId,
+    defaultStaffId,
     `${mode ?? ''}:${acting.membershipId}`,
   )
   // No desktop/mobile special-case any more. The query is cached and keyed by
@@ -311,7 +315,7 @@ function SchedulePage() {
             aria-label="New job"
             disabled={!hydrated}
             onClick={() => setNewJobOpen(true)}
-            className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+            className={HEADER_ADD_BUTTON}
           >
             <Plus size={20} strokeWidth={2} />
           </button>
@@ -488,30 +492,31 @@ function SchedulePage() {
 
             {shownView === 'week' ? (
               weekView
-            ) : filteredJobs.length === 0 ? (
+            ) : jobs.length === 0 ? (
               <EmptyState
                 title={
-                  jobs.length === 0
-                    ? mode === 'mine'
-                      ? 'Nothing booked for you'
-                      : 'Nothing booked'
-                    : 'No matching jobs'
+                  mode === 'mine' ? 'Nothing booked for you' : 'Nothing booked'
                 }
-                body={
-                  jobs.length === 0
-                    ? 'This day is clear.'
-                    : 'No jobs match this filter.'
-                }
+                body="This day is clear."
                 action={
-                  jobs.length === 0 && (
-                    <EmptyStateButton
-                      onClick={() => setNewJobOpen(true)}
-                      disabled={!hydrated}
-                    >
-                      Book a job
-                    </EmptyStateButton>
-                  )
+                  <EmptyStateButton
+                    onClick={() => setNewJobOpen(true)}
+                    disabled={!hydrated}
+                  >
+                    Book a job
+                  </EmptyStateButton>
                 }
+              />
+            ) : filteredJobs.length === 0 ? (
+              // The day has jobs; the filters hide them. The thing to do is
+              // change the filters, not book one.
+              <NoMatches
+                hint="No jobs on this day match these filters."
+                clearLabel="Clear filters"
+                onClear={() => {
+                  setStatus('all')
+                  setStaffId(defaultStaffId)
+                }}
               />
             ) : (
               // Two columns from md: the same cards, re-flowed. A tablet

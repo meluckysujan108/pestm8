@@ -19,6 +19,7 @@ import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
 import { RowPending } from '#/components/shell/Pending'
 import { formatWhen } from '#/lib/format'
 import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * Sending a finished report to the people it is for.
@@ -509,14 +510,11 @@ export function SendSheet({
             </p>
           )}
           {failed.map((result) => (
-            <p
-              key={result.address}
-              className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-            >
+            <FormAlert key={result.address}>
               {result.address} —{' '}
               {(result.code && SEND_ERROR[result.code]) ??
                 'Could not send the email.'}
-            </p>
+            </FormAlert>
           ))}
         </div>
       )}

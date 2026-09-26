@@ -29,6 +29,7 @@ import {
   PRIMARY_BUTTON_COMPACT,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * Two-step sign-in, in the person's own settings.
@@ -158,14 +159,7 @@ export function TwoStepSection() {
           className={fieldInputClass()}
         />
       </div>
-      {error && (
-        <p
-          role="alert"
-          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-        >
-          {error}
-        </p>
-      )}
+      {error && <FormAlert>{error}</FormAlert>}
       <div className="flex gap-2">
         <button
           type="button"

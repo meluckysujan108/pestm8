@@ -40,6 +40,7 @@ import type { HistoryState } from '@tanstack/react-router'
 import type { EditState, SheetStatus } from '#/components/products/ProductSheet'
 import type { LiveProductRow } from '#/components/products/model'
 import type { ProductDraft } from '#/lib/productForm'
+import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Products (Phase 7.1): the business's shelf — each product's name, a few
@@ -351,7 +352,7 @@ function ProductsPage() {
             // Adding needs the server; with only the kept list there is none.
             disabled={!hydrated || fallback}
             onClick={() => setNewOpen(true)}
-            className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+            className={HEADER_ADD_BUTTON}
           >
             <Plus size={20} strokeWidth={2} />
           </button>

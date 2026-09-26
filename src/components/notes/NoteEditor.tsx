@@ -13,6 +13,7 @@ import type { AnyExtension, Content } from '@tiptap/core'
 import type { ReactNode } from 'react'
 import type { MentionItem } from './MentionList'
 import { TextPending } from '#/components/shell/Pending'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * The note body, live-synced through the prosemirror-sync component. There
@@ -74,14 +75,11 @@ export function NoteEditor({
   return (
     <>
       {syncError !== null && (
-        <p
-          role="alert"
-          className="mx-4 mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink lg:mx-2"
-        >
+        <FormAlert className="mx-4 mt-2 lg:mx-2">
           {revoked
             ? 'This note can no longer be edited from here.'
             : 'Your last change could not be synced. Copy your text before leaving this note.'}
-        </p>
+        </FormAlert>
       )}
       <SyncedEditor
         key={noteId}

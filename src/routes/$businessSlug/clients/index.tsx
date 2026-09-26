@@ -19,6 +19,7 @@ import { useHydrated } from '#/lib/useHydrated'
 import { matchesClientSearch, useClientFilters } from '#/lib/clientFilters'
 import { useCan } from '#/lib/access'
 import { rq, warm } from '#/lib/routeQueries'
+import { HEADER_ADD_BUTTON } from '#/components/primitives/buttons'
 
 export const Route = createFileRoute('/$businessSlug/clients/')({
   // One way to read clients: the cards. The List and Table views were
@@ -103,7 +104,7 @@ function ClientsPage() {
               aria-label="New client"
               disabled={!hydrated}
               onClick={() => setNewOpen(true)}
-              className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+              className={HEADER_ADD_BUTTON}
             >
               <Plus size={20} strokeWidth={2} />
             </button>

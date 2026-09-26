@@ -1,4 +1,4 @@
-import { isOffline } from '#/lib/addressLookup'
+import { isOffline } from '#/lib/online'
 
 /**
  * The server's refusals, in words for the person holding the phone, for the

@@ -51,3 +51,11 @@ export const SECONDARY_BUTTON_COMPACT = `${COMPACT} ${GREY} ${BASE}`
 
 export const LINK_BUTTON = `${FULL} ${GREY_LINK} ${BASE}`
 export const LINK_BUTTON_COMPACT = `${COMPACT} ${GREY_LINK} ${BASE}`
+
+/**
+ * A page's create action: the round red + in PageHeader's action slot (New
+ * job, New client, New report…). Drawn at 36px so the header keeps its
+ * height, with a 44px hit area; give it an `aria-label` naming what it adds
+ * and a size-20 `Plus`.
+ */
+export const HEADER_ADD_BUTTON = `relative tap-target flex size-9 items-center justify-center rounded-full ${RED} outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.95] disabled:opacity-50`

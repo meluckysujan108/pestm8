@@ -1,5 +1,5 @@
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { ProductForm } from './ProductForm'
 import { useProductSave } from './useProductSave'
 import type { ProductDraft } from '#/lib/productForm'
@@ -33,7 +33,7 @@ export function NewProductSheet({
 }) {
   return (
     <SheetShell open={open} onClose={onClose}>
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
+      <div className={`${SHEET_BODY} pt-3`}>
         <Drawer.Title className="pr-10 text-sheet-title text-ink">
           New product
         </Drawer.Title>

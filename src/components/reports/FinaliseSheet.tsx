@@ -11,6 +11,7 @@ import {
 } from '#/components/primitives/buttons'
 import { formatTime } from '#/lib/format'
 import { deviceTimezone } from '#/lib/useBusinessTimezone'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * The last screen before a document becomes a record.
@@ -92,12 +93,7 @@ export function FinaliseSheet({
               view only, with nothing to share or save, so no copy of a
               document that is not finished can leave the phone. */}
           {onPreview && previewTrouble && (
-            <p
-              role="alert"
-              className="mb-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-            >
-              {previewTrouble}
-            </p>
+            <FormAlert className="mb-2">{previewTrouble}</FormAlert>
           )}
           {onPreview && (
             <button

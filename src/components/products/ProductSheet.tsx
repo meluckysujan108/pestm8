@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import {
   Check,
   Copy,
@@ -37,6 +37,7 @@ import {
   SECONDARY_BUTTON,
 } from '#/components/primitives/buttons'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * One product, in a bottom sheet: its photo, name and words, its web page
@@ -242,7 +243,7 @@ function DetailsBody({
         )}
       </div>
 
-      <div className="mt-2 min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))]">
+      <div className={`${SHEET_BODY} mt-2`}>
         <ProductHero
           businessId={businessId}
           product={product}
@@ -418,14 +419,7 @@ function DetailsBody({
           </section>
         )}
 
-        {failed && (
-          <p
-            role="alert"
-            className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
-            {failed.message}
-          </p>
-        )}
+        {failed && <FormAlert className="mt-3">{failed.message}</FormAlert>}
       </div>
     </>
   )
@@ -633,7 +627,7 @@ function EditBody({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
+    <div className={`${SHEET_BODY} pt-3`}>
       <Drawer.Title className="pr-10 text-sheet-title text-ink">
         Edit product
       </Drawer.Title>
@@ -657,12 +651,7 @@ function EditBody({
         after={
           <>
             {deleteError && (
-              <p
-                role="alert"
-                className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-              >
-                {deleteError}
-              </p>
+              <FormAlert className="mt-4">{deleteError}</FormAlert>
             )}
             <DeleteProductButton
               disabled={!hydrated || deleting || save.phase !== 'idle'}

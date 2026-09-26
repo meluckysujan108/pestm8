@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check } from 'lucide-react'
 import { AddressLookupInput } from '#/components/clients/AddressLookupInput'
-import { isOffline, networkLookupsAllowed } from '#/lib/addressLookup'
+import { networkLookupsAllowed } from '#/lib/addressLookup'
+import { isOffline } from '#/lib/online'
 import {
   addressErrors,
   addressSignature,

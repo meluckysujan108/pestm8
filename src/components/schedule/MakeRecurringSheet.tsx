@@ -11,6 +11,7 @@ import {
 import type { IntervalDraft } from './RecurrenceFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * Turning an existing job into a Recurring Job.
@@ -70,12 +71,9 @@ export function MakeRecurringSheet({
         />
 
         {save.isError && (
-          <p
-            role="alert"
-            className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
+          <FormAlert className="mt-3">
             Could not make this job recurring.
-          </p>
+          </FormAlert>
         )}
 
         <button

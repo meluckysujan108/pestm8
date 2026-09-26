@@ -42,6 +42,7 @@ import {
   SECONDARY_BUTTON,
 } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * Setting up two-step sign-in. Optional (convex/lib/mfa.ts): people arrive
@@ -266,7 +267,7 @@ function TwoStepPage() {
         </p>
       ) : after?.kind === 'no-codes' ? (
         <div className="flex flex-col gap-4">
-          <Alert>{RECOVERY_CODES_NOT_MADE}</Alert>
+          <FormAlert>{RECOVERY_CODES_NOT_MADE}</FormAlert>
           <button
             type="button"
             onClick={() => void finish()}
@@ -405,7 +406,7 @@ function PasswordStep({
     // goes to sign-in.
     return (
       <div className="flex flex-col gap-3">
-        <Alert>{SIGNED_OUT_HERE}</Alert>
+        <FormAlert>{SIGNED_OUT_HERE}</FormAlert>
         <button
           type="button"
           disabled={!hydrated}
@@ -501,7 +502,7 @@ function PasswordStep({
         <span className="text-caption text-muted">{copy.hint}</span>
       </label>
 
-      {error && <Alert>{error}</Alert>}
+      {error && <FormAlert>{error}</FormAlert>}
 
       <button
         type="submit"
@@ -713,7 +714,7 @@ function ScanStep({
         {lost ? (
           // An iPhone home-screen app has no reload button of its own.
           <div className="flex flex-col gap-3">
-            <Alert>{SETUP_SIGN_IN_LOST}</Alert>
+            <FormAlert>{SETUP_SIGN_IN_LOST}</FormAlert>
             <button
               type="button"
               onClick={() => window.location.reload()}
@@ -723,7 +724,7 @@ function ScanStep({
             </button>
           </div>
         ) : (
-          error && <Alert>{error}</Alert>
+          error && <FormAlert>{error}</FormAlert>
         )}
 
         <button
@@ -774,18 +775,6 @@ function ScanStep({
         </section>
       )}
     </div>
-  )
-}
-
-/** Something that went wrong, announced as it appears. */
-function Alert({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-    >
-      {children}
-    </p>
   )
 }
 

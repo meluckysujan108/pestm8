@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
 import {
@@ -80,7 +80,7 @@ export function NewPropertySheet({
     <SheetShell open={open} onClose={close}>
       <SaveWarningsProvider value={saveWarnings}>
         <form
-          className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+          className={`${SHEET_BODY} pt-3`}
           onSubmit={(e) =>
             // mutateAsync, so a save that fails keeps the warnings already
             // confirmed and Retry does not ask about them again.

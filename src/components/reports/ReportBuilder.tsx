@@ -61,6 +61,8 @@ import {
 import { formatJobDate, formatTime, todayKey } from '#/lib/format'
 import { deviceTimezone } from '#/lib/useBusinessTimezone'
 import { dayKeyOf } from '../../../convex/lib/dates'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { ABOVE_DOCK } from '#/components/shell/dock'
 
 /**
  * Honest about §5.5: there is no offline mutation queue, so a failed save is a
@@ -900,14 +902,11 @@ export function ReportBuilder({
         )}
 
         {autosave.status === 'error' && (
-          <p
-            role="alert"
-            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
+          <FormAlert className="mt-4">
             {clashed
               ? 'Not saved — someone else changed the same answer while you were editing. Reload to see what they wrote; this device keeps your answers and offers them back.'
               : 'Not saved — check your connection, then tap Retry. Your answers are still on this device until you leave the page.'}
-          </p>
+          </FormAlert>
         )}
 
         {/* Not for an incomplete report: that refusal names its questions, and
@@ -915,20 +914,14 @@ export function ReportBuilder({
           A generic "could not finalise" above a precise list of why is the
           same news twice, the vaguer one first. */}
         {finalise.isError && !incompleteIssues(finalise.error) && (
-          <p
-            role="alert"
-            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
+          <FormAlert className="mt-4">
             {finaliseError(finalise.error, { isCorrection, licenceFix })}
-          </p>
+          </FormAlert>
         )}
         {Object.keys(errors).length > 0 && !blocked && (
-          <p
-            role="alert"
-            className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-          >
+          <FormAlert className="mt-4">
             Some required details are missing. Check the fields marked above.
-          </p>
+          </FormAlert>
         )}
 
         {/* Offered, never applied on its own: these answers may be older than
@@ -1027,7 +1020,7 @@ export function ReportBuilder({
           // Fixed above the dock on a phone, where it must stay under the thumb;
           // on a desktop it belongs at the end of the form it acts on, rather
           // than floating across the middle of the screen.
-          className="chrome-blur fixed inset-x-0 bottom-[calc(64px+env(safe-area-inset-bottom))] z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:static lg:mt-8 lg:max-w-none lg:rounded-2xl lg:border lg:border-hairline lg:p-3"
+          className={`chrome-blur fixed inset-x-0 ${ABOVE_DOCK} z-30 mx-auto flex max-w-[460px] gap-2 border-t border-hairline p-3 lg:static lg:mt-8 lg:max-w-none lg:rounded-2xl lg:border lg:border-hairline lg:p-3`}
         >
           {current ? (
             <>

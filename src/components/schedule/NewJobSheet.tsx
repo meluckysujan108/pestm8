@@ -4,7 +4,7 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import { JOB_TYPES } from '#/lib/format'
 import {
@@ -399,7 +399,7 @@ function NewJobForm({
   return (
     <SaveWarningsProvider value={saveWarnings}>
       <form
-        className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+        className={`${SHEET_BODY} pt-3`}
         onSubmit={(e) => {
           e.preventDefault()
           if (!readyToBook()) return

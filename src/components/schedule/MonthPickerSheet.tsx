@@ -2,7 +2,7 @@ import { Suspense } from 'react'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
-import { SheetShell } from '#/components/primitives/Sheet'
+import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { WEEKDAY_INITIALS, dayKeyToDate, formatMonthLabel } from '#/lib/format'
@@ -57,7 +57,7 @@ export function MonthPickerSheet({
   return (
     <SheetShell open={open} onClose={onClose}>
       {open && (
-        <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-12">
+        <div className={`${SHEET_BODY} pt-12`}>
           <div className="flex items-center justify-between">
             <button
               type="button"

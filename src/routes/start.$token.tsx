@@ -12,6 +12,7 @@ import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
 import type { LucideIcon } from 'lucide-react'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * Starting a business on PestM8, from the link its owner was sent
@@ -119,7 +120,9 @@ function StartPage() {
       </p>
 
       {claim.isError && !isMfaEnrolmentError(claim.error) && (
-        <Alert>{claimMessage(claim.error, emailHint)}</Alert>
+        <FormAlert className="mt-4">
+          {claimMessage(claim.error, emailHint)}
+        </FormAlert>
       )}
 
       {signedInEmail && wrongAccount ? (
@@ -242,16 +245,5 @@ function Shell({
       <h1 className="text-page-title text-ink">{title}</h1>
       {children}
     </main>
-  )
-}
-
-function Alert({ children }: { children: React.ReactNode }) {
-  return (
-    <p
-      role="alert"
-      className="mt-4 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
-    >
-      {children}
-    </p>
   )
 }
