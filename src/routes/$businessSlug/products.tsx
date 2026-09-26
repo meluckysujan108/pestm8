@@ -8,6 +8,7 @@ import { ListPending } from '#/components/shell/Pending'
 import {
   EmptyState,
   EmptyStateButton,
+  NoMatches,
 } from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewProductSheet } from '#/components/products/NewProductSheet'
@@ -391,7 +392,18 @@ function ProductsPage() {
           <ListPending label="Loading products" count={4} />
         ) : shown.length === 0 ? (
           searching ? (
-            <EmptyState title="No matches" body="Try a different name." />
+            <NoMatches
+              term={q}
+              hint="Try a different name."
+              clearLabel="Clear search"
+              onClear={() =>
+                void navigate({
+                  search: (prev) => ({ ...prev, q: undefined }),
+                  replace: true,
+                  state: true,
+                })
+              }
+            />
           ) : live ? (
             <EmptyState
               title="No products yet"

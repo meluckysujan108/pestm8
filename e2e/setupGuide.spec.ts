@@ -45,8 +45,8 @@ test('the set-up guide ticks itself, opens New Job, and can be put away and brou
   await signInViaUi(page, owner.email)
   await expect(page).toHaveURL(new RegExp(`/${slug}/schedule`))
 
-  const card = page.getByRole('button', { name: /^Set-up guide: / })
-  await expect(card).toHaveAccessibleName('Set-up guide: 1 of 5 done')
+  const card = page.getByRole('button', { name: /^Finish setting up, / })
+  await expect(card).toHaveAccessibleName('Finish setting up, 1 of 5 done')
 
   // Done elsewhere, ticked here — the guide reads the business, live.
   await owner.client.mutation(api.memberships.setLicence, {
@@ -54,7 +54,7 @@ test('the set-up guide ticks itself, opens New Job, and can be put away and brou
     membershipId,
     licenceNumber: 'PMT-4471',
   })
-  await expect(card).toHaveAccessibleName('Set-up guide: 2 of 5 done')
+  await expect(card).toHaveAccessibleName('Finish setting up, 2 of 5 done')
 
   // An empty day says what to do about it.
   await expect(page.getByRole('button', { name: 'Book a job' })).toBeVisible()

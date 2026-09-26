@@ -7,6 +7,7 @@ import { PageHeader } from '#/components/shell/PageHeader'
 import {
   EmptyState,
   EmptyStateButton,
+  NoMatches,
 } from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
@@ -121,24 +122,31 @@ function ClientsPage() {
         </div>
 
         {filteredRows.length === 0 ? (
-          <EmptyState
-            title={q || filtersActive ? 'No matches' : 'No clients yet'}
-            body={
-              q || filtersActive
-                ? 'Try a different name, address, or filter.'
-                : 'Add a client to start booking work for them.'
-            }
-            action={
-              !(q || filtersActive) && (
+          q || filtersActive ? (
+            <NoMatches
+              term={q}
+              hint="Try a different name, address or filter."
+              clearLabel={q ? 'Clear search' : 'Clear filters'}
+              onClear={() => {
+                setKind('all')
+                setSuburb('all')
+                void navigate({ search: { q: undefined }, replace: true })
+              }}
+            />
+          ) : (
+            <EmptyState
+              title="No clients yet"
+              body="Add a client to start booking work for them."
+              action={
                 <EmptyStateButton
                   onClick={() => setNewOpen(true)}
                   disabled={!hydrated}
                 >
                   Add a client
                 </EmptyStateButton>
-              )
-            }
-          />
+              }
+            />
+          )
         ) : (
           <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
             {filteredRows.map(({ client, properties: owned }) => (

@@ -355,7 +355,7 @@ function SettingsHub() {
                 params={{ businessSlug }}
                 icon={FileText}
                 tint="red"
-                title="Reports"
+                title="Report settings"
               />
             )}
           </SettingsGroup>
