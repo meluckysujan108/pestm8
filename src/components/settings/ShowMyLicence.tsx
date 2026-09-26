@@ -46,7 +46,10 @@ export function ShowMyLicenceButton({
 
   const closeViewer = useCallback(() => {
     setViewing(null)
-    setSheetOpen(true)
+    // Reopened once the viewer has finished closing, not in the same commit:
+    // its cleanup puts focus back on whatever opened it, outside the sheet,
+    // and a sheet already open takes that as a reason to close again.
+    setTimeout(() => setSheetOpen(true), 0)
   }, [])
 
   if (!wallet || !wallet.licences.some((licence) => licence.files.length > 0)) {
