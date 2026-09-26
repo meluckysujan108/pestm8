@@ -26,7 +26,6 @@ import {
 } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
 import { useMediaQuery } from '#/lib/useMediaQuery'
-import { useScrolledUnder } from '#/lib/useScrolledUnder'
 import { MonthPickerSheet } from '#/components/schedule/MonthPickerSheet'
 import { MonthCalendarCard } from '#/components/schedule/MonthCalendarCard'
 import { DayAgendaPanel } from '#/components/schedule/DayAgendaPanel'
@@ -164,7 +163,6 @@ function SchedulePage() {
   const [newJobFor, setNewJobFor] = useState<Id<'memberships'>>()
   const dismissJoined = useConvexMutation(api.teamJoins.dismiss)
   const [monthOpen, setMonthOpen] = useState(false)
-  const stripRef = useScrolledUnder('top')
   const [monthKey, setMonthKey] = useState<string | null>(null)
   // A button that opens a sheet does nothing before hydration, and does it
   // silently. Disabling until ready is honest and gives tests a real signal.
@@ -395,14 +393,12 @@ function SchedulePage() {
       ) : (
         <>
           <div
-            ref={stripRef}
             data-schedule-chrome
-            // Its hairline is the header's too once it is pinned: PageHeader
-            // drops its own then, so header and strip are one pane of glass.
-            // Pinned a fraction inside the header, which is 75.4px tall (plus
-            // the same safe-area inset) and sits above it: at 76px a 0.6px
-            // slit of unblurred page showed between the two.
-            className="chrome-bar sticky top-[calc(75px+env(safe-area-inset-top))] z-20 border-b border-transparent transition-colors data-scrolled:border-hairline"
+            // Scrolls away with the page rather than pinning under the header:
+            // once the day is picked, the strip is only in the way of the
+            // jobs. The header's tint, so at rest the two still read as one
+            // band; no blur, as nothing ever passes beneath it.
+            className="border-b border-hairline bg-chrome"
           >
             <div className="flex items-center justify-between px-3 pt-2">
               <button

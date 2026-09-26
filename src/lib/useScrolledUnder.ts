@@ -6,15 +6,14 @@ import { useEffect, useState } from 'react'
  * has scrolled under it, and leaves a bar over nothing clean.
  *
  * `top`: a sticky bar, once it is pinned and the page has scrolled — the page
- * header, or the schedule's week strip once it reaches the header.
+ * header.
  * `bottom`: a fixed bar, while there is page left below the fold.
  *
  * Written straight onto the element rather than kept in state: it changes on
  * scroll, and a re-render of the header or dock per frame would be wasted.
  *
  * Returns a callback ref rather than taking a ref object, so a bar that
- * mounts later — the week strip, when a desktop window narrows to a phone's —
- * is picked up.
+ * mounts after the hook first runs is still picked up.
  */
 export function useScrolledUnder(edge: 'top' | 'bottom') {
   const [el, setEl] = useState<HTMLElement | null>(null)
