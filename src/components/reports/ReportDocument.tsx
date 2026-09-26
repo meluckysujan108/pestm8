@@ -176,9 +176,8 @@ export function ReportDocument({
       </span>
 
       {model.titleBand && (
-        // The PDF's title band, drawn as it prints (brand red).
-        // eslint-disable-next-line no-restricted-syntax -- mirrors the PDF
-        <div className="mt-4 flex items-stretch overflow-hidden rounded-xl bg-red text-white">
+        // The PDF's title band, drawn as it prints (red-fill, as the PDF now prints it).
+        <div className="mt-4 flex items-stretch overflow-hidden rounded-xl bg-red-fill text-white">
           <p className="flex-1 px-3 py-2 text-body font-semibold">
             {model.titleBand.text}
           </p>
@@ -273,7 +272,7 @@ function Section({ section }: { section: DocSection }) {
 const BAR_CLASS: Record<DocBar, string> = {
   good: 'bg-green',
   warn: 'bg-amber-ink',
-  danger: 'bg-red',
+  danger: 'bg-red-fill',
 }
 
 function Block({ block }: { block: DocBlock }) {
@@ -290,7 +289,9 @@ function Block({ block }: { block: DocBlock }) {
     case 'heading':
       return (
         <div className="mt-4 first:mt-0">
-          <h3 className="text-body font-semibold text-red">{block.text}</h3>
+          <h3 className="text-body font-semibold text-red-fill">
+            {block.text}
+          </h3>
           {block.note && (
             <p className="mt-0.5 text-caption text-muted">{block.note}</p>
           )}
@@ -330,8 +331,7 @@ function Block({ block }: { block: DocBlock }) {
           <div className="overflow-x-auto">
             <table className="w-full text-left text-caption">
               <thead>
-                {/* eslint-disable-next-line no-restricted-syntax -- mirrors the PDF's table header */}
-                <tr className="bg-red text-white">
+                <tr className="bg-red-fill text-white">
                   {block.columns.map((column) => (
                     <th
                       key={column.label}

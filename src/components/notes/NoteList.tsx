@@ -4,7 +4,7 @@ import { convexQuery } from '@convex-dev/react-query'
 import { usePaginatedQuery } from 'convex/react'
 import { ListPending } from '#/components/shell/Pending'
 import { NOTES_PAGE, notesFirstPage, rq } from '#/lib/routeQueries'
-import { Briefcase, ListChecks, Lock, MapPin, Pin, User } from 'lucide-react'
+import { Briefcase, EyeOff, ListChecks, MapPin, Pin, User } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
   EmptyState,
@@ -341,7 +341,7 @@ function NoteRow({
             {note.title || 'New note'}
           </span>
           {note.private && (
-            <Lock
+            <EyeOff
               size={12}
               strokeWidth={2.4}
               aria-label="Personal"

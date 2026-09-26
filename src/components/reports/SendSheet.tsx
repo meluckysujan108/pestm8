@@ -20,6 +20,7 @@ import { RowPending } from '#/components/shell/Pending'
 import { formatWhen } from '#/lib/format'
 import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 /**
  * Sending a finished report to the people it is for.
@@ -583,10 +584,19 @@ export function DeliveryHistory({
   reportId: Id<'reports'>
 }) {
   const timezone = useBusinessTimezone()
-  const { data: rows } = useQuery(
+  const history = useQuery(
     convexQuery(api.deliveries.forReport, { businessId, reportId }),
   )
+  const rows = history.data
 
+  if (rows === undefined && history.isError) {
+    return (
+      <LoadFailed
+        what="the delivery history"
+        onRetry={() => void history.refetch()}
+      />
+    )
+  }
   // Loading is not the same as nothing: "Not sent yet." under a report the
   // form already opened a delivery for is a lie, and one a technician would
   // act on by sending it again.

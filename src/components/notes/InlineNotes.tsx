@@ -11,6 +11,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { DecoratedNote } from '../../../convex/notes'
 import type { MentionItem } from './MentionList'
 import { RowPending } from '#/components/shell/Pending'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 /**
  * Notes inside a job or client sheet. Rows expand in place into the same
@@ -25,6 +26,8 @@ export function InlineNotesSection({
   notes,
   members,
   empty,
+  failed = false,
+  onRetry,
   addLabel,
   onAdd,
   adding,
@@ -38,6 +41,10 @@ export function InlineNotesSection({
   notes: Array<DecoratedNote> | undefined
   members: Array<MentionItem>
   empty: string
+  /** The query failed: say so, rather than loading for good. */
+  failed?: boolean
+  /** Asks again — the query's `refetch`. */
+  onRetry?: () => void
   addLabel: string
   onAdd?: () => void
   adding?: boolean
@@ -63,7 +70,11 @@ export function InlineNotesSection({
         )}
       </div>
       <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
-        {notes === undefined ? (
+        {notes === undefined && failed ? (
+          <div className="p-2">
+            <LoadFailed what="the notes" onRetry={onRetry} />
+          </div>
+        ) : notes === undefined ? (
           <RowPending label="Loading notes" />
         ) : notes.length === 0 ? (
           <p className="px-3.5 py-3 text-body text-muted">{empty}</p>

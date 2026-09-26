@@ -7,8 +7,8 @@ import {
   Briefcase,
   ChevronLeft,
   Ellipsis,
+  EyeOff,
   Link2,
-  Lock,
   MapPin,
   Pin,
   PinOff,
@@ -26,6 +26,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { RowPending } from '#/components/shell/Pending'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 type NoteMeta = {
   _id: Id<'notes'>
@@ -242,7 +243,7 @@ export function NoteEditorHeader({
                         site or client is already part of that record. */}
                     {note.mine && !note.private && note.kind === 'team' && (
                       <MenuItem
-                        icon={<Lock size={16} strokeWidth={2} />}
+                        icon={<EyeOff size={16} strokeWidth={2} />}
                         onSelect={() => setVisibility.mutate('private')}
                       >
                         Make personal
@@ -274,7 +275,7 @@ export function NoteEditorHeader({
           owner could read what they wrote. */}
       {note.private && (
         <p className="mt-0.5 flex items-center gap-1 px-1 text-caption text-muted">
-          <Lock size={12} strokeWidth={2.4} className="shrink-0" />
+          <EyeOff size={12} strokeWidth={2.4} className="shrink-0" />
           <span className="truncate">
             {note.mine
               ? `Personal · ${isOwner ? 'only you can see this' : 'only you and the owner can see this'}`
@@ -443,7 +444,8 @@ function JobPickerList({
 }) {
   const [now] = useState(() => Date.now())
   const [query, setQuery] = useState('')
-  const { data: jobs } = useQuery(convexQuery(api.notes.jobOptions, { businessId, now }))
+  const jobsQuery = useQuery(convexQuery(api.notes.jobOptions, { businessId, now }))
+  const jobs = jobsQuery.data
 
   const q = query.trim().toLowerCase()
   const shown = (jobs ?? []).filter(
@@ -479,7 +481,9 @@ function JobPickerList({
             Detach from job
           </button>
         )}
-        {jobs === undefined ? (
+        {jobs === undefined && jobsQuery.isError ? (
+          <LoadFailed what="the jobs" onRetry={() => void jobsQuery.refetch()} />
+        ) : jobs === undefined ? (
           <RowPending label="Loading jobs" className="px-2.5 py-3" />
         ) : shown.length === 0 ? (
           <p className="px-2.5 py-3 text-center text-caption text-muted">No jobs match</p>

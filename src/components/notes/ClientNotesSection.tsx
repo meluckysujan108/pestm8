@@ -21,7 +21,8 @@ export function ClientNotesSection({
 }) {
   const [openId, setOpenId] = useState<Id<'notes'> | null>(null)
   const members = useMentionRoster(businessId)
-  const { data: notes } = useQuery(convexQuery(api.notes.listForClient, { businessId, clientId }))
+  const notesQuery = useQuery(convexQuery(api.notes.listForClient, { businessId, clientId }))
+  const notes = notesQuery.data
 
   const convexCreate = useConvexMutation(api.notes.create)
   const create = useMutation({
@@ -36,6 +37,8 @@ export function ClientNotesSection({
       timezone={timezone}
       label="Notes"
       notes={notes}
+      failed={notesQuery.isError}
+      onRetry={() => void notesQuery.refetch()}
       members={members}
       empty="Billing quirks, who to call, how they like to be contacted."
       addLabel="Add note"

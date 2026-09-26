@@ -31,9 +31,10 @@ export function JobNotesSection({
   const [openId, setOpenId] = useState<Id<'notes'> | null>(null)
   const members = useMentionRoster(businessId)
 
-  const { data: context } = useQuery(
+  const contextQuery = useQuery(
     convexQuery(api.notes.listForProperty, { businessId, propertyId }),
   )
+  const context = contextQuery.data
 
   const convexCreate = useConvexMutation(api.notes.create)
   const create = useMutation({
@@ -54,6 +55,8 @@ export function JobNotesSection({
       timezone={timezone}
       label="Before you arrive"
       notes={context?.site}
+      failed={contextQuery.isError}
+      onRetry={() => void contextQuery.refetch()}
       members={members}
       empty="Nothing on file for this site yet — gate code, dog, where the key lives."
       addLabel="Site note"
