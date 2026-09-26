@@ -484,12 +484,12 @@ test('the week is kept in the URL, and a view that does not exist falls back', a
 })
 
 /**
- * The strip sits under a sticky header whose height viewMenu.spec.ts pins, at
- * a hard-coded offset — so a strip that grew to hold the recurring number
- * would slide under it. Measured on a week that has recurring numbers and on
- * one that has none, so the number's own height is what is compared.
+ * A strip that grew to hold the recurring number would shift the day below it
+ * as the reader pages between weeks. Measured on a week that has recurring
+ * numbers and on one that has none, so the number's own height is what is
+ * compared.
  */
-test('the phone’s sticky strip is no taller for holding recurring numbers', async ({
+test('the phone’s week strip is no taller for holding recurring numbers', async ({
   page,
 }) => {
   test.skip(test.info().project.name !== 'mobile', 'phone layout only')

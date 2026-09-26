@@ -23,8 +23,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * `role=dialog` would collide with the unscoped dialog locators all over e2e.
  * Everyone else who may work in another account does it from Settings.
  *
- * The trigger stays the 36px of its neighbours, so the header — and the
- * schedule's sticky week strip pinned beneath it — never moves. On a phone it
+ * The trigger stays the 36px of its neighbours, so the header never grows. On a phone it
  * is a glyph alone; readable at a glance from the ladder, which is the point:
  * a group for everyone, his own initial for his own jobs, an amber ring when
  * he is working in someone else's account.
