@@ -270,10 +270,10 @@ describe('plain words', () => {
       /signed out/,
     )
     expect(reportPdfProblem(new Error('something odd'), false)).toBe(
-      'Something went wrong preparing it. Try again.',
+      'Could not prepare the PDF. Try again.',
     )
     expect(reportPdfProblem('not even an error', false)).toBe(
-      'Something went wrong preparing it. Try again.',
+      'Could not prepare the PDF. Try again.',
     )
   })
 
@@ -285,7 +285,7 @@ describe('plain words', () => {
       /locked/,
     )
     expect(previewProblem(new Error('odd'), false)).toBe(
-      'Couldn’t draw the preview. Try again.',
+      'Could not draw the preview. Try again.',
     )
   })
 
@@ -364,10 +364,10 @@ describe('plain words', () => {
       'Your mark didn’t save. Try again.',
     )
     expect(markupProblem(new Error('odd'), false, 'undo')).toBe(
-      'Couldn’t undo your last mark. Try again.',
+      'Could not undo your last mark. Try again.',
     )
     expect(markupProblem(new Error('odd'), false, 'clear')).toBe(
-      'Couldn’t clear your marks. Try again.',
+      'Could not clear your marks. Try again.',
     )
   })
 })

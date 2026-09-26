@@ -246,7 +246,7 @@ describe('ReviewStep, with an undo since it was built', () => {
       />,
     )
     expect(text(html)).toContain(
-      'Couldn’t read what’s in PestM8 since the undo, so Import waits. Check again in a moment.',
+      'Could not read what’s in PestM8 since the undo, so Import waits. Check again in a moment.',
     )
     expect(button(html, 'Check again')).toBe('enabled')
     expect(button(html, 'Import 1 client')).toBe('disabled')

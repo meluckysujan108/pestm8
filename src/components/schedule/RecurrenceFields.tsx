@@ -107,7 +107,7 @@ export function RecurrenceFields({
         role={interval ? undefined : 'alert'}
       >
         {interval
-          ? `${describeInterval(interval)}, starting from this job's date.`
+          ? `${describeInterval(interval)}, starting from this job’s date.`
           : `Enter a whole number between 1 and ${MAX_INTERVAL_COUNT}.`}
       </p>
     </div>

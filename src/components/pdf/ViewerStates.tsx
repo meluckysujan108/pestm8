@@ -204,11 +204,11 @@ export function ErrorState({
         strokeWidth={1.7}
         className="mb-1 text-muted"
       />
-      <h3 className="text-row-title text-ink">Couldn't open this PDF</h3>
+      <h3 className="text-row-title text-ink">Could not open this PDF</h3>
       <p className="max-w-xs text-caption text-muted">
         {detail ??
           (reason === 'download'
-            ? "It didn't download. Check your signal and try again."
+            ? 'It didn’t download. Check your signal and try again.'
             : 'The file may be damaged, or not a PDF.')}
       </p>
       <button

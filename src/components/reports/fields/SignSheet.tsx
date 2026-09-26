@@ -294,8 +294,7 @@ export function SignSheet({
 
       {failed && (
         <p role="alert" className="mt-3 text-caption text-amber-ink">
-          Could not save the signature. Check your connection and tap Done
-          again.
+          Could not save the signature. Check your signal and tap Done again.
         </p>
       )}
     </Sheet>

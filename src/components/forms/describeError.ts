@@ -51,10 +51,10 @@ export const ERROR_COPY: Readonly<
   MFA_ENROLMENT_REQUIRED:
     'Could not save: set up two-step sign-in first (the button at the bottom of the screen). What you typed is still here.',
   JOB_INVOICED:
-    'Could not save: this job has been invoiced, so it can no longer be changed.',
+    'Could not save: this job has been invoiced, so it can no longer be changed. Book a new job for any further work.',
   offline:
     'Could not save: this device is offline. What you typed is still here — try again when you have signal.',
-  default: 'Could not save. Check your connection and try again.',
+  default: 'Could not save. Check your signal and try again.',
 }
 
 const CODES = Object.keys(ERROR_COPY).filter(

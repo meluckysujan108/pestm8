@@ -78,7 +78,7 @@ export function createMarkupSession(deps: MarkupSessionDeps): MarkupSession {
         // Said only when the mark comes back: one a Clear took meanwhile is
         // gone either way.
         if (after !== before) {
-          deps.toast(wordsFor(error, "Couldn't undo your last mark."))
+          deps.toast(wordsFor(error, 'Could not undo your last mark.'))
         }
       },
     )
@@ -93,7 +93,7 @@ export function createMarkupSession(deps: MarkupSessionDeps): MarkupSession {
         deps.toast(
           wordsFor(
             error,
-            `Couldn't clear your marks on page ${pageIndex + 1}.`,
+            `Could not clear your marks on page ${pageIndex + 1}.`,
           ),
         )
       },

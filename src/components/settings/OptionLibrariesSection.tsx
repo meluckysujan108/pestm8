@@ -91,7 +91,7 @@ export function OptionLibrariesSection({
                     {/* Worth saying: an untouched list is still exactly what
                         the form ships with, and a correction to it will
                         arrive. */}
-                    {list.isDefault ? " · the form's own" : ' · yours'}
+                    {list.isDefault ? ' · the form’s own' : ' · yours'}
                   </>
                 }
                 chevron
@@ -446,7 +446,7 @@ function OptionListSheet({
                   onClick={() => setConfirmingReset(false)}
                   className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                 >
-                  Cancel
+                  Keep my list
                 </button>
                 <button
                   type="button"

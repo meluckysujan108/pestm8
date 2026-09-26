@@ -49,7 +49,7 @@ test('a technician’s note is theirs: blank on +, no tags, and said so', async 
 
   // Opened again later from the list, it does not grab the cursor.
   const folders = page.getByRole('navigation', { name: 'Notes folders' })
-  await folders.getByRole('button', { name: 'All Notes', exact: true }).click()
+  await folders.getByRole('button', { name: 'All notes', exact: true }).click()
   await page.getByRole('button', { name: /Van stock/ }).click()
   await expect(body).toBeVisible()
   await expect(body).toContainText('Order more bait')
@@ -102,7 +102,7 @@ test('the owner reads the team’s personal notes in God view, and cannot change
 
   // Not in his own notebook or the team's folders, pinned rows included…
   const folders = page.getByRole('navigation', { name: 'Notes folders' })
-  for (const name of ['All Notes', 'Team']) {
+  for (const name of ['All notes', 'Team']) {
     await folders.getByRole('button', { name, exact: true }).click()
     await expect(
       page.getByRole('button', { name: /Mix ratios for the truck/ }),

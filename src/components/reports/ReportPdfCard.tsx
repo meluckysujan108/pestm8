@@ -156,7 +156,7 @@ function StatusLine({ status }: { status: ReportPdfStatus }) {
             strokeWidth={2}
             className="shrink-0"
           />
-          Couldn’t prepare the PDF
+          Could not prepare the PDF
         </>
       )}
     </p>

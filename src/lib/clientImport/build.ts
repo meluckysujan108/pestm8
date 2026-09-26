@@ -751,7 +751,7 @@ function draftOf(
           level: 'error' as const,
           field: 'suburb' as const,
           siteIndex: i,
-          message: `Couldn't tell the street from the suburb in “${line}” — edit it.`,
+          message: `Could not tell the street from the suburb in “${line}” — edit it.`,
         }
         return holdWhile(
           split

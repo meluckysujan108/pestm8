@@ -159,7 +159,7 @@ describe('Undo', () => {
     await flush()
 
     expect(h.drawnNow().stored).toEqual(['a'])
-    expect(h.toasts).toEqual(["Couldn't undo your last mark."])
+    expect(h.toasts).toEqual(['Could not undo your last mark.'])
   })
 
   /** Nothing comes back, so there is nothing to apologise for: the page's
@@ -241,7 +241,7 @@ describe('Clear', () => {
     await flush()
 
     expect(h.drawnNow()).toEqual({ stored: ['a'], saving: ['pending-1'] })
-    expect(h.toasts).toEqual(["Couldn't clear your marks on page 2."])
+    expect(h.toasts).toEqual(['Could not clear your marks on page 2.'])
   })
 
   it('keeps the page hidden once it lands, until the marks catch up', async () => {
@@ -295,7 +295,7 @@ describe('a Clear taken over from a viewer since closed', () => {
     await flush()
 
     expect(h.drawnNow().stored).toEqual(['a'])
-    expect(h.toasts).toEqual(["Couldn't clear your marks on page 2."])
+    expect(h.toasts).toEqual(['Could not clear your marks on page 2.'])
   })
 
   it('is taken over once, and a Clear asked for here never', async () => {
@@ -315,7 +315,7 @@ describe('a Clear taken over from a viewer since closed', () => {
     h.clears[0].answer.reject(new Error(''))
     out.answer.resolve()
     await flush()
-    expect(h.toasts).toEqual(["Couldn't clear your marks on page 2."])
+    expect(h.toasts).toEqual(['Could not clear your marks on page 2.'])
   })
 })
 

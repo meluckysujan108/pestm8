@@ -451,6 +451,7 @@ export function LicenceFiles({
         }}
         title={`Remove ${confirmed.current?.fileName ?? 'this file'}?`}
         body="It goes from this licence, and from this phone. You can add it again at any time."
+        cancel="Keep file"
         confirm="Remove"
         onConfirm={() => {
           if (confirming) removeFile.mutate(confirming._id)

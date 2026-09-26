@@ -128,7 +128,7 @@ function StartPage() {
       {signedInEmail && wrongAccount ? (
         <div className="mt-6">
           <p className="text-body text-ink-2">
-            You're signed in as{' '}
+            You’re signed in as{' '}
             <span className="text-ink">{signedInEmail}</span>, but this link is
             for <span className="text-ink">{emailHint}</span>. Sign out, then{' '}
             {taken ? 'sign in' : 'create your account'} with that address.
@@ -153,7 +153,7 @@ function StartPage() {
             onClick={() => claim.mutate()}
             className={`${PRIMARY_BUTTON} mt-3 w-full`}
           >
-            {claim.isPending ? 'Just a moment…' : 'Set up my business'}
+            {claim.isPending ? 'Setting up…' : 'Set up my business'}
           </button>
           <button
             type="button"
@@ -215,7 +215,7 @@ function claimMessage(error: unknown, emailHint: string) {
   }
   if (message.includes('INVITE_EXPIRED')) return 'This link has expired.'
   if (message.includes('INVITE_REVOKED')) return 'This link was withdrawn.'
-  return 'Could not continue. Check your connection and try again.'
+  return 'Could not continue. Check your signal and try again.'
 }
 
 function Ahead({ icon: Icon, text }: { icon: LucideIcon; text: string }) {

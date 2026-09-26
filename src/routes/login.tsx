@@ -43,13 +43,16 @@ function LoginPage() {
 
     const result = await authClient.signIn.email({ email, password }).catch(
       // A dropped connection rejects rather than answering, and without this
-      // the button sits on "Just a moment…" for good.
+      // the button sits on "Signing in…" for good.
       () => ({ error: { message: 'Could not reach PestM8. Try again.' } }),
     )
 
     if (result.error) {
       setPending(false)
-      setError(result.error.message ?? 'Something went wrong.')
+      setError(
+        result.error.message ??
+          'Could not sign in. Check your signal and try again.',
+      )
       return
     }
 
@@ -121,7 +124,7 @@ function LoginPage() {
             disabled={pending || !hydrated}
             className={`${PRIMARY_BUTTON} mt-2`}
           >
-            {pending ? 'Just a moment…' : 'Sign in'}
+            {pending ? 'Signing in…' : 'Sign in'}
           </button>
         </form>
       )}

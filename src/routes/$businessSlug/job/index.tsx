@@ -16,6 +16,7 @@ import { useOverdueRecurring } from '#/lib/useOverdueRecurring'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { useJobsWeather } from '#/lib/weather'
 import { WeatherCredit } from '#/components/schedule/WeatherCredit'
+import { ChevronRight } from 'lucide-react'
 
 const STATUS_VALUES = JOB_LIST_STATUS_OPTIONS.map((option) => option.value)
 
@@ -96,8 +97,9 @@ function JobListPage() {
               {overdue} overdue
             </span>
             recurring {overdue === 1 ? 'visit' : 'visits'} to book
-            <span className="ml-auto font-semibold text-blue">
-              Recurring Job ›
+            <span className="ml-auto inline-flex items-center gap-0.5 font-semibold text-blue">
+              Recurring Job
+              <ChevronRight size={15} strokeWidth={2.2} />
             </span>
           </Link>
         )}

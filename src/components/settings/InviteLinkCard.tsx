@@ -102,7 +102,7 @@ export function inviteMessage({
     return `${inviter} has invited you to join ${business} on PestM8. Set up your account here: ${url}`
   }
   if (business) {
-    return `You're invited to join ${business} on PestM8. Set up your account here: ${url}`
+    return `You’re invited to join ${business} on PestM8. Set up your account here: ${url}`
   }
-  return `Here's your PestM8 invite: ${url}`
+  return `Here’s your PestM8 invite: ${url}`
 }

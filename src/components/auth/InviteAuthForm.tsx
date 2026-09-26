@@ -87,7 +87,12 @@ export function InviteAuthForm({
           // valid", which sends people after a new link.
           setError(wrongAddress)
         } else {
-          setError(result.error.message ?? 'Something went wrong.')
+          setError(
+            result.error.message ??
+              (mode === 'signUp'
+                ? 'Could not create your account. Check your signal and try again.'
+                : 'Could not sign in. Check your signal and try again.'),
+          )
         }
         return
       }
@@ -98,7 +103,7 @@ export function InviteAuthForm({
       }
       onAuthed()
     } catch {
-      setError("Couldn't reach PestM8. Check your connection and try again.")
+      setError('Could not reach PestM8. Check your signal and try again.')
     } finally {
       setPending(false)
     }
@@ -160,7 +165,9 @@ export function InviteAuthForm({
         className={`${PRIMARY_BUTTON} mt-2`}
       >
         {pending
-          ? 'Just a moment…'
+          ? mode === 'signUp'
+            ? 'Creating your account…'
+            : 'Signing in…'
           : mode === 'signUp'
             ? submitLabels.signUp
             : submitLabels.signIn}

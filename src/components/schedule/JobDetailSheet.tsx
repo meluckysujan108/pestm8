@@ -579,7 +579,7 @@ function JobDetailBody({
             body={
               <>
                 {job.jobType} for {job.property?.client?.name} at{' '}
-                {formatTime(job.scheduledAt, timezone)} won't happen as booked.
+                {formatTime(job.scheduledAt, timezone)} won’t happen as booked.
                 Nothing is deleted — the visit stays in the schedule marked
                 cancelled, and you can reopen it as booked any time.
               </>
@@ -1361,7 +1361,7 @@ function JobPhotos({
           />
           {failed && (
             <p role="alert" className="mt-2 text-caption text-amber-ink">
-              Upload failed. Check your connection and try again.
+              Upload failed. Check your signal and try again.
             </p>
           )}
           <ConfirmDialog

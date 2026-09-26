@@ -141,7 +141,7 @@ test('a folder whose first page is all someone else’s does not read as empty',
   // Asserted against the server-rendered markup, because the false empty
   // state heals a moment later when the list asks for the next page: by the
   // time the note is on screen there is nothing left to catch.
-  expect(await document!.text()).not.toContain('Recently Deleted is empty')
+  expect(await document!.text()).not.toContain('Recently deleted is empty')
   await expect(page.getByText('Wattle Street follow-up')).toBeVisible()
-  await expect(page.getByText('Recently Deleted is empty')).toHaveCount(0)
+  await expect(page.getByText('Recently deleted is empty')).toHaveCount(0)
 })

@@ -450,7 +450,7 @@ export function ImageViewer({
     // Nothing awaited before this call: Safari opens the share sheet only
     // from inside the tap that asked for it.
     share(new File([blob], fileName, { type: contentType })).catch(() =>
-      setShareProblem('Couldn’t share this picture.'),
+      setShareProblem('Could not share this picture.'),
     )
   }
 

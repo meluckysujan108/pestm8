@@ -229,12 +229,12 @@ function KindSpecificFields({
       return (
         <div className="grid grid-cols-2 gap-3">
           <TextInput
-            label='"Yes" label (optional)'
+            label="“Yes” label (optional)"
             value={field.yes ?? ''}
             onChange={(v) => onChange({ ...field, yes: v || undefined })}
           />
           <TextInput
-            label='"No" label (optional)'
+            label="“No” label (optional)"
             value={field.no ?? ''}
             onChange={(v) => onChange({ ...field, no: v || undefined })}
           />

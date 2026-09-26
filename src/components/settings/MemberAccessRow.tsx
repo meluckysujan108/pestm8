@@ -498,7 +498,7 @@ function RoleGroup({
               onClick={() => setDemoting(false)}
               className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
             >
-              Cancel
+              Keep as contractor
             </button>
             <button
               type="button"
@@ -536,7 +536,7 @@ function RoleGroup({
               onClick={() => setReleasing(false)}
               className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
             >
-              Cancel
+              Keep on your team
             </button>
             <button
               type="button"
@@ -644,7 +644,7 @@ function AccessGroup({
       )}
       <SwitchRow
         label="Can view other accounts"
-        description="Switch to other subcontractors' views — never the owner's."
+        description="Switch to other subcontractors’ views — never the owner’s."
         checked={member.canViewOtherAccounts}
         disabled={setViewOthers.isPending || !hydrated}
         onChange={(checked) =>
@@ -829,7 +829,7 @@ function RemoveMember({
           onClick={() => setConfirming(false)}
           className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
-          Cancel
+          Keep them
         </button>
         <button
           type="button"
@@ -918,5 +918,5 @@ function removeError(error: unknown) {
   if (message.includes('NO_ACCESS')) {
     return 'They are no longer yours to remove. Ask the business owner.'
   }
-  return 'Could not remove them. Check your connection and try again.'
+  return 'Could not remove them. Check your signal and try again.'
 }

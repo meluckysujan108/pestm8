@@ -238,12 +238,14 @@ export function describeTwoFactorError(error: TwoFactorRefusal): {
       if (!answered(error)) {
         return {
           message:
-            "Couldn't reach PestM8. Check your signal, then try again with the code showing now.",
+            'Could not reach PestM8. Check your signal, then try again with the code showing now.',
           restart: false,
         }
       }
       return {
-        message: error.message ?? 'Something went wrong. Try again.',
+        message:
+          error.message ??
+          'Could not check that code. Try again with the code showing now.',
         restart: false,
       }
   }
@@ -569,7 +571,7 @@ export function remindAfterRefusedCode(
  */
 export function passwordStepError(error: TwoFactorRefusal): string {
   if (!answered(error)) {
-    return "Couldn't reach PestM8. Check your signal, then try again."
+    return 'Could not reach PestM8. Check your signal, then try again.'
   }
   if (isSignInLost(error)) return SIGNED_OUT_HERE
   return describeTwoFactorError(error).message

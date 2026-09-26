@@ -80,9 +80,9 @@ export function SwitchBanner({ businessId }: { businessId: Id<'businesses'> }) {
             // say. This is the retry.
             if (degraded) stop.mutate({ businessId })
           }}
-          className="shrink-0 rounded-full bg-surface-3 px-3 py-1 text-caption font-semibold text-ink-2 transition active:scale-[.95] disabled:opacity-50"
+          className="relative tap-target shrink-0 rounded-full bg-surface-3 px-3 py-1 text-caption font-semibold text-ink-2 transition active:scale-[.95] disabled:opacity-50"
         >
-          OK
+          Dismiss
         </button>
       </div>
     )

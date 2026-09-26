@@ -262,7 +262,7 @@ function ImportFlow() {
       setReadError(
         error instanceof ImportFileError
           ? error.message
-          : `Couldn’t read “${chosen.name}”. Save it again as CSV and choose that instead.`,
+          : `Could not read “${chosen.name}”. Save it again as CSV and choose that instead.`,
       )
     } finally {
       setReading(false)

@@ -56,7 +56,7 @@ function actionCopy(action: string): ErrorCopy {
     offline: `Could not ${action}: this device is offline. Try again when you have signal.`,
     NOT_FOUND: `Could not ${action}: it has changed since you opened this. Close it and look again.`,
     NO_ACCESS: `Could not ${action}: your access does not cover this. Ask the business owner.`,
-    default: `Could not ${action}. Check your connection and try again.`,
+    default: `Could not ${action}. Check your signal and try again.`,
   }
 }
 

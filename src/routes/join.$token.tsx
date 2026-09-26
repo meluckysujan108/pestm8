@@ -107,7 +107,7 @@ function JoinPage() {
   return (
     <Shell title={`Join ${businessName}`}>
       <p className="mt-2 text-body text-muted">
-        You've been invited as a {roleLabel}. This link works once, and only for{' '}
+        You’ve been invited as a {roleLabel}. This link works once, and only for{' '}
         <span className="text-ink">{emailHint}</span>.
       </p>
 
@@ -118,7 +118,7 @@ function JoinPage() {
       {signedInEmail && wrongAccount ? (
         <div className="mt-6">
           <p className="text-body text-ink-2">
-            You're signed in as{' '}
+            You’re signed in as{' '}
             <span className="text-ink">{signedInEmail}</span>, but this
             invitation is for <span className="text-ink">{emailHint}</span>.
             Sign out, then carry on with that address.
@@ -199,13 +199,13 @@ function redeemMessage(error: unknown, emailHint: string) {
   if (message.includes('INVITE_EMAIL_MISMATCH')) {
     return `This invitation was sent to ${emailHint}. Sign out, then carry on with that address.`
   }
-  if (message.includes('ALREADY_MEMBER')) return "You're already on this team."
+  if (message.includes('ALREADY_MEMBER')) return 'You’re already on this team.'
   if (message.includes('INVITE_ALREADY_USED')) {
     return 'This link has already been used.'
   }
   if (message.includes('INVITE_EXPIRED')) return 'This link has expired.'
   if (message.includes('INVITE_REVOKED')) return 'This link was withdrawn.'
-  return 'Could not join. Check your connection and try again.'
+  return 'Could not join. Check your signal and try again.'
 }
 
 function Shell({

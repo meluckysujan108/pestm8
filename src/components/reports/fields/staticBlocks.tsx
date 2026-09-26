@@ -160,7 +160,7 @@ const COMMON: ReadonlySet<string> = new Set(COMMON_EMAIL_DOMAINS)
 /** The words for a domain DNS says takes no mail — EmailInput's, so a client
  * record and a report say the same thing about the same address. */
 export function noMailMessage(domain: string): string {
-  return `${domain} doesn't look like it receives email.`
+  return `${domain} doesn’t look like it receives email.`
 }
 
 /**

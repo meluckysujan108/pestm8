@@ -56,7 +56,7 @@ const EMPTY: Record<LibraryFilter, { title: string; body: string }> = {
     body: 'Procedures, mix ratios, supplier numbers.',
   },
   trash: {
-    title: 'Recently Deleted is empty',
+    title: 'Recently deleted is empty',
     body: 'Deleted notes stay here for 30 days.',
   },
 }

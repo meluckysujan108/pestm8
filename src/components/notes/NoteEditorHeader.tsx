@@ -267,7 +267,7 @@ export function NoteEditorHeader({
 
       <p className="mt-1 truncate px-1 text-caption text-muted">
         {inTrash
-          ? 'In Recently Deleted · gone for good after 30 days'
+          ? 'In Recently deleted · gone for good after 30 days'
           : `Edited ${note.editorName ? `by ${note.editorName} · ` : ''}${editedLabel(note.updatedAt, timezone, Date.now())}`}
       </p>
       {/* Said on every personal note, so nobody finds out later that the
