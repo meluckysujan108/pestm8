@@ -14,13 +14,12 @@ import { SearchBox } from '#/components/primitives/SearchBox'
 import { ListPending } from '#/components/shell/Pending'
 import { REPORTS_PAGE, reportsFirstPage, rq } from '#/lib/routeQueries'
 import { Segmented } from '#/components/primitives/Segmented'
-import { Sheet } from '#/components/primitives/Sheet'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { describeError } from '#/components/forms/describeError'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../convex/_generated/dataModel'
-import {
-  PRIMARY_BUTTON,
-  SECONDARY_BUTTON_COMPACT,
-} from '#/components/primitives/buttons'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * Every report this business has made, a page at a time.
@@ -377,6 +376,7 @@ function DeleteDraft({
   businessId: Id<'businesses'>
   row: Row
 }) {
+  const hydrated = useHydrated()
   const [confirming, setConfirming] = useState(false)
   const convexDelete = useConvexMutation(api.reports.softDelete)
   const remove = useMutation({
@@ -392,35 +392,38 @@ function DeleteDraft({
       <button
         type="button"
         aria-label={`Delete the ${row.templateName} draft for ${row.clientName}`}
-        onClick={() => setConfirming(true)}
+        disabled={!hydrated}
+        onClick={() => {
+          remove.reset()
+          setConfirming(true)
+        }}
         // Bottom right, beside the status pill rather than over the standard
         // the report was written to: at the top it sat on "AS 4349.3-2010".
-        className="absolute bottom-2 right-2 flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+        className="tap-target absolute bottom-2 right-2 flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
       >
         <Trash2 size={16} strokeWidth={2} />
       </button>
 
-      <Sheet
+      <ConfirmDialog
         open={confirming}
-        onClose={() => setConfirming(false)}
+        onOpenChange={setConfirming}
         title="Delete this draft?"
-        description="It waits in Deleted for 30 days, with its photos, then it is gone."
-        footer={
-          <button
-            type="button"
-            disabled={remove.isPending}
-            onClick={() => remove.mutate({ businessId, reportId: row._id })}
-            className={`${PRIMARY_BUTTON} w-full`}
-          >
-            {remove.isPending ? 'Deleting…' : 'Delete draft'}
-          </button>
+        body={`${row.templateName} for ${row.clientName}${row.suburb ? `, ${row.suburb}` : ''}. It waits in Deleted for 30 days, with its photos, then it is gone.`}
+        confirm="Delete draft"
+        cancel="Keep draft"
+        closeOnConfirm={false}
+        pending={remove.isPending}
+        pendingLabel="Deleting…"
+        error={
+          remove.isError
+            ? describeError(remove.error, {
+                default:
+                  'Could not delete the draft. Check your signal and try again.',
+              })
+            : null
         }
-      >
-        <p className="text-body text-ink-2">
-          {row.templateName} for {row.clientName}
-          {row.suburb ? `, ${row.suburb}` : ''}.
-        </p>
-      </Sheet>
+        onConfirm={() => remove.mutate({ businessId, reportId: row._id })}
+      />
     </>
   )
 }
@@ -432,6 +435,7 @@ function TrashActions({
   businessId: Id<'businesses'>
   row: Row
 }) {
+  const hydrated = useHydrated()
   const [confirming, setConfirming] = useState(false)
   const convexRestore = useConvexMutation(api.reports.restore)
   const convexRemove = useConvexMutation(api.reports.remove)
@@ -454,44 +458,57 @@ function TrashActions({
       <div className="mt-3 flex gap-2">
         <button
           type="button"
-          disabled={restore.isPending}
+          disabled={!hydrated || restore.isPending}
           onClick={() => restore.mutate({ businessId, reportId: row._id })}
           className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-1.5`}
         >
           <RotateCcw size={15} strokeWidth={2} />
-          Restore
+          {restore.isPending ? 'Restoring…' : 'Restore'}
         </button>
         <button
           type="button"
-          onClick={() => setConfirming(true)}
-          className="flex h-10 flex-1 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-body font-semibold text-red"
+          disabled={!hydrated}
+          onClick={() => {
+            forever.reset()
+            setConfirming(true)
+          }}
+          // A grey button with its word in red: SECONDARY_BUTTON_COMPACT's
+          // shape, which cannot take a second text colour.
+          className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-fill-secondary text-body font-semibold text-red outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.975] disabled:opacity-50"
         >
           <Trash2 size={15} strokeWidth={2} />
           Delete now
         </button>
       </div>
+      <FormAlert
+        className="mt-2"
+        error={restore.isError ? restore.error : null}
+        copy={{
+          default:
+            'Could not restore the draft. Check your signal and try again.',
+        }}
+      />
 
-      <Sheet
+      <ConfirmDialog
         open={confirming}
-        onClose={() => setConfirming(false)}
-        title="Delete permanently?"
-        description="The draft and its photos are gone. This cannot be undone."
-        footer={
-          <button
-            type="button"
-            disabled={forever.isPending}
-            onClick={() => forever.mutate({ businessId, reportId: row._id })}
-            className={`${PRIMARY_BUTTON} w-full`}
-          >
-            {forever.isPending ? 'Deleting…' : 'Delete permanently'}
-          </button>
+        onOpenChange={setConfirming}
+        title="Delete this draft for good?"
+        body="The draft and its photos are gone, and it can’t be undone. Those photos are evidence that somebody stood somewhere and took them."
+        confirm="Delete for good"
+        cancel="Keep it"
+        closeOnConfirm={false}
+        pending={forever.isPending}
+        pendingLabel="Deleting…"
+        error={
+          forever.isError
+            ? describeError(forever.error, {
+                default:
+                  'Could not delete the draft. Check your signal and try again.',
+              })
+            : null
         }
-      >
-        <p className="text-body text-ink-2">
-          The photos attached to this draft are evidence that somebody stood
-          somewhere and took them. Once this is gone, so are they.
-        </p>
-      </Sheet>
+        onConfirm={() => forever.mutate({ businessId, reportId: row._id })}
+      />
     </>
   )
 }

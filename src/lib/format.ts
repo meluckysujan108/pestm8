@@ -53,6 +53,15 @@ export function formatJobDate(dayKey: string, thisDayKey: string): string {
 }
 
 /**
+ * "Fri 25 Sept, 9:30am" — the moment something happened (a report sent, an
+ * entry in its history), in the tenant's time zone, with the year only when
+ * it is not this year.
+ */
+export function formatWhen(ts: number, timezone: string): string {
+  return `${formatJobDate(dayKeyOf(ts, timezone), todayKey(timezone))}, ${formatTime(ts, timezone)}`
+}
+
+/**
  * "9:30am – 10:15am · 45 min", or "11:00pm – Sat 1:00am · 2 hr" when the job
  * runs past midnight, in the tenant's time zone. An end exactly at midnight
  * still belongs to the day it ends, so it reads "12:00am" with no weekday.

@@ -20,6 +20,8 @@ import type {
 } from '#/lib/reportTemplates'
 import { SECONDARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD, FIELD_COMPACT, FIELD_SURFACE } from '#/components/forms/FormField'
+import { formatTime } from '#/lib/format'
+import { deviceTimezone } from '#/lib/useBusinessTimezone'
 
 /**
  * One editable control per field kind. Each is registered in `registry.ts`;
@@ -507,12 +509,9 @@ export function ChecksControl({ field, value, onChange, ctx }: Of<'checks'>) {
   )
 }
 
-/** `10:25 am` — when the reading was taken, in the phone's own timezone. */
+/** `10:25am` — when the reading was taken, in the phone's own timezone. */
 function formatClock(at: number): string {
-  return new Intl.DateTimeFormat('en-AU', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date(at))
+  return formatTime(at, deviceTimezone())
 }
 
 /**

@@ -11,6 +11,8 @@ import { EmptyState } from '#/components/primitives/EmptyState'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
 import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { describeError, errorCode } from '#/components/forms/describeError'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -277,18 +279,27 @@ function CustomRow({
   const remove = useMutation({
     mutationFn: (args: { businessId: Id<'businesses'>; templateId: Id<'customReportTemplates'> }) =>
       convexRemove(args),
-    onError: async (error) => {
-      // The delete button always tries a real delete first — the mutation
-      // itself is the one place that actually knows whether anything
-      // references this template, so the label follows what it did, not a
-      // client-side guess made in advance.
-      const message = error instanceof Error ? error.message : String(error)
-      if (message.includes('TEMPLATE_IN_USE')) {
-        await archive.mutateAsync({ businessId, templateId: template._id })
-        setNotice('In use by an existing report — archived instead of deleted.')
-      }
-    },
   })
+  const hydrated = useHydrated()
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  // Archive and unarchive are one tap each: either is undone right here, by
+  // the button that takes its place. Delete is not, so it asks.
+  const failed = archive.error ?? unarchive.error
+
+  async function deleteTemplate() {
+    try {
+      await remove.mutateAsync({ businessId, templateId: template._id })
+      setConfirmDelete(false)
+    } catch (error) {
+      // The mutation is the one place that knows whether a report uses this
+      // template, so Delete always tries, and archives when it may not.
+      if (errorCode(error) !== 'TEMPLATE_IN_USE') return
+      await archive.mutateAsync({ businessId, templateId: template._id })
+      remove.reset()
+      setConfirmDelete(false)
+      setNotice('In use by an existing report — archived instead of deleted.')
+    }
+  }
 
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
@@ -306,7 +317,16 @@ function CustomRow({
         </div>
       </div>
 
-      {notice && <p className="mt-1.5 text-caption text-amber-ink">{notice}</p>}
+      {notice && (
+        <p role="status" className="mt-1.5 text-caption text-amber-ink">
+          {notice}
+        </p>
+      )}
+      <FormAlert
+        className="mt-2"
+        error={failed}
+        copy={{ default: 'Could not change this template. Check your signal and try again.' }}
+      />
 
       <div className="mt-3 flex gap-2">
         <Link
@@ -318,43 +338,74 @@ function CustomRow({
         </Link>
         <button
           type="button"
-          aria-label="Duplicate"
+          aria-label={`Duplicate ${template.name}`}
+          disabled={!hydrated}
           onClick={() => setDuplicateOpen(true)}
-          className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95]"
+          className="flex size-11 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
         >
           <Copy size={16} strokeWidth={2} />
         </button>
         {template.archivedAt ? (
           <button
             type="button"
-            aria-label="Unarchive"
-            disabled={unarchive.isPending}
-            onClick={() => unarchive.mutate({ businessId, templateId: template._id })}
-            className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
+            aria-label={`Unarchive ${template.name}`}
+            disabled={!hydrated || unarchive.isPending}
+            onClick={() => {
+              archive.reset()
+              unarchive.mutate({ businessId, templateId: template._id })
+            }}
+            className="flex size-11 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
           >
             <ArchiveRestore size={16} strokeWidth={2} />
           </button>
         ) : (
           <button
             type="button"
-            aria-label="Archive"
-            disabled={archive.isPending}
-            onClick={() => archive.mutate({ businessId, templateId: template._id })}
-            className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
+            aria-label={`Archive ${template.name}`}
+            disabled={!hydrated || archive.isPending}
+            onClick={() => {
+              unarchive.reset()
+              setNotice(null)
+              archive.mutate({ businessId, templateId: template._id })
+            }}
+            className="flex size-11 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
           >
             <Archive size={16} strokeWidth={2} />
           </button>
         )}
         <button
           type="button"
-          aria-label="Delete"
-          disabled={remove.isPending}
-          onClick={() => remove.mutate({ businessId, templateId: template._id })}
-          className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
+          aria-label={`Delete ${template.name}`}
+          disabled={!hydrated || remove.isPending}
+          onClick={() => {
+            remove.reset()
+            setConfirmDelete(true)
+          }}
+          className="flex size-11 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
         >
           <Trash2 size={16} strokeWidth={2} />
         </button>
       </div>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title={`Delete ${template.name}?`}
+        body="It can’t be brought back. If a report already uses it, it’s archived instead, so that report keeps its form."
+        confirm="Delete"
+        cancel="Keep it"
+        onConfirm={() => void deleteTemplate()}
+        closeOnConfirm={false}
+        pending={remove.isPending || archive.isPending}
+        pendingLabel="Deleting…"
+        error={
+          remove.isError && errorCode(remove.error) !== 'TEMPLATE_IN_USE'
+            ? describeError(remove.error, {
+                default: 'Could not delete this template. Check your signal and try again.',
+              })
+            : null
+        }
+      />
 
       <DuplicateSheet
         businessId={businessId}

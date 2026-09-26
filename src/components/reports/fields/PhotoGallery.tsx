@@ -20,6 +20,7 @@ import type { EditorProps } from './registry'
 import type { FieldDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 
 /**
  * Serves both photo-set kinds. A `cover` is a gallery of exactly one whose
@@ -55,6 +56,8 @@ export function GalleryControl({ field, ctx }: GalleryField) {
   // not-ready state shows. It is also the e2e readiness signal: `setInputFiles`
   // skips the button and would drop files on an input with no `onChange`.
   const hydrated = useHydrated()
+  // Where focus goes once a photo is removed: its own buttons go with it.
+  const takeButton = useRef<HTMLButtonElement>(null)
 
   const { data } = useQuery(
     convexQuery(api.reports.galleryPhotos, { businessId, reportId }),
@@ -144,6 +147,7 @@ export function GalleryControl({ field, ctx }: GalleryField) {
               index={index}
               total={photos.length}
               label={field.label}
+              afterRemove={() => takeButton.current}
               // A cover flag only means something when there is more than one
               // photo to distinguish between — and never on a `cover` field,
               // where the field kind is already the claim about which photo
@@ -162,6 +166,7 @@ export function GalleryControl({ field, ctx }: GalleryField) {
           the control that claimed to offer both. */}
       <span className="flex gap-2">
         <button
+          ref={takeButton}
           type="button"
           disabled={busy || atMax || !hydrated}
           aria-label={`${field.label} — add photos`}
@@ -247,6 +252,7 @@ function GalleryTile({
   total,
   label,
   showCover,
+  afterRemove,
 }: {
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
@@ -255,14 +261,32 @@ function GalleryTile({
   total: number
   label: string
   showCover: boolean
+  /** Where focus goes once this photo is gone. */
+  afterRemove: () => HTMLElement | null
 }) {
   const [caption, setCaption] = useState(photo.caption ?? '')
   const [annotating, setAnnotating] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [removing, setRemoving] = useState(false)
+  const [removeFailed, setRemoveFailed] = useState(false)
 
   const setCover = useConvexMutation(api.reports.setGalleryCover)
   const updateCaption = useConvexMutation(api.reports.updateGalleryCaption)
   const move = useConvexMutation(api.reports.moveGalleryPhoto)
   const remove = useConvexMutation(api.reports.removeGalleryPhoto)
+
+  async function removePhoto() {
+    setRemoving(true)
+    setRemoveFailed(false)
+    try {
+      await remove({ businessId, reportId, photoId: photo._id })
+      setConfirmRemove(false)
+    } catch {
+      setRemoveFailed(true)
+    } finally {
+      setRemoving(false)
+    }
+  }
 
   const getUploadUrl = useConvexMutation(api.reports.generateUploadUrl)
   const convexAnnotate = useConvexMutation(api.reports.annotateGalleryPhoto)
@@ -394,13 +418,35 @@ function GalleryTile({
           <button
             type="button"
             aria-label={`Remove ${label} photo ${ordinal}`}
-            onClick={() => void remove({ businessId, reportId, photoId: photo._id })}
+            onClick={() => {
+              setRemoveFailed(false)
+              setConfirmRemove(true)
+            }}
             className="flex size-11 items-center justify-center rounded-full text-muted outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.95] disabled:opacity-30"
           >
             <Trash2 size={16} strokeWidth={2} />
           </button>
         </span>
       </span>
+
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title={`Remove ${label} photo ${ordinal}?`}
+        body="It comes out of this report, and its caption and markings with it."
+        confirm="Remove"
+        cancel="Keep it"
+        closeOnConfirm={false}
+        pending={removing}
+        pendingLabel="Removing…"
+        error={
+          removeFailed
+            ? 'Could not remove the photo. Check your signal and try again.'
+            : null
+        }
+        returnFocus={(confirmed) => (confirmed ? afterRemove() : null)}
+        onConfirm={() => void removePhoto()}
+      />
 
       {annotating && photo.url && (
         <AnnotationEditor

@@ -9,6 +9,8 @@ import { Mail, RefreshCw, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { EmailInput } from '#/components/forms/EmailInput'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { describeError } from '#/components/forms/describeError'
+import { ConfirmDialog } from './ConfirmDialog'
 import {
   SaveWarningsPanel,
   SaveWarningsProvider,
@@ -132,6 +134,12 @@ export function TeamSection({
       invitationId: Id<'invitations'>
     }) => convexRevoke(args),
   })
+  // Cancelling kills a link someone may be about to tap, and a new one has
+  // to be sent to undo it, so it asks first.
+  const [cancelling, setCancelling] = useState<{
+    invitationId: Id<'invitations'>
+    email: string
+  } | null>(null)
 
   const convexRegenerate = useConvexAction(api.invitations.regenerate)
   const regenerate = useMutation({
@@ -162,11 +170,8 @@ export function TeamSection({
   }
 
   const people = ownersFirst(members)
-  const pendingError = regenerate.isError
-    ? regenerate.error
-    : revoke.isError
-      ? revoke.error
-      : null
+  // A failed cancel is said in its own dialog, which stays open for it.
+  const pendingError = regenerate.isError ? regenerate.error : null
 
   return (
     <>
@@ -254,12 +259,13 @@ export function TeamSection({
                     type="button"
                     aria-label={`Cancel invitation for ${invitation.email}`}
                     disabled={revoke.isPending || !hydrated}
-                    onClick={() =>
-                      revoke.mutate({
-                        businessId,
+                    onClick={() => {
+                      revoke.reset()
+                      setCancelling({
                         invitationId: invitation._id,
+                        email: invitation.email,
                       })
-                    }
+                    }}
                     className="relative tap-target flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
                     <X size={15} strokeWidth={2.2} />
@@ -270,6 +276,28 @@ export function TeamSection({
           })}
         </SettingsGroup>
       )}
+
+      <ConfirmDialog
+        open={cancelling !== null}
+        onOpenChange={(open) => !open && setCancelling(null)}
+        title={`Cancel the invitation for ${cancelling?.email ?? ''}?`}
+        body="Their link stops working straight away. You can invite them again at any time."
+        confirm="Cancel invitation"
+        cancel="Keep invitation"
+        closeOnConfirm={false}
+        pending={revoke.isPending}
+        pendingLabel="Cancelling…"
+        error={
+          revoke.isError ? describeError(revoke.error, PENDING_COPY) : null
+        }
+        onConfirm={() => {
+          if (!cancelling) return
+          revoke.mutate(
+            { businessId, invitationId: cancelling.invitationId },
+            { onSuccess: () => setCancelling(null) },
+          )
+        }}
+      />
 
       <Sheet
         open={inviteOpen}

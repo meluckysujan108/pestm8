@@ -103,7 +103,7 @@ export function RecurrenceFields({
       {/* Said back in the same words the rest of the app uses for a repeat, so
           what was typed and what will be stored are visibly the same thing. */}
       <p
-        className={`mt-1.5 text-caption ${interval ? 'text-muted' : 'text-red'}`}
+        className={`mt-1.5 text-caption ${interval ? 'text-muted' : 'text-red-ink'}`}
         role={interval ? undefined : 'alert'}
       >
         {interval

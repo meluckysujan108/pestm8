@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { formatJobDate, formatTimeRange } from './format'
+import { formatJobDate, formatTimeRange, formatWhen } from './format'
 
 const PERTH = 'Australia/Perth'
 const SYDNEY = 'Australia/Sydney'
@@ -55,5 +55,18 @@ describe('the time a job runs', () => {
     expect(formatTimeRange(at('2026-10-05T08:00', '+11:00'), 90, SYDNEY)).toBe(
       '8:00am – 9:30am · 1 hr 30 min',
     )
+  })
+})
+
+describe('the moment something happened', () => {
+  test('is said in the business’s zone, not the reader’s', () => {
+    const sent = at('2020-09-01T09:30:00', '+08:00')
+    expect(formatWhen(sent, PERTH)).toBe('Tue 1 Sept 2020, 9:30am')
+    expect(formatWhen(sent, SYDNEY)).toBe('Tue 1 Sept 2020, 11:30am')
+  })
+
+  test('crosses midnight with the zone', () => {
+    const late = at('2020-09-01T23:30:00', '+08:00')
+    expect(formatWhen(late, SYDNEY)).toBe('Wed 2 Sept 2020, 1:30am')
   })
 })

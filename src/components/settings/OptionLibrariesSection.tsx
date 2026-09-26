@@ -134,6 +134,7 @@ function OptionListSheet({
   const [note, setNote] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirmingReset, setConfirmingReset] = useState(false)
+  const hydrated = useHydrated()
 
   // Written out rather than wrapped in a helper that calls `useMutation`:
   // a hook behind a function is a rule-of-hooks trap waiting for the first
@@ -462,6 +463,7 @@ function OptionListSheet({
           ) : (
             <button
               type="button"
+              disabled={!hydrated}
               onClick={() => setConfirmingReset(true)}
               className={`${DANGER_ROW_CLASS} gap-1.5`}
             >

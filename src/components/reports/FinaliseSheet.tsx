@@ -9,6 +9,8 @@ import {
   PRIMARY_BUTTON,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
+import { formatTime } from '#/lib/format'
+import { deviceTimezone } from '#/lib/useBusinessTimezone'
 
 /**
  * The last screen before a document becomes a record.
@@ -244,11 +246,9 @@ function nowAsTime(): string {
   return `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
 }
 
+/** `2:05pm` — what `nowAsTime` stored, said the way the app says a time. */
 function readableNow(): string {
-  return new Intl.DateTimeFormat('en-AU', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(new Date())
+  return formatTime(Date.now(), deviceTimezone())
 }
 
 /**

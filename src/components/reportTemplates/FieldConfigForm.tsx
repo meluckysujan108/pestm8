@@ -102,11 +102,11 @@ export function FieldConfigForm({
           value={field.key}
           onChange={(e) => onChange({ ...field, key: e.target.value })}
           className={`h-11 w-full rounded-xl bg-surface-3 px-3.5 font-mono text-[16px] outline-none focus:ring-2 focus:ring-blue ${
-            keyTaken ? 'text-red' : 'text-ink-2'
+            keyTaken ? 'text-red-ink' : 'text-ink-2'
           }`}
         />
         {keyTaken && (
-          <span className="text-caption text-red">
+          <span className="text-caption text-red-ink">
             Another field already uses this key.
           </span>
         )}

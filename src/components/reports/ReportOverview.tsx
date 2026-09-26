@@ -4,6 +4,8 @@ import type {
   SectionProgress,
 } from '#/lib/reportTemplates/progress'
 import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
+import { dateTimeFormat } from '../../../convex/lib/dates'
 
 /**
  * Where a report is up to, and the way into it.
@@ -112,7 +114,7 @@ function SectionStatus({ section }: { section: SectionProgress }) {
   }
 
   return (
-    <span className="mt-0.5 flex items-center gap-1 text-caption text-green">
+    <span className="mt-0.5 flex items-center gap-1 text-caption text-green-ink">
       <Check size={13} strokeWidth={2.2} />
       {/* "Complete" would overclaim on a section whose optional questions are
           all blank: what is true is that nothing is outstanding. */}
@@ -139,6 +141,7 @@ export type LastVisitOffer = {
  * technician passes each section and agrees to it before anything prints.
  */
 function LastVisitCard({ offer }: { offer: LastVisitOffer }) {
+  const timezone = useBusinessTimezone()
   // Named rather than counted: "Copy 6 answers" tells a technician nothing
   // about whether they want them.
   const named = offer.labels.slice(0, 2).join(' and ')
@@ -149,7 +152,7 @@ function LastVisitCard({ offer }: { offer: LastVisitOffer }) {
       <History size={17} strokeWidth={2} className="shrink-0 text-blue" />
       <p className="min-w-0 flex-1 text-caption text-muted">
         <span className="block text-row-title text-ink">
-          Copy from {visitDate(offer.finalisedAt)}?
+          Copy from {visitDate(offer.finalisedAt, timezone)}?
         </span>
         {named}
         {rest > 0 ? ` and ${rest} more` : ''}
@@ -166,12 +169,13 @@ function LastVisitCard({ offer }: { offer: LastVisitOffer }) {
   )
 }
 
-function visitDate(at: number) {
-  return new Date(at).toLocaleDateString('en-AU', {
+function visitDate(at: number, timezone: string) {
+  return dateTimeFormat('en-AU', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-  })
+    timeZone: timezone,
+  }).format(new Date(at))
 }
 
 /**
