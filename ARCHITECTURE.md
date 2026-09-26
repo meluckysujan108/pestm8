@@ -36,7 +36,7 @@ A calendar-first job scheduling and compliance-reporting tool for small Australi
 ## 2.1 Tokens
 ```
 Colour — light / dark. Both themes ship; the app follows the OS unless the
-person picks one in the account menu (§2.2). Only these raw tokens are
+person picks one in Settings → Appearance (§2.2). Only these raw tokens are
 re-declared per theme, so nothing else in the system is themed twice.
 
                  light                  dark
@@ -112,6 +112,8 @@ Shell      max-width 460px centred on canvas
 *Amended (reports Phase 6):* a fourth segment, **Reports**, owner-only. It holds the business's option libraries — the nineteen vocabularies the forms draw on — one card per list opening a sheet that adds, renames, reorders, stars the usual few, archives and restores. The forms' wording is reproduced verbatim and is not the business's to change; the lists of answers ARE, and until this existed changing one needed a developer.
 
 *Amended (Settings redesign):* the segments are gone. Settings is now a hub — a grouped list, iOS-style — whose rows each open their own page: **You** (My details, Licence, Two-step sign-in), **Business** (Business details, Team → one page per member, Reports → Answer lists; each row shown only to whoever holds the capability its page needs), About, and Sign out. Old `?seg=` links redirect to the page that replaced the tab. The building blocks (groups with headings outside the card, field rows, the Save bar that shows only while there is something to save, the red last group) are `src/components/settings/ui.tsx`.
+
+*Amended (Appearance moves to Settings):* the header's account button is gone. Its Appearance picker (Light / Dark / System) is now the hub's **Appearance** page, beside About — saved per device, as before. Its "Work in another account" list is now a group near the top of the hub, for contractors and granted subcontractors only; the owner keeps the view menu beside the +. Its Notifications entry was a placeholder with nothing behind it, and was removed with it; a bell comes back in the header when notifications are built.
 
 **Modal sheets (5):**
 1. Month picker — bottom sheet, month grid, job-count dots, "Today"
@@ -491,7 +493,7 @@ Filter/date state lives in **validated search params**, not `useState` — the s
 src/components/
   shell/
     AppShell.tsx                  bottom tabs (mobile) ⇄ sidebar (desktop)
-    PageHeader.tsx                kicker + title + action + avatar
+    PageHeader.tsx                kicker + title + action + view menu
     BusinessSwitcher.tsx          multi-tenant picker
     PreviewBanner.tsx             "Previewing as … / Exit"
   primitives/                     shadcn, restyled to tokens

@@ -1,6 +1,5 @@
 import { ChevronDown } from 'lucide-react'
 import { SidebarTrigger } from '#/components/ui/sidebar.tsx'
-import { AccountMenu } from './AccountMenu'
 import { ViewMenu } from './ViewMenu'
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -56,10 +55,14 @@ export function PageHeader({
             menu leaves the longest titles less room on a phone. */}
         <h1 className="truncate text-page-title text-ink">{title}</h1>
       </div>
-      <div className="flex shrink-0 items-center gap-2">
+      {/* Hidden when empty — no action, and no view menu for anyone but the
+          owner — so it takes no gap from the title. */}
+      <div className="flex shrink-0 items-center gap-2 empty:hidden">
         {action}
         <ViewMenu businessId={businessId} businessSlug={businessSlug} />
-        <AccountMenu businessId={businessId} businessSlug={businessSlug} />
+        {/* The account menu that sat here is gone: Appearance and working in
+            another account moved to Settings, and its Notifications entry
+            was a placeholder. A bell comes back with notifications. */}
       </div>
     </header>
   )

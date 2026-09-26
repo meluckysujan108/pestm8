@@ -1,10 +1,14 @@
 import { expect, test } from '@playwright/test'
 import {
+  FIXTURE_PASSWORD,
   api,
   clickUntil,
+  inviteAndJoin,
   licenceSelf,
   setupBusinessWithSub,
   signInViaUi,
+  signUpActor,
+  uniqueEmail,
 } from './fixtures'
 
 /**
@@ -34,8 +38,8 @@ test('an owner works in a subcontractor’s account, then comes back out', async
   await expect(page.getByText(/Working in/)).toBeHidden()
 
   // The owner switches from the view menu beside the +, which lists every
-  // account he may work in (see viewMenu.spec.ts); the account menu no longer
-  // offers the same thing twice.
+  // account he may work in (see viewMenu.spec.ts); the Settings hub's list is
+  // for everyone else.
   await page.getByRole('button', { name: 'Whose jobs to show' }).click()
   await expect(page.getByText('Work in another account')).toBeVisible()
   await page.getByRole('menuitemradio', { name: /Kevin/ }).click()
@@ -104,19 +108,146 @@ test('an owner works in a subcontractor’s account, then comes back out', async
   expect(subMembershipId).toBeTruthy()
 })
 
-test('the owner is in nobody else’s account menu', async ({ page }) => {
-  const { sub, slug } = await setupBusinessWithSub('switch-owner-hidden')
-
-  await signInViaUi(page, sub.email)
-  await page.goto(`/${slug}/schedule`)
-  await page.getByRole('button', { name: 'Account menu' }).click()
+test('the owner is in nobody else’s list of accounts', async ({ page }) => {
+  const { sub, businessId, slug } = await setupBusinessWithSub(
+    'switch-owner-hidden',
+  )
 
   // A subcontractor with no grant has nobody to work in, and the owner is
   // never a candidate for anyone. He is visible as a person now (see
   // ownerTechnician.spec.ts) — visible is not the same as enterable.
-  await expect(page.getByText('Your account')).toBeVisible()
-  await expect(page.getByText('Work in another account')).toBeHidden()
-  await expect(page.getByText(/Terence/)).toBeHidden()
+  expect(
+    await sub.client.query(api.accountSwitches.targets, { businessId }),
+  ).toEqual([])
+
+  // And Settings, where everyone but the owner starts a switch, offers none.
+  await signInViaUi(page, sub.email)
+  await page.goto(`/${slug}/settings`)
+  const hub = page.getByRole('main')
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeEnabled()
+  await expect(hub.getByRole('link', { name: /^My details/ })).toBeVisible()
+  await expect(hub.getByText('Work in another account')).toHaveCount(0)
+  await expect(hub.getByText(/Terence/)).toHaveCount(0)
+})
+
+/**
+ * Everyone but the owner starts a switch from the Settings hub: a contractor
+ * into their own crew, a granted subcontractor into their contractor. The
+ * owner has the view menu, and nobody has the header's old account menu.
+ */
+test('a contractor works in their crew’s account from Settings, then comes back', async ({
+  page,
+}) => {
+  const { owner, sub, businessId, slug, subMembershipId } =
+    await setupBusinessWithSub('switch-crew')
+
+  // Kevin runs a crew of one: Mia, who answers to him rather than the owner.
+  await owner.client.mutation(api.memberships.setRole, {
+    businessId,
+    membershipId: subMembershipId,
+    role: 'contractor',
+  })
+  const mia = await signUpActor(
+    uniqueEmail('mia-switch-crew'),
+    FIXTURE_PASSWORD,
+    'Mia',
+  )
+  await inviteAndJoin(owner, mia, businessId)
+  const members = await owner.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
+  const miaMembershipId = members.find((m) => m.email === mia.email)!._id
+  await owner.client.mutation(api.team.assignTo, {
+    businessId,
+    membershipId: miaMembershipId,
+    parentMembershipId: subMembershipId,
+  })
+
+  await signInViaUi(page, sub.email)
+  await page.goto(`/${slug}/settings`)
+  const hub = page.getByRole('main')
+  await expect(hub.getByText('Work in another account')).toBeVisible()
+  // Disabled until hydrated, so this waits rather than tapping dead markup.
+  const mias = hub.getByRole('button', { name: /^Mia/ })
+  await expect(mias).toBeEnabled()
+  await mias.click()
+
+  // Straight to the schedule, where her work is, under the banner that says
+  // whose account this is.
+  await expect(page).toHaveURL(new RegExp(`/${slug}/schedule`))
+  const banner = page.getByText(/Working in Mia’s account/)
+  await expect(banner).toBeVisible()
+
+  // No second hop from inside her account: the list is gone, and the way
+  // out is the banner.
+  await page.goto(`/${slug}/settings`)
+  await expect(hub.getByRole('link', { name: /^My details/ })).toBeVisible()
+  await expect(hub.getByText('Work in another account')).toHaveCount(0)
+
+  await clickUntil(page.getByRole('button', { name: 'Switch back' }), () =>
+    expect(
+      page.getByRole('button', { name: 'Switch back', disabled: false }),
+    ).toHaveCount(0, { timeout: 2_000 }),
+  )
+  await expect(banner).toBeHidden()
+  // The same page, live: the list comes back without a reload.
+  await expect(hub.getByRole('button', { name: /^Mia/ })).toBeVisible()
+})
+
+/**
+ * The other way up: a subcontractor their contractor has let in ("can work in
+ * my account") finds that contractor in the same list. Nothing about the
+ * list is per-role on the page — the server decides who is in it — so this
+ * is the grant reaching the screen, not a second implementation.
+ */
+test('a granted subcontractor finds their contractor’s account in Settings', async ({
+  page,
+}) => {
+  const { owner, businessId, slug, subMembershipId } =
+    await setupBusinessWithSub('switch-up')
+
+  await owner.client.mutation(api.memberships.setRole, {
+    businessId,
+    membershipId: subMembershipId,
+    role: 'contractor',
+  })
+  const mia = await signUpActor(
+    uniqueEmail('mia-switch-up'),
+    FIXTURE_PASSWORD,
+    'Mia',
+  )
+  await inviteAndJoin(owner, mia, businessId)
+  const members = await owner.client.query(api.memberships.listForBusiness, {
+    businessId,
+  })
+  const miaMembershipId = members.find((m) => m.email === mia.email)!._id
+  await owner.client.mutation(api.team.assignTo, {
+    businessId,
+    membershipId: miaMembershipId,
+    parentMembershipId: subMembershipId,
+  })
+  await owner.client.mutation(api.memberships.setGrants, {
+    businessId,
+    membershipId: miaMembershipId,
+    grants: {
+      switchInto: subMembershipId,
+      clientDirectory: false,
+      prices: false,
+      otherSchedules: false,
+    },
+  })
+
+  await signInViaUi(page, mia.email)
+  await page.goto(`/${slug}/settings`)
+  const hub = page.getByRole('main')
+  await expect(hub.getByText('Work in another account')).toBeVisible()
+  // Kevin, and only Kevin: never the owner, never a teammate.
+  await expect(hub.getByRole('button', { name: /^Kevin/ })).toBeEnabled()
+  await expect(hub.getByRole('button', { name: /Contractor$/ })).toHaveCount(1)
+  await expect(hub.getByText(/Terence/)).toHaveCount(0)
+
+  await hub.getByRole('button', { name: /^Kevin/ }).click()
+  await expect(page.getByText(/Working in Kevin’s account/)).toBeVisible()
 })
 
 test('a price hidden from someone is hidden everywhere they look', async ({

@@ -126,21 +126,36 @@ test('the choice belongs to this device: another sign-in stays in God view', asy
 test('working in Kevin’s account is one pick away, and so is coming back', async ({
   page,
 }) => {
-  const { owner, slug } = await ownerWithKevinsJob('view-account')
+  const { owner, businessId, slug } = await ownerWithKevinsJob('view-account')
 
   await signInViaUi(page, owner.email)
-  await page.goto(`/${slug}/schedule`)
 
+  // Switching lives in this menu, not twice over: the Settings hub's own list
+  // of accounts is for everyone but the owner. The server would give him one
+  // — Kevin is in it — so its absence is the page's doing, not an empty list.
+  const targets = await owner.client.query(api.accountSwitches.targets, {
+    businessId,
+  })
+  expect(targets.map((t) => t.name)).toContain('Kevin')
+
+  await page.goto(`/${slug}/settings`)
+  // For him the hub's list would arrive over the socket after hydration, not
+  // in the HTML: the loader does not ask for it. The view menu's names come
+  // the same way, asked for at the same moment — so once Kevin is in the
+  // menu, the list would have been too.
+  await page.getByRole('button', { name: 'Whose jobs to show' }).click()
+  await expect(page.getByRole('menuitemradio', { name: /Kevin/ })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(
+    page.getByRole('main').getByText('Work in another account'),
+  ).toHaveCount(0)
+
+  await page.goto(`/${slug}/schedule`)
   await choose(page, /Kevin/)
   const banner = page.getByText(/Working in .*’s account/)
   await expect(banner).toBeVisible()
   await expect(kevinsJob(page)).toBeVisible()
   await expect(ownJob(page)).toBeHidden()
-
-  // Switching lives in this menu now, not twice over.
-  await page.getByRole('button', { name: 'Account menu' }).click()
-  await expect(page.getByText('Work in another account')).toBeHidden()
-  await page.keyboard.press('Escape')
 
   await choose(page, /God view/)
   await expect(banner).toBeHidden()
@@ -152,7 +167,7 @@ test('nobody else gets the menu', async ({ page }) => {
 
   await signInViaUi(page, sub.email)
   await page.goto(`/${slug}/schedule`)
-  await expect(page.getByRole('button', { name: 'Account menu' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
   await expect(
     page.getByRole('button', { name: 'Whose jobs to show' }),
   ).toHaveCount(0)

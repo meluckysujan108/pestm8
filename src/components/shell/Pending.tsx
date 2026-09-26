@@ -54,7 +54,6 @@ export function PagePending() {
           </div>
           <Bone className="h-8 w-40" />
         </div>
-        <Bone className="size-9 shrink-0 rounded-full" />
       </div>
       <CardRows count={4} className="px-4 pt-4" />
     </div>

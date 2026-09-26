@@ -1,5 +1,10 @@
 import { Suspense, useEffect, useState } from 'react'
-import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
+import {
+  createFileRoute,
+  redirect,
+  useNavigate,
+  useRouteContext,
+} from '@tanstack/react-router'
 import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import {
@@ -9,6 +14,7 @@ import {
   Info,
   ListChecks,
   ShieldCheck,
+  SunMoon,
   User,
   Users,
 } from 'lucide-react'
@@ -41,8 +47,10 @@ import { roleLabel } from '#/lib/assignees'
 import { authClient } from '#/lib/auth-client'
 import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { browserOnly, rq, settleWithin, warm } from '#/lib/routeQueries'
+import { THEME_LABEL } from '#/lib/theme'
 import { recoveryCodesUnsaved } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
+import { useThemePref } from '#/lib/useTheme'
 import type { Access } from '#/lib/access'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
@@ -90,11 +98,11 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
     }
   },
   // The signed-in user (the name and the rows' values), the licences "Show
-  // my licence" opens (and the Licences row badges) and, for whoever may see
-  // it, the Team row's two lists. `access.me` is already in the cache: the
-  // layout's beforeLoad warms it, so reading the capability here costs
-  // nothing and keeps a technician from asking for a roster they cannot
-  // have.
+  // my licence" opens (and the Licences row badges), for whoever may see it
+  // the Team row's two lists, and for everyone but the owner the accounts
+  // they may work in. `access.me` is already in the cache: the layout's
+  // beforeLoad warms it, so reading the capability here costs nothing and
+  // keeps a technician from asking for a roster they cannot have.
   //
   // Warmed, never waited on past LOADER_WAIT_MS: with no signal a Convex
   // query never answers, and this is where a technician on site opens the
@@ -110,6 +118,7 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
     )
     const team = access?.caps['team.manage'] === true
     const owner = access?.caps['business.manage'] === true
+    const switches = access !== undefined && !access.view
     return settleWithin(
       LOADER_WAIT_MS,
       warm(
@@ -120,6 +129,7 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
         // The set-up guide's row, so it is there with the rest of the group
         // rather than arriving under a thumb.
         ...(owner ? [rq.setupGuide(business._id)] : []),
+        ...(switches ? [rq.switchTargets(business._id)] : []),
       ),
     )
   },
@@ -128,8 +138,9 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
 
 /**
  * Settings, as a list of places to go rather than a page of forms: who you
- * are, then the pages about you, then the business's (only those this person
- * may use), then About and Sign out. Nothing here is edited in place; every
+ * are (and whose accounts you may work in), then the pages about you, then
+ * the business's (only those this person may use), then this device's
+ * Appearance and About, and Sign out. Nothing here is edited in place; every
  * row opens its own page, and a row's value and badge say what is on it and
  * whether anything there needs doing, so the list can be read without opening
  * any of them.
@@ -143,6 +154,8 @@ function SettingsHub() {
   const canManageTeam = useCan('team.manage')
   const canManageTemplates = useCan('templates.manage')
   const hydrated = useHydrated()
+  const { theme } = useRouteContext({ from: '__root__' })
+  const [themePref] = useThemePref(theme)
 
   // The membership as it is now, not as the layout found it: route context is
   // a snapshot taken on the way in, so a licence number saved a moment ago on
@@ -254,6 +267,15 @@ function SettingsHub() {
           </div>
         </SettingsGroup>
 
+        {/* The owner works in other accounts from the view menu beside the
+            +, which lists every one of them; this is for everyone else. */}
+        {!access.view && (
+          <SwitchAccounts
+            businessId={business._id}
+            businessSlug={businessSlug}
+          />
+        )}
+
         <SettingsGroup title="You">
           <SettingsLinkRow
             to="/$businessSlug/settings/details"
@@ -340,6 +362,14 @@ function SettingsHub() {
         )}
 
         <SettingsGroup>
+          <SettingsLinkRow
+            to="/$businessSlug/settings/appearance"
+            params={{ businessSlug }}
+            icon={SunMoon}
+            tint="blue"
+            title="Appearance"
+            value={THEME_LABEL[themePref]}
+          />
           <SettingsLinkRow
             to="/$businessSlug/settings/about"
             params={{ businessSlug }}
@@ -467,6 +497,97 @@ function TeamRow({
         ) : undefined
       }
     />
+  )
+}
+
+/**
+ * The accounts this person may work in — a contractor's own crew, or the
+ * contractor a subcontractor has been let into — and nothing at all for
+ * anyone with none. Also nothing while a switch is open: the server offers no
+ * targets then (no chaining), and the banner carries the way back.
+ *
+ * A tap starts the switch and goes to the schedule, which is where their
+ * account's work is; staying here would show only this person's own rows,
+ * with the business ones gone. The banner that appears is the confirmation.
+ */
+function SwitchAccounts({
+  businessId,
+  businessSlug,
+}: {
+  businessId: Id<'businesses'>
+  businessSlug: string
+}) {
+  const navigate = useNavigate()
+  const hydrated = useHydrated()
+  const { data: targets } = useQuery(rq.switchTargets(businessId))
+
+  // Nothing to invalidate afterwards: `access.me` and every gated query
+  // resolve through `requireActor`, which reads the switch row, so the socket
+  // re-pushes them the moment it is written.
+  const convexStart = useConvexMutation(api.accountSwitches.start)
+  const start = useMutation({
+    mutationFn: (targetMembershipId: Id<'memberships'>) =>
+      convexStart({ businessId, targetMembershipId }),
+  })
+
+  if (!targets || targets.length === 0) return null
+
+  return (
+    <SettingsGroup
+      title="Work in another account"
+      footer={
+        start.isError ? (
+          <span className="text-red-ink">
+            That account couldn’t be opened. Try again.
+          </span>
+        ) : (
+          'Work you do there is saved in their account, with a record that it was you.'
+        )
+      }
+    >
+      {targets.map((a) => (
+        <button
+          key={a.membershipId}
+          type="button"
+          // Also while one is starting, so a second tap cannot race the first.
+          disabled={!hydrated || start.isPending}
+          // The move to the schedule is on this call, not on the mutation: a
+          // call's callbacks are dropped once this page unmounts, so a
+          // switch that lands late — queued with no signal, say — does not
+          // yank someone off whatever page they have gone on to.
+          onClick={() =>
+            start.mutate(a.membershipId, {
+              onSuccess: () =>
+                navigate({
+                  to: '/$businessSlug/schedule',
+                  params: { businessSlug },
+                }),
+            })
+          }
+          className={`${ROW_CLASS} disabled:opacity-50`}
+        >
+          <RowBody
+            leading={
+              <span
+                aria-hidden
+                className="flex size-[30px] shrink-0 items-center justify-center rounded-full text-[12px] font-semibold text-white"
+                style={{ backgroundColor: a.colour }}
+              >
+                {initialsOf(a.name) || '?'}
+              </span>
+            }
+            title={a.name || roleLabel(a.role)}
+            subtitle={a.name ? roleLabel(a.role) : undefined}
+            value={
+              start.isPending && start.variables === a.membershipId
+                ? 'Opening…'
+                : undefined
+            }
+            chevron
+          />
+        </button>
+      ))}
+    </SettingsGroup>
   )
 }
 

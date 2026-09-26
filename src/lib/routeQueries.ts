@@ -80,6 +80,10 @@ export const rq = {
   invitations: (businessId: B) =>
     convexQuery(api.invitations.listForBusiness, { businessId }),
   products: (businessId: B) => convexQuery(api.products.list, { businessId }),
+  /** The accounts this person may work in, for the Settings hub — contractors
+   * and granted subcontractors. The owner switches from the view menu. */
+  switchTargets: (businessId: B) =>
+    convexQuery(api.accountSwitches.targets, { businessId }),
   /** One person's licences, with their files: their own on Settings →
    * Licences and the hub, or a member's the owner opens from Team. Never in
    * the server's HTML (`keptOutOfHtml`), so a loader warms it only through

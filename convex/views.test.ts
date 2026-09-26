@@ -426,7 +426,7 @@ describe('someone else’s account, from the same dropdown', () => {
     expect(switches).toHaveLength(1)
   })
 
-  test('the account menu’s own switch still refuses to chain', async () => {
+  test('the Settings hub’s own switch still refuses to chain', async () => {
     const f = await business()
     await setView(f, f.terence, { kind: 'account', membershipId: f.kevinId })
     await expect(
