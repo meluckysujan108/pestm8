@@ -50,9 +50,9 @@ export function InviteLinkCard({
           className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
         >
           {copied ? (
-            <Check size={16} strokeWidth={2} />
+            <Check size={16} strokeWidth={2.2} />
           ) : (
-            <Copy size={16} strokeWidth={1.7} />
+            <Copy size={16} strokeWidth={2} />
           )}
           {copied ? 'Copied' : 'Copy link'}
         </button>
@@ -65,7 +65,7 @@ export function InviteLinkCard({
             }}
             className={`${NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
           >
-            <Share2 size={16} strokeWidth={1.7} />
+            <Share2 size={16} strokeWidth={2} />
             Share
           </button>
         ) : (
@@ -73,7 +73,7 @@ export function InviteLinkCard({
             href={`sms:?&body=${encodeURIComponent(smsBody)}`}
             className={`${NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
           >
-            <Share2 size={16} strokeWidth={1.7} />
+            <Share2 size={16} strokeWidth={2} />
             Text it
           </a>
         )}

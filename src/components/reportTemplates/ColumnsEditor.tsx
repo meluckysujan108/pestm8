@@ -92,7 +92,7 @@ export function ColumnsEditor({
             onClick={() => move(index, 'up')}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
-            <ChevronUp size={15} strokeWidth={2} />
+            <ChevronUp size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
@@ -101,7 +101,7 @@ export function ColumnsEditor({
             onClick={() => move(index, 'down')}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
-            <ChevronDown size={15} strokeWidth={2} />
+            <ChevronDown size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
@@ -109,7 +109,7 @@ export function ColumnsEditor({
             onClick={() => setEditingIndex(index)}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
-            <Pencil size={14} strokeWidth={1.8} />
+            <Pencil size={14} strokeWidth={2} />
           </button>
           <button
             type="button"
@@ -117,7 +117,7 @@ export function ColumnsEditor({
             onClick={() => removeAt(index)}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
-            <Trash2 size={15} strokeWidth={1.8} />
+            <Trash2 size={15} strokeWidth={2} />
           </button>
         </div>
       ))}
@@ -135,7 +135,7 @@ export function ColumnsEditor({
                 setPicking(false)
                 setEditingIndex(columns.length)
               }}
-              className="rounded-xl bg-surface-2 px-2 py-2.5 text-left text-[13px] font-semibold text-ink transition active:scale-[.97]"
+              className="rounded-xl bg-surface-2 px-2 py-2.5 text-left text-caption font-semibold text-ink transition active:scale-[.97]"
             >
               {FIELD_KIND_LABELS[kind]}
             </button>
@@ -147,7 +147,7 @@ export function ColumnsEditor({
           onClick={() => setPicking(true)}
           className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-1.5`}
         >
-          <Plus size={15} strokeWidth={2} />
+          <Plus size={15} strokeWidth={2.2} />
           Add column
         </button>
       )}

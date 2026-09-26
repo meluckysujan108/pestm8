@@ -118,8 +118,13 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
   ).toBeVisible()
 
   // --- reorder: moving photo 2 up swaps it with photo 1 ---
+  // Reordering lives behind the tile's "⋯", so the three tools left on it
+  // can each be a 44px target.
   await page
-    .getByRole('button', { name: 'Move Report Photos photo 2 up', exact: true })
+    .getByRole('button', { name: 'More actions for Report Photos photo 2', exact: true })
+    .click()
+  await page
+    .getByRole('menuitem', { name: 'Move Report Photos photo 2 up', exact: true })
     .click()
   // The cover photo's caption was empty; the captioned one is now second.
   await expect(

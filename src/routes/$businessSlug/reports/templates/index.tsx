@@ -4,7 +4,7 @@ import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Archive, ArchiveRestore, Copy, Trash2 } from 'lucide-react'
 import { Drawer } from 'vaul'
-import { SheetCloseButton } from '#/components/primitives/Sheet'
+import { SheetShell } from '#/components/primitives/Sheet'
 import { api } from '../../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
@@ -201,52 +201,45 @@ function CloneBuiltinSheet({
   })
 
   return (
-    <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
-          <form
-            className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              clone.mutate({ businessId, sourceTemplateId, name })
-            }}
-          >
-            <Drawer.Title className="pr-10 text-sheet-title text-ink">
-              Clone &amp; edit
-            </Drawer.Title>
-            <p className="mt-1 text-body text-muted">
-              This makes an independent copy — the original built-in template
-              never changes, and reports already using it are unaffected.
-            </p>
-            <label className="mt-4 flex flex-col gap-1.5">
-              <span className="section-label">Name</span>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                className={`${FIELD} w-full`}
-              />
-            </label>
-            {/* A failed clone used to leave the sheet open with nothing said. */}
-            <FormAlert
-              error={clone.isError ? clone.error : null}
-              copy={COPY_ERROR}
-              className="mt-4"
-            />
-            <button
-              type="submit"
-              disabled={clone.isPending || !hydrated}
-              className={`${PRIMARY_BUTTON} mt-5 w-full`}
-            >
-              {clone.isPending ? 'Cloning…' : 'Clone template'}
-            </button>
-          </form>
-          <SheetCloseButton onClick={onClose} />
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+    <SheetShell open={open} onClose={onClose}>
+      <form
+        className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          clone.mutate({ businessId, sourceTemplateId, name })
+        }}
+      >
+        <Drawer.Title className="pr-10 text-sheet-title text-ink">
+          Clone &amp; edit
+        </Drawer.Title>
+        <p className="mt-1 text-body text-muted">
+          This makes an independent copy — the original built-in template
+          never changes, and reports already using it are unaffected.
+        </p>
+        <label className="mt-4 flex flex-col gap-1.5">
+          <span className="section-label">Name</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            className={`${FIELD} w-full`}
+          />
+        </label>
+        {/* A failed clone used to leave the sheet open with nothing said. */}
+        <FormAlert
+          error={clone.isError ? clone.error : null}
+          copy={COPY_ERROR}
+          className="mt-4"
+        />
+        <button
+          type="submit"
+          disabled={clone.isPending || !hydrated}
+          className={`${PRIMARY_BUTTON} mt-5 w-full`}
+        >
+          {clone.isPending ? 'Cloning…' : 'Clone template'}
+        </button>
+      </form>
+    </SheetShell>
   )
 }
 
@@ -329,7 +322,7 @@ function CustomRow({
           onClick={() => setDuplicateOpen(true)}
           className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95]"
         >
-          <Copy size={16} strokeWidth={1.7} />
+          <Copy size={16} strokeWidth={2} />
         </button>
         {template.archivedAt ? (
           <button
@@ -339,7 +332,7 @@ function CustomRow({
             onClick={() => unarchive.mutate({ businessId, templateId: template._id })}
             className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
           >
-            <ArchiveRestore size={16} strokeWidth={1.7} />
+            <ArchiveRestore size={16} strokeWidth={2} />
           </button>
         ) : (
           <button
@@ -349,7 +342,7 @@ function CustomRow({
             onClick={() => archive.mutate({ businessId, templateId: template._id })}
             className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
           >
-            <Archive size={16} strokeWidth={1.7} />
+            <Archive size={16} strokeWidth={2} />
           </button>
         )}
         <button
@@ -359,7 +352,7 @@ function CustomRow({
           onClick={() => remove.mutate({ businessId, templateId: template._id })}
           className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
         >
-          <Trash2 size={16} strokeWidth={1.7} />
+          <Trash2 size={16} strokeWidth={2} />
         </button>
       </div>
 
@@ -401,46 +394,39 @@ function DuplicateSheet({
   })
 
   return (
-    <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
-          <form
-            className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              duplicate.mutate({ businessId, templateId, name })
-            }}
-          >
-            <Drawer.Title className="pr-10 text-sheet-title text-ink">
-              Duplicate template
-            </Drawer.Title>
-            <label className="mt-4 flex flex-col gap-1.5">
-              <span className="section-label">Name</span>
-              <input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-                className={`${FIELD} w-full`}
-              />
-            </label>
-            <FormAlert
-              error={duplicate.isError ? duplicate.error : null}
-              copy={COPY_ERROR}
-              className="mt-4"
-            />
-            <button
-              type="submit"
-              disabled={duplicate.isPending || !hydrated}
-              className={`${PRIMARY_BUTTON} mt-5 w-full`}
-            >
-              {duplicate.isPending ? 'Duplicating…' : 'Duplicate'}
-            </button>
-          </form>
-          <SheetCloseButton onClick={onClose} />
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+    <SheetShell open={open} onClose={onClose}>
+      <form
+        className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+        onSubmit={(e) => {
+          e.preventDefault()
+          duplicate.mutate({ businessId, templateId, name })
+        }}
+      >
+        <Drawer.Title className="pr-10 text-sheet-title text-ink">
+          Duplicate template
+        </Drawer.Title>
+        <label className="mt-4 flex flex-col gap-1.5">
+          <span className="section-label">Name</span>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            required
+            className={`${FIELD} w-full`}
+          />
+        </label>
+        <FormAlert
+          error={duplicate.isError ? duplicate.error : null}
+          copy={COPY_ERROR}
+          className="mt-4"
+        />
+        <button
+          type="submit"
+          disabled={duplicate.isPending || !hydrated}
+          className={`${PRIMARY_BUTTON} mt-5 w-full`}
+        >
+          {duplicate.isPending ? 'Duplicating…' : 'Duplicate'}
+        </button>
+      </form>
+    </SheetShell>
   )
 }

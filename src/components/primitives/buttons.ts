@@ -33,7 +33,7 @@
 const BASE =
   'rounded-xl font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.975] disabled:opacity-50'
 const FULL = 'h-12 text-[17px]'
-const COMPACT = 'h-11 text-[15px]'
+const COMPACT = 'h-11 text-body'
 
 const RED = 'bg-red-fill text-white shadow-red'
 const INK = 'bg-ink text-surface'

@@ -167,13 +167,13 @@ export function ProductForm({
             <LoaderCircle
               aria-hidden
               size={22}
-              strokeWidth={2}
+              strokeWidth={1.7}
               className="animate-spin"
             />
           ) : photoSrc ? (
             <img src={photoSrc} alt="" className="size-full object-cover" />
           ) : (
-            <Package aria-hidden size={28} strokeWidth={1.5} />
+            <Package aria-hidden size={28} strokeWidth={1.7} />
           )}
         </span>
         {/* Every button here is 44px tall, for a gloved thumb. */}
@@ -298,7 +298,7 @@ export function ProductForm({
         <div className="min-w-0 flex-1">
           {shownPdf ? (
             <>
-              <p className="truncate text-[15px] font-semibold text-ink">
+              <p className="truncate text-body font-semibold text-ink">
                 {shownPdf.fileName}
               </p>
               <p className="text-caption text-muted">
@@ -420,7 +420,7 @@ export function PdfTile({ size = 'md' }: { size?: 'md' | 'lg' }) {
       aria-hidden
       className={`flex ${box} shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg bg-red-bg text-red`}
     >
-      <FileText size={size === 'lg' ? 22 : 18} strokeWidth={1.75} />
+      <FileText size={size === 'lg' ? 22 : 18} strokeWidth={1.7} />
       <span className="text-[9px] font-bold leading-none tracking-wide">
         PDF
       </span>
@@ -449,7 +449,7 @@ export function DeleteProductButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="mt-6 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-red transition active:scale-[.975] disabled:opacity-50"
+      className="mt-6 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-body font-semibold text-red transition active:scale-[.975] disabled:opacity-50"
     >
       <Trash2 aria-hidden size={16} strokeWidth={2} />
       Delete product

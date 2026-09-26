@@ -77,7 +77,7 @@ export function TopBar({
           </button>
         </div>
         <div className="min-w-0 text-center">
-          <h2 className="truncate text-[15px] font-semibold leading-tight text-ink">
+          <h2 className="truncate text-body font-semibold leading-tight text-ink">
             {title}
           </h2>
           {files ? (
@@ -213,12 +213,12 @@ export function Toolbar({
           disabled={pager.index <= 0}
           onClick={pager.onPrevious}
         >
-          <ChevronLeft size={24} strokeWidth={1.8} />
+          <ChevronLeft size={24} strokeWidth={2} />
         </ToolbarButton>
       )}
       {actions.share && (
         <ToolbarButton label="Share" disabled={!canShare} onClick={onShare}>
-          <Share size={22} strokeWidth={1.8} />
+          <Share size={22} strokeWidth={1.7} />
         </ToolbarButton>
       )}
       <ToolbarButton
@@ -228,7 +228,7 @@ export function Toolbar({
         pressed={searchOpen}
         onClick={onSearch}
       >
-        <Search size={22} strokeWidth={1.8} />
+        <Search size={22} strokeWidth={1.7} />
       </ToolbarButton>
       <ToolbarButton
         label="Pages"
@@ -236,7 +236,7 @@ export function Toolbar({
         pressed={gridOpen}
         onClick={onPages}
       >
-        <LayoutGrid size={22} strokeWidth={1.8} />
+        <LayoutGrid size={22} strokeWidth={1.7} />
       </ToolbarButton>
       {markup && (
         <ToolbarButton
@@ -246,7 +246,7 @@ export function Toolbar({
           pressed={markup.open}
           onClick={markup.onToggle}
         >
-          <Pencil size={21} strokeWidth={1.8} />
+          <Pencil size={21} strokeWidth={1.7} />
         </ToolbarButton>
       )}
       {keep && (
@@ -260,13 +260,13 @@ export function Toolbar({
           {keep.busy ? (
             <LoaderCircle
               size={22}
-              strokeWidth={1.8}
+              strokeWidth={1.7}
               className="animate-spin"
             />
           ) : keep.kept ? (
-            <CircleCheck size={22} strokeWidth={1.8} />
+            <CircleCheck size={22} strokeWidth={1.7} />
           ) : (
-            <CircleArrowDown size={22} strokeWidth={1.8} />
+            <CircleArrowDown size={22} strokeWidth={1.7} />
           )}
         </ToolbarButton>
       )}
@@ -276,7 +276,7 @@ export function Toolbar({
           disabled={pager.index >= pager.count - 1}
           onClick={pager.onNext}
         >
-          <ChevronRight size={24} strokeWidth={1.8} />
+          <ChevronRight size={24} strokeWidth={2} />
         </ToolbarButton>
       )}
     </div>
@@ -317,7 +317,7 @@ export function MoreMenu({
         aria-label="More"
         className="flex size-11 items-center justify-center rounded-full text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue"
       >
-        <CircleEllipsis size={24} strokeWidth={1.8} />
+        <CircleEllipsis size={24} strokeWidth={1.7} />
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
@@ -331,7 +331,7 @@ export function MoreMenu({
               from a user gesture. */}
           {actions.save && (
             <MenuItem
-              icon={<Download size={18} strokeWidth={1.8} />}
+              icon={<Download size={18} strokeWidth={1.7} />}
               disabled={!canSave}
               onSelect={onSave}
             >
@@ -340,7 +340,7 @@ export function MoreMenu({
           )}
           {replace && (
             <MenuItem
-              icon={<FileUp size={18} strokeWidth={1.8} />}
+              icon={<FileUp size={18} strokeWidth={1.7} />}
               onSelect={replace}
             >
               {actions.replaceLabel ?? 'Replace PDF…'}
@@ -350,9 +350,9 @@ export function MoreMenu({
             <MenuItem
               icon={
                 keep.kept ? (
-                  <CircleMinus size={18} strokeWidth={1.8} />
+                  <CircleMinus size={18} strokeWidth={1.7} />
                 ) : (
-                  <CircleArrowDown size={18} strokeWidth={1.8} />
+                  <CircleArrowDown size={18} strokeWidth={1.7} />
                 )
               }
               disabled={keep.busy}

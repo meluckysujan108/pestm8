@@ -8,6 +8,7 @@ import {
   EMPTY_ACTION_CLASS,
   EmptyState,
   EmptyStateButton,
+  NoMatches,
 } from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
@@ -91,7 +92,7 @@ function ClientsPage() {
                 to="/$businessSlug/clients/import"
                 params={{ businessSlug: business.slug }}
                 aria-label="Import clients"
-                className="relative tap-target flex h-9 items-center gap-1.5 rounded-full bg-surface-2 px-3.5 text-[15px] font-semibold text-blue transition active:scale-[.97]"
+                className="relative tap-target flex h-9 items-center gap-1.5 rounded-full bg-surface-2 px-3.5 text-body font-semibold text-blue transition active:scale-[.97]"
               >
                 <Upload aria-hidden size={16} strokeWidth={2.2} />
                 Import
@@ -139,15 +140,22 @@ function ClientsPage() {
         </div>
 
         {filteredRows.length === 0 ? (
-          <EmptyState
-            title={q || filtersActive ? 'No matches' : 'No clients yet'}
-            body={
-              q || filtersActive
-                ? 'Try a different name, address, or filter.'
-                : 'Add a client to start booking work for them.'
-            }
-            action={
-              !(q || filtersActive) && (
+          q || filtersActive ? (
+            <NoMatches
+              term={q}
+              hint="Try a different name, address or filter."
+              clearLabel={q ? 'Clear search' : 'Clear filters'}
+              onClear={() => {
+                setKind('all')
+                setSuburb('all')
+                void navigate({ search: { q: undefined }, replace: true })
+              }}
+            />
+          ) : (
+            <EmptyState
+              title="No clients yet"
+              body="Add a client to start booking work for them."
+              action={
                 <div className="flex flex-wrap justify-center gap-2">
                   <EmptyStateButton
                     onClick={() => setNewOpen(true)}
@@ -167,9 +175,9 @@ function ClientsPage() {
                     </Link>
                   )}
                 </div>
-              )
-            }
-          />
+              }
+            />
+          )
         ) : (
           <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
             {filteredRows.map(({ client, properties: owned }) => (

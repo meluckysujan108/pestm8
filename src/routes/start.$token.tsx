@@ -222,7 +222,7 @@ function Ahead({ icon: Icon, text }: { icon: LucideIcon; text: string }) {
         aria-hidden
         className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-3 text-ink-2"
       >
-        <Icon size={16} strokeWidth={1.9} />
+        <Icon size={16} strokeWidth={2} />
       </span>
       {text}
     </li>

@@ -337,7 +337,7 @@ export function UndoHold({
           disabled={!hydrated || pending}
           onClick={() => undo.mutation.mutate(row._id)}
           aria-label={pending ? undefined : `Carry on undoing ${row.fileName}`}
-          className="mt-1 flex min-h-11 items-center text-[15px] font-semibold text-red transition active:opacity-60 disabled:opacity-50"
+          className="mt-1 flex min-h-11 items-center text-body font-semibold text-red transition active:opacity-60 disabled:opacity-50"
         >
           {pending ? 'Undoing…' : 'Carry on undoing'}
         </button>

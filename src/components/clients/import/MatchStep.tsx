@@ -98,7 +98,7 @@ export function MatchStep({
         lede={`${sheet.fileName} · ${plural(sheet.rows.length, 'row')}. Check what each column holds — a column that isn’t matched is left behind.`}
       >
         {source && (
-          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-blue-bg px-3 py-1 text-[13px] font-semibold text-blue-ink">
+          <p className="mt-2 inline-flex items-center gap-1.5 rounded-full bg-blue-bg px-3 py-1 text-caption font-semibold text-blue-ink">
             <Sparkles aria-hidden size={14} strokeWidth={2} />
             Looks like a {source} export
           </p>

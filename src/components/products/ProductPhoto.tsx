@@ -49,7 +49,7 @@ export function ProductThumb({
           className="size-full object-cover"
         />
       ) : (
-        <Package aria-hidden size={24} strokeWidth={1.75} />
+        <Package aria-hidden size={24} strokeWidth={1.7} />
       )}
     </span>
   )
@@ -80,7 +80,7 @@ export function ProductHero({
   }
   return (
     <div className="flex aspect-[4/3] w-full flex-col items-center justify-center gap-2 rounded-2xl bg-surface-2 text-muted">
-      <Package aria-hidden size={40} strokeWidth={1.5} />
+      <Package aria-hidden size={40} strokeWidth={1.7} />
       <p className="text-caption">No photo</p>
       {onAddPhoto && (
         <button

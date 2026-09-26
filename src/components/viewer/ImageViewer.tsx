@@ -476,7 +476,7 @@ export function ImageViewer({
               Done
             </button>
           </div>
-          <p className="truncate text-center text-[15px] font-semibold text-ink">
+          <p className="truncate text-center text-body font-semibold text-ink">
             {title}
           </p>
           <div className="flex justify-end">
@@ -488,7 +488,7 @@ export function ImageViewer({
                 onClick={onShare}
                 className="flex size-11 items-center justify-center rounded-full text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue disabled:text-muted-2"
               >
-                <Share size={22} strokeWidth={1.8} />
+                <Share size={22} strokeWidth={1.7} />
               </button>
             )}
           </div>
@@ -539,7 +539,7 @@ export function ImageViewer({
                 <LoaderCircle
                   aria-hidden
                   size={30}
-                  strokeWidth={2}
+                  strokeWidth={1.7}
                   className="animate-spin text-muted"
                 />
                 <p role="status" className="text-caption text-muted">
@@ -558,7 +558,7 @@ export function ImageViewer({
                 <ImageOff
                   aria-hidden
                   size={34}
-                  strokeWidth={1.75}
+                  strokeWidth={1.7}
                   className="text-muted"
                 />
                 <p role="alert" className="max-w-[300px] text-body text-ink-2">
@@ -602,7 +602,7 @@ export function ImageViewer({
               onClick={pager.onPrevious}
               className="flex size-11 items-center justify-center rounded-full text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue disabled:text-muted-2"
             >
-              <ChevronLeft size={24} strokeWidth={1.8} />
+              <ChevronLeft size={24} strokeWidth={2} />
             </button>
             <p
               aria-live="polite"
@@ -617,7 +617,7 @@ export function ImageViewer({
               onClick={pager.onNext}
               className="flex size-11 items-center justify-center rounded-full text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue disabled:text-muted-2"
             >
-              <ChevronRight size={24} strokeWidth={1.8} />
+              <ChevronRight size={24} strokeWidth={2} />
             </button>
           </div>
         </footer>

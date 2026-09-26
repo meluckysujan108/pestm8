@@ -207,7 +207,7 @@ export const ReviewCard = memo(function ReviewCard({
                 <MapPin
                   aria-hidden
                   size={15}
-                  strokeWidth={1.8}
+                  strokeWidth={2}
                   className="mt-[3px] shrink-0 text-muted"
                 />
                 <div className="min-w-0 flex-1">

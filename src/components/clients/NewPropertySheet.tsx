@@ -3,7 +3,7 @@ import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { X } from 'lucide-react'
+import { SheetShell } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
 import {
@@ -77,65 +77,49 @@ export function NewPropertySheet({
   })
 
   return (
-    <Drawer.Root open={open} onOpenChange={(o) => !o && close()}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
+    <SheetShell open={open} onClose={close}>
+      <SaveWarningsProvider value={saveWarnings}>
+        <form
+          className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
+          onSubmit={(e) =>
+            // mutateAsync, so a save that fails keeps the warnings already
+            // confirmed and Retry does not ask about them again.
+            saveWarnings.guard(e, () =>
+              create.mutateAsync({
+                businessId,
+                ...newClientArgs(latestValue.current),
+              }),
+            )
+          }
+        >
+          <Drawer.Title className="text-sheet-title text-ink">
+            New client
+          </Drawer.Title>
 
-          <SaveWarningsProvider value={saveWarnings}>
-            <form
-              className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3"
-              onSubmit={(e) =>
-                // mutateAsync, so a save that fails keeps the warnings already
-                // confirmed and Retry does not ask about them again.
-                saveWarnings.guard(e, () =>
-                  create.mutateAsync({
-                    businessId,
-                    ...newClientArgs(latestValue.current),
-                  }),
-                )
-              }
-            >
-              <Drawer.Title className="text-sheet-title text-ink">
-                New client
-              </Drawer.Title>
+          <NewClientFields
+            value={value}
+            onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
+            businessState={businessState}
+          />
 
-              <NewClientFields
-                value={value}
-                onChange={(patch) => setValue((v) => ({ ...v, ...patch }))}
-                businessState={businessState}
-              />
-
-              <FormAlert
-                error={create.isError ? create.error : null}
-                copy={NEW_CLIENT_ERROR_COPY}
-                className="mt-3"
-              />
-              <SaveWarningsPanel className="mt-3" />
-
-              <button
-                type="submit"
-                disabled={create.isPending || !hydrated}
-                className={`${PRIMARY_BUTTON} mt-5 w-full`}
-              >
-                {create.isPending
-                  ? 'Saving…'
-                  : saveWarnings.saveLabel('Save client')}
-              </button>
-            </form>
-          </SaveWarningsProvider>
+          <FormAlert
+            error={create.isError ? create.error : null}
+            copy={NEW_CLIENT_ERROR_COPY}
+            className="mt-3"
+          />
+          <SaveWarningsPanel className="mt-3" />
 
           <button
-            type="button"
-            aria-label="Close"
-            onClick={close}
-            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            type="submit"
+            disabled={create.isPending || !hydrated}
+            className={`${PRIMARY_BUTTON} mt-5 w-full`}
           >
-            <X size={16} strokeWidth={2} />
+            {create.isPending
+              ? 'Saving…'
+              : saveWarnings.saveLabel('Save client')}
           </button>
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+        </form>
+      </SaveWarningsProvider>
+    </SheetShell>
   )
 }

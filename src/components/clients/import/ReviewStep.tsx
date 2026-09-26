@@ -94,7 +94,7 @@ export function RecheckNote({
         type="button"
         onClick={onRetry}
         disabled={!hydrated}
-        className="mt-1 min-h-11 text-[15px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+        className="mt-1 min-h-11 text-body font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
       >
         Check again
       </button>
@@ -223,7 +223,7 @@ export function ReviewStep({
           type="button"
           onClick={onBack}
           disabled={!hydrated}
-          className="mt-4 min-h-11 text-[15px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+          className="mt-4 min-h-11 text-body font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
         >
           Change the columns
         </button>
@@ -246,7 +246,7 @@ export function ReviewStep({
         type="button"
         onClick={onBack}
         disabled={!hydrated}
-        className="mt-1 min-h-11 text-[15px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+        className="mt-1 min-h-11 text-body font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
       >
         Change the columns
       </button>
@@ -276,7 +276,7 @@ export function ReviewStep({
               }}
               // Drawn 36px, tapped at 44 (`tap-target`), as the app's
               // other filter chips.
-              className={`relative tap-target inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.97] disabled:opacity-60 ${
+              className={`relative tap-target inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-caption font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.97] disabled:opacity-60 ${
                 on
                   ? 'border-blue/30 bg-blue/12 text-blue'
                   : 'border-hairline bg-surface text-ink-2'

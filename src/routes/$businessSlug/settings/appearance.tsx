@@ -79,7 +79,7 @@ function AppearancePage() {
                     <Check
                       aria-hidden
                       size={18}
-                      strokeWidth={2.4}
+                      strokeWidth={2}
                       className="shrink-0 text-blue"
                     />
                   )}

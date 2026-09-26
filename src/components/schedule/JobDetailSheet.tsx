@@ -3,7 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { AlertDialog, DropdownMenu } from 'radix-ui'
+import { SheetShell } from '#/components/primitives/Sheet'
+import { DropdownMenu } from 'radix-ui'
 import {
   Camera,
   Check,
@@ -11,7 +12,6 @@ import {
   Pencil,
   Repeat,
   Trash2,
-  X,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { Combobox } from '#/components/primitives/Combobox'
@@ -34,7 +34,7 @@ import { propertyOptions } from '#/lib/propertyOptions'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
-import { SheetPending } from '#/components/shell/Pending'
+import { RowPending, SheetPending } from '#/components/shell/Pending'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
@@ -49,6 +49,7 @@ import type { IntervalDraft } from './RecurrenceFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 
 /**
  * Loaded on demand, not with the schedule.
@@ -143,38 +144,23 @@ export function JobDetailSheet({
   onClose: () => void
 }) {
   return (
-    <Drawer.Root open={jobId !== null} onOpenChange={(o) => !o && onClose()}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
+    <SheetShell open={jobId !== null} onClose={onClose}>
 
-          {/* Mounted only with a real id, so the query never needs a skip
-              sentinel and its key is always well-formed. `key` forces a
-              fresh instance per job so `editing`/`confirmCancelOpen` never
-              leak from one job into another. */}
-          {jobId !== null && (
-            <JobDetailBody
-              key={jobId}
-              businessId={businessId}
-              businessSlug={businessSlug}
-              timezone={timezone}
-              jobId={jobId as Id<'jobs'>}
-              canReassign={canReassign}
-            />
-          )}
-
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
-          >
-            <X size={16} strokeWidth={2} />
-          </button>
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+      {/* Mounted only with a real id, so the query never needs a skip
+          sentinel and its key is always well-formed. `key` forces a
+          fresh instance per job so `editing`/`confirmCancelOpen` never
+          leak from one job into another. */}
+      {jobId !== null && (
+        <JobDetailBody
+          key={jobId}
+          businessId={businessId}
+          businessSlug={businessSlug}
+          timezone={timezone}
+          jobId={jobId as Id<'jobs'>}
+          canReassign={canReassign}
+        />
+      )}
+    </SheetShell>
   )
 }
 
@@ -326,7 +312,7 @@ function JobDetailBody({
                         className="flex items-center gap-1 rounded-full transition active:scale-[.97]"
                       >
                         <StatusPill status={job.status} />
-                        <ChevronDown size={14} strokeWidth={2} className="text-muted" />
+                        <ChevronDown size={14} strokeWidth={2.2} className="text-muted" />
                       </button>
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Portal>
@@ -353,13 +339,21 @@ function JobDetailBody({
                 ) : (
                   <StatusPill status={job.status} />
                 )}
+                {/* Each part kept whole, so a narrow screen breaks the line
+                    at a "·" and never leaves "min" alone under the pill. */}
                 <span className="text-body text-muted">
-                  {formatJobDate(
-                    dayKeyOf(job.scheduledAt, timezone),
-                    dayKeyOf(Date.now(), timezone),
-                  )}{' '}
-                  · {formatTime(job.scheduledAt, timezone)} ·{' '}
-                  {formatDuration(job.durationMinutes)}
+                  <span className="whitespace-nowrap">
+                    {formatJobDate(
+                      dayKeyOf(job.scheduledAt, timezone),
+                      dayKeyOf(Date.now(), timezone),
+                    )}
+                  </span>{' '}
+                  <span className="whitespace-nowrap">
+                    · {formatTime(job.scheduledAt, timezone)}
+                  </span>{' '}
+                  <span className="whitespace-nowrap">
+                    · {formatDuration(job.durationMinutes)}
+                  </span>
                 </span>
               </div>
 
@@ -486,7 +480,7 @@ function JobDetailBody({
             {job.recurrence?.active ? (
               <>
                 <div className="flex items-center gap-2">
-                  <Repeat size={16} strokeWidth={1.7} className="text-ink-2" />
+                  <Repeat size={16} strokeWidth={2} className="text-ink-2" />
                   <p className="text-body text-ink">
                     {describeRepeat(job.recurrence.interval)}
                   </p>
@@ -574,42 +568,24 @@ function JobDetailBody({
             </p>
           )}
 
-          <AlertDialog.Root open={confirmCancelOpen} onOpenChange={setConfirmCancelOpen}>
-            <AlertDialog.Portal>
-              <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
-              <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
-                <AlertDialog.Title className="text-row-title text-ink">
-                  Cancel this job?
-                </AlertDialog.Title>
-                <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
-                  {job.jobType} for {job.property?.client?.name} at{' '}
-                  {formatTime(job.scheduledAt, timezone)} won't happen as booked.
-                  Nothing is deleted — the visit stays in the schedule marked
-                  cancelled, and you can reopen it as booked any time.
-                </AlertDialog.Description>
-                <div className="mt-4 flex gap-2">
-                  <AlertDialog.Cancel asChild>
-                    <button
-                      type="button"
-                      className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-                    >
-                      Keep job
-                    </button>
-                  </AlertDialog.Cancel>
-                  <AlertDialog.Action asChild>
-                    <button
-                      type="button"
-                      disabled={cancel.isPending}
-                      onClick={() => cancel.mutate({ businessId, jobId: job._id })}
-                      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-                    >
-                      {cancel.isPending ? 'Cancelling…' : 'Cancel job'}
-                    </button>
-                  </AlertDialog.Action>
-                </div>
-              </AlertDialog.Content>
-            </AlertDialog.Portal>
-          </AlertDialog.Root>
+          <ConfirmDialog
+            open={confirmCancelOpen}
+            onOpenChange={setConfirmCancelOpen}
+            title="Cancel this job?"
+            body={
+              <>
+                {job.jobType} for {job.property?.client?.name} at{' '}
+                {formatTime(job.scheduledAt, timezone)} won't happen as booked.
+                Nothing is deleted — the visit stays in the schedule marked
+                cancelled, and you can reopen it as booked any time.
+              </>
+            }
+            cancel="Keep job"
+            confirm="Cancel job"
+            pending={cancel.isPending}
+            pendingLabel="Cancelling…"
+            onConfirm={() => cancel.mutate({ businessId, jobId: job._id })}
+          />
 
           {/* Nothing to show while it loads: the sheet is closed until the
               person asks for it, and its own open animation is the feedback. */}
@@ -624,45 +600,24 @@ function JobDetailBody({
             )}
           </Suspense>
 
-          <AlertDialog.Root
+          <ConfirmDialog
             open={confirmStopRepeatingOpen}
             onOpenChange={setConfirmStopRepeatingOpen}
-          >
-            <AlertDialog.Portal>
-              <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
-              <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
-                <AlertDialog.Title className="text-row-title text-ink">
-                  Stop repeating this service?
-                </AlertDialog.Title>
-                <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
-                  This visit stays booked as shown. Any other future visits
-                  already generated for this series will be removed from the
-                  schedule — this cannot be undone. Past and completed visits
-                  are not affected.
-                </AlertDialog.Description>
-                <div className="mt-4 flex gap-2">
-                  <AlertDialog.Cancel asChild>
-                    <button
-                      type="button"
-                      className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-                    >
-                      Keep repeating
-                    </button>
-                  </AlertDialog.Cancel>
-                  <AlertDialog.Action asChild>
-                    <button
-                      type="button"
-                      disabled={stopRepeating.isPending}
-                      onClick={() => stopRepeating.mutate({ businessId, jobId: job._id })}
-                      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-                    >
-                      {stopRepeating.isPending ? 'Stopping…' : 'Stop repeating'}
-                    </button>
-                  </AlertDialog.Action>
-                </div>
-              </AlertDialog.Content>
-            </AlertDialog.Portal>
-          </AlertDialog.Root>
+            title="Stop repeating this service?"
+            body={
+              <>
+                This visit stays booked as shown. Any other future visits
+                already generated for this series will be removed from the
+                schedule — this cannot be undone. Past and completed visits
+                are not affected.
+              </>
+            }
+            cancel="Keep repeating"
+            confirm="Stop repeating"
+            pending={stopRepeating.isPending}
+            pendingLabel="Stopping…"
+            onConfirm={() => stopRepeating.mutate({ businessId, jobId: job._id })}
+          />
         </div>
       ) : job === null ? (
         <div className="px-4 py-10">
@@ -1226,8 +1181,8 @@ function JobReports({
     convexQuery(api.reports.listByProperty, { businessId, propertyId }),
   )
 
-  // `undefined` while the query is out, so the section can say "Loading…"
-  // rather than "no reports for this visit yet" about reports it has not
+  // `undefined` while the query is out, so the section shows its loading
+  // row rather than "no reports for this visit yet" about reports it has not
   // looked for.
   const forThisJob = data?.filter((r) => r.jobId === jobId)
   const elsewhere = data?.filter((r) => r.jobId !== jobId)
@@ -1276,7 +1231,7 @@ function SectionLoading({ label }: { label: string }) {
     <section className="mt-6">
       <h3 className="section-label mb-2">{label}</h3>
       <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
-        <p className="px-3.5 py-3 text-caption text-muted">Loading…</p>
+        <RowPending label={`Loading ${label.toLowerCase()}`} />
       </div>
     </section>
   )
@@ -1365,7 +1320,7 @@ function JobPhotos({
                   onClick={() => remove.mutate({ businessId, jobId, photoId: photo._id })}
                   className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
                 >
-                  <Trash2 size={12} strokeWidth={2} />
+                  <Trash2 size={12} strokeWidth={2.4} />
                 </button>
               )}
             </div>
@@ -1381,7 +1336,7 @@ function JobPhotos({
             onClick={() => input.current?.click()}
             className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
           >
-            <Camera size={16} strokeWidth={1.8} />
+            <Camera size={16} strokeWidth={2} />
             {busy ? 'Uploading…' : 'Add photos'}
           </button>
           <input

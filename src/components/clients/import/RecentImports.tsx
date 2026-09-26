@@ -66,7 +66,7 @@ export function RecentImports({
                   aria-hidden
                   className="flex size-[30px] shrink-0 items-center justify-center rounded-[8px] bg-surface-2 text-muted"
                 >
-                  <FileSpreadsheet size={17} strokeWidth={1.8} />
+                  <FileSpreadsheet size={17} strokeWidth={2} />
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-body text-ink">{row.fileName}</p>
@@ -81,7 +81,7 @@ export function RecentImports({
                     disabled={!hydrated || pending}
                     onClick={() => undo.ask(row._id)}
                     aria-label={pending ? undefined : `Undo ${row.fileName}`}
-                    className="min-h-11 shrink-0 rounded-lg px-2 text-[15px] font-semibold text-red transition active:opacity-60 disabled:opacity-50"
+                    className="min-h-11 shrink-0 rounded-lg px-2 text-body font-semibold text-red transition active:opacity-60 disabled:opacity-50"
                   >
                     {pending ? 'Undoing…' : 'Undo'}
                   </button>
@@ -105,7 +105,7 @@ export function RecentImports({
                       aria-label={
                         pending ? undefined : `Carry on undoing ${row.fileName}`
                       }
-                      className="min-h-11 shrink-0 rounded-lg px-2 text-[15px] font-semibold text-red transition active:opacity-60 disabled:opacity-50"
+                      className="min-h-11 shrink-0 rounded-lg px-2 text-body font-semibold text-red transition active:opacity-60 disabled:opacity-50"
                     >
                       {pending ? 'Undoing…' : 'Carry on undoing'}
                     </button>

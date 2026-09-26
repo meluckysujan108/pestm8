@@ -3,8 +3,8 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { AlertDialog } from 'radix-ui'
-import { Pencil, Plus, Star, Trash2, X } from 'lucide-react'
+import { SheetShell } from '#/components/primitives/Sheet'
+import { Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
   InlineReportsSection,
@@ -45,6 +45,7 @@ import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type { AddressValue } from '#/lib/addressVerify'
 import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 
 type ClientKind = 'person' | 'business'
 
@@ -78,37 +79,20 @@ export function ClientSheet({
   onClose: () => void
 }) {
   return (
-    <Drawer.Root
-      open={clientId !== null}
-      onOpenChange={(o) => !o && onClose()}
-    >
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
-          {clientId !== null && (
-            <ClientBody
-              key={clientId}
-              businessId={businessId}
-              timezone={timezone}
-              businessSlug={businessSlug}
-              businessState={businessState}
-              isOwner={isOwner}
-              clientId={clientId as Id<'clients'>}
-              onClose={onClose}
-            />
-          )}
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
-          >
-            <X size={16} strokeWidth={2} />
-          </button>
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+    <SheetShell open={clientId !== null} onClose={onClose}>
+      {clientId !== null && (
+        <ClientBody
+          key={clientId}
+          businessId={businessId}
+          timezone={timezone}
+          businessSlug={businessSlug}
+          businessState={businessState}
+          isOwner={isOwner}
+          clientId={clientId as Id<'clients'>}
+          onClose={onClose}
+        />
+      )}
+    </SheetShell>
   )
 }
 
@@ -283,7 +267,7 @@ function ClientBody({
         <button
           type="button"
           onClick={() => setConfirmArchiveOpen(true)}
-          className="mt-6 h-11 w-full rounded-xl bg-surface-2 text-[15px] font-semibold text-amber-ink transition active:scale-[.975]"
+          className="mt-6 h-11 w-full rounded-xl bg-surface-2 text-body font-semibold text-amber-ink transition active:scale-[.975]"
         >
           Archive client
         </button>
@@ -295,41 +279,23 @@ function ClientBody({
         copy={actionCopy('archive this client')}
       />
 
-      <AlertDialog.Root open={confirmArchiveOpen} onOpenChange={setConfirmArchiveOpen}>
-        <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
-            <AlertDialog.Title className="text-row-title text-ink">
-              Archive {client.name}?
-            </AlertDialog.Title>
-            <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
-              This removes them from pickers for new jobs, properties and
-              reports. Nothing is deleted — every existing property, job and
-              report stays exactly as it is, and you can unarchive them later.
-            </AlertDialog.Description>
-            <div className="mt-4 flex gap-2">
-              <AlertDialog.Cancel asChild>
-                <button
-                  type="button"
-                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-                >
-                  Keep client
-                </button>
-              </AlertDialog.Cancel>
-              <AlertDialog.Action asChild>
-                <button
-                  type="button"
-                  disabled={archive.isPending}
-                  onClick={() => archive.mutate({ businessId, clientId })}
-                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-                >
-                  {archive.isPending ? 'Archiving…' : 'Archive'}
-                </button>
-              </AlertDialog.Action>
-            </div>
-          </AlertDialog.Content>
-        </AlertDialog.Portal>
-      </AlertDialog.Root>
+      <ConfirmDialog
+        open={confirmArchiveOpen}
+        onOpenChange={setConfirmArchiveOpen}
+        title={`Archive ${client.name}?`}
+        body={
+          <>
+            This removes them from pickers for new jobs, properties and
+            reports. Nothing is deleted — every existing property, job and
+            report stays exactly as it is, and you can unarchive them later.
+          </>
+        }
+        cancel="Keep client"
+        confirm="Archive"
+        pending={archive.isPending}
+        pendingLabel="Archiving…"
+        onConfirm={() => archive.mutate({ businessId, clientId })}
+      />
     </div>
   )
 }
@@ -692,7 +658,7 @@ function ClientContacts({
                       onClick={() => makePrimary(contact._id)}
                       className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                     >
-                      <Star size={14} strokeWidth={1.7} />
+                      <Star size={14} strokeWidth={2} />
                     </button>
                   )}
                   <button
@@ -706,7 +672,7 @@ function ClientContacts({
                     }
                     className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
-                    <Trash2 size={14} strokeWidth={1.7} />
+                    <Trash2 size={14} strokeWidth={2} />
                   </button>
                 </div>
                 <ContactButtons name={contact.name} phone={contact.phone} email={contact.email} />
@@ -741,49 +707,21 @@ function ClientContacts({
           onClick={() => setAdding(true)}
           className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
         >
-          <Plus size={16} strokeWidth={1.8} />
+          <Plus size={16} strokeWidth={2.2} />
           Add contact
         </button>
       )}
 
-      <AlertDialog.Root
+      <ConfirmDialog
         open={confirmRemove !== null}
         onOpenChange={(open) => !open && setConfirmRemove(null)}
-      >
-        <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
-            <AlertDialog.Title className="text-row-title text-ink">
-              Remove {confirmRemove?.name}?
-            </AlertDialog.Title>
-            <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
-              They’re this client’s contact person.
-            </AlertDialog.Description>
-            <div className="mt-4 flex gap-2">
-              <AlertDialog.Cancel asChild>
-                <button
-                  type="button"
-                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-                >
-                  Keep contact
-                </button>
-              </AlertDialog.Cancel>
-              <AlertDialog.Action asChild>
-                <button
-                  type="button"
-                  disabled={remove.isPending}
-                  onClick={() =>
-                    confirmRemove && removeContact(confirmRemove._id)
-                  }
-                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-                >
-                  Remove
-                </button>
-              </AlertDialog.Action>
-            </div>
-          </AlertDialog.Content>
-        </AlertDialog.Portal>
-      </AlertDialog.Root>
+        title={`Remove ${confirmRemove?.name ?? ''}?`}
+        body="They’re this client’s contact person."
+        cancel="Keep contact"
+        confirm="Remove"
+        pending={remove.isPending}
+        onConfirm={() => confirmRemove && removeContact(confirmRemove._id)}
+      />
     </Section>
   )
 }
@@ -1115,7 +1053,7 @@ function ClientProperties({
           onClick={() => setAdding(true)}
           className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
         >
-          <Plus size={16} strokeWidth={1.8} />
+          <Plus size={16} strokeWidth={2.2} />
           Add another property
         </button>
       )}

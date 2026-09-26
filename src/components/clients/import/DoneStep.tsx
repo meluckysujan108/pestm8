@@ -173,13 +173,13 @@ export function DoneStep({
       {!undone && (lines.length > 0 || missed.length > 0) && (
         <ul className="mt-5 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
           {lines.map(({ Icon, text }) => (
-            <Line key={text} icon={<Icon size={17} strokeWidth={1.8} />}>
+            <Line key={text} icon={<Icon size={17} strokeWidth={2} />}>
               {text}
             </Line>
           ))}
           {missed.length > 0 && (
             <Line
-              icon={<CircleX size={17} strokeWidth={1.8} />}
+              icon={<CircleX size={17} strokeWidth={2} />}
               tone="text-red-ink"
             >
               {plural(missed.length, 'client')} couldn’t be imported
@@ -233,7 +233,7 @@ export function DoneStep({
             type="button"
             onClick={onAnother}
             disabled={!hydrated || holding !== null}
-            className="min-h-11 text-[15px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+            className="min-h-11 text-body font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
           >
             Import another file
           </button>
@@ -242,7 +242,7 @@ export function DoneStep({
               type="button"
               onClick={() => undo.ask(importId)}
               disabled={!hydrated || undo.mutation.isPending}
-              className="min-h-11 text-[15px] font-semibold text-red transition active:opacity-60 disabled:opacity-50"
+              className="min-h-11 text-body font-semibold text-red transition active:opacity-60 disabled:opacity-50"
             >
               Undo this import
             </button>

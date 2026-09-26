@@ -95,7 +95,7 @@ export function ChooseStep({
           aria-hidden
           className="flex size-12 items-center justify-center rounded-full bg-blue-bg text-blue-ink"
         >
-          <FileSpreadsheet size={24} strokeWidth={1.8} />
+          <FileSpreadsheet size={24} strokeWidth={1.7} />
         </span>
         <p className="mt-3 text-row-title text-ink">
           {over ? 'Drop it here' : 'Your client list'}
@@ -151,7 +151,7 @@ export function ChooseStep({
             <Icon
               aria-hidden
               size={17}
-              strokeWidth={1.8}
+              strokeWidth={2}
               className="mt-0.5 shrink-0 text-muted"
             />
             <span className="text-ink-2">{text}</span>

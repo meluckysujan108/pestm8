@@ -82,7 +82,7 @@ export function ReportPdfCard({
             aria-hidden
             className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-ink-2"
           >
-            <FileText size={20} strokeWidth={1.8} />
+            <FileText size={20} strokeWidth={1.7} />
           </span>
           <div className="min-w-0 flex-1">
             <p className="text-body font-semibold text-ink">{title}</p>
@@ -119,7 +119,7 @@ export function ReportPdfCard({
             onClick={onView}
             className={`${NEUTRAL_BUTTON} flex flex-1 items-center justify-center gap-2`}
           >
-            <FileText size={17} strokeWidth={1.8} />
+            <FileText size={17} strokeWidth={2} />
             View PDF
           </button>
         </div>
@@ -139,7 +139,7 @@ function StatusLine({ status }: { status: ReportPdfStatus }) {
           <Check
             aria-hidden
             size={14}
-            strokeWidth={2.4}
+            strokeWidth={2.2}
             className="shrink-0 text-green"
           />
           Ready

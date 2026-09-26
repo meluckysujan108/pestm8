@@ -88,7 +88,7 @@ export type StepKey = (typeof STEPS)[number]['key']
 export function Stepper({ current }: { current: StepKey }) {
   const at = STEPS.findIndex((s) => s.key === current)
   return (
-    <ol className="flex items-center gap-2 text-[13px] font-semibold">
+    <ol className="flex items-center gap-2 text-caption font-semibold">
       {STEPS.map((step, i) => {
         const done = i < at
         const here = i === at
@@ -111,7 +111,7 @@ export function Stepper({ current }: { current: StepKey }) {
                     : 'bg-surface-3 text-muted'
               }`}
             >
-              {done ? <Check size={12} strokeWidth={3} /> : i + 1}
+              {done ? <Check size={12} strokeWidth={2.4} /> : i + 1}
             </span>
             <span
               className={`truncate ${here ? 'text-ink' : 'text-muted'} ${here ? '' : 'max-sm:sr-only'}`}

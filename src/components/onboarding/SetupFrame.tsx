@@ -131,7 +131,7 @@ export function SetupFrame({
             type="button"
             onClick={finishLater}
             disabled={!hydrated}
-            className="mx-auto mt-3 min-h-11 px-3 text-[15px] text-muted transition active:opacity-60 disabled:opacity-40"
+            className="mx-auto mt-3 min-h-11 px-3 text-body text-muted transition active:opacity-60 disabled:opacity-40"
           >
             Finish setting up later
           </button>

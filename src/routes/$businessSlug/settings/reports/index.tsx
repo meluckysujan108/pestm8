@@ -73,7 +73,7 @@ function ReportSettingsPage() {
       <PageHeader
         businessId={business._id}
         businessSlug={business.slug}
-        title="Reports"
+        title="Report settings"
         back={
           <BackLink
             to="/$businessSlug/settings"

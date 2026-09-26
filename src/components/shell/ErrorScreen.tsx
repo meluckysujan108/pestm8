@@ -38,7 +38,7 @@ export function ErrorScreen({ error }: ErrorComponentProps) {
           <WifiOff
             aria-hidden
             size={28}
-            strokeWidth={1.8}
+            strokeWidth={1.7}
             className="mx-auto mb-3 text-muted"
           />
         )}
@@ -60,7 +60,7 @@ export function ErrorScreen({ error }: ErrorComponentProps) {
             }}
             className={`${PRIMARY_BUTTON} flex items-center justify-center gap-2`}
           >
-            <RotateCw size={17} strokeWidth={2.2} aria-hidden />
+            <RotateCw size={17} strokeWidth={2} aria-hidden />
             {retrying ? 'Trying…' : 'Try again'}
           </button>
           <Link

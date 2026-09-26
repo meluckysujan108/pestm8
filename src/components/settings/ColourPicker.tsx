@@ -140,7 +140,7 @@ export function ColourPicker({
               <RadioGroup.Indicator>
                 <Check
                   size={16}
-                  strokeWidth={3}
+                  strokeWidth={2.2}
                   className="text-white"
                   aria-hidden
                 />
@@ -165,7 +165,7 @@ export function ColourPicker({
                 <RadioGroup.Indicator>
                   <Check
                     size={16}
-                    strokeWidth={3}
+                    strokeWidth={2.2}
                     className="text-white"
                     aria-hidden
                   />

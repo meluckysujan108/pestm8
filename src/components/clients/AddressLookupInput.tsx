@@ -20,7 +20,7 @@ type LookupStatus = {
 
 const SIZES = {
   lg: 'h-12 px-3.5 text-[16px]',
-  md: 'h-11 px-3.5 text-[15px]',
+  md: 'h-11 px-3.5 text-body',
 }
 
 /**

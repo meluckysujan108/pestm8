@@ -403,7 +403,7 @@ function SchedulePage() {
                 onClick={() => setDay(addDaysToKey(requestedKey, -7))}
                 className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
               >
-                <ChevronLeft size={20} strokeWidth={1.7} />
+                <ChevronLeft size={20} strokeWidth={2} />
               </button>
               <button
                 type="button"
@@ -418,7 +418,7 @@ function SchedulePage() {
                 onClick={() => setDay(addDaysToKey(requestedKey, 7))}
                 className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
               >
-                <ChevronRight size={20} strokeWidth={1.7} />
+                <ChevronRight size={20} strokeWidth={2} />
               </button>
             </div>
             <WeekStrip

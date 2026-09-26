@@ -102,7 +102,7 @@ export function SectionEditor({
           onClick={() => onMove('up')}
           className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
         >
-          <ChevronUp size={16} strokeWidth={2} />
+          <ChevronUp size={16} strokeWidth={2.2} />
         </button>
         <button
           type="button"
@@ -111,7 +111,7 @@ export function SectionEditor({
           onClick={() => onMove('down')}
           className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
         >
-          <ChevronDown size={16} strokeWidth={2} />
+          <ChevronDown size={16} strokeWidth={2.2} />
         </button>
         <button
           type="button"
@@ -119,7 +119,7 @@ export function SectionEditor({
           onClick={onRemove}
           className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
         >
-          <Trash2 size={16} strokeWidth={1.8} />
+          <Trash2 size={16} strokeWidth={2} />
         </button>
       </div>
 
@@ -149,7 +149,7 @@ export function SectionEditor({
               onClick={() => moveField(index, 'up')}
               className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
             >
-              <ChevronUp size={15} strokeWidth={2} />
+              <ChevronUp size={15} strokeWidth={2.2} />
             </button>
             <button
               type="button"
@@ -158,7 +158,7 @@ export function SectionEditor({
               onClick={() => moveField(index, 'down')}
               className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
             >
-              <ChevronDown size={15} strokeWidth={2} />
+              <ChevronDown size={15} strokeWidth={2.2} />
             </button>
             <button
               type="button"
@@ -166,7 +166,7 @@ export function SectionEditor({
               onClick={() => openEdit(index)}
               className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
             >
-              <Pencil size={14} strokeWidth={1.8} />
+              <Pencil size={14} strokeWidth={2} />
             </button>
             <button
               type="button"
@@ -174,7 +174,7 @@ export function SectionEditor({
               onClick={() => removeField(index)}
               className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
             >
-              <Trash2 size={15} strokeWidth={1.8} />
+              <Trash2 size={15} strokeWidth={2} />
             </button>
           </div>
         ))}
@@ -185,7 +185,7 @@ export function SectionEditor({
         onClick={openAdd}
         className={`${SECONDARY_BUTTON_COMPACT} mt-2 flex w-full items-center justify-center gap-1.5`}
       >
-        <Plus size={15} strokeWidth={2} />
+        <Plus size={15} strokeWidth={2.2} />
         Add field
       </button>
 

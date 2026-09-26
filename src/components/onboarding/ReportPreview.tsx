@@ -74,7 +74,7 @@ export function ReportPreview({
           )}
         </div>
         <div className="min-w-0 text-right">
-          <p className="truncate text-[13px] font-semibold leading-tight">
+          <p className="truncate text-caption font-semibold leading-tight">
             {shownName}
           </p>
           {lines.map((line) => (
@@ -88,6 +88,8 @@ export function ReportPreview({
         </div>
       </div>
 
+      {/* The printed PDF's own band, drawn as it prints (brand red). */}
+      {/* eslint-disable-next-line no-restricted-syntax -- mirrors the PDF */}
       <div className="mx-4 flex items-center gap-2 bg-red px-2.5 py-1.5 text-[11px] font-semibold leading-tight text-white">
         <span className="line-clamp-2 min-w-0 flex-1">
           {shownName} Service Report

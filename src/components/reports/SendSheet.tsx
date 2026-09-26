@@ -16,6 +16,7 @@ import { deliveryRecipients } from '#/lib/reportTemplates/delivery'
 import type { ReportTemplate } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
+import { RowPending } from '#/components/shell/Pending'
 
 /**
  * Sending a finished report to the people it is for.
@@ -362,7 +363,7 @@ export function SendSheet({
                         entry.chosen ? 'bg-ink text-surface' : 'bg-surface-3'
                       }`}
                     >
-                      {entry.chosen && <Check size={13} strokeWidth={3} />}
+                      {entry.chosen && <Check size={13} strokeWidth={2.2} />}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-body text-ink">
                       {entry.address}
@@ -445,7 +446,7 @@ export function SendSheet({
             <button
               type="button"
               onClick={addTyped}
-              className="shrink-0 rounded-xl bg-surface-2 px-3.5 text-[15px] font-semibold text-ink"
+              className="shrink-0 rounded-xl bg-surface-2 px-3.5 text-body font-semibold text-ink"
             >
               {typoAsked === typed ? 'Add anyway' : 'Add'}
             </button>
@@ -587,7 +588,7 @@ export function DeliveryHistory({
   // form already opened a delivery for is a lie, and one a technician would
   // act on by sending it again.
   if (rows === undefined) {
-    return <p className="text-caption text-muted">Loading…</p>
+    return <RowPending announce={false} className="py-1" />
   }
   if (rows.length === 0) {
     return <p className="text-caption text-muted">Not sent yet.</p>

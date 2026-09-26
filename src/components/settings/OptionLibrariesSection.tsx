@@ -383,7 +383,7 @@ function OptionListSheet({
                     }}
                     className={`${ICON_BUTTON} text-muted`}
                   >
-                    <Trash2 size={16} strokeWidth={1.9} />
+                    <Trash2 size={16} strokeWidth={2} />
                   </button>
                 </>
               )}
@@ -415,7 +415,7 @@ function OptionListSheet({
                   }
                   className="flex min-h-9 shrink-0 items-center gap-1 rounded-lg px-2 text-caption font-semibold text-blue"
                 >
-                  <Check size={13} strokeWidth={2.4} />
+                  <Check size={13} strokeWidth={2.2} />
                   Offer again
                 </button>
               </li>
@@ -465,7 +465,7 @@ function OptionListSheet({
               onClick={() => setConfirmingReset(true)}
               className={`${DANGER_ROW_CLASS} gap-1.5`}
             >
-              <RotateCcw size={15} strokeWidth={2.2} />
+              <RotateCcw size={15} strokeWidth={2} />
               Go back to the form&rsquo;s own list
             </button>
           )}

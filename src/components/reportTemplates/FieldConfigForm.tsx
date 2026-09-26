@@ -599,7 +599,7 @@ function StringListEditor({
             }}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
-            <ChevronUp size={15} strokeWidth={2} />
+            <ChevronUp size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
@@ -613,7 +613,7 @@ function StringListEditor({
             }}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
-            <ChevronDown size={15} strokeWidth={2} />
+            <ChevronDown size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
@@ -621,7 +621,7 @@ function StringListEditor({
             onClick={() => onChange(values.filter((_, i) => i !== index))}
             className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
-            <Trash2 size={15} strokeWidth={1.8} />
+            <Trash2 size={15} strokeWidth={2} />
           </button>
         </div>
       ))}
@@ -630,7 +630,7 @@ function StringListEditor({
         onClick={() => onChange([...values, ''])}
         className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-1.5`}
       >
-        <Plus size={15} strokeWidth={2} />
+        <Plus size={15} strokeWidth={2.2} />
         {addLabel}
       </button>
     </div>

@@ -282,7 +282,7 @@ function EditForm({
             sites: [...d.sites, blankSite(id, businessState)],
           }))
         }}
-        className="mt-4 inline-flex min-h-11 items-center gap-1.5 text-[15px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+        className="mt-4 inline-flex min-h-11 items-center gap-1.5 text-body font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
       >
         <Plus aria-hidden size={17} strokeWidth={2.2} />
         Add a site

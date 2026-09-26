@@ -90,7 +90,9 @@ test('a joiner is welcomed, and the owner hears and gives them a job', async ({
   await expect(notice).toHaveCount(0)
   await ownerPage.reload()
   await expect(
-    ownerPage.getByRole('button', { name: /^Set-up guide|New job/ }).first(),
+    ownerPage
+      .getByRole('button', { name: /^Finish setting up|New job/ })
+      .first(),
   ).toBeVisible()
   await expect(notice).toHaveCount(0)
   await ownerContext.close()

@@ -10,6 +10,7 @@ import { NoteEditor } from './NoteEditor'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { DecoratedNote } from '../../../convex/notes'
 import type { MentionItem } from './MentionList'
+import { RowPending } from '#/components/shell/Pending'
 
 /**
  * Notes inside a job or client sheet. Rows expand in place into the same
@@ -56,14 +57,14 @@ export function InlineNotesSection({
             onClick={onAdd}
             className="flex items-center gap-1 text-caption font-semibold text-blue disabled:opacity-50"
           >
-            <Plus size={13} strokeWidth={2.4} />
+            <Plus size={13} strokeWidth={2.2} />
             {addLabel}
           </button>
         )}
       </div>
       <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
         {notes === undefined ? (
-          <p className="px-3.5 py-3 text-caption text-muted">Loading…</p>
+          <RowPending label="Loading notes" />
         ) : notes.length === 0 ? (
           <p className="px-3.5 py-3 text-body text-muted">{empty}</p>
         ) : (
@@ -133,7 +134,7 @@ function InlineNote({
             </span>
             {note.checklistTotal ? (
               <span className="flex shrink-0 items-center gap-1">
-                <ListChecks size={12} strokeWidth={2.2} />
+                <ListChecks size={12} strokeWidth={2.4} />
                 {note.checklistDone}/{note.checklistTotal}
               </span>
             ) : null}
@@ -141,7 +142,7 @@ function InlineNote({
         </span>
         <ChevronDown
           size={16}
-          strokeWidth={2}
+          strokeWidth={2.2}
           className={`mt-1 shrink-0 text-muted transition-transform ${open ? 'rotate-180' : ''}`}
         />
       </button>
@@ -164,7 +165,7 @@ function InlineNote({
                 aria-label="Open in Notes"
                 className="flex size-9 items-center justify-center rounded-lg text-blue"
               >
-                <ArrowUpRight size={18} strokeWidth={2.2} />
+                <ArrowUpRight size={18} strokeWidth={1.7} />
               </Link>
             }
           />

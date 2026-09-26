@@ -121,7 +121,7 @@ export function PhrasesSheet({
                   }}
                   className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-surface-2 text-muted transition active:scale-[.95]"
                 >
-                  <Trash2 size={16} strokeWidth={1.9} />
+                  <Trash2 size={16} strokeWidth={2} />
                 </button>
               )}
             </li>
@@ -140,7 +140,7 @@ export function PhrasesSheet({
           }}
           className={`${SECONDARY_BUTTON_COMPACT} mt-3 flex w-full items-center justify-center gap-1.5`}
         >
-          <Plus size={16} strokeWidth={2} />
+          <Plus size={16} strokeWidth={2.2} />
           Save what’s written
         </button>
       )}

@@ -65,7 +65,7 @@ export function NotesRail({
           onClick={() => onChange(f.value)}
           className="flex w-full items-center gap-3 rounded-xl px-3 py-2 text-left text-row-title text-ink transition-colors hover:bg-sidebar-accent data-[active]:bg-sidebar-accent data-[active]:text-red"
         >
-          <f.icon size={19} strokeWidth={1.8} className="shrink-0" />
+          <f.icon size={19} strokeWidth={1.7} className="shrink-0" />
           <span className="min-w-0 flex-1 truncate">{f.label}</span>
           {f.value === 'mentions' && unreadMentions > 0 && (
             <span className="rounded-full bg-blue px-1.5 text-[11px] font-bold leading-[18px] text-white">

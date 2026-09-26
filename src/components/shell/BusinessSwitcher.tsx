@@ -52,7 +52,7 @@ export function BusinessSwitcher({
         {trigger}
         <ChevronsUpDown
           size={16}
-          strokeWidth={1.7}
+          strokeWidth={2.2}
           className="mr-2 text-muted group-data-[collapsible=icon]:hidden"
         />
       </Popover.Trigger>
@@ -78,7 +78,7 @@ export function BusinessSwitcher({
                 </span>
               </span>
               {b.slug === current.slug && (
-                <Check size={16} strokeWidth={2} className="text-red" />
+                <Check size={16} strokeWidth={2.2} className="text-red" />
               )}
             </Link>
           ))}

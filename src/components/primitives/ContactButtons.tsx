@@ -35,12 +35,12 @@ function tileLabel(
 ): ReactNode {
   return variant === 'card' ? (
     <span className="inline-flex min-w-0 items-center gap-1.5">
-      <Icon size={16} strokeWidth={1.7} aria-hidden className="shrink-0" />
+      <Icon size={16} strokeWidth={2} aria-hidden className="shrink-0" />
       <span className="truncate">{caption}</span>
     </span>
   ) : (
     <>
-      <Icon size={17} strokeWidth={1.7} aria-hidden />
+      <Icon size={17} strokeWidth={2} aria-hidden />
       {caption}
     </>
   )
