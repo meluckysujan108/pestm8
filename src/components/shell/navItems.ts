@@ -11,6 +11,11 @@ import {
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 
+/** The two sections that carry a badge, named by route rather than by label,
+ * so renaming a tab cannot quietly drop its badge. */
+export const NOTES_TO = '/$businessSlug/notes'
+export const JOB_TO = '/$businessSlug/job'
+
 export type NavItem = {
   to: string
   label: string
@@ -32,12 +37,12 @@ export const PRIMARY_NAV: Array<NavItem> = [
   { to: '/$businessSlug/schedule', label: 'Schedule', icon: CalendarDays },
   { to: '/$businessSlug/clients', label: 'Client', icon: Users },
   { to: '/$businessSlug/reports', label: 'Reports', icon: FileText },
-  { to: '/$businessSlug/notes', label: 'Notes', icon: StickyNote },
+  { to: NOTES_TO, label: 'Notes', icon: StickyNote },
 ]
 
 /** Behind the burger: the sections that are not a daily destination. */
 export const MORE_NAV: Array<NavItem> = [
-  { to: '/$businessSlug/job', label: 'Job', icon: Briefcase },
+  { to: JOB_TO, label: 'Job', icon: Briefcase },
   { to: '/$businessSlug/analytics', label: 'Analytics', icon: BarChart3 },
   { to: '/$businessSlug/products', label: 'Products', icon: Package },
   { to: '/$businessSlug/leads', label: 'Leads', icon: Target },

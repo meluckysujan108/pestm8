@@ -442,6 +442,24 @@
   -webkit-touch-callout: none;
 }
 
+/* A 44×44 hit area, at least, centred on a control drawn smaller — a 32px
+   week arrow, a 28px row icon, a 20px clear button. 44 is the smallest a
+   thumb, or a glove, lands on reliably; the control keeps its drawn size.
+   The element must be positioned (`relative`, or already `absolute`), and
+   nothing that clips (`overflow-hidden`) may sit between it and the extra
+   area, or the clipped part cannot be tapped. */
+@utility tap-target {
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
+}
+
 /* The navigation progress bar (NavProgress.tsx). Transparent for its first
    150 ms, so a navigation that answers from cache never flashes it; after
    that, a crawl that slows as it goes and never finishes, because the bar

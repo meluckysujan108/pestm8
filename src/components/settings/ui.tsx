@@ -221,7 +221,7 @@ const BackAnchor = forwardRef<
     <a
       ref={ref}
       {...rest}
-      className={`-ml-1.5 mb-0.5 inline-flex min-h-7 items-center gap-0.5 text-body font-medium text-blue ${className ?? ''}`}
+      className={`relative tap-target -ml-1.5 mb-0.5 inline-flex min-h-7 items-center gap-0.5 text-body font-medium text-blue ${className ?? ''}`}
     >
       <ChevronLeft aria-hidden size={20} strokeWidth={2.4} />
       {children}

@@ -240,7 +240,7 @@ export function TeamSection({
                         email: invitation.email,
                       })
                     }
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+                    className="relative tap-target flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
                     <RefreshCw size={15} strokeWidth={2} />
                   </button>
@@ -256,7 +256,7 @@ export function TeamSection({
                         invitationId: invitation._id,
                       })
                     }
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+                    className="relative tap-target flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
                     <X size={15} strokeWidth={2} />
                   </button>

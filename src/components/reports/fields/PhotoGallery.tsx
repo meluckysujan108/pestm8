@@ -312,7 +312,7 @@ function GalleryTile({
                 : `${label} photo ${ordinal} — set as cover`
             }
             onClick={() => void setCover({ businessId, reportId, photoId: photo._id })}
-            className={`absolute right-1 top-1 flex size-7 items-center justify-center rounded-full transition ${
+            className={`tap-target absolute right-1 top-1 flex size-7 items-center justify-center rounded-full transition ${
               photo.isCover
                 ? 'bg-amber text-white'
                 : 'bg-black/40 text-white/80 hover:text-white'
@@ -345,7 +345,7 @@ function GalleryTile({
             onClick={() =>
               void move({ businessId, reportId, photoId: photo._id, direction: 'up' })
             }
-            className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
             <ChevronUp size={15} strokeWidth={2} />
           </button>
@@ -356,7 +356,7 @@ function GalleryTile({
             onClick={() =>
               void move({ businessId, reportId, photoId: photo._id, direction: 'down' })
             }
-            className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
             <ChevronDown size={15} strokeWidth={2} />
           </button>
@@ -367,7 +367,7 @@ function GalleryTile({
             disabled={!photo.url}
             aria-label={`Annotate ${label} photo ${ordinal}`}
             onClick={() => setAnnotating(true)}
-            className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
             <PenLine size={14} strokeWidth={1.8} />
           </button>
@@ -375,7 +375,7 @@ function GalleryTile({
             type="button"
             aria-label={`Remove ${label} photo ${ordinal}`}
             onClick={() => void remove({ businessId, reportId, photoId: photo._id })}
-            className="flex size-7 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+            className="flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
             <Trash2 size={14} strokeWidth={1.8} />
           </button>

@@ -34,6 +34,7 @@ import { propertyOptions } from '#/lib/propertyOptions'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
+import { SheetPending } from '#/components/shell/Pending'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
@@ -165,7 +166,7 @@ export function JobDetailSheet({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
           >
             <X size={16} strokeWidth={2} />
           </button>
@@ -288,7 +289,7 @@ function JobDetailBody({
                 type="button"
                 aria-label="Edit job details"
                 onClick={() => setEditing(true)}
-                className="mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
+                className="relative tap-target mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
               >
                 <Pencil size={13} strokeWidth={2} />
                 Edit
@@ -498,7 +499,7 @@ function JobDetailBody({
                   <button
                     type="button"
                     onClick={() => setConfirmStopRepeatingOpen(true)}
-                    className="mt-3 text-caption font-semibold text-red"
+                    className="relative tap-target mt-3 text-caption font-semibold text-red"
                   >
                     Stop repeating
                   </button>
@@ -515,7 +516,7 @@ function JobDetailBody({
                   <button
                     type="button"
                     onClick={() => setMakeRecurringOpen(true)}
-                    className="mt-3 text-caption font-semibold text-blue"
+                    className="relative tap-target mt-3 text-caption font-semibold text-blue"
                   >
                     Make recurring
                   </button>
@@ -671,10 +672,11 @@ function JobDetailBody({
           </p>
         </div>
       ) : (
-        <div className="px-4 py-10">
-          <Drawer.Title className="sr-only">Job</Drawer.Title>
-          <p className="text-body text-muted">Loading…</p>
-        </div>
+        // The sheet's own shape while the job loads, so it opens at its
+        // height instead of opening short and jumping up.
+        <SheetPending
+          title={<Drawer.Title className="sr-only">Job</Drawer.Title>}
+        />
       )}
     </>
   )
@@ -1358,7 +1360,7 @@ function JobPhotos({
                   aria-label="Remove photo"
                   disabled={remove.isPending}
                   onClick={() => remove.mutate({ businessId, jobId, photoId: photo._id })}
-                  className="absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
+                  className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
                 >
                   <Trash2 size={12} strokeWidth={2} />
                 </button>

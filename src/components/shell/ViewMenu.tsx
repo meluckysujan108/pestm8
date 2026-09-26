@@ -94,7 +94,7 @@ export function ViewMenu({
         // middle of the first and be silently dropped.
         disabled={!hydrated || setView.isPending}
         aria-label="Whose jobs to show"
-        className="flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50 md:pr-3"
+        className="relative tap-target flex h-9 shrink-0 items-center gap-1.5 rounded-full bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50 md:pr-3"
       >
         {mode === 'everyone' ? (
           <Glyph>

@@ -29,7 +29,7 @@ export function Segmented<T extends string>({
             aria-selected={selected}
             disabled={disabled}
             onClick={() => onChange(option.value)}
-            className={`flex-1 rounded-[7px] px-3 py-1.5 text-[13px] font-semibold transition ${
+            className={`relative tap-target flex-1 rounded-[7px] px-3 py-1.5 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-blue ${
               selected ? 'bg-surface text-ink shadow-elevation' : 'text-muted'
             } disabled:opacity-60`}
           >

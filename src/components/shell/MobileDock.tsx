@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useLocation } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import { Menu } from 'lucide-react'
-import { MORE_ITEMS, PRIMARY_NAV } from './navItems'
+import { JOB_TO, MORE_ITEMS, NOTES_TO, PRIMARY_NAV } from './navItems'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
 import { SheetCloseButton } from '#/components/primitives/Sheet'
 
@@ -34,8 +34,17 @@ export function MobileDock({
 }) {
   const [moreOpen, setMoreOpen] = useState(false)
 
+  // The sections behind the burger have no cell of their own, so while one
+  // is open the burger is the lit cell — otherwise nothing in the dock says
+  // where you are.
+  const pathname = useLocation({ select: (location) => location.pathname })
+  const inMore = MORE_ITEMS.some((item) => {
+    const path = item.to.replace('$businessSlug', businessSlug)
+    return pathname === path || pathname.startsWith(`${path}/`)
+  })
+
   const cell =
-    'hold-target group flex flex-col items-center justify-center gap-0.5 py-1.5 text-tab-label text-muted'
+    'hold-target group flex flex-col items-center justify-center gap-0.5 rounded-xl py-1.5 text-tab-label text-muted outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue'
   const glyph =
     'relative flex h-7 w-12 items-center justify-center rounded-full transition-colors'
 
@@ -59,13 +68,18 @@ export function MobileDock({
               className={`${glyph} group-aria-[current=page]:bg-red/10`}
             >
               <item.icon size={21} strokeWidth={1.8} />
-              {item.label === 'Notes' && unreadNotes > 0 && (
+              {item.to === NOTES_TO && unreadNotes > 0 && (
                 <span className="absolute right-2 top-0 min-w-4 rounded-full bg-blue px-1 text-center text-[10px] font-bold leading-4 text-white">
                   {unreadNotes >= 10 ? '9+' : unreadNotes}
                 </span>
               )}
             </span>
             <span className="max-w-full truncate px-0.5">{item.label}</span>
+            {/* The badge above is hidden with its glyph; the count is read
+                out here instead, as part of the tab's name. */}
+            {item.to === NOTES_TO && unreadNotes > 0 && (
+              <span className="sr-only">, {unreadNotes} unread</span>
+            )}
           </Link>
         ))}
 
@@ -79,9 +93,10 @@ export function MobileDock({
           aria-haspopup="dialog"
           aria-expanded={moreOpen}
           onClick={() => setMoreOpen(true)}
-          className={cell}
+          data-active={inMore || undefined}
+          className={`${cell} data-[active]:text-red`}
         >
-          <span className={glyph}>
+          <span className={`${glyph} group-data-[active]:bg-red/10`}>
             <Menu size={21} strokeWidth={1.8} aria-hidden />
             {/* On the burger, not just on the Job row inside the sheet: Job
                 lives behind this button, so a badge in there is only seen by
@@ -121,7 +136,7 @@ export function MobileDock({
                 >
                   <item.icon size={20} strokeWidth={1.7} />
                   <span>{item.label}</span>
-                  {item.label === 'Job' && overdueJobs > 0 && (
+                  {item.to === JOB_TO && overdueJobs > 0 && (
                     <span
                       className={`ml-auto min-w-5 rounded-full px-1.5 text-center text-caption font-bold leading-5 ${OVERDUE_CHIP}`}
                     >
