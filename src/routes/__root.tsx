@@ -19,6 +19,9 @@ import { useHydrated } from '#/lib/useHydrated'
 import { authClient } from '#/lib/auth-client'
 import { openSignedOut } from '#/lib/convexClient'
 import { getInitialState } from '#/lib/initialState'
+// For its listener: Chrome offers installing once, early, on whatever page
+// is open, and set-up's Home Screen card is only there to use it later.
+import '#/lib/installPrompt'
 import {
   forgetKeptLicences,
   forgetRootState,

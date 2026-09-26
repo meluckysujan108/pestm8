@@ -23,6 +23,17 @@ export const Route = createFileRoute('/')({
 
     if (businesses.length === 0) throw redirect({ to: '/onboarding' })
 
+    // An owner who left set-up half-way — often not by choice: an iPhone
+    // Home Screen app reopens here, not where it was. Back to that step.
+    // (`setupStep` is absent from a backend before set-up existed.)
+    const unfinished = businesses.find((b) => b.setupStep)
+    if (unfinished?.setupStep) {
+      throw redirect({
+        to: '/onboarding',
+        search: { business: unfinished.slug, step: unfinished.setupStep },
+      })
+    }
+
     throw redirect({
       to: '/$businessSlug/schedule',
       params: { businessSlug: businesses[0].slug },

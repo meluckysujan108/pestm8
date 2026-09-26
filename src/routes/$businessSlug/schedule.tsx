@@ -50,6 +50,9 @@ const searchSchema = z.object({
   // a tech prefers to read their day should survive a refresh (§5.1). A link
   // to a view that no longer exists opens the default rather than erroring.
   view: z.enum(SCHEDULE_VIEWS).optional().catch(undefined),
+  // Opens New Job on arrival — set-up's "Book your first job". Taken out of
+  // the URL as it opens, so a refresh does not open it again.
+  newJob: z.boolean().optional().catch(undefined),
 })
 
 export const Route = createFileRoute('/$businessSlug/schedule')({
@@ -108,7 +111,7 @@ function SchedulePage() {
   // The account being worked in, so the day opens on the right person's round.
   const acting = useActing()
   const mode = useViewMode()
-  const { date, jobId, view } = Route.useSearch()
+  const { date, jobId, view, newJob } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const openJobId = jobId ?? null
   const setOpenJobId = (id: string | null) =>
@@ -142,6 +145,16 @@ function SchedulePage() {
   // A button that opens a sheet does nothing before hydration, and does it
   // silently. Disabling until ready is honest and gives tests a real signal.
   const hydrated = useHydrated()
+  // Arrived to book a job (set-up's finish): open New Job once the sheet can
+  // work, and drop the ask from the URL so a refresh lands on the day.
+  useEffect(() => {
+    if (!newJob || !hydrated) return
+    setNewJobOpen(true)
+    void navigate({
+      search: (prev) => ({ ...prev, newJob: undefined }),
+      replace: true,
+    })
+  }, [newJob, hydrated, navigate])
   // §2.4: desktop gets a persistent month grid + agenda pane instead of the
   // week strip and its sheet — a re-layout, not a second calendar.
   const isDesktop = useMediaQuery('(min-width: 1024px)')

@@ -4,23 +4,12 @@ import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { fieldInputClass } from '#/components/forms/FormField'
+import { LICENCE_LABEL } from '#/lib/au'
 import { useHydrated } from '#/lib/useHydrated'
 import { FieldRow, SaveBar, SettingsGroup } from './ui'
 import { useJustSaved } from './useJustSaved'
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
-
-/** Licence field labelling is state-based, so the label follows the tenant. */
-const LICENCE_LABEL: Record<string, string> = {
-  WA: 'Pest management technician licence',
-  NSW: 'Pest management technician licence',
-  QLD: 'Pest management technician licence (PMT)',
-  VIC: 'Pest control licence',
-  SA: 'Pest controller licence',
-  TAS: 'Pest control operator licence',
-  NT: 'Pest management technician licence',
-  ACT: 'Pest management technician licence',
-}
 
 /**
  * The licence number printed on this person's reports, and its Save.

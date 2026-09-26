@@ -9,6 +9,7 @@ import { abnDigits, formatAbn, normaliseAbn } from './lib/abn'
 import { normaliseEmail } from './lib/email'
 import { normalisePhone } from './lib/phone'
 import { MFA_ENROLMENT_REQUIRED } from './lib/mfa'
+import { businessAllowance } from './businessInvites'
 
 /**
  * The business's own ABN as stored: checked by the ATO's rule (INVALID_ABN)
@@ -44,6 +45,21 @@ function slugify(name: string) {
     .slice(0, 48)
 }
 
+/**
+ * Top-level paths the app itself owns. A business's pages live at
+ * `/<slug>/…`, and the router ranks a fixed segment above a slug, so a
+ * business called "Start" would have its schedule at `/start/schedule` —
+ * which is the start-a-business page reading "schedule" as its link.
+ */
+const RESERVED_SLUGS = new Set([
+  'api',
+  'join',
+  'login',
+  'onboarding',
+  'start',
+  'two-step',
+])
+
 export const listForUser = query({
   args: {},
   handler: async (ctx) => {
@@ -69,6 +85,13 @@ export const listForUser = query({
           businessId: m.businessId,
           name: business?.name ?? '',
           slug: business?.slug ?? '',
+          /** The set-up step the owner left off at, while set-up is open —
+           * where `/` sends them back to. Null for everyone else, and for
+           * every business not made by the set-up flow. Added field. */
+          setupStep:
+            m.role === 'owner' && business?.setup && !business.setup.finishedAt
+              ? business.setup.step
+              : null,
         }
       }),
     )
@@ -135,20 +158,28 @@ export const create = mutation({
     state: v.string(),
     timezone: v.string(),
     abn: v.optional(v.string()),
+    /** Made by the set-up flow, which resumes at its next step (`setup`). */
+    withSetup: v.optional(v.boolean()),
   },
-  handler: async (ctx, args) => {
+  handler: async (ctx, { withSetup, ...args }) => {
     const userId = await getAuthUserId(ctx)
 
     const base = slugify(args.name)
     if (!base) throw new ConvexError('INVALID_NAME')
 
+    // Invitation-only deployments: only an account holding a claimed
+    // start-a-business link (businessInvites.ts). Asked before anything is
+    // written.
+    const allowance = await businessAllowance(ctx, userId)
+
     let slug = base
     let n = 1
     while (
-      await ctx.db
+      RESERVED_SLUGS.has(slug) ||
+      (await ctx.db
         .query('businesses')
         .withIndex('by_slug', (q) => q.eq('slug', slug))
-        .unique()
+        .unique())
     ) {
       slug = `${base}-${++n}`
     }
@@ -166,7 +197,9 @@ export const create = mutation({
       ...(abn !== undefined && { abn }),
       subscriptionStatus: 'trialing',
       createdAt: now,
+      ...(withSetup ? { setup: { step: 'brand' as const } } : {}),
     })
+    await allowance.spend(businessId, now)
 
     await ctx.db.insert('memberships', {
       userId,
@@ -291,6 +324,39 @@ export const update = mutation({
         at: Date.now(),
       })
     }
+  },
+})
+
+/**
+ * Moves the owner through set-up (src/routes/onboarding.tsx): the step to
+ * resume at, their answer to "Who works with you?", or the end of it. Only a
+ * business with set-up open has anything to move; for any other it does
+ * nothing, so a stale tab cannot start set-up over on a finished business.
+ */
+export const setSetup = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    step: v.optional(
+      v.union(v.literal('brand'), v.literal('licence'), v.literal('team')),
+    ),
+    team: v.optional(v.union(v.literal('solo'), v.literal('team'))),
+    finished: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { businessId, step, team, finished }) => {
+    requireCapability(await requireActor(ctx, businessId), 'business.manage')
+    const business = await ctx.db.get(businessId)
+    if (!business) throw new ConvexError('NOT_FOUND')
+    const setup = business.setup
+    if (!setup || setup.finishedAt !== undefined) return
+
+    await ctx.db.patch(businessId, {
+      setup: {
+        ...setup,
+        ...(step ? { step } : {}),
+        ...(team ? { team } : {}),
+        ...(finished ? { finishedAt: Date.now() } : {}),
+      },
+    })
   },
 })
 
