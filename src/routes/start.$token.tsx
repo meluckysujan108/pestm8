@@ -6,6 +6,7 @@ import { Building2, IdCard, Palette, Users } from 'lucide-react'
 import { api } from '../../convex/_generated/api'
 import { InviteAuthForm } from '#/components/auth/InviteAuthForm'
 import { authClient } from '#/lib/auth-client'
+import { couldBeInvitee } from '#/lib/inviteEmail'
 import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
@@ -41,6 +42,12 @@ function StartPage() {
 
   const { data: session } = authClient.useSession()
   const signedInEmail = session?.user.email ?? null
+  const emailHint = link.data?.emailHint ?? ''
+  // Signed in to an account this link cannot be for — a browser still signed
+  // in to someone's everyday account, usually. Claiming would only be refused
+  // (INVITE_EMAIL_MISMATCH), so the page says so instead of offering it.
+  const wrongAccount =
+    signedInEmail !== null && !couldBeInvitee(signedInEmail, emailHint)
 
   const claim = useMutation({
     mutationFn: () => convexClaim({ token }),
@@ -68,14 +75,13 @@ function StartPage() {
   useEffect(() => {
     if (justAuthed && signedInEmail && !claim.isPending && !claim.isSuccess) {
       setJustAuthed(false)
-      claim.mutate()
+      if (!wrongAccount) claim.mutate()
     }
-  }, [justAuthed, signedInEmail, claim])
+  }, [justAuthed, signedInEmail, wrongAccount, claim])
 
   if (link.isPending) return <Shell title="Checking your link…" />
 
   const state = link.data?.state ?? 'invalid'
-  const emailHint = link.data?.emailHint ?? ''
   // Claimed or used: dead to anyone else, but its own account carries on —
   // which only signing in can tell.
   const taken = state === 'claimed' || state === 'used'
@@ -115,7 +121,24 @@ function StartPage() {
         <Alert>{claimMessage(claim.error, emailHint)}</Alert>
       )}
 
-      {signedInEmail ? (
+      {signedInEmail && wrongAccount ? (
+        <div className="mt-6">
+          <p className="text-body text-ink-2">
+            You're signed in as{' '}
+            <span className="text-ink">{signedInEmail}</span>, but this link is
+            for <span className="text-ink">{emailHint}</span>. Sign out, then{' '}
+            {taken ? 'sign in' : 'create your account'} with that address.
+          </p>
+          <button
+            type="button"
+            disabled={!hydrated}
+            onClick={signOutAndReload}
+            className="mt-4 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          >
+            Sign out
+          </button>
+        </div>
+      ) : signedInEmail ? (
         <div className="mt-6">
           <p className="text-body text-ink-2">
             Signed in as <span className="text-ink">{signedInEmail}</span>
@@ -130,15 +153,7 @@ function StartPage() {
           </button>
           <button
             type="button"
-            // A reload, as the join page's: the next account must not see
-            // this one's cached answers.
-            onClick={() => {
-              beginSignOut()
-              void authClient
-                .signOut()
-                .then(forgetCachedPages)
-                .then(() => window.location.reload())
-            }}
+            onClick={signOutAndReload}
             className="mt-4 w-full text-body text-blue"
           >
             Not you? Sign out
@@ -170,6 +185,16 @@ function StartPage() {
   )
 }
 
+/** A reload, as the join page's: the next account must not see this one's
+ * cached answers. */
+function signOutAndReload() {
+  beginSignOut()
+  void authClient
+    .signOut()
+    .then(forgetCachedPages)
+    .then(() => window.location.reload())
+}
+
 const DEAD_TITLE: Record<string, string> = {
   expired: 'This link has expired',
   revoked: 'This link was withdrawn',
@@ -179,7 +204,7 @@ const DEAD_TITLE: Record<string, string> = {
 function claimMessage(error: unknown, emailHint: string) {
   const message = error instanceof Error ? error.message : String(error)
   if (message.includes('INVITE_EMAIL_MISMATCH')) {
-    return `This link was sent to ${emailHint}. Sign out and sign in with that address.`
+    return `This link was sent to ${emailHint}. Sign out, then carry on with that address.`
   }
   if (message.includes('INVITE_ALREADY_USED')) {
     return 'This link has already been used by another account.'
