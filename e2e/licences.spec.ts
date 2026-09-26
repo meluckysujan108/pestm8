@@ -470,18 +470,21 @@ test.describe('licences kept on this phone', () => {
     // The service worker is what serves the hub again with no signal: wait
     // for it to take this page over, then load the hub through it once, so
     // the page is in its cache.
+    // Reloaded until it is: `clientsClaim` usually hands the open page over
+    // at once, but under load the claim can trail `ready` by longer than a
+    // poll waits, and a load through the worker is what caches the hub anyway.
     await page.evaluate(async () => {
       await navigator.serviceWorker.ready
     })
-    await expect
-      .poll(() =>
-        page.evaluate(() => navigator.serviceWorker.controller !== null),
-      )
-      .toBe(true)
-    await page.reload()
-    await expect(
-      page.getByRole('heading', { name: 'Settings', level: 1 }),
-    ).toBeVisible()
+    await expect(async () => {
+      await page.reload()
+      await expect(
+        page.getByRole('heading', { name: 'Settings', level: 1 }),
+      ).toBeVisible()
+      expect(
+        await page.evaluate(() => navigator.serviceWorker.controller !== null),
+      ).toBe(true)
+    }).toPass({ timeout: 60_000 })
 
     // Kept without being opened: the list answering is enough.
     await expect
