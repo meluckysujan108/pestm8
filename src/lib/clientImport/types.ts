@@ -21,6 +21,7 @@ export type ImportField =
   | 'company'
   | 'contactPerson'
   | 'isCompany'
+  | 'contactType'
   | 'email'
   | 'phone'
   | 'mobile'

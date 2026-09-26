@@ -17,6 +17,7 @@ import type {
 } from './types'
 
 const NONE: ExistingIndex = { clientsByName: new Map(), siteKeys: new Set() }
+const OPTS = { businessState: 'WA', existing: NONE }
 
 /** A sheet from rows of heading → value, mapped by the headings' fields. */
 function review(
@@ -499,6 +500,20 @@ describe('Australian addresses', () => {
     })
   })
 
+  test('a suburb ending in Lake, then Western Australia written out', () => {
+    for (const suburb of ['South Lake', 'Bibra Lake']) {
+      const client = one([
+        ['Jo', `4 Kenny Place, ${suburb} Western Australia, 6164 Australia`],
+      ])
+      expect(client.sites[0]).toMatchObject({
+        addressLine: '4 Kenny Place',
+        suburb,
+        state: 'WA',
+        postcode: '6164',
+      })
+    }
+  })
+
   test('no comma before the suburb: an error, the line kept whole, a fix offered', () => {
     const client = one([['Jo', '12 Wattle St Bayswater WA 6053']])
     expect(client.sites[0]).toMatchObject({
@@ -979,6 +994,89 @@ describe('the name, and person or business', () => {
       ],
     )
     expect(client).toMatchObject({ kind: 'person', name: 'Bayview Motel' })
+  })
+})
+
+describe('left out on the way in', () => {
+  const COLUMNS: Array<[string, ImportField]> = [
+    ['Contact Type', 'contactType'],
+    ['Billing Name', 'name'],
+    ['Phone', 'phone'],
+    ['Address', 'address'],
+  ]
+  const ADDRESS = '1 Hay St, Perth WA 6000'
+
+  test('a supplier: left out, with why, and included on request', () => {
+    const [client] = review(COLUMNS, [
+      ['Supplier', 'Chemical Warehouse', '0400 000 000', ADDRESS],
+    ])
+    expect(client.included).toBe(false)
+    expect(importable(client)).toBe(false)
+    expect(client.issues.map((i) => i.message)).toContain(
+      '“Supplier” in the file, not a client — left out. Include it if you do work for them.',
+    )
+    const included = recheckClient({ ...client, included: true }, OPTS)
+    expect(importable(included)).toBe(true)
+    expect(included.issues).toEqual([])
+  })
+
+  test('a customer, or no type, is a client', () => {
+    const clients = review(COLUMNS, [
+      ['Customer', 'Jo Bloggs', '0400 000 001', ADDRESS],
+      ['', 'Ann Lee', '0400 000 002', '2 Hay St, Perth WA 6000'],
+    ])
+    expect(clients.map((c) => c.included)).toEqual([true, true])
+  })
+
+  test('a supplier who is also on a customer row is a client', () => {
+    const [client] = review(COLUMNS, [
+      ['Supplier', 'Jo Bloggs', '0400 000 001', ''],
+      ['Customer', 'Jo Bloggs', '0400 000 001', ADDRESS],
+    ])
+    expect(client.rowNumbers).toEqual([1, 2])
+    expect(client.included).toBe(true)
+  })
+
+  test('a name and nothing else: left out, not an error to fix', () => {
+    const [client] = review(COLUMNS, [['', 'Apple subscription', '', '']])
+    expect(client.included).toBe(false)
+    expect(client.issues.map((i) => i.message)).toContain(
+      'Only a name in the file — no address, phone or email — so left out. Include it to add an address.',
+    )
+    // Included, it needs its address like any client.
+    const included = recheckClient({ ...client, included: true }, OPTS)
+    expect(statusOf(included)).toBe('error')
+    expect(included.issues.map((i) => i.message)).not.toContain(
+      'Only a name in the file — no address, phone or email — so left out. Include it to add an address.',
+    )
+  })
+
+  test('a name and a phone, with no address, is still one to fix', () => {
+    const [client] = review(COLUMNS, [
+      ['Customer', 'Jo Bloggs', '0400 000 001', ''],
+    ])
+    expect(client.included).toBe(true)
+    expect(statusOf(client)).toBe('error')
+  })
+
+  test('a billing name beside a contact it shares no word with is a business', () => {
+    const [school, family] = review(
+      [
+        ['Billing Name', 'name'],
+        ['Primary Contact', 'contactPerson'],
+        ['Address', 'address'],
+      ],
+      [
+        ['Little Sprouts Early Learning', 'Ashley Metcalfe', ADDRESS],
+        ['Kate Reese', 'Kate Reece', '2 Hay St, Perth WA 6000'],
+      ],
+    )
+    expect(school).toMatchObject({
+      kind: 'business',
+      name: 'Little Sprouts Early Learning',
+      contactPerson: 'Ashley Metcalfe',
+    })
+    expect(family.kind).toBe('person')
   })
 })
 
