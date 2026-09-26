@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
@@ -574,6 +574,9 @@ function ClientContacts({
     convexQuery(api.clientContacts.list, { businessId, clientId }),
   )
   const [adding, setAdding] = useState(false)
+  // Where focus goes once a contact is removed: its row, and the button
+  // that opened the dialog, go with it.
+  const addButton = useRef<HTMLButtonElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   // The primary contact is the client's contact person (Prompt 6.1), shown
   // under its name and edited from the client form, so removing them asks
@@ -703,6 +706,7 @@ function ClientContacts({
         />
       ) : (
         <button
+          ref={addButton}
           type="button"
           onClick={() => setAdding(true)}
           className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
@@ -720,6 +724,7 @@ function ClientContacts({
         cancel="Keep contact"
         confirm="Remove"
         pending={remove.isPending}
+        returnFocus={(confirmed) => (confirmed ? addButton.current : null)}
         onConfirm={() => confirmRemove && removeContact(confirmRemove._id)}
       />
     </Section>

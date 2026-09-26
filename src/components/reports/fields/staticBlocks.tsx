@@ -48,7 +48,7 @@ export function NoteBlock({ field }: Of<'note'>) {
   return (
     <div className={`rounded-xl border px-3.5 py-3 ${TONE_CLASS[tone]}`}>
       {field.heading && (
-        <p className="text-subhead font-semibold text-ink">
+        <p className="text-body font-semibold text-ink">
           {tone === 'important' ? `IMPORTANT: ${field.heading}` : field.heading}
         </p>
       )}

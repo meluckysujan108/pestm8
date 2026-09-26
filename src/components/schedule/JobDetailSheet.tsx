@@ -184,6 +184,7 @@ function JobDetailBody({
   const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] = useState(false)
   const [makeRecurringOpen, setMakeRecurringOpen] = useState(false)
   const [editing, setEditing] = useState(false)
+  const hydrated = useHydrated()
 
   // The notes and reports sections render only once `job` has arrived. Asking
   // for their code now lets it load alongside the job rather than after it.
@@ -494,8 +495,9 @@ function JobDetailBody({
                 {job.canEdit && job.status !== 'invoiced' && (
                   <button
                     type="button"
+                    disabled={!hydrated}
                     onClick={() => setConfirmStopRepeatingOpen(true)}
-                    className="relative tap-target mt-3 text-caption font-semibold text-red"
+                    className="relative tap-target mt-3 text-caption font-semibold text-red disabled:opacity-50"
                   >
                     Stop repeating
                   </button>
@@ -511,8 +513,9 @@ function JobDetailBody({
                 {job.canEdit && job.status !== 'invoiced' && (
                   <button
                     type="button"
+                    disabled={!hydrated}
                     onClick={() => setMakeRecurringOpen(true)}
-                    className="relative tap-target mt-3 text-caption font-semibold text-blue"
+                    className="relative tap-target mt-3 text-caption font-semibold text-blue disabled:opacity-50"
                   >
                     Make recurring
                   </button>
@@ -1252,8 +1255,11 @@ function JobPhotos({
   canEdit: boolean
 }) {
   const input = useRef<HTMLInputElement>(null)
+  const addButton = useRef<HTMLButtonElement>(null)
   const [busy, setBusy] = useState(false)
   const [failed, setFailed] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState<JobPhoto | null>(null)
+  const hydrated = useHydrated()
 
   const { data } = useQuery(convexQuery(api.jobs.photos, { businessId, jobId }))
   const photos = (data ?? []) as Array<JobPhoto>
@@ -1305,7 +1311,7 @@ function JobPhotos({
     <Section label="Photos">
       {photos.length > 0 && (
         <div className="mb-3 grid grid-cols-3 gap-2">
-          {photos.map((photo) => (
+          {photos.map((photo, index) => (
             <div key={photo._id} className="relative">
               <img
                 src={photo.url ?? undefined}
@@ -1315,9 +1321,12 @@ function JobPhotos({
               {canEdit && (
                 <button
                   type="button"
-                  aria-label="Remove photo"
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate({ businessId, jobId, photoId: photo._id })}
+                  aria-label={`Remove photo ${index + 1} of ${photos.length}`}
+                  disabled={!hydrated || remove.isPending}
+                  onClick={() => {
+                    remove.reset()
+                    setConfirmRemove(photo)
+                  }}
                   className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
                 >
                   <Trash2 size={12} strokeWidth={2.4} />
@@ -1331,6 +1340,7 @@ function JobPhotos({
       {canEdit && (
         <>
           <button
+            ref={addButton}
             type="button"
             disabled={busy}
             onClick={() => input.current?.click()}
@@ -1356,6 +1366,32 @@ function JobPhotos({
               Upload failed. Check your connection and try again.
             </p>
           )}
+          <ConfirmDialog
+            open={confirmRemove !== null}
+            onOpenChange={(open) => !open && setConfirmRemove(null)}
+            title="Remove this photo?"
+            body="It comes off this job for everyone who can see it, and can’t be brought back."
+            confirm="Remove"
+            cancel="Keep it"
+            closeOnConfirm={false}
+            pending={remove.isPending}
+            pendingLabel="Removing…"
+            error={
+              remove.isError
+                ? 'Could not remove the photo. Check your signal and try again.'
+                : null
+            }
+            // The photo's own button goes with it; Add photos is the next
+            // thing in the section.
+            returnFocus={(confirmed) => (confirmed ? addButton.current : null)}
+            onConfirm={() => {
+              if (!confirmRemove) return
+              remove.mutate(
+                { businessId, jobId, photoId: confirmRemove._id },
+                { onSuccess: () => setConfirmRemove(null) },
+              )
+            }}
+          />
         </>
       )}
     </Section>

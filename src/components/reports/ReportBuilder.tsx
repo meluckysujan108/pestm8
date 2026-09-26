@@ -58,6 +58,9 @@ import {
   SECONDARY_BUTTON,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
+import { formatJobDate, formatTime, todayKey } from '#/lib/format'
+import { deviceTimezone } from '#/lib/useBusinessTimezone'
+import { dayKeyOf } from '../../../convex/lib/dates'
 
 /**
  * Honest about §5.5: there is no offline mutation queue, so a failed save is a
@@ -1097,16 +1100,16 @@ export function ReportBuilder({
   )
 }
 
-/** `at 2:05 pm today`, `on 14 Sept` — enough to recognise a session by. */
+/** `at 2:05pm today`, `on Mon 14 Sept, 2:05pm` — enough to recognise a
+ * session by. In the phone's own zone: it is about what was typed on it. */
 function whenRoughly(at: number): string {
-  const when = new Date(at)
-  const sameDay = new Date().toDateString() === when.toDateString()
-  const time = new Intl.DateTimeFormat('en-AU', {
-    hour: 'numeric',
-    minute: '2-digit',
-  }).format(when)
-  if (sameDay) return `at ${time} today`
-  return `on ${new Intl.DateTimeFormat('en-AU', { day: 'numeric', month: 'short' }).format(when)}, ${time}`
+  const zone = deviceTimezone()
+  const today = todayKey(zone)
+  const day = dayKeyOf(at, zone)
+  const time = formatTime(at, zone)
+  return day === today
+    ? `at ${time} today`
+    : `on ${formatJobDate(day, today)}, ${time}`
 }
 
 /** The same words, whatever the case: a section title may be set in capitals. */

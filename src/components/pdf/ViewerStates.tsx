@@ -150,7 +150,7 @@ export function PasswordState({
           <p
             id="pdf-password-wrong"
             role="alert"
-            className="text-caption font-semibold text-red"
+            className="text-caption font-semibold text-red-ink"
           >
             Wrong password. Try again.
           </p>

@@ -103,7 +103,7 @@ export function ConfirmDialog({
             {body}
           </AlertDialog.Description>
           {error && (
-            <p role="alert" className="mt-2 text-caption text-red">
+            <p role="alert" className="mt-2 text-caption text-amber-ink">
               {error}
             </p>
           )}

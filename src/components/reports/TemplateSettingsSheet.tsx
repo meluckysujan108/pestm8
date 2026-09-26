@@ -9,6 +9,7 @@ import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
 import { FIELD_COMPACT } from '#/components/forms/FormField'
+import { FormAlert } from '#/components/forms/FormAlert'
 
 /**
  * What a business may change about a form it did not write.
@@ -89,28 +90,38 @@ export function TemplateSettingsSheet({
       open={open}
       onClose={() => {
         setDraft(null)
+        save.reset()
         onClose()
       }}
       title={`${template.name} settings`}
       description="The form's questions and wording stay as they are. These are the parts that are yours."
       footer={
-        <button
-          type="button"
-          disabled={save.isPending || saved === undefined}
-          onClick={() =>
-            save.mutate({
-              businessId,
-              templateRef: templateId,
-              coverTitle: current.coverTitle,
-              coverSubtitle: current.coverSubtitle,
-              formName: current.formName,
-              requiredSigners: current.requiredSigners,
-            })
-          }
-          className={`${NEUTRAL_BUTTON} w-full`}
-        >
-          {save.isPending ? 'Saving…' : 'Save'}
-        </button>
+        <div className="flex flex-col gap-2">
+          <FormAlert
+            error={save.isError ? save.error : null}
+            copy={{
+              default:
+                'Could not save these settings. Check your signal and try again.',
+            }}
+          />
+          <button
+            type="button"
+            disabled={save.isPending || saved === undefined}
+            onClick={() =>
+              save.mutate({
+                businessId,
+                templateRef: templateId,
+                coverTitle: current.coverTitle,
+                coverSubtitle: current.coverSubtitle,
+                formName: current.formName,
+                requiredSigners: current.requiredSigners,
+              })
+            }
+            className={`${NEUTRAL_BUTTON} w-full`}
+          >
+            {save.isPending ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       }
     >
       {template.print?.cover && (
