@@ -15,6 +15,9 @@ import type {
  */
 
 export const FIELD_LABELS: Record<ImportField, string> = {
+  clientNumber: 'Client number',
+  status: 'Status (Active / Lead / Inactive)',
+  tags: 'Tags',
   name: 'Client name',
   firstName: 'First name',
   lastName: 'Last name',
@@ -39,6 +42,7 @@ export const FIELD_LABELS: Record<ImportField, string> = {
 
 /** The Match step's dropdown, in the order a person thinks of a client. */
 export const FIELD_ORDER: Array<ImportField> = [
+  'clientNumber',
   'name',
   'firstName',
   'lastName',
@@ -59,6 +63,8 @@ export const FIELD_ORDER: Array<ImportField> = [
   'siteContactName',
   'siteContactPhone',
   'notes',
+  'status',
+  'tags',
 ]
 
 /** A heading as compared: "Is Company?", "is_company" and "IsCompany" are
@@ -223,6 +229,31 @@ const SYNONYMS: Record<
     'customertype',
     'accounttype',
     'type',
+  ],
+  // The old system's own number for the client. Jobber's J-ID is left
+  // out: it is Jobber's record id, not a number the business uses.
+  clientNumber: [
+    'clientnumber',
+    'clientno',
+    'clientid',
+    'customernumber',
+    'customerno',
+    'customerid',
+    'accountnumber',
+    'accountno',
+    'clientref',
+    'customerref',
+    'id',
+  ],
+  status: ['status', 'clientstatus', 'customerstatus', 'accountstatus'],
+  tags: [
+    'tags',
+    'tag',
+    'labels',
+    'label',
+    'clienttags',
+    'customertags',
+    'categories',
   ],
   // Accounts packages list suppliers beside customers: "Contact type"
   // Customer / Supplier. build.ts leaves the ones that aren't clients out.

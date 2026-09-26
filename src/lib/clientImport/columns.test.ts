@@ -398,6 +398,8 @@ describe('autoMap', () => {
       ],
     )
     expect(mapped(s)).toEqual({
+      ID: 'clientNumber',
+      Status: 'status',
       'Contact Type': 'contactType',
       'Primary Contact': 'contactPerson',
       'Billing Name': 'name',
@@ -407,6 +409,39 @@ describe('autoMap', () => {
       'Latest Note': 'notes',
     })
     expect(mappingProblems(autoMap(s))).toEqual([])
+  })
+
+  test('a cleaned list: number, status, type, tags and a split address', () => {
+    const s = sheet([
+      'Client Number',
+      'Status',
+      'Contact Type',
+      'Client Name',
+      'Contact Person',
+      'Phone',
+      'Email',
+      'Street',
+      'Suburb',
+      'State',
+      'Postcode',
+      'Tags',
+      'Notes',
+    ])
+    expect(mapped(s)).toEqual({
+      'Client Number': 'clientNumber',
+      Status: 'status',
+      'Contact Type': 'contactType',
+      'Client Name': 'name',
+      'Contact Person': 'contactPerson',
+      Phone: 'phone',
+      Email: 'email',
+      Street: 'street',
+      Suburb: 'suburb',
+      State: 'state',
+      Postcode: 'postcode',
+      Tags: 'tags',
+      Notes: 'notes',
+    })
   })
 
   test('each field claimed once; the rest left for the person', () => {

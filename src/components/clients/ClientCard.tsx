@@ -1,10 +1,19 @@
 import { Building2, User } from 'lucide-react'
+import {
+  ClientStatusPill,
+  TagChips,
+  clientNumberLabel,
+} from '#/components/clients/ClientRecordBits'
 import type { ClientKind } from '#/lib/clientFilters'
+import type { ClientStatus } from '../../../convex/lib/clientRecord'
 
 export type ClientRow = {
   _id: string
   name: string
   kind: ClientKind
+  clientNumber?: number
+  status?: ClientStatus
+  tags?: Array<string>
 }
 
 export type ClientPropertyRow = {
@@ -77,8 +86,18 @@ export function ClientCard({
       className={`${shell} h-full flex-col gap-3 p-4`}
     >
       <span className="flex items-center justify-between gap-2">
-        <ClientKindPill kind={client.kind} />
-        <Icon size={17} strokeWidth={2} aria-hidden className="shrink-0 text-muted" />
+        <span className="flex min-w-0 items-center gap-1.5">
+          <ClientKindPill kind={client.kind} />
+          <ClientStatusPill status={client.status} />
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5">
+          {client.clientNumber !== undefined && (
+            <span className="text-caption font-semibold tabular-nums text-muted">
+              {clientNumberLabel(client.clientNumber)}
+            </span>
+          )}
+          <Icon size={17} strokeWidth={2} aria-hidden className="shrink-0 text-muted" />
+        </span>
       </span>
 
       <span className="block min-w-0">
@@ -88,6 +107,11 @@ export function ClientCard({
         <span className="mt-0.5 block truncate text-caption text-muted">
           {primary}
         </span>
+        {client.tags && client.tags.length > 0 && (
+          <span className="mt-2 block">
+            <TagChips tags={client.tags} max={3} />
+          </span>
+        )}
       </span>
 
       <span className="mt-auto flex items-end justify-between gap-2 border-t border-hairline-2 pt-3">

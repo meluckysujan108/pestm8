@@ -94,3 +94,31 @@ describe('the Clients page search', () => {
     expect(found('61478123', mobile)).toBe(true)
   })
 })
+
+describe('client number and tags in the search', () => {
+  const ALAN = {
+    client: {
+      name: 'Alan Vilay',
+      kind: 'person' as const,
+      clientNumber: 1928,
+      tags: ['GPC', 'Real estate'],
+    },
+    properties: [{ addressLine: '6 Trinity Close', suburb: 'Canning Vale' }],
+  }
+
+  test('finds a client by its number, with or without the #', () => {
+    expect(matchesClientSearch(ALAN, '#1928')).toBe(true)
+    expect(matchesClientSearch(ALAN, '1928')).toBe(true)
+    expect(matchesClientSearch(ALAN, '#192')).toBe(false)
+  })
+
+  test('a short number finds only the client with that number', () => {
+    const seven = { ...ALAN, client: { ...ALAN.client, clientNumber: 7 } }
+    expect(matchesClientSearch(seven, '7')).toBe(true)
+    expect(matchesClientSearch(ALAN, '7')).toBe(false)
+  })
+
+  test('finds a client by a tag', () => {
+    expect(matchesClientSearch(ALAN, 'real estate')).toBe(true)
+  })
+})

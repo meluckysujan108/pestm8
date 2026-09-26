@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from 'convex/server'
 import { v } from 'convex/values'
+import { clientStatus } from './lib/clientRecord'
 
 /**
  * `contractor` is new: a member who has a team of subcontractors, sees their
@@ -224,6 +225,9 @@ export const intervalUnit = v.union(
 )
 
 export const clientKind = v.union(v.literal('person'), v.literal('business'))
+
+/** Where a client stands (convex/lib/clientRecord.ts). Absent is active. */
+export { clientStatus }
 
 /**
  * How a property's address was last entered: 'picked' from the address
@@ -640,9 +644,23 @@ export default defineSchema({
     updatedAt: v.number(),
     /** Brought in by a client import — see `properties.importId`. */
     importId: v.optional(v.id('clientImports')),
+    /**
+     * The business's own number for the client ("#1916"), unique within the
+     * business: kept from the old system on import, otherwise the next one
+     * (convex/lib/clientRecord.ts `assignClientNumber`). Optional: clients
+     * made before numbering have none until `migrations/clientNumbersV1`.
+     */
+    clientNumber: v.optional(v.number()),
+    /** Active, a lead not yet booked, or no longer serviced. Absent is
+     * active. Not archiving: an inactive client is still in the pickers. */
+    status: v.optional(clientStatus),
+    /** The business's own labels ("Real estate", "Termite contract"), at
+     * most `MAX_TAGS`, each unique whatever its capitals. */
+    tags: v.optional(v.array(v.string())),
   })
     .index('by_business', ['businessId'])
-    .index('by_import', ['importId']),
+    .index('by_import', ['importId'])
+    .index('by_business_and_clientNumber', ['businessId', 'clientNumber']),
 
   /**
    * A client list brought across from a spreadsheet or another app

@@ -1,5 +1,6 @@
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ImportSite } from '../../../convex/lib/clientImport'
+import type { ClientStatus } from '../../../convex/lib/clientRecord'
 
 /**
  * The import page's side of "Bring your clients across": the types the
@@ -15,6 +16,9 @@ import type { ImportSite } from '../../../convex/lib/clientImport'
 
 /** What a column can be. `null` in a mapping means "don't import". */
 export type ImportField =
+  | 'clientNumber'
+  | 'status'
+  | 'tags'
   | 'name'
   | 'firstName'
   | 'lastName'
@@ -115,6 +119,10 @@ export type ReviewClient = {
   phone?: string
   email?: string
   abn?: string
+  /** The file's number for the client, kept when it is free in PestM8. */
+  clientNumber?: number
+  status?: ClientStatus
+  tags?: Array<string>
   sites: Array<ReviewSite>
   /** A client of this name is already in PestM8: new sites join it. */
   existingClientId?: Id<'clients'>
@@ -141,4 +149,6 @@ export type ExistingIndex = {
   /** `siteKey(site)` → the name of the client that site is on, so the review
    * can say whose it is when that isn't the client being imported. */
   siteHolders?: Map<string, string>
+  /** Client number → the name of the client in PestM8 that has it. */
+  numbers?: Map<number, string>
 }

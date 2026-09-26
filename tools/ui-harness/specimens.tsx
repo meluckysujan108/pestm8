@@ -38,7 +38,10 @@ import {
 } from '#/components/settings/ui'
 import { KeyRound, Palette, ShieldCheck, User, Users } from 'lucide-react'
 import type { StatusFilter } from '#/lib/scheduleFilters'
-import type { KindFilter } from '#/lib/clientFilters'
+import type {
+  KindFilter,
+  StatusFilter as ClientStatusFilter,
+} from '#/lib/clientFilters'
 import { BIZ, JOBS, MEMBERS, TZ, state } from './fixtures'
 
 const bizId = BIZ as never
@@ -208,6 +211,8 @@ function Filters() {
   const [staffId, setStaffId] = useState('all')
   const [kind, setKind] = useState<KindFilter>('all')
   const [suburb, setSuburb] = useState('all')
+  const [clientStatus, setClientStatus] = useState<ClientStatusFilter>('all')
+  const [tag, setTag] = useState('all')
   const [seg, setSeg] = useState('day')
   const [q, setQ] = useState('crawley')
   return (
@@ -236,13 +241,32 @@ function Filters() {
         <p className="section-label">Client filter bar</p>
         <ClientFilterBar
           rows={[
-            { properties: [{ suburb: 'Subiaco' }] },
-            { properties: [{ suburb: 'Crawley' }] },
+            {
+              client: { status: 'lead', tags: ['GPC', 'Real estate'] },
+              properties: [{ suburb: 'Subiaco' }],
+            },
+            { client: { tags: ['GPC'] }, properties: [{ suburb: 'Crawley' }] },
           ]}
           kind={kind}
           setKind={setKind}
           suburb={suburb}
           setSuburb={setSuburb}
+          status={clientStatus}
+          setStatus={setClientStatus}
+          tag={tag}
+          setTag={setTag}
+          filtered={
+            kind !== 'all' ||
+            suburb !== 'all' ||
+            clientStatus !== 'all' ||
+            tag !== 'all'
+          }
+          onClear={() => {
+            setKind('all')
+            setSuburb('all')
+            setClientStatus('all')
+            setTag('all')
+          }}
         />
         <p className="section-label">Search box</p>
         <SearchBox value={q} onChange={setQ} label="Search clients" />
