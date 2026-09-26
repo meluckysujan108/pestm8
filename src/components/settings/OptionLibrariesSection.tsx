@@ -30,6 +30,7 @@ import {
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
 import { FIELD_COMPACT } from '#/components/forms/FormField'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 /**
  * The words a business's own reports offer.
@@ -62,13 +63,19 @@ export function OptionLibrariesSection({
   businessId: Id<'businesses'>
 }) {
   const hydrated = useHydrated()
-  const { data: lists } = useQuery(rq.answerLists(businessId))
+  const listsQuery = useQuery(rq.answerLists(businessId))
+  const lists = listsQuery.data
   const [open, setOpen] = useState<OptionSetKey | null>(null)
   const editing = lists?.find((list) => list.key === open)
 
   return (
     <>
-      {lists === undefined ? (
+      {lists === undefined && listsQuery.isError ? (
+        <LoadFailed
+          what="the answer lists"
+          onRetry={() => void listsQuery.refetch()}
+        />
+      ) : lists === undefined ? (
         <ListPending label="Loading answer lists" count={3} />
       ) : (
         <SettingsGroup footer="Changing a list changes every form that uses it. Finalised reports keep theirs.">

@@ -63,35 +63,35 @@ All tokens live in `src/styles.css`.
 
 ### 2.1 Colour
 
-| Token                  | Light                       | Dark                        | Use for                                                                                                                            |
-| ---------------------- | --------------------------- | --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `--ink`                | `#1c1c1e`                   | `#ffffff`                   | Titles, primary text, the neutral button's fill                                                                                    |
-| `--ink-2`              | `#3a3a3c`                   | `#e5e5ea`                   | Body text that must be read; grey glyphs                                                                                           |
-| `--muted`              | `#8e8e93`                   | `#98989f`                   | Metadata that can be skipped: times, counts, captions, group footers. Only 2.8–3.3:1, so not for anything that must be read in sun |
-| `--muted-2`            | `#9b9ba1`                   | `#8e8e93`                   | Section labels (`section-label`), chevrons, tertiary glyphs                                                                        |
-| `--hairline`           | `rgba(60, 60, 67, 0.1)`     | `rgba(235, 235, 245, 0.14)` | Card borders and row dividers. The default border colour                                                                           |
-| `--hairline-2`         | `rgba(60, 60, 67, 0.07)`    | `rgba(235, 235, 245, 0.08)` | A fainter divider inside a card                                                                                                    |
-| `--surface`            | `#ffffff`                   | `#1c1c1e`                   | Cards, rows in a sheet, popovers                                                                                                   |
-| `--surface-2`          | `#f2f2f7`                   | `#2c2c2e`                   | Inset blocks inside a card: locked boilerplate, a note, a quiet chip, a thumbnail                                                  |
-| `--surface-3`          | `#f4f4f8`                   | `#2a2a2c`                   | Input wells: every field's fill, and read-only values shown as fields                                                              |
-| `--canvas`             | `#ededf1`                   | `#000000`                   | The app background, and a sheet's background                                                                                       |
-| `--fill-track`         | `rgba(118, 118, 128, 0.08)` | `rgba(120, 120, 128, 0.28)` | A segmented control's track                                                                                                        |
-| `--fill-secondary`     | `rgba(118, 118, 128, 0.12)` | `rgba(118, 118, 128, 0.24)` | Grey buttons (`SECONDARY_BUTTON`, `LINK_BUTTON`)                                                                                   |
-| `--red`                | `#ff3b30`                   | `#ff453a`                   | Brand as a word or glyph: today, the current tab, a destructive text row, an invalid field's ring                                  |
-| `--red-fill`           | `#dc2a1f`                   | `#dc2a1f`                   | Red **behind white text**: the primary button, the header's +, the selected day (4.8:1)                                            |
-| `--blue`               | `#0a84ff`                   | `#0a84ff`                   | Links and text buttons, the focus ring, a selected tick, an active filter, info glyphs, mention badges                             |
-| `--green`              | `#34c759`                   | `#30d158`                   | A success glyph (a tick, a done step). Never text                                                                                  |
-| `--amber`              | `#ff9f0a`                   | `#ff9f0a`                   | A warning glyph or bar. Never text                                                                                                 |
-| `--amber-ink`          | `#985b00`                   | `#ffb340`                   | Warning and failure **text**, on any surface (4.5:1, checked)                                                                      |
-| `--amber-bg`           | `#fff8ec`                   | `#2a1e0a`                   | A warning box's fill                                                                                                               |
-| `--amber-line`         | `#ffe2b8`                   | `#4d3712`                   | A warning box's border                                                                                                             |
-| `--chrome`             | `rgba(255, 255, 255, 0.92)` | `rgba(28, 28, 30, 0.86)`    | Glass bars: the tint over a blurred backdrop. Use `chrome-bar`, `chrome-dock` or `chrome-blur`, never the colour alone             |
-| `--scrim`              | `rgba(0, 0, 0, 0.3)`        | `rgba(0, 0, 0, 0.6)`        | Behind sheets and dialogs                                                                                                          |
-| `--paper`              | `#ffffff`                   | `#ffffff`                   | Anything drawn for print: a signature pad, a PDF page                                                                              |
-| `--viewer-backdrop`    | `#f2f2f7`                   | `#0c0c0d`                   | Behind the pages in the document viewer                                                                                            |
-| `--on-tint`            | `#ffffff`                   | `#ffffff`                   | Text on a solid saturated tint (a blue count badge)                                                                                |
-| `--search-hit`         | `rgba(255, 214, 10, 0.5)`   | `rgba(255, 214, 10, 0.5)`   | Find in a PDF: every match                                                                                                         |
-| `--search-hit-current` | `rgba(255, 149, 0, 0.7)`    | `rgba(255, 149, 0, 0.7)`    | Find in a PDF: the match being looked at                                                                                           |
+| Token                  | Light                       | Dark                        | Use for                                                                                                                             |
+| ---------------------- | --------------------------- | --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `--ink`                | `#1c1c1e`                   | `#ffffff`                   | Titles, primary text, the neutral button's fill                                                                                     |
+| `--ink-2`              | `#3a3a3c`                   | `#e5e5ea`                   | Body text that must be read; grey glyphs                                                                                            |
+| `--muted`              | `#8e8e93`                   | `#98989f`                   | Metadata that can be skipped: times, counts, captions, group footers. Only 2.8–3.3:1, so not for anything that must be read in sun  |
+| `--muted-2`            | `#9b9ba1`                   | `#8e8e93`                   | Section labels (`section-label`), chevrons, tertiary glyphs                                                                         |
+| `--hairline`           | `rgba(60, 60, 67, 0.1)`     | `rgba(235, 235, 245, 0.14)` | Card borders and row dividers. The default border colour                                                                            |
+| `--hairline-2`         | `rgba(60, 60, 67, 0.07)`    | `rgba(235, 235, 245, 0.08)` | A fainter divider inside a card                                                                                                     |
+| `--surface`            | `#ffffff`                   | `#1c1c1e`                   | Cards, rows in a sheet, popovers                                                                                                    |
+| `--surface-2`          | `#f2f2f7`                   | `#2c2c2e`                   | Inset blocks inside a card: locked boilerplate, a note, a quiet chip, a thumbnail                                                   |
+| `--surface-3`          | `#f4f4f8`                   | `#2a2a2c`                   | Input wells: every field's fill, and read-only values shown as fields                                                               |
+| `--canvas`             | `#ededf1`                   | `#000000`                   | The app background, and a sheet's background                                                                                        |
+| `--fill-track`         | `rgba(118, 118, 128, 0.08)` | `rgba(120, 120, 128, 0.28)` | A segmented control's track                                                                                                         |
+| `--fill-secondary`     | `rgba(118, 118, 128, 0.12)` | `rgba(118, 118, 128, 0.24)` | Grey buttons (`SECONDARY_BUTTON`, `LINK_BUTTON`)                                                                                    |
+| `--red`                | `#ff3b30`                   | `#ff453a`                   | Brand as a word or glyph: today, the current tab, a destructive text row, an invalid field's ring                                   |
+| `--red-fill`           | `#dc2a1f`                   | `#dc2a1f`                   | Red **behind white text**: the primary button, the header's +, the selected day, the printed report's band and table header (4.8:1) |
+| `--blue`               | `#0a84ff`                   | `#0a84ff`                   | Links and text buttons, the focus ring, a selected tick, an active filter, info glyphs, mention badges                              |
+| `--green`              | `#34c759`                   | `#30d158`                   | A success glyph (a tick, a done step). Never text                                                                                   |
+| `--amber`              | `#ff9f0a`                   | `#ff9f0a`                   | A warning glyph or bar. Never text                                                                                                  |
+| `--amber-ink`          | `#985b00`                   | `#ffb340`                   | Warning and failure **text**, on any surface (4.5:1, checked)                                                                       |
+| `--amber-bg`           | `#fff8ec`                   | `#2a1e0a`                   | A warning box's fill                                                                                                                |
+| `--amber-line`         | `#ffe2b8`                   | `#4d3712`                   | A warning box's border                                                                                                              |
+| `--chrome`             | `rgba(255, 255, 255, 0.92)` | `rgba(28, 28, 30, 0.86)`    | Glass bars: the tint over a blurred backdrop. Use `chrome-bar`, `chrome-dock` or `chrome-blur`, never the colour alone              |
+| `--scrim`              | `rgba(0, 0, 0, 0.3)`        | `rgba(0, 0, 0, 0.6)`        | Behind sheets and dialogs                                                                                                           |
+| `--paper`              | `#ffffff`                   | `#ffffff`                   | Anything drawn for print: a signature pad, a PDF page                                                                               |
+| `--viewer-backdrop`    | `#f2f2f7`                   | `#0c0c0d`                   | Behind the pages in the document viewer                                                                                             |
+| `--on-tint`            | `#ffffff`                   | `#ffffff`                   | Text on a solid saturated tint (a blue count badge)                                                                                 |
+| `--search-hit`         | `rgba(255, 214, 10, 0.5)`   | `rgba(255, 214, 10, 0.5)`   | Find in a PDF: every match                                                                                                          |
+| `--search-hit-current` | `rgba(255, 149, 0, 0.7)`    | `rgba(255, 149, 0, 0.7)`    | Find in a PDF: the match being looked at                                                                                            |
 
 The palette blocks also hold values you don't pick directly:
 
@@ -458,21 +458,22 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 
 ### 4.6 Empty, loading, failed
 
-| Export                                    | Use for                                                                                                                     |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `EmptyState`                              | A list with nothing in it yet: a title ("No clients yet"), one line saying what goes here, and the one action that fills it |
-| `EmptyStateButton` / `EMPTY_ACTION_CLASS` | That action: quiet grey and blue, not red                                                                                   |
-| `NoMatches`                               | A search or filter that found nothing: "No matches for “…”" and a way to clear it. Never `EmptyState` for this              |
-| `PagePending`                             | The router's default: a page loading inside a shell that stays put                                                          |
-| `ListPending`                             | A list loading inside a page that is already on screen (announced)                                                          |
-| `CardRows`                                | The card-shaped placeholders `ListPending` draws, for a custom layout                                                       |
-| `RowPending`                              | One row loading inside a card (a job's notes). Use it instead of a spinner row                                              |
-| `TextPending`                             | A block of text loading (a note's body)                                                                                     |
-| `SectionPending`                          | A page section loading (a Settings page's Suspense fallback)                                                                |
-| `SheetPending`                            | A sheet's body loading, under its real title                                                                                |
-| `MonthDaysPending`                        | The month grid's day cells loading                                                                                          |
-| `Bone`                                    | One grey placeholder block, the unit the others are built from                                                              |
-| `ErrorScreen` (`shell/ErrorScreen.tsx`)   | A route that threw: branded, offline-aware, with "Try again" and "Start from the top"                                       |
+| Export                                    | Use for                                                                                                                                                                                                 |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `EmptyState`                              | A list with nothing in it yet: a title ("No clients yet"), one line saying what goes here, and the one action that fills it                                                                             |
+| `EmptyStateButton` / `EMPTY_ACTION_CLASS` | That action: quiet grey and blue, not red                                                                                                                                                               |
+| `NoMatches`                               | A search or filter that found nothing: "No matches for “…”" and a way to clear it. Never `EmptyState` for this                                                                                          |
+| `LoadFailed`                              | Something inside a page that could not load — a sheet's detail, a section's notes, a list in Settings: “Could not load … Check your signal.” with Try again. Never leave a placeholder waiting for good |
+| `PagePending`                             | The router's default: a page loading inside a shell that stays put                                                                                                                                      |
+| `ListPending`                             | A list loading inside a page that is already on screen (announced)                                                                                                                                      |
+| `CardRows`                                | The card-shaped placeholders `ListPending` draws, for a custom layout                                                                                                                                   |
+| `RowPending`                              | One row loading inside a card (a job's notes). Use it instead of a spinner row                                                                                                                          |
+| `TextPending`                             | A block of text loading (a note's body)                                                                                                                                                                 |
+| `SectionPending`                          | A page section loading (a Settings page's Suspense fallback)                                                                                                                                            |
+| `SheetPending`                            | A sheet's body loading, under its real title                                                                                                                                                            |
+| `MonthDaysPending`                        | The month grid's day cells loading                                                                                                                                                                      |
+| `Bone`                                    | One grey placeholder block, the unit the others are built from                                                                                                                                          |
+| `ErrorScreen` (`shell/ErrorScreen.tsx`)   | A route that threw: branded, offline-aware, with "Try again" and "Start from the top"                                                                                                                   |
 
 Placeholders are shaped like what they stand in for, so nothing jumps when the content lands. They contain **no** headings, buttons or visible text: the e2e suite takes a heading as the sign that a page has loaded.
 
@@ -515,7 +516,7 @@ The shell uses `sidebar` and `tooltip`; the rest are there for the sidebar's sak
 | No matches                   | `NoMatches` with the term quoted back and "Clear search" / "Clear filters"                                                                                                                      |
 | Owner only                   | `EmptyState` titled "Owners only" and a body saying who can change it                                                                                                                           |
 | A page failed to load        | `ErrorScreen`, via the route's error boundary                                                                                                                                                   |
-| A query failed inside a page | If the page still works without it, say so in a line; otherwise let it throw to the boundary. Don't sit on a placeholder forever                                                                |
+| A query failed inside a page | `LoadFailed` where its placeholder was, with `onRetry` set to the query's `refetch`. A suspending query throws to the route's `ErrorScreen` instead                                             |
 | Offline                      | Show what is kept on the phone and say so ("No signal — showing the copy kept on this phone."). An edit that needs signal says "Editing needs signal."                                          |
 
 ### Saving
@@ -724,7 +725,7 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 | Warning                        | `TriangleAlert`                                                                   |
 | Info                           | `Info`                                                                            |
 | Done, selected                 | `Check`                                                                           |
-| Finalised, locked              | `Lock`                                                                            |
+| Finalised, locked              | `Lock` (only this: a locked report, locked boilerplate, a password PDF)           |
 | Undo, restore, try again       | `RotateCcw`                                                                       |
 | Replace, regenerate, reload    | `RefreshCw`                                                                       |
 | Recurring                      | `Repeat` (ink, not blue)                                                          |
@@ -733,7 +734,9 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 | Offline                        | `WifiOff`                                                                         |
 | Open elsewhere                 | `ExternalLink`                                                                    |
 | Loading                        | `LoaderCircle` with `animate-spin`                                                |
-| Client (a person / a business) | `User` / `Building2`                                                              |
+| Client (a person / a business) | `User` / `Building2`; the Clients tab is `Contact`                                |
+| Team, people in the business   | `Users`                                                                           |
+| Personal (only you can see it) | `EyeOff`                                                                          |
 | Primary, cover, "the usual"    | `Star`                                                                            |
 
 ---
@@ -755,7 +758,7 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 
 **The PDF is its own design system.**
 
-- `src/components/reports/pdf/` renders with `@react-pdf/renderer`, which can't read CSS variables. It keeps its own hex palette in `pdf/theme.ts`, mirroring the tokens.
+- `src/components/reports/pdf/` renders with `@react-pdf/renderer`, which can't read CSS variables. It keeps its own hex palette in `pdf/theme.ts`, mirroring the tokens: its red is `--red-fill` (`#DC2A1F`), because the band and table header put white text on it.
 - If you change a token that the PDF shows, change `theme.ts` with it.
 - The report preview (`ReportDocument.tsx`, `onboarding/ReportPreview.tsx`) mirrors the PDF. Its lint exceptions carry a comment saying why.
 

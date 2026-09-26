@@ -46,6 +46,7 @@ import type { ErrorCopy } from '#/components/forms/describeError'
 import type { AddressValue } from '#/lib/addressVerify'
 import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 type ClientKind = 'person' | 'business'
 
@@ -113,9 +114,10 @@ function ClientBody({
   clientId: Id<'clients'>
   onClose: () => void
 }) {
-  const { data: client } = useQuery(
+  const clientQuery = useQuery(
     convexQuery(api.clients.get, { businessId, clientId }),
   )
+  const client = clientQuery.data
   // The contact person is the primary contact (Prompt 6.1), not a field of
   // its own. The same query the Contacts section runs, so no second fetch.
   // Read for a person client too: flipping one back to business in the edit
@@ -140,6 +142,19 @@ function ClientBody({
   useEffect(() => {
     void loadLocalities(businessState)
   }, [businessState])
+
+  if (client === undefined && clientQuery.isError) {
+    return (
+      <div className="px-4 py-10">
+        <Drawer.Title className="text-sheet-title text-ink">Client</Drawer.Title>
+        <LoadFailed
+          className="mt-3"
+          what="this client"
+          onRetry={() => void clientQuery.refetch()}
+        />
+      </div>
+    )
+  }
 
   if (client === undefined) {
     return (
@@ -1478,9 +1493,10 @@ function ClientReports({
   clientName: string
   timezone: string
 }) {
-  const { data: reports } = useQuery(
+  const reportsQuery = useQuery(
     convexQuery(api.clients.reports, { businessId, clientId }),
   )
+  const reports = reportsQuery.data
 
   return (
     <InlineReportsSection
@@ -1488,6 +1504,8 @@ function ClientReports({
       timezone={timezone}
       label="Reports"
       reports={reports}
+      failed={reportsQuery.isError}
+      onRetry={() => void reportsQuery.refetch()}
       empty="No reports yet. They are created from a job at one of their properties."
       // Bounded to the newest twenty, so a long-standing client's sheet does
       // not become their whole history.

@@ -51,6 +51,7 @@ import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/p
 import { FIELD } from '#/components/forms/FormField'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { LoadFailed } from '#/components/primitives/EmptyState'
 
 /**
  * Loaded on demand, not with the schedule.
@@ -178,9 +179,8 @@ function JobDetailBody({
   jobId: Id<'jobs'>
   canReassign: boolean
 }) {
-  const { data: job } = useQuery(
-    convexQuery(api.jobs.get, { businessId, jobId }),
-  )
+  const jobQuery = useQuery(convexQuery(api.jobs.get, { businessId, jobId }))
+  const job = jobQuery.data
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
   const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] = useState(false)
   const [makeRecurringOpen, setMakeRecurringOpen] = useState(false)
@@ -631,6 +631,15 @@ function JobDetailBody({
           <p className="mt-1 text-body text-muted">
             This job does not exist, or you do not have access to it.
           </p>
+        </div>
+      ) : jobQuery.isError ? (
+        <div className="px-4 py-10">
+          <Drawer.Title className="text-sheet-title text-ink">Job</Drawer.Title>
+          <LoadFailed
+            className="mt-3"
+            what="this job"
+            onRetry={() => void jobQuery.refetch()}
+          />
         </div>
       ) : (
         // The sheet's own shape while the job loads, so it opens at its
@@ -1178,9 +1187,10 @@ function JobReports({
   jobType: string
   timezone: string
 }) {
-  const { data } = useQuery(
+  const reportsQuery = useQuery(
     convexQuery(api.reports.listByProperty, { businessId, propertyId }),
   )
+  const data = reportsQuery.data
 
   // `undefined` while the query is out, so the section shows its loading
   // row rather than "no reports for this visit yet" about reports it has not
@@ -1197,6 +1207,8 @@ function JobReports({
         timezone={timezone}
         label="Reports for this visit"
         reports={forThisJob}
+        failed={reportsQuery.isError}
+        onRetry={() => void reportsQuery.refetch()}
         empty="Nothing yet for this visit."
         action={
           <StartReportButtons
@@ -1215,6 +1227,8 @@ function JobReports({
           timezone={timezone}
           label="Other reports at this property"
           reports={elsewhere}
+          failed={reportsQuery.isError}
+          onRetry={() => void reportsQuery.refetch()}
           empty=""
         />
       )}
