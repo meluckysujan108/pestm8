@@ -5,6 +5,7 @@ import { FieldConfigForm } from './FieldConfigForm'
 import { ColumnsEditor } from './ColumnsEditor'
 import { ALL_FIELD_KINDS, FIELD_KIND_HINTS, FIELD_KIND_LABELS, defaultField, slugifyKey } from './fieldKinds'
 import type { FieldDef, FieldKind } from '#/lib/reportTemplates'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Two steps for a new field (pick a kind, then configure it), or straight to
@@ -140,7 +141,7 @@ export function AddFieldSheet({
                       onClose()
                       reset()
                     }}
-                    className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                    className={PRIMARY_BUTTON}
                   >
                     {editing ? 'Save field' : 'Add field'}
                   </button>

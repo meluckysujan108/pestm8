@@ -21,6 +21,7 @@ import {
 import type { NewClientArgs, NewClientFieldsValue } from './NewClientFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Creates a client and its first property together in one step — a client
@@ -116,7 +117,7 @@ export function NewPropertySheet({
               <button
                 type="submit"
                 disabled={create.isPending || !hydrated}
-                className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                className={`${PRIMARY_BUTTON} mt-5 w-full`}
               >
                 {create.isPending
                   ? 'Saving…'

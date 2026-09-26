@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react'
 import { ChevronLeft } from 'lucide-react'
 import { useHydrated } from '#/lib/useHydrated'
 import type { ReactNode } from 'react'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /** The steps with a place on the progress bar, in order. Ready has none. */
 export const SETUP_STEPS = ['business', 'brand', 'licence', 'team'] as const
@@ -162,7 +163,7 @@ export function ContinueButton({
     <button
       type="submit"
       disabled={pending || disabled}
-      className="mt-8 h-12 w-full shrink-0 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+      className={`${PRIMARY_BUTTON} mt-8 w-full shrink-0`}
     >
       {pending ? pendingLabel : children}
     </button>

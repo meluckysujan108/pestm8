@@ -37,6 +37,7 @@ import {
 } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
 import type { SetupFlow, SetupStatus } from '#/lib/twoStep'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Setting up two-step sign-in. Optional (convex/lib/mfa.ts): people arrive
@@ -265,7 +266,7 @@ function TwoStepPage() {
           <button
             type="button"
             onClick={() => void finish()}
-            className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975]"
+            className={PRIMARY_BUTTON}
           >
             Continue
           </button>
@@ -385,7 +386,7 @@ function PasswordStep({
           type="button"
           disabled={!hydrated}
           onClick={onAlreadyOn}
-          className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={PRIMARY_BUTTON}
         >
           Continue
         </button>
@@ -405,7 +406,7 @@ function PasswordStep({
           type="button"
           disabled={!hydrated}
           onClick={() => window.location.reload()}
-          className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={PRIMARY_BUTTON}
         >
           Reload
         </button>
@@ -501,7 +502,7 @@ function PasswordStep({
       <button
         type="submit"
         disabled={pending || !hydrated || step === 'wait'}
-        className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        className={`${PRIMARY_BUTTON} mt-2`}
       >
         {pending ? 'Just a moment…' : copy.submit}
       </button>
@@ -724,7 +725,7 @@ function ScanStep({
         <button
           type="submit"
           disabled={pending || normaliseTotpCode(code).length !== 6}
-          className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={PRIMARY_BUTTON}
         >
           {pending ? 'Checking…' : 'Turn on two-step sign-in'}
         </button>
@@ -761,7 +762,7 @@ function ScanStep({
               type="button"
               disabled={pending}
               onClick={() => void startOver()}
-              className="h-12 flex-1 rounded-xl bg-red text-[16px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON} flex-1`}
             >
               {pending ? 'Just a moment…' : 'Make a new key'}
             </button>

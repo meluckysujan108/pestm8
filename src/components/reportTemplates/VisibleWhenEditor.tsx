@@ -97,6 +97,7 @@ export function VisibleWhenEditor({
           </label>
 
           <Segmented
+            kind="choice"
             label="Match type"
             value={matchType}
             options={[

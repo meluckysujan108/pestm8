@@ -6,6 +6,7 @@ import {
   normaliseRecoveryCode,
   normaliseTotpCode,
 } from '#/lib/twoStep'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * The second half of signing in: the six-digit code from the authenticator
@@ -167,7 +168,7 @@ export function SecondStepForm({
       <button
         type="submit"
         disabled={pending || disabled || !ready}
-        className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        className={`${PRIMARY_BUTTON} mt-2`}
       >
         {pending ? 'Checking…' : 'Continue'}
       </button>

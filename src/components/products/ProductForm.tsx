@@ -15,6 +15,7 @@ import { pdfMeta } from './model'
 import type { ReactNode } from 'react'
 import type { ProductDraft } from '#/lib/productForm'
 import type { SaveState } from './useProductSave'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * The product form, for a new product and for editing one.
@@ -391,7 +392,7 @@ export function ProductForm({
         <button
           type="submit"
           disabled={!hydrated || busy}
-          className="h-12 flex-[2] rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON} flex-[2]`}
         >
           {save.phase === 'uploading'
             ? 'Uploading…'

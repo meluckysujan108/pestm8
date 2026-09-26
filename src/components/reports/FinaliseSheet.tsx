@@ -5,6 +5,7 @@ import { visibleSections } from '#/lib/reportTemplates/visibility'
 import { reportSummary } from '#/lib/reportTemplates/summary'
 import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { FieldDef, ReportTemplate } from '#/lib/reportTemplates'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * The last screen before a document becomes a record.
@@ -107,7 +108,7 @@ export function FinaliseSheet({
             type="button"
             disabled={pending}
             onClick={onConfirm}
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} flex w-full items-center justify-center gap-2`}
           >
             <Lock size={17} strokeWidth={2} />
             {pending ? 'Locking…' : 'Finalise & lock'}

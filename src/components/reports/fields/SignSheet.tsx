@@ -5,6 +5,7 @@ import { PenLine, RotateCcw } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Signing, as its own screen.
@@ -218,7 +219,7 @@ export function SignSheet({
               !drawn || busy || (askName === true && name.trim() === '')
             }
             onClick={() => void done()}
-            className="h-12 flex-1 rounded-xl bg-red text-[16px] font-semibold text-white shadow-red disabled:opacity-40"
+            className={`${PRIMARY_BUTTON} flex-1`}
           >
             {busy ? 'Saving…' : 'Done'}
           </button>

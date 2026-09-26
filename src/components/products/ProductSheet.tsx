@@ -33,6 +33,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { ShareSupport } from '#/components/pdf/host/useShareSupport'
 import type { LiveProductRow, ShownProduct } from './model'
 import type { ReplaceStatus } from './useReplacePdf'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * One product, in a bottom sheet: its photo, name and words, its web page
@@ -713,7 +714,7 @@ function EditBody({
                   type="button"
                   disabled={deleting}
                   onClick={() => void onDelete()}
-                  className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                 >
                   Delete
                 </button>

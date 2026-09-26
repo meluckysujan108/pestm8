@@ -15,6 +15,7 @@ import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 import { useCan } from '#/lib/access'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 export const Route = createFileRoute('/$businessSlug/reports/templates/')({
   component: TemplatesPage,
@@ -236,7 +237,7 @@ function CloneBuiltinSheet({
             <button
               type="submit"
               disabled={clone.isPending || !hydrated}
-              className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON} mt-5 w-full`}
             >
               {clone.isPending ? 'Cloning…' : 'Clone template'}
             </button>
@@ -431,7 +432,7 @@ function DuplicateSheet({
             <button
               type="submit"
               disabled={duplicate.isPending || !hydrated}
-              className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON} mt-5 w-full`}
             >
               {duplicate.isPending ? 'Duplicating…' : 'Duplicate'}
             </button>

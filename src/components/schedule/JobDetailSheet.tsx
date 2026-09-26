@@ -47,6 +47,7 @@ import {
 } from './RecurrenceFields'
 import type { IntervalDraft } from './RecurrenceFields'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * Loaded on demand, not with the schedule.
@@ -599,7 +600,7 @@ function JobDetailBody({
                       type="button"
                       disabled={cancel.isPending}
                       onClick={() => cancel.mutate({ businessId, jobId: job._id })}
-                      className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                     >
                       {cancel.isPending ? 'Cancelling…' : 'Cancel job'}
                     </button>
@@ -652,7 +653,7 @@ function JobDetailBody({
                       type="button"
                       disabled={stopRepeating.isPending}
                       onClick={() => stopRepeating.mutate({ businessId, jobId: job._id })}
-                      className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                     >
                       {stopRepeating.isPending ? 'Stopping…' : 'Stop repeating'}
                     </button>
@@ -955,6 +956,7 @@ function JobEditForm({
         ) : (
           <>
             <Segmented
+              kind="choice"
               label="Repeat"
               value={repeats ? 'repeats' : 'once'}
               onChange={(v: string) => setRepeats(v === 'repeats')}
@@ -999,7 +1001,7 @@ function JobEditForm({
         <button
           type="submit"
           disabled={save.isPending || !hydrated || intervalIncomplete}
-          className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
         >
           {save.isPending ? 'Saving…' : 'Save'}
         </button>

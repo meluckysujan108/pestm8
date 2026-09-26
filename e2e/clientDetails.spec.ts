@@ -68,7 +68,7 @@ test('a business client has an ABN and a contact person; a person client is neve
   await expect(sheet.getByLabel('ABN (optional)')).toHaveCount(0)
   await expect(sheet.getByLabel('Contact person (optional)')).toHaveCount(0)
 
-  await sheet.getByRole('tab', { name: 'Business' }).click()
+  await sheet.getByRole('radio', { name: 'Business' }).click()
   await sheet.getByLabel('Business name').fill('Mahal Mart')
   // One digit off the ATO's own ABN: eleven digits, and still wrong.
   await sheet.getByLabel('ABN (optional)').fill('51 824 753 557')

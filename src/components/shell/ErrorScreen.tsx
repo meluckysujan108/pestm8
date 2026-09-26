@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
 import { RotateCw, WifiOff } from 'lucide-react'
 import type { ErrorComponentProps } from '@tanstack/react-router'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * The router's error screen for everything the special cases in router.tsx
@@ -57,7 +58,7 @@ export function ErrorScreen({ error }: ErrorComponentProps) {
               setRetrying(true)
               void router.invalidate().finally(() => setRetrying(false))
             }}
-            className="flex h-12 items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} flex items-center justify-center gap-2`}
           >
             <RotateCw size={17} strokeWidth={2.2} aria-hidden />
             {retrying ? 'Trying…' : 'Try again'}

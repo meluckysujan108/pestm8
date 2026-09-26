@@ -3,6 +3,7 @@ import { createLink } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * The pieces every Settings page is built from, so the hub and each page it
@@ -293,7 +294,7 @@ export function SaveBar({
         type="submit"
         form={form}
         disabled={pending || disabled}
-        className="h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        className={`${PRIMARY_BUTTON} w-full`}
       >
         {pending ? 'Saving…' : label}
       </button>

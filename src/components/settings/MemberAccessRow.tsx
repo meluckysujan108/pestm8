@@ -25,6 +25,10 @@ import {
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Grants, Role } from '../../../convex/lib/capabilities'
+import {
+  PRIMARY_BUTTON,
+  PRIMARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 export type Member = {
   _id: Id<'memberships'>
@@ -301,7 +305,7 @@ function LicenceGroup({
                 <button
                   type="submit"
                   disabled={saveLicence.isPending || !dirty}
-                  className="h-12 shrink-0 rounded-xl bg-red px-4 text-[16px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON} shrink-0 px-4`}
                 >
                   {saveLicence.isPending
                     ? 'Saving…'
@@ -547,7 +551,7 @@ function RoleGroup({
                   { onSettled: () => setReleasing(false) },
                 )
               }
-              className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
             >
               {assignTo.isPending ? 'Handing back…' : 'Hand back'}
             </button>
@@ -837,7 +841,7 @@ function RemoveMember({
               reassignTo: reassignTo === '' ? undefined : reassignTo,
             })
           }
-          className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
         >
           {remove.isPending ? 'Removing…' : 'Remove'}
         </button>

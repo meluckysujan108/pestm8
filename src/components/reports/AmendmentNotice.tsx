@@ -7,6 +7,7 @@ import { FilePenLine, History } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { Sheet } from '#/components/primitives/Sheet'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * What a client holding two documents with the same number is owed.
@@ -220,7 +221,7 @@ export function AmendButton({
             type="button"
             disabled={reason.trim() === '' || amend.isPending}
             onClick={() => amend.mutate()}
-            className="h-11 w-full rounded-xl bg-red text-[15px] font-semibold text-white shadow-red disabled:opacity-40"
+            className={`${PRIMARY_BUTTON_COMPACT} w-full`}
           >
             {amend.isPending ? 'Starting…' : 'Start the correction'}
           </button>

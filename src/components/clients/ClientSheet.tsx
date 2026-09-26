@@ -44,6 +44,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type { AddressValue } from '#/lib/addressVerify'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 type ClientKind = 'person' | 'business'
 
@@ -320,7 +321,7 @@ function ClientBody({
                   type="button"
                   disabled={archive.isPending}
                   onClick={() => archive.mutate({ businessId, clientId })}
-                  className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                 >
                   {archive.isPending ? 'Archiving…' : 'Archive'}
                 </button>
@@ -469,6 +470,7 @@ function ClientEditForm({
       >
         <WrappedField label="Client type">
           <Segmented
+            kind="choice"
             label="Client type"
             value={kind}
             onChange={setKind}
@@ -580,7 +582,7 @@ function ClientEditForm({
           <button
             type="submit"
             disabled={save.isPending || !hydrated}
-            className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
           >
             {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
           </button>
@@ -773,7 +775,7 @@ function ClientContacts({
                   onClick={() =>
                     confirmRemove && removeContact(confirmRemove._id)
                   }
-                  className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                 >
                   Remove
                 </button>

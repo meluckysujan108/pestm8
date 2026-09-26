@@ -115,7 +115,7 @@ test('an owner can invite a contractor, and the link says so', async ({
   await page.goto(`/${slug}/settings/team?invite=true`)
   const sheet = page.getByRole('dialog', { name: 'Invite someone' })
   await expect(sheet).toBeVisible()
-  await sheet.getByRole('tab', { name: 'Contractor', exact: true }).click()
+  await sheet.getByRole('radio', { name: 'Contractor', exact: true }).click()
   await expect(sheet.getByText('Runs a team of their own')).toBeVisible()
   await sheet.getByLabel('Email address').fill(uniqueEmail('relay-dana'))
   await clickUntil(

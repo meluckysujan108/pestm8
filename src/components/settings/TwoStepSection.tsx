@@ -25,6 +25,7 @@ import {
   SettingsLinkRow,
   SettingsRow,
 } from './ui'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * Two-step sign-in, in the person's own settings.
@@ -173,7 +174,7 @@ export function TwoStepSection() {
         <button
           type="submit"
           disabled={pending || !hydrated}
-          className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
         >
           {open === 'off'
             ? pending

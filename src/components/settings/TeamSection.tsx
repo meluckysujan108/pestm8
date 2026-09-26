@@ -34,6 +34,7 @@ import { useAccess } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
 import { rq } from '#/lib/routeQueries'
 import { needsLicence } from './needsLicence'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Settings → Team: who is on the team, each a row that opens their own page,
@@ -319,6 +320,7 @@ export function TeamSection({
                   <div className="mb-3 flex flex-col gap-1.5">
                     <span className={FIELD_LABEL}>Joins as</span>
                     <Segmented
+                      kind="choice"
                       label="Joins as"
                       value={inviteRole}
                       options={INVITE_ROLE_OPTIONS}
@@ -356,7 +358,7 @@ export function TeamSection({
                 <button
                   type="submit"
                   disabled={invite.isPending || !hydrated}
-                  className="mt-2 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON} mt-2 w-full`}
                 >
                   {/* "Save anyway" when warned, not "Create anyway": it is
                       what the list above tells them to press. */}

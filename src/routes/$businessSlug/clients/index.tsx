@@ -110,7 +110,7 @@ function ClientsPage() {
       </div>
 
       <section className="px-4 pt-4 pb-6">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="mb-3">
           <ClientFilterBar
             rows={rows}
             kind={kind}
