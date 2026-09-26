@@ -1,5 +1,6 @@
 import { ConvexReactClient } from 'convex/react'
 import type { ConvexReactClientOptions } from 'convex/react'
+import type { AuthTokenFetcher } from 'convex/browser'
 import { withRefreshRetry } from '#/lib/tokenRefresh'
 import type { RefreshRetry } from '#/lib/tokenRefresh'
 
@@ -57,13 +58,51 @@ export class HandoverConvexClient extends ConvexReactClient {
   // through, so a refresh still retrying for an earlier one stops.
   private authGeneration = 0
   private readonly refreshRetry: RefreshRetry | undefined
+  // While the page load's first sign-in is not yet known: what hands it over
+  // (see `holdForSignIn`).
+  private firstSignIn: ((signIn: SignIn) => void) | undefined
 
   constructor(
     address: string,
-    { refreshRetry, ...options }: HandoverOptions = {},
+    { refreshRetry, holdForSignIn, ...options }: HandoverOptions = {},
   ) {
     super(address, options)
     this.refreshRetry = refreshRetry
+    if (holdForSignIn) this.holdForSignIn()
+  }
+
+  /**
+   * Keeps the socket from saying anything until this page load's first
+   * sign-in is known: `setAuth` from ConvexBetterAuthProvider, or
+   * `openSignedOut` for a page loaded signed out.
+   *
+   * Unheld, the socket spoke first. It opens as the server-rendered page
+   * hydrates and asks for every query the server render handed over, and on
+   * a slow phone it was open before the provider had mounted to send the
+   * token. The server answered those queries as nobody, and the answers
+   * replaced the server render's in the cache — `businesses.getBySlug`
+   * became null, which `$businessSlug`'s guard reads as "Not found"
+   * (e2e/socketSignIn.spec.ts).
+   *
+   * Held by a sign-in started here, before the socket has opened, whose
+   * token waits for the first real one. The Convex client pauses the socket
+   * while it waits for a token, and when it lands the socket opens as usual:
+   * Connect, the token, then the queries. The first real sign-in completes
+   * this one rather than starting another, which would pause the socket
+   * again — after it had opened, that loses the Connect (convex's own
+   * `expectAuth` does exactly that; see the test that says so) — and would
+   * send the token twice.
+   */
+  private holdForSignIn(): void {
+    let signIn: SignIn | undefined
+    const known = new Promise<SignIn>((resolve) => {
+      this.firstSignIn = resolve
+    })
+    super.setAuth(
+      async (args) => (signIn ??= await known).fetchToken(args),
+      (isAuthenticated) => signIn?.onChange?.(isAuthenticated),
+      (isRefreshing) => signIn?.onRefreshChange?.(isRefreshing),
+    )
   }
 
   override clearAuth(): void {
@@ -78,23 +117,57 @@ export class HandoverConvexClient extends ConvexReactClient {
   }
 
   override setAuth(
-    ...[fetchToken, ...rest]: Parameters<ConvexReactClient['setAuth']>
+    ...[fetchToken, onChange, onRefreshChange]: Parameters<
+      ConvexReactClient['setAuth']
+    >
   ): void {
     this.clearPending = false
     const generation = ++this.authGeneration
-    super.setAuth(
-      this.refreshRetry
+    const signIn: SignIn = {
+      fetchToken: this.refreshRetry
         ? withRefreshRetry(
             fetchToken,
             this.refreshRetry,
             () => generation === this.authGeneration,
           )
         : fetchToken,
-      ...rest,
-    )
+      onChange,
+      onRefreshChange,
+    }
+    const first = this.firstSignIn
+    this.firstSignIn = undefined
+    if (first) first(signIn)
+    else super.setAuth(signIn.fetchToken, onChange, onRefreshChange)
   }
+
+  /**
+   * The first sign-in of a page loaded signed out: nobody. The socket opens
+   * without a token, as it did before the hold, and someone who signs in
+   * later without a page load (the join page) comes through `setAuth` as
+   * usual. Not through `refreshRetry`, which would first ask Better Auth
+   * whether anyone is signed in and, with no signal to ask, keep the socket
+   * shut waiting for a token nobody has.
+   */
+  openSignedOut(): void {
+    const first = this.firstSignIn
+    this.firstSignIn = undefined
+    first?.({ fetchToken: () => Promise.resolve(null) })
+  }
+}
+
+/** `openSignedOut` for whichever client the router was handed. */
+export function openSignedOut(client: ConvexReactClient): void {
+  if (client instanceof HandoverConvexClient) client.openSignedOut()
+}
+
+type SignIn = {
+  fetchToken: AuthTokenFetcher
+  onChange?: (isAuthenticated: boolean) => void
+  onRefreshChange?: (isRefreshing: boolean) => void
 }
 
 type HandoverOptions = ConvexReactClientOptions & {
   refreshRetry?: RefreshRetry
+  /** In the browser: see `holdForSignIn`. */
+  holdForSignIn?: boolean
 }

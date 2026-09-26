@@ -33,29 +33,26 @@ export function getContext() {
   const convexUrl = import.meta.env.VITE_CONVEX_URL
   if (!convexUrl) throw new Error('VITE_CONVEX_URL is not set')
 
-  // `expectAuth: true` holds every query/action back until the first auth
-  // token is sent — meant for apps where every page needs a signed-in
-  // client. This one has an exception: `/join/$token` deliberately works
-  // signed out (see its own header comment), and asks for its preview
-  // before anyone has signed in. `ConvexProviderWithAuth` only calls
-  // `client.setAuth(...)` on the AUTHENTICATED branch (convex/react's
-  // ConvexAuthStateFirstEffect), so for a genuinely signed-out visitor no
-  // token is ever sent — and with `expectAuth: true`, that queue never
-  // opens. The join page hung on "Checking your invitation…" forever,
-  // for every invite, for anyone who was not already signed in somewhere
-  // else in the same browser. Every route past `/join` still enforces its
-  // own membership check server-side, so an early, unauthenticated request
-  // firing here is a non-issue — it either succeeds against a function that
-  // needs no auth (this one) or is refused, and answered again once the real
-  // token lands, because the socket re-runs every live query when its token
-  // changes. That is harmless for a react-query entry that has data: a pushed
-  // error does not throw. It is not harmless for convex/react's own hooks,
-  // which throw it, so the socket must never be told "nobody" while someone
-  // is signed in — see HandoverConvexClient for how that used to happen on
-  // every page load, and lib/tokenRefresh.ts for how a token refresh that
-  // failed for want of signal did it until the next reload.
+  // The socket says nothing until this page load's sign-in is known, so no
+  // query is ever answered as nobody while someone is signed in
+  // (`holdForSignIn` in lib/convexClient.ts has how that happened, and why
+  // it was "Not found"). An entry that has data keeps it when an error is
+  // pushed onto it, but a null replaces it, and convex/react's own hooks
+  // throw the error — the same reasons HandoverConvexClient never tells the
+  // socket "nobody" mid-hand-over, and lib/tokenRefresh.ts not over a
+  // refresh that failed for want of signal.
+  //
+  // Signed in, ConvexBetterAuthProvider's first `setAuth` lets the socket
+  // go. Signed out, nothing would — convex/react only calls `setAuth` for
+  // someone signed in — and `/join/$token` works signed out and asks for its
+  // preview: holding with convex's own `expectAuth` once hung it on
+  // "Checking your invitation…" for anyone not already signed in. So the
+  // root route lets a signed-out page load go (`openSignedOut`, called from
+  // __root.tsx). Only in the browser: the server renders with its own HTTP
+  // client, and a held socket there would be opened for nothing.
   const convexQueryClient = new ConvexQueryClient(
     new HandoverConvexClient(convexUrl, {
+      holdForSignIn: typeof window !== 'undefined',
       refreshRetry: browserRefreshRetry(() => authClient.getSession()),
     }),
   )

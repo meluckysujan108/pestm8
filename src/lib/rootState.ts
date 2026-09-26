@@ -208,6 +208,16 @@ const KEPT_LICENCE_CACHES = [
 ] as const
 
 /**
+ * The token of the server's last "who is signed in" answer, for a guard that
+ * has to ask Convex something without going through the socket
+ * (`$businessSlug` has why). Undefined on the server, and whenever nobody is
+ * signed in as far as this page load knows.
+ */
+export function signedInToken(): string | undefined {
+  return typeof window === 'undefined' ? undefined : token
+}
+
+/**
  * Who is signed in, by user id: the `sub` claim of the cached token, which
  * Better Auth's JWT plugin sets to the user's id. Null when nobody is (as far
  * as this page load knows), on the server, or when the token cannot be read.
