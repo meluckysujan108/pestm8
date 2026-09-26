@@ -645,6 +645,44 @@ export function canManageInvitation(
   )
 }
 
+export type Landing =
+  { ok: true; parentMembershipId: Id<'memberships'> | null } | { ok: false }
+
+/**
+ * What redeeming an invitation makes of the person joining — decided on the
+ * sender as they are NOW, not as they were when they sent it.
+ *
+ * A contractor's subcontractor joins their team: that is who invited them,
+ * and without it the contractor could not book, manage or even see the
+ * person they recruited — they joined answering to the owner, and only the
+ * owner could move them. Anyone the owner invites answers to the owner.
+ *
+ * And an invitation is only as good as its sender's authority today. A
+ * contractor who has since been demoted or removed cannot invite anyone, so
+ * their links no longer open the door — every member reads the whole client
+ * book, which is not something a person who left should still be handing
+ * out. Their links are revoked when that happens (`revokeInvitationsFrom`);
+ * this refuses any the revocation did not reach.
+ */
+export function joinsUnder(
+  sender: MembershipFacts | null,
+  invitation: { businessId: Id<'businesses'>; role: Role },
+): Landing {
+  if (!sender || sender.status !== 'active') return { ok: false }
+  if (sender.businessId !== invitation.businessId) return { ok: false }
+  const asSender = {
+    real: sender,
+    acting: sender,
+    session: null,
+    degraded: null,
+  }
+  if (!canInviteAs(asSender, invitation.role)) return { ok: false }
+  return {
+    ok: true,
+    parentMembershipId: sender.role === 'contractor' ? sender._id : null,
+  }
+}
+
 /**
  * The most this granter may give this target — arithmetic, not a review step.
  *

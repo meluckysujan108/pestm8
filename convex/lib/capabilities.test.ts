@@ -24,6 +24,7 @@ import {
   isInScope,
   isSwitched,
   jobScope,
+  joinsUnder,
   licenceStatus,
   mergeDraft,
   recomputeGrants,
@@ -683,6 +684,48 @@ describe('a technician’s colour is the owner’s to set', () => {
       canSetColour(self(owner()), sub({ businessId: OTHER_BUSINESS })),
     ).toBe(false)
   })
+})
+
+describe('where an invitee lands', () => {
+  const invite = (role: Role = 'subcontractor') => ({
+    businessId: BUSINESS,
+    role,
+  })
+
+  test('a contractor’s subcontractor joins their team; the owner’s answers to the owner', () => {
+    expect(joinsUnder(contractor(), invite())).toEqual({
+      ok: true,
+      parentMembershipId: CONTRACTOR,
+    })
+    expect(joinsUnder(owner(), invite())).toEqual({
+      ok: true,
+      parentMembershipId: null,
+    })
+    expect(joinsUnder(owner(), invite('contractor'))).toEqual({
+      ok: true,
+      parentMembershipId: null,
+    })
+  })
+
+  test('only as good as the sender’s authority today', () => {
+    // Demoted, removed, gone, in another business — or a role they could
+    // never have handed out.
+    expect(joinsUnder(sub(), invite()).ok).toBe(false)
+    expect(joinsUnder(contractor2Removed(), invite()).ok).toBe(false)
+    expect(joinsUnder(null, invite()).ok).toBe(false)
+    expect(
+      joinsUnder(
+        member(CONTRACTOR, 'contractor', { businessId: OTHER_BUSINESS }),
+        invite(),
+      ).ok,
+    ).toBe(false)
+    expect(joinsUnder(contractor(), invite('contractor')).ok).toBe(false)
+    expect(joinsUnder(owner(), invite('owner')).ok).toBe(false)
+  })
+
+  function contractor2Removed() {
+    return member(CONTRACTOR_2, 'contractor', { status: 'removed' })
+  }
 })
 
 describe('a team released when its contractor stops being one', () => {

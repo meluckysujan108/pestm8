@@ -32,7 +32,7 @@ export const Route = createFileRoute('/$businessSlug/settings/team/$memberId')({
     if (access?.caps['team.manage'] !== true) return
     return settleWithin(
       LOADER_WAIT_MS,
-      warm(queryClient, rq.team(business._id)),
+      warm(queryClient, rq.team(business._id), rq.invitations(business._id)),
     )
   },
   component: MemberPage,
@@ -73,6 +73,9 @@ function MemberLoaded() {
   const navigate = useNavigate()
   const router = useRouter()
   const { data: members } = useSuspenseQuery(rq.team(business._id))
+  // Their unused links, which demoting or removing them withdraws. An older
+  // backend sends no sender, so this reads as none.
+  const { data: invitations } = useSuspenseQuery(rq.invitations(business._id))
 
   // By id from the address, so an old link, or someone since removed, lands
   // here rather than on another person's settings.
@@ -95,6 +98,12 @@ function MemberLoaded() {
         businessId={business._id}
         timezone={business.timezone}
         member={member}
+        sentInvitations={
+          invitations.filter(
+            (i) =>
+              i.state === 'valid' && i.invitedByMembershipId === member._id,
+          ).length
+        }
         others={members.filter(
           (m) => m._id !== member._id && m.status === 'active',
         )}

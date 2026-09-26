@@ -248,7 +248,13 @@ export function TeamSection({
       <Sheet
         open={inviteOpen}
         onClose={closeSheet}
-        title="Invite a subcontractor"
+        // A contractor's invitee joins their team (`joinsUnder`); the
+        // owner's answers to the owner.
+        title={
+          viewerIsOwner
+            ? 'Invite a subcontractor'
+            : 'Invite someone to your team'
+        }
       >
         {/* Clear of the home indicator: this sheet has no footer, because
             the form's own submit has to be inside it — a fix in the
@@ -296,11 +302,9 @@ export function TeamSection({
                 <p className="text-caption text-muted">
                   You'll get a link to text them. It works once, expires in 3
                   days, and only that email address can use it.
-                  {/* True of the backend today: redeeming creates a member
-                      with no team, so they would otherwise vanish from a
-                      contractor's reach with no explanation. */}
-                  {!viewerIsOwner &&
-                    ' They join answering to the owner, who can put them on your team.'}
+                  {/* Redeeming a contractor's link puts the new member on
+                      that contractor's team (`joinsUnder`). */}
+                  {!viewerIsOwner && ' They join your team.'}
                 </p>
                 <SaveWarningsPanel className="mt-1" />
                 <FormAlert
@@ -444,8 +448,12 @@ function InviteLinkCard({ email, url }: { email: string; url: string }) {
  */
 type PendingInvitation = Omit<
   FunctionReturnType<typeof api.invitations.listForBusiness>[number],
-  'canManage' | 'canReissue'
-> & { canManage?: boolean; canReissue?: boolean }
+  'canManage' | 'canReissue' | 'invitedByMembershipId'
+> & {
+  canManage?: boolean
+  canReissue?: boolean
+  invitedByMembershipId?: Id<'memberships'>
+}
 
 /** The invite's own words for describeError: it creates, it does not save. */
 const INVITE_COPY = {

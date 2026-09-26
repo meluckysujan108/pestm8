@@ -88,6 +88,7 @@ export function MemberSettings({
   timezone,
   member,
   others = [],
+  sentInvitations = 0,
   onRemoved,
 }: {
   businessId: Id<'businesses'>
@@ -96,6 +97,8 @@ export function MemberSettings({
   member: Member
   /** Active members who could take over this person's booked work. */
   others?: Array<Member>
+  /** How many unused invitation links this person sent. */
+  sentInvitations?: number
   /** After they have been removed, so the page can go back to the list. */
   onRemoved: () => void
 }) {
@@ -169,6 +172,7 @@ export function MemberSettings({
           roleEditable={roleEditable}
           parents={showTeam ? parents : []}
           team={teamOf(member, others)}
+          sentInvitations={sentInvitations}
         />
       )}
 
@@ -190,6 +194,7 @@ export function MemberSettings({
             businessId={businessId}
             member={member}
             others={others}
+            sentInvitations={sentInvitations}
             onRemoved={onRemoved}
           />
         </DangerGroup>
@@ -336,6 +341,7 @@ function RoleGroup({
   roleEditable,
   parents,
   team,
+  sentInvitations,
 }: {
   businessId: Id<'businesses'>
   member: Member
@@ -345,6 +351,8 @@ function RoleGroup({
   parents: Array<Member>
   /** Who works under them — only ever a contractor's people. */
   team: Array<Member>
+  /** Their unused invitation links, which a demotion withdraws. */
+  sentInvitations: number
 }) {
   const hydrated = useHydrated()
   const access = useAccess()
@@ -411,7 +419,7 @@ function RoleGroup({
               if (
                 member.role === 'contractor' &&
                 role === 'subcontractor' &&
-                team.length > 0
+                (team.length > 0 || sentInvitations > 0)
               ) {
                 setDemoting(true)
                 return
@@ -472,11 +480,14 @@ function RoleGroup({
           <p className="text-body text-ink">
             Make {memberName(member)} a subcontractor?
           </p>
-          <p className="mt-1 text-caption text-muted">
-            {listNames(team)} {team.length === 1 ? 'answers' : 'answer'} to{' '}
-            {memberName(member)} now, and will answer to you instead, keeping
-            what they can see today.
-          </p>
+          {team.length > 0 && (
+            <p className="mt-1 text-caption text-muted">
+              {listNames(team)} {team.length === 1 ? 'answers' : 'answer'} to{' '}
+              {memberName(member)} now, and will answer to you instead, keeping
+              what they can see today.
+            </p>
+          )}
+          <WithdrawnLinks count={sentInvitations} />
           <div className="mt-3 flex gap-2">
             <button
               type="button"
@@ -704,11 +715,13 @@ function RemoveMember({
   businessId,
   member,
   others,
+  sentInvitations,
   onRemoved,
 }: {
   businessId: Id<'businesses'>
   member: Member
   others: Array<Member>
+  sentInvitations: number
   onRemoved: () => void
 }) {
   const hydrated = useHydrated()
@@ -777,6 +790,7 @@ function RemoveMember({
           see today.
         </p>
       )}
+      <WithdrawnLinks count={sentInvitations} />
 
       {handover && (
         <div className="mt-3 flex flex-col gap-1.5">
@@ -829,6 +843,23 @@ function RemoveMember({
         </button>
       </div>
     </div>
+  )
+}
+
+/**
+ * Their unused invitation links go when they stop being able to send them
+ * (`revokeInvitationsFrom`). Said up front, because the pending list will
+ * simply lose them.
+ */
+function WithdrawnLinks({ count }: { count: number }) {
+  if (count === 0) return null
+  return (
+    <p className="mt-1 text-caption text-muted">
+      {count === 1
+        ? 'The invitation link they sent and nobody has used yet will stop working.'
+        : `The ${count} invitation links they sent and nobody has used yet will stop working.`}{' '}
+      You can invite anyone you still want yourself.
+    </p>
   )
 }
 

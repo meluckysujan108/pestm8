@@ -7,7 +7,7 @@ import { inviteState } from './lib/inviteTokens'
 import { normalisePhone } from './lib/phone'
 import { grants, role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
-import { releaseTeam } from './lib/teamRelease'
+import { releaseTeam, revokeInvitationsFrom } from './lib/teamRelease'
 import {
   hasCapability,
   requireActor,
@@ -513,17 +513,21 @@ export const setRole = mutation({
     // A contractor who stops being one takes nobody with them: their team
     // answers to the owner from now on, keeping what they could see
     // (`releaseTeam`). Before the patch, while `target` still holds the grants
-    // being baked in as their ceiling.
+    // being baked in as their ceiling. Nor may they go on inviting anyone, so
+    // their unused links are withdrawn (`revokeInvitationsFrom`).
     const now = Date.now()
-    const releasedTeam =
-      target.role === 'contractor' && args.role !== 'contractor'
-        ? await releaseTeam(ctx, {
-            contractor: target,
-            actorId: actor._id,
-            reason: 'demoted',
-            at: now,
-          })
-        : 0
+    const demoted = target.role === 'contractor' && args.role !== 'contractor'
+    const stepDown = {
+      actorId: actor._id,
+      reason: 'demoted' as const,
+      at: now,
+    }
+    const releasedTeam = demoted
+      ? await releaseTeam(ctx, { contractor: target, ...stepDown })
+      : 0
+    const revokedInvitations = demoted
+      ? await revokeInvitationsFrom(ctx, { sender: target, ...stepDown })
+      : 0
 
     await ctx.db.patch(args.membershipId, {
       role: args.role,
@@ -537,7 +541,11 @@ export const setRole = mutation({
       action: 'membership.setRole',
       entityType: 'memberships',
       entityId: args.membershipId,
-      meta: { role: args.role, ...(releasedTeam > 0 && { releasedTeam }) },
+      meta: {
+        role: args.role,
+        ...(releasedTeam > 0 && { releasedTeam }),
+        ...(revokedInvitations > 0 && { revokedInvitations }),
+      },
       at: now,
     })
   },
