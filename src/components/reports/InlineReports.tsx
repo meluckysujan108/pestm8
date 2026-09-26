@@ -249,7 +249,7 @@ export function SeeAllReports({
       to="/$businessSlug/reports"
       params={{ businessSlug }}
       search={{ q: term }}
-      className="flex h-9 w-full items-center justify-center rounded-xl text-[14px] font-semibold text-blue"
+      className="flex h-11 w-full items-center justify-center rounded-xl text-body font-semibold text-blue"
     >
       See all in Reports
     </Link>

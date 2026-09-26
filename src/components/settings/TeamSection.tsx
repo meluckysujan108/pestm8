@@ -441,7 +441,7 @@ function Initial({ name, colour }: { name: string; colour: string }) {
   return (
     <span
       aria-hidden
-      className="flex size-[30px] shrink-0 items-center justify-center rounded-full text-[14px] font-semibold text-white"
+      className="flex size-[30px] shrink-0 items-center justify-center rounded-full text-caption font-semibold text-white"
       style={{ backgroundColor: colour }}
     >
       {name.trim().charAt(0).toUpperCase()}

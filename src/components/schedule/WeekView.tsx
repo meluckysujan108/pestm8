@@ -173,7 +173,7 @@ function WeekDay({
           id={headingId}
           onClick={() => onOpenDay(dayKey)}
           aria-current={phase === 'today' ? 'date' : undefined}
-          className={`-my-1 flex min-h-11 items-center gap-1 rounded-lg pr-1 text-left text-row-title transition active:scale-[.98] ${
+          className={`-my-1 flex min-h-11 items-center gap-1 rounded-lg pr-1 text-left text-row-title transition active:scale-[.99] ${
             phase === 'today' ? 'text-red' : 'text-ink'
           }`}
         >

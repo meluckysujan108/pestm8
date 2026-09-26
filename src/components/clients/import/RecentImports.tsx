@@ -64,7 +64,7 @@ export function RecentImports({
               <div className="flex items-center gap-3">
                 <span
                   aria-hidden
-                  className="flex size-[30px] shrink-0 items-center justify-center rounded-[8px] bg-surface-2 text-muted"
+                  className="flex size-[30px] shrink-0 items-center justify-center rounded-sm bg-surface-2 text-muted"
                 >
                   <FileSpreadsheet size={17} strokeWidth={2} />
                 </span>

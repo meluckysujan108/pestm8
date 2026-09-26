@@ -49,7 +49,7 @@ export function IconTile({
   return (
     <span
       aria-hidden
-      className={`flex size-[30px] shrink-0 items-center justify-center rounded-[8px] ${TINT[tint]}`}
+      className={`flex size-[30px] shrink-0 items-center justify-center rounded-sm ${TINT[tint]}`}
     >
       <Icon size={17} strokeWidth={2} />
     </span>

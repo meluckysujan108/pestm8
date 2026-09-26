@@ -88,7 +88,7 @@ function JobListPage() {
           <Link
             to="/$businessSlug/job/recurring"
             params={{ businessSlug: business.slug }}
-            className="mb-3 flex min-h-11 items-center gap-2 rounded-xl bg-surface px-3 text-caption text-ink shadow-elevation transition active:scale-[.99]"
+            className="mb-3 flex min-h-11 items-center gap-2 rounded-xl border border-hairline bg-surface px-3 text-caption text-ink shadow-elevation transition active:scale-[.99]"
           >
             <span
               className={`rounded-full px-2 text-[12px] font-semibold leading-5 ${OVERDUE_CHIP}`}

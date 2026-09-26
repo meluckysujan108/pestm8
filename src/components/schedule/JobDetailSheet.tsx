@@ -1325,7 +1325,7 @@ function JobPhotos({
                     remove.reset()
                     setConfirmRemove(photo)
                   }}
-                  className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
+                  className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-[.95]"
                 >
                   <Trash2 size={12} strokeWidth={2.4} />
                 </button>

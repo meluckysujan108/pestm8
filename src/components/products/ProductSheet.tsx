@@ -288,7 +288,7 @@ function DetailsBody({
         {product.pdf && (
           <section className="mt-5">
             <h3 className="section-label mb-1.5">Document</h3>
-            <div className="rounded-2xl bg-surface p-3 shadow-elevation">
+            <div className="rounded-2xl border border-hairline bg-surface p-3 shadow-elevation">
               <div className="flex items-center gap-3">
                 <PdfTile size="lg" />
                 <div className="min-w-0 flex-1">
@@ -456,7 +456,7 @@ function WebsiteCard({
   return (
     <section className="mt-5">
       <h3 className="section-label mb-1.5">Website</h3>
-      <div className="rounded-2xl bg-surface p-3 shadow-elevation">
+      <div className="rounded-2xl border border-hairline bg-surface p-3 shadow-elevation">
         <p className="flex min-w-0 items-center gap-2 text-body">
           <Globe
             aria-hidden
@@ -509,7 +509,7 @@ function WebsiteCard({
             href={url}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 px-2 text-center text-[14px] font-semibold leading-tight text-blue transition active:scale-[.97]"
+            className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 px-2 text-center text-body font-semibold leading-tight text-blue transition active:scale-[.97]"
           >
             <ExternalLink aria-hidden size={16} strokeWidth={2} />
             Open
@@ -539,7 +539,7 @@ function ActionButton({
       disabled={disabled}
       aria-pressed={pressed}
       onClick={onClick}
-      className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 px-2 py-1.5 text-center text-[14px] font-semibold leading-tight text-blue transition active:scale-[.97] disabled:opacity-50"
+      className="flex min-h-11 items-center justify-center gap-1.5 rounded-xl bg-surface-2 px-2 py-1.5 text-center text-body font-semibold leading-tight text-blue transition active:scale-[.97] disabled:opacity-50"
     >
       {children}
       <span className="min-w-0">{label}</span>

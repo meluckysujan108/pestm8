@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Link, useRouter } from '@tanstack/react-router'
-import { RotateCw, WifiOff } from 'lucide-react'
+import { RotateCcw, WifiOff } from 'lucide-react'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { LINK_BUTTON, PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { isOffline } from '#/lib/online'
@@ -59,7 +59,7 @@ export function ErrorScreen({ error }: ErrorComponentProps) {
             }}
             className={`${PRIMARY_BUTTON} flex items-center justify-center gap-2`}
           >
-            <RotateCw size={17} strokeWidth={2} aria-hidden />
+            <RotateCcw size={17} strokeWidth={2} aria-hidden />
             {retrying ? 'Trying…' : 'Try again'}
           </button>
           <Link

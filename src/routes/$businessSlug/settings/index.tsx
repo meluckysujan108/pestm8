@@ -598,7 +598,7 @@ function Avatar({ colour }: { colour?: string }) {
   return (
     <span
       aria-hidden
-      className={`flex size-14 shrink-0 items-center justify-center rounded-full text-[21px] font-semibold text-white ${colour ? '' : 'bg-blue'}`}
+      className={`flex size-14 shrink-0 items-center justify-center rounded-full text-sheet-title font-semibold text-white ${colour ? '' : 'bg-blue'}`}
       style={colour ? { backgroundColor: colour } : undefined}
     >
       {initials || <User size={26} strokeWidth={1.7} />}

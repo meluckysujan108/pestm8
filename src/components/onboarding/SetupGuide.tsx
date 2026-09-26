@@ -234,7 +234,7 @@ function GuideChecklist({
         </span>
       </div>
 
-      <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface">
+      <ul className="mt-4 divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
         {data.items.map((item) => {
           const copy = COPY[item.key]
           return (

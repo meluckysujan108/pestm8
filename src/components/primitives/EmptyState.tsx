@@ -66,7 +66,7 @@ export function NoMatches({
 
 /** Quieter than a page's red button: an invitation, not an alarm. */
 export const EMPTY_ACTION_CLASS =
-  'inline-flex min-h-11 items-center justify-center rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-blue transition active:scale-[.98] disabled:opacity-50'
+  'inline-flex min-h-11 items-center justify-center rounded-xl bg-surface-2 px-4 text-[16px] font-semibold text-blue transition active:scale-[.975] disabled:opacity-50'
 
 export function EmptyStateButton({
   onClick,
