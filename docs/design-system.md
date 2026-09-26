@@ -244,7 +244,7 @@ The layers are fixed. Pick from these and never invent one: the drift test fails
 | z                   | What                                                                                                                          |
 | ------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
 | `z-10`              | Overlays within a page or card, the desktop sidebar, a viewer's own bars and toasts                                           |
-| `z-20`              | Sticky bars inside content: `SaveBar`, the schedule's week strip                                                              |
+| `z-20`              | Sticky bars inside content: `SaveBar`, a sticky column header                                                                 |
 | `z-30`              | The sticky `PageHeader` and its placeholder; fixed bottom action bars (the builder's); the update banner; address suggestions |
 | `z-40`              | The mobile dock; a sheet's scrim; the note format bar                                                                         |
 | `z-50`              | Sheets, popovers, dropdown menus, comboboxes, tooltips, the photo annotator                                                   |
@@ -307,7 +307,8 @@ Motion is quiet and quick.
 
 **Glass bars.** Anything that floats over content is glass: a tint over a blurred backdrop, turning opaque for anyone who asks for less transparency.
 
-- **A bar at the top edge** (the header, the schedule's week strip) is `chrome-bar`.
+- **A bar at the top edge** (the page header) is `chrome-bar`.
+- **A band that scrolls away with the page** but should read as part of the header (the schedule's week strip) takes the header's tint, `bg-chrome`, with no blur: nothing passes beneath it.
 - **A bar at the bottom edge** (the dock) is `chrome-dock`.
 - Both need a position and a z-index, plus a 1px border on the edge facing the content. Keep that border transparent until something scrolls under it: `useScrolledUnder` sets `data-scrolled`, and `data-scrolled:border-hairline` shows the line.
 - **Glass anywhere else** (a viewer's bars, a floating notice, a builder's bottom bar) is `chrome-blur`.
