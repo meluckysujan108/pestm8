@@ -4,7 +4,7 @@ import { Drawer } from 'vaul'
 import { Menu } from 'lucide-react'
 import { JOB_TO, MORE_ITEMS, NOTES_TO, PRIMARY_NAV } from './navItems'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
-import { SheetCloseButton } from '#/components/primitives/Sheet'
+import { SheetShell } from '#/components/primitives/Sheet'
 
 /**
  * The phone's primary navigation. Five cells is the most a dock can hold
@@ -114,43 +114,40 @@ export function MobileDock({
         </button>
       </nav>
 
-      <Drawer.Root open={moreOpen} onOpenChange={setMoreOpen}>
-        <Drawer.Portal>
-          <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
-          <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas pb-[calc(16px+env(safe-area-inset-bottom))] outline-none">
-            <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
-            <Drawer.Title className="px-4 pb-1 pr-14 pt-3 text-sheet-title text-ink">
-              More
-            </Drawer.Title>
-            <Drawer.Description className="sr-only">
-              The sections that are not on the tab bar.
-            </Drawer.Description>
-            <nav aria-label="More sections" className="flex flex-col p-2">
-              {MORE_ITEMS.map((item) => (
-                <Link
-                  key={item.to}
-                  to={item.to}
-                  params={{ businessSlug }}
-                  onClick={() => setMoreOpen(false)}
-                  className="hold-target flex items-center gap-3 rounded-xl px-3 py-3 text-body text-ink transition active:scale-[.99] aria-[current=page]:bg-surface-2 aria-[current=page]:text-red"
+      <SheetShell
+        open={moreOpen}
+        onClose={() => setMoreOpen(false)}
+        className="pb-[calc(16px+env(safe-area-inset-bottom))]"
+      >
+        <Drawer.Title className="px-4 pb-1 pr-14 pt-3 text-sheet-title text-ink">
+          More
+        </Drawer.Title>
+        <Drawer.Description className="sr-only">
+          The sections that are not on the tab bar.
+        </Drawer.Description>
+        <nav aria-label="More sections" className="flex flex-col p-2">
+          {MORE_ITEMS.map((item) => (
+            <Link
+              key={item.to}
+              to={item.to}
+              params={{ businessSlug }}
+              onClick={() => setMoreOpen(false)}
+              className="hold-target flex items-center gap-3 rounded-xl px-3 py-3 text-body text-ink transition active:scale-[.99] aria-[current=page]:bg-surface-2 aria-[current=page]:text-red"
+            >
+              <item.icon size={20} strokeWidth={1.7} />
+              <span>{item.label}</span>
+              {item.to === JOB_TO && overdueJobs > 0 && (
+                <span
+                  className={`ml-auto min-w-5 rounded-full px-1.5 text-center text-caption font-bold leading-5 ${OVERDUE_CHIP}`}
                 >
-                  <item.icon size={20} strokeWidth={1.7} />
-                  <span>{item.label}</span>
-                  {item.to === JOB_TO && overdueJobs > 0 && (
-                    <span
-                      className={`ml-auto min-w-5 rounded-full px-1.5 text-center text-caption font-bold leading-5 ${OVERDUE_CHIP}`}
-                    >
-                      {overdueJobs >= 10 ? '9+' : overdueJobs}
-                      <span className="sr-only"> overdue</span>
-                    </span>
-                  )}
-                </Link>
-              ))}
-            </nav>
-            <SheetCloseButton onClick={() => setMoreOpen(false)} />
-          </Drawer.Content>
-        </Drawer.Portal>
-      </Drawer.Root>
+                  {overdueJobs >= 10 ? '9+' : overdueJobs}
+                  <span className="sr-only"> overdue</span>
+                </span>
+              )}
+            </Link>
+          ))}
+        </nav>
+      </SheetShell>
     </>
   )
 }

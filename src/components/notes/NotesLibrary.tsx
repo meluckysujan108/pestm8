@@ -17,6 +17,7 @@ import { rq } from '#/lib/routeQueries'
 import { NotesRail, useLibraryFolders } from './NotesRail'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { LibraryFilter } from './NoteList'
+import { TextPending } from '#/components/shell/Pending'
 
 export function NotesLibrary({
   business,
@@ -219,7 +220,7 @@ function OpenNote({
     return (
       <div className="px-3 pt-[calc(8px+env(safe-area-inset-top))]">
         {back}
-        <p className="px-1 py-8 text-center text-caption text-muted">Loading…</p>
+        <TextPending />
       </div>
     )
   }

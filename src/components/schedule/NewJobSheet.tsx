@@ -4,7 +4,7 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
-import { X } from 'lucide-react'
+import { SheetShell } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import { JOB_TYPES } from '#/lib/format'
 import {
@@ -92,47 +92,33 @@ export function NewJobSheet({
   onBooked?: () => void
 }) {
   return (
-    <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
-          {/* The form suspends on the property and team lists. Its own
-              boundary lets the sheet slide up at once; without one, the first
-              open blanked the whole app until both had loaded. */}
-          {open && (
-            <Suspense
-              fallback={
-                <SheetPending
-                  title={
-                    <Drawer.Title className="text-sheet-title text-ink">
-                      New job
-                    </Drawer.Title>
-                  }
-                />
+    <SheetShell open={open} onClose={onClose}>
+      {/* The form suspends on the property and team lists. Its own
+          boundary lets the sheet slide up at once; without one, the first
+          open blanked the whole app until both had loaded. */}
+      {open && (
+        <Suspense
+          fallback={
+            <SheetPending
+              title={
+                <Drawer.Title className="text-sheet-title text-ink">
+                  New job
+                </Drawer.Title>
               }
-            >
-              <NewJobForm
-                businessId={businessId}
-                dayKey={dayKey}
-                timezone={timezone}
-                onClose={onClose}
-                assignTo={assignTo}
-                onBooked={onBooked}
-              />
-            </Suspense>
-          )}
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
-          >
-            <X size={16} strokeWidth={2} />
-          </button>
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+            />
+          }
+        >
+          <NewJobForm
+            businessId={businessId}
+            dayKey={dayKey}
+            timezone={timezone}
+            onClose={onClose}
+            assignTo={assignTo}
+            onBooked={onBooked}
+          />
+        </Suspense>
+      )}
+    </SheetShell>
   )
 }
 

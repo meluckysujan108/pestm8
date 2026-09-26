@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
-import { AlertDialog } from 'radix-ui'
+import { SheetShell } from '#/components/primitives/Sheet'
 import {
   Check,
   Copy,
@@ -12,7 +12,6 @@ import {
   RefreshCw,
   Share,
   Smartphone,
-  X,
 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { SheetPending } from '#/components/shell/Pending'
@@ -35,10 +34,9 @@ import type { LiveProductRow, ShownProduct } from './model'
 import type { ReplaceStatus } from './useReplacePdf'
 import {
   NEUTRAL_BUTTON,
-  PRIMARY_BUTTON_COMPACT,
   SECONDARY_BUTTON,
-  SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 
 /**
  * One product, in a bottom sheet: its photo, name and words, its web page
@@ -65,9 +63,6 @@ export type EditState = {
   baseline: ProductBaseline
   draft: ProductDraft
 }
-
-const SHEET =
-  'fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none'
 
 export function ProductSheet({
   businessId,
@@ -114,83 +109,67 @@ export function ProductSheet({
   const shown = product ?? (open ? null : last)
 
   return (
-    <Drawer.Root open={open} onOpenChange={(next) => !next && onClose()}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
-        <Drawer.Content className={SHEET}>
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
-
-          {shown ? (
-            edit && edit.productId === shown.id && shown.live ? (
-              <EditBody
-                key={shown.id}
-                businessId={businessId}
-                row={shown.live}
-                product={shown}
-                edit={edit}
-                hydrated={hydrated}
-                onEditDraft={onEditDraft}
-                onEditDone={onEditDone}
-                onDeleted={onDeleted}
-              />
-            ) : (
-              <DetailsBody
-                key={shown.id}
-                businessId={businessId}
-                product={shown}
-                online={online}
-                hydrated={hydrated}
-                support={support}
-                onView={onView}
-                onReplace={onReplace}
-                replaceStatus={
-                  replaceStatus?.productId === shown.id ? replaceStatus : null
-                }
-                replaceElsewhere={
-                  replaceBusy(replaceStatus) &&
-                  replaceStatus?.productId !== shown.id
-                }
-                onEdit={onEdit}
-              />
-            )
-          ) : status === 'missing' ? (
-            <div className="px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
-              <Drawer.Title className="pr-10 text-sheet-title text-ink">
-                Not found
-              </Drawer.Title>
-              <Drawer.Description className="mt-1 text-body text-muted">
-                This product has been deleted.
-              </Drawer.Description>
-              <button
-                type="button"
-                onClick={onClose}
-                className={`${SECONDARY_BUTTON} mt-5 w-full`}
-              >
-                Close
-              </button>
-            </div>
-          ) : (
-            <>
-              <Drawer.Description className="sr-only">
-                Loading the product
-              </Drawer.Description>
-              <SheetPending
-                title={<Drawer.Title className="sr-only">Product</Drawer.Title>}
-              />
-            </>
-          )}
-
+    <SheetShell open={open} onClose={onClose}>
+      {shown ? (
+        edit && edit.productId === shown.id && shown.live ? (
+          <EditBody
+            key={shown.id}
+            businessId={businessId}
+            row={shown.live}
+            product={shown}
+            edit={edit}
+            hydrated={hydrated}
+            onEditDraft={onEditDraft}
+            onEditDone={onEditDone}
+            onDeleted={onDeleted}
+          />
+        ) : (
+          <DetailsBody
+            key={shown.id}
+            businessId={businessId}
+            product={shown}
+            online={online}
+            hydrated={hydrated}
+            support={support}
+            onView={onView}
+            onReplace={onReplace}
+            replaceStatus={
+              replaceStatus?.productId === shown.id ? replaceStatus : null
+            }
+            replaceElsewhere={
+              replaceBusy(replaceStatus) &&
+              replaceStatus?.productId !== shown.id
+            }
+            onEdit={onEdit}
+          />
+        )
+      ) : status === 'missing' ? (
+        <div className="px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
+          <Drawer.Title className="pr-10 text-sheet-title text-ink">
+            Not found
+          </Drawer.Title>
+          <Drawer.Description className="mt-1 text-body text-muted">
+            This product has been deleted.
+          </Drawer.Description>
           <button
             type="button"
-            aria-label="Close"
             onClick={onClose}
-            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            className={`${SECONDARY_BUTTON} mt-5 w-full`}
           >
-            <X size={16} strokeWidth={2} />
+            Close
           </button>
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+        </div>
+      ) : (
+        <>
+          <Drawer.Description className="sr-only">
+            Loading the product
+          </Drawer.Description>
+          <SheetPending
+            title={<Drawer.Title className="sr-only">Product</Drawer.Title>}
+          />
+        </>
+      )}
+    </SheetShell>
   )
 }
 
@@ -693,41 +672,22 @@ function EditBody({
         }
       />
 
-      <AlertDialog.Root open={confirmOpen} onOpenChange={setConfirmOpen}>
-        <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
-            <AlertDialog.Title className="text-row-title text-ink [overflow-wrap:anywhere]">
-              Delete {row.name}?
-            </AlertDialog.Title>
-            <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
-              It goes from the list for everyone in the business, with its photo
-              and PDF. Copies kept on phones are removed the next time each
-              phone has signal.
-            </AlertDialog.Description>
-            <div className="mt-4 flex gap-2">
-              <AlertDialog.Cancel asChild>
-                <button
-                  type="button"
-                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-                >
-                  Keep it
-                </button>
-              </AlertDialog.Cancel>
-              <AlertDialog.Action asChild>
-                <button
-                  type="button"
-                  disabled={deleting}
-                  onClick={() => void onDelete()}
-                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-                >
-                  Delete
-                </button>
-              </AlertDialog.Action>
-            </div>
-          </AlertDialog.Content>
-        </AlertDialog.Portal>
-      </AlertDialog.Root>
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={`Delete ${row.name}?`}
+        body={
+          <>
+            It goes from the list for everyone in the business, with its photo
+            and PDF. Copies kept on phones are removed the next time each phone
+            has signal.
+          </>
+        }
+        cancel="Keep it"
+        confirm="Delete"
+        pending={deleting}
+        onConfirm={() => void onDelete()}
+      />
 
       {deleting && (
         <p role="status" className="mt-3 text-center text-caption text-muted">

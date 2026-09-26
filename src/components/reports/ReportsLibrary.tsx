@@ -222,7 +222,11 @@ export function ReportsLibrary({
           </button>
         )}
         {!searching && paged.status === 'LoadingMore' && (
-          <p className="mt-3 text-center text-caption text-muted">Loading…</p>
+          <ListPending
+            label="Loading more reports"
+            count={2}
+            className="mt-3"
+          />
         )}
       </section>
     </>

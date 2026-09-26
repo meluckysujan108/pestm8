@@ -1,11 +1,10 @@
 import { useState } from 'react'
-import { AlertDialog } from 'radix-ui'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { RefreshCw } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { restartingReports } from '#/lib/restartingReports'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 
 /**
  * Shown on a draft started against wording the business no longer issues.
@@ -104,44 +103,24 @@ export function UpgradeBanner({
         </div>
       </div>
 
-      <AlertDialog.Root open={open} onOpenChange={setOpen}>
-        <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
-            <AlertDialog.Title className="text-row-title text-ink">
-              {switching ? 'Switch to the new form?' : 'Start again on the new form?'}
-            </AlertDialog.Title>
-            <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
-              {switching
-                ? 'Your answers and photos carry across, re-worded to match the new options. Any signatures were given against the old wording, so they will need to be signed again.'
-                : 'A new, empty draft opens for the same property and job. This draft is removed from your list; its photos are kept, not deleted.'}
-            </AlertDialog.Description>
-            {failed && (
-              <p role="alert" className="mt-2 text-caption text-red">
-                That didn't go through. Check your connection and try again.
-              </p>
-            )}
-            <div className="mt-4 flex gap-2">
-              <AlertDialog.Cancel asChild>
-                <button
-                  type="button"
-                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-                >
-                  Not now
-                </button>
-              </AlertDialog.Cancel>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={confirm}
-                className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-              >
-                {switching ? 'Switch' : 'Start again'}
-              </button>
-            </div>
-          </AlertDialog.Content>
-        </AlertDialog.Portal>
-      </AlertDialog.Root>
+      <ConfirmDialog
+        open={open}
+        onOpenChange={setOpen}
+        title={switching ? 'Switch to the new form?' : 'Start again on the new form?'}
+        body={
+          <>
+            {switching
+              ? 'Your answers and photos carry across, re-worded to match the new options. Any signatures were given against the old wording, so they will need to be signed again.'
+              : 'A new, empty draft opens for the same property and job. This draft is removed from your list; its photos are kept, not deleted.'}
+          </>
+        }
+        cancel="Not now"
+        confirm={switching ? 'Switch' : 'Start again'}
+        pending={busy}
+        error={failed ? "That didn't go through. Check your connection and try again." : undefined}
+        closeOnConfirm={false}
+        onConfirm={confirm}
+      />
     </>
   )
 }

@@ -10,6 +10,7 @@ import { NoteEditor } from './NoteEditor'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { DecoratedNote } from '../../../convex/notes'
 import type { MentionItem } from './MentionList'
+import { RowPending } from '#/components/shell/Pending'
 
 /**
  * Notes inside a job or client sheet. Rows expand in place into the same
@@ -63,7 +64,7 @@ export function InlineNotesSection({
       </div>
       <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
         {notes === undefined ? (
-          <p className="px-3.5 py-3 text-caption text-muted">Loading…</p>
+          <RowPending label="Loading notes" />
         ) : notes.length === 0 ? (
           <p className="px-3.5 py-3 text-body text-muted">{empty}</p>
         ) : (
