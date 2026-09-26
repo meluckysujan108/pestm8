@@ -10,7 +10,15 @@ import {
 import { emailProblem, emailTypoFix } from '../../../convex/lib/email'
 import { checkPhone } from '../../../convex/lib/phone'
 import { stateOfPostcode } from '../../../convex/lib/postcodes'
+import {
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+  clientNumberFromText,
+  statusFromText,
+  tagsFromText,
+} from '../../../convex/lib/clientRecord'
 import { importable } from './convert'
+import type { ClientStatus } from '../../../convex/lib/clientRecord'
 import type {
   ColumnMapping,
   ExistingIndex,
@@ -421,6 +429,9 @@ type Draft = {
   /** The file's contact type, when it says this isn't a client
    * ("Supplier"): left out unless the person includes it. */
   notAClient?: string
+  clientNumber?: number
+  status?: ClientStatus
+  tags: Array<string>
 }
 
 /** A phone as the file had it, with a lost leading 0 put back, +61 written
@@ -543,7 +554,12 @@ function draftOf(
   // column; then a real ABN, which a household doesn't give its pest
   // controller (Xero has no company column, only a tax number); then the
   // name.
-  const flag = tidy(v.isCompany)
+  // A contact-type column saying "Business" or "Residential" says it too,
+  // when there is no "Is a company?" column to.
+  const typeWord = tidy(v.contactType)
+  const flag =
+    tidy(v.isCompany) ||
+    (YES.test(typeWord) || NO.test(typeWord) ? typeWord : '')
   const business =
     YES.test(flag) ||
     (!NO.test(flag) &&
@@ -793,6 +809,49 @@ function draftOf(
     }
   }
 
+  // ---- the file's number, status and tags for the client
+  let clientNumber: number | undefined
+  if (v.clientNumber) {
+    const n = clientNumberFromText(v.clientNumber)
+    if (n === null) {
+      const was = v.clientNumber
+      notes.push(
+        holdWhile(
+          {
+            level: 'fixed',
+            field: 'name',
+            message: `Client number “${was}” isn't a whole number — left off; PestM8 will give it the next one.`,
+          },
+          (c) => c.clientNumber === undefined,
+        ),
+      )
+    } else {
+      clientNumber = n
+    }
+  }
+  let status: ClientStatus | undefined
+  if (v.status) {
+    const found = statusFromText(v.status)
+    if (found) {
+      status = found
+    } else {
+      const was = v.status
+      notes.push(
+        holdWhile(
+          {
+            level: 'fixed',
+            field: 'name',
+            message: `Status “${was}” isn't Active, Lead or Inactive — set to Active.`,
+          },
+          (c) => c.status === undefined,
+        ),
+      )
+    }
+  }
+  const tags = v.tags
+    ? tagsFromText(v.tags).map((t) => t.slice(0, MAX_TAG_LENGTH).trim())
+    : []
+
   return {
     rowNumber,
     sheetRow,
@@ -808,6 +867,9 @@ function draftOf(
     ...(NOT_A_CLIENT.test(tidy(v.contactType))
       ? { notAClient: tidy(v.contactType) }
       : {}),
+    ...(clientNumber !== undefined ? { clientNumber } : {}),
+    ...(status ? { status } : {}),
+    tags,
   }
 }
 
@@ -889,6 +951,28 @@ function merge(drafts: Array<Draft>, opts: Opts): ReviewClient {
   const phone = pick('phone')
   const email = pick('email')
   const abn = kind === 'business' ? pick('abn') : undefined
+  // The first row's number that has one; the tags of every row, once each.
+  const clientNumber = drafts.find(
+    (d) => d.clientNumber !== undefined,
+  )?.clientNumber
+  const status = drafts.find((d) => d.status)?.status
+  const tags: Array<string> = []
+  for (const tag of drafts.flatMap((d) => d.tags)) {
+    if (!tags.some((t) => t.toLowerCase() === tag.toLowerCase())) tags.push(tag)
+  }
+  if (tags.length > MAX_TAGS) {
+    notes.push(
+      holdWhile(
+        {
+          level: 'fixed',
+          field: 'name',
+          message: `${tags.length} tags in the file — kept the first ${MAX_TAGS}.`,
+        },
+        (c) => (c.tags?.length ?? 0) === MAX_TAGS,
+      ),
+    )
+    tags.length = MAX_TAGS
+  }
   // Left out: every row saying it isn't a client (a supplier who is also on
   // a customer row is a client), or a name and nothing else — an accounts
   // package's payees, "Post office", "Apple subscription". Either can be
@@ -921,6 +1005,9 @@ function merge(drafts: Array<Draft>, opts: Opts): ReviewClient {
     ...(phone ? { phone } : {}),
     ...(email ? { email } : {}),
     ...(abn ? { abn } : {}),
+    ...(clientNumber !== undefined ? { clientNumber } : {}),
+    ...(status ? { status } : {}),
+    ...(tags.length > 0 ? { tags } : {}),
     sites,
     issues: notes,
     included: !leftOut,
@@ -1000,8 +1087,33 @@ export function buildReview(
     else clients.set(at, [draft])
   }
   return checkAcrossClients(
-    [...clients.values()].map((drafts) => merge(drafts, opts)),
+    oneEachNumber([...clients.values()].map((drafts) => merge(drafts, opts))),
   )
+}
+
+/** One client per number in a file: a later client with an earlier one's
+ * number goes without, and gets the next free one when it is imported. */
+function oneEachNumber(clients: Array<ReviewClient>): Array<ReviewClient> {
+  const holders = new Map<number, ReviewClient>()
+  return clients.map((client) => {
+    const n = client.clientNumber
+    if (n === undefined) return client
+    const first = holders.get(n)
+    if (!first) {
+      holders.set(n, client)
+      return client
+    }
+    const { clientNumber: _n, ...rest } = client
+    const note = holdWhile(
+      {
+        level: 'fixed',
+        field: 'name',
+        message: `Client number ${n} is also ${whoIs(first)}'s — left off this one; PestM8 will give it the next free number.`,
+      },
+      (c) => c.clientNumber === undefined,
+    )
+    return { ...rest, issues: sortIssues([note, ...client.issues]) }
+  })
 }
 
 // ---------------------------------------------------------------- judging
@@ -1076,6 +1188,19 @@ function phoneIssues(
  * fields alone. Sites already in PestM8 aren't judged: they aren't sent. */
 function currentIssues(client: ReviewClient, opts: Opts): Array<ReviewIssue> {
   const issues: Array<ReviewIssue> = []
+  // A number another client in PestM8 already has. Not for a client whose
+  // sites join one already here: nothing of that one changes.
+  const holder =
+    client.clientNumber !== undefined && !client.existingClientId
+      ? opts.existing.numbers?.get(client.clientNumber)
+      : undefined
+  if (holder !== undefined) {
+    issues.push({
+      level: 'warning',
+      field: 'name',
+      message: `Client number ${client.clientNumber} is already ${holder}'s in PestM8 — this one will get the next free number.`,
+    })
+  }
   const name = client.name.trim()
   if (!name) {
     issues.push({ level: 'error', field: 'name', message: 'No client name.' })

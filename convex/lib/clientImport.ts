@@ -2,6 +2,12 @@ import { v } from 'convex/values'
 import { isValidAbn, normaliseAbn } from './abn'
 import { emailProblem, normaliseEmail } from './email'
 import { checkPhone, normalisePhone } from './phone'
+import {
+  MAX_TAGS,
+  MAX_TAG_LENGTH,
+  clientStatus,
+  isClientNumber,
+} from './clientRecord'
 import type { Infer } from 'convex/values'
 
 /**
@@ -77,6 +83,11 @@ export const importClientValidator = v.object({
    * it, and nothing of it is changed. The server checks the name matches. */
   existingClientId: v.optional(v.id('clients')),
   sites: v.array(importSiteValidator),
+  /** The old system's number for the client, kept when it is free in
+   * PestM8; otherwise the client gets the next one. */
+  clientNumber: v.optional(v.number()),
+  status: v.optional(clientStatus),
+  tags: v.optional(v.array(v.string())),
 })
 
 export type ImportSite = Infer<typeof importSiteValidator>
@@ -349,6 +360,22 @@ export function checkImportClient(input: ImportClient): ClientCheck {
   if (abn && !isValidAbn(abn)) {
     return { ok: false, reason: 'The ABN does not pass the ATO check.' }
   }
+  if (input.clientNumber !== undefined && !isClientNumber(input.clientNumber)) {
+    return { ok: false, reason: 'The client number is not a whole number.' }
+  }
+  // As `normaliseTags` keeps them, but cut rather than refused: one long tag
+  // in a file isn't worth the client.
+  const tags: Array<string> = []
+  const seenTags = new Set<string>()
+  for (const raw of input.tags ?? []) {
+    const tag = raw.replace(/\s+/g, ' ').trim().slice(0, MAX_TAG_LENGTH).trim()
+    if (!tag || seenTags.has(tag.toLowerCase())) continue
+    seenTags.add(tag.toLowerCase())
+    tags.push(tag)
+  }
+  if (tags.length > MAX_TAGS) {
+    return { ok: false, reason: `More than ${MAX_TAGS} tags.` }
+  }
 
   return {
     ok: true,
@@ -366,6 +393,11 @@ export function checkImportClient(input: ImportClient): ClientCheck {
         ? { existingClientId: input.existingClientId }
         : {}),
       sites,
+      ...(input.clientNumber !== undefined
+        ? { clientNumber: input.clientNumber }
+        : {}),
+      ...(input.status ? { status: input.status } : {}),
+      ...(tags.length > 0 ? { tags } : {}),
     },
   }
 }

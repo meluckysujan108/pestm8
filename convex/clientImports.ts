@@ -15,6 +15,7 @@ import {
   nameKey,
   siteKey,
 } from './lib/clientImport'
+import { assignClientNumber } from './lib/clientRecord'
 import { memberName } from './lib/reportContext'
 import { deriveNoteFields, docFromPlainText } from './lib/richText'
 import { purgeNote } from './notes'
@@ -376,6 +377,13 @@ async function insertClient(
     ...(client.phone !== undefined && { phone: client.phone }),
     ...(client.email !== undefined && { email: client.email }),
     ...(client.abn !== undefined && { abn: client.abn }),
+    clientNumber: await assignClientNumber(
+      ctx,
+      run.businessId,
+      client.clientNumber,
+    ),
+    ...(client.status !== undefined && { status: client.status }),
+    ...(client.tags !== undefined && { tags: client.tags }),
     createdAt: now,
     updatedAt: now,
     importId: run._id,

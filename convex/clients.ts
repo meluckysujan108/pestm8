@@ -7,8 +7,13 @@ import { normalisePhone } from './lib/phone'
 import { edited, setContactPerson } from './clientContacts'
 import { INLINE_LIMIT, decorate as decorateReports } from './reports'
 import { isInScope, reportReadable } from './lib/capabilities'
-import { clientKind } from './schema'
-import type { Id } from './_generated/dataModel'
+import { clientKind, clientStatus } from './schema'
+import {
+  clientWithNumber,
+  isClientNumber,
+  normaliseTags,
+} from './lib/clientRecord'
+import type { Doc, Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
 import { requireActor, requireCapability } from './lib/actor'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
@@ -84,10 +89,25 @@ export const update = mutation({
     // The name to make this client's primary contact — see
     // `setContactPerson`. Blank takes the star off; nobody is deleted.
     contactPerson: v.optional(v.string()),
+    // Each left alone when left out. An empty list clears the tags.
+    status: v.optional(clientStatus),
+    tags: v.optional(v.array(v.string())),
+    // Unique within the business: another client's is refused
+    // (CLIENT_NUMBER_TAKEN) rather than silently swapped.
+    clientNumber: v.optional(v.number()),
   },
   handler: async (
     ctx,
-    { businessId, clientId, abn: rawAbn, contactPerson, ...patch },
+    {
+      businessId,
+      clientId,
+      abn: rawAbn,
+      contactPerson,
+      status,
+      tags: rawTags,
+      clientNumber,
+      ...patch
+    },
   ) => {
     await requireMembership(ctx, businessId)
     const client = await requireClient(ctx, businessId, clientId)
@@ -124,8 +144,37 @@ export const update = mutation({
       const abn = normaliseAbn(rawAbn)
       if (abn !== client.abn) fields.abn = abn
     }
-    if (Object.keys(fields).length > 0) {
-      await ctx.db.patch(clientId, { ...fields, updatedAt: Date.now() })
+    const record: {
+      status?: Doc<'clients'>['status']
+      tags?: Array<string>
+      clientNumber?: number
+    } = {}
+    if (status !== undefined && status !== (client.status ?? 'active')) {
+      record.status = status
+    }
+    if (rawTags !== undefined) {
+      const tags = normaliseTags(rawTags)
+      if (tags.join('\n') !== (client.tags ?? []).join('\n')) {
+        // Empty is none: written as `undefined`, which removes the field.
+        record.tags = tags.length > 0 ? tags : undefined
+      }
+    }
+    if (clientNumber !== undefined && clientNumber !== client.clientNumber) {
+      if (!isClientNumber(clientNumber)) {
+        throw new ConvexError('INVALID_CLIENT_NUMBER')
+      }
+      const holder = await clientWithNumber(ctx, businessId, clientNumber)
+      if (holder && holder._id !== clientId) {
+        throw new ConvexError('CLIENT_NUMBER_TAKEN')
+      }
+      record.clientNumber = clientNumber
+    }
+    if (Object.keys(fields).length > 0 || Object.keys(record).length > 0) {
+      await ctx.db.patch(clientId, {
+        ...fields,
+        ...record,
+        updatedAt: Date.now(),
+      })
     }
     if (contactPerson !== undefined) {
       await setContactPerson(ctx, businessId, clientId, contactPerson)

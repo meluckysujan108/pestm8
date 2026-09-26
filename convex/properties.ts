@@ -8,7 +8,8 @@ import type { Infer } from 'convex/values'
 import { isInScope } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { redactJobs } from './lib/prices'
-import { addressCheck, clientKind } from './schema'
+import { addressCheck, clientKind, clientStatus } from './schema'
+import { assignClientNumber, normaliseTags } from './lib/clientRecord'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { requireActor } from './lib/actor'
@@ -247,6 +248,9 @@ export const newClientFields = v.object({
   // Becomes the client's primary contact (`clientContacts.isPrimary`), the
   // one "who do we deal with here" — not a second, competing field.
   contactPerson: v.optional(v.string()),
+  // A lead not yet booked, say; absent is active.
+  status: v.optional(clientStatus),
+  tags: v.optional(v.array(v.string())),
   ...propertyAddressFields,
 })
 
@@ -268,6 +272,7 @@ async function insertClientAndProperty(
   const email = normaliseEmail(input.email)
   const phone = normalisePhone(input.phone)
   const contactPerson = isBusiness ? input.contactPerson?.trim() : undefined
+  const tags = normaliseTags(input.tags ?? [])
 
   const now = Date.now()
   const clientId = await ctx.db.insert('clients', {
@@ -277,6 +282,9 @@ async function insertClientAndProperty(
     ...(phone !== undefined && { phone }),
     ...(email !== undefined && { email }),
     ...(abn !== undefined && { abn }),
+    clientNumber: await assignClientNumber(ctx, businessId),
+    ...(input.status !== undefined && { status: input.status }),
+    ...(tags.length > 0 && { tags }),
     createdAt: now,
     updatedAt: now,
   })

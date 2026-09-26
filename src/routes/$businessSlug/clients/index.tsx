@@ -70,9 +70,19 @@ function ClientsPage() {
     return withProperties.filter((row) => matchesClientSearch(row, term))
   }, [clients, properties, q])
 
-  const { kind, setKind, suburb, setSuburb, filteredRows } =
-    useClientFilters(rows)
-  const filtersActive = kind !== 'all' || suburb !== 'all'
+  const {
+    kind,
+    setKind,
+    suburb,
+    setSuburb,
+    status,
+    setStatus,
+    tag,
+    setTag,
+    filteredRows,
+    clearFilters,
+    filtersActive,
+  } = useClientFilters(rows)
 
   return (
     <>
@@ -124,7 +134,7 @@ function ClientsPage() {
             navigate({ search: { q: term || undefined }, replace: true })
           }
           label="Search by name or address"
-          placeholder="Search by name or address"
+          placeholder="Search by name, address or #number"
         />
       </div>
 
@@ -136,6 +146,12 @@ function ClientsPage() {
             setKind={setKind}
             suburb={suburb}
             setSuburb={setSuburb}
+            status={status}
+            setStatus={setStatus}
+            tag={tag}
+            setTag={setTag}
+            filtered={filtersActive}
+            onClear={clearFilters}
           />
         </div>
 
@@ -146,8 +162,7 @@ function ClientsPage() {
               hint="Try a different name, address or filter."
               clearLabel={q ? 'Clear search' : 'Clear filters'}
               onClear={() => {
-                setKind('all')
-                setSuburb('all')
+                clearFilters()
                 void navigate({ search: { q: undefined }, replace: true })
               }}
             />

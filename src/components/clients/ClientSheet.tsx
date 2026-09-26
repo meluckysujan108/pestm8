@@ -13,6 +13,7 @@ import {
 import { ClientNotesSection } from '#/components/notes/ClientNotesSection'
 import { AbnInput } from '#/components/clients/AbnInput'
 import { EmailInput } from '#/components/forms/EmailInput'
+import { FieldMessage } from '#/components/forms/FieldMessage'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { FIELD_COMPACT, FormField } from '#/components/forms/FormField'
 import { PhoneInput } from '#/components/forms/PhoneInput'
@@ -46,6 +47,15 @@ import type { ErrorCopy } from '#/components/forms/describeError'
 import type { AddressValue } from '#/lib/addressVerify'
 import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import {
+  ClientStatusPill,
+  TagChips,
+  TagInput,
+  clientNumberLabel,
+  tagsInUse,
+} from '#/components/clients/ClientRecordBits'
+import { clientNumberFromText } from '../../../convex/lib/clientRecord'
+import type { ClientStatus } from '../../../convex/lib/clientRecord'
 
 type ClientKind = 'person' | 'business'
 
@@ -193,9 +203,20 @@ function ClientBody({
         />
       ) : (
         <>
-          <p className="mt-0.5 text-caption text-muted">
+          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-caption text-muted">
+            {client.clientNumber !== undefined && (
+              <span className="tabular-nums">
+                {clientNumberLabel(client.clientNumber)} ·
+              </span>
+            )}
             {client.kind === 'business' ? 'Business' : 'Person'}
+            <ClientStatusPill status={client.status} />
           </p>
+          {client.tags && client.tags.length > 0 && (
+            <div className="mt-2">
+              <TagChips tags={client.tags} />
+            </div>
+          )}
           {client.kind === 'business' && client.abn && (
             <p className="text-caption tabular-nums text-muted">
               ABN {formatAbn(client.abn)}
@@ -322,6 +343,9 @@ function ClientEditForm({
     state?: string
     postcode?: string
     abn?: string
+    clientNumber?: number
+    status?: ClientStatus
+    tags?: Array<string>
   }
   /** The primary contact's name, or '' when there is none. */
   contactPerson: string
@@ -346,6 +370,22 @@ function ClientEditForm({
   // after the form opened, the field starts blank, and comparing with the
   // live name would read that as clearing it and take the star off.
   const [contactPersonBefore] = useState(prefilledContactPerson)
+  const [status, setStatus] = useState<ClientStatus>(client.status ?? 'active')
+  const [numberText, setNumberText] = useState(
+    client.clientNumber === undefined ? '' : String(client.clientNumber),
+  )
+  const [tags, setTags] = useState<Array<string>>(client.tags ?? [])
+  // The business's tags, offered as one is typed: the list the Clients page
+  // already has.
+  const { data: allClients } = useQuery(
+    convexQuery(api.clients.list, { businessId }),
+  )
+  const suggestions = tagsInUse(allClients ?? []).map((t) => t.tag)
+  const wantedNumber = clientNumberFromText(numberText)
+  const numberProblem =
+    numberText.trim() !== '' && wantedNumber === null
+      ? 'A client number is a whole number, like 1916.'
+      : null
 
   // What the record has saved, as the save below compares with: a value left
   // as it is is not sent, so it is never refused here either, however it
@@ -376,6 +416,9 @@ function ClientEditForm({
       postcode?: string
       abn?: string
       contactPerson?: string
+      status?: ClientStatus
+      tags?: Array<string>
+      clientNumber?: number
     }) => convexUpdate(args),
     onSuccess: onDone,
   })
@@ -396,6 +439,12 @@ function ClientEditForm({
       // writes nothing.
       ...edited('phone', phone, client.phone),
       ...edited('email', email, client.email),
+      ...(status !== (client.status ?? 'active') && { status }),
+      ...(tags.join('\n') !== (client.tags ?? []).join('\n') && { tags }),
+      ...(wantedNumber !== null &&
+        wantedNumber !== client.clientNumber && {
+          clientNumber: wantedNumber,
+        }),
       // Omitted (not cleared) when kind isn't business: `clients.update`
       // skips undefined args, so toggling to person just stops showing
       // the address rather than wiping it — same "hidden, not deleted"
@@ -430,9 +479,13 @@ function ClientEditForm({
     <SaveWarningsProvider value={warnings}>
       <form
         className="mt-3 flex flex-col gap-3"
-        onSubmit={(e) =>
-          warnings.guard(e, () => save.mutateAsync(latestArgs.current()))
-        }
+        onSubmit={(e) => {
+          if (numberProblem) {
+            e.preventDefault()
+            return
+          }
+          return warnings.guard(e, () => save.mutateAsync(latestArgs.current()))
+        }}
       >
         <WrappedField label="Client type">
           <Segmented
@@ -451,6 +504,41 @@ function ClientEditForm({
         >
           <TextInput value={name} onChange={setName} required />
         </WrappedField>
+        <WrappedField label="Status">
+          <Segmented
+            kind="choice"
+            label="Status"
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: 'active', label: 'Active' },
+              { value: 'lead', label: 'Lead' },
+              { value: 'inactive', label: 'Inactive' },
+            ]}
+          />
+        </WrappedField>
+        <WrappedField label="Client number">
+          <TextInput
+            value={numberText}
+            onChange={setNumberText}
+            inputMode="numeric"
+            placeholder="Given when saved"
+          />
+        </WrappedField>
+        {numberProblem && (
+          <FieldMessage tone="error" className="-mt-1.5">
+            {numberProblem}
+          </FieldMessage>
+        )}
+        <div className="flex flex-col gap-1.5">
+          <span className="section-label">Tags (optional)</span>
+          <TagInput
+            value={tags}
+            onChange={setTags}
+            suggestions={suggestions}
+            label="Tags"
+          />
+        </div>
         {kind === 'business' && (
           <>
             <FormField id={abnId} label="ABN (optional)" size="md">
@@ -534,7 +622,10 @@ function ClientEditForm({
             />
           </div>
         )}
-        <FormAlert error={save.isError ? save.error : null} />
+        <FormAlert
+          error={save.isError ? save.error : null}
+          copy={CLIENT_RECORD_COPY}
+        />
         <SaveWarningsPanel />
 
         <div className="flex gap-2">
@@ -1493,6 +1584,16 @@ function ClientReports({
       }
     />
   )
+}
+
+/** Words for the refusals only this form meets. */
+const CLIENT_RECORD_COPY: ErrorCopy = {
+  CLIENT_NUMBER_TAKEN:
+    'Could not save: another client already has that number. Choose another.',
+  INVALID_CLIENT_NUMBER:
+    'Could not save: a client number is a whole number, like 1916.',
+  TOO_MANY_TAGS: 'Could not save: a client can have up to 20 tags.',
+  TAG_TOO_LONG: 'Could not save: a tag can be up to 40 letters.',
 }
 
 function Section({

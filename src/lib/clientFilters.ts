@@ -3,6 +3,17 @@ import { siteContactOf } from '../../convex/lib/siteContact'
 
 export type ClientKind = 'person' | 'business'
 export type KindFilter = 'all' | ClientKind
+export type StatusFilter = 'all' | 'active' | 'lead' | 'inactive'
+
+export const STATUS_FILTER_OPTIONS: Array<{
+  value: StatusFilter
+  label: string
+}> = [
+  { value: 'all', label: 'Any status' },
+  { value: 'active', label: 'Active' },
+  { value: 'lead', label: 'Lead' },
+  { value: 'inactive', label: 'Inactive' },
+]
 
 export const KIND_OPTIONS: Array<{ value: ClientKind; label: string }> = [
   { value: 'business', label: 'Business' },
@@ -60,7 +71,13 @@ function nationalDigits(phone: string): string {
  */
 export function matchesClientSearch(
   row: {
-    client: { name: string; kind: ClientKind; abn?: string }
+    client: {
+      name: string
+      kind: ClientKind
+      abn?: string
+      clientNumber?: number
+      tags?: Array<string>
+    }
     properties: Array<{
       addressLine: string
       suburb: string
@@ -74,6 +91,9 @@ export function matchesClientSearch(
   if (query === '') return true
 
   const { client, properties } = row
+  // A client number, typed as "#1916" or "1916": the one client, exactly.
+  const asNumber = /^#\s*(\d+)$/.exec(query) ?? /^(\d{1,4})$/.exec(query)
+  if (asNumber && Number(asNumber[1]) === client.clientNumber) return true
   const siteContacts = properties.flatMap((p) => {
     const contact = siteContactOf({
       clientKind: client.kind,
@@ -85,6 +105,7 @@ export function matchesClientSearch(
 
   const haystack = [
     client.name,
+    ...(client.tags ?? []),
     ...properties.flatMap((p) => [p.addressLine, p.suburb]),
     ...siteContacts.map((c) => c.name ?? ''),
   ]
@@ -119,16 +140,52 @@ export function matchesClientSearch(
  * a refresh") stays in the route's search params.
  */
 export function useClientFilters<
-  T extends { client: { kind: ClientKind }; properties: Array<{ suburb: string }> },
+  T extends {
+    client: {
+      kind: ClientKind
+      status?: 'active' | 'lead' | 'inactive'
+      tags?: Array<string>
+    }
+    properties: Array<{ suburb: string }>
+  },
 >(rows: Array<T>) {
   const [kind, setKind] = useState<KindFilter>('all')
   const [suburb, setSuburb] = useState<string>('all')
+  const [status, setStatus] = useState<StatusFilter>('all')
+  const [tag, setTag] = useState<string>('all')
 
   const filteredRows = rows.filter(
     (row) =>
       (kind === 'all' || row.client.kind === kind) &&
-      (suburb === 'all' || row.properties.some((p) => p.suburb === suburb)),
+      (suburb === 'all' || row.properties.some((p) => p.suburb === suburb)) &&
+      // No status is active.
+      (status === 'all' || (row.client.status ?? 'active') === status) &&
+      (tag === 'all' ||
+        (row.client.tags ?? []).some(
+          (t) => t.toLowerCase() === tag.toLowerCase(),
+        )),
   )
 
-  return { kind, setKind, suburb, setSuburb, filteredRows }
+  const clearFilters = () => {
+    setKind('all')
+    setSuburb('all')
+    setStatus('all')
+    setTag('all')
+  }
+  const filtersActive =
+    kind !== 'all' || suburb !== 'all' || status !== 'all' || tag !== 'all'
+
+  return {
+    kind,
+    setKind,
+    suburb,
+    setSuburb,
+    status,
+    setStatus,
+    tag,
+    setTag,
+    filteredRows,
+    clearFilters,
+    filtersActive,
+  }
 }

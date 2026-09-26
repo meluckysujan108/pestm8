@@ -1080,6 +1080,119 @@ describe('left out on the way in', () => {
   })
 })
 
+describe('client number, status and tags', () => {
+  const COLUMNS: Array<[string, ImportField]> = [
+    ['Client Number', 'clientNumber'],
+    ['Status', 'status'],
+    ['Contact Type', 'contactType'],
+    ['Client Name', 'name'],
+    ['Tags', 'tags'],
+    ['Address', 'address'],
+  ]
+
+  test('read from the file, and sent', () => {
+    const [client] = review(COLUMNS, [
+      [
+        '#1916',
+        'Lead',
+        'Business',
+        'Little Sprouts',
+        'GPC, Commercial; gpc',
+        '1 Hay St, Perth WA 6000',
+      ],
+    ])
+    expect(client).toMatchObject({
+      kind: 'business',
+      clientNumber: 1916,
+      status: 'lead',
+      tags: ['GPC', 'Commercial'],
+    })
+    expect(toImportClient(client)).toMatchObject({
+      clientNumber: 1916,
+      status: 'lead',
+      tags: ['GPC', 'Commercial'],
+    })
+    expect(checkImportClient(toImportClient(client)).ok).toBe(true)
+  })
+
+  test('"Residential" in the contact type makes a person, whatever the name', () => {
+    const [client] = review(COLUMNS, [
+      [
+        '1',
+        'Active',
+        'Residential',
+        'Smith Holdings',
+        '',
+        '1 Hay St, Perth WA 6000',
+      ],
+    ])
+    expect(client.kind).toBe('person')
+  })
+
+  test('a number or status that can’t be read is left off, and said', () => {
+    const [client] = review(COLUMNS, [
+      ['12a', 'Maybe', 'Customer', 'Jo Bloggs', '', '1 Hay St, Perth WA 6000'],
+    ])
+    expect(client.clientNumber).toBeUndefined()
+    expect(client.status).toBeUndefined()
+    expect(client.issues.map((i) => i.message)).toEqual(
+      expect.arrayContaining([
+        "Client number “12a” isn't a whole number — left off; PestM8 will give it the next one.",
+        "Status “Maybe” isn't Active, Lead or Inactive — set to Active.",
+      ]),
+    )
+    expect(importable(client)).toBe(true)
+  })
+
+  test('one client per number in a file; the second goes without', () => {
+    const [first, second] = review(COLUMNS, [
+      ['7', '', '', 'Jo Bloggs', '', '1 Hay St, Perth WA 6000'],
+      ['7', '', '', 'Ann Lee', '', '2 Hay St, Perth WA 6000'],
+    ])
+    expect(first.clientNumber).toBe(7)
+    expect(second.clientNumber).toBeUndefined()
+    expect(second.issues.map((i) => i.message)).toContain(
+      "Client number 7 is also Jo Bloggs (row 2)'s — left off this one; PestM8 will give it the next free number.",
+    )
+  })
+
+  test('rows of one client keep the first number and every tag', () => {
+    const [client] = review(COLUMNS, [
+      [
+        '835',
+        '',
+        '',
+        'Bremner Property Group',
+        'Real estate',
+        '1 Hay St, Perth WA 6000',
+      ],
+      [
+        '1472',
+        '',
+        '',
+        'Bremner Property Group',
+        'Real estate, TPI',
+        '2 Hay St, Perth WA 6000',
+      ],
+    ])
+    expect(client.sites).toHaveLength(2)
+    expect(client.clientNumber).toBe(835)
+    expect(client.tags).toEqual(['Real estate', 'TPI'])
+  })
+
+  test('a number PestM8 already has is said, and the client still goes in', () => {
+    const [client] = review(
+      COLUMNS,
+      [['1', '', '', 'Alan', '', '1 Hay St, Perth WA 6000']],
+      { existing: { ...NONE, numbers: new Map([[1, 'Jane Doe']]) } },
+    )
+    expect(client.issues.map((i) => i.message)).toContain(
+      "Client number 1 is already Jane Doe's in PestM8 — this one will get the next free number.",
+    )
+    expect(importable(client)).toBe(true)
+  })
+})
+
 describe('phone numbers', () => {
   const PHONES: Array<[string, ImportField]> = [
     ['Name', 'name'],

@@ -90,6 +90,11 @@ export function toImportClient(client: ReviewClient): ImportClient {
       ? { existingClientId: client.existingClientId }
       : {}),
     sites,
+    ...(client.clientNumber !== undefined
+      ? { clientNumber: client.clientNumber }
+      : {}),
+    ...(client.status ? { status: client.status } : {}),
+    ...(client.tags && client.tags.length > 0 ? { tags: client.tags } : {}),
   }
 }
 
@@ -101,7 +106,12 @@ export function toImportClient(client: ReviewClient): ImportClient {
  * tell "already yours" from "already on someone else".
  */
 export function indexExisting(
-  clients: Array<{ _id: Id<'clients'>; name: string; archivedAt?: number }>,
+  clients: Array<{
+    _id: Id<'clients'>
+    name: string
+    archivedAt?: number
+    clientNumber?: number
+  }>,
   properties: Array<{
     addressLine: string
     suburb: string
@@ -113,8 +123,14 @@ export function indexExisting(
 ): ExistingIndex {
   const clientsByName = new Map<string, Id<'clients'>>()
   const names = new Map<Id<'clients'>, string>()
+  // Every client listed; an archived one's number is also kept (the server
+  // gives the next free one), which the review just won't warn about.
+  const numbers = new Map<number, string>()
   for (const client of clients) {
     names.set(client._id, client.name)
+    if (client.clientNumber !== undefined) {
+      numbers.set(client.clientNumber, client.name)
+    }
     if (client.archivedAt !== undefined) continue
     const key = nameKey(client.name)
     if (key && !clientsByName.has(key)) clientsByName.set(key, client._id)
@@ -129,7 +145,7 @@ export function indexExisting(
       (property.clientId ? names.get(property.clientId) : undefined)
     if (holder && !siteHolders.has(key)) siteHolders.set(key, holder)
   }
-  return { clientsByName, siteKeys, siteHolders }
+  return { clientsByName, siteKeys, siteHolders, numbers }
 }
 
 /** Where the review files a client: its status, or "left out" whatever its
