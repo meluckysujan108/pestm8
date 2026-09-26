@@ -27,7 +27,8 @@ import { UNASSIGNED_COLOUR } from './lib/colours'
  * not as whoever they are working as: the dropdown has to list everyone even
  * while he is inside Kevin's account, so that Jo is one tap away rather than
  * "switch back, then switch again". `accountSwitches.targets` answers the
- * narrower question the account menu asks, and returns nobody while switched.
+ * narrower question the Settings hub asks everyone else, and returns nobody
+ * while switched.
  */
 export const options = query({
   args: { businessId: v.id('businesses') },

@@ -18,10 +18,10 @@ import type { Id } from '../../../convex/_generated/dataModel'
  *
  * Rendered only when `access.me` says this person gets it, so the rule
  * (`canChooseView`) lives on the server and nowhere here. A Radix
- * DropdownMenu, not a Popover like the account menu: this is a single choice
- * among options, which is what a menu of radio items says to a screen reader
- * — and a Popover's `role=dialog` would collide with the unscoped dialog
- * locators all over e2e.
+ * DropdownMenu, not a Popover: this is a single choice among options, which
+ * is what a menu of radio items says to a screen reader — and a Popover's
+ * `role=dialog` would collide with the unscoped dialog locators all over e2e.
+ * Everyone else who may work in another account does it from Settings.
  *
  * The trigger stays the 36px of its neighbours, so the header — and the
  * schedule's sticky week strip pinned beneath it — never moves. On a phone it
@@ -153,7 +153,7 @@ export function ViewMenu({
             {accounts.length > 0 && (
               <>
                 <DropdownMenu.Separator className="my-1 border-t border-hairline" />
-                {/* "Work in" rather than "view as", as in the account menu:
+                {/* "Work in" rather than "view as", as on the Settings hub:
                     what follows is writing under their name. */}
                 <DropdownMenu.Label className="section-label px-2.5 pb-1 pt-2">
                   Work in another account

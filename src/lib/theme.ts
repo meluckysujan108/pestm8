@@ -24,6 +24,14 @@ export type ThemePref = 'light' | 'dark' | 'system'
 /** What that resolves to once the OS preference is known. */
 export type ResolvedTheme = 'light' | 'dark'
 
+/** How each choice is named on screen — the Appearance page and its row on
+ * the Settings hub, which must not disagree. */
+export const THEME_LABEL: Record<ThemePref, string> = {
+  light: 'Light',
+  dark: 'Dark',
+  system: 'System',
+}
+
 export function normaliseThemePref(
   value: string | undefined | null,
 ): ThemePref {

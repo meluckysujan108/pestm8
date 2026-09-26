@@ -25,7 +25,7 @@ import { UNASSIGNED_COLOUR } from './lib/colours'
  *
  * The rules live in `lib/capabilities.ts` and the resolution in `lib/actor.ts`.
  * What is here is the lifecycle — the only code that creates or destroys an
- * `accountSwitches` row — plus the two queries the banner and the account menu
+ * `accountSwitches` row — plus the two queries the banner and the Settings hub
  * read.
  *
  * Nothing here grants anything. A row is permission to *attempt*; every read
@@ -298,7 +298,8 @@ export const current = query({
 })
 
 /**
- * The accounts this caller may work in — the account menu.
+ * The accounts this caller may work in — the Settings hub's list, for everyone
+ * but the owner (who switches from the view menu, via `views.options`).
  *
  * Built from `switchTargets`, which filters by the same `canSwitchInto` the
  * mutation enforces, so the menu cannot offer something `start` would refuse.

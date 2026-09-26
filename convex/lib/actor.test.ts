@@ -1382,7 +1382,7 @@ describe('starting and stopping a switch', () => {
   })
 })
 
-describe('what the account menu offers', () => {
+describe('what the list of accounts offers', () => {
   /** The menu is filtered by the same rule `start` enforces, so it can never
    * offer something that would then be refused. */
   test('the owner sees everyone but themselves', async () => {

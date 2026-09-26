@@ -11,8 +11,8 @@ import { createReport, finaliseReport } from './fixtures/reportPayloads'
 import type { Page } from '@playwright/test'
 
 /**
- * The appearance toggle, and the three things about it that are easy to get
- * wrong and invisible when you do: the theme has to be on <html> before the
+ * The appearance toggle (Settings → Appearance), and the three things about it
+ * that are easy to get wrong and invisible when you do: the theme has to be on <html> before the
  * first paint, an explicit choice has to beat the OS, and the report preview
  * has to stay on white paper so the screen goes on matching the PDF.
  */
@@ -49,20 +49,19 @@ function themeState(page: Page) {
  * whether the client is listening yet.
  */
 async function waitForHydration(page: Page) {
-  await expect(page.getByRole('button', { name: 'Account menu' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
 }
 
-/** Opens the header account menu and returns its Appearance radios. */
-async function openAppearance(page: Page) {
-  // The trigger is disabled until hydrated (src/lib/useHydrated.ts), so this
-  // click waits for readiness rather than landing on an inert button — which is
-  // what it did under parallel load before the trigger honoured that rule.
-  const trigger = page.getByRole('button', { name: 'Account menu' })
-  await expect(trigger).toBeEnabled()
-  await trigger.click()
-
+/** Opens Settings → Appearance and returns its radios. */
+async function openAppearance(page: Page, slug: string) {
+  await page.goto(`/${slug}/settings/appearance`)
   const group = page.getByRole('radiogroup', { name: 'Appearance' })
   await expect(group).toBeVisible()
+  // The radios are disabled until hydrated (src/lib/useHydrated.ts), so this
+  // waits for readiness rather than clicking one React is not listening to.
+  for (const radio of await group.getByRole('radio').all()) {
+    await expect(radio).toBeEnabled()
+  }
   return group
 }
 
@@ -80,7 +79,7 @@ test('defaults to following the OS, and renders light under a light OS', async (
     colorScheme: 'light',
   })
 
-  const group = await openAppearance(page)
+  const group = await openAppearance(page, s.slug)
   await expect(group.getByRole('radio', { name: 'System' })).toHaveAttribute(
     'aria-checked',
     'true',
@@ -95,8 +94,12 @@ test('choosing Dark repaints immediately and survives a reload', async ({
   await page.goto(`/${s.slug}/schedule`)
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
 
-  const group = await openAppearance(page)
+  const group = await openAppearance(page, s.slug)
   await group.getByRole('radio', { name: 'Dark' }).click()
+  await expect(group.getByRole('radio', { name: 'Dark' })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
 
   // No navigation: the handler writes the attribute itself.
   await expect.poll(async () => (await themeState(page)).theme).toBe('dark')
@@ -111,8 +114,14 @@ test('choosing Dark repaints immediately and survives a reload', async ({
   expect(cookie?.value).toBe('dark')
 
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Appearance' })).toBeVisible()
   expect(await themeState(page)).toMatchObject({ theme: 'dark', pref: 'dark' })
+
+  // The hub's row says which, so nobody has to open the page to find out.
+  await page.goto(`/${s.slug}/settings`)
+  await expect(
+    page.getByRole('main').getByRole('link', { name: /^Appearance/ }),
+  ).toContainText('Dark')
 })
 
 /**
@@ -211,13 +220,13 @@ test('an explicit choice beats the OS', async ({ page }) => {
   await page.goto(`/${s.slug}/schedule`)
   await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
 
-  const group = await openAppearance(page)
+  const group = await openAppearance(page, s.slug)
   await group.getByRole('radio', { name: 'Light' }).click()
   await expect.poll(async () => (await themeState(page)).pref).toBe('light')
 
   await page.emulateMedia({ colorScheme: 'dark' })
   await page.reload()
-  await expect(page.getByRole('heading', { name: 'Schedule' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Appearance' })).toBeVisible()
 
   expect(await themeState(page)).toMatchObject({
     theme: 'light',
@@ -273,17 +282,17 @@ test('the report preview stays on white paper in dark mode', async ({
 test('dark mode keeps body and secondary text readable', async ({ page }) => {
   const s = await setup('theme-contrast')
   await signInViaUi(page, s.email)
+
+  const group = await openAppearance(page, s.slug)
+  await group.getByRole('radio', { name: 'Dark' }).click()
+  await expect.poll(async () => (await themeState(page)).theme).toBe('dark')
+
   // The Business group's footer: a secondary-text caption, on the page's own
   // background rather than a card's.
   await page.goto(`/${s.slug}/settings/business`)
-
   const caption = page.getByText(/State sets your timezone/)
   await expect(caption).toBeVisible()
-
-  const group = await openAppearance(page)
-  await group.getByRole('radio', { name: 'Dark' }).click()
-  await expect.poll(async () => (await themeState(page)).theme).toBe('dark')
-  await page.keyboard.press('Escape')
+  expect(await themeState(page)).toMatchObject({ theme: 'dark' })
 
   const pairs = await caption.evaluate((node) => {
     const el = node as HTMLElement
