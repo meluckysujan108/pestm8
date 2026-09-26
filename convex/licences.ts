@@ -2,9 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { hasCapability, requireActor, requireWriteActor } from './lib/actor'
 import { forSelf, recordAudit } from './lib/audit'
-import { heldAnywhere } from './lib/fileClaims'
-import { checkLicenceFile, cleanLicenceFileName } from './lib/licences'
-import { CLAIM_WINDOW_MS } from './lib/products'
+import { claimLicenceFile } from './lib/licenceClaims'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 import type { WriteEnvelope } from './lib/actor'
@@ -44,7 +42,15 @@ import type { WriteEnvelope } from './lib/actor'
  * ── Storage ids stay on the server ───────────────────────────────────────
  *
  * The query hands back a URL, never the id: ids are claimable (see
- * `claimLicenceFile`), and this one belongs to one person.
+ * `claimLicenceFile` in lib/licenceClaims.ts), and this one belongs to one
+ * person.
+ *
+ * ── My licences ──────────────────────────────────────────────────────────
+ *
+ * Superseded by the licence wallet (`memberLicences.ts`: any number of
+ * licences, each with its own files), which takes over this document through
+ * `migrations/licenceWalletV1`. Kept, unchanged, while a frontend that calls
+ * these is still live; a later contract removes them.
  */
 
 const kindValidator = v.union(v.literal('pdf'), v.literal('image'))
@@ -115,9 +121,9 @@ export const setFile = mutation({
     await ctx.db.patch(holder._id, {
       licenceFile: {
         storageId: args.storageId,
-        kind: claimed.type.kind,
-        contentType: claimed.type.contentType,
-        fileName: cleanLicenceFileName(args.fileName, claimed.type),
+        kind: claimed.kind,
+        contentType: claimed.contentType,
+        fileName: claimed.fileName,
         size: claimed.size,
         uploadedAt,
       },
@@ -132,7 +138,7 @@ export const setFile = mutation({
         : 'membership.addLicenceFile',
       entityType: 'memberships',
       entityId: holder._id,
-      meta: { kind: claimed.type.kind, size: claimed.size },
+      meta: { kind: claimed.kind, size: claimed.size },
       at: uploadedAt,
     })
     return uploadedAt
@@ -234,36 +240,4 @@ async function requireOwnLicence(
     throw new ConvexError('NO_ACCESS')
   }
   return { env, holder }
-}
-
-/**
- * Takes an upload for a licence, or refuses it — `products.claimFile`'s rule:
- *
- *  - It must exist and have been uploaded within `CLAIM_WINDOW_MS`: storage
- *    ids are not secrets, so only a fresh upload can be the one this person
- *    just made (FILE_NOT_FOUND otherwise, whichever it was).
- *  - Nothing that can be asked may already hold it — a product, a report
- *    photo, a note's picture, or someone's licence, this person's included
- *    (ALREADY_ATTACHED).
- *  - It must be a PDF, PNG or JPEG within its size (`checkLicenceFile`:
- *    WRONG_FILE_TYPE, FILE_TOO_LARGE) — the checks the page makes before it
- *    uploads, so this only ever refuses a client that skipped them.
- *
- * The type and size kept are storage's, not the client's.
- */
-async function claimLicenceFile(
-  ctx: MutationCtx,
-  storageId: Id<'_storage'>,
-  fileName: string,
-) {
-  const stored = await ctx.db.system.get('_storage', storageId)
-  if (!stored || Date.now() - stored._creationTime > CLAIM_WINDOW_MS) {
-    throw new ConvexError('FILE_NOT_FOUND')
-  }
-  if (await heldAnywhere(ctx, storageId)) {
-    throw new ConvexError('ALREADY_ATTACHED')
-  }
-  const checked = checkLicenceFile(stored, fileName)
-  if (!checked.ok) throw new ConvexError(checked.refusal)
-  return { type: checked.type, size: stored.size }
 }

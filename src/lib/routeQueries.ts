@@ -1,4 +1,5 @@
 import { convexQuery } from '@convex-dev/react-query'
+import { getFunctionName } from 'convex/server'
 import { api } from '../../convex/_generated/api'
 import type { QueryClient } from '@tanstack/react-query'
 import type { Id } from '../../convex/_generated/dataModel'
@@ -59,10 +60,19 @@ export const rq = {
   invitations: (businessId: B) =>
     convexQuery(api.invitations.listForBusiness, { businessId }),
   products: (businessId: B) => convexQuery(api.products.list, { businessId }),
-  /** One person's licence document: their own on Profile, or a member's
-   * the owner opens from Team. */
-  licenceFile: (businessId: B, membershipId: Id<'memberships'>) =>
-    convexQuery(api.licences.file, { businessId, membershipId }),
+  /** One person's licences, with their files: their own on Settings →
+   * Licences and the hub, or a member's the owner opens from Team. Never in
+   * the server's HTML (`keptOutOfHtml`), so a loader warms it only through
+   * `browserOnly`. */
+  memberLicences: (businessId: B, membershipId: Id<'memberships'>) =>
+    convexQuery(api.memberLicences.list, { businessId, membershipId }),
+  /** How the business prints and sends reports — business.manage only. */
+  reportSettings: (businessId: B) =>
+    convexQuery(api.businesses.reportSettings, { businessId }),
+  /** The answer lists the forms offer, as an owner edits them —
+   * templates.manage only. */
+  answerLists: (businessId: B) =>
+    convexQuery(api.optionSets.editable, { businessId }),
 }
 
 /** How many rows the paginated libraries ask for first. */
@@ -109,6 +119,51 @@ export const notesFirstPage = (businessId: B, filter: NotesPageFilter) =>
  * reads the data — it only warms the cache — so the data type is not needed.
  */
 type Warmable = { queryKey: ReadonlyArray<unknown> }
+
+/**
+ * The queries whose answers must never be written into a page's HTML: a
+ * person's licences, with their files' storage URLs.
+ *
+ * Whatever a query holds when the server renders goes into the HTML
+ * (router.tsx dehydrates the query cache), and the service worker keeps that
+ * HTML for pages opened with no signal (`src/sw.ts`, the 'pages' cache). A
+ * licence list in it would come back from there days later looking like a
+ * live answer: shown as current when it is not, and — worse — taken as the
+ * list to bring the phone's kept copy into line with, which forgets every
+ * file added since (`syncKeptWallet`). And a storage URL is a permanent
+ * capability to a card with a date of birth on it, which has no business in
+ * a cache keyed by address and outliving the answer that handed it out.
+ *
+ * So these load in the browser, over the Convex socket, every time: the
+ * loaders warm them through `browserOnly`, and router.tsx leaves them out of
+ * the HTML even if something on the server did fetch one. The Phase 8.1
+ * document (`licences.file`) too, which nothing reads now but which carries
+ * the same kind of URL.
+ */
+const KEPT_OUT_OF_HTML: ReadonlySet<string> = new Set([
+  getFunctionName(api.memberLicences.list),
+  getFunctionName(api.licences.file),
+])
+
+/** Whether a query's answer must stay out of the HTML (see above). */
+export function keptOutOfHtml(queryKey: ReadonlyArray<unknown>): boolean {
+  return (
+    queryKey[0] === 'convexQuery' &&
+    typeof queryKey[1] === 'string' &&
+    KEPT_OUT_OF_HTML.has(queryKey[1])
+  )
+}
+
+/**
+ * `queries` in the browser, and nothing on the server — for a loader to warm
+ * a query kept out of the HTML (`keptOutOfHtml`). Warmed on the server it
+ * would be fetched for an answer the page never receives, holding up the
+ * render for nothing; and the server would render the list while the browser,
+ * without it, rendered the placeholder — a hydration mismatch.
+ */
+export function browserOnly(...queries: Array<Warmable>): Array<Warmable> {
+  return typeof window === 'undefined' ? [] : queries
+}
 
 /**
  * Warms every query in one go, and never rejects: a page's own read is what

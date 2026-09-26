@@ -6,7 +6,13 @@ import {
   useState,
 } from 'react'
 import { createPortal } from 'react-dom'
-import { ImageOff, LoaderCircle, Share } from 'lucide-react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  ImageOff,
+  LoaderCircle,
+  Share,
+} from 'lucide-react'
 import { pageIsZoomed, usePageZoomed } from '#/components/pdf/pageZoom'
 import { isAbortError } from '#/lib/pdfFiles'
 import {
@@ -19,7 +25,11 @@ import {
 } from './imageZoom'
 import type { Box, Point, Size, StageTransform } from './imageZoom'
 import type { PointerEvent as ReactPointerEvent } from 'react'
-import type { DocumentSource, LoadProgress } from '#/components/pdf/types'
+import type {
+  DocumentSource,
+  LoadProgress,
+  ViewerPager,
+} from '#/components/pdf/types'
 
 /**
  * A picture, full screen, inside the app: the image half of "opened in the
@@ -41,6 +51,11 @@ import type { DocumentSource, LoadProgress } from '#/components/pdf/types'
  *
  * Share is offered only when the opener passes it — the holder's own licence,
  * never someone else's the owner is looking at.
+ *
+ * A picture that is one of several (a licence's front and back, `pager`)
+ * gets a bar along the bottom to step between them, the arrow keys, and a
+ * sideways swipe while the picture is not zoomed — a swipe on a zoomed one
+ * pans it, as before.
  */
 
 export type ImageViewerProps = {
@@ -58,6 +73,8 @@ export type ImageViewerProps = {
    * draw — worded by the opener, who knows whether the person looking can
    * do anything about it. */
   brokenMessage?: string
+  /** The other files this one belongs with; absent for a single picture. */
+  pager?: ViewerPager
 }
 
 type Phase =
@@ -67,6 +84,9 @@ type Phase =
 
 const TAP_SLOP = 10
 const DOUBLE_TAP_MS = 300
+/** How far a finger must travel sideways, mostly sideways, to be a swipe to
+ * the next picture rather than a tap that wandered. */
+const SWIPE_MIN = 60
 
 export function ImageViewer({
   title,
@@ -76,7 +96,9 @@ export function ImageViewer({
   onClose,
   share,
   brokenMessage = 'This picture can’t be shown.',
+  pager,
 }: ImageViewerProps) {
+  const paged = pager !== undefined && pager.count > 1
   const [state, setState] = useState<Phase>({
     phase: 'loading',
     progress: null,
@@ -132,6 +154,9 @@ export function ImageViewer({
   const layerRef = useRef<HTMLDivElement>(null)
   const [stage, setStage] = useState<Size>({ width: 0, height: 0 })
   const [natural, setNatural] = useState<Size>({ width: 0, height: 0 })
+  // Another picture (the next of several): unmeasured until it has loaded,
+  // so it is never drawn for a moment in the last one's shape.
+  useEffect(() => setNatural({ width: 0, height: 0 }), [key])
   const fitted: Box = fittedBox(stage, natural)
   const transform = useRef<StageTransform>(IDENTITY)
   // Read by the gesture handlers, which must see the sizes of the render
@@ -161,11 +186,13 @@ export function ImageViewer({
   }, [])
 
   // A new picture, or a new screen size (a phone turned round): start from
-  // the whole picture again rather than a zoom that no longer fits.
+  // the whole picture again rather than a zoom that no longer fits. The key
+  // too: the back of a card is often the front's exact size, and would
+  // otherwise open at the zoom the front was left at.
   useEffect(() => {
     const { stage: size, fitted: box } = geometry.current
     apply(clampTransform(IDENTITY, size, box))
-  }, [apply, stage.width, stage.height, natural.width, natural.height])
+  }, [apply, stage.width, stage.height, natural.width, natural.height, key])
 
   // ---- Gestures ---------------------------------------------------------
 
@@ -289,6 +316,26 @@ export function ImageViewer({
 
     const pressed = tap.current
     tap.current = null
+
+    // A sideways swipe across a picture at its fitted size steps to the next
+    // one. Only one finger, all the way through (a pinch clears `tap`), and
+    // only unzoomed: on a zoomed picture the same movement is a pan.
+    if (
+      paged &&
+      event.type === 'pointerup' &&
+      pressed?.moved &&
+      pointers.current.size === 0 &&
+      transform.current.s <= 1.01
+    ) {
+      const dx = point.x - pressed.start.x
+      const dy = point.y - pressed.start.y
+      if (Math.abs(dx) >= SWIPE_MIN && Math.abs(dx) > Math.abs(dy) * 1.5) {
+        if (dx < 0 && pager.index < pager.count - 1) pager.onNext()
+        else if (dx > 0 && pager.index > 0) pager.onPrevious()
+        return
+      }
+    }
+
     if (
       event.type !== 'pointerup' ||
       !pressed ||
@@ -372,6 +419,14 @@ export function ImageViewer({
         apply(zoomBy(transform.current, centre, 1 / 1.5, size, box))
       } else if (event.key === '0') {
         apply(clampTransform(IDENTITY, size, box))
+      } else if (paged && event.key === 'ArrowLeft' && pager.index > 0) {
+        pager.onPrevious()
+      } else if (
+        paged &&
+        event.key === 'ArrowRight' &&
+        pager.index < pager.count - 1
+      ) {
+        pager.onNext()
       } else {
         return
       }
@@ -379,11 +434,12 @@ export function ImageViewer({
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [apply, onClose])
+  }, [apply, onClose, paged, pager])
 
   // ---- Share ------------------------------------------------------------
 
   const [shareProblem, setShareProblem] = useState<string | null>(null)
+  useEffect(() => setShareProblem(null), [key])
   const onShare = () => {
     if (!blob || !share) return
     setShareProblem(null)
@@ -532,10 +588,42 @@ export function ImageViewer({
         )}
       </div>
 
+      {paged && (
+        <footer className="chrome-blur relative z-10 shrink-0 border-t border-hairline pb-[env(safe-area-inset-bottom)] pl-[env(safe-area-inset-left)] pr-[env(safe-area-inset-right)]">
+          <div className="flex h-[52px] items-center justify-between px-2">
+            <button
+              type="button"
+              aria-label="Previous file"
+              disabled={pager.index <= 0}
+              onClick={pager.onPrevious}
+              className="flex size-11 items-center justify-center rounded-full text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue disabled:text-muted-2"
+            >
+              <ChevronLeft size={24} strokeWidth={1.8} />
+            </button>
+            <p
+              aria-live="polite"
+              className="text-caption font-semibold text-ink-2"
+            >
+              File {pager.index + 1} of {pager.count}
+            </p>
+            <button
+              type="button"
+              aria-label="Next file"
+              disabled={pager.index >= pager.count - 1}
+              onClick={pager.onNext}
+              className="flex size-11 items-center justify-center rounded-full text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue disabled:text-muted-2"
+            >
+              <ChevronRight size={24} strokeWidth={1.8} />
+            </button>
+          </div>
+        </footer>
+      )}
+
       {shareProblem && (
         <p
           role="alert"
-          className="chrome-blur pointer-events-none absolute inset-x-4 bottom-[calc(env(safe-area-inset-bottom)+16px)] mx-auto max-w-sm rounded-2xl px-3.5 py-2 text-center text-caption font-semibold text-orange-ink shadow-elevation"
+          // Above the file bar, when there is one, rather than over it.
+          className={`chrome-blur pointer-events-none absolute inset-x-4 mx-auto max-w-sm rounded-2xl px-3.5 py-2 text-center text-caption font-semibold text-orange-ink shadow-elevation ${paged ? 'bottom-[calc(env(safe-area-inset-bottom)+68px)]' : 'bottom-[calc(env(safe-area-inset-bottom)+16px)]'}`}
         >
           {shareProblem}
         </p>

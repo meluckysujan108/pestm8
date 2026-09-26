@@ -1,6 +1,11 @@
+import { useId } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
+import { rq } from '#/lib/routeQueries'
+import { useHydrated } from '#/lib/useHydrated'
+import { ReportSwitchRow } from './ReportSwitchRow'
+import { SettingsGroup } from './ui'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
@@ -19,9 +24,9 @@ export function ReportPolicySection({
 }: {
   businessId: Id<'businesses'>
 }) {
-  const { data: settings } = useQuery(
-    convexQuery(api.businesses.reportSettings, { businessId }),
-  )
+  const hydrated = useHydrated()
+  const headingId = useId()
+  const { data: settings } = useQuery(rq.reportSettings(businessId))
   const convexUpdate = useConvexMutation(api.businesses.update)
   const update = useMutation({
     mutationFn: (requireReportToComplete: boolean) =>
@@ -29,37 +34,26 @@ export function ReportPolicySection({
   })
 
   // `undefined` while the query is out, which is neither on nor off: a
-  // checkbox that renders unticked before the answer arrives is a checkbox
-  // that tells an owner their policy is off when it is on.
+  // switch that can be flipped before the answer arrives is a switch that
+  // tells an owner their policy is off when it is on — so it stays locked
+  // until then.
   const on = settings?.requireReportToComplete
 
   return (
-    <section>
-      <h2 className="section-label mb-2">Before a job is complete</h2>
-      <label className="flex items-center justify-between gap-3 rounded-2xl border border-hairline bg-surface px-3.5 py-3 shadow-elevation">
-        <span className="min-w-0">
-          <span className="block text-body text-ink">
-            Require a finalised report
-          </span>
-          <span className="text-caption text-muted">
-            A job whose type has a form cannot be marked complete until its
-            report is signed. Jobs with no form — a quote, a callback — are
-            never held up.
-          </span>
-        </span>
-        <input
-          type="checkbox"
-          checked={on ?? false}
-          disabled={on === undefined || update.isPending}
-          onChange={(event) => update.mutate(event.target.checked)}
-          className="size-5 shrink-0 accent-red"
-        />
-      </label>
-      {update.isError && (
-        <p role="alert" className="mt-2 text-caption text-amber-ink">
-          Could not save that.
-        </p>
-      )}
-    </section>
+    <SettingsGroup
+      id={headingId}
+      title="Completing jobs"
+      footer="Jobs with no form — a quote, a callback — are never held up."
+    >
+      {/* No line of its own under it: the heading says when it bites
+          (completing a job) and the footer says when it never does. */}
+      <ReportSwitchRow
+        title="Require a finalised report"
+        checked={on}
+        disabled={!hydrated || update.isPending}
+        failed={update.isError}
+        onCheckedChange={(checked) => update.mutate(checked)}
+      />
+    </SettingsGroup>
   )
 }

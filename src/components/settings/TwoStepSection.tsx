@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
-import { Link, useRouterState } from '@tanstack/react-router'
+import { useEffect, useId, useState } from 'react'
+import { useRouterState } from '@tanstack/react-router'
 import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
-import { ShieldCheck } from 'lucide-react'
+import { KeyRound, ShieldCheck } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { RecoveryCodes } from '#/components/auth/RecoveryCodes'
+import { fieldInputClass } from '#/components/forms/FormField'
 import { authClient } from '#/lib/auth-client'
 import { rq } from '#/lib/routeQueries'
 import { describeTwoFactorError } from '#/lib/twoStep'
@@ -13,6 +14,17 @@ import {
   recoveryCodesUnsaved,
 } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
+import {
+  DANGER_ROW_CLASS,
+  DangerGroup,
+  FIELD_LABEL,
+  IconTile,
+  ROW_CLASS,
+  RowBody,
+  SettingsGroup,
+  SettingsLinkRow,
+  SettingsRow,
+} from './ui'
 
 /**
  * Two-step sign-in, in the person's own settings.
@@ -30,7 +42,8 @@ import { useHydrated } from '#/lib/useHydrated'
  * That is the owner's reset, in Settings → Team.
  */
 export function TwoStepSection() {
-  // Already in the cache: the Profile section above reads the same query.
+  // Warmed by the page's loader; suspends inside the page's own boundary, so
+  // the header stays put while it answers.
   const { data: user } = useSuspenseQuery(rq.currentUser())
   const on = user.twoFactorEnabled === true
   // Not suspended on: until it answers, Turn off shows, and the server has
@@ -39,6 +52,7 @@ export function TwoStepSection() {
     useQuery(convexQuery(api.auth.twoFactorStatus, {})).data?.required === true
 
   const hydrated = useHydrated()
+  const passwordId = useId()
   // Back to this page once set up.
   const here = useRouterState({ select: (state) => state.location.href })
   // Which password form is open, if any.
@@ -117,129 +131,147 @@ export function TwoStepSection() {
     window.location.reload()
   }
 
+  // The password step, for either action: in the main group for new codes,
+  // in the red group at the foot for Turn off, where the tap was made.
+  const passwordStep = (
+    <form onSubmit={onSubmit} className="flex flex-col gap-3 px-3.5 py-3">
+      <p className="text-caption text-muted">
+        {open === 'off'
+          ? 'Signing in will only ask for your password again, and your recovery codes stop working. Delete PestM8 from your authenticator app afterwards — its codes will not work again. Enter your password to turn it off.'
+          : 'Your old recovery codes stop working as soon as the new ones are made. Enter your password to continue.'}
+      </p>
+      <div className="flex flex-col gap-1.5">
+        <label htmlFor={passwordId} className={FIELD_LABEL}>
+          Password
+        </label>
+        <input
+          id={passwordId}
+          type="password"
+          value={password}
+          required
+          autoComplete="current-password"
+          onChange={(e) => setPassword(e.target.value)}
+          className={fieldInputClass()}
+        />
+      </div>
+      {error && (
+        <p
+          role="alert"
+          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+        >
+          {error}
+        </p>
+      )}
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={close}
+          className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          disabled={pending || !hydrated}
+          className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        >
+          {open === 'off'
+            ? pending
+              ? 'Turning off…'
+              : 'Turn off'
+            : pending
+              ? 'Making codes…'
+              : 'Make new codes'}
+        </button>
+      </div>
+    </form>
+  )
+
   return (
     <>
-      <h2 className="section-label mb-2">Two-step sign-in</h2>
-      <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
-        <div className="flex items-start gap-3">
-          <ShieldCheck
-            size={22}
-            strokeWidth={1.7}
-            className={on ? 'shrink-0 text-green' : 'shrink-0 text-muted'}
-          />
-          <div className="min-w-0">
-            <p className="text-body font-semibold text-ink">
-              {on ? 'On' : 'Off'}
-            </p>
-            <p className="mt-0.5 text-caption text-muted">
-              {on
-                ? 'Every sign-in asks for a code from your authenticator app. Lost your phone? Sign in with one of your recovery codes.'
-                : 'Optional. Turn it on and signing in also asks for a 6-digit code from an app on your phone, so a password that gets out is not enough on its own.'}
-            </p>
-          </div>
-        </div>
+      {/* No heading: the page's own title already says what this is. */}
+      <SettingsGroup
+        footer={
+          on
+            ? 'Lost your phone? Sign in with one of your recovery codes.'
+            : 'Optional. With it on, a password that gets out is not enough on its own.'
+        }
+      >
+        <SettingsRow
+          leading={<IconTile icon={ShieldCheck} tint={on ? 'green' : 'grey'} />}
+          title={on ? 'On' : 'Off'}
+          subtitle={
+            on
+              ? 'Codes from your authenticator app'
+              : 'Your password alone signs you in'
+          }
+        />
 
         {!on && (
-          <Link
+          <SettingsLinkRow
             to="/two-step"
             search={{ next: here }}
-            className="mt-3 flex h-11 w-full items-center justify-center rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975]"
-          >
-            Turn on two-step sign-in
-          </Link>
+            icon={KeyRound}
+            tint="blue"
+            title="Turn on two-step sign-in"
+          />
         )}
 
         {on && open === null && unsaved && (
-          <p
-            role="status"
-            className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
-          >
-            Your recovery codes were never confirmed as saved. Make new ones now
-            and keep them somewhere other than this phone — without them, a lost
-            phone means waiting for the business owner.
-          </p>
+          <div className="px-3.5 py-3">
+            <p
+              role="status"
+              className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+            >
+              Your recovery codes were never confirmed as saved. Make new ones
+              now and keep them somewhere other than this phone — without them,
+              a lost phone means waiting for the business owner.
+            </p>
+          </div>
         )}
 
         {on && open === null && (
           <button
             type="button"
+            disabled={!hydrated}
             onClick={() => setOpen('codes')}
-            className="mt-3 h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975]"
+            className={`${ROW_CLASS} disabled:opacity-50`}
           >
-            Get new recovery codes
+            <RowBody
+              icon={KeyRound}
+              tint="blue"
+              title="Get new recovery codes"
+            />
           </button>
         )}
 
-        {on && open === null && !required && (
-          <button
-            type="button"
-            onClick={() => setOpen('off')}
-            className="mt-2 inline-flex min-h-11 w-full items-center justify-center text-caption font-semibold text-red"
-          >
-            Turn off two-step sign-in
-          </button>
-        )}
-
-        {on && open !== null && codes === null && (
-          <form
-            onSubmit={onSubmit}
-            className="mt-3 flex flex-col gap-3 border-t border-hairline-2 pt-3"
-          >
-            <p className="text-caption text-muted">
-              {open === 'off'
-                ? 'Signing in will only ask for your password again, and your recovery codes stop working. Delete PestM8 from your authenticator app afterwards — its codes will not work again. Enter your password to turn it off.'
-                : 'Your old recovery codes stop working as soon as the new ones are made. Enter your password to continue.'}
-            </p>
-            <label className="flex flex-col gap-1.5">
-              <span className="section-label">Password</span>
-              <input
-                type="password"
-                value={password}
-                required
-                autoComplete="current-password"
-                onChange={(e) => setPassword(e.target.value)}
-                className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-              />
-            </label>
-            {error && (
-              <p
-                role="alert"
-                className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
-              >
-                {error}
-              </p>
-            )}
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={close}
-                className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={pending || !hydrated}
-                className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
-              >
-                {open === 'off'
-                  ? pending
-                    ? 'Turning off…'
-                    : 'Turn off'
-                  : pending
-                    ? 'Making codes…'
-                    : 'Make new codes'}
-              </button>
-            </div>
-          </form>
-        )}
+        {on && open === 'codes' && codes === null && passwordStep}
 
         {on && codes !== null && (
-          <div className="mt-3 border-t border-hairline-2 pt-3">
+          <div className="px-3.5 py-3">
             <RecoveryCodes codes={codes} onDone={close} doneLabel="Done" />
           </div>
         )}
-      </div>
+      </SettingsGroup>
+
+      {/* Last on the page, and not while new codes are being made: one
+          password step at a time. */}
+      {on && !required && open !== 'codes' && codes === null && (
+        <DangerGroup>
+          {open === 'off' ? (
+            passwordStep
+          ) : (
+            <button
+              type="button"
+              disabled={!hydrated}
+              onClick={() => setOpen('off')}
+              className={DANGER_ROW_CLASS}
+            >
+              Turn off two-step sign-in
+            </button>
+          )}
+        </DangerGroup>
+      )}
     </>
   )
 }

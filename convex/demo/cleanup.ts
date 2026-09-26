@@ -39,7 +39,8 @@ import type { MutationCtx, QueryCtx } from '../_generated/server'
  *    and a file deleted on a guess cannot be brought back. Even a seed file
  *    is kept if a real business is found using it (see `spared`). A
  *    product's photo and PDF are always someone's upload, so its rows go and
- *    its files stay, exactly as `products.remove` leaves them.
+ *    its files stay, exactly as `products.remove` leaves them — and so are
+ *    the files in anyone's licence wallet (`clearLicences`).
  *
  * A PDF render still in flight when its report goes (the seed queues one per
  * finalised report) deletes its own file: reports.setPdf finds no report.
@@ -515,6 +516,35 @@ const clearSessions: Step = async (run) => {
   return true
 }
 
+/**
+ * Anyone's licence wallet in the demo (memberLicences.ts): each licence after
+ * its files. Only the rows, as the licence screens themselves only ever drop
+ * rows — every file on them is a person's upload, never the seed's, and a
+ * licence's file is never deleted (licences.ts).
+ */
+const clearLicences: Step = (run) =>
+  sweep(
+    run,
+    'memberLicences',
+    (n) =>
+      run.ctx.db
+        .query('memberLicences')
+        .withIndex('by_business', (q) => q.eq('businessId', run.business._id))
+        .take(n),
+    {
+      drop: async (licence) => {
+        const files = await sweep(run, 'memberLicenceFiles', (n) =>
+          run.ctx.db
+            .query('memberLicenceFiles')
+            .withIndex('by_licence', (q) => q.eq('licenceId', licence._id))
+            .take(n),
+        )
+        if (!files || run.left <= 0) return false
+        return dropRow(run, 'memberLicences', licence._id)
+      },
+    },
+  )
+
 const clearInvitations: Step = (run) =>
   sweep(run, 'invitations', (n) =>
     run.ctx.db
@@ -652,6 +682,7 @@ const STEPS: Array<Step> = [
   clearJobs,
   clearClients,
   clearSessions,
+  clearLicences,
   clearInvitations,
   clearFiles,
   clearAuditLog,
@@ -872,6 +903,10 @@ export const status = internalQuery({
       .query('memberships')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
       .take(STATUS_CAP)
+    const licences = await ctx.db
+      .query('memberLicences')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .take(STATUS_CAP)
 
     const counts: Record<string, number> = {
       businesses: business ? 1 : 0,
@@ -882,6 +917,7 @@ export const status = internalQuery({
       customReportTemplates: templates.length,
       jobs: jobs.length,
       clients: clients.length,
+      memberLicences: licences.length,
       properties: (
         await ctx.db
           .query('properties')
@@ -951,6 +987,7 @@ export const status = internalQuery({
       'noteBodies',
       'accountSwitches',
       'sessionViews',
+      'memberLicenceFiles',
     ]) {
       counts[child] = 0
     }
@@ -1006,6 +1043,17 @@ export const status = internalQuery({
           ctx.db
             .query('jobPhotos')
             .withIndex('by_job', (q) => q.eq('jobId', job._id))
+            .take(STATUS_CAP),
+        ),
+      )
+    }
+    for (const licence of licences) {
+      add(
+        'memberLicenceFiles',
+        await countOf(
+          ctx.db
+            .query('memberLicenceFiles')
+            .withIndex('by_licence', (q) => q.eq('licenceId', licence._id))
             .take(STATUS_CAP),
         ),
       )

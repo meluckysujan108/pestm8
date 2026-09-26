@@ -1,0 +1,99 @@
+import { useRef } from 'react'
+import { AlertDialog } from 'radix-ui'
+import type { ReactNode } from 'react'
+
+/**
+ * "Remove this?" before something is taken away, as the Products sheet asks
+ * it: an alert dialog with a way out first and the red action second. Not
+ * `window.confirm`, which an installed iPhone app draws as a bare system
+ * box with the page's address for a title.
+ *
+ * Opened from state, not from an `AlertDialog.Trigger` — the button that asks
+ * is part of the row it would remove — so Radix has nothing to hand focus
+ * back to when it closes, and it would fall to the page, sending someone on a
+ * keyboard or a screen reader back to the top. It goes back to whatever had
+ * focus when the dialog opened, or to `returnFocus`'s choice: the caller's
+ * say, for when that element is about to go (the row just removed), or never
+ * had focus at all (a tap on an iPhone does not focus a button).
+ */
+export function ConfirmDialog({
+  open,
+  onOpenChange,
+  title,
+  body,
+  confirm,
+  cancel = 'Cancel',
+  onConfirm,
+  returnFocus,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+  title: string
+  body: ReactNode
+  /** The red button's words: "Remove", "Delete". */
+  confirm: string
+  /** The way out's words. */
+  cancel?: string
+  onConfirm: () => void
+  /** Where focus goes when the dialog closes, having been confirmed or not;
+   * null or undefined for whatever had it when the dialog opened. */
+  returnFocus?: (confirmed: boolean) => HTMLElement | null | undefined
+}) {
+  const opener = useRef<HTMLElement | null>(null)
+  const confirmed = useRef(false)
+
+  return (
+    <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
+      <AlertDialog.Portal>
+        <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
+        <AlertDialog.Content
+          // Called as the dialog mounts, before focus moves into it.
+          onOpenAutoFocus={() => {
+            confirmed.current = false
+            const active = document.activeElement
+            opener.current =
+              active instanceof HTMLElement && active !== document.body
+                ? active
+                : null
+          }}
+          onCloseAutoFocus={(event) => {
+            // Radix's own would focus the trigger there is not.
+            event.preventDefault()
+            const target = returnFocus?.(confirmed.current) ?? opener.current
+            if (target?.isConnected) target.focus({ preventScroll: true })
+          }}
+          className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none"
+        >
+          <AlertDialog.Title className="text-row-title text-ink [overflow-wrap:anywhere]">
+            {title}
+          </AlertDialog.Title>
+          <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
+            {body}
+          </AlertDialog.Description>
+          <div className="mt-4 flex gap-2">
+            <AlertDialog.Cancel asChild>
+              <button
+                type="button"
+                className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+              >
+                {cancel}
+              </button>
+            </AlertDialog.Cancel>
+            <AlertDialog.Action asChild>
+              <button
+                type="button"
+                onClick={() => {
+                  confirmed.current = true
+                  onConfirm()
+                }}
+                className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975]"
+              >
+                {confirm}
+              </button>
+            </AlertDialog.Action>
+          </div>
+        </AlertDialog.Content>
+      </AlertDialog.Portal>
+    </AlertDialog.Root>
+  )
+}

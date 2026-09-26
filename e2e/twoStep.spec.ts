@@ -156,11 +156,15 @@ async function turnOnThroughScreen(page: Page, email: string, slug: string) {
   return { uri, codes }
 }
 
-/** Settings → Sign out, which reloads to the sign-in screen. The button is
- * not held back until hydration, so the click is retried until it lands. */
+/** Settings → Sign out, the last row of the hub, which reloads to the sign-in
+ * screen. The button is disabled until the hub has hydrated — a tap before
+ * then does nothing — so it is waited on first, and the click is still
+ * retried until the reload lands. */
 async function signOut(page: Page, slug: string) {
   await page.goto(`/${slug}/settings`)
-  await clickUntil(page.getByRole('button', { name: 'Sign out' }), () =>
+  const button = page.getByRole('button', { name: 'Sign out' })
+  await expect(button).toBeEnabled()
+  await clickUntil(button, () =>
     expect(page).toHaveURL(/\/login/, { timeout: 5_000 }),
   )
 }

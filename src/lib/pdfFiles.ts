@@ -86,6 +86,14 @@ export type FetchOptions = {
    * link that is still arriving is never cut off.
    */
   stallMs?: number
+  /**
+   * The browser's HTTP cache, as `fetch` takes it. Omitted: the default,
+   * which may keep the response on this phone for a while. `'no-store'` for a
+   * file nobody meant this phone to keep — a member's licence card the owner
+   * opens from Team (`licenceSource.ts`), which must leave no copy behind on
+   * the owner's phone, in the HTTP cache any more than in Cache Storage.
+   */
+  cache?: RequestCache
 }
 
 /**
@@ -120,7 +128,7 @@ export async function fetchWithProgress(
       ? watchForStall(options.stallMs, signal)
       : null
   try {
-    return await download(url, onProgress, signal, watch)
+    return await download(url, onProgress, signal, watch, options.cache)
   } catch (error) {
     // The caller's own abort wins over a stall that fired in the same moment.
     if (watch?.stalled && !signal?.aborted) {
@@ -142,12 +150,17 @@ async function download(
   onProgress: (progress: LoadProgress) => void,
   signal: AbortSignal | undefined,
   watch: StallWatch | null,
+  cache: RequestCache | undefined,
 ): Promise<Blob> {
   const guard = watch ? watch.guard : <T>(step: Promise<T>) => step
   let res: Response
   try {
     res = await guard(
-      fetch(url, { credentials: 'omit', signal: watch?.signal ?? signal }),
+      fetch(url, {
+        credentials: 'omit',
+        signal: watch?.signal ?? signal,
+        ...(cache === undefined ? {} : { cache }),
+      }),
     )
   } catch (error) {
     if (signal?.aborted || watch?.stalled || isAbortError(error)) throw error

@@ -5,7 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { SecondStepForm } from '#/components/auth/SecondStepForm'
 import { authClient, needsSecondStep } from '#/lib/auth-client'
-import { forgetCachedPages } from '#/lib/rootState'
+import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
 
@@ -127,12 +127,14 @@ function JoinPage() {
             // the query cache is keyed by business, not by person, so the
             // account signing in next would otherwise be shown the previous
             // one's cached answers until Convex re-pushed them.
-            onClick={() =>
-              authClient
+            onClick={() => {
+              // Before the request (rootState.ts has why).
+              beginSignOut()
+              void authClient
                 .signOut()
                 .then(forgetCachedPages)
                 .then(() => window.location.reload())
-            }
+            }}
             className="mt-4 w-full text-body text-blue"
           >
             Not you? Sign out

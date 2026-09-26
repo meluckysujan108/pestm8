@@ -52,6 +52,9 @@ let askedAt = 0
 // Bumped by every forget, so an answer already in flight when the session
 // ended cannot put the old sign-in back.
 let generation = 0
+// Set by `beginSignOut` for the rest of this page load, which a sign-out
+// always ends with a full load of its own.
+let signingOut = false
 
 /** Once per page load, from the root context SSR handed over. */
 export function seedRootState(state: RootState): void {
@@ -69,7 +72,10 @@ export async function resolveRootState(): Promise<RootState> {
   asking ??= getInitialState()
   try {
     const fresh = await asking
-    if (asked === generation) {
+    // Not while signing out: the session cookie is still good until the
+    // sign-out request lands, and a preload asking in that moment would put
+    // the person back just as they leave.
+    if (asked === generation && !signingOut) {
       token = fresh.token
       askedAt = Date.now()
       // Signing in on the join page lands here, with no page load between
@@ -124,6 +130,27 @@ export function forgetRootState(): void {
 }
 
 /**
+ * Before `authClient.signOut()`, on a path that ends in a full load (Settings'
+ * Sign out, the two-step screen's, the join page's "Not you?"): from here on
+ * nobody is signed in, as far as this page is concerned.
+ *
+ * Marked BEFORE the sign-out, not after it. Things kept on this phone for the
+ * person (src/lib/keptLicence.ts) are written in the background, a download
+ * at a time, each for the person signed in when it began, and each checks
+ * `signedInUserId` again before and after it writes. A write that got past
+ * that check while the sign-out was in flight would finish after
+ * `forgetCachedPages` had dropped its cache — and make it again, with their
+ * licence card in it, for whoever uses this phone next. So the check has to
+ * fail from the moment the person asks to leave, and until the page is gone:
+ * not even a navigation's fresh answer from the server (the cookie still
+ * works until the sign-out lands) puts them back.
+ */
+export function beginSignOut(): void {
+  signingOut = true
+  forgetRootState()
+}
+
+/**
  * Before a full load that changes who is signed in.
  *
  * `src/sw.ts` serves navigations NetworkFirst with a 4-second timeout, and
@@ -139,17 +166,14 @@ export function forgetRootState(): void {
  * (`checkKeptFiles` below) — so the same technician signing back in after a
  * week-old session lapsed still has them in the roof void.
  *
- * The person's own licence document (src/lib/keptLicence.ts) IS dropped
- * here: it is their personal information rather than the business's shelf,
- * and it comes back on its own the next time they open it with signal.
+ * The person's own licences (src/lib/keptLicence.ts) ARE dropped here: they
+ * are their personal information rather than the business's shelf, and they
+ * come back on their own the next time the list of them answers with signal.
  */
 export async function forgetCachedPages(): Promise<void> {
   try {
     if (typeof caches !== 'undefined') {
-      await Promise.all([
-        caches.delete('pages'),
-        caches.delete(KEPT_LICENCE_CACHE),
-      ])
+      await Promise.all([caches.delete('pages'), forgetKeptLicences()])
     }
   } catch {
     // A browser that refuses the cache has nothing stale to serve from it.
@@ -157,11 +181,31 @@ export async function forgetCachedPages(): Promise<void> {
 }
 
 /**
- * The cache src/lib/keptLicence.ts keeps the person's licence in, named here
- * rather than imported for the reason `KEPT_CACHE` below is. Its test holds
- * the two names together.
+ * Drops the person's licences kept on this phone — at every sign-in and
+ * sign-out (`forgetCachedPages`), and when `SessionWatch` sees the session
+ * end some other way: signed out in another tab, whose own sign-out dropped
+ * them already but not a keep this tab had in flight.
  */
-const KEPT_LICENCE_CACHE = 'pestm8-kept-licence-v1'
+export async function forgetKeptLicences(): Promise<void> {
+  try {
+    if (typeof caches !== 'undefined') {
+      await Promise.all(KEPT_LICENCE_CACHES.map((name) => caches.delete(name)))
+    }
+  } catch {
+    // A browser that refuses the cache has nothing kept in it.
+  }
+}
+
+/**
+ * The caches src/lib/keptLicence.ts keeps the person's licences in — the
+ * wallet's, and the single Phase 8.1 document's before it, which a phone
+ * may still hold — named here rather than imported for the reason
+ * `KEPT_CACHE` below is. Its test holds the names together.
+ */
+const KEPT_LICENCE_CACHES = [
+  'pestm8-kept-licence-v2',
+  'pestm8-kept-licence-v1',
+] as const
 
 /**
  * The token of the server's last "who is signed in" answer, for a guard that
@@ -183,7 +227,7 @@ export function signedInToken(): string | undefined {
  * do — the server checks the token properly on every request.
  */
 export function signedInUserId(): string | null {
-  return userIdOfToken(token)
+  return signingOut ? null : userIdOfToken(token)
 }
 
 /** The `sub` claim of a JWT, or null. Exported for its test. */

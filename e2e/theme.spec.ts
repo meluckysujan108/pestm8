@@ -273,9 +273,11 @@ test('the report preview stays on white paper in dark mode', async ({
 test('dark mode keeps body and secondary text readable', async ({ page }) => {
   const s = await setup('theme-contrast')
   await signInViaUi(page, s.email)
-  await page.goto(`/${s.slug}/settings?seg=prefs`)
+  // The Business group's footer: a secondary-text caption, on the page's own
+  // background rather than a card's.
+  await page.goto(`/${s.slug}/settings/business`)
 
-  const caption = page.getByText(/State determines your timezone/)
+  const caption = page.getByText(/State sets your timezone/)
   await expect(caption).toBeVisible()
 
   const group = await openAppearance(page)

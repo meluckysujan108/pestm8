@@ -111,6 +111,8 @@ Shell      max-width 460px centred on canvas
 
 *Amended (reports Phase 6):* a fourth segment, **Reports**, owner-only. It holds the business's option libraries — the nineteen vocabularies the forms draw on — one card per list opening a sheet that adds, renames, reorders, stars the usual few, archives and restores. The forms' wording is reproduced verbatim and is not the business's to change; the lists of answers ARE, and until this existed changing one needed a developer.
 
+*Amended (Settings redesign):* the segments are gone. Settings is now a hub — a grouped list, iOS-style — whose rows each open their own page: **You** (My details, Licence, Two-step sign-in), **Business** (Business details, Team → one page per member, Reports → Answer lists; each row shown only to whoever holds the capability its page needs), About, and Sign out. Old `?seg=` links redirect to the page that replaced the tab. The building blocks (groups with headings outside the card, field rows, the Save bar that shows only while there is something to save, the red last group) are `src/components/settings/ui.tsx`.
+
 **Modal sheets (5):**
 1. Month picker — bottom sheet, month grid, job-count dots, "Today"
 2. Job detail — bottom sheet, 92vh max, property/assignment/recurrence/actions
@@ -475,7 +477,11 @@ src/routes/
       $reportId.tsx               builder (draft) or document (finalised); ?s= section
       templates/                  owner-only: built-in settings, custom templates
     notes.tsx                     ?filter=
-    settings.tsx                  ?seg=profile|team|prefs
+    settings/
+      index.tsx                   the hub; ?seg= (old tabs) redirects
+      details.tsx  licence.tsx  sign-in.tsx  business.tsx  about.tsx
+      team/index.tsx  team/$memberId.tsx
+      reports/index.tsx  reports/answers.tsx
 ```
 
 Filter/date state lives in **validated search params**, not `useState` — the schedule day a tech is looking at survives refresh and is shareable.
@@ -524,7 +530,10 @@ src/components/
     NotesLibrary.tsx  NotesRail.tsx  NoteList.tsx  NoteEditor.tsx
     NoteEditorHeader.tsx  JobNotesSection.tsx ("Before you arrive" only)
   settings/
-    ProfileSection.tsx  TeamSection.tsx  MemberAccessRow.tsx  PrefsSection.tsx
+    ui.tsx                        SettingsGroup, rows, FieldRow, SaveBar, DangerGroup
+    MyDetails.tsx  MyLicence.tsx  LicenceDocument.tsx  ShowMyLicence.tsx
+    TwoStepSection.tsx  BusinessSection.tsx  ReportSettingsForm.tsx
+    TeamSection.tsx  MemberAccessRow.tsx (MemberSettings)  OptionLibrariesSection.tsx
 
 src/lib/
   reportTemplates/                THE compliance layer — see §5.3

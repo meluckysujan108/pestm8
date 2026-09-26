@@ -43,11 +43,22 @@ function guardedSaves(source: string): Array<string> {
 const bare = (name: string) => new RegExp(`(?<![.\\w])${name}\\b(?!\\s*:)`)
 
 const FORMS: Record<string, ReadonlyArray<RegExp>> = {
-  'BrandingSection.tsx': ['address', 'phone', 'email', 'licenceNumber'].map(
-    bare,
-  ),
+  'BusinessSection.tsx': [
+    'values',
+    'edits',
+    'address',
+    'phone',
+    'email',
+    'licenceNumber',
+    'name',
+    'tradingName',
+    'state',
+    'abn',
+    'website',
+  ].map(bare),
   'TeamSection.tsx': ['email'].map(bare),
-  'ProfileSection.tsx': ['name', 'phone'].map(bare),
+  'MyDetails.tsx': ['name', 'phone'].map(bare),
+  'ReportSettingsForm.tsx': ['title', 'copy', 'settings'].map(bare),
 }
 
 describe('settings forms save what is in the fields when the save runs', () => {

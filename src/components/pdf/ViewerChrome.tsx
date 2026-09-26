@@ -1,5 +1,7 @@
 import { DropdownMenu } from 'radix-ui'
 import {
+  ChevronLeft,
+  ChevronRight,
   CircleArrowDown,
   CircleCheck,
   CircleEllipsis,
@@ -13,7 +15,7 @@ import {
   Share,
 } from 'lucide-react'
 import type { ReactNode, Ref } from 'react'
-import type { ViewerActions } from './types'
+import type { ViewerActions, ViewerPager } from './types'
 
 /**
  * The viewer's two bars, drawn as iOS draws them over a document: translucent,
@@ -36,6 +38,7 @@ export function TopBar({
   pages,
   onDone,
   menu,
+  pager,
 }: {
   barRef: Ref<HTMLElement>
   doneRef: Ref<HTMLButtonElement>
@@ -46,7 +49,13 @@ export function TopBar({
   onDone: () => void
   /** The More menu, or null when there is nothing to put in it. */
   menu: ReactNode
+  /** Which of several files this is, said under the title. */
+  pager?: ViewerPager
 }) {
+  const files =
+    pager && pager.count > 1
+      ? `File ${pager.index + 1} of ${pager.count}`
+      : null
   return (
     <header
       ref={barRef}
@@ -71,10 +80,24 @@ export function TopBar({
           <h2 className="truncate text-[15px] font-semibold leading-tight text-ink">
             {title}
           </h2>
-          {pages > 0 && (
+          {files ? (
             <p className="truncate text-[11px] leading-tight text-muted">
-              {pages === 1 ? '1 page' : `${pages} pages`}
+              {/* Each its own element, so the page count still reads as
+                  "3 pages" on its own to whatever looks for it. */}
+              <span>{files}</span>
+              {pages > 0 && (
+                <>
+                  {' · '}
+                  <span>{pages === 1 ? '1 page' : `${pages} pages`}</span>
+                </>
+              )}
             </p>
+          ) : (
+            pages > 0 && (
+              <p className="truncate text-[11px] leading-tight text-muted">
+                {pages === 1 ? '1 page' : `${pages} pages`}
+              </p>
+            )
           )}
         </div>
         <div className="flex justify-end">{menu}</div>
@@ -158,6 +181,7 @@ export function Toolbar({
   onPages,
   searchButtonRef,
   markup,
+  pager,
 }: {
   actions: ViewerActions
   /** The file has arrived, so there is something to hand over. */
@@ -176,10 +200,22 @@ export function Toolbar({
     onToggle: () => void
     buttonRef: Ref<HTMLButtonElement>
   }
+  /** Steps between the files of one thing, at either end of the bar. */
+  pager?: ViewerPager
 }) {
   const { keep } = actions
+  const paged = pager !== undefined && pager.count > 1
   return (
     <div className="flex h-[52px] items-center justify-around px-2">
+      {paged && (
+        <ToolbarButton
+          label="Previous file"
+          disabled={pager.index <= 0}
+          onClick={pager.onPrevious}
+        >
+          <ChevronLeft size={24} strokeWidth={1.8} />
+        </ToolbarButton>
+      )}
       {actions.share && (
         <ToolbarButton label="Share" disabled={!canShare} onClick={onShare}>
           <Share size={22} strokeWidth={1.8} />
@@ -232,6 +268,15 @@ export function Toolbar({
           ) : (
             <CircleArrowDown size={22} strokeWidth={1.8} />
           )}
+        </ToolbarButton>
+      )}
+      {paged && (
+        <ToolbarButton
+          label="Next file"
+          disabled={pager.index >= pager.count - 1}
+          onClick={pager.onNext}
+        >
+          <ChevronRight size={24} strokeWidth={1.8} />
         </ToolbarButton>
       )}
     </div>

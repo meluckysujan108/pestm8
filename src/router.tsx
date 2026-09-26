@@ -9,6 +9,7 @@ import { getContext } from './integrations/tanstack-query/root-provider'
 import { PagePending } from './components/shell/Pending'
 import { SignInSettling } from './components/auth/SignInSettling'
 import { TwoStepNeededCard } from './components/auth/TwoStepPrompt'
+import { keptOutOfHtml } from './lib/routeQueries'
 import { isUnauthenticatedError } from './lib/signInSettling'
 import { isMfaEnrolmentError } from './lib/twoStep'
 
@@ -60,7 +61,17 @@ export function getRouter() {
     ),
   })
 
-  setupRouterSsrQueryIntegration({ router, queryClient: context.queryClient })
+  setupRouterSsrQueryIntegration({
+    router,
+    queryClient: context.queryClient,
+    // Every query the server rendered with goes into the HTML, as the
+    // integration does by default — except a person's licences, which the
+    // service worker would otherwise keep in its copy of the page and hand
+    // back offline as though they were current (`keptOutOfHtml`).
+    dehydrateOptions: {
+      shouldDehydrateQuery: (query) => !keptOutOfHtml(query.queryKey),
+    },
+  })
 
   return router
 }

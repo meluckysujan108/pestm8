@@ -69,6 +69,7 @@ export function DocumentViewer({
   markup,
   badge,
   rememberPosition = true,
+  pager,
 }: DocumentViewerProps) {
   const [attempt, setAttempt] = useState(0)
   const { state, blob, submitPassword } = usePdfDocument(source, attempt)
@@ -613,6 +614,7 @@ export function DocumentViewer({
             title={title}
             pages={pages}
             onDone={onClose}
+            pager={pager}
             menu={
               hasMoreMenu(actions) ? (
                 <MoreMenu actions={actions} canSave={!!file} onSave={save} />
@@ -692,6 +694,7 @@ export function DocumentViewer({
                   setGridOpen((open) => !open)
                 }}
                 searchButtonRef={searchButtonRef}
+                pager={pager}
                 // The palette covers this bar while the pen is out, and its
                 // own Done puts the pen away.
                 markup={

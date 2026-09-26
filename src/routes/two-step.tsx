@@ -8,7 +8,7 @@ import { api } from '../../convex/_generated/api'
 import { QrCode } from '#/components/auth/QrCode'
 import { RecoveryCodes } from '#/components/auth/RecoveryCodes'
 import { authClient } from '#/lib/auth-client'
-import { forgetCachedPages } from '#/lib/rootState'
+import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import {
   RECOVERY_CODES_NOT_MADE,
   SETUP_CLEARED,
@@ -40,7 +40,7 @@ import type { SetupFlow, SetupStatus } from '#/lib/twoStep'
 
 /**
  * Setting up two-step sign-in. Optional (convex/lib/mfa.ts): people arrive
- * here from "Turn on two-step sign-in" in Settings → Profile, and "Not now"
+ * here from "Turn on two-step sign-in" in Settings → Two-step sign-in, and "Not now"
  * takes them back. Where a deployment makes it compulsory
  * (`AUTH_MFA_REQUIRED=on`), this is also where the app sends anyone signed in
  * who has not done it — after creating an account from an invitation, after
@@ -170,12 +170,12 @@ function TwoStepPage() {
 
   async function onVerified() {
     // On from here, whether or not codes are ever saved: until "I've saved
-    // these", Profile asks for new ones. The scan step switched that
+    // these", Settings asks for new ones. The scan step switched that
     // reminder on before it sent the code, so an acceptance lost on the way
     // back is covered too (`remindAfterRefusedCode` in lib/twoStep.ts).
     // The code just replaced the session; the new cookie is already in
     // place, and this goes out with it. Two-step sign-in is on either way —
-    // if the codes cannot be made, say so and leave Profile asking for them.
+    // if the codes cannot be made, say so and leave Settings asking for them.
     const typed = password.current
     password.current = null
     setAfter({ kind: 'making' })
@@ -314,12 +314,14 @@ function TwoStepPage() {
             type="button"
             // A reload, as Settings' sign-out does: whoever signs in next
             // must not be shown this person's cached answers.
-            onClick={() =>
-              authClient
+            onClick={() => {
+              // Before the request (rootState.ts has why).
+              beginSignOut()
+              void authClient
                 .signOut()
                 .then(forgetCachedPages)
                 .then(() => window.location.replace('/login'))
-            }
+            }}
             className="min-h-11 text-body text-blue"
           >
             Sign out

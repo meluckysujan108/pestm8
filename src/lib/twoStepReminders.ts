@@ -7,7 +7,7 @@
  * That recovery codes were SHOWN — or were due to be and could not be made —
  * but "I've saved these" was never pressed. Checking the code turns two-step
  * sign-in on before the codes are shown, so a reload there lands in the app
- * with the codes gone. Profile's two-step card then asks for new ones until
+ * with the codes gone. Settings → Two-step sign-in then asks for new ones until
  * they are confirmed saved.
  *
  * Switched on as the set-up code is SENT, not once it is accepted: an

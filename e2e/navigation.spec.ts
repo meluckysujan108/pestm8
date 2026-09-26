@@ -78,23 +78,62 @@ test('signed in, moving between tabs never waits on the server function', async 
 
   expect(serverFnCalls).toEqual([])
 
-  // A search-param navigation re-runs every beforeLoad too. Settings is
-  // behind the phone's burger, so it is opened by URL rather than by tap;
+  // Into a Settings page and back out re-runs every beforeLoad too. Settings
+  // is behind the phone's burger, so it is opened by URL rather than by tap;
   // the document load is SSR's to answer and makes no call of its own.
   await page.goto(`/${s.slug}/settings`)
   await expect(
     page.getByRole('heading', { name: 'Settings', level: 1 }),
   ).toBeVisible()
+  // Enabled once hydrated. A row is a plain link, so a tap before then would
+  // be a full page load rather than the client navigation this is about.
+  await expect(page.getByRole('button', { name: 'Sign out' })).toBeEnabled()
   serverFnCalls.length = 0
 
-  await clickUntil(page.getByRole('tab', { name: 'Team' }), () =>
-    expect(page).toHaveURL(/seg=team/, { timeout: 2_000 }),
-  )
-  await expect(page).toHaveURL(/seg=team/)
-  await page.getByRole('tab', { name: 'Profile' }).click()
-  await expect(page).toHaveURL(/seg=profile/)
+  // The page's own links, not the sidebar's: "Settings" is in both.
+  const main = page.getByRole('main')
+  await main.getByRole('link', { name: /^Team/ }).click()
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings/team$`))
+  await main.getByRole('link', { name: 'Settings', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings$`))
+  await expect(
+    page.getByRole('heading', { name: 'Settings', level: 1 }),
+  ).toBeVisible()
 
   expect(serverFnCalls).toEqual([])
+})
+
+test('an old Settings tab address opens the page that took its place', async ({
+  page,
+}) => {
+  const s = await setup('nav-old-seg')
+  await signInViaUi(page, s.owner.email)
+
+  // Bookmarks and the home-screen app's last address still carry the old
+  // tabs. Each lands on its own page now.
+  await page.goto(`/${s.slug}/settings?seg=team`)
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings/team$`))
+  await expect(
+    page.getByRole('heading', { name: 'Team', level: 1 }),
+  ).toBeVisible()
+
+  // Profile was the old default tab, and the hub is what replaced it — not
+  // My details, which has no licence on it. The stale tab leaves the address.
+  await page.goto(`/${s.slug}/settings?seg=profile`)
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings$`))
+  await expect(
+    page.getByRole('heading', { name: 'Settings', level: 1 }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('main').getByRole('link', { name: /^Licence/ }),
+  ).toBeVisible()
+
+  // A tab that never existed opens the hub, not an error page.
+  await page.goto(`/${s.slug}/settings?seg=nonsense`)
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings(\\?.*)?$`))
+  await expect(
+    page.getByRole('heading', { name: 'Settings', level: 1 }),
+  ).toBeVisible()
 })
 
 test('a slow page loads inside the shell instead of blanking the app', async ({
