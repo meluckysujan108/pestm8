@@ -4,6 +4,7 @@ import { Drawer } from 'vaul'
 import { Menu } from 'lucide-react'
 import { MORE_ITEMS, PRIMARY_NAV } from './navItems'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
+import { SheetCloseButton } from '#/components/primitives/Sheet'
 
 /**
  * The phone's primary navigation. Five cells is the most a dock can hold
@@ -103,7 +104,7 @@ export function MobileDock({
           <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
           <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas pb-[calc(16px+env(safe-area-inset-bottom))] outline-none">
             <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
-            <Drawer.Title className="px-4 pb-1 pt-3 text-sheet-title text-ink">
+            <Drawer.Title className="px-4 pb-1 pr-14 pt-3 text-sheet-title text-ink">
               More
             </Drawer.Title>
             <Drawer.Description className="sr-only">
@@ -131,6 +132,7 @@ export function MobileDock({
                 </Link>
               ))}
             </nav>
+            <SheetCloseButton onClick={() => setMoreOpen(false)} />
           </Drawer.Content>
         </Drawer.Portal>
       </Drawer.Root>

@@ -1,12 +1,10 @@
-import {
-  ErrorComponent,
-  createRouter as createTanStackRouter,
-} from '@tanstack/react-router'
+import { createRouter as createTanStackRouter } from '@tanstack/react-router'
 import { setupRouterSsrQueryIntegration } from '@tanstack/react-router-ssr-query'
 import { ConvexProvider } from 'convex/react'
 import { routeTree } from './routeTree.gen'
 import { getContext } from './integrations/tanstack-query/root-provider'
 import { PagePending } from './components/shell/Pending'
+import { ErrorScreen } from './components/shell/ErrorScreen'
 import { SignInSettling } from './components/auth/SignInSettling'
 import { TwoStepNeededCard } from './components/auth/TwoStepPrompt'
 import { keptOutOfHtml } from './lib/routeQueries'
@@ -43,7 +41,8 @@ export function getRouter() {
     // compulsory, whose next tap reads a cached guard and then fails in the
     // page. A page refused as "Unauthenticated" holds on its placeholder
     // while the sign-in settles, and is retried (components/auth/
-    // SignInSettling). Everything else keeps the router's own error screen.
+    // SignInSettling). Everything else gets the app's own error screen, with
+    // a way to try again (components/shell/ErrorScreen).
     defaultErrorComponent: (props) =>
       isMfaEnrolmentError(props.error) ? (
         <div className="px-4 pt-6">
@@ -52,7 +51,7 @@ export function getRouter() {
       ) : isUnauthenticatedError(props.error) ? (
         <SignInSettling {...props} />
       ) : (
-        <ErrorComponent {...props} />
+        <ErrorScreen {...props} />
       ),
     Wrap: ({ children }) => (
       <ConvexProvider client={context.convexQueryClient.convexClient}>

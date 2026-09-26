@@ -205,7 +205,7 @@ function GuideChecklist({
   }
 
   return (
-    <div className="pb-[calc(8px+env(safe-area-inset-bottom))]">
+    <div>
       <div className="flex items-center gap-3">
         <div
           role="progressbar"

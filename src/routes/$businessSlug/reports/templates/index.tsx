@@ -4,6 +4,7 @@ import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Archive, ArchiveRestore, Copy, Trash2 } from 'lucide-react'
 import { Drawer } from 'vaul'
+import { SheetCloseButton } from '#/components/primitives/Sheet'
 import { api } from '../../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
@@ -210,7 +211,7 @@ function CloneBuiltinSheet({
               clone.mutate({ businessId, sourceTemplateId, name })
             }}
           >
-            <Drawer.Title className="text-sheet-title text-ink">
+            <Drawer.Title className="pr-10 text-sheet-title text-ink">
               Clone &amp; edit
             </Drawer.Title>
             <p className="mt-1 text-body text-muted">
@@ -240,6 +241,7 @@ function CloneBuiltinSheet({
               {clone.isPending ? 'Cloning…' : 'Clone template'}
             </button>
           </form>
+          <SheetCloseButton onClick={onClose} />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
@@ -409,7 +411,7 @@ function DuplicateSheet({
               duplicate.mutate({ businessId, templateId, name })
             }}
           >
-            <Drawer.Title className="text-sheet-title text-ink">
+            <Drawer.Title className="pr-10 text-sheet-title text-ink">
               Duplicate template
             </Drawer.Title>
             <label className="mt-4 flex flex-col gap-1.5">
@@ -434,6 +436,7 @@ function DuplicateSheet({
               {duplicate.isPending ? 'Duplicating…' : 'Duplicate'}
             </button>
           </form>
+          <SheetCloseButton onClick={onClose} />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>

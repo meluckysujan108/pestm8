@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Drawer } from 'vaul'
+import { SheetCloseButton } from '#/components/primitives/Sheet'
 import { FieldConfigForm } from './FieldConfigForm'
 import { ColumnsEditor } from './ColumnsEditor'
 import { ALL_FIELD_KINDS, FIELD_KIND_HINTS, FIELD_KIND_LABELS, defaultField, slugifyKey } from './fieldKinds'
@@ -92,7 +93,7 @@ export function AddFieldSheet({
         <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
           <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-3">
-            <Drawer.Title className="text-sheet-title text-ink">
+            <Drawer.Title className="pr-10 text-sheet-title text-ink">
               {editing ? 'Edit field' : kind ? FIELD_KIND_LABELS[kind] : 'Add a field'}
             </Drawer.Title>
 
@@ -147,6 +148,12 @@ export function AddFieldSheet({
               )
             )}
           </div>
+          <SheetCloseButton
+            onClick={() => {
+              onClose()
+              reset()
+            }}
+          />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>

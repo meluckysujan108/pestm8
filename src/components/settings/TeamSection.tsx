@@ -274,10 +274,11 @@ export function TeamSection({
         // owner's answers to the owner.
         title={viewerIsOwner ? 'Invite someone' : 'Invite someone to your team'}
       >
-        {/* Clear of the home indicator: this sheet has no footer, because
-            the form's own submit has to be inside it — a fix in the
-            warnings list hands focus back to the form's submit button. */}
-        <div className="pb-[calc(8px+env(safe-area-inset-bottom))] pt-1">
+        {/* No footer, because the form's own submit has to be inside it — a
+            fix in the warnings list hands focus back to the form's submit
+            button. Sheet keeps a footer-less body clear of the home
+            indicator. */}
+        <div className="pt-1">
           {freshLink ? (
             <>
               <InviteLinkCard

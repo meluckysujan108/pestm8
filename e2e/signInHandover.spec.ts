@@ -24,15 +24,13 @@ test.use({ serviceWorkers: 'block' })
 /**
  * Records whether the router's error screen was EVER on screen, not just
  * whether it is at the end: a screen that flashes and recovers is still one a
- * technician saw. Its exact words, with the "!", which nothing else in the
- * app uses.
+ * technician saw. Found by its `data-error-screen` marker
+ * (components/shell/ErrorScreen.tsx).
  */
 async function watchForErrorScreen(page: Page) {
   await page.addInitScript(() => {
     const seen = () => {
-      // Null until the parser reaches <body>, whatever the DOM types say.
-      const body = document.body as HTMLElement | null
-      if (body?.textContent.includes('Something went wrong!')) {
+      if (document.querySelector('[data-error-screen]')) {
         ;(window as { sawErrorScreen?: boolean }).sawErrorScreen = true
       }
     }
@@ -85,7 +83,7 @@ async function ownerWithReport(label: string) {
  * told "nobody" first, re-ran every live query as nobody, and a server slow
  * enough to answer before the token followed told the reports list
  * "Unauthenticated". The paginated list throws its errors, so the page ended
- * on "Something went wrong!" (reportsList.spec.ts, on a slow shared
+ * on the router's error screen (reportsList.spec.ts, on a slow shared
  * deployment).
  *
  * This makes the server slow on purpose: every token after the socket's first
@@ -229,7 +227,7 @@ test('a page refused every time still ends on the error screen once its retries 
 
   armed = true
   await draft.click()
-  await expect(page.getByText('Something went wrong!')).toBeVisible({
+  await expect(page.locator('[data-error-screen]')).toBeVisible({
     timeout: 30_000,
   })
   // Refused once, then once more for each retry, before giving up.

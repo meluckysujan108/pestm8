@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { ErrorComponent, useRouter } from '@tanstack/react-router'
+import { useRouter } from '@tanstack/react-router'
 import type { ErrorComponentProps } from '@tanstack/react-router'
 import { PagePending } from '#/components/shell/Pending'
+import { ErrorScreen } from '#/components/shell/ErrorScreen'
 import { authClient } from '#/lib/auth-client'
 import {
   SESSION_CHECK_TIMEOUT_MS,
@@ -30,7 +31,7 @@ import {
  * Queries refused before they had any data are dropped first, so they are
  * asked for again instead of being thrown straight back
  * (`forgetRefusedQueries`). After three retries in a minute the budget is
- * spent, and the router's own error screen shows as it did before.
+ * spent, and the app's error screen shows (components/shell/ErrorScreen).
  */
 export function SignInSettling(props: ErrorComponentProps) {
   const router = useRouter()
@@ -64,6 +65,6 @@ export function SignInSettling(props: ErrorComponentProps) {
     return () => clearTimeout(timer)
   }, [asked, delay, router])
 
-  if (delay === null) return <ErrorComponent {...props} />
+  if (delay === null) return <ErrorScreen {...props} />
   return <PagePending />
 }

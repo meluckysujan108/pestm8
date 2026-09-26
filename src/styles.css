@@ -50,7 +50,11 @@
   --blue: #0a84ff;
   --green: #34c759;
   --amber: #ff9f0a;
-  --amber-ink: #b26b00;
+  /* Warning text. Darker than the design file's #B26B00, which was 3.98:1
+     in its own box and 3.6:1 on the canvas — under the 4.5 that 13px text
+     needs, read on a phone in the sun. This clears 4.5 on every surface a
+     warning sits on (statusColours.test.ts checks it). */
+  --amber-ink: #985b00;
   --amber-bg: #fff8ec;
   --amber-line: #ffe2b8;
 

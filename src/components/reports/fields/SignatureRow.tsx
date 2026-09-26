@@ -49,7 +49,8 @@ export function SignatureRow({
         <img
           src={existing}
           alt={`${label} — signed`}
-          className="h-24 w-full rounded-xl border border-hairline bg-surface object-contain"
+          // Paper: a signature is dark ink on a transparent PNG.
+          className="h-24 w-full rounded-xl border border-hairline bg-paper object-contain"
         />
       )}
 

@@ -102,6 +102,19 @@ describe('status colours in the stylesheet', () => {
     expect(CONTRACT['overdue-ink']).toBe('var(--surface)')
   })
 
+  for (const [theme, vars] of Object.entries(THEMES)) {
+    // Warning text is 13px: under "large", so it needs 4.5:1 — in its own
+    // amber box, and loose on every surface a warning line sits on.
+    test.each(['amber-bg', 'surface', 'surface-2', 'canvas'])(
+      `${theme}: warning text (amber-ink) clears 4.5:1 on %s`,
+      (bg) => {
+        expect(
+          contrastRatio(vars['amber-ink'], vars[bg]),
+        ).toBeGreaterThanOrEqual(4.5)
+      },
+    )
+  }
+
   test('amber keeps meaning "warning" and is none of the status hues', () => {
     expect(Object.values(TONE_PILL).join(' ')).not.toContain('amber')
     expect(OVERDUE_CHIP).not.toContain('amber')

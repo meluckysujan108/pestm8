@@ -57,7 +57,7 @@ re-declared per theme, so nothing else in the system is themed twice.
   --blue         #0A84FF                #0A84FF    links, contact actions
   --green        #34C759                #30D158    success
   --amber        #FF9F0A                #FF9F0A    warning accent
-  --amber-ink    #B26B00                #FFB340    warning text
+  --amber-ink    #985B00                #FFB340    warning text (was #B26B00: 3.98:1)
   --amber-bg     #FFF8EC                #2A1E0A    warning surface
   --amber-line   #FFE2B8                #4D3712    warning border
 
