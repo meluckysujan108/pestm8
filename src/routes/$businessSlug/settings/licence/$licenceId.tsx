@@ -144,7 +144,7 @@ function LicencePage() {
         <Link
           to="/$businessSlug/settings/licence"
           params={{ businessSlug: business.slug }}
-          className="text-body font-semibold text-blue"
+          className="relative tap-target text-body font-semibold text-blue"
         >
           Back to Licences
         </Link>

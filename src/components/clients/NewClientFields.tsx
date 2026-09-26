@@ -270,7 +270,7 @@ export function NewClientFields({
                 flushSync(() => setAddingSiteContact(true))
                 siteContactInput.current?.focus()
               }}
-              className="mt-3 text-body font-semibold text-blue"
+              className="relative tap-target mt-3 text-body font-semibold text-blue"
             >
               + Add site contact
             </button>

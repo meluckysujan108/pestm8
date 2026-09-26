@@ -126,7 +126,7 @@ export function TemplateSettingsSheet({
     >
       {template.print?.cover && (
         <>
-          <p className="section-label">On the cover</p>
+          <h3 className="section-label">On the cover</h3>
           <div className="mt-1.5 flex flex-col gap-2">
             <Field
               label="Title"
@@ -146,7 +146,9 @@ export function TemplateSettingsSheet({
 
       {template.print && (
         <>
-          <p className="section-label mt-4">In the footer and the title band</p>
+          <h3 className="section-label mt-4">
+            In the footer and the title band
+          </h3>
           <div className="mt-1.5">
             <Field
               label="What this form is called"
@@ -160,9 +162,9 @@ export function TemplateSettingsSheet({
 
       {signers.length > 0 && (
         <>
-          <p className="section-label mt-4">
+          <h3 className="section-label mt-4">
             Must sign before it can be locked
-          </p>
+          </h3>
           <ul className="mt-1.5 flex flex-col gap-1.5">
             {signers.map((field) => {
               const on = current.requiredSigners.includes(field.slot)

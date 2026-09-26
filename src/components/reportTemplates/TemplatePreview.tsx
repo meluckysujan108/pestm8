@@ -111,9 +111,9 @@ export function TemplatePreview({ draft }: { draft: TemplateDraft }) {
               key={section.id ?? index}
               className="rounded-2xl border border-hairline bg-surface p-3.5"
             >
-              <p className="section-label">
+              <h3 className="section-label">
                 {section.number ?? index + 1}. {section.title}
-              </p>
+              </h3>
               {section.preamble && (
                 <p className="mt-1 text-caption text-muted">
                   {section.preamble}

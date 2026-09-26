@@ -89,7 +89,7 @@ export function WeatherStrip({ cell }: { cell: WeatherCell }) {
       <span
         data-testid="weather-pending"
         aria-hidden
-        className="block h-[62px] animate-pulse rounded-xl bg-surface-2"
+        className="block h-[62px] rounded-xl bg-surface-2 motion-safe:animate-pulse"
       />
     )
   }

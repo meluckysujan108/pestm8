@@ -483,7 +483,7 @@ function NewJobForm({
                 })
                 clientTrigger.current?.focus()
               }}
-              className="mt-3 text-body font-semibold text-blue"
+              className="relative tap-target mt-3 text-body font-semibold text-blue"
             >
               + New site for an existing client
             </button>
@@ -536,7 +536,7 @@ function NewJobForm({
                 flushSync(() => switchMode(() => 'existing'))
                 propertyTrigger.current?.focus()
               }}
-              className="mt-3 text-body font-semibold text-blue"
+              className="relative tap-target mt-3 text-body font-semibold text-blue"
             >
               Choose an existing site instead
             </button>
@@ -578,7 +578,7 @@ function NewJobForm({
               flushSync(() => setAddingWorkOrder(true))
               workOrderInput.current?.focus()
             }}
-            className="mt-3 text-body font-semibold text-blue"
+            className="relative tap-target mt-3 text-body font-semibold text-blue"
           >
             + Add work order
           </button>

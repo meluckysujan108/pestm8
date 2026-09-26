@@ -161,7 +161,7 @@ export function PickerSheet({
           it to distinguish from — on a list where everything is usual, the
           word is noise. */}
       {preferred.length > 0 && rest.length > 0 && (
-        <p className="section-label mt-3">Usually</p>
+        <h3 className="section-label mt-3">Usually</h3>
       )}
 
       <ul className="mt-2 flex flex-col gap-1.5">
@@ -181,7 +181,7 @@ export function PickerSheet({
       </ul>
 
       {preferred.length > 0 && rest.length > 0 && (
-        <p className="section-label mt-4">Everything else</p>
+        <h3 className="section-label mt-4">Everything else</h3>
       )}
 
       <ul className="mt-2 flex flex-col gap-1.5">

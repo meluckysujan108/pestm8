@@ -230,7 +230,7 @@ function OpenNote({
         {back}
         <div className="px-1 py-8 text-center">
           <p className="text-row-title text-ink">This note isn't available</p>
-          <button type="button" onClick={onBack} className="mt-2 text-body font-semibold text-blue">
+          <button type="button" onClick={onBack} className="relative tap-target mt-2 text-body font-semibold text-blue">
             Back to notes
           </button>
         </div>

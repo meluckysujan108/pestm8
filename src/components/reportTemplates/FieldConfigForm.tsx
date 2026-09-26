@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import { ChevronDown, ChevronUp, Plus, Trash2 } from 'lucide-react'
 import { Segmented } from '#/components/primitives/Segmented'
 import { OptionsListEditor } from './OptionsListEditor'
@@ -74,6 +75,7 @@ export function FieldConfigForm({
   visibleWhenCandidates: Array<{ key: string; label: string }>
 }) {
   const keyTaken = field.key.trim().length === 0 || existingKeys.has(field.key)
+  const keyErrorId = useId()
 
   function setLabel(label: string) {
     // The key follows the label until the author edits it directly —
@@ -96,21 +98,27 @@ export function FieldConfigForm({
         />
       </label>
 
-      <label className="flex flex-col gap-1.5">
+      <div className="flex flex-col gap-1.5">
+        <label className="flex flex-col gap-1.5">
         <span className="section-label">Stored as</span>
         <input
           value={field.key}
+          aria-invalid={keyTaken || undefined}
+          aria-describedby={keyTaken ? keyErrorId : undefined}
           onChange={(e) => onChange({ ...field, key: e.target.value })}
           className={`h-11 w-full rounded-xl bg-surface-3 px-3.5 font-mono text-[16px] outline-none focus:ring-2 focus:ring-blue ${
             keyTaken ? 'text-red-ink' : 'text-ink-2'
           }`}
         />
+        </label>
+        {/* Outside the label, or it would be read as part of the field's
+            name rather than as what is wrong with it. */}
         {keyTaken && (
-          <span className="text-caption text-red-ink">
+          <span id={keyErrorId} className="text-caption text-red-ink">
             Another field already uses this key.
           </span>
         )}
-      </label>
+      </div>
 
       <label className="flex flex-col gap-1.5">
         <span className="section-label">Hint (optional)</span>
@@ -590,36 +598,36 @@ function StringListEditor({
           <button
             type="button"
             disabled={index === 0}
-            aria-label={`Move ${label.toLowerCase()} ${index + 1} up`}
+            aria-label={`Move ${value || `${label.toLowerCase()} ${index + 1}`} up`}
             onClick={() => {
               if (index === 0) return
               const next = [...values]
               ;[next[index - 1], next[index]] = [next[index], next[index - 1]]
               onChange(next)
             }}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
             <ChevronUp size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
             disabled={index === values.length - 1}
-            aria-label={`Move ${label.toLowerCase()} ${index + 1} down`}
+            aria-label={`Move ${value || `${label.toLowerCase()} ${index + 1}`} down`}
             onClick={() => {
               if (index === values.length - 1) return
               const next = [...values]
               ;[next[index], next[index + 1]] = [next[index + 1], next[index]]
               onChange(next)
             }}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
             <ChevronDown size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
-            aria-label={`Remove ${label.toLowerCase()} ${index + 1}`}
+            aria-label={`Remove ${value || `${label.toLowerCase()} ${index + 1}`}`}
             onClick={() => onChange(values.filter((_, i) => i !== index))}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
             <Trash2 size={15} strokeWidth={2} />
           </button>

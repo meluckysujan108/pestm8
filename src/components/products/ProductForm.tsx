@@ -160,7 +160,7 @@ export function ProductForm({
       }}
     >
       {/* ── Photo ─────────────────────────────────────────────────────── */}
-      <p className="section-label mb-1.5 mt-4">Photo</p>
+      <h3 className="section-label mb-1.5 mt-4">Photo</h3>
       <div className="flex items-center gap-3 rounded-2xl bg-surface p-3 shadow-elevation">
         <span className="flex size-20 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-2 text-muted">
           {photoBusy ? (
@@ -292,7 +292,7 @@ export function ProductForm({
       )}
 
       {/* ── PDF ───────────────────────────────────────────────────────── */}
-      <p className="section-label mb-1.5 mt-5">PDF</p>
+      <h3 className="section-label mb-1.5 mt-5">PDF</h3>
       <div className="flex items-center gap-3 rounded-2xl bg-surface p-3 shadow-elevation">
         <PdfTile />
         <div className="min-w-0 flex-1">

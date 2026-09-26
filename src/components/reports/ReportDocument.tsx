@@ -368,7 +368,7 @@ function Block({ block }: { block: DocBlock }) {
     case 'photos':
       return (
         <div className="mt-3">
-          <p className="section-label mb-2">{block.label}</p>
+          <h3 className="section-label mb-2">{block.label}</h3>
           <PhotoGrid photos={block.photos} label={block.label} />
         </div>
       )

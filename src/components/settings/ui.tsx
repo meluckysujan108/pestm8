@@ -299,6 +299,12 @@ export function SaveBar({
       >
         {pending ? 'Saving…' : label}
       </button>
+      {/* The button's word changing is silent to a screen reader; this says
+          it. Mounted with the bar, so it is already listening when "Saved"
+          arrives. */}
+      <span role="status" className="sr-only">
+        {!pending && label === 'Saved' ? 'Saved' : ''}
+      </span>
     </div>
   )
 }

@@ -115,9 +115,10 @@ export function OptionLibrariesSection({
   )
 }
 
-/** The small square buttons on an option's row. */
+/** The square buttons on an option's row: 44px, the smallest a gloved
+ * thumb lands on, with no room between them for a smaller hit area to grow. */
 const ICON_BUTTON =
-  'flex size-9 shrink-0 items-center justify-center rounded-lg transition active:bg-surface-2 disabled:opacity-30'
+  'flex size-11 shrink-0 items-center justify-center rounded-lg transition active:bg-surface-2 disabled:opacity-30'
 
 function OptionListSheet({
   businessId,
@@ -294,13 +295,13 @@ function OptionListSheet({
                       submitRename(option.value)
                     }}
                     aria-label={`Rename ${option.label}`}
-                    className="h-10 min-w-0 flex-1 rounded-lg bg-surface-3 px-2.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                    className={`${FIELD_COMPACT} min-w-0 flex-1`}
                   />
                   <button
                     type="button"
                     disabled={rename.isPending}
                     onClick={() => submitRename(option.value)}
-                    className="h-10 shrink-0 rounded-lg bg-ink px-3 text-caption font-semibold text-surface disabled:opacity-50"
+                    className={`${NEUTRAL_BUTTON_COMPACT} shrink-0 px-3.5`}
                   >
                     Save
                   </button>

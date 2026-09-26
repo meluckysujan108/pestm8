@@ -114,7 +114,7 @@ export function MonthPickerSheet({
                 onMonthChange(monthKeyOf(todayKey))
                 onSelect(todayKey)
               }}
-              className="text-body font-semibold text-blue"
+              className="relative tap-target text-body font-semibold text-blue"
             >
               Today
             </button>

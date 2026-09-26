@@ -123,7 +123,7 @@ export function FinaliseSheet({
     >
       {summary.length > 0 && (
         <>
-          <p className="section-label">In this report</p>
+          <h3 className="section-label">In this report</h3>
           <dl className="mt-1.5 overflow-hidden rounded-xl border border-hairline bg-surface">
             {summary.map((line) => (
               <div
@@ -186,7 +186,7 @@ export function FinaliseSheet({
 
       {recipients.length > 0 && (
         <div className="mt-4">
-          <p className="section-label">Copy to</p>
+          <h3 className="section-label">Copy to</h3>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             {recipients.map((address) => (
               <span
