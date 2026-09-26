@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { APIError } from 'better-auth/api'
-import { isBreachVerdict } from './auth'
+import { inviteRefusalMessage, isBreachVerdict } from './auth'
 
 /**
  * Telling an outage apart from a verdict.
@@ -42,5 +42,35 @@ describe('a breach check failure', () => {
     expect(isBreachVerdict({ body: { code: 'PASSWORD_COMPROMISED' } })).toBe(
       false,
     )
+  })
+})
+
+/**
+ * The invite-only sign-up gate's refusals. The one that matters: a live link
+ * with the wrong address typed must not read as a dead link — it did, and the
+ * person went looking for a new link instead of retyping their email.
+ */
+describe('an invitation refused at sign-up', () => {
+  test('names the address, not the link, when the address is wrong', () => {
+    const message = inviteRefusalMessage('INVITE_EMAIL_MISMATCH')
+    expect(message).toMatch(/different email address/)
+    expect(message).not.toMatch(/not valid/)
+  })
+
+  test('says used for either kind of link', () => {
+    expect(inviteRefusalMessage('INVITE_CLAIMED')).toMatch(/already been used/)
+    expect(inviteRefusalMessage('INVITE_ALREADY_USED')).toMatch(
+      /already been used/,
+    )
+  })
+
+  test('says expired and withdrawn as such', () => {
+    expect(inviteRefusalMessage('INVITE_EXPIRED')).toMatch(/expired/)
+    expect(inviteRefusalMessage('INVITE_REVOKED')).toMatch(/withdrawn/)
+  })
+
+  test('falls back to not valid for anything else', () => {
+    expect(inviteRefusalMessage('INVITE_INVALID')).toMatch(/not valid/)
+    expect(inviteRefusalMessage('INVITE_LEGACY')).toMatch(/not valid/)
   })
 })
