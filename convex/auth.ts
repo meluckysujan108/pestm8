@@ -169,6 +169,34 @@ const inviteOnly = process.env.AUTH_INVITE_ONLY === 'on'
 const SIGN_UP_PATH = '/sign-up/email'
 
 /**
+ * What sign-up says when the invitation check refuses, by the check's code.
+ *
+ * One sentence for every refusal read as "the link is broken" — and the usual
+ * refusal is not that at all: it is a live link and an address that is not
+ * the one it was sent to (an autofilled everyday address, typically). Told
+ * the link was dead, the person went looking for a new link instead of
+ * retyping their email.
+ *
+ * `INVITE_CLAIMED` is a team link's word for used, `INVITE_ALREADY_USED` a
+ * business link's (`invitations.checkForSignUp`, `businessInvites`).
+ */
+export function inviteRefusalMessage(code: string): string {
+  switch (code) {
+    case 'INVITE_EMAIL_MISMATCH':
+      return 'This invitation was sent to a different email address. Create the account with the address it was sent to.'
+    case 'INVITE_CLAIMED':
+    case 'INVITE_ALREADY_USED':
+      return 'This invitation link has already been used.'
+    case 'INVITE_EXPIRED':
+      return 'This invitation link has expired. Ask whoever sent it for a new one.'
+    case 'INVITE_REVOKED':
+      return 'This invitation link was withdrawn. Ask whoever sent it for a new one.'
+    default:
+      return 'That invitation link is not valid any more.'
+  }
+}
+
+/**
  * Two-step sign-in, optional per person: whoever turns it on in Settings is
  * asked for a code at every sign-in from then on. `AUTH_MFA_REQUIRED=on` makes
  * it compulsory for every account, read through `isMfaRequired()` in
@@ -888,7 +916,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
         }
         if (!result.ok) {
           throw new APIError('FORBIDDEN', {
-            message: 'That invitation link is not valid any more.',
+            message: inviteRefusalMessage(result.code),
             code: result.code,
           })
         }

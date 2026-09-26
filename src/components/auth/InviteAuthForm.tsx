@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { SecondStepForm } from '#/components/auth/SecondStepForm'
 import { authClient, needsSecondStep } from '#/lib/auth-client'
+import { couldBeInvitee } from '#/lib/inviteEmail'
 
 type Mode = 'signUp' | 'signIn'
 
@@ -42,9 +43,17 @@ export function InviteAuthForm({
   // An existing account with two-step sign-in: the code, in place.
   const [secondStep, setSecondStep] = useState(false)
 
+  // A new account on any other address is refused by the server; a sign-in
+  // to one is let through, and the page then says whose link this is.
+  const wrongAddress = `This link was sent to ${emailHint || 'a different address'}. Create your account with that address.`
+
   async function onSubmit(event: React.FormEvent) {
     event.preventDefault()
     setError(null)
+    if (mode === 'signUp' && !couldBeInvitee(email, emailHint)) {
+      setError(wrongAddress)
+      return
+    }
     setPending(true)
     try {
       const result =
@@ -69,6 +78,11 @@ export function InviteAuthForm({
         if (result.error.code === 'USER_ALREADY_EXISTS') {
           setMode('signIn')
           setError('That address already has an account — sign in to accept.')
+        } else if (result.error.code === 'INVITE_EMAIL_MISMATCH') {
+          // A live link and the wrong address, which the check above missed
+          // (the mask cannot tell every address apart). Not "the link is not
+          // valid", which sends people after a new link.
+          setError(wrongAddress)
         } else {
           setError(result.error.message ?? 'Something went wrong.')
         }

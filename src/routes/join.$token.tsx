@@ -5,6 +5,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
 import { InviteAuthForm } from '#/components/auth/InviteAuthForm'
 import { authClient } from '#/lib/auth-client'
+import { couldBeInvitee } from '#/lib/inviteEmail'
 import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
@@ -40,6 +41,11 @@ function JoinPage() {
 
   const { data: session } = authClient.useSession()
   const signedInEmail = session?.user.email ?? null
+  const emailHint = invite.data?.emailHint ?? ''
+  // Signed in to an account this invitation cannot be for: accepting would
+  // only be refused (INVITE_EMAIL_MISMATCH), so the page says so instead.
+  const wrongAccount =
+    signedInEmail !== null && !couldBeInvitee(signedInEmail, emailHint)
 
   const redeem = useMutation({
     mutationFn: () => convexRedeem({ token }),
@@ -72,9 +78,9 @@ function JoinPage() {
   useEffect(() => {
     if (justAuthed && signedInEmail && !redeem.isPending && !redeem.isSuccess) {
       setJustAuthed(false)
-      redeem.mutate()
+      if (!wrongAccount) redeem.mutate()
     }
-  }, [justAuthed, signedInEmail, redeem])
+  }, [justAuthed, signedInEmail, wrongAccount, redeem])
 
   if (invite.isPending) {
     return <Shell title="Checking your invitation…" />
@@ -93,7 +99,6 @@ function JoinPage() {
 
   const businessName = invite.data?.businessName ?? 'this business'
   const roleLabel = (invite.data?.roleLabel ?? 'Team member').toLowerCase()
-  const emailHint = invite.data?.emailHint ?? ''
 
   return (
     <Shell title={`Join ${businessName}`}>
@@ -106,7 +111,24 @@ function JoinPage() {
         <Alert>{redeemMessage(redeem.error, emailHint)}</Alert>
       )}
 
-      {signedInEmail ? (
+      {signedInEmail && wrongAccount ? (
+        <div className="mt-6">
+          <p className="text-body text-ink-2">
+            You're signed in as{' '}
+            <span className="text-ink">{signedInEmail}</span>, but this
+            invitation is for <span className="text-ink">{emailHint}</span>.
+            Sign out, then carry on with that address.
+          </p>
+          <button
+            type="button"
+            disabled={!hydrated}
+            onClick={signOutAndReload}
+            className="mt-4 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          >
+            Sign out
+          </button>
+        </div>
+      ) : signedInEmail ? (
         <div className="mt-6">
           <p className="text-body text-ink-2">
             Signed in as <span className="text-ink">{signedInEmail}</span>
@@ -121,18 +143,7 @@ function JoinPage() {
           </button>
           <button
             type="button"
-            // A reload, as Settings' sign-out does, rather than invalidating:
-            // the query cache is keyed by business, not by person, so the
-            // account signing in next would otherwise be shown the previous
-            // one's cached answers until Convex re-pushed them.
-            onClick={() => {
-              // Before the request (rootState.ts has why).
-              beginSignOut()
-              void authClient
-                .signOut()
-                .then(forgetCachedPages)
-                .then(() => window.location.reload())
-            }}
+            onClick={signOutAndReload}
             className="mt-4 w-full text-body text-blue"
           >
             Not you? Sign out
@@ -156,6 +167,21 @@ function JoinPage() {
   )
 }
 
+/**
+ * A reload, as Settings' sign-out does, rather than invalidating: the query
+ * cache is keyed by business, not by person, so the account signing in next
+ * would otherwise be shown the previous one's cached answers until Convex
+ * re-pushed them.
+ */
+function signOutAndReload() {
+  // Before the request (rootState.ts has why).
+  beginSignOut()
+  void authClient
+    .signOut()
+    .then(forgetCachedPages)
+    .then(() => window.location.reload())
+}
+
 const DEAD_TITLE: Record<string, string> = {
   claimed: 'This invitation has already been used',
   expired: 'This invitation has expired',
@@ -167,7 +193,7 @@ const DEAD_TITLE: Record<string, string> = {
 function redeemMessage(error: unknown, emailHint: string) {
   const message = error instanceof Error ? error.message : String(error)
   if (message.includes('INVITE_EMAIL_MISMATCH')) {
-    return `This invitation was sent to ${emailHint}. Sign out and sign in with that address.`
+    return `This invitation was sent to ${emailHint}. Sign out, then carry on with that address.`
   }
   if (message.includes('ALREADY_MEMBER')) return "You're already on this team."
   if (message.includes('INVITE_ALREADY_USED')) {
