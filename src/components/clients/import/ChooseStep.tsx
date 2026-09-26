@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react'
 import { FileSpreadsheet, FileUp, ListOrdered, Rows3 } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
 import { useHydrated } from '#/lib/useHydrated'
 import { RecentImports } from './RecentImports'
-import { PRIMARY_BUTTON, StepHeading } from './ui'
+import { StepHeading } from './ui'
 import { UndoHold } from './undo'
 import type { DragEvent } from 'react'
 import type { RecentImport } from './queries'
@@ -103,11 +104,12 @@ export function ChooseStep({
           CSV or Excel (.xlsx), up to 5 MB
           <span className="hidden lg:inline"> — or drag it here</span>
         </p>
+        {/* Ink, not red: choosing a file saves nothing — Import does. */}
         <button
           type="button"
           disabled={!ready}
           onClick={() => input.current?.click()}
-          className={`${PRIMARY_BUTTON} mt-5 min-w-44`}
+          className={`${NEUTRAL_BUTTON} mt-5 min-w-44 px-5`}
         >
           {reading ? 'Reading…' : 'Choose a file'}
         </button>

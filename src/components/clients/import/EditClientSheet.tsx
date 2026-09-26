@@ -10,12 +10,12 @@ import {
 import { Plus } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FieldMessage } from '#/components/forms/FieldMessage'
 import { FormField } from '#/components/forms/FormField'
 import { useHydrated } from '#/lib/useHydrated'
 import { AU_STATE_CODES } from '../../../../convex/lib/clientImport'
 import { applyDraft, blankSite, draftOf } from './draft'
-import { PRIMARY_BUTTON } from './ui'
 import type { ReactNode, RefObject } from 'react'
 import type { Draft, SiteDraft } from './draft'
 import type { ReviewClient, ReviewIssue } from '#/lib/clientImport/types'
@@ -183,7 +183,9 @@ function EditForm({
     >
       <div className="mt-1 flex flex-col gap-1.5">
         <span className="section-label">Client type</span>
+        {/* An answer, not a view: a radio group, as the client form's. */}
         <Segmented
+          kind="choice"
           label="Client type"
           value={draft.kind}
           disabled={!hydrated}
@@ -355,7 +357,8 @@ const SiteFields = memo(function SiteFields({
             type="button"
             disabled={disabled}
             onClick={() => onRemove(site.id)}
-            className="inline-flex min-h-9 items-center text-[14px] font-semibold text-red transition active:opacity-60 disabled:opacity-50"
+            // Drawn 36px, tapped at 44 (`tap-target`).
+            className="relative tap-target inline-flex min-h-9 items-center text-[14px] font-semibold text-red transition active:opacity-60 disabled:opacity-50"
           >
             Remove this site
           </button>

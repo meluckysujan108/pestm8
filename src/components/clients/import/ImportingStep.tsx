@@ -1,13 +1,12 @@
 import { LoaderCircle } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
-import { useHydrated } from '#/lib/useHydrated'
 import {
+  NEUTRAL_BUTTON,
   PRIMARY_BUTTON,
-  ProgressBar,
   SECONDARY_BUTTON,
-  STEP_HEADING,
-  STEP_HEADING_CLASS,
-} from './ui'
+} from '#/components/primitives/buttons'
+import { useHydrated } from '#/lib/useHydrated'
+import { ProgressBar, STEP_HEADING, STEP_HEADING_CLASS } from './ui'
 import type { ReactNode } from 'react'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type { RunState } from './useImportRun'
@@ -85,6 +84,8 @@ export function ImportingStep({
           </p>
         )}
         <div className="mt-5 flex flex-col gap-2">
+          {/* Try again sends the rest, so it is red. Stop here and See what
+              went in save nothing: grey beside Try again, ink on their own. */}
           {state.retryable && (
             <button
               type="button"
@@ -99,7 +100,7 @@ export function ImportingStep({
             type="button"
             onClick={onFinish}
             disabled={!hydrated}
-            className={state.retryable ? SECONDARY_BUTTON : PRIMARY_BUTTON}
+            className={state.retryable ? SECONDARY_BUTTON : NEUTRAL_BUTTON}
           >
             {state.retryable ? 'Stop here' : 'See what went in'}
           </button>

@@ -4,18 +4,11 @@ import type { ReactNode } from 'react'
 /**
  * The pieces every step of "Bring your clients across" is laid out with, so
  * the four screens read as one flow: the same column, the same heading, the
- * same bar pinned to the bottom with the way on.
+ * same bar pinned to the bottom with the way on. The buttons are the app's
+ * (components/primitives/buttons.ts): red for what commits — Import, Try
+ * again, the edit sheet's Save — ink for a way on that saves nothing, grey
+ * for the rest.
  */
-
-export const PRIMARY_BUTTON =
-  'inline-flex h-12 items-center justify-center rounded-xl bg-red px-5 text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50'
-
-export const SECONDARY_BUTTON =
-  'inline-flex h-12 items-center justify-center gap-2 rounded-xl bg-surface-2 px-4 text-[17px] font-semibold text-blue transition active:scale-[.975] disabled:opacity-50'
-
-/** A card's own small actions — Edit, Leave out — quieter than the page's. */
-export const SMALL_BUTTON =
-  'inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg bg-surface-2 px-3 text-[14px] font-semibold text-blue transition active:scale-[.97] disabled:opacity-50'
 
 /** "1 client", "212 clients", "1,240 sites". */
 export function plural(n: number, one: string, many = `${one}s`): string {

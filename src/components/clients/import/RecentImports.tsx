@@ -91,7 +91,7 @@ export function RecentImports({
                   whoever can't carry it on is told who can. */}
               {stuck && (
                 <div className="mt-2 flex flex-wrap items-center justify-between gap-x-3 pl-[42px]">
-                  <p className="text-caption text-orange-ink">
+                  <p className="text-caption text-amber-ink">
                     {row.canUndo
                       ? 'This undo stopped part-way.'
                       : 'This undo stopped part-way. Whoever ran this import, or the business owner, can carry it on.'}

@@ -3,18 +3,16 @@ import { Sparkles, TriangleAlert } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { fieldInputClass } from '#/components/forms/FormField'
 import {
+  NEUTRAL_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
+import {
   FIELD_LABELS,
   FIELD_ORDER,
   mappingProblems,
 } from '#/lib/clientImport/columns'
 import { useHydrated } from '#/lib/useHydrated'
-import {
-  BottomBar,
-  PRIMARY_BUTTON,
-  SECONDARY_BUTTON,
-  StepHeading,
-  plural,
-} from './ui'
+import { BottomBar, StepHeading, plural } from './ui'
 import type { ReactNode } from 'react'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type {
@@ -142,7 +140,7 @@ export function MatchStep({
                 onChange={(event) =>
                   set(column, (event.target.value || null) as ImportField)
                 }
-                className={`${fieldInputClass('md', field !== null && twice.has(field))} shrink-0 disabled:opacity-60 sm:w-60`}
+                className={`${fieldInputClass('md', field !== null && twice.has(field))} shrink-0 sm:w-60`}
               >
                 <option value="">Don’t import</option>
                 {FIELD_ORDER.map((option) => (
@@ -162,7 +160,7 @@ export function MatchStep({
         {problems.length > 0 && (
           <ul
             aria-label="Before you continue"
-            className="mb-3 space-y-1 text-caption text-orange-ink"
+            className="mb-3 space-y-1 text-caption text-amber-ink"
           >
             {problems.map((problem) => (
               <li key={problem} className="flex items-start gap-1.5">
@@ -180,7 +178,7 @@ export function MatchStep({
             type="button"
             onClick={onBack}
             disabled={!hydrated}
-            className={SECONDARY_BUTTON}
+            className={`${SECONDARY_BUTTON} px-4`}
           >
             Back
           </button>
@@ -188,7 +186,8 @@ export function MatchStep({
             type="button"
             onClick={onContinue}
             disabled={!hydrated || problems.length > 0 || Boolean(wait)}
-            className={`${PRIMARY_BUTTON} flex-1`}
+            // Ink: Continue reads what's here and saves nothing.
+            className={`${NEUTRAL_BUTTON} flex-1`}
           >
             Continue
           </button>

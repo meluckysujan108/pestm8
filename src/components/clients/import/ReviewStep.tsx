@@ -3,6 +3,11 @@ import { Download, LoaderCircle } from 'lucide-react'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { FormAlert } from '#/components/forms/FormAlert'
 import {
+  LINK_BUTTON,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
+import {
   bucketOf,
   importable,
   statusOf,
@@ -15,9 +20,7 @@ import { ReviewCard } from './ReviewCard'
 import { notImportedFileName, rowsNotImported } from './run'
 import {
   BottomBar,
-  PRIMARY_BUTTON,
   ProgressBar,
-  SECONDARY_BUTTON,
   STEP_HEADING,
   STEP_HEADING_CLASS,
   StepHeading,
@@ -271,7 +274,9 @@ export function ReviewStep({
                 setFilter(f.key)
                 setShown(PAGE)
               }}
-              className={`inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[13px] font-semibold transition active:scale-[.97] disabled:opacity-60 ${
+              // Drawn 36px, tapped at 44 (`tap-target`), as the app's
+              // other filter chips.
+              className={`relative tap-target inline-flex min-h-9 items-center gap-1.5 rounded-full border px-3 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.97] disabled:opacity-60 ${
                 on
                   ? 'border-blue/30 bg-blue/12 text-blue'
                   : 'border-hairline bg-surface text-ink-2'
@@ -321,7 +326,7 @@ export function ReviewStep({
           type="button"
           disabled={!hydrated}
           onClick={() => setShown((n) => n + PAGE)}
-          className={`${SECONDARY_BUTTON} mt-3 w-full`}
+          className={`${SECONDARY_BUTTON} mt-3 flex w-full items-center justify-center gap-2`}
         >
           Show {Math.min(PAGE, visible.length - shown)} more
           <span className="font-normal text-muted">
@@ -340,7 +345,7 @@ export function ReviewStep({
               disabled={!hydrated}
               aria-label="Download rows that won’t import"
               title="Download rows that won’t import"
-              className={`${SECONDARY_BUTTON} shrink-0 max-sm:w-12 max-sm:px-0`}
+              className={`${LINK_BUTTON} flex shrink-0 items-center justify-center gap-2 px-4 max-sm:w-12 max-sm:px-0`}
             >
               <Download aria-hidden size={18} strokeWidth={2} />
               <span className="max-sm:sr-only">Rows that won’t import</span>

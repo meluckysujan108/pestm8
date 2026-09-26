@@ -10,10 +10,11 @@ import {
   User,
 } from 'lucide-react'
 import { ClientKindPill } from '#/components/clients/ClientCard'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { RowBadge } from '#/components/settings/ui'
 import { duplicateSiteMessage } from '#/lib/clientImport/build'
 import { formatAbn } from '../../../../convex/lib/abn'
-import { SMALL_BUTTON, plural } from './ui'
+import { plural } from './ui'
 import type { ReactNode } from 'react'
 import type {
   ReviewClient,
@@ -48,8 +49,8 @@ const ISSUE_STYLE: Record<
   },
   warning: {
     Icon: TriangleAlert,
-    icon: 'text-orange-ink',
-    text: 'text-orange-ink',
+    icon: 'text-amber-ink',
+    text: 'text-amber-ink',
     word: 'Worth a look',
   },
   fixed: {
@@ -249,7 +250,9 @@ export const ReviewCard = memo(function ReviewCard({
             disabled={!hydrated}
             aria-expanded={allSites}
             onClick={() => setAllSites((all) => !all)}
-            className="mt-1 inline-flex min-h-9 items-center pl-6 text-[14px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+            // Drawn 36px, tapped at 44 (`tap-target`): nothing that can be
+            // pressed sits within reach above or below it.
+            className="relative tap-target mt-1 inline-flex min-h-9 items-center pl-6 text-[14px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
           >
             {allSites
               ? 'Show fewer sites'
@@ -314,7 +317,9 @@ export const ReviewCard = memo(function ReviewCard({
                   disabled={!hydrated}
                   aria-expanded={allIssues}
                   onClick={() => setAllIssues((all) => !all)}
-                  className="inline-flex min-h-9 items-center pl-5.5 text-[14px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
+                  // 44px outright, not a widened hit area: the line above
+                  // can end in a fix, whose padding reaches down to here.
+                  className="inline-flex min-h-11 items-center pl-5.5 text-[14px] font-semibold text-blue transition active:opacity-60 disabled:opacity-50"
                 >
                   {allIssues
                     ? 'Show fewer'
@@ -332,7 +337,7 @@ export const ReviewCard = memo(function ReviewCard({
           disabled={!hydrated}
           onClick={(event) => onEdit(client, event.currentTarget)}
           aria-label={`Edit ${name}`}
-          className={SMALL_BUTTON}
+          className={`${SECONDARY_BUTTON_COMPACT} px-4`}
         >
           Edit
         </button>
@@ -341,7 +346,7 @@ export const ReviewCard = memo(function ReviewCard({
           disabled={!hydrated}
           onClick={() => holdFocus(card.current, () => onToggle(client))}
           aria-label={`${client.included ? 'Leave out' : 'Include'} ${name}`}
-          className={SMALL_BUTTON}
+          className={`${SECONDARY_BUTTON_COMPACT} px-4`}
         >
           {client.included ? 'Leave out' : 'Include'}
         </button>

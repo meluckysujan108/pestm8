@@ -10,18 +10,12 @@ import {
   Users,
 } from 'lucide-react'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { LINK_BUTTON, NEUTRAL_BUTTON } from '#/components/primitives/buttons'
 import { downloadText, rowsCsv } from '#/lib/clientImport/skipped'
 import { useHydrated } from '#/lib/useHydrated'
 import { recentImports } from './queries'
 import { notImportedFileName, outcomeOf, rowsNotImported } from './run'
-import {
-  DrawnCheck,
-  PRIMARY_BUTTON,
-  SECONDARY_BUTTON,
-  STEP_HEADING,
-  STEP_HEADING_CLASS,
-  plural,
-} from './ui'
+import { DrawnCheck, STEP_HEADING, STEP_HEADING_CLASS, plural } from './ui'
 import {
   UNDO_ERROR_COPY,
   UndoDialog,
@@ -211,10 +205,13 @@ export function DoneStep({
       )}
 
       <div className="mt-6 flex flex-col gap-2">
+        {/* The way on, so it stands out — in ink, not red: everything that
+            saves is done by now. The download beside it is grey, as the
+            app draws a button that goes somewhere else. */}
         <Link
           to="/$businessSlug/clients"
           params={{ businessSlug }}
-          className={PRIMARY_BUTTON}
+          className={`${NEUTRAL_BUTTON} flex items-center justify-center`}
         >
           Go to clients
         </Link>
@@ -225,7 +222,7 @@ export function DoneStep({
             type="button"
             onClick={download}
             disabled={!hydrated}
-            className={SECONDARY_BUTTON}
+            className={`${LINK_BUTTON} flex items-center justify-center gap-2`}
           >
             <Download aria-hidden size={18} strokeWidth={2} />
             Download rows not imported
