@@ -34,10 +34,10 @@ npx convex env set SITE_URL http://localhost:3000
 
 Two auth switches are **off unless set**, and both belong on production only:
 
-| Env var               | Effect                                                                                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `AUTH_INVITE_ONLY=on` | Sign-up requires a live invitation token. Without it anyone can create an account (they join nothing, but the account exists). |
-| `AUTH_RATE_LIMIT=on`  | Database-backed rate limiting on sign-in, sign-up, password reset and the two-step endpoints (codes: 10 a minute per IP).      |
+| Env var               | Effect                                                                                                                                                                                                                                                                                     |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `AUTH_INVITE_ONLY=on` | Sign-up requires a live invitation token — a team link, or a start-a-business link. Creating a business needs a claimed start-a-business link too, existing owners included (`convex/businessInvites.ts`). Without it anyone can create an account, and any account can create a business. |
+| `AUTH_RATE_LIMIT=on`  | Database-backed rate limiting on sign-in, sign-up, password reset and the two-step endpoints (codes: 10 a minute per IP).                                                                                                                                                                  |
 
 They stay off in dev and e2e because the test suite creates ~150 accounts per
 run. Before turning `AUTH_RATE_LIMIT` on, check what client IP actually reaches

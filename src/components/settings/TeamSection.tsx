@@ -1,7 +1,11 @@
 import { useId, useState } from 'react'
-import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
-import { useConvexAction, useConvexMutation } from '@convex-dev/react-query'
-import { Check, Copy, Mail, RefreshCw, Share2, X } from 'lucide-react'
+import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
+import {
+  convexQuery,
+  useConvexAction,
+  useConvexMutation,
+} from '@convex-dev/react-query'
+import { Mail, RefreshCw, X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { EmailInput } from '#/components/forms/EmailInput'
 import { FormAlert } from '#/components/forms/FormAlert'
@@ -12,6 +16,7 @@ import {
   useSaveWarnings,
 } from '#/components/forms/SaveWarnings'
 import { Sheet } from '#/components/primitives/Sheet'
+import { InviteLinkCard } from './InviteLinkCard'
 import { ROLE_LABEL, memberName } from './MemberAccessRow'
 import {
   FIELD_LABEL,
@@ -75,6 +80,12 @@ export function TeamSection({
   // not reachable while switched (`team.manage` drops).
   const access = useAccess()
   const viewerIsOwner = access.role === 'owner'
+  // Who is asking and for which business, named in the text the link goes
+  // out in. The business is the layout's own query, already held.
+  const { data: business } = useQuery(
+    convexQuery(api.businesses.getBySlug, { slug: businessSlug }),
+  )
+  const viewer = members.find((m) => m._id === access.membershipId)
   const emailId = useId()
   const warnings = useSaveWarnings()
 
@@ -262,7 +273,12 @@ export function TeamSection({
         <div className="pb-[calc(8px+env(safe-area-inset-bottom))] pt-1">
           {freshLink ? (
             <>
-              <InviteLinkCard email={freshLink.email} url={freshLink.url} />
+              <InviteLinkCard
+                email={freshLink.email}
+                url={freshLink.url}
+                businessName={business?.name}
+                inviterName={viewer ? memberName(viewer) : undefined}
+              />
               <button
                 type="button"
                 onClick={closeSheet}
@@ -372,72 +388,6 @@ function Initial({ name, colour }: { name: string; colour: string }) {
     >
       {name.trim().charAt(0).toUpperCase()}
     </span>
-  )
-}
-
-/**
- * Shown once, immediately after the link is minted. There is no "copy it
- * later": the server keeps only a hash, so a lost link is replaced rather
- * than looked up. Done, under it, closes it for good.
- */
-function InviteLinkCard({ email, url }: { email: string; url: string }) {
-  const [copied, setCopied] = useState(false)
-  const canShare = typeof navigator !== 'undefined' && 'share' in navigator
-
-  const smsBody = `Here's your PestM8 invite: ${url}`
-
-  return (
-    <div>
-      <p className="text-body font-semibold text-ink">Send this to {email}</p>
-      <p className="mt-0.5 text-caption text-muted">
-        Shown once. Works for 3 days, for that address only.
-      </p>
-
-      <p className="mt-3 truncate rounded-xl bg-surface-2 px-3 py-2.5 font-mono text-caption text-ink-2">
-        {url}
-      </p>
-
-      <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          onClick={() => {
-            void navigator.clipboard.writeText(url).then(() => {
-              setCopied(true)
-              setTimeout(() => setCopied(false), 2000)
-            })
-          }}
-          className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
-        >
-          {copied ? (
-            <Check size={16} strokeWidth={2} />
-          ) : (
-            <Copy size={16} strokeWidth={1.7} />
-          )}
-          {copied ? 'Copied' : 'Copy link'}
-        </button>
-
-        {canShare ? (
-          <button
-            type="button"
-            onClick={() => {
-              void navigator.share({ text: smsBody }).catch(() => {})
-            }}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-blue text-body font-semibold text-white transition active:scale-[.975]"
-          >
-            <Share2 size={16} strokeWidth={1.7} />
-            Share
-          </button>
-        ) : (
-          <a
-            href={`sms:?&body=${encodeURIComponent(smsBody)}`}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-blue text-body font-semibold text-white transition active:scale-[.975]"
-          >
-            <Share2 size={16} strokeWidth={1.7} />
-            Text it
-          </a>
-        )}
-      </div>
-    </div>
   )
 }
 

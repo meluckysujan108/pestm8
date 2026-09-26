@@ -153,9 +153,10 @@ function breachCheck() {
 /**
  * Invite-only sign-up.
  *
- * PestM8 serves one business. Nobody should be able to create an account here
- * except someone holding a live invitation, and `disableSignUp` is no use — it
- * refuses every caller, including the invited one.
+ * Nobody should be able to create an account here except someone holding a
+ * live invitation — to join a team (`invitations`) or to start a business
+ * (`businessInvites`) — and `disableSignUp` is no use: it refuses every
+ * caller, including the invited one.
  *
  * Off by default, and on via env on the deployments that want it, because the
  * e2e suite signs up ~150 accounts per run and would otherwise need a token for
@@ -867,10 +868,24 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
           })
         }
 
-        const result = await ctx.runQuery(internal.invitations.checkForSignUp, {
+        // A link to join a team, or else one to start a business
+        // (businessInvites.ts). The hashes are 256-bit random, so a token is
+        // one or the other; "no such team invitation" is where the second
+        // kind is looked for, and any other refusal stands.
+        const check = {
           tokenHash: await hashInviteToken(token),
           email: String(body.email ?? ''),
-        })
+        }
+        let result = await ctx.runQuery(
+          internal.invitations.checkForSignUp,
+          check,
+        )
+        if (!result.ok && result.code === 'INVITE_INVALID') {
+          result = await ctx.runQuery(
+            internal.businessInvites.checkForSignUp,
+            check,
+          )
+        }
         if (!result.ok) {
           throw new APIError('FORBIDDEN', {
             message: 'That invitation link is not valid any more.',

@@ -3,8 +3,8 @@ import { createFileRoute, useRouter } from '@tanstack/react-router'
 import { useConvexAction } from '@convex-dev/react-query'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { api } from '../../convex/_generated/api'
-import { SecondStepForm } from '#/components/auth/SecondStepForm'
-import { authClient, needsSecondStep } from '#/lib/auth-client'
+import { InviteAuthForm } from '#/components/auth/InviteAuthForm'
+import { authClient } from '#/lib/auth-client'
 import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
@@ -23,8 +23,6 @@ import { useHydrated } from '#/lib/useHydrated'
  */
 
 export const Route = createFileRoute('/join/$token')({ component: JoinPage })
-
-type Mode = 'signUp' | 'signIn'
 
 function JoinPage() {
   const { token } = Route.useParams()
@@ -141,7 +139,7 @@ function JoinPage() {
           </button>
         </div>
       ) : (
-        <JoinForm
+        <InviteAuthForm
           emailHint={emailHint}
           token={token}
           onAuthed={() => setJustAuthed(true)}
@@ -180,147 +178,6 @@ function redeemMessage(error: unknown, emailHint: string) {
   return 'Could not join. Check your connection and try again.'
 }
 
-function JoinForm({
-  emailHint,
-  token,
-  onAuthed,
-  disabled,
-}: {
-  emailHint: string
-  /** Sent with sign-up: on an invite-only deployment it is what permits the
-   * account to be created at all. */
-  token: string
-  onAuthed: () => void
-  disabled: boolean
-}) {
-  const [mode, setMode] = useState<Mode>('signUp')
-  const [name, setName] = useState('')
-  const [email, setEmail] = useState('')
-  const [password, setPassword] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [pending, setPending] = useState(false)
-  // An existing account with two-step sign-in: the code, in place.
-  const [secondStep, setSecondStep] = useState(false)
-
-  async function onSubmit(event: React.FormEvent) {
-    event.preventDefault()
-    setError(null)
-    setPending(true)
-    try {
-      const result =
-        mode === 'signUp'
-          ? await authClient.signUp.email(
-              // The invite token travels in the body rather than a header, so
-              // it stays out of request logs. Better Auth's sign-up schema is
-              // an intersection with a record and accepts unknown keys; the
-              // client's types don't model that, hence the cast.
-              {
-                name,
-                email,
-                password,
-                inviteToken: token,
-              } as Parameters<typeof authClient.signUp.email>[0],
-            )
-          : await authClient.signIn.email({ email, password })
-
-      if (result.error) {
-        // "User already exists" is a dead end on an invite page, so it becomes
-        // an offer to sign in instead.
-        if (result.error.code === 'USER_ALREADY_EXISTS') {
-          setMode('signIn')
-          setError('That address already has an account — sign in to accept.')
-        } else {
-          setError(result.error.message ?? 'Something went wrong.')
-        }
-        return
-      }
-      if (needsSecondStep(result.data)) {
-        setPassword('')
-        setSecondStep(true)
-        return
-      }
-      onAuthed()
-    } catch {
-      setError("Couldn't reach PestM8. Check your connection and try again.")
-    } finally {
-      setPending(false)
-    }
-  }
-
-  if (secondStep) {
-    return (
-      <div className="mt-6">
-        <SecondStepForm
-          disabled={disabled}
-          onVerified={onAuthed}
-          onRestart={(message) => {
-            setSecondStep(false)
-            setError(message)
-          }}
-        />
-      </div>
-    )
-  }
-
-  return (
-    <form onSubmit={onSubmit} className="mt-6 flex flex-col gap-3">
-      {mode === 'signUp' && (
-        <Field
-          label="Your name"
-          value={name}
-          onChange={setName}
-          autoComplete="name"
-          autoCapitalize="words"
-        />
-      )}
-      <Field
-        label="Email"
-        type="email"
-        value={email}
-        onChange={setEmail}
-        autoComplete="email"
-        hint={`Use ${emailHint} — the address this invitation was sent to.`}
-      />
-      <Field
-        label="Password"
-        type="password"
-        value={password}
-        onChange={setPassword}
-        autoComplete={mode === 'signUp' ? 'new-password' : 'current-password'}
-        minLength={mode === 'signUp' ? 10 : undefined}
-        hint={mode === 'signUp' ? 'At least 10 characters.' : undefined}
-      />
-
-      {error && <Alert>{error}</Alert>}
-
-      <button
-        type="submit"
-        disabled={pending || disabled}
-        className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
-      >
-        {pending
-          ? 'Just a moment…'
-          : mode === 'signUp'
-            ? 'Create account & join'
-            : 'Sign in & join'}
-      </button>
-
-      <button
-        type="button"
-        onClick={() => {
-          setMode(mode === 'signUp' ? 'signIn' : 'signUp')
-          setError(null)
-        }}
-        className="mt-1 text-body text-blue"
-      >
-        {mode === 'signUp'
-          ? 'Already have an account? Sign in'
-          : 'Need an account? Create one'}
-      </button>
-    </form>
-  )
-}
-
 function Shell({
   title,
   children,
@@ -345,43 +202,5 @@ function Alert({ children }: { children: React.ReactNode }) {
     >
       {children}
     </p>
-  )
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  type = 'text',
-  autoComplete,
-  autoCapitalize,
-  minLength,
-  hint,
-}: {
-  label: string
-  value: string
-  onChange: (value: string) => void
-  type?: string
-  autoComplete?: string
-  autoCapitalize?: string
-  minLength?: number
-  hint?: string
-}) {
-  return (
-    <label className="flex flex-col gap-1.5">
-      <span className="section-label">{label}</span>
-      <input
-        type={type}
-        value={value}
-        required
-        autoComplete={autoComplete}
-        autoCapitalize={autoCapitalize}
-        minLength={minLength}
-        enterKeyHint="go"
-        onChange={(e) => onChange(e.target.value)}
-        className="h-12 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-      />
-      {hint && <span className="text-caption text-muted">{hint}</span>}
-    </label>
   )
 }

@@ -21,6 +21,7 @@ import { Route as BusinessSlugNotesRouteImport } from './routes/$businessSlug/no
 import { Route as BusinessSlugProductsRouteImport } from './routes/$businessSlug/products'
 import { Route as BusinessSlugScheduleRouteImport } from './routes/$businessSlug/schedule'
 import { Route as JoinTokenRouteImport } from './routes/join.$token'
+import { Route as StartTokenRouteImport } from './routes/start.$token'
 import { Route as BusinessSlugClientsIndexRouteImport } from './routes/$businessSlug/clients/index'
 import { Route as BusinessSlugJobIndexRouteImport } from './routes/$businessSlug/job/index'
 import { Route as BusinessSlugJobRecurringRouteImport } from './routes/$businessSlug/job/recurring'
@@ -101,6 +102,11 @@ const BusinessSlugScheduleRoute = BusinessSlugScheduleRouteImport.update({
 const JoinTokenRoute = JoinTokenRouteImport.update({
   id: '/join/$token',
   path: '/join/$token',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const StartTokenRoute = StartTokenRouteImport.update({
+  id: '/start/$token',
+  path: '/start/$token',
   getParentRoute: () => rootRouteImport,
 } as any)
 const BusinessSlugClientsIndexRoute =
@@ -240,6 +246,7 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
+  '/start/$token': typeof StartTokenRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
@@ -274,6 +281,7 @@ export interface FileRoutesByTo {
   '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
+  '/start/$token': typeof StartTokenRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
@@ -310,6 +318,7 @@ export interface FileRoutesById {
   '/$businessSlug/products': typeof BusinessSlugProductsRoute
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
+  '/start/$token': typeof StartTokenRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
@@ -347,6 +356,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/join/$token'
+    | '/start/$token'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
@@ -381,6 +391,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/join/$token'
+    | '/start/$token'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
@@ -416,6 +427,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/products'
     | '/$businessSlug/schedule'
     | '/join/$token'
+    | '/start/$token'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
@@ -446,6 +458,7 @@ export interface RootRouteChildren {
   OnboardingRoute: typeof OnboardingRoute
   TwoStepRoute: typeof TwoStepRoute
   JoinTokenRoute: typeof JoinTokenRoute
+  StartTokenRoute: typeof StartTokenRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -533,6 +546,13 @@ declare module '@tanstack/react-router' {
       path: '/join/$token'
       fullPath: '/join/$token'
       preLoaderRoute: typeof JoinTokenRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/start/$token': {
+      id: '/start/$token'
+      path: '/start/$token'
+      fullPath: '/start/$token'
+      preLoaderRoute: typeof StartTokenRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$businessSlug/clients/': {
@@ -766,6 +786,7 @@ const rootRouteChildren: RootRouteChildren = {
   OnboardingRoute: OnboardingRoute,
   TwoStepRoute: TwoStepRoute,
   JoinTokenRoute: JoinTokenRoute,
+  StartTokenRoute: StartTokenRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

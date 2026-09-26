@@ -309,6 +309,28 @@ export default defineSchema({
      * later ask about.
      */
     nextReportNumber: v.optional(v.number()),
+    /**
+     * How far the owner has got through set-up (src/routes/onboarding.tsx),
+     * so a home-screen app that reloads half-way — iOS does, after a trip to
+     * Photos for the logo — opens at the step it left rather than on an empty
+     * schedule. Only a business made through that flow has one: absent means
+     * set-up is nothing to resume, which is every business from before it.
+     *
+     * `step` is the next one to show; `finishedAt` ends it for good, whether
+     * the owner got to the end or chose to finish later.
+     */
+    setup: v.optional(
+      v.object({
+        step: v.union(
+          v.literal('brand'),
+          v.literal('licence'),
+          v.literal('team'),
+        ),
+        /** Their answer to "Who works with you?", for what comes after. */
+        team: v.optional(v.union(v.literal('solo'), v.literal('team'))),
+        finishedAt: v.optional(v.number()),
+      }),
+    ),
   }).index('by_slug', ['slug']),
 
   memberships: defineTable({
@@ -510,6 +532,37 @@ export default defineSchema({
     .index('by_email', ['email'])
     .index('by_business', ['businessId'])
     .index('by_token_hash', ['tokenHash']),
+
+  /**
+   * A link to START a business, as `invitations` is a link to join one
+   * (convex/businessInvites.ts). Issued from the CLI to one email address;
+   * with `AUTH_INVITE_ONLY=on` it is the only way an account comes to own a
+   * new business.
+   *
+   * Two steps, because signing up and creating the business are two requests
+   * with a two-step set-up possibly between them: opening the link signed in
+   * CLAIMS it for that account (`claimedByUserId`), and `businesses.create`
+   * later USES the claim (`businessId`). The plain token never has to be
+   * carried from one to the other, or kept anywhere a reload could lose it.
+   */
+  businessInvites: defineTable({
+    /** Lower-cased. The only address that may claim it. */
+    email: v.string(),
+    tokenHash: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    /** Who it is for, as the issuer wrote it — shown in their own list. */
+    note: v.optional(v.string()),
+    revokedAt: v.optional(v.number()),
+    claimedAt: v.optional(v.number()),
+    claimedByUserId: v.optional(v.string()),
+    /** The business made with it. Set once; the claim is spent. */
+    businessId: v.optional(v.id('businesses')),
+    usedAt: v.optional(v.number()),
+  })
+    .index('by_token_hash', ['tokenHash'])
+    .index('by_email', ['email'])
+    .index('by_claimed_by_user_id', ['claimedByUserId']),
 
   properties: defineTable({
     businessId: v.id('businesses'),

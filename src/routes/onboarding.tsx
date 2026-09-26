@@ -1,141 +1,293 @@
-import { useId, useState } from 'react'
-import { createFileRoute, redirect, useRouter } from '@tanstack/react-router'
+import {
+  Navigate,
+  createFileRoute,
+  redirect,
+  useNavigate,
+} from '@tanstack/react-router'
+import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { useMutation } from '@tanstack/react-query'
+import { z } from 'zod'
 import { api } from '../../convex/_generated/api'
-import { AbnInput } from '#/components/clients/AbnInput'
-import { FormAlert } from '#/components/forms/FormAlert'
-import { AU_STATES, TIMEZONE_BY_STATE } from '#/lib/au'
+import { BrandStep } from '#/components/onboarding/BrandStep'
+import { BusinessStep } from '#/components/onboarding/BusinessStep'
+import { LicenceStep } from '#/components/onboarding/LicenceStep'
+import { NoBusiness } from '#/components/onboarding/NoBusiness'
+import { ReadyStep } from '#/components/onboarding/ReadyStep'
+import { TeamStep } from '#/components/onboarding/TeamStep'
+import { authClient } from '#/lib/auth-client'
+import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
+import { rq } from '#/lib/routeQueries'
+import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
+import { FinishLaterContext } from '#/components/onboarding/SetupFrame'
+import type { SetupStep } from '#/components/onboarding/SetupFrame'
+import type { TeamShape } from '#/components/onboarding/TeamStep'
+
+/**
+ * Setting up a business: four short steps, one question each, and a finish.
+ *
+ *   business → brand → licence → team → ready
+ *
+ * The first creates the business; after that the business is in the URL
+ * (`?business=<slug>&step=<step>`) and each step edits it. The step the owner
+ * has reached is also kept on the business (`businesses.setup`), because an
+ * iPhone Home Screen app that reloads comes back at `/`, not here — and `/`
+ * sends an owner with set-up still open back to that step.
+ *
+ * Everything after the name is optional ("Add later"). What the steps ask
+ * for is what stops work when it is missing: the letterhead every report
+ * prints, and the licence number a certificate will not finalise without.
+ *
+ * With sign-up invitation-only, only an account holding a claimed
+ * start-a-business link may create one (`businessInvites.setupAccess`);
+ * anyone else with no business is told so (`NoBusiness`).
+ */
+
+const STEPS = ['business', 'brand', 'licence', 'team', 'ready'] as const
+
+const searchSchema = z.object({
+  business: z.string().optional(),
+  step: z.enum(STEPS).optional().catch(undefined),
+})
 
 export const Route = createFileRoute('/onboarding')({
-  beforeLoad: async ({ context }) => {
+  validateSearch: searchSchema,
+  beforeLoad: async ({ context, search, location }) => {
     if (!context.isAuthenticated) throw redirect({ to: '/login' })
-    // Creating a business comes after two-step sign-in, like everything
-    // else the server does for a signed-in person — asked here rather than
-    // discovered on Create, so nobody fills the form in first.
+    // Creating a business comes after two-step sign-in where that is
+    // compulsory, like everything else the server does for a signed-in
+    // person — asked here rather than discovered on Create, so nobody fills
+    // the form in first.
     const status = await context.queryClient.ensureQueryData(
       convexQuery(api.auth.twoFactorStatus, {}),
     )
     if (status.required && !status.enabled) {
-      throw redirect({ to: '/two-step', search: { next: '/onboarding' } })
+      throw redirect({ to: '/two-step', search: { next: location.href } })
     }
+    const enrol = (error: unknown): never => {
+      if (isMfaEnrolmentError(error)) {
+        throw redirect({ to: '/two-step', search: { next: location.href } })
+      }
+      throw error
+    }
+
+    if (search.business) {
+      // Warmed here so the step renders without a placeholder, and read
+      // live from there. Only the owner sets up; anyone else, or a slug that
+      // is not theirs, goes where `/` would send them.
+      // The account too: its email starts the letterhead's, and a field
+      // cannot take a value that arrives after it first renders.
+      const [business] = await Promise.all([
+        context.queryClient.ensureQueryData(
+          convexQuery(api.businesses.getBySlug, { slug: search.business }),
+        ),
+        context.queryClient.ensureQueryData(rq.currentUser()),
+      ]).catch(enrol)
+      // Not theirs to set up. Not back to `/`, which could send them here
+      // again: to the business itself, which answers for itself — its
+      // schedule for a member, Not found for anyone else.
+      if (!business || business.membership.role !== 'owner') {
+        throw redirect({
+          to: '/$businessSlug/schedule',
+          params: { businessSlug: search.business },
+        })
+      }
+      return { mode: 'setup' as const }
+    }
+
+    const [access, businesses] = await Promise.all([
+      context.queryClient.ensureQueryData(
+        convexQuery(api.businessInvites.setupAccess, {}),
+      ),
+      context.queryClient.ensureQueryData(
+        convexQuery(api.businesses.listForUser, {}),
+      ),
+    ]).catch(enrol)
+    if (access.canCreate) return { mode: 'create' as const }
+    // In a business already, with nothing to set up: not a page for them.
+    if (businesses.length > 0) throw redirect({ to: '/' })
+    return { mode: 'none' as const }
   },
+  // A redirect or a form, nothing slow: keep the screen you came from.
+  pendingMs: Infinity,
   component: OnboardingPage,
 })
 
-/** Nothing is saved yet here, so "Could not create", not "Could not save". */
-const CREATE_COPY = {
-  INVALID_ABN:
-    'Could not create the business: the ABN does not pass the ATO check. Check its 11 digits.',
-  offline:
-    'Could not create the business: this device is offline. Try again when you have signal.',
-  default: 'Could not create the business. Check the name and try again.',
-}
-
 function OnboardingPage() {
-  const hydrated = useHydrated()
+  const { mode } = Route.useRouteContext()
+  const search = Route.useSearch()
+  const navigate = useNavigate()
+  const { data: session } = authClient.useSession()
+  const email = session?.user.email ?? null
 
-  const router = useRouter()
-  const abnId = useId()
-  const [name, setName] = useState('')
-  const [state, setState] = useState<string>('WA')
-  const [abn, setAbn] = useState('')
+  if (mode === 'none') return <NoBusiness email={email} />
 
-  // useConvexMutation returns a callable interface carrying extra properties
-  // (.withOptimisticUpdate), which defeats TanStack's return-type inference —
-  // the plain arrow restores it.
-  const convexCreateBusiness = useConvexMutation(api.businesses.create)
-
-  const createBusiness = useMutation({
-    mutationFn: (args: {
-      name: string
-      state: string
-      timezone: string
-      abn?: string
-    }) => convexCreateBusiness(args),
-    onSuccess: async ({ slug }) => {
-      await router.invalidate()
-      await router.navigate({
-        to: '/$businessSlug/schedule',
-        params: { businessSlug: slug },
-      })
-    },
-  })
+  if (mode === 'setup' && search.business) {
+    return (
+      <SetupFor
+        key={search.business}
+        slug={search.business}
+        step={search.step ?? 'brand'}
+      />
+    )
+  }
 
   return (
-    <main className="mx-auto flex min-h-dvh w-full max-w-[460px] flex-col justify-center px-6">
-      <p className="section-label mb-2">Set up</p>
-      <h1 className="text-page-title text-ink">Your business</h1>
-      <p className="mt-2 text-body text-muted">
-        You can invite your team once this is created.
-      </p>
+    <BusinessStep
+      business={null}
+      // `replace`: Back from the next step is this business's own step 1,
+      // never the empty form that would make a second one.
+      onDone={(slug) =>
+        navigate({
+          to: '/onboarding',
+          search: { business: slug, step: 'brand' },
+          replace: true,
+        })
+      }
+      footer={<SignedInAs email={email} />}
+    />
+  )
+}
 
-      <form
-        className="mt-8 flex flex-col gap-3"
-        onSubmit={(e) => {
-          e.preventDefault()
-          createBusiness.mutate({
-            name,
-            state,
-            timezone: TIMEZONE_BY_STATE[state],
-            abn: abn.trim() || undefined,
-          })
-        }}
-      >
-        <label className="flex flex-col gap-1.5">
-          <span className="section-label">Business name</span>
-          <input
-            value={name}
-            required
-            onChange={(e) => setName(e.target.value)}
-            className="h-12 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+function SetupFor({ slug, step }: { slug: string; step: SetupStep }) {
+  const navigate = useNavigate()
+  const { data: user } = useSuspenseQuery(rq.currentUser())
+  const accountEmail = user.email || null
+  const accountName = user.name || undefined
+  // Live, so a logo shows the moment it lands and each step opens on what
+  // the last one saved.
+  const { data: business } = useSuspenseQuery(
+    convexQuery(api.businesses.getBySlug, { slug }),
+  )
+  const setSetup = useConvexMutation(api.businesses.setSetup)
+
+  // Gone mid-flow (removed from it, say): the business answers for itself,
+  // as in `beforeLoad` — never `/`, which could send them straight back.
+  if (!business) {
+    return (
+      <Navigate
+        to="/$businessSlug/schedule"
+        params={{ businessSlug: slug }}
+        replace
+      />
+    )
+  }
+  const businessId = business._id
+
+  // Forward is a new entry, so the phone's own Back retraces the steps.
+  // In-app Back replaces, so Back and Continue in turn do not pile up.
+  const go = (next: SetupStep, replace = false) =>
+    navigate({
+      to: '/onboarding',
+      search: { business: slug, step: next },
+      replace,
+    })
+
+  // Where to resume is a convenience, so it never holds anyone up: offline,
+  // the write waits for signal while they carry on, and at worst `/` opens
+  // a step early next time.
+  const reach = (
+    patch: Omit<Parameters<typeof setSetup>[0], 'businessId'>,
+  ): void => {
+    void setSetup({ businessId, ...patch }).catch(() => {})
+  }
+  const advance = async (next: 'licence' | 'team') => {
+    reach({ step: next })
+    await go(next)
+  }
+
+  const toSchedule = (newJob: boolean) =>
+    navigate({
+      to: '/$businessSlug/schedule',
+      params: { businessSlug: slug },
+      search: newJob ? { newJob: true } : {},
+      replace: true,
+    })
+
+  // Out of set-up for good, from brand or licence: the schedule now, and `/`
+  // no longer brings them back. What is left undone waits in Settings.
+  const finishLater = () => {
+    reach({ finished: true })
+    void toSchedule(false)
+  }
+
+  // A const arrow, not a declaration: it keeps `business` known non-null.
+  const screen = () => {
+    switch (step) {
+      case 'business':
+        return <BusinessStep business={business} onDone={() => go('brand')} />
+      case 'brand':
+        return (
+          <BrandStep
+            business={business}
+            accountEmail={accountEmail}
+            licenceNumber={business.membership.licenceNumber}
+            onBack={() => void go('business', true)}
+            onDone={() => advance('licence')}
+            onLater={() => void advance('licence')}
           />
-        </label>
+        )
+      case 'licence':
+        return (
+          <LicenceStep
+            business={business}
+            onBack={() => void go('brand', true)}
+            onDone={() => advance('team')}
+            onLater={() => void advance('team')}
+          />
+        )
+      case 'team':
+        return (
+          <TeamStep
+            business={business}
+            inviterName={accountName}
+            onBack={() => void go('licence', true)}
+            onDone={async (team: TeamShape | null) => {
+              reach({ ...(team ? { team } : {}), finished: true })
+              await go('ready')
+            }}
+          />
+        )
+      case 'ready':
+        return (
+          <ReadyStep
+            business={business}
+            onBook={() => void toSchedule(true)}
+            onSchedule={() => void toSchedule(false)}
+          />
+        )
+    }
+  }
 
-        <label className="flex flex-col gap-1.5">
-          <span className="section-label">State</span>
-          <select
-            value={state}
-            onChange={(e) => setState(e.target.value)}
-            className="h-12 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
-          >
-            {AU_STATES.map((s) => (
-              <option key={s.code} value={s.code}>
-                {s.name}
-              </option>
-            ))}
-          </select>
-          <span className="text-caption text-muted">
-            Sets your timezone and how licence fields are labelled.
-          </span>
-        </label>
+  return (
+    <FinishLaterContext.Provider value={finishLater}>
+      {screen()}
+    </FinishLaterContext.Provider>
+  )
+}
 
-        {/* Checked as it is typed, with the rule businesses.create enforces:
-            it heads every compliance document, and a wrong one here used to
-            come back only as "Could not create the business". */}
-        <div className="flex flex-col gap-1.5">
-          <label htmlFor={abnId} className="section-label">
-            ABN (optional)
-          </label>
-          <div>
-            <AbnInput id={abnId} value={abn} onChange={setAbn} />
-          </div>
-        </div>
-
-        <FormAlert
-          error={createBusiness.isError ? createBusiness.error : null}
-          copy={CREATE_COPY}
-        />
-
-        <button
-          type="submit"
-          disabled={createBusiness.isPending || !hydrated}
-          className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
-        >
-          {createBusiness.isPending ? 'Creating…' : 'Create business'}
-        </button>
-      </form>
-    </main>
+/** Under the first step: whose account this is going on, and the way out
+ * for a shared phone. */
+function SignedInAs({ email }: { email: string | null }) {
+  const hydrated = useHydrated()
+  if (!email) return null
+  return (
+    <p className="mt-6 text-center text-caption text-muted">
+      Signed in as {email} ·{' '}
+      <button
+        type="button"
+        disabled={!hydrated}
+        onClick={() => {
+          beginSignOut()
+          void authClient
+            .signOut()
+            .then(forgetCachedPages)
+            .then(() => window.location.replace('/login'))
+        }}
+        className="text-blue"
+      >
+        Sign out
+      </button>
+    </p>
   )
 }
