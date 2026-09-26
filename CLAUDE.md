@@ -12,6 +12,16 @@ Convex agent skills for common tasks can be installed by running
 
 <!-- convex-ai-end -->
 
+## Building UI
+
+Before writing or changing anything that renders, **read
+`docs/design-system.md`**: which shared component to use, the tokens, the
+states every screen needs, and the copy rules. It is checked against the code
+(`src/lib/designSystem.test.ts`, and the design rules in `eslint.config.js`),
+so keep it true: a new token or shared component goes in the guide in the same
+commit. See what you built with `pnpm ui:shots` (`tools/ui-harness/README.md`),
+in both themes. The `pestm8-ui` skill has the working steps.
+
 ## Deploying this app
 
 Two separate deploys, and they must stay in step: the Convex backend
