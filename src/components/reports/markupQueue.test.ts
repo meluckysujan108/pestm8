@@ -396,7 +396,7 @@ describe('failures', () => {
     const queue = createMarkupQueue(convex)
 
     const cleared = expect(queue.clearPage(0)).rejects.toThrow(
-      'Couldn’t clear your marks. Try again.',
+      'Could not clear your marks. Try again.',
     )
     const saved = queue.addStroke(1, POINTS)
     await convex.deliverOne(new Error('boom'))
@@ -428,7 +428,7 @@ describe('failures', () => {
     const queue = createMarkupQueue(convex)
 
     const refused = expect(queue.removeStroke('A')).rejects.toThrow(
-      'Couldn’t undo your last mark. Try again.',
+      'Could not undo your last mark. Try again.',
     )
     await convex.deliverOne(new Error('boom'))
     await refused

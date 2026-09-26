@@ -161,7 +161,7 @@ async function readExcel(file: File): Promise<Array<Array<unknown>>> {
     return await readSheet(file)
   } catch {
     throw new ImportFileError(
-      `Couldn't read “${file.name}” as an Excel workbook. If it has a password, remove it; otherwise save it again as .xlsx or CSV and try again.`,
+      `Could not read “${file.name}” as an Excel workbook. If it has a password, remove it; otherwise save it again as .xlsx or CSV and try again.`,
     )
   }
 }

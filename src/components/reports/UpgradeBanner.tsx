@@ -114,10 +114,10 @@ export function UpgradeBanner({
               : 'A new, empty draft opens for the same property and job. This draft is removed from your list; its photos are kept, not deleted.'}
           </>
         }
-        cancel="Not now"
+        cancel="Keep this version"
         confirm={switching ? 'Switch' : 'Start again'}
         pending={busy}
-        error={failed ? "That didn't go through. Check your connection and try again." : undefined}
+        error={failed ? "That didn’t go through. Check your signal and try again." : undefined}
         closeOnConfirm={false}
         onConfirm={confirm}
       />

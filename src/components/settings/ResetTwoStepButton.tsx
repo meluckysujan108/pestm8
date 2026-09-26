@@ -118,7 +118,7 @@ export function ResetTwoStepButton({
           }}
           className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
-          Cancel
+          Keep it
         </button>
         <button
           type="button"
@@ -144,5 +144,5 @@ function resetError(error: unknown): string {
   if (message.includes('NO_ACCESS')) {
     return 'Only the business owner, working as themselves, can do this.'
   }
-  return 'Could not reset. Check your connection and try again.'
+  return 'Could not reset. Check your signal and try again.'
 }

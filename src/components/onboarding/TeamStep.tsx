@@ -30,7 +30,7 @@ const INVITE_COPY = {
   INVALID_EMAIL: 'Check that email address.',
   offline:
     'Could not create the invite: this device is offline. Try again when you have signal.',
-  default: 'Could not create the invite. Check your connection and try again.',
+  default: 'Could not create the invite. Check your signal and try again.',
 }
 
 /**

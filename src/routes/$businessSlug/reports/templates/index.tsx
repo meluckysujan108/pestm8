@@ -165,7 +165,7 @@ const COPY_ERROR = {
     'Could not copy: this template has been deleted since the page opened.',
   offline:
     'Could not make the copy: this device is offline. Try again when you have signal.',
-  default: 'Could not make the copy. Check your connection and try again.',
+  default: 'Could not make the copy. Check your signal and try again.',
 }
 
 function CloneBuiltinSheet({

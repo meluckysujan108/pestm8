@@ -234,7 +234,7 @@ export function reportPdfProblem(error: unknown, offline: boolean): string {
     error,
     offline,
     REPORT_PDF_WORDS,
-    'Something went wrong preparing it. Try again.',
+    'Could not prepare the PDF. Try again.',
   )
 }
 
@@ -259,7 +259,7 @@ export function previewProblem(error: unknown, offline: boolean): string {
     error,
     offline,
     PREVIEW_WORDS,
-    'Couldn’t draw the preview. Try again.',
+    'Could not draw the preview. Try again.',
   )
 }
 
@@ -309,8 +309,8 @@ const MARKUP_WORDS: Readonly<Record<string, string>> = {
 
 const MARKUP_FALLBACK = {
   add: 'Your mark didn’t save. Try again.',
-  undo: 'Couldn’t undo your last mark. Try again.',
-  clear: 'Couldn’t clear your marks. Try again.',
+  undo: 'Could not undo your last mark. Try again.',
+  clear: 'Could not clear your marks. Try again.',
 } as const
 
 /** Why a mark could not be saved, undone or cleared. */

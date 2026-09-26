@@ -137,7 +137,7 @@ async function saveRecoveryCodes(
   const done = page.getByRole('button', { name: 'Continue', exact: true })
   await expect(done).toBeDisabled()
   await page
-    .getByLabel("I've saved these somewhere other than this phone")
+    .getByLabel('I’ve saved these somewhere other than this phone')
     .check()
   await done.click()
   await expect(page).toHaveURL(new RegExp(`/${slug}/schedule$`))

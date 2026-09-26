@@ -376,7 +376,7 @@ export function BusinessSection({
             </div>
             {logoFailed && (
               <p role="alert" className="mt-2 text-caption text-amber-ink">
-                Upload failed. Check your connection and try again.
+                Upload failed. Check your signal and try again.
               </p>
             )}
           </div>

@@ -509,7 +509,7 @@ function PasswordStep({
         disabled={pending || !hydrated || step === 'wait'}
         className={`${PRIMARY_BUTTON} mt-2`}
       >
-        {pending ? 'Just a moment…' : copy.submit}
+        {pending ? 'Checking…' : copy.submit}
       </button>
     </form>
   )
@@ -627,7 +627,7 @@ function ScanStep({
           </p>
         )}
         <p className="text-body text-muted">
-          Use Google Authenticator, Microsoft Authenticator, or the iPhone's own
+          Use Google Authenticator, Microsoft Authenticator, or the iPhone’s own
           Passwords app. On this phone, tap the button — it opens the app with
           PestM8 filled in.
         </p>
@@ -769,7 +769,7 @@ function ScanStep({
               onClick={() => void startOver()}
               className={`${PRIMARY_BUTTON} flex-1`}
             >
-              {pending ? 'Just a moment…' : 'Make a new key'}
+              {pending ? 'Making a new key…' : 'Make a new key'}
             </button>
           </div>
         </section>

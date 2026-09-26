@@ -14,7 +14,7 @@ import type { BusinessRecord } from '#/components/settings/BusinessSection'
 const SAVE_COPY = {
   offline:
     'Could not save: this device is offline. Try again when you have signal, or add it later.',
-  default: 'Could not save. Check your connection and try again.',
+  default: 'Could not save. Check your signal and try again.',
 }
 
 /**

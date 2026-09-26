@@ -53,7 +53,7 @@ export function ReportSwitchRow({
             role="alert"
             className="block text-caption text-amber-ink"
           >
-            Could not save that. Check your connection and try again.
+            Could not save that. Check your signal and try again.
           </span>
         )}
       </span>

@@ -183,7 +183,7 @@ export function TeamSection({
           owner's own words. */}
       <SettingsGroup
         title="People"
-        footer="PestM8 has no timesheets or rosters by design — contractors aren't employees."
+        footer="PestM8 has no timesheets or rosters by design — contractors aren’t employees."
       >
         {people.map((member) => (
           <SettingsLinkRow
@@ -374,7 +374,7 @@ export function TeamSection({
                   placeholder="kevin@example.com"
                 />
                 <p className="text-caption text-muted">
-                  You'll get a link to text them. It works once, expires in 3
+                  You’ll get a link to text them. It works once, expires in 3
                   days, and only that email address can use it.
                   {/* Redeeming a contractor's link puts the new member on
                       that contractor's team (`joinsUnder`). */}
@@ -479,12 +479,13 @@ const INVITE_ROLE_HINT: Record<InviteRole, string> = {
 
 /** The invite's own words for describeError: it creates, it does not save. */
 const INVITE_COPY = {
-  ALREADY_MEMBER: "They're already on your team.",
+  ALREADY_MEMBER: 'They’re already on your team.',
   INVALID_EMAIL: 'Check that email address.',
-  OWNER_INVITE_FORBIDDEN: 'Owner access cannot be invited.',
+  OWNER_INVITE_FORBIDDEN:
+    'Owner access cannot be invited. Choose another role for them.',
   offline:
     'Could not create the invite: this device is offline. Try again when you have signal.',
-  default: 'Could not create the invite. Check your connection and try again.',
+  default: 'Could not create the invite. Check your signal and try again.',
 }
 
 /** A new link or a cancel on a waiting invite, when it did not go through. */
@@ -493,8 +494,7 @@ const PENDING_COPY = {
   NOT_FOUND: 'That invitation is no longer open.',
   offline:
     'Could not change the invitation: this device is offline. Try again when you have signal.',
-  default:
-    'Could not change the invitation. Check your connection and try again.',
+  default: 'Could not change the invitation. Check your signal and try again.',
 }
 
 function expiryLabel(expiresAt: number | undefined, state: string) {

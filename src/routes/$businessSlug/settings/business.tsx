@@ -65,11 +65,11 @@ function BusinessPage() {
           <BusinessSection business={business} />
         ) : (
           <EmptyState
-            title="Only the business owner can change these."
+            title="Owners only"
             body={
               isSwitched
-                ? 'Switch back to your own account to change them.'
-                : undefined
+                ? 'Only the business owner can change these. Switch back to your own account to change them.'
+                : 'Only the business owner can change these.'
             }
           />
         )}

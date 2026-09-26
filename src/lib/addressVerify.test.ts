@@ -360,7 +360,7 @@ describe('checkAddressOffline', () => {
         {
           field: 'suburb',
           level: 'warning',
-          message: `Couldn't find ${typed} in NT. Did you mean Fannie Bay?`,
+          message: `Could not find ${typed} in NT. Did you mean Fannie Bay?`,
           fix: { label: 'Use Fannie Bay', patch: { suburb: 'Fannie Bay' } },
         },
       ])
@@ -404,7 +404,7 @@ describe('checkAddressOffline', () => {
         field: 'suburb',
         level: 'warning',
         message:
-          "Couldn't find Dianella Heights in WA. 6059 is Dianella's postcode.",
+          "Could not find Dianella Heights in WA. 6059 is Dianella's postcode.",
         fix: { label: 'Use Dianella', patch: { suburb: 'Dianella' } },
       },
     ])
@@ -516,7 +516,7 @@ describe('checkAddressOffline', () => {
       {
         field: 'suburb',
         level: 'warning',
-        message: "Couldn't find Fannybay in WA. Did you mean Fannie Bay, NT?",
+        message: 'Could not find Fannybay in WA. Did you mean Fannie Bay, NT?',
         fix: {
           label: 'Use Fannie Bay NT',
           patch: { suburb: 'Fannie Bay', state: 'NT' },
@@ -532,7 +532,7 @@ describe('checkAddressOffline', () => {
       {
         field: 'suburb',
         level: 'warning',
-        message: "Couldn't find a suburb called Zyxwvton in WA.",
+        message: 'Could not find a suburb called Zyxwvton in WA.',
       },
     ])
   })
@@ -732,7 +732,7 @@ describe('the street check, from real replies', () => {
         field: 'suburb',
         level: 'warning',
         message:
-          "Couldn't find Walcott St in Perth itself on the map, only in North Perth and Mount Lawley.",
+          'Could not find Walcott St in Perth itself on the map, only in North Perth and Mount Lawley.',
       },
     })
     const { json, value } = STRUCTURED.smithDarwin
@@ -742,7 +742,7 @@ describe('the street check, from real replies', () => {
       status: 'not-found',
       issue: {
         message:
-          "Couldn't find Ross Smith Ave in Darwin itself on the map, only in Fannie Bay.",
+          'Could not find Ross Smith Ave in Darwin itself on the map, only in Fannie Bay.',
       },
     })
     expect(
@@ -766,7 +766,7 @@ describe('the street check, from real replies', () => {
         field: 'addressLine',
         level: 'warning',
         message:
-          "Couldn't find Walcot Street in Mount Lawley on the map. Did you mean Walcott Street?",
+          'Could not find Walcot Street in Mount Lawley on the map. Did you mean Walcott Street?',
         fix: {
           label: 'Use Walcott Street',
           patch: { addressLine: '12 Walcott Street' },
@@ -788,14 +788,14 @@ describe('the street check, from real replies', () => {
       issue: {
         field: 'addressLine',
         level: 'warning',
-        message: "Couldn't find Zyxwv Street in Mount Lawley on the map.",
+        message: 'Could not find Zyxwv Street in Mount Lawley on the map.',
       },
     })
     // Other states' Beaufort streets come first; they do not count.
     expect(check(STRUCTURED.beaufortFannieBay)).toMatchObject({
       status: 'not-found',
       issue: {
-        message: "Couldn't find Beaufort Street in Fannie Bay on the map.",
+        message: 'Could not find Beaufort Street in Fannie Bay on the map.',
       },
     })
   })

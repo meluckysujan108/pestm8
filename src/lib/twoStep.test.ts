@@ -473,7 +473,7 @@ describe('the password step, which has no code on it', () => {
       { status: 502, code: 'SOMETHING' },
     ]) {
       const words = passwordStepError(error)
-      expect(words).toMatch(/Couldn't reach PestM8/)
+      expect(words).toMatch(/Could not reach PestM8/)
       expect(words).not.toMatch(/code/)
     }
   })

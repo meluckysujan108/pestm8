@@ -138,7 +138,7 @@ function whyNot(client: ReviewClient): string {
       (issue.siteIndex === undefined ||
         !client.sites[issue.siteIndex]?.duplicate),
   )
-  return error?.message ?? 'Couldn’t be imported as it was'
+  return error?.message ?? 'Could not be imported as it was'
 }
 
 export function outcomeOf(

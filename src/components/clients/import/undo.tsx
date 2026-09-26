@@ -246,8 +246,8 @@ export const UNDO_ERROR_COPY: ErrorCopy = {
     'Only the person who ran this import, or the business owner, can undo it.',
   NOT_FOUND: 'That import isn’t there any more.',
   offline:
-    'Couldn’t undo: this device is offline. Try again when you have signal.',
-  default: 'Couldn’t undo the import. Check your connection and try again.',
+    'Could not undo: this device is offline. Try again when you have signal.',
+  default: 'Could not undo the import. Check your signal and try again.',
 }
 
 /** Undo, and — for one that stopped part-way — carrying it on: the same

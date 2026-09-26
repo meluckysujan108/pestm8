@@ -73,7 +73,7 @@ function RecurringJobPage() {
             }
             body={
               seriesCount === 0
-                ? 'Open a job and choose "Make recurring" to repeat it on any interval.'
+                ? 'Open a job and choose “Make recurring” to repeat it on any interval.'
                 : `Every visit of your ${seriesCount === 1 ? 'Recurring Job' : 'Recurring Jobs'} falls beyond the next ${months} months. They will appear here as their dates come within it.`
             }
           />

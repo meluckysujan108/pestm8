@@ -130,7 +130,7 @@ export function EmailInput({
               {
                 id: `${id}:domain`,
                 label: fieldName(),
-                message: `${domain} doesn't look like it receives email.`,
+                message: `${domain} doesn’t look like it receives email.`,
                 focus,
               },
             ]

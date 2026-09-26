@@ -50,10 +50,12 @@ export const SEND_ERROR: Record<string, string> = {
   // An address on file from before addresses were checked ("bob@gmail"):
   // the server refuses it, and saying only "could not send" hid why.
   INVALID_EMAIL: 'That address can’t receive email. Check it for a typo.',
-  EMAIL_NOT_CONFIGURED: 'Email sending isn’t set up for this business yet.',
+  EMAIL_NOT_CONFIGURED:
+    'Email sending isn’t set up for this business yet. Open the PDF and share it from there for now.',
   RECIPIENT_NEEDS_APPROVAL:
     'Sent to the owner to approve — it will go once they say yes.',
-  REPORT_NOT_FINALISED: 'This report isn’t finalised yet.',
+  REPORT_NOT_FINALISED:
+    'This report isn’t finalised yet. Finalise it, then send it.',
   PDF_UNAVAILABLE: 'Could not prepare the PDF to attach.',
   EMAIL_SEND_FAILED: 'The email failed to send. The history below says why.',
   SEND_RATE_LIMITED:

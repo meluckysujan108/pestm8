@@ -49,7 +49,7 @@ export function GalleryControl({ field, ctx }: GalleryField) {
   const camera = useRef<HTMLInputElement>(null)
   const library = useRef<HTMLInputElement>(null)
   const [busy, setBusy] = useState(false)
-  // The files that did not make it, kept so Retry can send them again.
+  // The files that did not make it, kept so Try again can send them again.
   const [failed, setFailed] = useState<Array<File>>([])
   // Server-rendered: until hydration the add button has no `onClick`, so a tap
   // opens no picker and is silently ignored. Disabled until then, so the
@@ -197,12 +197,12 @@ export function GalleryControl({ field, ctx }: GalleryField) {
             type="button"
             disabled={busy}
             // The files are still here. A technician in a roof void cannot go
-            // back and re-take them, so Retry sends what was picked, not a
+            // back and re-take them, so Try again sends what was picked, not a
             // request to pick again.
             onClick={() => void onPick(failed)}
             className="font-semibold underline underline-offset-2 disabled:opacity-50"
           >
-            Retry
+            Try again
           </button>
         </span>
       )}

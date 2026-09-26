@@ -507,10 +507,10 @@ describe('Australian addresses', () => {
       state: 'WA',
       postcode: '6053',
     })
-    const error = issue(client, /Couldn't tell the street from the suburb/)
+    const error = issue(client, /Could not tell the street from the suburb/)
     expect(error).toMatchObject({ level: 'error', siteIndex: 0 })
     expect(error.message).toBe(
-      "Couldn't tell the street from the suburb in “12 Wattle St Bayswater” — edit it.",
+      'Could not tell the street from the suburb in “12 Wattle St Bayswater” — edit it.',
     )
     // Said once, not again as "No suburb".
     expect(messages(client, 'error')).toHaveLength(1)
@@ -527,7 +527,7 @@ describe('Australian addresses', () => {
 
   test('no fix is guessed where the street could stop in several places', () => {
     const client = one([['Jo', '5 St Kilda Rd St Kilda VIC 3182']])
-    const error = issue(client, /Couldn't tell the street/)
+    const error = issue(client, /Could not tell the street/)
     expect(error.fix).toBeUndefined()
   })
 

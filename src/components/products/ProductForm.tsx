@@ -255,7 +255,7 @@ export function ProductForm({
         onChange={(event) => set({ description: event.target.value })}
         disabled={saving}
         rows={4}
-        placeholder="What it's for, the active, how the team uses it."
+        placeholder="What it’s for, the active, how the team uses it."
         aria-invalid={descriptionProblem ? true : undefined}
         aria-describedby={
           descriptionProblem ? `${ids}-description-problem` : undefined

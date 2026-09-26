@@ -49,7 +49,7 @@ const COPY: Record<SetupGuideItem, { title: string; hint: string }> = {
 const HIDE_COPY = {
   offline:
     'Could not hide the guide: this device is offline. Try again when you have signal.',
-  default: 'Could not hide the guide. Check your connection and try again.',
+  default: 'Could not hide the guide. Check your signal and try again.',
 }
 
 type Progress = NonNullable<ReturnType<typeof useGuide>['data']>

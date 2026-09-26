@@ -78,7 +78,7 @@ describe('describeError', () => {
 
   test('anything else is the generic default, or the form’s', () => {
     expect(describeError(new Error('Server Error'))).toBe(
-      'Could not save. Check your connection and try again.',
+      'Could not save. Check your signal and try again.',
     )
     expect(
       describeError(undefined, { default: 'Could not book the job.' }),

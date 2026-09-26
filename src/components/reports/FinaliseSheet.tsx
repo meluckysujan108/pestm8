@@ -85,7 +85,7 @@ export function FinaliseSheet({
       open={open}
       onClose={onClose}
       title="Ready to lock"
-      description="A locked report can't be edited. Corrections go out as a new report."
+      description="A locked report can’t be edited. Corrections go out as a new report."
       footer={
         <>
           {/* Read it before you lock it. Everything above is a summary; this
@@ -197,7 +197,7 @@ export function FinaliseSheet({
               the form asked for. Sending is its own step, from the finished
               report, and saying "will be emailed" here would promise it. */}
           <p className="mt-1.5 text-caption text-muted">
-            Recorded on the report. Send it from the report once it's locked.
+            Recorded on the report. Send it from the report once it’s locked.
           </p>
         </div>
       )}

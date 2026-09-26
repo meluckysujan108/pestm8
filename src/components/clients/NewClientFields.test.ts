@@ -144,11 +144,11 @@ describe('NEW_CLIENT_ERROR_COPY', () => {
       '[CONVEX M(jobs:create)] Uncaught ConvexError: INVALID_ABN',
     )
     expect(describeError(plain, NEW_CLIENT_ERROR_COPY)).toMatch(
-      /ABN doesn't pass the ATO check/,
+      /ABN does not pass the ATO check/,
     )
     expect(
       describeError(new ConvexError('INVALID_ABN'), NEW_CLIENT_ERROR_COPY),
-    ).toMatch(/ABN doesn't pass the ATO check/)
+    ).toMatch(/ABN does not pass the ATO check/)
   })
 
   test('says nothing of the ABN for any other failure', () => {

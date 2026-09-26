@@ -166,7 +166,7 @@ export function TwoStepSection() {
           onClick={close}
           className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
-          Cancel
+          Keep it on
         </button>
         <button
           type="submit"

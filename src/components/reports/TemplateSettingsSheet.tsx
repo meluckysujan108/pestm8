@@ -95,7 +95,7 @@ export function TemplateSettingsSheet({
         onClose()
       }}
       title={`${template.name} settings`}
-      description="The form's questions and wording stay as they are. These are the parts that are yours."
+      description="The form’s questions and wording stay as they are. These are the parts that are yours."
       footer={
         <div className="flex flex-col gap-2">
           <FormAlert

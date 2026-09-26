@@ -408,7 +408,7 @@ function ProductsPage() {
           ) : live ? (
             <EmptyState
               title="No products yet"
-              body="Add the products your team uses — the label, the safety data sheet, the supplier's page — so anyone can pull them up on site."
+              body="Add the products your team uses — the label, the safety data sheet, the supplier’s page — so anyone can pull them up on site."
               action={
                 <EmptyStateButton
                   onClick={() => setNewOpen(true)}
@@ -421,7 +421,7 @@ function ProductsPage() {
           ) : (
             <EmptyState
               title="Nothing kept on this phone"
-              body="With signal, open a product and tap Keep on this phone. Its PDF will then open here when there's no signal."
+              body="With signal, open a product and tap Keep on this phone. Its PDF will then open here when there’s no signal."
             />
           )
         ) : (

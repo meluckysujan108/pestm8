@@ -60,7 +60,7 @@ describe('checkClientOffline', () => {
     ).toEqual(['This address is in NT — outside WA, where you work.'])
     const checked = await checkClientOffline(typo, { businessState: 'WA' })
     expect(messages(checked)).toEqual([
-      "Couldn't find Artadale in WA. Did you mean Attadale?",
+      'Could not find Artadale in WA. Did you mean Attadale?',
     ])
     expect(checked.issues[0]).toMatchObject({ field: 'suburb', siteIndex: 0 })
   })

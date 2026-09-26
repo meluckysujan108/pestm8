@@ -67,11 +67,11 @@ function AnswerListsPage() {
           // (the server drops their business capabilities for the length of
           // the switch): a plain answer, not a list that refuses every tap.
           <EmptyState
-            title="Only the business owner can change these."
+            title="Owners only"
             body={
               isSwitched
-                ? 'Switch back to your own account to change them.'
-                : undefined
+                ? 'Only the business owner can change these. Switch back to your own account to change them.'
+                : 'Only the business owner can change these.'
             }
           />
         )}
