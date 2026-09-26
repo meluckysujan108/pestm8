@@ -2,7 +2,10 @@ import { JobCard } from './JobCard'
 import { WeatherBanner } from './WeatherBanner'
 import { ScheduleFilterBar } from './ScheduleFilterBar'
 import { Segmented } from '#/components/primitives/Segmented'
-import { EmptyState } from '#/components/primitives/EmptyState'
+import {
+  EmptyState,
+  EmptyStateButton,
+} from '#/components/primitives/EmptyState'
 import { formatDayLabel } from '#/lib/format'
 import { useScheduleFilters } from '#/lib/scheduleFilters'
 import { useActing, useViewMode } from '#/lib/access'
@@ -35,6 +38,7 @@ export function DayAgendaPanel({
   view,
   onViewChange,
   onOpenJob,
+  onNewJob,
   businessSlug,
   recurringDue = 0,
 }: {
@@ -51,6 +55,8 @@ export function DayAgendaPanel({
   view: ScheduleView
   onViewChange: (view: ScheduleView) => void
   onOpenJob: (jobId: string) => void
+  /** New Job, offered on an empty day. */
+  onNewJob?: () => void
   businessSlug: string
   /** Projected visits on this day when it is still ahead (`listWeek`). */
   recurringDue?: number
@@ -161,6 +167,12 @@ export function DayAgendaPanel({
             jobs.length === 0
               ? 'This day is clear.'
               : 'No jobs match this filter.'
+          }
+          action={
+            jobs.length === 0 &&
+            onNewJob && (
+              <EmptyStateButton onClick={onNewJob}>Book a job</EmptyStateButton>
+            )
           }
         />
       ) : (

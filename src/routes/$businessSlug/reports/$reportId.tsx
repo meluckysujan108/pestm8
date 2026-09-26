@@ -11,6 +11,11 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../../convex/_generated/api'
 import { ReportBuilder } from '#/components/reports/ReportBuilder'
+import {
+  LicenceNotice,
+  licenceFixFor,
+} from '#/components/reports/LicenceNotice'
+import { useAccess } from '#/lib/access'
 import { ReportDocument } from '#/components/reports/ReportDocument'
 import {
   AmendButton,
@@ -135,6 +140,7 @@ function ReportPage() {
   const { s: section, view } = Route.useSearch()
   const navigate = useNavigate()
   const pdfEntry = usePdfEntry(view === 'pdf')
+  const access = useAccess()
 
   const { data: report } = useSuspenseQuery(
     convexQuery(api.reports.get, {
@@ -232,6 +238,13 @@ function ReportPage() {
     return <ReportDocument report={report} businessId={business._id} />
   }
 
+  const licenceFix = licenceFixFor({
+    template: report.template,
+    author: report.author ?? null,
+    callerMembershipId: report.callerMembershipId,
+    viewerIsOwner: access.role === 'owner',
+  })
+
   return (
     <>
       {/* A correction is filled in as a draft like any other report, so the
@@ -243,6 +256,16 @@ function ReportPage() {
         reason={report.amendmentReason}
         reportNumber={report.reportNumber}
         version={report.version}
+      />
+      {/* Said now, not at the last step: a certificate whose author has no
+          licence number will be refused at Finalise. */}
+      <LicenceNotice
+        businessId={business._id}
+        businessSlug={business.slug}
+        state={business.state}
+        template={report.template}
+        author={report.author ?? null}
+        callerMembershipId={report.callerMembershipId}
       />
       <ReportBuilder
         // Keyed by revision: the builder seeds its answers once, so switching a
@@ -281,6 +304,7 @@ function ReportPage() {
         property={report.property}
         businessName={report.businessName}
         authorLicence={report.author?.licenceNumber}
+        licenceFix={licenceFix}
         onFinalised={() =>
           navigate({
             to: '/$businessSlug/reports/$reportId',

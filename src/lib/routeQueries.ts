@@ -55,6 +55,9 @@ export const rq = {
   analytics: (businessId: B) =>
     convexQuery(api.analytics.overview, { businessId }),
   currentUser: () => convexQuery(api.auth.getCurrentUser, {}),
+  /** A new business's set-up guide — the owner's only (`setupGuide.ts`). */
+  setupGuide: (businessId: B) =>
+    convexQuery(api.setupGuide.progress, { businessId }),
   access: (businessId: B) => convexQuery(api.access.me, { businessId }),
   team: (businessId: B) => convexQuery(api.team.roster, { businessId }),
   invitations: (businessId: B) =>

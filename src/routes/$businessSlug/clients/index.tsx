@@ -4,7 +4,10 @@ import { useSuspenseQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { z } from 'zod'
 import { PageHeader } from '#/components/shell/PageHeader'
-import { EmptyState } from '#/components/primitives/EmptyState'
+import {
+  EmptyState,
+  EmptyStateButton,
+} from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
 import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
@@ -124,6 +127,16 @@ function ClientsPage() {
               q || filtersActive
                 ? 'Try a different name, address, or filter.'
                 : 'Add a client to start booking work for them.'
+            }
+            action={
+              !(q || filtersActive) && (
+                <EmptyStateButton
+                  onClick={() => setNewOpen(true)}
+                  disabled={!hydrated}
+                >
+                  Add a client
+                </EmptyStateButton>
+              )
             }
           />
         ) : (
