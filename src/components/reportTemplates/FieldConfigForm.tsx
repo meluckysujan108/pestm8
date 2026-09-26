@@ -293,6 +293,7 @@ function KindSpecificFields({
     case 'signature':
       return (
         <Segmented
+          kind="choice"
           label="Who signs"
           value={field.role}
           options={[

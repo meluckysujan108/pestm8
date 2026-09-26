@@ -34,6 +34,7 @@ import { propertyOptions } from '#/lib/propertyOptions'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
+import { SheetPending } from '#/components/shell/Pending'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
@@ -46,6 +47,7 @@ import {
 } from './RecurrenceFields'
 import type { IntervalDraft } from './RecurrenceFields'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * Loaded on demand, not with the schedule.
@@ -165,7 +167,7 @@ export function JobDetailSheet({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
           >
             <X size={16} strokeWidth={2} />
           </button>
@@ -288,7 +290,7 @@ function JobDetailBody({
                 type="button"
                 aria-label="Edit job details"
                 onClick={() => setEditing(true)}
-                className="mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
+                className="relative tap-target mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
               >
                 <Pencil size={13} strokeWidth={2} />
                 Edit
@@ -498,7 +500,7 @@ function JobDetailBody({
                   <button
                     type="button"
                     onClick={() => setConfirmStopRepeatingOpen(true)}
-                    className="mt-3 text-caption font-semibold text-red"
+                    className="relative tap-target mt-3 text-caption font-semibold text-red"
                   >
                     Stop repeating
                   </button>
@@ -515,7 +517,7 @@ function JobDetailBody({
                   <button
                     type="button"
                     onClick={() => setMakeRecurringOpen(true)}
-                    className="mt-3 text-caption font-semibold text-blue"
+                    className="relative tap-target mt-3 text-caption font-semibold text-blue"
                   >
                     Make recurring
                   </button>
@@ -598,7 +600,7 @@ function JobDetailBody({
                       type="button"
                       disabled={cancel.isPending}
                       onClick={() => cancel.mutate({ businessId, jobId: job._id })}
-                      className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                     >
                       {cancel.isPending ? 'Cancelling…' : 'Cancel job'}
                     </button>
@@ -651,7 +653,7 @@ function JobDetailBody({
                       type="button"
                       disabled={stopRepeating.isPending}
                       onClick={() => stopRepeating.mutate({ businessId, jobId: job._id })}
-                      className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                     >
                       {stopRepeating.isPending ? 'Stopping…' : 'Stop repeating'}
                     </button>
@@ -671,10 +673,11 @@ function JobDetailBody({
           </p>
         </div>
       ) : (
-        <div className="px-4 py-10">
-          <Drawer.Title className="sr-only">Job</Drawer.Title>
-          <p className="text-body text-muted">Loading…</p>
-        </div>
+        // The sheet's own shape while the job loads, so it opens at its
+        // height instead of opening short and jumping up.
+        <SheetPending
+          title={<Drawer.Title className="sr-only">Job</Drawer.Title>}
+        />
       )}
     </>
   )
@@ -953,6 +956,7 @@ function JobEditForm({
         ) : (
           <>
             <Segmented
+              kind="choice"
               label="Repeat"
               value={repeats ? 'repeats' : 'once'}
               onChange={(v: string) => setRepeats(v === 'repeats')}
@@ -997,7 +1001,7 @@ function JobEditForm({
         <button
           type="submit"
           disabled={save.isPending || !hydrated || intervalIncomplete}
-          className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
         >
           {save.isPending ? 'Saving…' : 'Save'}
         </button>
@@ -1358,7 +1362,7 @@ function JobPhotos({
                   aria-label="Remove photo"
                   disabled={remove.isPending}
                   onClick={() => remove.mutate({ businessId, jobId, photoId: photo._id })}
-                  className="absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
+                  className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
                 >
                   <Trash2 size={12} strokeWidth={2} />
                 </button>

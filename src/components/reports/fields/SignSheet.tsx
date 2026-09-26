@@ -5,6 +5,7 @@ import { PenLine, RotateCcw } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Signing, as its own screen.
@@ -218,7 +219,7 @@ export function SignSheet({
               !drawn || busy || (askName === true && name.trim() === '')
             }
             onClick={() => void done()}
-            className="h-12 flex-1 rounded-xl bg-red text-[16px] font-semibold text-white shadow-red disabled:opacity-40"
+            className={`${PRIMARY_BUTTON} flex-1`}
           >
             {busy ? 'Saving…' : 'Done'}
           </button>
@@ -253,7 +254,9 @@ export function SignSheet({
         onPointerUp={() => (drawing.current = false)}
         onPointerCancel={() => (drawing.current = false)}
         // Without this the browser scrolls the page instead of drawing.
-        className="mt-3 h-56 w-full touch-none rounded-xl border border-dashed border-hairline bg-surface"
+        // Paper, not surface: the ink is dark in both themes (it is printed
+        // on white), and on dark mode's #1c1c1e surface it could not be seen.
+        className="mt-3 h-56 w-full touch-none rounded-xl border border-dashed border-hairline bg-paper"
       />
       <p className="mt-1.5 text-caption text-muted">
         {drawn

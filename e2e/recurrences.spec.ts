@@ -374,7 +374,7 @@ test('booking a repeating job from the schedule shows it as recurring', async ({
   await page
     .getByRole('button', { name: 'General Pest Control', exact: true })
     .click()
-  await sheet.getByRole('tab', { name: 'Recurring Job' }).click()
+  await sheet.getByRole('radio', { name: 'Recurring Job' }).click()
   await sheet.getByLabel('Repeat every').fill('3')
   await sheet.getByLabel('Repeat unit').selectOption('month')
   await sheet.getByLabel('Start').fill('09:30')
@@ -426,7 +426,7 @@ test('a custom interval the old fixed list could not express', async ({
   await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
   await sheet.getByLabel('Job type').click()
   await page.getByRole('button', { name: 'Rodents', exact: true }).click()
-  await sheet.getByRole('tab', { name: 'Recurring Job' }).click()
+  await sheet.getByRole('radio', { name: 'Recurring Job' }).click()
   await sheet.getByLabel('Repeat every').fill('2')
   await sheet.getByLabel('Repeat unit').selectOption('week')
   await sheet.getByLabel('Start').fill('08:00')
@@ -491,7 +491,7 @@ test('editing a one-off job into a recurring one, then stopping it, from its own
 
   // Edit the job and turn it into a monthly series.
   await detail.getByRole('button', { name: 'Edit job details' }).click()
-  await detail.getByRole('tab', { name: 'Recurring Job' }).click()
+  await detail.getByRole('radio', { name: 'Recurring Job' }).click()
   await detail.getByLabel('Repeat every').fill('1')
   await detail.getByLabel('Repeat unit').selectOption('month')
   await detail.getByRole('button', { name: 'Save' }).click()

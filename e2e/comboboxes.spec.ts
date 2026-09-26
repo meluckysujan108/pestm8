@@ -214,7 +214,7 @@ test('a brand-new client books without choosing an existing one', async ({
   await newJob.click()
 
   const sheet = page.getByRole('dialog')
-  await sheet.getByRole('tab', { name: 'New client' }).click()
+  await sheet.getByRole('radio', { name: 'New client' }).click()
   await sheet.getByLabel('Client name').fill('P. Okafor')
   await sheet.getByLabel('Street address').fill('27 Swan Street')
   await sheet.getByLabel('Suburb').fill('Guildford')

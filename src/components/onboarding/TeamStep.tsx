@@ -17,6 +17,7 @@ import { useHydrated } from '#/lib/useHydrated'
 import { AsideButton, SetupFrame } from './SetupFrame'
 import type { LucideIcon } from 'lucide-react'
 import type { BusinessRecord } from '#/components/settings/BusinessSection'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 export type TeamShape = 'solo' | 'team'
 
@@ -182,7 +183,7 @@ export function TeamStep({
         type="button"
         onClick={() => finish.mutate(shape)}
         disabled={!shape || busy}
-        className="mt-8 h-12 w-full shrink-0 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        className={`${PRIMARY_BUTTON} mt-8 w-full shrink-0`}
       >
         {finish.isPending ? 'Saving…' : 'Continue'}
       </button>

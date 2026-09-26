@@ -17,6 +17,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { Sheet } from '#/components/primitives/Sheet'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Every report this business has made, a page at a time.
@@ -402,7 +403,7 @@ function DeleteDraft({
             type="button"
             disabled={remove.isPending}
             onClick={() => remove.mutate({ businessId, reportId: row._id })}
-            className="h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} w-full`}
           >
             {remove.isPending ? 'Deleting…' : 'Delete draft'}
           </button>
@@ -473,7 +474,7 @@ function TrashActions({
             type="button"
             disabled={forever.isPending}
             onClick={() => forever.mutate({ businessId, reportId: row._id })}
-            className="h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} w-full`}
           >
             {forever.isPending ? 'Deleting…' : 'Delete permanently'}
           </button>

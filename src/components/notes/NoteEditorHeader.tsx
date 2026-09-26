@@ -24,6 +24,7 @@ import { editedLabel } from '#/lib/noteDates'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 type NoteMeta = {
   _id: Id<'notes'>
@@ -364,7 +365,7 @@ export function NoteEditorHeader({
                   type="button"
                   disabled={remove.isPending}
                   onClick={() => remove.mutate(args)}
-                  className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                 >
                   {remove.isPending ? 'Deleting…' : 'Delete'}
                 </button>

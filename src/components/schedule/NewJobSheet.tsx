@@ -47,6 +47,7 @@ import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /** 'site' is a new site for an existing client (Prompt 6.3). */
 type ClientMode = 'existing' | 'new' | 'site'
@@ -124,7 +125,7 @@ export function NewJobSheet({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
           >
             <X size={16} strokeWidth={2} />
           </button>
@@ -435,6 +436,7 @@ function NewJobForm({
         {properties.length > 0 && (
           <Field label="Client">
             <Segmented
+              kind="choice"
               label="Client"
               // A new site is still an existing client's, so that tab stays
               // chosen; tapping it again leaves the site being added alone.
@@ -653,6 +655,7 @@ function NewJobForm({
 
         <FieldGroup label="Repeat">
           <Segmented
+            kind="choice"
             label="Repeat"
             value={repeats ? 'repeats' : 'once'}
             onChange={(v) => setRepeats(v === 'repeats')}
@@ -699,7 +702,7 @@ function NewJobForm({
             if (clientNeeded()) e.preventDefault()
           }}
           disabled={create.isPending || !hydrated || intervalIncomplete}
-          className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON} mt-5 w-full`}
         >
           {bookLabel}
         </button>

@@ -276,11 +276,11 @@ test('a new business client typed in is asked for its work order too', async ({
   await newJob.click()
 
   const sheet = page.getByRole('dialog')
-  await sheet.getByRole('tab', { name: 'New client' }).click()
+  await sheet.getByRole('radio', { name: 'New client' }).click()
   await expect(
     sheet.getByRole('button', { name: '+ Add work order' }),
   ).toBeVisible()
-  await sheet.getByRole('tab', { name: 'Business' }).click()
+  await sheet.getByRole('radio', { name: 'Business' }).click()
   const field = sheet.getByLabel('Work Order (Optional)')
   await expect(field).toBeVisible()
   await expect(
@@ -318,7 +318,7 @@ test('a Recurring Job booked under a work order books every visit under it', asy
   const sheet = page.getByRole('dialog')
   await chooseProperty(page, sheet, 'coastal', /Coastal Cafe Group/)
   await sheet.getByLabel('Work Order (Optional)').fill('PO 4500123456')
-  await sheet.getByRole('tab', { name: 'Recurring Job' }).click()
+  await sheet.getByRole('radio', { name: 'Recurring Job' }).click()
   await sheet.getByLabel('Repeat every').fill('1')
   await sheet.getByLabel('Repeat unit').selectOption('month')
   await sheet.getByLabel('Start').fill('07:00')

@@ -242,7 +242,7 @@ export function AreasControl({ field, value, onChange }: Of<'areas'>) {
                     onClick={() =>
                       onChange({ ...areas, [row]: { ...result, status } })
                     }
-                    className={`rounded-md px-2.5 py-1 text-[13px] font-semibold transition ${
+                    className={`relative tap-target rounded-md px-2.5 py-1 text-[13px] font-semibold transition ${
                       result.status === status
                         ? 'bg-surface text-ink shadow-elevation'
                         : 'text-muted'
@@ -297,7 +297,7 @@ export function ToggleControl({ field, value, onChange }: Of<'toggle'>) {
           type="button"
           aria-pressed={value === option.on}
           onClick={() => onChange(option.on)}
-          className={`rounded-md px-4 py-1.5 text-[13px] font-semibold transition ${
+          className={`relative tap-target rounded-md px-4 py-1.5 text-[13px] font-semibold transition ${
             value === option.on
               ? 'bg-surface text-ink shadow-elevation'
               : 'text-muted'

@@ -3,6 +3,7 @@ import { createLink } from '@tanstack/react-router'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import type { LucideIcon } from 'lucide-react'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * The pieces every Settings page is built from, so the hub and each page it
@@ -95,8 +96,8 @@ export function RowBadge({
   children: ReactNode
 }) {
   const style = {
-    // orange-ink, not amber-ink, as FormAlert: amber-ink on amber-bg is
-    // 3.98:1, under the 4.5 this 12px text needs.
+    // orange-ink, as FormAlert: chosen when amber-ink on amber-bg was 3.98:1,
+    // under the 4.5 this 12px text needs. amber-ink now clears it too.
     amber: 'bg-amber-bg text-orange-ink border-amber-line',
     red: 'bg-red-bg text-red-ink border-red-line',
     green: 'bg-green-bg text-green-ink border-green-line',
@@ -221,7 +222,7 @@ const BackAnchor = forwardRef<
     <a
       ref={ref}
       {...rest}
-      className={`-ml-1.5 mb-0.5 inline-flex min-h-7 items-center gap-0.5 text-body font-medium text-blue ${className ?? ''}`}
+      className={`relative tap-target -ml-1.5 mb-0.5 inline-flex min-h-7 items-center gap-0.5 text-body font-medium text-blue ${className ?? ''}`}
     >
       <ChevronLeft aria-hidden size={20} strokeWidth={2.4} />
       {children}
@@ -293,7 +294,7 @@ export function SaveBar({
         type="submit"
         form={form}
         disabled={pending || disabled}
-        className="h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        className={`${PRIMARY_BUTTON} w-full`}
       >
         {pending ? 'Saving…' : label}
       </button>

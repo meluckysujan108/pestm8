@@ -56,7 +56,7 @@ export function SearchBox({
   }, [draft, value])
 
   return (
-    <label className="flex h-10 flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
+    <label className="flex h-10 flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3 focus-within:ring-2 focus-within:ring-blue">
       <Search size={16} strokeWidth={2} className="shrink-0 text-muted" />
       <span className="sr-only">{label}</span>
       <input
@@ -74,7 +74,9 @@ export function SearchBox({
             setDraft('')
             send('')
           }}
-          className="flex size-5 items-center justify-center rounded-full bg-muted-2/40 text-white"
+          // A 20px circle in a 44px target; solid muted, as iOS draws it — the
+          // 40% tint it had was 1.5:1 against the well.
+          className="relative tap-target flex size-5 items-center justify-center rounded-full bg-muted text-surface"
         >
           <X size={12} strokeWidth={2.6} />
         </button>

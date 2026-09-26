@@ -32,6 +32,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { loadLocalities } from '#/lib/addressVerify'
 import { formatJobMoney } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
+import { SheetPending } from '#/components/shell/Pending'
 import { abnDigits, formatAbn } from '../../../convex/lib/abn'
 import {
   isNameCorrection,
@@ -43,6 +44,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type { AddressValue } from '#/lib/addressVerify'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 type ClientKind = 'person' | 'business'
 
@@ -100,7 +102,7 @@ export function ClientSheet({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
           >
             <X size={16} strokeWidth={2} />
           </button>
@@ -157,10 +159,11 @@ function ClientBody({
 
   if (client === undefined) {
     return (
-      <div className="px-4 py-10">
-        <Drawer.Title className="sr-only">Client</Drawer.Title>
-        <p className="text-body text-muted">Loading…</p>
-      </div>
+      // The sheet's own shape while the client loads, so it opens at its
+      // height instead of opening short and jumping up.
+      <SheetPending
+        title={<Drawer.Title className="sr-only">Client</Drawer.Title>}
+      />
     )
   }
 
@@ -188,7 +191,7 @@ function ClientBody({
             type="button"
             aria-label="Edit client details"
             onClick={() => setEditing(true)}
-            className="mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
+            className="relative tap-target mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
           >
             <Pencil size={13} strokeWidth={2} />
             Edit
@@ -318,7 +321,7 @@ function ClientBody({
                   type="button"
                   disabled={archive.isPending}
                   onClick={() => archive.mutate({ businessId, clientId })}
-                  className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                 >
                   {archive.isPending ? 'Archiving…' : 'Archive'}
                 </button>
@@ -467,6 +470,7 @@ function ClientEditForm({
       >
         <WrappedField label="Client type">
           <Segmented
+            kind="choice"
             label="Client type"
             value={kind}
             onChange={setKind}
@@ -578,7 +582,7 @@ function ClientEditForm({
           <button
             type="submit"
             disabled={save.isPending || !hydrated}
-            className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
           >
             {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
           </button>
@@ -655,7 +659,10 @@ function ClientContacts({
               </div>
             ) : (
               <div key={contact._id} className="flex flex-col gap-2 py-2.5 first:pt-0 last:pb-0">
-                <div className="flex items-center gap-2">
+                {/* The row's icons are 44px targets side by side, with no gap:
+                    a smaller button with a wider invisible hit area would
+                    overlap its neighbour, and one of them is Remove. */}
+                <div className="-my-1.5 -mr-2 flex items-center">
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-body text-ink">
                       {contact.name}
@@ -673,7 +680,7 @@ function ClientContacts({
                     type="button"
                     aria-label={`Edit ${contact.name}`}
                     onClick={() => setEditingId(contact._id)}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                    className="flex size-11 shrink-0 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
                   >
                     <Pencil size={13} strokeWidth={2} />
                   </button>
@@ -683,7 +690,7 @@ function ClientContacts({
                       aria-label={`Make ${contact.name} primary`}
                       disabled={setPrimary.isPending}
                       onClick={() => makePrimary(contact._id)}
-                      className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
+                      className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                     >
                       <Star size={14} strokeWidth={1.7} />
                     </button>
@@ -697,7 +704,7 @@ function ClientContacts({
                         ? setConfirmRemove(contact)
                         : removeContact(contact._id)
                     }
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
+                    className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
                     <Trash2 size={14} strokeWidth={1.7} />
                   </button>
@@ -768,7 +775,7 @@ function ClientContacts({
                   onClick={() =>
                     confirmRemove && removeContact(confirmRemove._id)
                   }
-                  className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                 >
                   Remove
                 </button>
@@ -1079,7 +1086,7 @@ function ClientProperties({
                     type="button"
                     aria-label={`Edit ${property.addressLine}`}
                     onClick={() => setEditingId(property._id)}
-                    className="flex size-7 shrink-0 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                    className="-mr-2 -mt-2.5 flex size-11 shrink-0 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
                   >
                     <Pencil size={13} strokeWidth={2} />
                   </button>

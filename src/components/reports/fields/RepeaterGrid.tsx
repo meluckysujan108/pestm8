@@ -78,7 +78,7 @@ export function RepeaterControl({
                   ),
                 )
               }
-              className="flex h-8 min-w-8 items-center justify-center gap-1 rounded-full px-1.5 text-caption text-muted transition active:scale-[.95] disabled:opacity-30"
+              className="relative tap-target flex h-8 min-w-8 items-center justify-center gap-1 rounded-full px-1.5 text-caption text-muted transition active:scale-[.95] disabled:opacity-30"
             >
               <Trash2 size={15} strokeWidth={1.8} />
               {/* The source form's own words ("Delete Row") when it has them. The

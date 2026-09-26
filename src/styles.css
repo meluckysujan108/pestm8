@@ -50,7 +50,11 @@
   --blue: #0a84ff;
   --green: #34c759;
   --amber: #ff9f0a;
-  --amber-ink: #b26b00;
+  /* Warning text. Darker than the design file's #B26B00, which was 3.98:1
+     in its own box and 3.6:1 on the canvas — under the 4.5 that 13px text
+     needs, read on a phone in the sun. This clears 4.5 on every surface a
+     warning sits on (statusColours.test.ts checks it). */
+  --amber-ink: #985b00;
   --amber-bg: #fff8ec;
   --amber-line: #ffe2b8;
 
@@ -436,6 +440,24 @@
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* A 44×44 hit area, at least, centred on a control drawn smaller — a 32px
+   week arrow, a 28px row icon, a 20px clear button. 44 is the smallest a
+   thumb, or a glove, lands on reliably; the control keeps its drawn size.
+   The element must be positioned (`relative`, or already `absolute`), and
+   nothing that clips (`overflow-hidden`) may sit between it and the extra
+   area, or the clipped part cannot be tapped. */
+@utility tap-target {
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
 }
 
 /* The navigation progress bar (NavProgress.tsx). Transparent for its first

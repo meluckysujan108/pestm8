@@ -9,6 +9,7 @@ import { couldBeInvitee } from '#/lib/inviteEmail'
 import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Accepting an invitation.
@@ -125,7 +126,7 @@ function JoinPage() {
             type="button"
             disabled={!hydrated}
             onClick={signOutAndReload}
-            className="mt-4 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} mt-4 w-full`}
           >
             Sign out
           </button>
@@ -139,7 +140,7 @@ function JoinPage() {
             type="button"
             disabled={redeem.isPending || !hydrated}
             onClick={() => redeem.mutate()}
-            className="mt-3 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} mt-3 w-full`}
           >
             {redeem.isPending ? 'Joining…' : `Join ${businessName}`}
           </button>

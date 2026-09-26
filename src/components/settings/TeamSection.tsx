@@ -34,6 +34,7 @@ import { useAccess } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
 import { rq } from '#/lib/routeQueries'
 import { needsLicence } from './needsLicence'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Settings → Team: who is on the team, each a row that opens their own page,
@@ -240,7 +241,7 @@ export function TeamSection({
                         email: invitation.email,
                       })
                     }
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+                    className="relative tap-target flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
                     <RefreshCw size={15} strokeWidth={2} />
                   </button>
@@ -256,7 +257,7 @@ export function TeamSection({
                         invitationId: invitation._id,
                       })
                     }
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
+                    className="relative tap-target flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-2 text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
                     <X size={15} strokeWidth={2} />
                   </button>
@@ -274,10 +275,11 @@ export function TeamSection({
         // owner's answers to the owner.
         title={viewerIsOwner ? 'Invite someone' : 'Invite someone to your team'}
       >
-        {/* Clear of the home indicator: this sheet has no footer, because
-            the form's own submit has to be inside it — a fix in the
-            warnings list hands focus back to the form's submit button. */}
-        <div className="pb-[calc(8px+env(safe-area-inset-bottom))] pt-1">
+        {/* No footer, because the form's own submit has to be inside it — a
+            fix in the warnings list hands focus back to the form's submit
+            button. Sheet keeps a footer-less body clear of the home
+            indicator. */}
+        <div className="pt-1">
           {freshLink ? (
             <>
               <InviteLinkCard
@@ -318,6 +320,7 @@ export function TeamSection({
                   <div className="mb-3 flex flex-col gap-1.5">
                     <span className={FIELD_LABEL}>Joins as</span>
                     <Segmented
+                      kind="choice"
                       label="Joins as"
                       value={inviteRole}
                       options={INVITE_ROLE_OPTIONS}
@@ -355,7 +358,7 @@ export function TeamSection({
                 <button
                   type="submit"
                   disabled={invite.isPending || !hydrated}
-                  className="mt-2 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON} mt-2 w-full`}
                 >
                   {/* "Save anyway" when warned, not "Create anyway": it is
                       what the list above tells them to press. */}

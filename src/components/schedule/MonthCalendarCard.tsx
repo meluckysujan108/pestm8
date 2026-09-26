@@ -69,7 +69,7 @@ export function MonthCalendarCard({
           type="button"
           aria-label="Previous month"
           onClick={() => onMonthChange(shiftMonth(monthKey, -1))}
-          className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+          className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
         >
           <ChevronLeft size={20} strokeWidth={1.7} />
         </button>
@@ -80,7 +80,7 @@ export function MonthCalendarCard({
           type="button"
           aria-label="Next month"
           onClick={() => onMonthChange(shiftMonth(monthKey, 1))}
-          className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+          className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
         >
           <ChevronRight size={20} strokeWidth={1.7} />
         </button>

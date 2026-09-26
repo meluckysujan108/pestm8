@@ -78,14 +78,14 @@ function ClientsPage() {
         businessId={business._id}
         businessSlug={business.slug}
         kicker={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}`}
-        title="Client"
+        title="Clients"
         action={
           <button
             type="button"
             aria-label="New client"
             disabled={!hydrated}
             onClick={() => setNewOpen(true)}
-            className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+            className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
           >
             <Plus size={20} strokeWidth={2} />
           </button>
@@ -110,7 +110,7 @@ function ClientsPage() {
       </div>
 
       <section className="px-4 pt-4 pb-6">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="mb-3">
           <ClientFilterBar
             rows={rows}
             kind={kind}

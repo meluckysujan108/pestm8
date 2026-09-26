@@ -11,6 +11,7 @@ import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
 import type { LucideIcon } from 'lucide-react'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Starting a business on PestM8, from the link its owner was sent
@@ -133,7 +134,7 @@ function StartPage() {
             type="button"
             disabled={!hydrated}
             onClick={signOutAndReload}
-            className="mt-4 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} mt-4 w-full`}
           >
             Sign out
           </button>
@@ -147,7 +148,7 @@ function StartPage() {
             type="button"
             disabled={claim.isPending || !hydrated}
             onClick={() => claim.mutate()}
-            className="mt-3 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} mt-3 w-full`}
           >
             {claim.isPending ? 'Just a moment…' : 'Set up my business'}
           </button>

@@ -13,6 +13,7 @@ import type { SaveStatus } from '#/lib/useAutosave'
 import { isDataField } from '#/lib/reportTemplates'
 import type { SectionDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 const SAVE_LABELS: Record<SaveStatus, string> = {
   draft: 'Saved',
@@ -354,7 +355,7 @@ export function TemplateEditor({
               await autosave.flush()
               publish.mutate()
             }}
-            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} flex flex-1 items-center justify-center gap-2`}
           >
             <Send size={16} strokeWidth={2} />
             {publish.isPending ? 'Issuing…' : 'Issue to my team'}

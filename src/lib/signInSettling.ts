@@ -1,7 +1,7 @@
 /**
  * What a page does when Convex refuses it as "Unauthenticated": it holds on
  * the page placeholder, asks Better Auth, and tries again, rather than ending
- * on "Something went wrong!" (components/auth/SignInSettling).
+ * on the error screen (components/auth/SignInSettling).
  *
  * The refusal is never the person's answer on its own. It comes when the
  * session has really ended, or when the socket is between two tokens. When

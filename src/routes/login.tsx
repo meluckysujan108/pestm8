@@ -4,6 +4,7 @@ import { SecondStepForm } from '#/components/auth/SecondStepForm'
 import { authClient, needsSecondStep } from '#/lib/auth-client'
 import { forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 export const Route = createFileRoute('/login')({ component: LoginPage })
 
@@ -123,7 +124,7 @@ function LoginPage() {
           <button
             type="submit"
             disabled={pending || !hydrated}
-            className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON} mt-2`}
           >
             {pending ? 'Just a moment…' : 'Sign in'}
           </button>

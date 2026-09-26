@@ -55,7 +55,7 @@ export function MakeRecurringSheet({
       description="This job becomes the first visit. Future visits are booked automatically."
     >
       <form
-        className="px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-1"
+        className="px-4 pb-4 pt-1"
         onSubmit={(e) => {
           e.preventDefault()
           if (parsed) save.mutate(parsed)

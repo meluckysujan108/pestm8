@@ -3,6 +3,7 @@ import { HomeScreenCard } from './HomeScreenCard'
 import { ReportPreview } from './ReportPreview'
 import { SetupFrame } from './SetupFrame'
 import type { BusinessRecord } from '#/components/settings/BusinessSection'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * The end of set-up: what it made, the Home Screen, and the first real job.
@@ -48,7 +49,7 @@ export function ReadyStep({
         type="button"
         onClick={onBook}
         disabled={!hydrated}
-        className="mt-8 h-12 w-full shrink-0 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        className={`${PRIMARY_BUTTON} mt-8 w-full shrink-0`}
       >
         Book your first job
       </button>

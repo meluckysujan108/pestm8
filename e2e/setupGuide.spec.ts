@@ -61,7 +61,7 @@ test('the set-up guide ticks itself, opens New Job, and can be put away and brou
 
   // The checklist, and its first job straight into New Job.
   await clickUntil(card, () =>
-    expect(page.getByRole('heading', { name: 'Get set up' })).toBeVisible({
+    expect(page.getByRole('heading', { name: 'Set-up guide' })).toBeVisible({
       timeout: 3_000,
     }),
   )
@@ -74,7 +74,7 @@ test('the set-up guide ticks itself, opens New Job, and can be put away and brou
   // Put away…
   await page.reload()
   await clickUntil(card, () =>
-    expect(page.getByRole('heading', { name: 'Get set up' })).toBeVisible({
+    expect(page.getByRole('heading', { name: 'Set-up guide' })).toBeVisible({
       timeout: 3_000,
     }),
   )

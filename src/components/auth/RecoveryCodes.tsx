@@ -1,5 +1,6 @@
 import { useId, useState } from 'react'
 import { Check, Copy, Share } from 'lucide-react'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Ten single-use recovery codes, shown once, and a person made to put them
@@ -122,7 +123,7 @@ export function RecoveryCodes({
         type="button"
         disabled={!saved}
         onClick={onDone}
-        className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        className={PRIMARY_BUTTON}
       >
         {doneLabel}
       </button>

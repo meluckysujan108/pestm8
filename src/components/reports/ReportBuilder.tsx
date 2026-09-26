@@ -52,6 +52,7 @@ import { forgetDraft, recallDraft, rememberDraft } from '#/lib/draftMirror'
 import { draftToSend } from '#/lib/draftSync'
 import type { MirroredDraft } from '#/lib/draftMirror'
 import { Sheet } from '#/components/primitives/Sheet'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Honest about §5.5: there is no offline mutation queue, so a failed save is a
@@ -1127,7 +1128,7 @@ function FinaliseButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+      className={`${PRIMARY_BUTTON} flex flex-1 items-center justify-center gap-2`}
     >
       <Lock size={17} strokeWidth={2} />
       {pending ? 'Locking…' : 'Finalise & lock'}

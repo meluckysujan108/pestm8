@@ -75,7 +75,7 @@ export function ScheduleFilterBar({
             setStatus('all')
             setStaffId('all')
           }}
-          className="text-caption font-semibold text-blue"
+          className="relative tap-target text-caption font-semibold text-blue"
         >
           Clear filters
         </button>

@@ -6,6 +6,7 @@ import { useAccess, useCan } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
 import { DANGER_ROW_CLASS } from './ui'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * The owner's way back in for a technician who has lost their phone AND their
@@ -124,7 +125,7 @@ export function ResetTwoStepButton({
           type="button"
           disabled={reset.isPending}
           onClick={() => reset.mutate({ businessId, membershipId })}
-          className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
         >
           {reset.isPending ? 'Resetting…' : 'Reset'}
         </button>

@@ -24,6 +24,7 @@ import {
 } from './ui'
 import type { OptionSetKey } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * The words a business's own reports offer.
@@ -447,7 +448,7 @@ function OptionListSheet({
                     setError(null)
                     reset.mutate({ businessId, key: list.key })
                   }}
-                  className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                 >
                   {reset.isPending ? 'Resetting…' : 'Reset list'}
                 </button>

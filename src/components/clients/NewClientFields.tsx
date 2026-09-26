@@ -178,6 +178,7 @@ export function NewClientFields({
     <>
       <Field label="Client type">
         <Segmented
+          kind="choice"
           label="Client type"
           value={value.kind}
           onChange={(kind) => onChange({ kind })}

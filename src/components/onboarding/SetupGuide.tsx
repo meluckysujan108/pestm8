@@ -143,7 +143,7 @@ export function SetupGuideCard({
         />
       )}
 
-      <Sheet open={open} onClose={() => setOpen(false)} title="Get set up">
+      <Sheet open={open} onClose={() => setOpen(false)} title="Set-up guide">
         <GuideChecklist
           data={data}
           businessSlug={businessSlug}
@@ -205,7 +205,7 @@ function GuideChecklist({
   }
 
   return (
-    <div className="pb-[calc(8px+env(safe-area-inset-bottom))]">
+    <div>
       <div className="flex items-center gap-3">
         <div
           role="progressbar"
