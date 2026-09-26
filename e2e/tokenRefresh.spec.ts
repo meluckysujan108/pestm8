@@ -199,15 +199,13 @@ async function untilQuiet(count: () => number) {
 
 /**
  * Records whether the router's error screen was EVER on screen, not just
- * whether it is at the end (as e2e/signInHandover.spec.ts does). Its exact
- * words, with the "!", which nothing else in the app uses.
+ * whether it is at the end (as e2e/signInHandover.spec.ts does). Found by
+ * its `data-error-screen` marker (components/shell/ErrorScreen.tsx).
  */
 async function watchForErrorScreen(page: Page) {
   await page.addInitScript(() => {
     const seen = () => {
-      // Null until the parser reaches <body>, whatever the DOM types say.
-      const body = document.body as HTMLElement | null
-      if (body?.textContent.includes('Something went wrong!')) {
+      if (document.querySelector('[data-error-screen]')) {
         ;(window as { sawErrorScreen?: boolean }).sawErrorScreen = true
       }
     }

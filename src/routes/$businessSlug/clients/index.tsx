@@ -79,7 +79,7 @@ function ClientsPage() {
         businessId={business._id}
         businessSlug={business.slug}
         kicker={`${clients.length} ${clients.length === 1 ? 'client' : 'clients'}`}
-        title="Client"
+        title="Clients"
         action={
           <>
             {/* Beside the +, quieter than it: most days a client is added
@@ -91,7 +91,7 @@ function ClientsPage() {
                 to="/$businessSlug/clients/import"
                 params={{ businessSlug: business.slug }}
                 aria-label="Import clients"
-                className="flex h-9 items-center gap-1.5 rounded-full bg-surface-2 px-3.5 text-[15px] font-semibold text-blue transition active:scale-[.97]"
+                className="relative tap-target flex h-9 items-center gap-1.5 rounded-full bg-surface-2 px-3.5 text-[15px] font-semibold text-blue transition active:scale-[.97]"
               >
                 <Upload aria-hidden size={16} strokeWidth={2.2} />
                 Import
@@ -102,7 +102,7 @@ function ClientsPage() {
               aria-label="New client"
               disabled={!hydrated}
               onClick={() => setNewOpen(true)}
-              className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+              className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
             >
               <Plus size={20} strokeWidth={2} />
             </button>
@@ -128,7 +128,7 @@ function ClientsPage() {
       </div>
 
       <section className="px-4 pt-4 pb-6">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="mb-3">
           <ClientFilterBar
             rows={rows}
             kind={kind}

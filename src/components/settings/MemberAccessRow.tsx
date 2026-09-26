@@ -25,6 +25,11 @@ import {
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { Grants, Role } from '../../../convex/lib/capabilities'
+import {
+  PRIMARY_BUTTON,
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 export type Member = {
   _id: Id<'memberships'>
@@ -249,9 +254,8 @@ function LicenceGroup({
       title="Licence"
       footer={
         missing ? (
-          // orange-ink, not amber-ink: on the canvas amber-ink is 3.6:1,
-          // under the 4.5 small text needs (FormAlert has the same rule).
-          <span className="text-orange-ink">
+          // Warning text: amber-ink, which clears 4.5 on the canvas.
+          <span className="text-amber-ink">
             Without this they cannot finalise a termite certificate, timber pest
             inspection or treatment record.
           </span>
@@ -301,7 +305,7 @@ function LicenceGroup({
                 <button
                   type="submit"
                   disabled={saveLicence.isPending || !dirty}
-                  className="h-12 shrink-0 rounded-xl bg-red px-4 text-[16px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON} shrink-0 px-4`}
                 >
                   {saveLicence.isPending
                     ? 'Saving…'
@@ -492,7 +496,7 @@ function RoleGroup({
             <button
               type="button"
               onClick={() => setDemoting(false)}
-              className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+              className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
             >
               Cancel
             </button>
@@ -509,7 +513,7 @@ function RoleGroup({
                   { onSettled: () => setDemoting(false) },
                 )
               }
-              className="h-11 flex-1 rounded-xl bg-blue text-body font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
             >
               {setRole.isPending ? 'Changing…' : 'Make subcontractor'}
             </button>
@@ -530,7 +534,7 @@ function RoleGroup({
             <button
               type="button"
               onClick={() => setReleasing(false)}
-              className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+              className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
             >
               Cancel
             </button>
@@ -547,7 +551,7 @@ function RoleGroup({
                   { onSettled: () => setReleasing(false) },
                 )
               }
-              className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
             >
               {assignTo.isPending ? 'Handing back…' : 'Hand back'}
             </button>
@@ -823,7 +827,7 @@ function RemoveMember({
         <button
           type="button"
           onClick={() => setConfirming(false)}
-          className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Cancel
         </button>
@@ -837,7 +841,7 @@ function RemoveMember({
               reassignTo: reassignTo === '' ? undefined : reassignTo,
             })
           }
-          className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
         >
           {remove.isPending ? 'Removing…' : 'Remove'}
         </button>

@@ -4,7 +4,7 @@ import type { Ref } from 'react'
 import type { Infer } from 'convex/values'
 import { Segmented } from '#/components/primitives/Segmented'
 import { EmailInput } from '#/components/forms/EmailInput'
-import { FormField } from '#/components/forms/FormField'
+import { FIELD, FormField } from '#/components/forms/FormField'
 import { PhoneInput } from '#/components/forms/PhoneInput'
 import {
   VerifiedAddressFields,
@@ -178,6 +178,7 @@ export function NewClientFields({
     <>
       <Field label="Client type">
         <Segmented
+          kind="choice"
           label="Client type"
           value={value.kind}
           onChange={(kind) => onChange({ kind })}
@@ -369,7 +370,7 @@ function Input({
       value={value}
       required={required}
       onChange={(e) => onChange(e.target.value)}
-      className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+      className={`${FIELD} w-full`}
     />
   )
 }

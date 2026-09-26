@@ -5,6 +5,11 @@ import { PenLine, RotateCcw } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /**
  * Signing, as its own screen.
@@ -205,7 +210,7 @@ export function SignSheet({
           <button
             type="button"
             onClick={clear}
-            className="flex h-12 items-center gap-1.5 rounded-xl bg-surface-2 px-4 text-[15px] font-semibold text-ink"
+            className={`${SECONDARY_BUTTON} flex items-center gap-1.5 px-4`}
           >
             <RotateCcw size={15} strokeWidth={2} />
             Clear
@@ -218,7 +223,7 @@ export function SignSheet({
               !drawn || busy || (askName === true && name.trim() === '')
             }
             onClick={() => void done()}
-            className="h-12 flex-1 rounded-xl bg-red text-[16px] font-semibold text-white shadow-red disabled:opacity-40"
+            className={`${PRIMARY_BUTTON} flex-1`}
           >
             {busy ? 'Saving…' : 'Done'}
           </button>
@@ -239,7 +244,7 @@ export function SignSheet({
             onChange={(event) => setName(event.target.value)}
             autoComplete="name"
             placeholder="Who is signing"
-            className="h-12 rounded-xl border border-hairline bg-surface px-3.5 text-[16px] text-ink outline-none"
+            className={FIELD}
           />
         </label>
       )}
@@ -253,7 +258,9 @@ export function SignSheet({
         onPointerUp={() => (drawing.current = false)}
         onPointerCancel={() => (drawing.current = false)}
         // Without this the browser scrolls the page instead of drawing.
-        className="mt-3 h-56 w-full touch-none rounded-xl border border-dashed border-hairline bg-surface"
+        // Paper, not surface: the ink is dark in both themes (it is printed
+        // on white), and on dark mode's #1c1c1e surface it could not be seen.
+        className="mt-3 h-56 w-full touch-none rounded-xl border border-dashed border-hairline bg-paper"
       />
       <p className="mt-1.5 text-caption text-muted">
         {drawn
@@ -266,7 +273,7 @@ export function SignSheet({
           type="button"
           disabled={busy}
           onClick={() => void useSaved()}
-          className="mt-3 flex h-12 w-full items-center justify-center gap-2 rounded-xl border border-hairline bg-surface text-[15px] font-semibold text-ink disabled:opacity-50"
+          className={`${SECONDARY_BUTTON} mt-3 flex w-full items-center justify-center gap-2`}
         >
           <PenLine size={16} strokeWidth={2} />
           Use my saved signature

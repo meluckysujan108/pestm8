@@ -19,6 +19,7 @@ import type { CustomTemplateShape } from '#/lib/reportTemplates/resolve'
 import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
 
 const TABS = [
   { value: 'form' as const, label: 'Form' },
@@ -255,7 +256,7 @@ function EmailPanel({
         type="button"
         disabled={!hydrated}
         onClick={() => setSending(true)}
-        className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
+        className={`${NEUTRAL_BUTTON} flex w-full items-center justify-center gap-2`}
       >
         <Send size={16} strokeWidth={2} />
         Send this report

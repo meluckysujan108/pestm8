@@ -7,6 +7,8 @@ import { api } from '../../../convex/_generated/api'
 import { fieldsOf, getTemplate } from '#/lib/reportTemplates'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
+import { FIELD_COMPACT } from '#/components/forms/FormField'
 
 /**
  * What a business may change about a form it did not write.
@@ -105,7 +107,7 @@ export function TemplateSettingsSheet({
               requiredSigners: current.requiredSigners,
             })
           }
-          className="h-12 w-full rounded-xl bg-ink text-[17px] font-semibold text-surface disabled:opacity-50"
+          className={`${NEUTRAL_BUTTON} w-full`}
         >
           {save.isPending ? 'Saving…' : 'Save'}
         </button>
@@ -232,7 +234,7 @@ function Field({
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        className={`${FIELD_COMPACT} w-full`}
       />
     </label>
   )

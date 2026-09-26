@@ -63,12 +63,12 @@ test('signed in, moving between tabs never waits on the server function', async 
   })
 
   for (const [name, heading] of [
-    ['Client', 'Client'],
+    ['Clients', 'Clients'],
     ['Reports', 'Reports'],
     ['Notes', 'Notes'],
     ['Schedule', 'Schedule'],
     // A tab already visited: served from cache, still no call.
-    ['Client', 'Client'],
+    ['Clients', 'Clients'],
   ] as const) {
     await tab(page, name).click()
     await expect(
@@ -161,16 +161,16 @@ test('a slow page loads inside the shell instead of blanking the app', async ({
   await openSchedule(page, s.slug)
   delayMs = 1_500
 
-  await tab(page, 'Client').click()
+  await tab(page, 'Clients').click()
 
   // The page's placeholder, inside the shell — and the shell still there.
   const placeholder = page.getByRole('main').getByRole('status')
   await expect(placeholder).toBeVisible()
   await expect(page.getByRole('navigation')).toBeVisible()
-  await expect(tab(page, 'Client')).toBeVisible()
+  await expect(tab(page, 'Clients')).toBeVisible()
 
   await expect(
-    page.getByRole('heading', { name: 'Client', level: 1 }),
+    page.getByRole('heading', { name: 'Clients', level: 1 }),
   ).toBeVisible()
   await expect(placeholder).toHaveCount(0)
 })
@@ -199,9 +199,9 @@ test('an offboarded technician is sent to sign-in, not left on a page or "Not fo
   const s = await setupBusinessWithSub('nav-offboard')
   await signInViaUi(page, s.sub.email)
   await openSchedule(page, s.slug)
-  await tab(page, 'Client').click()
+  await tab(page, 'Clients').click()
   await expect(
-    page.getByRole('heading', { name: 'Client', level: 1 }),
+    page.getByRole('heading', { name: 'Clients', level: 1 }),
   ).toBeVisible()
 
   // Removal deletes their sessions. The sign-in the browser caches knows

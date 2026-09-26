@@ -10,6 +10,10 @@ import { prefetchViewer } from '#/components/pdf/host/viewerChunk'
 import { ReplacedNotice } from './AmendmentNotice'
 import type { ReportPdf, ReportPdfStatus } from './useReportPdf'
 import type { Id } from '../../../convex/_generated/dataModel'
+import {
+  NEUTRAL_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
 
 /**
  * The PDF tab: what the document is, whether it is ready, and the one way in —
@@ -101,7 +105,7 @@ export function ReportPdfCard({
               type="button"
               disabled={!hydrated}
               onClick={() => void ensure().catch(() => {})}
-              className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+              className={`${SECONDARY_BUTTON} flex flex-1 items-center justify-center gap-2`}
             >
               <RotateCcw size={16} strokeWidth={2} />
               Try again
@@ -113,7 +117,7 @@ export function ReportPdfCard({
             // hydration would land on a button with no handler.
             disabled={!hydrated}
             onClick={onView}
-            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
+            className={`${NEUTRAL_BUTTON} flex flex-1 items-center justify-center gap-2`}
           >
             <FileText size={17} strokeWidth={1.8} />
             View PDF

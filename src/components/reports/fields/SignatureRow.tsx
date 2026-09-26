@@ -6,6 +6,7 @@ import { SignSheet } from './SignSheet'
 import { api } from '../../../../convex/_generated/api'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../../convex/_generated/dataModel'
+import { SECONDARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * A signature in the form: what was signed, or the way to sign it.
@@ -49,7 +50,8 @@ export function SignatureRow({
         <img
           src={existing}
           alt={`${label} — signed`}
-          className="h-24 w-full rounded-xl border border-hairline bg-surface object-contain"
+          // Paper: a signature is dark ink on a transparent PNG.
+          className="h-24 w-full rounded-xl border border-hairline bg-paper object-contain"
         />
       )}
 
@@ -63,7 +65,7 @@ export function SignatureRow({
           existing ? `${label} — signed, sign again` : `${label} — sign`
         }
         onClick={() => setSigning(true)}
-        className="flex h-12 items-center justify-center gap-2 rounded-xl border border-hairline bg-surface text-[15px] font-semibold text-ink transition active:scale-[.99] disabled:opacity-50"
+        className={`${SECONDARY_BUTTON} flex items-center justify-center gap-2`}
       >
         {existing ? (
           <>

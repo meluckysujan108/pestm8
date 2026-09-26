@@ -6,6 +6,8 @@ import {
   normaliseRecoveryCode,
   normaliseTotpCode,
 } from '#/lib/twoStep'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /**
  * The second half of signing in: the six-digit code from the authenticator
@@ -150,7 +152,7 @@ export function SecondStepForm({
             enterKeyHint="go"
             placeholder="xxxxx-xxxxx"
             onChange={(e) => setCode(e.target.value)}
-            className="h-12 rounded-xl bg-surface-3 px-3.5 font-mono text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} font-mono`}
           />
         )}
       </label>
@@ -158,7 +160,7 @@ export function SecondStepForm({
       {error && (
         <p
           role="alert"
-          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           {error}
         </p>
@@ -167,7 +169,7 @@ export function SecondStepForm({
       <button
         type="submit"
         disabled={pending || disabled || !ready}
-        className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        className={`${PRIMARY_BUTTON} mt-2`}
       >
         {pending ? 'Checking…' : 'Continue'}
       </button>

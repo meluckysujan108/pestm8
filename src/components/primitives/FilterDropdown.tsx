@@ -39,7 +39,7 @@ export function FilterDropdown({
         type="button"
         aria-label={label}
         className={[
-          'flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold transition active:scale-[.97]',
+          'relative tap-target flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.97]',
           active
             ? 'border-blue/30 bg-blue/12 text-blue'
             : 'border-hairline bg-surface-2 text-ink-2',

@@ -40,8 +40,10 @@ describe('PasswordState', () => {
     for (const checking of [false, true]) {
       const input = /<input[^>]*>/.exec(render({ wrong: false, checking }))
       expect(input?.[0]).toBeDefined()
-      expect(input?.[0]).not.toContain('disabled')
-      expect(input?.[0]).not.toContain('readonly')
+      // The attributes, not the words: the field's class carries a
+      // `disabled:` style for when some other field is disabled.
+      expect(input?.[0]).not.toMatch(/\sdisabled(?:=|\s|\/?>)/)
+      expect(input?.[0]).not.toMatch(/\sreadonly(?:=|\s|\/?>)/i)
     }
   })
 })

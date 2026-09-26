@@ -47,6 +47,8 @@ import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /** 'site' is a new site for an existing client (Prompt 6.3). */
 type ClientMode = 'existing' | 'new' | 'site'
@@ -124,7 +126,7 @@ export function NewJobSheet({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
           >
             <X size={16} strokeWidth={2} />
           </button>
@@ -435,6 +437,7 @@ function NewJobForm({
         {properties.length > 0 && (
           <Field label="Client">
             <Segmented
+              kind="choice"
               label="Client"
               // A new site is still an existing client's, so that tab stays
               // chosen; tapping it again leaves the site being added alone.
@@ -574,7 +577,7 @@ function NewJobForm({
               autoComplete="off"
               spellCheck={false}
               placeholder="e.g. WO-448120"
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             />
           </Field>
         ) : (
@@ -612,7 +615,7 @@ function NewJobForm({
             <select
               value={assignee}
               onChange={(e) => setAssignee(e.target.value)}
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             >
               {assignees.map((m) => (
                 <option key={m._id} value={m._id}>
@@ -636,7 +639,7 @@ function NewJobForm({
               type="time"
               value={time}
               onChange={(e) => setTime(e.target.value)}
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             />
           </Field>
           <Field label="Minutes">
@@ -646,13 +649,14 @@ function NewJobForm({
               step="15"
               value={duration}
               onChange={(e) => setDuration(e.target.value)}
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             />
           </Field>
         </div>
 
         <FieldGroup label="Repeat">
           <Segmented
+            kind="choice"
             label="Repeat"
             value={repeats ? 'repeats' : 'once'}
             onChange={(v) => setRepeats(v === 'repeats')}
@@ -682,7 +686,7 @@ function NewJobForm({
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             placeholder="0.00"
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           />
         </Field>
 
@@ -699,7 +703,7 @@ function NewJobForm({
             if (clientNeeded()) e.preventDefault()
           }}
           disabled={create.isPending || !hydrated || intervalIncomplete}
-          className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON} mt-5 w-full`}
         >
           {bookLabel}
         </button>

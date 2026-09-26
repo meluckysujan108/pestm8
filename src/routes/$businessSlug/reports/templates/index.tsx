@@ -4,6 +4,7 @@ import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Archive, ArchiveRestore, Copy, Trash2 } from 'lucide-react'
 import { Drawer } from 'vaul'
+import { SheetCloseButton } from '#/components/primitives/Sheet'
 import { api } from '../../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
@@ -14,6 +15,8 @@ import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
 import { useCan } from '#/lib/access'
+import { NEUTRAL_BUTTON_COMPACT, PRIMARY_BUTTON, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 export const Route = createFileRoute('/$businessSlug/reports/templates/')({
   component: TemplatesPage,
@@ -123,14 +126,14 @@ function BuiltinRow({
         <button
           type="button"
           onClick={() => setSettingsOpen(true)}
-          className="h-10 flex-1 rounded-xl bg-ink text-[15px] font-semibold text-surface transition active:scale-[.98]"
+          className={`${NEUTRAL_BUTTON_COMPACT} flex-1`}
         >
           Settings
         </button>
         <button
           type="button"
           onClick={() => setSheetOpen(true)}
-          className="h-10 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Clone &amp; edit
         </button>
@@ -210,7 +213,7 @@ function CloneBuiltinSheet({
               clone.mutate({ businessId, sourceTemplateId, name })
             }}
           >
-            <Drawer.Title className="text-sheet-title text-ink">
+            <Drawer.Title className="pr-10 text-sheet-title text-ink">
               Clone &amp; edit
             </Drawer.Title>
             <p className="mt-1 text-body text-muted">
@@ -223,7 +226,7 @@ function CloneBuiltinSheet({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                className={`${FIELD} w-full`}
               />
             </label>
             {/* A failed clone used to leave the sheet open with nothing said. */}
@@ -235,11 +238,12 @@ function CloneBuiltinSheet({
             <button
               type="submit"
               disabled={clone.isPending || !hydrated}
-              className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON} mt-5 w-full`}
             >
               {clone.isPending ? 'Cloning…' : 'Clone template'}
             </button>
           </form>
+          <SheetCloseButton onClick={onClose} />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
@@ -315,7 +319,7 @@ function CustomRow({
         <Link
           to="/$businessSlug/reports/templates/$templateId"
           params={{ businessSlug: business.slug, templateId: template._id }}
-          className="flex h-10 flex-1 items-center justify-center rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center`}
         >
           Edit
         </Link>
@@ -409,7 +413,7 @@ function DuplicateSheet({
               duplicate.mutate({ businessId, templateId, name })
             }}
           >
-            <Drawer.Title className="text-sheet-title text-ink">
+            <Drawer.Title className="pr-10 text-sheet-title text-ink">
               Duplicate template
             </Drawer.Title>
             <label className="mt-4 flex flex-col gap-1.5">
@@ -418,7 +422,7 @@ function DuplicateSheet({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 required
-                className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                className={`${FIELD} w-full`}
               />
             </label>
             <FormAlert
@@ -429,11 +433,12 @@ function DuplicateSheet({
             <button
               type="submit"
               disabled={duplicate.isPending || !hydrated}
-              className="mt-5 h-12 w-full rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON} mt-5 w-full`}
             >
               {duplicate.isPending ? 'Duplicating…' : 'Duplicate'}
             </button>
           </form>
+          <SheetCloseButton onClick={onClose} />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>

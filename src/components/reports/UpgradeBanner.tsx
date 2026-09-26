@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { restartingReports } from '#/lib/restartingReports'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * Shown on a draft started against wording the business no longer issues.
@@ -124,7 +125,7 @@ export function UpgradeBanner({
               <AlertDialog.Cancel asChild>
                 <button
                   type="button"
-                  className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                 >
                   Not now
                 </button>
@@ -133,7 +134,7 @@ export function UpgradeBanner({
                 type="button"
                 disabled={busy}
                 onClick={confirm}
-                className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
               >
                 {switching ? 'Switch' : 'Start again'}
               </button>

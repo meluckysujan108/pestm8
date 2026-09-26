@@ -1,5 +1,9 @@
 import { useState } from 'react'
 import { Check, Copy, Share2 } from 'lucide-react'
+import {
+  NEUTRAL_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * Shown once, immediately after the link is minted. There is no "copy it
@@ -43,7 +47,7 @@ export function InviteLinkCard({
               setTimeout(() => setCopied(false), 2000)
             })
           }}
-          className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
         >
           {copied ? (
             <Check size={16} strokeWidth={2} />
@@ -59,7 +63,7 @@ export function InviteLinkCard({
             onClick={() => {
               void navigator.share({ text: smsBody }).catch(() => {})
             }}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-blue text-body font-semibold text-white transition active:scale-[.975]"
+            className={`${NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
           >
             <Share2 size={16} strokeWidth={1.7} />
             Share
@@ -67,7 +71,7 @@ export function InviteLinkCard({
         ) : (
           <a
             href={`sms:?&body=${encodeURIComponent(smsBody)}`}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-blue text-body font-semibold text-white transition active:scale-[.975]"
+            className={`${NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
           >
             <Share2 size={16} strokeWidth={1.7} />
             Text it

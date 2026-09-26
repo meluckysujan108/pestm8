@@ -7,6 +7,7 @@ import { roleLabel } from '#/lib/assignees'
 import { rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * "Kevin joined your team", on the owner's schedule — with the one thing to
@@ -83,7 +84,7 @@ export function TeamJoinedNotices({
             onClick={() => onGiveJob(person.membershipId)}
             disabled={!hydrated}
             aria-label={`Give ${person.name} a job`}
-            className="ml-[52px] mt-2 min-h-10 rounded-xl bg-surface-2 px-3.5 text-[15px] font-semibold text-blue transition active:scale-[.98] disabled:opacity-50"
+            className={`${LINK_BUTTON_COMPACT} ml-[52px] mt-2 px-3.5`}
           >
             Give them a job
           </button>

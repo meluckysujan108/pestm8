@@ -31,7 +31,7 @@ function JobSection() {
         businessId={business._id}
         businessSlug={business.slug}
         kicker={business.name}
-        title="Job"
+        title="Jobs"
       />
 
       <div className="px-4 pt-3">

@@ -18,6 +18,8 @@ import type {
   OptionSetKey,
   SignatureValue,
 } from '#/lib/reportTemplates'
+import { SECONDARY_BUTTON } from '#/components/primitives/buttons'
+import { FIELD, FIELD_COMPACT, FIELD_SURFACE } from '#/components/forms/FormField'
 
 /**
  * One editable control per field kind. Each is registered in `registry.ts`;
@@ -25,8 +27,7 @@ import type {
  * a component and a registry line rather than editing a growing switch.
  */
 
-const inputClass =
-  'h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue'
+const inputClass = `${FIELD} w-full`
 
 type Of<TKind extends FieldDef['kind']> = EditorProps<
   Extract<FieldDef, { kind: TKind }>
@@ -56,7 +57,7 @@ export function AreaControl({ field, value, onChange, ctx }: Of<'area'>) {
         placeholder={field.placeholder}
         rows={field.rows ?? 3}
         onChange={(e) => onChange(e.target.value)}
-        className="w-full rounded-xl bg-surface-3 p-3.5 text-[16px] leading-relaxed text-ink outline-none focus:ring-2 focus:ring-blue"
+        className={`${FIELD_SURFACE} w-full p-3.5 leading-relaxed`}
       />
 
       {/* Offered once there is something to offer OR something to keep, so a
@@ -204,7 +205,7 @@ export function ChipsControl({ field, value, onChange }: Of<'chips'>) {
             }
             className={`rounded-full px-3 py-1.5 text-body transition ${
               on
-                ? 'bg-red text-white'
+                ? 'bg-red-fill text-white'
                 : 'bg-surface-3 text-ink-2 hover:bg-surface-2'
             }`}
           >
@@ -242,7 +243,7 @@ export function AreasControl({ field, value, onChange }: Of<'areas'>) {
                     onClick={() =>
                       onChange({ ...areas, [row]: { ...result, status } })
                     }
-                    className={`rounded-md px-2.5 py-1 text-[13px] font-semibold transition ${
+                    className={`relative tap-target rounded-md px-2.5 py-1 text-[13px] font-semibold transition ${
                       result.status === status
                         ? 'bg-surface text-ink shadow-elevation'
                         : 'text-muted'
@@ -267,7 +268,7 @@ export function AreasControl({ field, value, onChange }: Of<'areas'>) {
                     [row]: { ...result, reason: e.target.value },
                   })
                 }
-                className="mt-2 h-11 w-full rounded-lg bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                className={`${FIELD_COMPACT} mt-2 w-full`}
               />
             )}
           </span>
@@ -297,7 +298,7 @@ export function ToggleControl({ field, value, onChange }: Of<'toggle'>) {
           type="button"
           aria-pressed={value === option.on}
           onClick={() => onChange(option.on)}
-          className={`rounded-md px-4 py-1.5 text-[13px] font-semibold transition ${
+          className={`relative tap-target rounded-md px-4 py-1.5 text-[13px] font-semibold transition ${
             value === option.on
               ? 'bg-surface text-ink shadow-elevation'
               : 'text-muted'
@@ -490,7 +491,7 @@ export function ChecksControl({ field, value, onChange, ctx }: Of<'checks'>) {
                 addCustom()
               }
             }}
-            className="h-11 min-w-0 flex-1 rounded-lg bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD_COMPACT} min-w-0 flex-1`}
           />
           <button
             type="button"
@@ -588,7 +589,7 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
             ? `${field.label} — captured, take a new reading`
             : `${field.label} — capture location`
         }
-        className="flex h-12 w-fit items-center gap-2 rounded-xl bg-surface-2 px-4 text-[15px] font-semibold text-ink transition active:scale-[.97] disabled:opacity-50"
+        className={`${SECONDARY_BUTTON} flex w-fit items-center gap-2 px-4`}
       >
         <MapPin size={16} strokeWidth={1.9} />
         {state === 'locating'

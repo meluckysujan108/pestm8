@@ -64,7 +64,7 @@ export function WeekStrip({
               className={[
                 'flex size-9 items-center justify-center rounded-full text-[17px] font-semibold tabular-nums transition',
                 isSelected
-                  ? 'bg-red text-white'
+                  ? 'bg-red-fill text-white'
                   : isToday
                     ? 'text-red'
                     : 'text-ink',

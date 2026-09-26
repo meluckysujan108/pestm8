@@ -30,6 +30,10 @@ import type {
   LoadProgress,
   ViewerPager,
 } from '#/components/pdf/types'
+import {
+  NEUTRAL_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * A picture, full screen, inside the app: the image half of "opened in the
@@ -568,7 +572,7 @@ export function ImageViewer({
                   <button
                     type="button"
                     onClick={onClose}
-                    className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                    className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                   >
                     Close
                   </button>
@@ -576,7 +580,7 @@ export function ImageViewer({
                     <button
                       type="button"
                       onClick={() => setAttempt((n) => n + 1)}
-                      className="h-11 flex-1 rounded-xl bg-blue text-[15px] font-semibold text-on-tint transition active:scale-[.975]"
+                      className={`${NEUTRAL_BUTTON_COMPACT} flex-1`}
                     >
                       Try again
                     </button>
@@ -623,7 +627,7 @@ export function ImageViewer({
         <p
           role="alert"
           // Above the file bar, when there is one, rather than over it.
-          className={`chrome-blur pointer-events-none absolute inset-x-4 mx-auto max-w-sm rounded-2xl px-3.5 py-2 text-center text-caption font-semibold text-orange-ink shadow-elevation ${paged ? 'bottom-[calc(env(safe-area-inset-bottom)+68px)]' : 'bottom-[calc(env(safe-area-inset-bottom)+16px)]'}`}
+          className={`chrome-blur pointer-events-none absolute inset-x-4 mx-auto max-w-sm rounded-2xl px-3.5 py-2 text-center text-caption font-semibold text-amber-ink shadow-elevation ${paged ? 'bottom-[calc(env(safe-area-inset-bottom)+68px)]' : 'bottom-[calc(env(safe-area-inset-bottom)+16px)]'}`}
         >
           {shareProblem}
         </p>

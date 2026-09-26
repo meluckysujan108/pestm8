@@ -19,7 +19,7 @@ import {
 } from '#/components/ui/sidebar.tsx'
 import { BusinessSwitcher } from './BusinessSwitcher'
 import { MobileDock } from './MobileDock'
-import { MORE_NAV, PRIMARY_NAV, SETTINGS_ITEM } from './navItems'
+import { JOB_TO, MORE_NAV, NOTES_TO, PRIMARY_NAV, SETTINGS_ITEM } from './navItems'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
 import { OVERDUE_CHIP } from '#/lib/statusColours'
@@ -98,7 +98,7 @@ export function AppShell({
                         <span>{item.label}</span>
                       </Link>
                     </SidebarMenuButton>
-                    {item.label === 'Notes' && unread > 0 && (
+                    {item.to === NOTES_TO && unread > 0 && (
                       <SidebarMenuBadge className="rounded-full bg-blue px-1.5 text-[11px] font-bold text-white">
                         {unread >= 10 ? '9+' : unread}
                       </SidebarMenuBadge>
@@ -130,7 +130,7 @@ export function AppShell({
                     {/* Ink, not blue and not amber: unlike an unread mention
                         this is work that should already have happened, and
                         overdue carries no hue anywhere (`--overdue`). */}
-                    {item.label === 'Job' && overdue > 0 && (
+                    {item.to === JOB_TO && overdue > 0 && (
                       <SidebarMenuBadge
                         className={`rounded-full px-1.5 text-[11px] font-bold ${OVERDUE_CHIP}`}
                       >

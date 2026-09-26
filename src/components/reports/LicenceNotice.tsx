@@ -12,6 +12,7 @@ import { useAccess } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
 import type { ReportTemplate } from '../../../convex/lib/capabilities'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /** Who can put a missing licence right, from where this person stands. */
 export type LicenceFix = 'self' | 'team' | 'owner'
@@ -89,9 +90,9 @@ export function LicenceNotice({
             aria-hidden
             size={18}
             strokeWidth={1.9}
-            className="mt-0.5 shrink-0 text-orange-ink"
+            className="mt-0.5 shrink-0 text-amber-ink"
           />
-          <div className="min-w-0 flex-1 text-caption text-orange-ink">
+          <div className="min-w-0 flex-1 text-caption text-amber-ink">
             {fix === 'self' ? (
               <>
                 <p className="font-semibold">
@@ -171,7 +172,7 @@ function OwnLicenceForm({
     >
       <label
         htmlFor={inputId}
-        className="text-caption font-medium text-orange-ink"
+        className="text-caption font-medium text-amber-ink"
       >
         {LICENCE_LABEL[state] ?? 'Licence number'}
       </label>
@@ -190,7 +191,7 @@ function OwnLicenceForm({
         <button
           type="submit"
           disabled={!hydrated || save.isPending || !value.trim()}
-          className="h-11 shrink-0 rounded-xl bg-red px-4 text-[15px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} shrink-0 px-4`}
         >
           {save.isPending ? 'Saving…' : 'Save'}
         </button>

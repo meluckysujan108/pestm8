@@ -1,6 +1,10 @@
 import { useRef } from 'react'
 import { AlertDialog } from 'radix-ui'
 import type { ReactNode } from 'react'
+import {
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * "Remove this?" before something is taken away, as the Products sheet asks
@@ -74,7 +78,7 @@ export function ConfirmDialog({
             <AlertDialog.Cancel asChild>
               <button
                 type="button"
-                className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
               >
                 {cancel}
               </button>
@@ -86,7 +90,7 @@ export function ConfirmDialog({
                   confirmed.current = true
                   onConfirm()
                 }}
-                className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975]"
+                className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
               >
                 {confirm}
               </button>

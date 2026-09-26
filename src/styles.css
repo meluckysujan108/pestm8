@@ -45,12 +45,24 @@
   --surface-3: #f4f4f8;
   --canvas: #ededf1;
   --fill-track: rgba(118, 118, 128, 0.08);
+  /* A grey button's fill (buttons.ts). Translucent, as iOS's tertiary fill,
+     so it reads on a white card and on the grey canvas alike. */
+  --fill-secondary: rgba(118, 118, 128, 0.12);
 
   --red: #ff3b30;
+  /* Red behind white text: buttons, the selected day. The brand red is
+     3.5:1 against white, under the 4.5 a 15–17px label needs; this is the
+     same hue a step deeper, 4.8:1 (statusColours.test.ts checks it). The
+     brand red stays for everything that is not white text on red. */
+  --red-fill: #dc2a1f;
   --blue: #0a84ff;
   --green: #34c759;
   --amber: #ff9f0a;
-  --amber-ink: #b26b00;
+  /* Warning text. Darker than the design file's #B26B00, which was 3.98:1
+     in its own box and 3.6:1 on the canvas — under the 4.5 that 13px text
+     needs, read on a phone in the sun. This clears 4.5 on every surface a
+     warning sits on (statusColours.test.ts checks it). */
+  --amber-ink: #985b00;
   --amber-bg: #fff8ec;
   --amber-line: #ffe2b8;
 
@@ -144,8 +156,11 @@
   --surface-3: #2a2a2c;
   --canvas: #000000;
   --fill-track: rgba(120, 120, 128, 0.28);
+  --fill-secondary: rgba(118, 118, 128, 0.24);
 
   --red: #ff453a;
+  /* The same as light: white text on it needs the same depth. */
+  --red-fill: #dc2a1f;
   --blue: #0a84ff;
   --green: #30d158;
   --amber: #ff9f0a;
@@ -275,9 +290,11 @@
   --color-surface-3: var(--surface-3);
   --color-canvas: var(--canvas);
   --color-fill-track: var(--fill-track);
+  --color-fill-secondary: var(--fill-secondary);
   --color-chrome: var(--chrome);
   --color-scrim: var(--scrim);
   --color-red: var(--red);
+  --color-red-fill: var(--red-fill);
   --color-blue: var(--blue);
   --color-green: var(--green);
   --color-amber: var(--amber);
@@ -436,6 +453,24 @@
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+}
+
+/* A 44×44 hit area, at least, centred on a control drawn smaller — a 32px
+   week arrow, a 28px row icon, a 20px clear button. 44 is the smallest a
+   thumb, or a glove, lands on reliably; the control keeps its drawn size.
+   The element must be positioned (`relative`, or already `absolute`), and
+   nothing that clips (`overflow-hidden`) may sit between it and the extra
+   area, or the clipped part cannot be tapped. */
+@utility tap-target {
+  &::after {
+    content: '';
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+    transform: translate(-50%, -50%);
+  }
 }
 
 /* The navigation progress bar (NavProgress.tsx). Transparent for its first

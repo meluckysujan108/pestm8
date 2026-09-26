@@ -311,7 +311,7 @@ function SchedulePage() {
             aria-label="New job"
             disabled={!hydrated}
             onClick={() => setNewJobOpen(true)}
-            className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+            className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
           >
             <Plus size={20} strokeWidth={2} />
           </button>
@@ -401,14 +401,14 @@ function SchedulePage() {
                 type="button"
                 aria-label="Previous week"
                 onClick={() => setDay(addDaysToKey(requestedKey, -7))}
-                className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
               >
                 <ChevronLeft size={20} strokeWidth={1.7} />
               </button>
               <button
                 type="button"
                 onClick={() => setDay(today)}
-                className="text-body font-semibold text-blue"
+                className="relative tap-target text-body font-semibold text-blue"
               >
                 Today
               </button>
@@ -416,7 +416,7 @@ function SchedulePage() {
                 type="button"
                 aria-label="Next week"
                 onClick={() => setDay(addDaysToKey(requestedKey, 7))}
-                className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
               >
                 <ChevronRight size={20} strokeWidth={1.7} />
               </button>

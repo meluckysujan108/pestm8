@@ -350,7 +350,7 @@ function ProductsPage() {
             // Adding needs the server; with only the kept list there is none.
             disabled={!hydrated || fallback}
             onClick={() => setNewOpen(true)}
-            className="flex size-9 items-center justify-center rounded-full bg-red text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+            className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
           >
             <Plus size={20} strokeWidth={2} />
           </button>

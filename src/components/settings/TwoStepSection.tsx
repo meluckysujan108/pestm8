@@ -25,6 +25,10 @@ import {
   SettingsLinkRow,
   SettingsRow,
 } from './ui'
+import {
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * Two-step sign-in, in the person's own settings.
@@ -157,7 +161,7 @@ export function TwoStepSection() {
       {error && (
         <p
           role="alert"
-          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           {error}
         </p>
@@ -166,14 +170,14 @@ export function TwoStepSection() {
         <button
           type="button"
           onClick={close}
-          className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={pending || !hydrated}
-          className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
         >
           {open === 'off'
             ? pending
@@ -221,7 +225,7 @@ export function TwoStepSection() {
           <div className="px-3.5 py-3">
             <p
               role="status"
-              className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+              className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
             >
               Your recovery codes were never confirmed as saved. Make new ones
               now and keep them somewhere other than this phone — without them,

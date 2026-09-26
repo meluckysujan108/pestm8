@@ -21,6 +21,7 @@ import { AsideButton, ContinueButton, SetupFrame } from './SetupFrame'
 import type { AddressValue } from '#/lib/addressVerify'
 import type { BusinessRecord } from '#/components/settings/BusinessSection'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /** The address as card rows — the same restyle Settings' letterhead gives
  * the shared fields (BusinessSection's ADDRESS_ROWS). */
@@ -184,7 +185,7 @@ export function BrandStep({
                   type="button"
                   disabled={logoBusy || !hydrated}
                   onClick={() => fileInput.current?.click()}
-                  className="min-h-11 shrink-0 rounded-xl bg-surface-2 px-3.5 text-[15px] font-semibold text-blue transition active:scale-[.98] disabled:opacity-50"
+                  className={`${LINK_BUTTON_COMPACT} shrink-0 px-3.5`}
                 >
                   {logoBusy
                     ? 'Uploading…'
@@ -205,7 +206,7 @@ export function BrandStep({
                 />
               </div>
               {logoFailed && (
-                <p role="alert" className="mt-2 text-caption text-orange-ink">
+                <p role="alert" className="mt-2 text-caption text-amber-ink">
                   Upload failed. Check your connection and try again.
                 </p>
               )}

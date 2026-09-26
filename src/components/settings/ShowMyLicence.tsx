@@ -8,6 +8,7 @@ import { LicenceViewer } from './LicenceViewer'
 import { licenceSubtitle } from './licenceExpiry'
 import type { Wallet, WalletLicence } from './useMyLicences'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * The hub's "Show my licence": every licence the signed-in person holds, as
@@ -61,6 +62,9 @@ export function ShowMyLicenceButton({
   const viewed = viewing
     ? wallet.licences.find((licence) => licence._id === viewing.licence._id)
     : undefined
+  // The button and the sheet it opens say the same thing, in the number the
+  // person actually has.
+  const plural = wallet.licences.length !== 1
 
   return (
     <>
@@ -68,7 +72,7 @@ export function ShowMyLicenceButton({
         type="button"
         onClick={() => setSheetOpen(true)}
         disabled={!hydrated}
-        className="flex h-11 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+        className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
       >
         <IdCard
           aria-hidden
@@ -76,13 +80,13 @@ export function ShowMyLicenceButton({
           strokeWidth={1.8}
           className="shrink-0 text-blue"
         />
-        Show my licence
+        {plural ? 'Show my licences' : 'Show my licence'}
       </button>
 
       <Sheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        title="My licences"
+        title={plural ? 'My licences' : 'My licence'}
         description={
           wallet.fromPhone
             ? 'No signal — showing the copy kept on this phone.'

@@ -6,6 +6,10 @@ import { useAccess, useCan } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
 import { DANGER_ROW_CLASS } from './ui'
 import type { Id } from '../../../convex/_generated/dataModel'
+import {
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * The owner's way back in for a technician who has lost their phone AND their
@@ -94,7 +98,7 @@ export function ResetTwoStepButton({
           : 'they can turn it on again with their new phone from Settings.'}{' '}
         Their password is not changed or shown to you.
       </p>
-      <p className="mt-2 text-caption text-orange-ink">
+      <p className="mt-2 text-caption text-amber-ink">
         Until they set it up again, their password alone gets into their
         account. Check it is really them asking — in person, or on a call to the
         number you know.
@@ -103,7 +107,7 @@ export function ResetTwoStepButton({
       {reset.isError && (
         <p
           role="alert"
-          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+          className="mt-2 rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           {resetError(reset.error)}
         </p>
@@ -116,7 +120,7 @@ export function ResetTwoStepButton({
             setConfirming(false)
             reset.reset()
           }}
-          className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Cancel
         </button>
@@ -124,7 +128,7 @@ export function ResetTwoStepButton({
           type="button"
           disabled={reset.isPending}
           onClick={() => reset.mutate({ businessId, membershipId })}
-          className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
         >
           {reset.isPending ? 'Resetting…' : 'Reset'}
         </button>

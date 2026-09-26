@@ -46,7 +46,7 @@ export function ReportSwitchRow({
           <span
             id={errorId}
             role="alert"
-            className="block text-caption text-orange-ink"
+            className="block text-caption text-amber-ink"
           >
             Could not save that. Check your connection and try again.
           </span>

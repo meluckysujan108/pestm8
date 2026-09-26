@@ -14,7 +14,7 @@ export type FieldFix = { label: string; onApply: () => void }
  */
 const TONE: Record<FieldMessageTone, string> = {
   error: 'text-red-ink',
-  warning: 'text-orange-ink',
+  warning: 'text-amber-ink',
   status: 'text-grey-ink',
   ok: 'text-green-ink',
 }

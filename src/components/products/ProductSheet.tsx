@@ -33,6 +33,12 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { ShareSupport } from '#/components/pdf/host/useShareSupport'
 import type { LiveProductRow, ShownProduct } from './model'
 import type { ReplaceStatus } from './useReplacePdf'
+import {
+  NEUTRAL_BUTTON,
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * One product, in a bottom sheet: its photo, name and words, its web page
@@ -158,7 +164,7 @@ export function ProductSheet({
               <button
                 type="button"
                 onClick={onClose}
-                className="mt-5 h-12 w-full rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975]"
+                className={`${SECONDARY_BUTTON} mt-5 w-full`}
               >
                 Close
               </button>
@@ -178,7 +184,7 @@ export function ProductSheet({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
           >
             <X size={16} strokeWidth={2} />
           </button>
@@ -335,7 +341,7 @@ function DetailsBody({
                     type="button"
                     disabled={!hydrated}
                     onClick={onView}
-                    className="mt-3 h-12 w-full rounded-xl bg-blue text-[17px] font-semibold text-on-tint transition active:scale-[.975] disabled:opacity-50"
+                    className={`${NEUTRAL_BUTTON} mt-3 w-full`}
                   >
                     View PDF
                   </button>
@@ -703,7 +709,7 @@ function EditBody({
               <AlertDialog.Cancel asChild>
                 <button
                   type="button"
-                  className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                 >
                   Keep it
                 </button>
@@ -713,7 +719,7 @@ function EditBody({
                   type="button"
                   disabled={deleting}
                   onClick={() => void onDelete()}
-                  className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                 >
                   Delete
                 </button>

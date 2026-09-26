@@ -253,7 +253,7 @@ export function SaveWarningsPanel({
   return (
     <section
       aria-labelledby={headingId}
-      className={`rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink ${className ?? ''}`}
+      className={`rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink ${className ?? ''}`}
     >
       <h3
         id={headingId}

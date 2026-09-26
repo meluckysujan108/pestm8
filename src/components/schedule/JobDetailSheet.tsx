@@ -34,6 +34,7 @@ import { propertyOptions } from '#/lib/propertyOptions'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
+import { SheetPending } from '#/components/shell/Pending'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
@@ -46,6 +47,8 @@ import {
 } from './RecurrenceFields'
 import type { IntervalDraft } from './RecurrenceFields'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /**
  * Loaded on demand, not with the schedule.
@@ -165,7 +168,7 @@ export function JobDetailSheet({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
           >
             <X size={16} strokeWidth={2} />
           </button>
@@ -288,7 +291,7 @@ function JobDetailBody({
                 type="button"
                 aria-label="Edit job details"
                 onClick={() => setEditing(true)}
-                className="mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
+                className="relative tap-target mr-8 flex items-center gap-1 text-caption font-semibold text-blue"
               >
                 <Pencil size={13} strokeWidth={2} />
                 Edit
@@ -498,7 +501,7 @@ function JobDetailBody({
                   <button
                     type="button"
                     onClick={() => setConfirmStopRepeatingOpen(true)}
-                    className="mt-3 text-caption font-semibold text-red"
+                    className="relative tap-target mt-3 text-caption font-semibold text-red"
                   >
                     Stop repeating
                   </button>
@@ -515,7 +518,7 @@ function JobDetailBody({
                   <button
                     type="button"
                     onClick={() => setMakeRecurringOpen(true)}
-                    className="mt-3 text-caption font-semibold text-blue"
+                    className="relative tap-target mt-3 text-caption font-semibold text-blue"
                   >
                     Make recurring
                   </button>
@@ -588,7 +591,7 @@ function JobDetailBody({
                   <AlertDialog.Cancel asChild>
                     <button
                       type="button"
-                      className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                      className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                     >
                       Keep job
                     </button>
@@ -598,7 +601,7 @@ function JobDetailBody({
                       type="button"
                       disabled={cancel.isPending}
                       onClick={() => cancel.mutate({ businessId, jobId: job._id })}
-                      className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                     >
                       {cancel.isPending ? 'Cancelling…' : 'Cancel job'}
                     </button>
@@ -641,7 +644,7 @@ function JobDetailBody({
                   <AlertDialog.Cancel asChild>
                     <button
                       type="button"
-                      className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                      className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                     >
                       Keep repeating
                     </button>
@@ -651,7 +654,7 @@ function JobDetailBody({
                       type="button"
                       disabled={stopRepeating.isPending}
                       onClick={() => stopRepeating.mutate({ businessId, jobId: job._id })}
-                      className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                     >
                       {stopRepeating.isPending ? 'Stopping…' : 'Stop repeating'}
                     </button>
@@ -671,10 +674,11 @@ function JobDetailBody({
           </p>
         </div>
       ) : (
-        <div className="px-4 py-10">
-          <Drawer.Title className="sr-only">Job</Drawer.Title>
-          <p className="text-body text-muted">Loading…</p>
-        </div>
+        // The sheet's own shape while the job loads, so it opens at its
+        // height instead of opening short and jumping up.
+        <SheetPending
+          title={<Drawer.Title className="sr-only">Job</Drawer.Title>}
+        />
       )}
     </>
   )
@@ -837,7 +841,7 @@ function JobEditForm({
           autoComplete="off"
           spellCheck={false}
           placeholder="None"
-          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          className={`${FIELD} w-full`}
         />
       </EditField>
 
@@ -863,7 +867,7 @@ function JobEditForm({
           <select
             value={assignee}
             onChange={(e) => setAssignee(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           >
             {assignees.map((m) => (
               <option key={m._id} value={m._id}>
@@ -894,7 +898,7 @@ function JobEditForm({
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           />
         </EditField>
         <EditField label="Start">
@@ -902,7 +906,7 @@ function JobEditForm({
             type="time"
             value={time}
             onChange={(e) => setTime(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           />
         </EditField>
       </div>
@@ -915,7 +919,7 @@ function JobEditForm({
             step="15"
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           />
         </EditField>
         {/* No box for a figure they were never shown. An input seeded from a
@@ -931,7 +935,7 @@ function JobEditForm({
               inputMode="decimal"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             />
           </EditField>
         )}
@@ -953,6 +957,7 @@ function JobEditForm({
         ) : (
           <>
             <Segmented
+              kind="choice"
               label="Repeat"
               value={repeats ? 'repeats' : 'once'}
               onChange={(v: string) => setRepeats(v === 'repeats')}
@@ -990,14 +995,14 @@ function JobEditForm({
         <button
           type="button"
           onClick={onDone}
-          className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Cancel
         </button>
         <button
           type="submit"
           disabled={save.isPending || !hydrated || intervalIncomplete}
-          className="h-11 flex-1 rounded-xl bg-red text-[15px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
         >
           {save.isPending ? 'Saving…' : 'Save'}
         </button>
@@ -1358,7 +1363,7 @@ function JobPhotos({
                   aria-label="Remove photo"
                   disabled={remove.isPending}
                   onClick={() => remove.mutate({ businessId, jobId, photoId: photo._id })}
-                  className="absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
+                  className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
                 >
                   <Trash2 size={12} strokeWidth={2} />
                 </button>
@@ -1374,7 +1379,7 @@ function JobPhotos({
             type="button"
             disabled={busy}
             onClick={() => input.current?.click()}
-            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-50"
+            className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
           >
             <Camera size={16} strokeWidth={1.8} />
             {busy ? 'Uploading…' : 'Add photos'}

@@ -52,6 +52,12 @@ import { forgetDraft, recallDraft, rememberDraft } from '#/lib/draftMirror'
 import { draftToSend } from '#/lib/draftSync'
 import type { MirroredDraft } from '#/lib/draftMirror'
 import { Sheet } from '#/components/primitives/Sheet'
+import {
+  NEUTRAL_BUTTON,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * Honest about §5.5: there is no offline mutation queue, so a failed save is a
@@ -942,7 +948,7 @@ export function ReportBuilder({
                   void forgetDraft(reportId)
                   setStranded(null)
                 }}
-                className="h-12 flex-1 rounded-xl bg-surface-2 text-[16px] font-semibold text-ink"
+                className={`${SECONDARY_BUTTON} flex-1`}
               >
                 Discard
               </button>
@@ -954,7 +960,7 @@ export function ReportBuilder({
                   }
                   setStranded(null)
                 }}
-                className="h-12 flex-1 rounded-xl bg-ink text-[16px] font-semibold text-surface"
+                className={`${NEUTRAL_BUTTON} flex-1`}
               >
                 Restore them
               </button>
@@ -1026,7 +1032,7 @@ export function ReportBuilder({
                 type="button"
                 disabled={!hydrated}
                 onClick={() => goToSection(previousSection)}
-                className="flex h-12 items-center justify-center gap-2 rounded-xl bg-surface-2 px-4 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+                className={`${SECONDARY_BUTTON} flex items-center justify-center gap-2 px-4`}
               >
                 <ArrowLeft size={17} strokeWidth={1.8} />
                 {previousSection ? 'Back' : 'Overview'}
@@ -1036,7 +1042,7 @@ export function ReportBuilder({
                   type="button"
                   disabled={!hydrated}
                   onClick={() => goToSection(nextSection)}
-                  className="flex h-12 min-w-0 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
+                  className={`${NEUTRAL_BUTTON} flex min-w-0 flex-1 items-center justify-center gap-2`}
                 >
                   <span className="truncate">
                     Next: {nextSection.number ? `${nextSection.number}. ` : ''}
@@ -1062,7 +1068,7 @@ export function ReportBuilder({
                 type="button"
                 disabled={!hydrated || autosave.status === 'saving'}
                 onClick={() => void autosave.flush()}
-                className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+                className={`${SECONDARY_BUTTON} flex flex-1 items-center justify-center gap-2`}
               >
                 <Save size={17} strokeWidth={1.7} />
                 {SAVE_LABELS[autosave.status]}
@@ -1081,7 +1087,7 @@ export function ReportBuilder({
                   type="button"
                   disabled={!hydrated}
                   onClick={() => goToSection(progress.firstIncomplete)}
-                  className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
+                  className={`${NEUTRAL_BUTTON} flex flex-1 items-center justify-center gap-2`}
                 >
                   Continue
                   <ArrowRight size={17} strokeWidth={1.8} />
@@ -1127,7 +1133,7 @@ function FinaliseButton({
       type="button"
       disabled={disabled}
       onClick={onClick}
-      className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+      className={`${PRIMARY_BUTTON} flex flex-1 items-center justify-center gap-2`}
     >
       <Lock size={17} strokeWidth={2} />
       {pending ? 'Locking…' : 'Finalise & lock'}
@@ -1199,7 +1205,7 @@ function QuickAnswer({
       type="button"
       disabled={!hydrated}
       onClick={() => onAnswer(patch)}
-      className="mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-hairline bg-surface text-[15px] font-semibold text-ink transition active:scale-[.99] disabled:opacity-50"
+      className={`${SECONDARY_BUTTON_COMPACT} mt-2 flex w-full items-center justify-center gap-2`}
     >
       <CheckCheck size={16} strokeWidth={2} />
       {mode === 'allYes'

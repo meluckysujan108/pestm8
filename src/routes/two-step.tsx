@@ -37,6 +37,11 @@ import {
 } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
 import type { SetupFlow, SetupStatus } from '#/lib/twoStep'
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /**
  * Setting up two-step sign-in. Optional (convex/lib/mfa.ts): people arrive
@@ -265,7 +270,7 @@ function TwoStepPage() {
           <button
             type="button"
             onClick={() => void finish()}
-            className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975]"
+            className={PRIMARY_BUTTON}
           >
             Continue
           </button>
@@ -385,7 +390,7 @@ function PasswordStep({
           type="button"
           disabled={!hydrated}
           onClick={onAlreadyOn}
-          className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={PRIMARY_BUTTON}
         >
           Continue
         </button>
@@ -405,7 +410,7 @@ function PasswordStep({
           type="button"
           disabled={!hydrated}
           onClick={() => window.location.reload()}
-          className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={PRIMARY_BUTTON}
         >
           Reload
         </button>
@@ -491,7 +496,7 @@ function PasswordStep({
           autoComplete="current-password"
           enterKeyHint="go"
           onChange={(e) => setPassword(e.target.value)}
-          className="h-12 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          className={FIELD}
         />
         <span className="text-caption text-muted">{copy.hint}</span>
       </label>
@@ -501,7 +506,7 @@ function PasswordStep({
       <button
         type="submit"
         disabled={pending || !hydrated || step === 'wait'}
-        className="mt-2 h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+        className={`${PRIMARY_BUTTON} mt-2`}
       >
         {pending ? 'Just a moment…' : copy.submit}
       </button>
@@ -627,7 +632,7 @@ function ScanStep({
         </p>
         <a
           href={setup.totpURI}
-          className="flex h-12 items-center justify-center rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON} flex items-center justify-center`}
         >
           Add to authenticator app
         </a>
@@ -712,7 +717,7 @@ function ScanStep({
             <button
               type="button"
               onClick={() => window.location.reload()}
-              className="h-12 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975]"
+              className={SECONDARY_BUTTON}
             >
               Reload
             </button>
@@ -724,7 +729,7 @@ function ScanStep({
         <button
           type="submit"
           disabled={pending || normaliseTotpCode(code).length !== 6}
-          className="h-12 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+          className={PRIMARY_BUTTON}
         >
           {pending ? 'Checking…' : 'Turn on two-step sign-in'}
         </button>
@@ -753,7 +758,7 @@ function ScanStep({
               type="button"
               disabled={pending}
               onClick={() => setConfirming(false)}
-              className="h-12 flex-1 rounded-xl bg-surface-2 text-[16px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+              className={`${SECONDARY_BUTTON} flex-1`}
             >
               Keep this key
             </button>
@@ -761,7 +766,7 @@ function ScanStep({
               type="button"
               disabled={pending}
               onClick={() => void startOver()}
-              className="h-12 flex-1 rounded-xl bg-red text-[16px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON} flex-1`}
             >
               {pending ? 'Just a moment…' : 'Make a new key'}
             </button>
@@ -777,7 +782,7 @@ function Alert({ children }: { children: React.ReactNode }) {
   return (
     <p
       role="alert"
-      className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+      className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
     >
       {children}
     </p>
@@ -788,7 +793,7 @@ function Alert({ children }: { children: React.ReactNode }) {
  * part of the step, not news. */
 function Warning({ children }: { children: React.ReactNode }) {
   return (
-    <p className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink">
+    <p className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink">
       {children}
     </p>
   )

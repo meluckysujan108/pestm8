@@ -42,7 +42,7 @@ export function Sheet({
   return (
     <Drawer.Root open={open} onOpenChange={(next) => !next && onClose()}>
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-black/30" />
+        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Drawer.Content
           className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none"
           onCloseAutoFocus={
@@ -58,7 +58,7 @@ export function Sheet({
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
 
           <div className="px-4 pb-2 pt-3">
-            <Drawer.Title className="pr-10 text-row-title text-ink">
+            <Drawer.Title className="pr-10 text-sheet-title text-ink">
               {title}
             </Drawer.Title>
             {description ? (
@@ -74,8 +74,12 @@ export function Sheet({
             )}
           </div>
 
+          {/* Without a footer the content is the last thing in the sheet, so
+              it is what has to clear the home indicator. */}
           {open && (
-            <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-2">
+            <div
+              className={`min-h-0 flex-1 overflow-y-auto px-4 ${footer ? 'pb-2' : 'pb-[calc(8px+env(safe-area-inset-bottom))]'}`}
+            >
               {children}
             </div>
           )}
@@ -86,16 +90,35 @@ export function Sheet({
             </div>
           )}
 
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
-          >
-            <X size={16} strokeWidth={2} />
-          </button>
+          <SheetCloseButton onClick={onClose} />
         </Drawer.Content>
       </Drawer.Portal>
     </Drawer.Root>
+  )
+}
+
+/**
+ * The round ✕ in a sheet's top corner: a 32px circle, as drawn, inside a
+ * 44px target — the smallest a thumb (or a glove) hits reliably. Placed so
+ * the circle sits 12px from the corner, where every sheet has always had it.
+ */
+export function SheetCloseButton({
+  onClick,
+  label = 'Close',
+}: {
+  onClick: () => void
+  label?: string
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      className="group absolute right-1.5 top-1.5 flex size-11 items-center justify-center rounded-full outline-none"
+    >
+      <span className="flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted group-focus-visible:ring-2 group-focus-visible:ring-blue">
+        <X size={16} strokeWidth={2} />
+      </span>
+    </button>
   )
 }

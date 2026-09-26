@@ -24,6 +24,12 @@ import {
 } from './ui'
 import type { OptionSetKey } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
+import {
+  NEUTRAL_BUTTON_COMPACT,
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
+import { FIELD_COMPACT } from '#/components/forms/FormField'
 
 /**
  * The words a business's own reports offer.
@@ -244,13 +250,13 @@ function OptionListSheet({
               }}
               aria-label={`Add to ${list.label}`}
               placeholder="Add an option"
-              className="h-11 min-w-0 flex-1 rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD_COMPACT} min-w-0 flex-1`}
             />
             <button
               type="button"
               disabled={draft.trim() === '' || add.isPending}
               onClick={addDraft}
-              className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-ink px-4 text-[15px] font-semibold text-surface disabled:opacity-40"
+              className={`${NEUTRAL_BUTTON_COMPACT} flex shrink-0 items-center gap-1.5 px-4`}
             >
               <Plus size={15} strokeWidth={2.2} />
               Add
@@ -436,7 +442,7 @@ function OptionListSheet({
                 <button
                   type="button"
                   onClick={() => setConfirmingReset(false)}
-                  className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                 >
                   Cancel
                 </button>
@@ -447,7 +453,7 @@ function OptionListSheet({
                     setError(null)
                     reset.mutate({ businessId, key: list.key })
                   }}
-                  className="h-11 flex-1 rounded-xl bg-red text-body font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
+                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
                 >
                   {reset.isPending ? 'Resetting…' : 'Reset list'}
                 </button>

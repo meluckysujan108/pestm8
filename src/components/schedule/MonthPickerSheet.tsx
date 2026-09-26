@@ -66,7 +66,7 @@ export function MonthPickerSheet({
                   type="button"
                   aria-label="Previous month"
                   onClick={() => onMonthChange(shiftMonth(monthKey, -1))}
-                  className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                  className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
                 >
                   <ChevronLeft size={20} strokeWidth={1.7} />
                 </button>
@@ -77,7 +77,7 @@ export function MonthPickerSheet({
                   type="button"
                   aria-label="Next month"
                   onClick={() => onMonthChange(shiftMonth(monthKey, 1))}
-                  className="flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+                  className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
                 >
                   <ChevronRight size={20} strokeWidth={1.7} />
                 </button>
@@ -130,7 +130,7 @@ export function MonthPickerSheet({
             type="button"
             aria-label="Close"
             onClick={onClose}
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
+            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
           >
             <X size={16} strokeWidth={2} />
           </button>
@@ -183,7 +183,7 @@ function MonthDays({
               className={[
                 'flex size-9 items-center justify-center rounded-full text-[16px] font-semibold tabular-nums transition',
                 isSelected
-                  ? 'bg-red text-white'
+                  ? 'bg-red-fill text-white'
                   : isToday
                     ? 'text-red'
                     : 'text-ink',
