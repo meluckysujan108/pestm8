@@ -322,7 +322,7 @@ function CustomRow({
           onClick={() => setDuplicateOpen(true)}
           className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95]"
         >
-          <Copy size={16} strokeWidth={1.7} />
+          <Copy size={16} strokeWidth={2} />
         </button>
         {template.archivedAt ? (
           <button
@@ -332,7 +332,7 @@ function CustomRow({
             onClick={() => unarchive.mutate({ businessId, templateId: template._id })}
             className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
           >
-            <ArchiveRestore size={16} strokeWidth={1.7} />
+            <ArchiveRestore size={16} strokeWidth={2} />
           </button>
         ) : (
           <button
@@ -342,7 +342,7 @@ function CustomRow({
             onClick={() => archive.mutate({ businessId, templateId: template._id })}
             className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
           >
-            <Archive size={16} strokeWidth={1.7} />
+            <Archive size={16} strokeWidth={2} />
           </button>
         )}
         <button
@@ -352,7 +352,7 @@ function CustomRow({
           onClick={() => remove.mutate({ businessId, templateId: template._id })}
           className="flex size-10 items-center justify-center rounded-xl bg-surface-2 text-ink-2 transition active:scale-[.95] disabled:opacity-50"
         >
-          <Trash2 size={16} strokeWidth={1.7} />
+          <Trash2 size={16} strokeWidth={2} />
         </button>
       </div>
 

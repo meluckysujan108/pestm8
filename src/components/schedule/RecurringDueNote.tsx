@@ -19,7 +19,7 @@ export function RecurringDueNote({
   if (count <= 0) return null
   return (
     <p className="flex flex-wrap items-center gap-x-1.5 text-caption text-ink-2">
-      <Repeat size={12} strokeWidth={2.2} aria-hidden />
+      <Repeat size={12} strokeWidth={2.4} aria-hidden />
       {count} recurring {count === 1 ? 'visit' : 'visits'} on this day, not
       booked yet ·
       <Link

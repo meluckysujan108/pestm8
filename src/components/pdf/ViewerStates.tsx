@@ -28,7 +28,7 @@ export function LoadingState({ progress }: { progress: LoadProgress | null }) {
         <LoaderCircle
           aria-hidden
           size={30}
-          strokeWidth={2}
+          strokeWidth={1.7}
           className="animate-spin text-muted"
         />
       ) : (
@@ -125,7 +125,7 @@ export function PasswordState({
           if (password && !checking) onSubmit(password)
         }}
       >
-        <Lock aria-hidden size={30} strokeWidth={1.8} className="text-muted" />
+        <Lock aria-hidden size={30} strokeWidth={1.7} className="text-muted" />
         <h3 className="text-row-title text-ink">This PDF is locked</h3>
         <p className="text-caption text-muted">
           Enter its password to open it.

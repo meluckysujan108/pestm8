@@ -243,7 +243,7 @@ export function AreasControl({ field, value, onChange }: Of<'areas'>) {
                     onClick={() =>
                       onChange({ ...areas, [row]: { ...result, status } })
                     }
-                    className={`relative tap-target rounded-md px-2.5 py-1 text-[13px] font-semibold transition ${
+                    className={`relative tap-target rounded-md px-2.5 py-1 text-caption font-semibold transition ${
                       result.status === status
                         ? 'bg-surface text-ink shadow-elevation'
                         : 'text-muted'
@@ -298,7 +298,7 @@ export function ToggleControl({ field, value, onChange }: Of<'toggle'>) {
           type="button"
           aria-pressed={value === option.on}
           onClick={() => onChange(option.on)}
-          className={`relative tap-target rounded-md px-4 py-1.5 text-[13px] font-semibold transition ${
+          className={`relative tap-target rounded-md px-4 py-1.5 text-caption font-semibold transition ${
             value === option.on
               ? 'bg-surface text-ink shadow-elevation'
               : 'text-muted'
@@ -497,7 +497,7 @@ export function ChecksControl({ field, value, onChange, ctx }: Of<'checks'>) {
             type="button"
             onClick={addCustom}
             disabled={!draft.trim()}
-            className="shrink-0 rounded-lg bg-surface-2 px-3.5 text-[13px] font-semibold text-ink transition active:scale-[.97] disabled:opacity-40"
+            className="shrink-0 rounded-lg bg-surface-2 px-3.5 text-caption font-semibold text-ink transition active:scale-[.97] disabled:opacity-40"
           >
             Add
           </button>
@@ -591,7 +591,7 @@ export function GpsControl({ field, value, onChange }: Of<'gps'>) {
         }
         className={`${SECONDARY_BUTTON} flex w-fit items-center gap-2 px-4`}
       >
-        <MapPin size={16} strokeWidth={1.9} />
+        <MapPin size={16} strokeWidth={2} />
         {state === 'locating'
           ? 'Locating…'
           : gps

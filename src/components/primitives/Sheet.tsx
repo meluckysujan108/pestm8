@@ -32,7 +32,7 @@ export function SheetShell({
       <Drawer.Portal>
         <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
         <Drawer.Content
-          className={`fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none ${className}`}
+          className={`fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-sheet bg-canvas outline-none ${className}`}
         >
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
           {children}
@@ -131,7 +131,7 @@ export function SheetCloseButton({
       className="group absolute right-1.5 top-1.5 flex size-11 items-center justify-center rounded-full outline-none"
     >
       <span className="flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted group-focus-visible:ring-2 group-focus-visible:ring-blue">
-        <X size={16} strokeWidth={2} />
+        <X size={16} strokeWidth={2.2} />
       </span>
     </button>
   )

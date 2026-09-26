@@ -29,6 +29,8 @@ export type Tint = 'blue' | 'green' | 'red' | 'orange' | 'grey' | 'amber'
 const TINT: Record<Tint, string> = {
   blue: 'bg-blue text-white',
   green: 'bg-green text-white',
+  // A white glyph, not text: 3:1 is its bar, which the brand red clears.
+  // eslint-disable-next-line no-restricted-syntax -- icon, not text
   red: 'bg-red text-white',
   orange: 'bg-amber text-white',
   amber: 'bg-amber text-white',
@@ -223,7 +225,7 @@ const BackAnchor = forwardRef<
       {...rest}
       className={`relative tap-target -ml-1.5 mb-0.5 inline-flex min-h-7 items-center gap-0.5 text-body font-medium text-blue ${className ?? ''}`}
     >
-      <ChevronLeft aria-hidden size={20} strokeWidth={2.4} />
+      <ChevronLeft aria-hidden size={20} strokeWidth={2} />
       {children}
     </a>
   )

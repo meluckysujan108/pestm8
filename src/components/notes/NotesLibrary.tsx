@@ -84,7 +84,7 @@ export function NotesLibrary({
       onClick={() => create.mutate()}
       className="relative tap-target flex size-9 items-center justify-center rounded-full bg-red-fill text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
     >
-      <Plus size={20} strokeWidth={2.4} />
+      <Plus size={20} strokeWidth={2} />
     </button>
   )
 
@@ -211,7 +211,7 @@ function OpenNote({
       onClick={onBack}
       className="flex h-9 items-center gap-0.5 pr-2 text-[17px] text-blue lg:hidden"
     >
-      <ChevronLeft size={22} strokeWidth={2.2} />
+      <ChevronLeft size={22} strokeWidth={2} />
       Notes
     </button>
   )
@@ -230,7 +230,7 @@ function OpenNote({
         {back}
         <div className="px-1 py-8 text-center">
           <p className="text-row-title text-ink">This note isn't available</p>
-          <button type="button" onClick={onBack} className="mt-2 text-[15px] font-semibold text-blue">
+          <button type="button" onClick={onBack} className="mt-2 text-body font-semibold text-blue">
             Back to notes
           </button>
         </div>

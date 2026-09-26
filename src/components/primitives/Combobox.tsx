@@ -118,7 +118,7 @@ export function Combobox({
             {emptyLabel}
           </span>
         )}
-        <ChevronsUpDown size={16} strokeWidth={1.7} className="shrink-0 text-muted" />
+        <ChevronsUpDown size={16} strokeWidth={2.2} className="shrink-0 text-muted" />
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
@@ -132,7 +132,7 @@ export function Combobox({
           className="z-50 rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
         >
           <label className="flex items-center gap-2 rounded-xl bg-surface-3 px-3">
-            <Search size={17} strokeWidth={1.7} className="text-muted" />
+            <Search size={17} strokeWidth={2} className="text-muted" />
             {placeholder && <span className="sr-only">{placeholder}</span>}
             <input
               ref={inputRef}

@@ -89,7 +89,7 @@ export function LicenceNotice({
           <IdCard
             aria-hidden
             size={18}
-            strokeWidth={1.9}
+            strokeWidth={1.7}
             className="mt-0.5 shrink-0 text-amber-ink"
           />
           <div className="min-w-0 flex-1 text-caption text-amber-ink">

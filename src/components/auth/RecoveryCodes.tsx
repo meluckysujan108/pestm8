@@ -76,9 +76,9 @@ export function RecoveryCodes({
           className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
         >
           {copied ? (
-            <Check size={16} strokeWidth={2} />
+            <Check size={16} strokeWidth={2.2} />
           ) : (
-            <Copy size={16} strokeWidth={1.7} />
+            <Copy size={16} strokeWidth={2} />
           )}
           {copied ? 'Copied' : 'Copy all'}
         </button>
@@ -98,7 +98,7 @@ export function RecoveryCodes({
             }}
             className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
           >
-            <Share size={16} strokeWidth={1.7} />
+            <Share size={16} strokeWidth={2} />
             Share
           </button>
         )}

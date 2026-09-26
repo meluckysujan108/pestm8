@@ -78,7 +78,7 @@ export function ClientCard({
     >
       <span className="flex items-center justify-between gap-2">
         <ClientKindPill kind={client.kind} />
-        <Icon size={17} strokeWidth={1.7} aria-hidden className="shrink-0 text-muted" />
+        <Icon size={17} strokeWidth={2} aria-hidden className="shrink-0 text-muted" />
       </span>
 
       <span className="block min-w-0">

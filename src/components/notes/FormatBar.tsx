@@ -86,25 +86,25 @@ export function FormatBar({
     >
       {button(
         'Title',
-        <Heading size={18} strokeWidth={2} />,
+        <Heading size={18} strokeWidth={1.7} />,
         (active?.heading ?? false) && !active?.inTitle,
         () => editor.chain().focus().toggleHeading({ level: 1 }).run(),
         active?.inTitle ?? false,
       )}
-      {button('Bold', <Bold size={18} strokeWidth={2.2} />, active?.bold ?? false, () =>
+      {button('Bold', <Bold size={18} strokeWidth={1.7} />, active?.bold ?? false, () =>
         editor.chain().focus().toggleBold().run(),
       )}
-      {button('Italic', <Italic size={18} strokeWidth={2} />, active?.italic ?? false, () =>
+      {button('Italic', <Italic size={18} strokeWidth={1.7} />, active?.italic ?? false, () =>
         editor.chain().focus().toggleItalic().run(),
       )}
-      {button('Checklist', <ListChecks size={18} strokeWidth={2} />, active?.taskList ?? false, () =>
+      {button('Checklist', <ListChecks size={18} strokeWidth={1.7} />, active?.taskList ?? false, () =>
         editor.chain().focus().toggleTaskList().run(),
       )}
-      {button('Bullet list', <List size={18} strokeWidth={2} />, active?.bulletList ?? false, () =>
+      {button('Bullet list', <List size={18} strokeWidth={1.7} />, active?.bulletList ?? false, () =>
         editor.chain().focus().toggleBulletList().run(),
       )}
       {mentions &&
-        button('Mention a teammate', <AtSign size={18} strokeWidth={2} />, false, startMention)}
+        button('Mention a teammate', <AtSign size={18} strokeWidth={1.7} />, false, startMention)}
       {trailing && <div className="ml-auto flex items-center gap-0.5">{trailing}</div>}
     </div>
   )

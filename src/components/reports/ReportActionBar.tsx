@@ -71,7 +71,7 @@ function SgarNotice({
     <div className="mx-4 mt-4 flex items-start gap-2.5 rounded-2xl border border-amber-line bg-amber-bg px-3.5 py-3">
       <CalendarClock
         size={16}
-        strokeWidth={1.9}
+        strokeWidth={2}
         className="mt-0.5 shrink-0 text-amber-ink"
       />
       <div className="min-w-0 flex-1">

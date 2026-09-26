@@ -33,13 +33,13 @@ export function WeatherBanner({ cell }: { cell: WeatherCell }) {
       }`}
     >
       {wet ? (
-        <CloudRain size={17} strokeWidth={1.7} className="mt-0.5 shrink-0" />
+        <CloudRain size={17} strokeWidth={2} className="mt-0.5 shrink-0" />
       ) : windy ? (
-        <Wind size={17} strokeWidth={1.7} className="mt-0.5 shrink-0" />
+        <Wind size={17} strokeWidth={2} className="mt-0.5 shrink-0" />
       ) : (
         <Droplets
           size={17}
-          strokeWidth={1.7}
+          strokeWidth={2}
           className="mt-0.5 shrink-0 text-blue"
         />
       )}

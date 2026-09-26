@@ -273,7 +273,7 @@ export function NoteList({
           <button
             type="button"
             onClick={() => paged.loadMore(NOTES_PAGE)}
-            className="mx-auto mt-4 block rounded-full bg-surface-2 px-4 py-2 text-[13px] font-semibold text-blue"
+            className="mx-auto mt-4 block rounded-full bg-surface-2 px-4 py-2 text-caption font-semibold text-blue"
           >
             Show more
           </button>
@@ -378,7 +378,7 @@ function NoteRow({
                   note.checklistDone === note.checklistTotal ? 'text-green' : ''
                 }`}
               >
-                <ListChecks size={12} strokeWidth={2.2} />
+                <ListChecks size={12} strokeWidth={2.4} />
                 {note.checklistDone}/{note.checklistTotal}
               </span>
             ) : null}

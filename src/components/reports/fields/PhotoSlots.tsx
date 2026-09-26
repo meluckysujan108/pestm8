@@ -126,7 +126,7 @@ function PhotoSlot({
               className="size-full object-cover"
             />
             <span className="absolute bottom-1 right-1 flex size-5 items-center justify-center rounded-full bg-green text-white">
-              <Check size={12} strokeWidth={3} />
+              <Check size={12} strokeWidth={2.4} />
             </span>
           </>
         ) : (

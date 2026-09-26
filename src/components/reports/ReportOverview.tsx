@@ -57,7 +57,7 @@ export function ReportOverview({
               </span>
               <ChevronRight
                 size={18}
-                strokeWidth={1.8}
+                strokeWidth={2}
                 className="shrink-0 text-muted"
               />
             </button>
@@ -87,7 +87,7 @@ function SectionStatus({ section }: { section: SectionProgress }) {
   if (section.readingOnly) {
     return (
       <span className="mt-0.5 flex items-center gap-1 text-caption text-muted">
-        <FileText size={13} strokeWidth={1.8} />
+        <FileText size={13} strokeWidth={2} />
         To read
       </span>
     )
@@ -113,7 +113,7 @@ function SectionStatus({ section }: { section: SectionProgress }) {
 
   return (
     <span className="mt-0.5 flex items-center gap-1 text-caption text-green">
-      <Check size={13} strokeWidth={2.4} />
+      <Check size={13} strokeWidth={2.2} />
       {/* "Complete" would overclaim on a section whose optional questions are
           all blank: what is true is that nothing is outstanding. */}
       {section.answered > 0 ? 'Done' : 'Nothing needed'}
@@ -146,7 +146,7 @@ function LastVisitCard({ offer }: { offer: LastVisitOffer }) {
 
   return (
     <div className="mb-3 flex items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3 shadow-elevation">
-      <History size={17} strokeWidth={1.8} className="shrink-0 text-blue" />
+      <History size={17} strokeWidth={2} className="shrink-0 text-blue" />
       <p className="min-w-0 flex-1 text-caption text-muted">
         <span className="block text-row-title text-ink">
           Copy from {visitDate(offer.finalisedAt)}?

@@ -267,7 +267,7 @@ function ClientBody({
         <button
           type="button"
           onClick={() => setConfirmArchiveOpen(true)}
-          className="mt-6 h-11 w-full rounded-xl bg-surface-2 text-[15px] font-semibold text-amber-ink transition active:scale-[.975]"
+          className="mt-6 h-11 w-full rounded-xl bg-surface-2 text-body font-semibold text-amber-ink transition active:scale-[.975]"
         >
           Archive client
         </button>
@@ -658,7 +658,7 @@ function ClientContacts({
                       onClick={() => makePrimary(contact._id)}
                       className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                     >
-                      <Star size={14} strokeWidth={1.7} />
+                      <Star size={14} strokeWidth={2} />
                     </button>
                   )}
                   <button
@@ -672,7 +672,7 @@ function ClientContacts({
                     }
                     className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
                   >
-                    <Trash2 size={14} strokeWidth={1.7} />
+                    <Trash2 size={14} strokeWidth={2} />
                   </button>
                 </div>
                 <ContactButtons name={contact.name} phone={contact.phone} email={contact.email} />
@@ -707,7 +707,7 @@ function ClientContacts({
           onClick={() => setAdding(true)}
           className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
         >
-          <Plus size={16} strokeWidth={1.8} />
+          <Plus size={16} strokeWidth={2.2} />
           Add contact
         </button>
       )}
@@ -1053,7 +1053,7 @@ function ClientProperties({
           onClick={() => setAdding(true)}
           className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
         >
-          <Plus size={16} strokeWidth={1.8} />
+          <Plus size={16} strokeWidth={2.2} />
           Add another property
         </button>
       )}

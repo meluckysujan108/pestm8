@@ -45,7 +45,7 @@ export function PageHeader({
               <span className="section-label truncate !text-blue">
                 {kicker}
               </span>
-              <ChevronDown size={13} strokeWidth={2.4} />
+              <ChevronDown size={13} strokeWidth={2.2} />
             </button>
           ) : (
             <p className="section-label mb-0.5 truncate">{kicker}</p>

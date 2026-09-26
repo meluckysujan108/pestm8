@@ -47,7 +47,7 @@ export function ProductCard({
                 <FileText
                   aria-hidden
                   size={12}
-                  strokeWidth={2.2}
+                  strokeWidth={2.4}
                   className="text-red"
                 />
                 {pdfMeta(product.pdf.size, formatBytes)}
@@ -55,7 +55,7 @@ export function ProductCard({
             )}
             {kept && (
               <Chip tone="green">
-                <Smartphone aria-hidden size={12} strokeWidth={2.2} />
+                <Smartphone aria-hidden size={12} strokeWidth={2.4} />
                 On this phone
               </Chip>
             )}

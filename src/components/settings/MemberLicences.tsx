@@ -84,7 +84,7 @@ export function MemberLicences({
               <LoaderCircle
                 aria-hidden
                 size={20}
-                strokeWidth={2}
+                strokeWidth={1.7}
                 className="animate-spin text-muted"
               />
               <span className="sr-only" role="status">

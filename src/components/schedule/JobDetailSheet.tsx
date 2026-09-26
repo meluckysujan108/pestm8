@@ -312,7 +312,7 @@ function JobDetailBody({
                         className="flex items-center gap-1 rounded-full transition active:scale-[.97]"
                       >
                         <StatusPill status={job.status} />
-                        <ChevronDown size={14} strokeWidth={2} className="text-muted" />
+                        <ChevronDown size={14} strokeWidth={2.2} className="text-muted" />
                       </button>
                     </DropdownMenu.Trigger>
                     <DropdownMenu.Portal>
@@ -480,7 +480,7 @@ function JobDetailBody({
             {job.recurrence?.active ? (
               <>
                 <div className="flex items-center gap-2">
-                  <Repeat size={16} strokeWidth={1.7} className="text-ink-2" />
+                  <Repeat size={16} strokeWidth={2} className="text-ink-2" />
                   <p className="text-body text-ink">
                     {describeRepeat(job.recurrence.interval)}
                   </p>
@@ -1320,7 +1320,7 @@ function JobPhotos({
                   onClick={() => remove.mutate({ businessId, jobId, photoId: photo._id })}
                   className="tap-target absolute right-1 top-1 flex size-6 items-center justify-center rounded-full bg-black/50 text-white transition active:scale-95"
                 >
-                  <Trash2 size={12} strokeWidth={2} />
+                  <Trash2 size={12} strokeWidth={2.4} />
                 </button>
               )}
             </div>
@@ -1336,7 +1336,7 @@ function JobPhotos({
             onClick={() => input.current?.click()}
             className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
           >
-            <Camera size={16} strokeWidth={1.8} />
+            <Camera size={16} strokeWidth={2} />
             {busy ? 'Uploading…' : 'Add photos'}
           </button>
           <input

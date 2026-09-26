@@ -363,7 +363,7 @@ export function SendSheet({
                         entry.chosen ? 'bg-ink text-surface' : 'bg-surface-3'
                       }`}
                     >
-                      {entry.chosen && <Check size={13} strokeWidth={3} />}
+                      {entry.chosen && <Check size={13} strokeWidth={2.2} />}
                     </span>
                     <span className="min-w-0 flex-1 truncate text-body text-ink">
                       {entry.address}
@@ -446,7 +446,7 @@ export function SendSheet({
             <button
               type="button"
               onClick={addTyped}
-              className="shrink-0 rounded-xl bg-surface-2 px-3.5 text-[15px] font-semibold text-ink"
+              className="shrink-0 rounded-xl bg-surface-2 px-3.5 text-body font-semibold text-ink"
             >
               {typoAsked === typed ? 'Add anyway' : 'Add'}
             </button>

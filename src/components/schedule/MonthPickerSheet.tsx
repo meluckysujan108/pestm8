@@ -65,7 +65,7 @@ export function MonthPickerSheet({
               onClick={() => onMonthChange(shiftMonth(monthKey, -1))}
               className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
             >
-              <ChevronLeft size={20} strokeWidth={1.7} />
+              <ChevronLeft size={20} strokeWidth={2} />
             </button>
             <Drawer.Title className="text-sheet-title text-ink">
               {formatMonthLabel(`${monthKey}-01`)}
@@ -76,7 +76,7 @@ export function MonthPickerSheet({
               onClick={() => onMonthChange(shiftMonth(monthKey, 1))}
               className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
             >
-              <ChevronRight size={20} strokeWidth={1.7} />
+              <ChevronRight size={20} strokeWidth={2} />
             </button>
           </div>
 

@@ -67,7 +67,7 @@ export function MobileDock({
               aria-hidden
               className={`${glyph} group-aria-[current=page]:bg-red/10`}
             >
-              <item.icon size={21} strokeWidth={1.8} />
+              <item.icon size={21} strokeWidth={1.7} />
               {item.to === NOTES_TO && unreadNotes > 0 && (
                 <span className="absolute right-2 top-0 min-w-4 rounded-full bg-blue px-1 text-center text-[10px] font-bold leading-4 text-white">
                   {unreadNotes >= 10 ? '9+' : unreadNotes}
@@ -97,7 +97,7 @@ export function MobileDock({
           className={`${cell} data-[active]:text-red`}
         >
           <span className={`${glyph} group-data-[active]:bg-red/10`}>
-            <Menu size={21} strokeWidth={1.8} aria-hidden />
+            <Menu size={21} strokeWidth={1.7} aria-hidden />
             {/* On the burger, not just on the Job row inside the sheet: Job
                 lives behind this button, so a badge in there is only seen by
                 someone who already went looking. */}

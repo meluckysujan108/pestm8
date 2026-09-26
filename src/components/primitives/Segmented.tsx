@@ -58,7 +58,7 @@ export function Segmented<T extends string>({
       role={choice ? 'radiogroup' : 'tablist'}
       aria-label={label}
       onKeyDown={onKeyDown}
-      className="flex rounded-[9px] bg-fill-track p-0.5"
+      className="flex rounded-segmented bg-fill-track p-0.5"
     >
       {options.map((option, index) => {
         const selected = option.value === value
@@ -79,7 +79,7 @@ export function Segmented<T extends string>({
             }
             disabled={disabled}
             onClick={() => onChange(option.value)}
-            className={`relative tap-target flex-1 rounded-[7px] px-3 py-1.5 text-[13px] font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-blue ${
+            className={`relative tap-target flex-1 rounded-segment px-3 py-1.5 text-caption font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-blue ${
               selected ? 'bg-surface text-ink shadow-elevation' : 'text-muted'
             } disabled:opacity-60`}
           >

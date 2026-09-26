@@ -50,7 +50,7 @@ function OptionRow({
       >
         <span className="flex-1 text-body text-ink">{option.label}</span>
         {on && (
-          <Check size={17} strokeWidth={2.4} className="shrink-0 text-red" />
+          <Check size={17} strokeWidth={2.2} className="shrink-0 text-red" />
         )}
       </button>
     </li>
@@ -146,7 +146,7 @@ export function PickerSheet({
       }
     >
       <label className="flex h-11 items-center gap-2 rounded-xl bg-surface-2 px-3">
-        <Search size={16} strokeWidth={1.8} className="shrink-0 text-muted" />
+        <Search size={16} strokeWidth={2} className="shrink-0 text-muted" />
         <input
           value={query}
           onChange={(event) => setQuery(event.target.value)}

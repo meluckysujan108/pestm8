@@ -157,7 +157,7 @@ export function AnnotationEditor({
           aria-label="Save annotation"
           className="flex size-10 items-center justify-center rounded-full bg-white/10 text-white disabled:opacity-30"
         >
-          <Check size={18} strokeWidth={2.4} />
+          <Check size={18} strokeWidth={2} />
         </button>
       </div>
 

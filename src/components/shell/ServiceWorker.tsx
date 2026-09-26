@@ -115,7 +115,7 @@ export function NewVersionBanner({
       <button
         type="button"
         onClick={onReload}
-        className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-blue/10 px-3.5 text-[15px] font-semibold text-blue-ink transition active:scale-[.975]"
+        className="flex h-11 shrink-0 items-center gap-1.5 rounded-xl bg-blue/10 px-3.5 text-body font-semibold text-blue-ink transition active:scale-[.975]"
       >
         <RefreshCw aria-hidden className="size-4" />
         Reload

@@ -109,12 +109,12 @@ export function ViewMenu({
             ring
           />
         )}
-        <span className="hidden max-w-28 truncate text-[13px] font-semibold md:inline">
+        <span className="hidden max-w-28 truncate text-caption font-semibold md:inline">
           {label}
         </span>
         <ChevronDown
           size={14}
-          strokeWidth={2}
+          strokeWidth={2.2}
           className="hidden text-muted md:block"
         />
       </DropdownMenu.Trigger>
@@ -130,7 +130,7 @@ export function ViewMenu({
               value="everyone"
               glyph={
                 <Glyph>
-                  <Users size={16} strokeWidth={1.7} />
+                  <Users size={16} strokeWidth={2} />
                 </Glyph>
               }
               title="God view"
@@ -185,7 +185,7 @@ export function ViewMenu({
                 >
                   <BadgeCheck
                     size={16}
-                    strokeWidth={1.7}
+                    strokeWidth={2}
                     className="mt-px shrink-0 text-blue"
                   />
                   Add your licence number in Settings so you can sign
@@ -224,7 +224,7 @@ function Choice({
         </span>
       </span>
       <DropdownMenu.ItemIndicator>
-        <Check size={16} strokeWidth={2} className="text-blue" />
+        <Check size={16} strokeWidth={2.2} className="text-blue" />
       </DropdownMenu.ItemIndicator>
     </DropdownMenu.RadioItem>
   )
@@ -252,7 +252,7 @@ function Initial({
     <span
       aria-hidden
       className={[
-        'flex size-9 shrink-0 items-center justify-center rounded-full text-[15px] font-semibold text-white',
+        'flex size-9 shrink-0 items-center justify-center rounded-full text-body font-semibold text-white',
         ring ? 'ring-2 ring-amber ring-offset-2 ring-offset-canvas' : '',
       ].join(' ')}
       style={{ backgroundColor: colour ?? 'var(--color-muted)' }}
