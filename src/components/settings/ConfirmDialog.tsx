@@ -29,6 +29,10 @@ export function ConfirmDialog({
   cancel = 'Cancel',
   onConfirm,
   returnFocus,
+  pending = false,
+  pendingLabel,
+  error,
+  closeOnConfirm = true,
 }: {
   open: boolean
   onOpenChange: (open: boolean) => void
@@ -42,9 +46,33 @@ export function ConfirmDialog({
   /** Where focus goes when the dialog closes, having been confirmed or not;
    * null or undefined for whatever had it when the dialog opened. */
   returnFocus?: (confirmed: boolean) => HTMLElement | null | undefined
+  /** The action is running: its button waits, and says so. */
+  pending?: boolean
+  /** Said on the button while `pending` — "Cancelling…". */
+  pendingLabel?: string
+  /** Why the action did not go through, above the buttons. Only seen when
+   * `closeOnConfirm` is false, since the dialog is otherwise gone. */
+  error?: ReactNode
+  /** False keeps the dialog open after the tap, for an action whose outcome
+   * the dialog itself has to report (it closes itself on success). */
+  closeOnConfirm?: boolean
 }) {
   const opener = useRef<HTMLElement | null>(null)
   const confirmed = useRef(false)
+
+  const confirmButton = (
+    <button
+      type="button"
+      disabled={pending}
+      onClick={() => {
+        confirmed.current = true
+        onConfirm()
+      }}
+      className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
+    >
+      {pending && pendingLabel ? pendingLabel : confirm}
+    </button>
+  )
 
   return (
     <AlertDialog.Root open={open} onOpenChange={onOpenChange}>
@@ -74,6 +102,11 @@ export function ConfirmDialog({
           <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
             {body}
           </AlertDialog.Description>
+          {error && (
+            <p role="alert" className="mt-2 text-caption text-red">
+              {error}
+            </p>
+          )}
           <div className="mt-4 flex gap-2">
             <AlertDialog.Cancel asChild>
               <button
@@ -83,18 +116,11 @@ export function ConfirmDialog({
                 {cancel}
               </button>
             </AlertDialog.Cancel>
-            <AlertDialog.Action asChild>
-              <button
-                type="button"
-                onClick={() => {
-                  confirmed.current = true
-                  onConfirm()
-                }}
-                className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-              >
-                {confirm}
-              </button>
-            </AlertDialog.Action>
+            {closeOnConfirm ? (
+              <AlertDialog.Action asChild>{confirmButton}</AlertDialog.Action>
+            ) : (
+              confirmButton
+            )}
           </div>
         </AlertDialog.Content>
       </AlertDialog.Portal>

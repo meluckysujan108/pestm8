@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
-import { AlertDialog, DropdownMenu, Popover } from 'radix-ui'
+import { DropdownMenu, Popover } from 'radix-ui'
 import {
   Briefcase,
   ChevronLeft,
@@ -24,7 +24,8 @@ import { editedLabel } from '#/lib/noteDates'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReactNode } from 'react'
-import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { RowPending } from '#/components/shell/Pending'
 
 type NoteMeta = {
   _id: Id<'notes'>
@@ -290,42 +291,23 @@ export function NoteEditorHeader({
         </p>
       )}
 
-      <AlertDialog.Root open={confirmShareOpen} onOpenChange={setConfirmShareOpen}>
-        <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
-            <AlertDialog.Title className="text-row-title text-ink">
-              Share this note with the team?
-            </AlertDialog.Title>
-            <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
-              Everyone in the business will be able to read and edit it, and it
-              moves to Team. Its earlier drafts are not shared, and a pin comes
-              off. You can make it personal again, but by then they may have
-              read it.
-            </AlertDialog.Description>
-            <div className="mt-4 flex gap-2">
-              <AlertDialog.Cancel asChild>
-                <button
-                  type="button"
-                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-                >
-                  Keep it personal
-                </button>
-              </AlertDialog.Cancel>
-              <AlertDialog.Action asChild>
-                <button
-                  type="button"
-                  disabled={setVisibility.isPending}
-                  onClick={() => setVisibility.mutate('shared')}
-                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-                >
-                  Share
-                </button>
-              </AlertDialog.Action>
-            </div>
-          </AlertDialog.Content>
-        </AlertDialog.Portal>
-      </AlertDialog.Root>
+      <ConfirmDialog
+        open={confirmShareOpen}
+        onOpenChange={setConfirmShareOpen}
+        title="Share this note with the team?"
+        body={
+          <>
+            Everyone in the business will be able to read and edit it, and it
+            moves to Team. Its earlier drafts are not shared, and a pin comes
+            off. You can make it personal again, but by then they may have
+            read it.
+          </>
+        }
+        cancel="Keep it personal"
+        confirm="Share"
+        pending={setVisibility.isPending}
+        onConfirm={() => setVisibility.mutate('shared')}
+      />
 
       <JobPicker
         businessId={businessId}
@@ -340,40 +322,22 @@ export function NoteEditorHeader({
         }}
       />
 
-      <AlertDialog.Root open={confirmPurgeOpen} onOpenChange={setConfirmPurgeOpen}>
-        <AlertDialog.Portal>
-          <AlertDialog.Overlay className="fixed inset-0 z-[60] bg-scrim" />
-          <AlertDialog.Content className="fixed left-1/2 top-1/2 z-[70] w-[min(92vw,380px)] -translate-x-1/2 -translate-y-1/2 rounded-2xl bg-canvas p-4 shadow-elevation outline-none">
-            <AlertDialog.Title className="text-row-title text-ink">
-              Delete this note for good?
-            </AlertDialog.Title>
-            <AlertDialog.Description className="mt-1.5 text-body text-ink-2">
-              It is removed everywhere, along with its photos and edit history. This cannot be
-              undone.
-            </AlertDialog.Description>
-            <div className="mt-4 flex gap-2">
-              <AlertDialog.Cancel asChild>
-                <button
-                  type="button"
-                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-                >
-                  Keep it
-                </button>
-              </AlertDialog.Cancel>
-              <AlertDialog.Action asChild>
-                <button
-                  type="button"
-                  disabled={remove.isPending}
-                  onClick={() => remove.mutate(args)}
-                  className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-                >
-                  {remove.isPending ? 'Deleting…' : 'Delete'}
-                </button>
-              </AlertDialog.Action>
-            </div>
-          </AlertDialog.Content>
-        </AlertDialog.Portal>
-      </AlertDialog.Root>
+      <ConfirmDialog
+        open={confirmPurgeOpen}
+        onOpenChange={setConfirmPurgeOpen}
+        title="Delete this note for good?"
+        body={
+          <>
+            It is removed everywhere, along with its photos and edit history. This cannot be
+            undone.
+          </>
+        }
+        cancel="Keep it"
+        confirm="Delete"
+        pending={remove.isPending}
+        pendingLabel="Deleting…"
+        onConfirm={() => remove.mutate(args)}
+      />
     </div>
   )
 }
@@ -516,7 +480,7 @@ function JobPickerList({
           </button>
         )}
         {jobs === undefined ? (
-          <p className="px-2.5 py-3 text-center text-caption text-muted">Loading…</p>
+          <RowPending label="Loading jobs" className="px-2.5 py-3" />
         ) : shown.length === 0 ? (
           <p className="px-2.5 py-3 text-center text-caption text-muted">No jobs match</p>
         ) : (

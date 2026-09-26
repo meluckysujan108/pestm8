@@ -2,7 +2,8 @@ import { Suspense } from 'react'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
-import { ChevronLeft, ChevronRight, X } from 'lucide-react'
+import { SheetShell } from '#/components/primitives/Sheet'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { WEEKDAY_INITIALS, dayKeyToDate, formatMonthLabel } from '#/lib/format'
 import { useViewMode } from '#/lib/access'
@@ -54,89 +55,73 @@ export function MonthPickerSheet({
   onClose: () => void
 }) {
   return (
-    <Drawer.Root open={open} onOpenChange={(o) => !o && onClose()}>
-      <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
-        <Drawer.Content className="fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-[22px] bg-canvas outline-none">
-          <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
-          {open && (
-            <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-12">
-              <div className="flex items-center justify-between">
-                <button
-                  type="button"
-                  aria-label="Previous month"
-                  onClick={() => onMonthChange(shiftMonth(monthKey, -1))}
-                  className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
-                >
-                  <ChevronLeft size={20} strokeWidth={1.7} />
-                </button>
-                <Drawer.Title className="text-sheet-title text-ink">
-                  {formatMonthLabel(`${monthKey}-01`)}
-                </Drawer.Title>
-                <button
-                  type="button"
-                  aria-label="Next month"
-                  onClick={() => onMonthChange(shiftMonth(monthKey, 1))}
-                  className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
-                >
-                  <ChevronRight size={20} strokeWidth={1.7} />
-                </button>
-              </div>
+    <SheetShell open={open} onClose={onClose}>
+      {open && (
+        <div className="flex-1 overflow-y-auto px-4 pb-[calc(24px+env(safe-area-inset-bottom))] pt-12">
+          <div className="flex items-center justify-between">
+            <button
+              type="button"
+              aria-label="Previous month"
+              onClick={() => onMonthChange(shiftMonth(monthKey, -1))}
+              className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+            >
+              <ChevronLeft size={20} strokeWidth={1.7} />
+            </button>
+            <Drawer.Title className="text-sheet-title text-ink">
+              {formatMonthLabel(`${monthKey}-01`)}
+            </Drawer.Title>
+            <button
+              type="button"
+              aria-label="Next month"
+              onClick={() => onMonthChange(shiftMonth(monthKey, 1))}
+              className="relative tap-target flex size-8 items-center justify-center rounded-full text-blue transition active:scale-[.95]"
+            >
+              <ChevronRight size={20} strokeWidth={1.7} />
+            </button>
+          </div>
 
-              <div className="mt-4 grid grid-cols-7 gap-1">
-                {WEEKDAY_INITIALS.map((initial, i) => (
-                  <span
-                    key={i}
-                    aria-hidden
-                    className="pb-1 text-center text-[11px] font-semibold text-muted"
-                  >
-                    {initial}
-                  </span>
-                ))}
-              </div>
-
-              {/* Only the days wait on the month's jobs. Everything around
-                  them needs nothing but the month, so the title (the sheet's
-                  accessible name) and the button just pressed stay where they
-                  are while the next month loads, and the schedule behind the
-                  sheet is never swapped for a placeholder. */}
-              <Suspense
-                fallback={<MonthDaysPending cells={gridFor(monthKey)} />}
+          <div className="mt-4 grid grid-cols-7 gap-1">
+            {WEEKDAY_INITIALS.map((initial, i) => (
+              <span
+                key={i}
+                aria-hidden
+                className="pb-1 text-center text-[11px] font-semibold text-muted"
               >
-                <MonthDays
-                  businessId={businessId}
-                  monthKey={monthKey}
-                  selectedKey={selectedKey}
-                  todayKey={todayKey}
-                  onSelect={onSelect}
-                />
-              </Suspense>
+                {initial}
+              </span>
+            ))}
+          </div>
 
-              <div className="mt-4 flex justify-center">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onMonthChange(monthKeyOf(todayKey))
-                    onSelect(todayKey)
-                  }}
-                  className="text-body font-semibold text-blue"
-                >
-                  Today
-                </button>
-              </div>
-            </div>
-          )}
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={onClose}
-            className="tap-target absolute right-3 top-3 flex size-8 items-center justify-center rounded-full bg-surface-2 text-muted"
-          >
-            <X size={16} strokeWidth={2} />
-          </button>
-        </Drawer.Content>
-      </Drawer.Portal>
-    </Drawer.Root>
+          {/* Only the days wait on the month's jobs. Everything around
+              them needs nothing but the month, so the title (the sheet's
+              accessible name) and the button just pressed stay where they
+              are while the next month loads, and the schedule behind the
+              sheet is never swapped for a placeholder. */}
+          <Suspense fallback={<MonthDaysPending cells={gridFor(monthKey)} />}>
+            <MonthDays
+              businessId={businessId}
+              monthKey={monthKey}
+              selectedKey={selectedKey}
+              todayKey={todayKey}
+              onSelect={onSelect}
+            />
+          </Suspense>
+
+          <div className="mt-4 flex justify-center">
+            <button
+              type="button"
+              onClick={() => {
+                onMonthChange(monthKeyOf(todayKey))
+                onSelect(todayKey)
+              }}
+              className="text-body font-semibold text-blue"
+            >
+              Today
+            </button>
+          </div>
+        </div>
+      )}
+    </SheetShell>
   )
 }
 

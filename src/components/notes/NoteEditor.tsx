@@ -12,6 +12,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { AnyExtension, Content } from '@tiptap/core'
 import type { ReactNode } from 'react'
 import type { MentionItem } from './MentionList'
+import { TextPending } from '#/components/shell/Pending'
 
 /**
  * The note body, live-synced through the prosemirror-sync component. There
@@ -64,7 +65,7 @@ export function NoteEditor({
   }, [businessId, noteId, markReadMutate])
 
   if (sync.isLoading) {
-    return <div className="px-4 py-6 text-body text-muted">Loading…</div>
+    return <TextPending />
   }
   if (sync.initialContent === null) {
     return <div className="px-4 py-6 text-body text-muted">This note is no longer available.</div>

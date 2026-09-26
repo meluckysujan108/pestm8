@@ -109,6 +109,45 @@ export function ListPending({
   )
 }
 
+/**
+ * One row loading inside a card that is already on screen — a job's notes or
+ * reports, a picker's list. Announced unless `announce` is false: inside a
+ * sheet whose `status` region means something else (the send sheet's, which
+ * deliveries.spec.ts reads), it stays silent.
+ */
+export function RowPending({
+  label = 'Loading',
+  className = 'px-3.5 py-3',
+  announce = true,
+}: {
+  label?: string
+  className?: string
+  announce?: boolean
+}) {
+  return (
+    <div role={announce ? 'status' : undefined} className={className}>
+      {announce && <span className="sr-only">{label}</span>}
+      <div aria-hidden className="flex flex-col gap-1.5">
+        <Bone className="h-4 w-3/5" />
+        <Bone className="h-3 w-2/5" />
+      </div>
+    </div>
+  )
+}
+
+/** A note's body loading: its title line and a few lines of text. */
+export function TextPending({ label = 'Loading note' }: { label?: string }) {
+  return (
+    <div role="status" className="flex flex-col gap-2.5 px-4 py-6">
+      <span className="sr-only">{label}</span>
+      <Bone className="mb-1.5 h-7 w-1/2" />
+      <Bone className="h-4 w-full" />
+      <Bone className="h-4 w-5/6" />
+      <Bone className="h-4 w-2/3" />
+    </div>
+  )
+}
+
 /** A form section loading: Settings between segments. */
 export function SectionPending() {
   return (

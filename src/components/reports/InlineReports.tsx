@@ -14,6 +14,7 @@ import {
   NEUTRAL_BUTTON_COMPACT,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
+import { RowPending } from '#/components/shell/Pending'
 
 /**
  * Reports, shown inside a job sheet or a client sheet.
@@ -63,7 +64,7 @@ export function InlineReportsSection({
       <h3 className="section-label mb-2">{label}</h3>
       <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
         {reports === undefined ? (
-          <p className="px-3.5 py-3 text-caption text-muted">Loading…</p>
+          <RowPending label="Loading reports" />
         ) : reports.length === 0 ? (
           <p className="px-3.5 py-3 text-body text-muted">{empty}</p>
         ) : (

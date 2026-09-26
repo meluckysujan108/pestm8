@@ -16,6 +16,7 @@ import { deliveryRecipients } from '#/lib/reportTemplates/delivery'
 import type { ReportTemplate } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
+import { RowPending } from '#/components/shell/Pending'
 
 /**
  * Sending a finished report to the people it is for.
@@ -587,7 +588,7 @@ export function DeliveryHistory({
   // form already opened a delivery for is a lie, and one a technician would
   // act on by sending it again.
   if (rows === undefined) {
-    return <p className="text-caption text-muted">Loading…</p>
+    return <RowPending announce={false} className="py-1" />
   }
   if (rows.length === 0) {
     return <p className="text-caption text-muted">Not sent yet.</p>
