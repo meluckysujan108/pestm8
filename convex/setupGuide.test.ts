@@ -58,6 +58,7 @@ describe('the set-up guide', () => {
       business: true,
       letterhead: false,
       licence: false,
+      clients: false,
       firstJob: false,
       firstReport: false,
     })
@@ -82,7 +83,12 @@ describe('the set-up guide', () => {
     })
     expect((await guide(owner, businessId))?.licence).toBe(true)
 
+    // A client in the book is a step of its own, before anything is booked.
     const propertyId = await aProperty(t, businessId)
+    expect(await guide(owner, businessId)).toMatchObject({
+      clients: true,
+      firstJob: false,
+    })
     await t.run((ctx) =>
       ctx.db.insert('jobs', {
         businessId,
@@ -125,9 +131,54 @@ describe('the set-up guide', () => {
       business: true,
       letterhead: true,
       licence: true,
+      clients: true,
       firstJob: true,
       firstReport: true,
     })
+  })
+
+  test('lists bringing the clients across after the licence and before the first job', async () => {
+    const t = testApp()
+    const { owner, businessId } = await newOwner(t, 'team')
+    const result = await owner.as.query(api.setupGuide.progress, { businessId })
+    expect(result?.items.map((item) => item.key)).toEqual([
+      'business',
+      'letterhead',
+      'licence',
+      'clients',
+      'firstJob',
+      'firstReport',
+      'team',
+    ])
+  })
+
+  test('counts a client brought in by an import, like one added by hand', async () => {
+    const t = testApp()
+    const { owner, businessId } = await newOwner(t)
+    const importId = await owner.as.mutation(api.clientImports.start, {
+      businessId,
+      fileName: 'clients.csv',
+    })
+    await owner.as.mutation(api.clientImports.addBatch, {
+      businessId,
+      importId,
+      clients: [
+        {
+          key: 'c1',
+          kind: 'person',
+          name: 'J. Nguyen',
+          sites: [
+            {
+              addressLine: '12 Wattle Street',
+              suburb: 'Bayswater',
+              state: 'WA',
+              postcode: '6053',
+            },
+          ],
+        },
+      ],
+    })
+    expect((await guide(owner, businessId))?.clients).toBe(true)
   })
 
   test('asks about the team only of an owner who said they have one, and an invite sent counts', async () => {

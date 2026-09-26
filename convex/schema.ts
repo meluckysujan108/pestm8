@@ -596,9 +596,16 @@ export default defineSchema({
     addressCheck: v.optional(addressCheck),
     addressCheckedAt: v.optional(v.number()),
     createdAt: v.number(),
+    /** Brought in by a client import (convex/clientImports.ts) — what its
+     * Undo may take back, and nothing else. */
+    importId: v.optional(v.id('clientImports')),
   })
     .index('by_business', ['businessId'])
     .index('by_client', ['clientId'])
+    // An import asks "is this site already here?" by postcode, then compares
+    // the street — exact, and bounded to one postcode's worth of sites.
+    .index('by_business_and_postcode', ['businessId', 'postcode'])
+    .index('by_import', ['importId'])
     .searchIndex('search', {
       searchField: 'addressLine',
       filterFields: ['businessId', 'suburb'],
@@ -631,6 +638,41 @@ export default defineSchema({
     archivedAt: v.optional(v.number()),
     createdAt: v.number(),
     updatedAt: v.number(),
+    /** Brought in by a client import — see `properties.importId`. */
+    importId: v.optional(v.id('clientImports')),
+  })
+    .index('by_business', ['businessId'])
+    .index('by_import', ['importId']),
+
+  /**
+   * A client list brought across from a spreadsheet or another app
+   * (convex/clientImports.ts): who brought it, from what, what it made, and
+   * whether it has been undone. Every client and site it creates carries its
+   * id, which is what makes Undo exact — it takes back only what this import
+   * made, and only what has not been worked on since.
+   */
+  clientImports: defineTable({
+    businessId: v.id('businesses'),
+    createdByMembershipId: v.id('memberships'),
+    fileName: v.string(),
+    /** The app the file looked like it came from ("Xero", "Jobber"…), when
+     * its headers said so. */
+    source: v.optional(v.string()),
+    createdAt: v.number(),
+    /** Running totals, added to by each batch. */
+    clients: v.number(),
+    sites: v.number(),
+    notes: v.number(),
+    skipped: v.number(),
+    failed: v.number(),
+    /** Undo: when it was asked for, and — once it has run — how many
+     * clients and sites it took back and how many it kept because they had
+     * been worked on. */
+    undoneAt: v.optional(v.number()),
+    undoneByMembershipId: v.optional(v.id('memberships')),
+    undoState: v.optional(v.union(v.literal('running'), v.literal('done'))),
+    undoRemoved: v.optional(v.number()),
+    undoKept: v.optional(v.number()),
   }).index('by_business', ['businessId']),
 
   // A business-kind client's named people (office manager, site contact,
@@ -755,7 +797,10 @@ export default defineSchema({
     .index('by_business', ['businessId'])
     // The Recurring Job view counts active series, not projected visits, so
     // it asks this question on every load for every business.
-    .index('by_business_active', ['businessId', 'active']),
+    .index('by_business_active', ['businessId', 'active'])
+    // Undoing a client import asks, of each site it brought in, whether a
+    // series is booked there (convex/clientImports.ts).
+    .index('by_property', ['propertyId']),
 
   reports: defineTable({
     businessId: v.id('businesses'),

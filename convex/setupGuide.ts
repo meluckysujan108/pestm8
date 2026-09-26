@@ -16,7 +16,13 @@ import { requireActor, requireCapability } from './lib/actor'
  */
 
 export type SetupGuideItem =
-  'business' | 'letterhead' | 'licence' | 'firstJob' | 'firstReport' | 'team'
+  | 'business'
+  | 'letterhead'
+  | 'licence'
+  | 'clients'
+  | 'firstJob'
+  | 'firstReport'
+  | 'team'
 
 export const progress = query({
   args: { businessId: v.id('businesses') },
@@ -32,6 +38,10 @@ export const progress = query({
 
     const owner = await ctx.db.get(env.actor.real._id)
 
+    const client = await ctx.db
+      .query('clients')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .first()
     const job = await ctx.db
       .query('jobs')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
@@ -53,6 +63,9 @@ export const progress = query({
           Boolean(business.phone?.trim() || business.email?.trim()),
       },
       { key: 'licence', done: Boolean(owner?.licenceNumber?.trim()) },
+      // Before the first job, which needs someone to book it for. Brought
+      // across from the old app or added one at a time, either way counts.
+      { key: 'clients', done: client !== null },
       { key: 'firstJob', done: job !== null },
       { key: 'firstReport', done: finalised !== null },
     ]
