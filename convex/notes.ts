@@ -909,8 +909,8 @@ export async function purgeNote(ctx: MutationCtx, note: Note) {
       .query('noteAttachments')
       .withIndex('by_storage', (q) => q.eq('storageId', row.storageId))
       .first()
-    // Nor someone's licence (Phase 8.1), which the claims above keep apart
-    // from a note's pictures; checked here too because this deletes.
+    // Nor someone's licence (memberLicences.ts), which the claims above keep
+    // apart from a note's pictures; checked here too because this deletes.
     if (!stillReferenced && !(await heldAsLicence(ctx, row.storageId))) {
       await ctx.storage.delete(row.storageId)
     }
@@ -968,7 +968,7 @@ export const addAttachment = mutation({
       .withIndex('by_storage', (q) => q.eq('storageId', storageId))
       .first()
     if (claimed) throw new ConvexError('ALREADY_ATTACHED')
-    // Nor someone's licence document (Phase 8.1): a note's pictures are
+    // Nor someone's licence file (memberLicences.ts): a note's pictures are
     // deleted with the note (`purgeNote`), and a licence's file never is.
     if (await heldAsLicence(ctx, storageId)) {
       throw new ConvexError('ALREADY_ATTACHED')

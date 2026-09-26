@@ -467,8 +467,8 @@ async function claimFile(
     .withIndex('by_photoStorageId', (q) => q.eq('photoStorageId', storageId))
     .first()
   if (asPdf || asPhoto) throw new ConvexError('ALREADY_ATTACHED')
-  // Someone's licence document (Phase 8.1) is read by them and the owner
-  // alone; on a product, the whole business would have it.
+  // Someone's licence file (memberLicences.ts) is read by them and the
+  // owner alone; on a product, the whole business would have it.
   if (await heldAsLicence(ctx, storageId)) {
     throw new ConvexError('ALREADY_ATTACHED')
   }

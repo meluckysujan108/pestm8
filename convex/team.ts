@@ -422,11 +422,10 @@ export const roster = query({
   handler: async (ctx, { businessId }) => {
     const env = await requireActor(ctx, businessId)
     requireCapability(env, 'team.manage')
-    // Only the owner may open a member's licence document (licences.ts), so
-    // only the owner is told who has one.
+    // A person's licences (memberLicences.ts) are opened by the owner and
+    // the holder alone, so only they are told how many there are — for
+    // exactly the rows `list` would open.
     const seesLicences = hasCapability(env, 'business.manage')
-    // Likewise the licence wallet (memberLicences.ts), which the holder may
-    // also read: how many they hold, for exactly the rows `list` would open.
     const seesWallet = (m: Doc<'memberships'>) =>
       m.status === 'active' && (seesLicences || m._id === env.actor.real._id)
 
@@ -482,10 +481,6 @@ export const roster = query({
              * owner's "Reset two-step sign-in" is offered on. An added field,
              * so an older client simply shows no reset. */
             twoStepOn: user?.twoFactorEnabled === true,
-            /** Whether there is a licence document the caller may open —
-             * the "View licence" button. An added field: absent on an older
-             * backend, which means no button. */
-            hasLicenceFile: seesLicences && m.licenceFile !== undefined,
             /** How many licences are in this person's wallet — for the owner,
              * and for the caller's own row; absent for anyone else, and for
              * anyone not active, whose licences nobody may open. An added

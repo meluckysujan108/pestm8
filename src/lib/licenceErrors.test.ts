@@ -6,9 +6,9 @@ import { SWITCH_ENDED } from './productErrors'
 import type { LicenceAction } from './licenceErrors'
 
 /**
- * Every refusal `convex/memberLicences.ts` (and the upload claim it shares
- * with the Phase 8.1 document) can make has words of its own, not the
- * generic "Could not save".
+ * Every refusal `convex/memberLicences.ts` (and its upload claim,
+ * `claimLicenceFile`) can make has words of its own, not the generic "Could
+ * not save".
  */
 
 const SERVER_CODES = [

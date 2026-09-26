@@ -1,11 +1,12 @@
 /**
- * Licence documents (Phase 8.1): what a technician's uploaded licence may be,
- * in one place both ends can read.
+ * Licence files: what a technician's uploaded licence may be, in one place
+ * both ends can read.
  *
  * Pure and import-free on purpose, like `lib/products.ts`, whose rules these
- * follow: the Profile page imports this directly so it can turn away a HEIC,
- * a Word file or a 40 MB scan before anything is uploaded, by exactly the
- * rule `convex/licences.ts` will enforce when the upload is claimed.
+ * follow: the licence screens import this directly so they can turn away a
+ * HEIC, a Word file or a 40 MB scan before anything is uploaded, by exactly
+ * the rule `claimLicenceFile` (lib/licenceClaims.ts) will enforce when the
+ * upload is claimed.
  *
  * Every check returns a value rather than throwing. The server turns a refusal
  * into a `ConvexError`; the page turns it into a line under the button.

@@ -136,13 +136,10 @@ type Warmable = { queryKey: ReadonlyArray<unknown> }
  *
  * So these load in the browser, over the Convex socket, every time: the
  * loaders warm them through `browserOnly`, and router.tsx leaves them out of
- * the HTML even if something on the server did fetch one. The Phase 8.1
- * document (`licences.file`) too, which nothing reads now but which carries
- * the same kind of URL.
+ * the HTML even if something on the server did fetch one.
  */
 const KEPT_OUT_OF_HTML: ReadonlySet<string> = new Set([
   getFunctionName(api.memberLicences.list),
-  getFunctionName(api.licences.file),
 ])
 
 /** Whether a query's answer must stay out of the HTML (see above). */

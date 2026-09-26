@@ -18,10 +18,9 @@ export type ClaimedLicenceFile = {
 }
 
 /**
- * Takes an upload for a licence, or refuses it — the one rule for every
- * licence file: the Phase 8 document on the membership (`licences.setFile`)
- * and each file in someone's licence wallet (`memberLicences.addFile`). One
- * function, so the two cannot drift. `products.claimFile`'s rule:
+ * Takes an upload for a licence, or refuses it — the rule for every file in
+ * someone's licence wallet (`memberLicences.addFile`), kept apart from the
+ * mutation so it reads as one rule. `products.claimFile`'s rule:
  *
  *  - It must exist and have been uploaded within `CLAIM_WINDOW_MS`: storage
  *    ids are not secrets, so only a fresh upload can be the one this person

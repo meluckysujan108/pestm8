@@ -520,7 +520,7 @@ const clearSessions: Step = async (run) => {
  * Anyone's licence wallet in the demo (memberLicences.ts): each licence after
  * its files. Only the rows, as the licence screens themselves only ever drop
  * rows — every file on them is a person's upload, never the seed's, and a
- * licence's file is never deleted (licences.ts).
+ * licence's file is never deleted (memberLicences.ts).
  */
 const clearLicences: Step = (run) =>
   sweep(
@@ -819,7 +819,7 @@ async function spared(run: Run, file: Id<'_storage'>): Promise<boolean> {
     }
   }
 
-  // Someone's licence document (Phase 8.1), in any business: a licence
+  // Someone's licence file (memberLicences.ts), in any business: a licence
   // claims only an upload nothing holds, but a hand-made row can break that,
   // and a person's licence is not the demo's to delete.
   if (await heldAsLicence(ctx, file)) return true

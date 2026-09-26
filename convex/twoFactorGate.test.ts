@@ -107,23 +107,23 @@ describe('the server-side gate, where two-step sign-in is compulsory', () => {
     ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
   })
 
-  test('the licence document is behind the gate too', async () => {
-    // Phase 8.1 landed alongside this, and a licence card carries a date of
-    // birth and a home address — so it is pinned here rather than trusted to
-    // `requireActor`/`requireWriteActor` staying the only way in.
+  test('a person’s licences are behind the gate too', async () => {
+    // Licences landed alongside this, and a licence card carries a date of
+    // birth and a home address — so they are pinned here rather than trusted
+    // to `requireActor`/`requireWriteActor` staying the only way in.
     const { t, businessId, kevin } = await business()
     await setEnrolled(t, kevin.person.userId, false)
     const as = kevin.person.as
     const membershipId = kevin.membershipId
 
     await expect(
-      as.query(api.licences.file, { businessId, membershipId }),
+      as.query(api.memberLicences.list, { businessId, membershipId }),
     ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
     await expect(
-      as.mutation(api.licences.generateUploadUrl, { businessId }),
+      as.mutation(api.memberLicences.generateUploadUrl, { businessId }),
     ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
     await expect(
-      as.mutation(api.licences.removeFile, { businessId, membershipId }),
+      as.mutation(api.memberLicences.create, { businessId, name: 'Pest' }),
     ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
   })
 
