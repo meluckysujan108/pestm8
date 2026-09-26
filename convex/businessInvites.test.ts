@@ -296,6 +296,93 @@ describe('creating a business, invitation-only', () => {
     ).rejects.toThrow(/INVITE_REVOKED/)
   })
 
+  test('reissuing to an address that has claimed withdraws the claim — never two businesses', async () => {
+    const t = testApp()
+    const first = await issue(t)
+    const jo = await createActor(t, JO)
+    await jo.as.action(api.businessInvites.claim, { token: first })
+
+    // "I lost the link" — a new one goes out, and Jo opens it too.
+    const second = await issue(t)
+    await expect(
+      jo.as.action(api.businessInvites.claim, { token: first }),
+    ).rejects.toThrow(/INVITE_REVOKED/)
+    await jo.as.action(api.businessInvites.claim, { token: second })
+
+    await jo.as.mutation(api.businesses.create, NEW_BUSINESS)
+    await expect(
+      jo.as.mutation(api.businesses.create, { ...NEW_BUSINESS, name: 'Two' }),
+    ).rejects.toThrow(/BUSINESS_INVITE_REQUIRED/)
+  })
+
+  test('an owner starting a second business needs a link of their own too', async () => {
+    const t = testApp()
+    const owner = await createActor(t, { email: 'terence@coastal.test' })
+    await createBusiness(t, owner)
+    await expect(
+      owner.as.mutation(api.businesses.create, NEW_BUSINESS),
+    ).rejects.toThrow(/BUSINESS_INVITE_REQUIRED/)
+
+    const token = await issue(t, 'terence@coastal.test')
+    await owner.as.action(api.businessInvites.claim, { token })
+    await expect(
+      owner.as.mutation(api.businesses.create, NEW_BUSINESS),
+    ).resolves.toMatchObject({ slug: 'jo-s-pest-control' })
+  })
+
+  test('a used link names nobody, and reopening it goes to the business only while still in it', async () => {
+    const t = testApp()
+    const token = await issue(t)
+    const jo = await createActor(t, JO)
+    await jo.as.action(api.businessInvites.claim, { token })
+    const { businessId, slug } = await jo.as.mutation(
+      api.businesses.create,
+      NEW_BUSINESS,
+    )
+
+    expect(await t.action(api.businessInvites.preview, { token })).toEqual({
+      state: 'used',
+      emailHint: null,
+    })
+    expect(await jo.as.action(api.businessInvites.claim, { token })).toEqual({
+      slug,
+    })
+
+    // No longer in it: the link is simply spent.
+    await t.run(async (ctx) => {
+      const membership = await ctx.db
+        .query('memberships')
+        .withIndex('by_business', (q) => q.eq('businessId', businessId))
+        .first()
+      await ctx.db.patch(membership!._id, { status: 'removed' })
+    })
+    await expect(
+      jo.as.action(api.businessInvites.claim, { token }),
+    ).rejects.toThrow(/INVITE_ALREADY_USED/)
+
+    // And revoking the address later leaves the record of it alone.
+    expect(
+      await t.mutation(internal.businessInvites.revoke, { email: JO.email }),
+    ).toEqual({ revoked: 0 })
+  })
+
+  test('claiming waits for two-step sign-in where that is compulsory', async () => {
+    vi.stubEnv('AUTH_MFA_REQUIRED', 'on')
+    const t = testApp()
+    const token = await issue(t)
+    const jo = await createActor(t, { ...JO, twoFactorEnabled: false })
+    await expect(
+      jo.as.action(api.businessInvites.claim, { token }),
+    ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
+    await expect(
+      jo.as.query(api.businessInvites.setupAccess, {}),
+    ).rejects.toThrow(/MFA_ENROLMENT_REQUIRED/)
+    // Still Jo's once set up.
+    expect((await t.action(api.businessInvites.preview, { token })).state).toBe(
+      'valid',
+    )
+  })
+
   test('the issuer can see what each link became', async () => {
     const t = testApp()
     const token = await issue(t)
@@ -325,6 +412,18 @@ describe('creating a business, off invitation-only', () => {
     await expect(
       someone.as.mutation(api.businesses.create, NEW_BUSINESS),
     ).resolves.toMatchObject({ slug: 'jo-s-pest-control' })
+  })
+
+  test('a claim held anyway is still spent, so the issuer’s list stays true', async () => {
+    vi.stubEnv('AUTH_INVITE_ONLY', '')
+    const t = testApp()
+    const token = await issue(t)
+    const jo = await createActor(t, JO)
+    await jo.as.action(api.businessInvites.claim, { token })
+    await jo.as.mutation(api.businesses.create, NEW_BUSINESS)
+    expect((await t.query(internal.businessInvites.list, {}))[0].state).toBe(
+      'used',
+    )
   })
 })
 
@@ -429,6 +528,17 @@ describe('set-up progress', () => {
     ).toBeNull()
     await expect(
       kev.as.mutation(api.businesses.setSetup, { businessId, finished: true }),
+    ).rejects.toThrow(/NO_ACCESS/)
+
+    // Nor anyone from outside the business.
+    const stranger = await createActor(t, { email: 'stranger@else.test' })
+    await expect(
+      stranger.as.mutation(api.businesses.setSetup, {
+        businessId,
+        finished: true,
+      }),
     ).rejects.toThrow()
+    const stored = await t.run((ctx) => ctx.db.get(businessId))
+    expect(stored?.setup?.finishedAt).toBeUndefined()
   })
 })

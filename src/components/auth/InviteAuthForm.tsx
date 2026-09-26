@@ -119,7 +119,11 @@ export function InviteAuthForm({
         value={email}
         onChange={setEmail}
         autoComplete="email"
-        hint={`Use ${emailHint} — the address this invitation was sent to.`}
+        hint={
+          emailHint
+            ? `Use ${emailHint} — the address this invitation was sent to.`
+            : undefined
+        }
       />
       <Field
         label="Password"

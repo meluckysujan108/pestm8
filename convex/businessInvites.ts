@@ -23,22 +23,31 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
  * owner-to-be's address, they open it at `/start/<token>`, create an account
  * (or sign in to the one they have), and go on to set up their business.
  *
- *     npx convex run businessInvites:issue '{"email":"jo@jospest.com.au","note":"Jo, Bunbury"}'
- *     npx convex run businessInvites:list
- *     npx convex run businessInvites:revoke '{"email":"jo@jospest.com.au"}'
+ *     npx convex run --prod businessInvites:issue '{"email":"jo@jospest.com.au","note":"Jo, Bunbury"}'
+ *     npx convex run --prod businessInvites:list
+ *     npx convex run --prod businessInvites:revoke '{"email":"jo@jospest.com.au"}'
+ *
+ * Check the link's host is the live site before sending it: the URL is built
+ * from the deployment's SITE_URL, and a checkout pointed at the wrong project
+ * (CLAUDE.md) issues a link to a deployment nothing serves.
  *
  * Built like a team invitation, and for the same reasons: a random token of
  * which only the hash is stored, bound to one address, single use. It differs
  * in being spent in two steps — CLAIMED when a signed-in account opens it,
- * USED when that account creates the business (`useBusinessAllowance`) —
+ * USED when that account creates the business (`businessAllowance`) —
  * because between the two there may be a two-step sign-in set-up, a reload,
  * or a night's sleep, and a claim held server-side survives all of them where
  * a token carried in the page would not.
  */
 
-/** Long enough for an owner to find a quiet evening; the link is bound to
- * their address and single use, so a forwarded copy opens nothing. */
-export const BUSINESS_INVITE_TTL_MS = 14 * 24 * 60 * 60 * 1000
+/**
+ * A week: long enough for an owner to find a quiet evening, short enough that
+ * a link left on a lock screen does not stay live for long. It is bound to
+ * their address and single use — but nothing proves the address is theirs
+ * (sign-up does not verify email), so whoever holds the link AND knows the
+ * address could claim it first. Team links carry the same risk for 72 hours.
+ */
+export const BUSINESS_INVITE_TTL_MS = 7 * 24 * 60 * 60 * 1000
 
 export type BusinessInviteState =
   'valid' | 'claimed' | 'used' | 'revoked' | 'expired' | 'invalid'
@@ -171,14 +180,16 @@ export const store = internalMutation({
     if (!isValidEmail(email)) throw new ConvexError('INVALID_EMAIL')
 
     const now = Date.now()
-    // Reissuing replaces the address's open link rather than leaving two.
-    // A claimed one is left be: it belongs to an account now, and its owner
-    // may be half-way through set-up.
+    // Reissuing replaces whatever the address has not yet made a business
+    // with — an open link, and a claim not yet spent — rather than leaving
+    // two, which would let one account make two businesses. (A claim is spent
+    // on set-up's first step, so revoking one cuts nobody off half-way.)
     for (const row of await ctx.db
       .query('businessInvites')
       .withIndex('by_email', (q) => q.eq('email', email))
       .take(50)) {
-      if (businessInviteState(row, now) === 'valid') {
+      const state = businessInviteState(row, now)
+      if (state === 'valid' || state === 'claimed') {
         await ctx.db.patch(row._id, { revokedAt: now })
       }
     }
@@ -266,8 +277,10 @@ export const previewByHash = internalQuery({
     const invite = await byHash(ctx, tokenHash)
     const state = businessInviteState(invite, Date.now())
     // A claimed link still names its address, so its owner opening it again
-    // on another device can be told to sign in rather than that it is dead.
-    const shows = state === 'valid' || state === 'claimed' || state === 'used'
+    // on another device can be told which account to sign in with. A used
+    // one names nothing: it has done its job, and a link left on a lock
+    // screen should not go on publishing the address.
+    const shows = state === 'valid' || state === 'claimed'
     return {
       state,
       emailHint: invite && shows ? maskEmail(invite.email) : null,
@@ -302,14 +315,30 @@ export const claimByHash = internalMutation({
     if (invite && invite.claimedByUserId === user._id) {
       if (state === 'claimed') return { slug: null }
       if (state === 'used' && invite.businessId) {
-        const business = await ctx.db.get(invite.businessId)
-        return { slug: business?.slug ?? null }
+        // To the business it made — while they are still in it. After that
+        // the link is simply spent.
+        const businessId = invite.businessId
+        const membership = await ctx.db
+          .query('memberships')
+          .withIndex('by_user_business', (q) =>
+            q.eq('userId', user._id).eq('businessId', businessId),
+          )
+          .unique()
+        const business = await ctx.db.get(businessId)
+        if (membership?.status === 'active' && business) {
+          return { slug: business.slug }
+        }
       }
     }
     if (!invite || state !== 'valid') throw new ConvexError(refusal(state))
     if (user.email.toLowerCase() !== invite.email) {
       throw new ConvexError('INVITE_EMAIL_MISMATCH')
     }
+
+    // One open claim per account. Reissuing already withdraws the old one
+    // (`store`); this holds even for a claim made some other way.
+    const earlier = await openClaim(ctx, user._id)
+    if (earlier) await ctx.db.patch(earlier._id, { revokedAt: now })
 
     await ctx.db.patch(invite._id, {
       claimedAt: now,

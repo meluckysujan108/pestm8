@@ -19,6 +19,7 @@ import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { rq } from '#/lib/routeQueries'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
+import { FinishLaterContext } from '#/components/onboarding/SetupFrame'
 import type { SetupStep } from '#/components/onboarding/SetupFrame'
 import type { TeamShape } from '#/components/onboarding/TeamStep'
 
@@ -82,8 +83,14 @@ export const Route = createFileRoute('/onboarding')({
         ),
         context.queryClient.ensureQueryData(rq.currentUser()),
       ]).catch(enrol)
+      // Not theirs to set up. Not back to `/`, which could send them here
+      // again: to the business itself, which answers for itself — its
+      // schedule for a member, Not found for anyone else.
       if (!business || business.membership.role !== 'owner') {
-        throw redirect({ to: '/' })
+        throw redirect({
+          to: '/$businessSlug/schedule',
+          params: { businessSlug: search.business },
+        })
       }
       return { mode: 'setup' as const }
     }
@@ -154,11 +161,27 @@ function SetupFor({ slug, step }: { slug: string; step: SetupStep }) {
   )
   const setSetup = useConvexMutation(api.businesses.setSetup)
 
-  if (!business) return <Navigate to="/" replace />
+  // Gone mid-flow (removed from it, say): the business answers for itself,
+  // as in `beforeLoad` — never `/`, which could send them straight back.
+  if (!business) {
+    return (
+      <Navigate
+        to="/$businessSlug/schedule"
+        params={{ businessSlug: slug }}
+        replace
+      />
+    )
+  }
   const businessId = business._id
 
-  const go = (next: SetupStep) =>
-    navigate({ to: '/onboarding', search: { business: slug, step: next } })
+  // Forward is a new entry, so the phone's own Back retraces the steps.
+  // In-app Back replaces, so Back and Continue in turn do not pile up.
+  const go = (next: SetupStep, replace = false) =>
+    navigate({
+      to: '/onboarding',
+      search: { business: slug, step: next },
+      replace,
+    })
 
   // Where to resume is a convenience, so it never holds anyone up: offline,
   // the write waits for signal while they carry on, and at worst `/` opens
@@ -181,50 +204,66 @@ function SetupFor({ slug, step }: { slug: string; step: SetupStep }) {
       replace: true,
     })
 
-  switch (step) {
-    case 'business':
-      return <BusinessStep business={business} onDone={() => go('brand')} />
-    case 'brand':
-      return (
-        <BrandStep
-          business={business}
-          accountEmail={accountEmail}
-          licenceNumber={business.membership.licenceNumber}
-          onBack={() => void go('business')}
-          onDone={() => advance('licence')}
-          onLater={() => void advance('licence')}
-        />
-      )
-    case 'licence':
-      return (
-        <LicenceStep
-          business={business}
-          onBack={() => void go('brand')}
-          onDone={() => advance('team')}
-          onLater={() => void advance('team')}
-        />
-      )
-    case 'team':
-      return (
-        <TeamStep
-          business={business}
-          inviterName={accountName}
-          onBack={() => void go('licence')}
-          onDone={async (team: TeamShape | null) => {
-            reach({ ...(team ? { team } : {}), finished: true })
-            await go('ready')
-          }}
-        />
-      )
-    case 'ready':
-      return (
-        <ReadyStep
-          business={business}
-          onBook={() => void toSchedule(true)}
-          onSchedule={() => void toSchedule(false)}
-        />
-      )
+  // Out of set-up for good, from brand or licence: the schedule now, and `/`
+  // no longer brings them back. What is left undone waits in Settings.
+  const finishLater = () => {
+    reach({ finished: true })
+    void toSchedule(false)
   }
+
+  // A const arrow, not a declaration: it keeps `business` known non-null.
+  const screen = () => {
+    switch (step) {
+      case 'business':
+        return <BusinessStep business={business} onDone={() => go('brand')} />
+      case 'brand':
+        return (
+          <BrandStep
+            business={business}
+            accountEmail={accountEmail}
+            licenceNumber={business.membership.licenceNumber}
+            onBack={() => void go('business', true)}
+            onDone={() => advance('licence')}
+            onLater={() => void advance('licence')}
+          />
+        )
+      case 'licence':
+        return (
+          <LicenceStep
+            business={business}
+            onBack={() => void go('brand', true)}
+            onDone={() => advance('team')}
+            onLater={() => void advance('team')}
+          />
+        )
+      case 'team':
+        return (
+          <TeamStep
+            business={business}
+            inviterName={accountName}
+            onBack={() => void go('licence', true)}
+            onDone={async (team: TeamShape | null) => {
+              reach({ ...(team ? { team } : {}), finished: true })
+              await go('ready')
+            }}
+          />
+        )
+      case 'ready':
+        return (
+          <ReadyStep
+            business={business}
+            onBook={() => void toSchedule(true)}
+            onSchedule={() => void toSchedule(false)}
+          />
+        )
+    }
+  }
+
+  return (
+    <FinishLaterContext.Provider value={finishLater}>
+      {screen()}
+    </FinishLaterContext.Provider>
+  )
 }
 
 /** Under the first step: whose account this is going on, and the way out

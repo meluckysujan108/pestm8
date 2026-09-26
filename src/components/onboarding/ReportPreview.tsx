@@ -1,5 +1,5 @@
 import { abnDigits, formatAbn } from '../../../convex/lib/abn'
-import { LICENCE_LABEL } from '#/lib/au'
+import { LICENCE_LABEL, TIMEZONE_BY_STATE } from '#/lib/au'
 
 /** The part of the preview the current step is filling in. */
 export type PreviewFocus = 'name' | 'brand' | 'licence' | null
@@ -42,11 +42,13 @@ export function ReportPreview({
   // As the server will store and print it: "51 824 753 556".
   const digits = abn ? abnDigits(abn) : null
   const shownAbn = digits ? formatAbn(digits) : abn?.trim()
-  const today = new Date()
-  const date = today.toLocaleDateString('en-AU', {
+  // The business's own day, as the report dates its work — the same on the
+  // server's render as on the phone's, wherever either is.
+  const date = new Date().toLocaleDateString('en-AU', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
+    timeZone: TIMEZONE_BY_STATE[state],
   })
 
   return (
@@ -91,8 +93,8 @@ export function ReportPreview({
           {shownName} Service Report
         </span>
         <span aria-hidden className="h-3 w-px shrink-0 bg-white/90" />
-        {/* The server renders this page in another time zone, so the day
-            can differ by one around midnight until the phone's own render. */}
+        {/* Server and phone read the clock a moment apart; at midnight the
+            day can turn over between the two. */}
         <span className="shrink-0" suppressHydrationWarning>
           {date}
         </span>

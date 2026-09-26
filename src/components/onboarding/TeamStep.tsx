@@ -69,6 +69,10 @@ export function TeamStep({
   })
 
   const finish = useMutation({ mutationFn: onDone })
+  // Anyone invited makes it a team, whatever was tapped last.
+  const shape: TeamShape | null = links.length > 0 ? 'team' : team
+  // Leaving while a link is being made would lose it: it is shown once.
+  const busy = finish.isPending || invite.isPending || !hydrated
 
   return (
     <SetupFrame
@@ -77,10 +81,7 @@ export function TeamStep({
       lede="Technicians and subcontractors each get their own account, and see the jobs you give them."
       onBack={onBack}
       aside={
-        <AsideButton
-          onClick={() => finish.mutate(null)}
-          disabled={finish.isPending}
-        >
+        <AsideButton onClick={() => finish.mutate(shape)} disabled={busy}>
           Skip
         </AsideButton>
       }
@@ -96,6 +97,7 @@ export function TeamStep({
           detail="I do the jobs myself."
           selected={team === 'solo'}
           onSelect={() => setTeam('solo')}
+          disabled={!hydrated}
         />
         <Choice
           icon={Users}
@@ -103,6 +105,7 @@ export function TeamStep({
           detail="Others do jobs for me."
           selected={team === 'team'}
           onSelect={() => setTeam('team')}
+          disabled={!hydrated}
         />
       </div>
 
@@ -177,8 +180,8 @@ export function TeamStep({
 
       <button
         type="button"
-        onClick={() => finish.mutate(team)}
-        disabled={!team || finish.isPending || !hydrated}
+        onClick={() => finish.mutate(shape)}
+        disabled={!shape || busy}
         className="mt-8 h-12 w-full shrink-0 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
       >
         {finish.isPending ? 'Saving…' : 'Continue'}
@@ -193,12 +196,14 @@ function Choice({
   detail,
   selected,
   onSelect,
+  disabled,
 }: {
   icon: LucideIcon
   title: string
   detail: string
   selected: boolean
   onSelect: () => void
+  disabled: boolean
 }) {
   return (
     <button
@@ -206,6 +211,7 @@ function Choice({
       role="radio"
       aria-checked={selected}
       onClick={onSelect}
+      disabled={disabled}
       className={`relative flex flex-col items-start rounded-2xl border bg-surface p-4 text-left shadow-elevation transition active:scale-[.98] ${
         selected ? 'border-blue ring-2 ring-blue/30' : 'border-hairline'
       }`}

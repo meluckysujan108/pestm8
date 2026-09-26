@@ -1,3 +1,4 @@
+import { useHydrated } from '#/lib/useHydrated'
 import { HomeScreenCard } from './HomeScreenCard'
 import { ReportPreview } from './ReportPreview'
 import { SetupFrame } from './SetupFrame'
@@ -19,6 +20,7 @@ export function ReadyStep({
   onBook: () => void
   onSchedule: () => void
 }) {
+  const hydrated = useHydrated()
   return (
     <SetupFrame
       step="ready"
@@ -45,13 +47,15 @@ export function ReadyStep({
       <button
         type="button"
         onClick={onBook}
-        className="mt-8 h-12 w-full shrink-0 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975]"
+        disabled={!hydrated}
+        className="mt-8 h-12 w-full shrink-0 rounded-xl bg-red text-[17px] font-semibold text-white shadow-red transition active:scale-[.975] disabled:opacity-50"
       >
         Book your first job
       </button>
       <button
         type="button"
         onClick={onSchedule}
+        disabled={!hydrated}
         className="mt-2 min-h-11 w-full text-[17px] text-blue transition active:opacity-60"
       >
         Go to the schedule

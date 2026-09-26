@@ -43,14 +43,14 @@ export function HomeScreenCard() {
       {device === 'apple' ? (
         <ol className="mt-3 space-y-2 text-body text-ink">
           <Step n={1}>
-            Tap{' '}
+            In Safari, tap{' '}
             <Share
               aria-label="Share"
               size={17}
               strokeWidth={2}
               className="mx-0.5 inline -translate-y-px text-blue"
             />{' '}
-            in the browser’s toolbar
+            — under ••• if you don’t see it
           </Step>
           <Step n={2}>
             Choose{' '}

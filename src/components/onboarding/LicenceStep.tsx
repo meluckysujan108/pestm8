@@ -46,8 +46,9 @@ export function LicenceStep({
   const setLicence = useConvexMutation(api.memberships.setLicence)
   const save = useMutation({
     mutationFn: async (licenceNumber: string) => {
-      // Blank moves on without writing anything: nothing to print yet.
-      if (licenceNumber.trim() && licenceNumber.trim() !== saved.trim()) {
+      // Written when changed — cleared too, if they clear it. Blank with
+      // nothing saved moves on without writing anything.
+      if (licenceNumber.trim() !== saved.trim()) {
         await setLicence({
           businessId: business._id,
           membershipId: business.membership._id,
@@ -62,7 +63,7 @@ export function LicenceStep({
     <SetupFrame
       step="licence"
       title="What’s your licence number?"
-      lede="Printed on every report and certificate you sign. Termite certificates and timber pest reports can’t be finalised without it."
+      lede="Printed on every report and certificate you sign. Termite certificates, timber pest inspections and your own custom forms can’t be finalised without it."
       onBack={onBack}
       aside={<AsideButton onClick={onLater}>Add later</AsideButton>}
     >

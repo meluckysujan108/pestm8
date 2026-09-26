@@ -1,4 +1,5 @@
 import { AU_STATES } from '#/lib/au'
+import { useHydrated } from '#/lib/useHydrated'
 
 /** West to east, the way the map reads. */
 const ORDER = ['WA', 'NT', 'SA', 'QLD', 'NSW', 'ACT', 'VIC', 'TAS']
@@ -20,6 +21,7 @@ export function StatePicker({
   /** Picked from the phone's time zone, and not yet changed. */
   guessed: boolean
 }) {
+  const hydrated = useHydrated()
   const current = AU_STATES.find((s) => s.code === value)
   return (
     <div>
@@ -38,6 +40,7 @@ export function StatePicker({
               aria-checked={selected}
               aria-label={s.name}
               onClick={() => onChange(s.code)}
+              disabled={!hydrated}
               className={`h-11 rounded-xl text-[15px] font-semibold transition active:scale-[.96] ${
                 selected ? 'bg-ink text-canvas' : 'bg-surface-3 text-ink-2'
               }`}

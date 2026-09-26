@@ -25,10 +25,19 @@ import type { Page } from '@playwright/test'
 
 /** "Continue", or "Save anyway" once the field checks have had their say —
  * the fixture addresses are on a domain that takes no mail. */
+const continueButton = (page: Page) =>
+  page.getByRole('button', { name: /^(Continue|Save anyway)$/ })
+
+/** A step whose fields can be typed in: the fields are controlled, so text
+ * typed into the server's markup is wiped by hydration. Continue is enabled
+ * once it is done — the readiness signal, as the sign-in helper uses. */
+async function stepReady(page: Page) {
+  await expect(continueButton(page)).toBeEnabled()
+}
+
 async function continueStep(page: Page, next: RegExp) {
-  await clickUntil(
-    page.getByRole('button', { name: /^(Continue|Save anyway)$/ }),
-    () => expect(page).toHaveURL(next, { timeout: 3_000 }),
+  await clickUntil(continueButton(page), () =>
+    expect(page).toHaveURL(next, { timeout: 3_000 }),
   )
 }
 
@@ -44,6 +53,7 @@ test('a new owner sets up their business, and a reload resumes it', async ({
     page.getByRole('heading', { name: 'What’s your business called?' }),
   ).toBeVisible()
 
+  await stepReady(page)
   const name = `Swan River Pest ${Date.now()}`
   const preview = page.getByRole('figure', {
     name: 'How the top of your reports will look',
@@ -66,6 +76,7 @@ test('a new owner sets up their business, and a reload resumes it', async ({
   ).toBeVisible()
   await page.goto('/')
   await expect(page).toHaveURL(new RegExp(`business=${slug}.*step=brand`))
+  await stepReady(page)
 
   // The email starts as the account's own — after a full reload too.
   await expect(page.getByLabel('Email')).toHaveValue(owner.email)
@@ -74,6 +85,7 @@ test('a new owner sets up their business, and a reload resumes it', async ({
   await continueStep(page, /step=licence/)
 
   // Step 3: the owner's own licence number, on their membership.
+  await stepReady(page)
   await page.getByLabel('Pest management technician licence').fill('PMT 004512')
   await expect(preview).toContainText('PMT 004512')
   await continueStep(page, /step=team/)
@@ -92,9 +104,16 @@ test('a new owner sets up their business, and a reload resumes it', async ({
     page.getByRole('heading', { name: `${name} is ready` }),
   ).toBeVisible()
 
-  // Finished: `/` is the schedule from now on.
-  const rows = await owner.client.query(api.businesses.listForUser, {})
-  expect(rows.find((row) => row.slug === slug)?.setupStep).toBeNull()
+  // Finished: `/` is the schedule from now on. Written as the finish shows,
+  // without holding it up, so it lands a moment later.
+  await expect
+    .poll(
+      async () =>
+        (await owner.client.query(api.businesses.listForUser, {})).find(
+          (row) => row.slug === slug,
+        )?.setupStep,
+    )
+    .toBeNull()
 
   // The first job, straight from the finish.
   await page.getByRole('button', { name: 'Book your first job' }).click()
@@ -110,6 +129,7 @@ test('every step after the name can be left for later', async ({ page }) => {
   await signInViaUi(page, owner.email)
   await expect(page).toHaveURL(/\/onboarding$/)
 
+  await stepReady(page)
   await page.getByLabel('Business name').fill(`Later Pest ${Date.now()}`)
   await continueStep(page, /step=brand/)
 
@@ -134,4 +154,33 @@ test('every step after the name can be left for later', async ({ page }) => {
           ?.setupStep,
     )
     .toBeNull()
+})
+
+test('finishing later leaves set-up for good', async ({ page }) => {
+  const owner = await signUpActor(uniqueEmail('exit'), FIXTURE_PASSWORD, 'Lee')
+  await signInViaUi(page, owner.email)
+  await expect(page).toHaveURL(/\/onboarding$/)
+
+  await stepReady(page)
+  await page.getByLabel('Business name').fill(`Exit Pest ${Date.now()}`)
+  await continueStep(page, /step=brand/)
+  const slug = new URL(page.url()).searchParams.get('business')!
+
+  await clickUntil(
+    page.getByRole('button', { name: 'Finish setting up later' }),
+    () =>
+      expect(page).toHaveURL(new RegExp(`/${slug}/schedule`), {
+        timeout: 3_000,
+      }),
+  )
+  // Not sent back into set-up at the next launch.
+  await expect
+    .poll(
+      async () =>
+        (await owner.client.query(api.businesses.listForUser, {}))[0]
+          ?.setupStep,
+    )
+    .toBeNull()
+  await page.goto('/')
+  await expect(page).toHaveURL(new RegExp(`/${slug}/schedule`))
 })

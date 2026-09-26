@@ -59,6 +59,9 @@ const FORMS: Record<string, ReadonlyArray<RegExp>> = {
   'TeamSection.tsx': ['email'].map(bare),
   'MyDetails.tsx': ['name', 'phone'].map(bare),
   'ReportSettingsForm.tsx': ['title', 'copy', 'settings'].map(bare),
+  // Set-up's letterhead and invite, the same forms in another place.
+  '../onboarding/BrandStep.tsx': ['phone', 'email', 'address'].map(bare),
+  '../onboarding/TeamStep.tsx': ['email'].map(bare),
 }
 
 describe('settings forms save what is in the fields when the save runs', () => {

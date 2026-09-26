@@ -56,15 +56,9 @@ function StartPage() {
     },
     onSuccess: async ({ slug }) => {
       await router.invalidate()
-      if (slug) {
-        await router.navigate({
-          to: '/$businessSlug/schedule',
-          params: { businessSlug: slug },
-          replace: true,
-        })
-        return
-      }
-      await router.navigate({ to: '/onboarding', replace: true })
+      // A business already made with this link: `/` carries on set-up where
+      // it was left (on whichever device), or opens the schedule once done.
+      await router.navigate({ to: slug ? '/' : '/onboarding', replace: true })
     },
   })
 
@@ -100,10 +94,14 @@ function StartPage() {
     <Shell title="Set up your business on PestM8">
       <p className="mt-2 text-body text-muted">
         {taken ? (
-          <>
-            This link has been used. If it was you, sign in with{' '}
-            <span className="text-ink">{emailHint}</span> to carry on.
-          </>
+          emailHint ? (
+            <>
+              This link has been used. If it was you, sign in with{' '}
+              <span className="text-ink">{emailHint}</span> to carry on.
+            </>
+          ) : (
+            'This link has been used. If it was you, sign in to carry on.'
+          )
         ) : (
           <>
             Scheduling, service reports and certificates for your pest control

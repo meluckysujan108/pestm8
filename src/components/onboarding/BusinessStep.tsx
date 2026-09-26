@@ -20,7 +20,7 @@ const CREATE_COPY = {
     'That ABN does not pass the ATO check. Check its 11 digits, or leave it blank for now.',
   INVALID_NAME: 'Give the business a name with at least one letter or number.',
   BUSINESS_INVITE_REQUIRED:
-    'This account needs a link to set up a business. Open the link you were sent, then try again.',
+    'This account has no open link to set up a business. If you’ve set one up already, close this and open PestM8 again to carry on.',
   offline:
     'Could not create the business: this device is offline. Try again when you have signal.',
   default: 'Could not create the business. Check the name and try again.',

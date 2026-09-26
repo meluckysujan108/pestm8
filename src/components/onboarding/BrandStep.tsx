@@ -39,9 +39,10 @@ const SAVE_COPY = {
  *
  * The email starts as the account's own, since that is where most owners
  * want replies. The logo uploads the moment it is picked, as it does in
- * Settings: nothing to type, nothing to take back — and on an iPhone the trip
- * to Photos can reload the app, which is why set-up keeps its place
- * server-side and the logo is saved before anyone comes back.
+ * Settings: nothing to type, nothing to take back. On an iPhone the trip to
+ * Photos can reload the app before the photo comes back; set-up keeps its
+ * place server-side, so they land on this step again to pick it once more —
+ * but anything typed and not yet saved is gone with the reload.
  */
 export function BrandStep({
   business,
