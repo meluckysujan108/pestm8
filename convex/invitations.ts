@@ -20,14 +20,21 @@ import {
 } from './lib/inviteTokens'
 import { role } from './schema'
 import { forSelf, recordAudit } from './lib/audit'
-import type { Id } from './_generated/dataModel'
+import type { Doc, Id } from './_generated/dataModel'
 import {
   requireActor,
   requireAssignableRole,
   requireCapability,
 } from './lib/actor'
-import { canInviteAs, canManageInvitation, NO_GRANTS } from './lib/capabilities'
-import type { Role } from './lib/capabilities'
+import {
+  canInviteAs,
+  canManageInvitation,
+  joinsUnder,
+  NO_GRANTS,
+} from './lib/capabilities'
+import { factsFromMembership } from './lib/membershipFacts'
+import type { Landing, Role } from './lib/capabilities'
+import type { MutationCtx, QueryCtx } from './_generated/server'
 
 /**
  * Joining a business, rebuilt around a link the owner shares.
@@ -244,6 +251,21 @@ export const preview = action({
     }),
 })
 
+/**
+ * Where this invitation's joiner lands, or that it no longer opens the door
+ * at all (`joinsUnder`: the sender's authority as it stands today). Asked by
+ * the preview, the sign-up gate and redeem alike, so a link that will not
+ * redeem never previews as valid or lets someone create an account for
+ * nothing.
+ */
+async function landingOf(
+  ctx: QueryCtx | MutationCtx,
+  invitation: Doc<'invitations'>,
+): Promise<Landing> {
+  const sender = await ctx.db.get(invitation.invitedByMembershipId)
+  return joinsUnder(sender && factsFromMembership(sender), invitation)
+}
+
 export const previewByHash = internalQuery({
   args: { tokenHash: v.string() },
   handler: async (ctx, { tokenHash }) => {
@@ -257,6 +279,14 @@ export const previewByHash = internalQuery({
       // One shape for every failure: an expired link and a made-up one look
       // the same from outside.
       return { state, businessName: null, roleLabel: null, emailHint: null }
+    }
+    if (!(await landingOf(ctx, invitation)).ok) {
+      return {
+        state: 'revoked' as const,
+        businessName: null,
+        roleLabel: null,
+        emailHint: null,
+      }
     }
 
     const business = await ctx.db.get(invitation.businessId)
@@ -312,6 +342,10 @@ export const redeemByHash = internalMutation({
               : 'INVITE_INVALID',
       )
     }
+    // Withdrawn in effect, if the sender may no longer invite anyone.
+    const landing = await landingOf(ctx, invitation)
+    if (!landing.ok) throw new ConvexError('INVITE_REVOKED')
+    const parentMembershipId = landing.parentMembershipId ?? undefined
 
     const email = user.email.toLowerCase()
     if (email !== invitation.email)
@@ -360,6 +394,12 @@ export const redeemByHash = internalMutation({
         canViewOtherAccounts: false,
         viewingAsMembershipId: undefined,
         colour,
+        // Their team, like everything else, comes from this invitation. The
+        // row used to keep whatever it pointed at before, so someone removed
+        // from Jo's team and later re-invited by the owner came straight back
+        // under Jo — handing her authority over them nobody chose.
+        parentMembershipId,
+        grants: NO_GRANTS,
       })
       membershipId = existing._id
     } else {
@@ -378,6 +418,9 @@ export const redeemByHash = internalMutation({
         // access to anyone else's work, which is what NO_GRANTS means and what
         // `canViewAllJobs: false` beside it has always meant.
         grants: NO_GRANTS,
+        // On the team of the contractor who invited them; nobody's, when the
+        // owner did (`joinsUnder`).
+        parentMembershipId,
         // Frozen now so that leaving and renaming the login later cannot
         // rewrite their name on reports they are about to sign.
         displayName: user.name.trim() || undefined,
@@ -402,7 +445,11 @@ export const redeemByHash = internalMutation({
       action: 'invitation.redeem',
       entityType: 'invitations',
       entityId: invitation._id,
-      meta: { email, role: invitation.role },
+      meta: {
+        email,
+        role: invitation.role,
+        parentMembershipId: parentMembershipId ?? null,
+      },
       at: now,
     })
 
@@ -429,6 +476,9 @@ export const checkForSignUp = internalQuery({
     const state = inviteState(invitation, Date.now())
     if (!invitation || state !== 'valid') {
       return { ok: false as const, code: `INVITE_${state.toUpperCase()}` }
+    }
+    if (!(await landingOf(ctx, invitation)).ok) {
+      return { ok: false as const, code: 'INVITE_REVOKED' }
     }
     if (invitation.email !== email.trim().toLowerCase()) {
       return { ok: false as const, code: 'INVITE_EMAIL_MISMATCH' }
@@ -469,6 +519,9 @@ export const listForBusiness = query({
           /** May mint a new link for it: as above, and only for a role the
            * caller could invite as today (`applyNewToken`). */
           canReissue: canManage && canInviteAs(env.actor, invitation.role),
+          /** Who sent it, so demoting or removing a contractor can say which
+           * of these go with them (`revokeInvitationsFrom`). Added field. */
+          invitedByMembershipId: invitation.invitedByMembershipId,
         }
       })
       .filter((row) => row.state === 'valid' || row.state === 'legacy')

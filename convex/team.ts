@@ -5,7 +5,7 @@ import { authComponent } from './auth'
 import { requireMembership } from './lib/access'
 import { inviteState } from './lib/inviteTokens'
 import { forSelf, recordAudit } from './lib/audit'
-import { releaseTeam } from './lib/teamRelease'
+import { releaseTeam, revokeInvitationsFrom } from './lib/teamRelease'
 import {
   canAssignTo,
   canDispatchTo,
@@ -200,15 +200,23 @@ async function offboard(
   // A contractor's team does not leave with them. Released to the owner
   // before the patch below zeroes the grants that were their ceiling — left
   // pointing at a removed contractor, they lost prices and the schedule.
+  const stepDown = {
+    actorId: actor._id,
+    reason:
+      action === 'membership.leave' ? ('left' as const) : ('removed' as const),
+    at: now,
+  }
   const releasedTeam =
     target.role === 'contractor'
-      ? await releaseTeam(ctx, {
-          contractor: target,
-          actorId: actor._id,
-          reason: action === 'membership.leave' ? 'left' : 'removed',
-          at: now,
-        })
+      ? await releaseTeam(ctx, { contractor: target, ...stepDown })
       : 0
+  // Nor do the links they sent outlive them (`revokeInvitationsFrom`). Asked
+  // of anyone leaving, not only a contractor: whoever sent a live link, it
+  // stops being theirs to hand out.
+  const revokedInvitations = await revokeInvitationsFrom(ctx, {
+    sender: target,
+    ...stepDown,
+  })
 
   await ctx.db.patch(target._id, {
     status: 'removed',
@@ -217,6 +225,9 @@ async function offboard(
     canViewAllJobs: false,
     canViewOtherAccounts: false,
     viewingAsMembershipId: undefined,
+    // And their place on a team. Left behind, it came back with them: a rejoin
+    // landed them under their old contractor whoever re-invited them.
+    parentMembershipId: undefined,
     // Their grants go with them. A membership id is never reused, so a stale
     // `switchInto` could not be redeemed by anyone — but leaving a removed
     // person holding a grant makes the row read as though they still have
@@ -308,6 +319,7 @@ async function offboard(
       reassignedTo: reassignTo,
       sessionsRevoked: !stillMemberElsewhere,
       ...(releasedTeam > 0 && { releasedTeam }),
+      ...(revokedInvitations > 0 && { revokedInvitations }),
     },
     at: now,
   })

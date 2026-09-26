@@ -105,11 +105,25 @@ export function TeamSection({ businessId }: { businessId: Id<'businesses'> }) {
             others={members.filter(
               (m) => m._id !== member._id && m.status === 'active',
             )}
+            // Their unused links, which demoting or removing them withdraws.
+            // An older backend sends no sender, so this reads as none.
+            sentInvitations={
+              invitations.filter(
+                (i) =>
+                  i.state === 'valid' && i.invitedByMembershipId === member._id,
+              ).length
+            }
           />
         ))}
       </div>
 
-      <h2 className="section-label mb-2 mt-6">Invite a subcontractor</h2>
+      {/* A contractor's invitee joins their team (`joinsUnder`); the owner's
+          answers to the owner. */}
+      <h2 className="section-label mb-2 mt-6">
+        {viewerIsOwner
+          ? 'Invite a subcontractor'
+          : 'Invite someone to your team'}
+      </h2>
       {/* The link only works for this exact address, so a slip here ("gmial")
           mints a link nobody can use. A near miss, or a domain that takes no
           mail, asks once, with the fix; the second press creates it as
@@ -349,8 +363,12 @@ function InviteLinkCard({
  */
 type PendingInvitation = Omit<
   FunctionReturnType<typeof api.invitations.listForBusiness>[number],
-  'canManage' | 'canReissue'
-> & { canManage?: boolean; canReissue?: boolean }
+  'canManage' | 'canReissue' | 'invitedByMembershipId'
+> & {
+  canManage?: boolean
+  canReissue?: boolean
+  invitedByMembershipId?: Id<'memberships'>
+}
 
 /** The invite's own words for describeError: it creates, it does not save. */
 const INVITE_COPY = {

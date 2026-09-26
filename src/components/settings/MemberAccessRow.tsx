@@ -50,11 +50,14 @@ export function MemberAccessRow({
   businessId,
   member,
   others = [],
+  sentInvitations = 0,
 }: {
   businessId: Id<'businesses'>
   member: Member
   /** Active members who could take over this person's booked work. */
   others?: Array<Member>
+  /** How many unused invitation links this person sent. */
+  sentInvitations?: number
 }) {
   const convexSetViewOthers = useConvexMutation(
     api.memberships.setCanViewOtherAccounts,
@@ -268,7 +271,7 @@ export function MemberAccessRow({
                   if (
                     member.role === 'contractor' &&
                     role === 'subcontractor' &&
-                    team.length > 0
+                    (team.length > 0 || sentInvitations > 0)
                   ) {
                     setDemoting(true)
                     return
@@ -332,11 +335,14 @@ export function MemberAccessRow({
           <p className="text-body text-ink">
             Make {displayName} a subcontractor?
           </p>
-          <p className="mt-1 text-caption text-muted">
-            {listNames(team)} {team.length === 1 ? 'answers' : 'answer'} to{' '}
-            {displayName} now, and will answer to you instead, keeping what they
-            can see today.
-          </p>
+          {team.length > 0 && (
+            <p className="mt-1 text-caption text-muted">
+              {listNames(team)} {team.length === 1 ? 'answers' : 'answer'} to{' '}
+              {displayName} now, and will answer to you instead, keeping what
+              they can see today.
+            </p>
+          )}
+          <WithdrawnLinks count={sentInvitations} />
           <div className="mt-3 flex gap-2">
             <button
               type="button"
@@ -510,7 +516,12 @@ export function MemberAccessRow({
       )}
 
       {canManage && (
-        <RemoveMember businessId={businessId} member={member} others={others} />
+        <RemoveMember
+          businessId={businessId}
+          member={member}
+          others={others}
+          sentInvitations={sentInvitations}
+        />
       )}
     </div>
   )
@@ -528,10 +539,12 @@ function RemoveMember({
   businessId,
   member,
   others,
+  sentInvitations,
 }: {
   businessId: Id<'businesses'>
   member: Member
   others: Array<Member>
+  sentInvitations: number
 }) {
   const [confirming, setConfirming] = useState(false)
   const [reassignTo, setReassignTo] = useState<Id<'memberships'> | ''>('')
@@ -595,6 +608,7 @@ function RemoveMember({
           see today.
         </p>
       )}
+      <WithdrawnLinks count={sentInvitations} />
 
       {handover && (
         <label className="mt-3 flex flex-col gap-1.5">
@@ -649,6 +663,23 @@ function RemoveMember({
         </button>
       </div>
     </div>
+  )
+}
+
+/**
+ * Their unused invitation links go when they stop being able to send them
+ * (`revokeInvitationsFrom`). Said up front, because the pending list below
+ * will simply lose them.
+ */
+function WithdrawnLinks({ count }: { count: number }) {
+  if (count === 0) return null
+  return (
+    <p className="mt-1 text-caption text-muted">
+      {count === 1
+        ? 'The invitation link they sent and nobody has used yet will stop working.'
+        : `The ${count} invitation links they sent and nobody has used yet will stop working.`}{' '}
+      You can invite anyone you still want yourself.
+    </p>
   )
 }
 
