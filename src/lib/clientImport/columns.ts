@@ -21,6 +21,7 @@ export const FIELD_LABELS: Record<ImportField, string> = {
   company: 'Company',
   contactPerson: 'Contact person',
   isCompany: 'Is a company?',
+  contactType: 'Customer or supplier?',
   email: 'Email',
   phone: 'Phone',
   mobile: 'Mobile',
@@ -44,6 +45,7 @@ export const FIELD_ORDER: Array<ImportField> = [
   'company',
   'contactPerson',
   'isCompany',
+  'contactType',
   'phone',
   'mobile',
   'email',
@@ -171,6 +173,9 @@ const SYNONYMS: Record<
     'accountname',
     'client',
     'customer',
+    // The name on the invoice: an accounts package's client name, beside
+    // its "Primary contact" (the person to ask for).
+    'billingname',
   ],
   firstName: [
     'firstname',
@@ -219,6 +224,9 @@ const SYNONYMS: Record<
     'accounttype',
     'type',
   ],
+  // Accounts packages list suppliers beside customers: "Contact type"
+  // Customer / Supplier. build.ts leaves the ones that aren't clients out.
+  contactType: ['contacttype', 'contactcategory', 'contactrole'],
   email: [
     'email',
     'emailaddress',
@@ -293,6 +301,8 @@ const SYNONYMS: Record<
     'servicenotes',
     'notes',
     'note',
+    'latestnote',
+    'lastnote',
     'topnote',
     'clientnotes',
     'customernotes',

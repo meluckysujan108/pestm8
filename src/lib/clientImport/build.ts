@@ -227,8 +227,10 @@ function stateAtEnd(
     const code = /^[a-z. ]+$/i.test(tail) ? stateCodeOf(tail) : null
     if (!code) continue
     const rest = words.slice(0, -n).join(' ')
-    // A code (WA, NSW) is always the state. A whole name might be the end
-    // of a place's: taken as the state only when nothing says otherwise.
+    // A code (WA, NSW) is always the state. A one-word name might be the
+    // end of a place's (Mount Victoria): taken as the state only when
+    // nothing says otherwise. No place ends in "Western Australia", so
+    // South Lake Western Australia is South Lake, WA.
     const spelt =
       words
         .slice(-n)
@@ -236,7 +238,7 @@ function stateAtEnd(
         .replace(/[^a-z]/gi, '').length > 3
     if (spelt) {
       const before = rest.split(' ').pop()?.toLowerCase() ?? ''
-      if (BEFORE_A_PLACE_NAME.has(before)) return null
+      if (n === 1 && BEFORE_A_PLACE_NAME.has(before)) return null
       const padded = postcode.length === 3 ? `0${postcode}` : postcode
       const its = stateOfPostcode(padded)
       if (its && its !== code) return null
@@ -371,6 +373,11 @@ const YES =
   /^(?:y|yes|true|1|x|company|business|commercial|organisation|organization|corporate)$/i
 const NO = /^(?:n|no|false|0|individual|person|residential|private|domestic)$/i
 
+/** A contact-type cell for someone who isn't a client: an accounts
+ * package's suppliers, listed beside its customers. */
+const NOT_A_CLIENT =
+  /\b(?:supplier|vendor|creditor|sub-?contractor|contractor|employee|staff|payee)s?\b/i
+
 const tidy = (text: string | undefined) =>
   (text ?? '').replace(/\s+/g, ' ').trim()
 
@@ -411,6 +418,9 @@ type Draft = {
   site?: ReviewSite
   siteNotes: Array<SiteNote>
   notes: Array<ReviewIssue>
+  /** The file's contact type, when it says this isn't a client
+   * ("Supplier"): left out unless the person includes it. */
+  notAClient?: string
 }
 
 /** A phone as the file had it, with a lost leading 0 put back, +61 written
@@ -519,12 +529,15 @@ function draftOf(
     first !== '' &&
     last !== '' &&
     (nameColumn === '' || nameKey(nameColumn) === nameKey(person))
-  // A name column beside a first and a last it shares no word with: a
-  // place named for itself and the person to ask for — Xero's "Bayview
-  // Motel" with Bob Jones, ServiceM8's name beside its Contact First/Last.
-  // "John & Mary Smith" beside John Smith is still the Smiths.
+  // A name column beside a first and a last — or a contact person — it
+  // shares no word with: a place named for itself and the person to ask
+  // for — Xero's "Bayview Motel" with Bob Jones, ServiceM8's name beside
+  // its Contact First/Last, a "Little Sprouts Early Learning" billing name
+  // beside its primary contact. "John & Mary Smith" beside John Smith is
+  // still the Smiths.
+  const asked = person || tidy(v.contactPerson)
   const namedApart =
-    nameColumn !== '' && person !== '' && !sharesWord(nameColumn, person)
+    nameColumn !== '' && asked !== '' && !sharesWord(nameColumn, asked)
   // The file's own word beats every guess — Jobber's "Is Company?" false
   // beside a Company Name is a person who works there. Then a company
   // column; then a real ABN, which a household doesn't give its pest
@@ -792,6 +805,9 @@ function draftOf(
     ...(site ? { site } : {}),
     siteNotes,
     notes,
+    ...(NOT_A_CLIENT.test(tidy(v.contactType))
+      ? { notAClient: tidy(v.contactType) }
+      : {}),
   }
 }
 
@@ -873,6 +889,27 @@ function merge(drafts: Array<Draft>, opts: Opts): ReviewClient {
   const phone = pick('phone')
   const email = pick('email')
   const abn = kind === 'business' ? pick('abn') : undefined
+  // Left out: every row saying it isn't a client (a supplier who is also on
+  // a customer row is a client), or a name and nothing else — an accounts
+  // package's payees, "Post office", "Apple subscription". Either can be
+  // included, and then is judged like any other.
+  const notAClient = drafts.every((d) => d.notAClient)
+    ? head.notAClient
+    : undefined
+  const nameOnly = sites.length === 0 && !phone && !email
+  const leftOut = notAClient
+    ? `“${notAClient}” in the file, not a client — left out. Include it if you do work for them.`
+    : nameOnly
+      ? 'Only a name in the file — no address, phone or email — so left out. Include it to add an address.'
+      : undefined
+  if (leftOut) {
+    notes.push(
+      holdWhile(
+        { level: 'fixed', field: 'name', message: leftOut },
+        (c) => !c.included,
+      ),
+    )
+  }
   const client: ReviewClient = {
     key: `c${head.rowNumber}`,
     rowNumbers: drafts.map((d) => d.rowNumber),
@@ -886,7 +923,7 @@ function merge(drafts: Array<Draft>, opts: Opts): ReviewClient {
     ...(abn ? { abn } : {}),
     sites,
     issues: notes,
-    included: true,
+    included: !leftOut,
   }
   return recheckClient(client, opts)
 }
