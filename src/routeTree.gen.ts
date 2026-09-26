@@ -24,6 +24,7 @@ import { Route as BusinessSlugScheduleRouteImport } from './routes/$businessSlug
 import { Route as JoinTokenRouteImport } from './routes/join.$token'
 import { Route as StartTokenRouteImport } from './routes/start.$token'
 import { Route as BusinessSlugClientsIndexRouteImport } from './routes/$businessSlug/clients/index'
+import { Route as BusinessSlugClientsImportRouteImport } from './routes/$businessSlug/clients/import'
 import { Route as BusinessSlugJobIndexRouteImport } from './routes/$businessSlug/job/index'
 import { Route as BusinessSlugJobRecurringRouteImport } from './routes/$businessSlug/job/recurring'
 import { Route as BusinessSlugReportsIndexRouteImport } from './routes/$businessSlug/reports/index'
@@ -120,6 +121,12 @@ const BusinessSlugClientsIndexRoute =
   BusinessSlugClientsIndexRouteImport.update({
     id: '/clients/',
     path: '/clients/',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
+const BusinessSlugClientsImportRoute =
+  BusinessSlugClientsImportRouteImport.update({
+    id: '/clients/import',
+    path: '/clients/import',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
 const BusinessSlugJobIndexRoute = BusinessSlugJobIndexRouteImport.update({
@@ -261,6 +268,7 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
   '/start/$token': typeof StartTokenRoute
+  '/$businessSlug/clients/import': typeof BusinessSlugClientsImportRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
@@ -298,6 +306,7 @@ export interface FileRoutesByTo {
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
   '/start/$token': typeof StartTokenRoute
+  '/$businessSlug/clients/import': typeof BusinessSlugClientsImportRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
@@ -337,6 +346,7 @@ export interface FileRoutesById {
   '/$businessSlug/schedule': typeof BusinessSlugScheduleRoute
   '/join/$token': typeof JoinTokenRoute
   '/start/$token': typeof StartTokenRoute
+  '/$businessSlug/clients/import': typeof BusinessSlugClientsImportRoute
   '/$businessSlug/job/recurring': typeof BusinessSlugJobRecurringRoute
   '/$businessSlug/reports/$reportId': typeof BusinessSlugReportsReportIdRoute
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
@@ -377,6 +387,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/schedule'
     | '/join/$token'
     | '/start/$token'
+    | '/$businessSlug/clients/import'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
@@ -414,6 +425,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/schedule'
     | '/join/$token'
     | '/start/$token'
+    | '/$businessSlug/clients/import'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
@@ -452,6 +464,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/schedule'
     | '/join/$token'
     | '/start/$token'
+    | '/$businessSlug/clients/import'
     | '/$businessSlug/job/recurring'
     | '/$businessSlug/reports/$reportId'
     | '/$businessSlug/reports/new'
@@ -593,6 +606,13 @@ declare module '@tanstack/react-router' {
       path: '/clients'
       fullPath: '/$businessSlug/clients/'
       preLoaderRoute: typeof BusinessSlugClientsIndexRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/clients/import': {
+      id: '/$businessSlug/clients/import'
+      path: '/clients/import'
+      fullPath: '/$businessSlug/clients/import'
+      preLoaderRoute: typeof BusinessSlugClientsImportRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
     '/$businessSlug/job/': {
@@ -765,6 +785,7 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugNotesRoute: typeof BusinessSlugNotesRoute
   BusinessSlugProductsRoute: typeof BusinessSlugProductsRoute
   BusinessSlugScheduleRoute: typeof BusinessSlugScheduleRoute
+  BusinessSlugClientsImportRoute: typeof BusinessSlugClientsImportRoute
   BusinessSlugReportsReportIdRoute: typeof BusinessSlugReportsReportIdRoute
   BusinessSlugReportsNewRoute: typeof BusinessSlugReportsNewRoute
   BusinessSlugSettingsAboutRoute: typeof BusinessSlugSettingsAboutRoute
@@ -793,6 +814,7 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugNotesRoute: BusinessSlugNotesRoute,
   BusinessSlugProductsRoute: BusinessSlugProductsRoute,
   BusinessSlugScheduleRoute: BusinessSlugScheduleRoute,
+  BusinessSlugClientsImportRoute: BusinessSlugClientsImportRoute,
   BusinessSlugReportsReportIdRoute: BusinessSlugReportsReportIdRoute,
   BusinessSlugReportsNewRoute: BusinessSlugReportsNewRoute,
   BusinessSlugSettingsAboutRoute: BusinessSlugSettingsAboutRoute,

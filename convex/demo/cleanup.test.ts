@@ -1,7 +1,7 @@
 /// <reference types="vite/client" />
 import { ConvexError } from 'convex/values'
 import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
-import { components, internal } from '../_generated/api'
+import { api, components, internal } from '../_generated/api'
 import { demoSource, runDemoSteps } from '../../test/demoFixture'
 import { CLIENTS, DEMO_PLAN, PLACEHOLDER_EMAIL_DOMAIN } from './shared'
 import type { DemoRun, DemoSource } from '../../test/demoFixture'
@@ -396,6 +396,33 @@ describe('removing a demo', () => {
     demoProductUploads = crossed.uploads
     demoRendered = crossed.rendered
 
+    // Someone tries "Bring your clients across" in the demo: the import's
+    // record stays behind it, whatever the file made. (A row it refused, so
+    // the demo's own counts stay the seed's.)
+    const importId = await run.owner.as.mutation(api.clientImports.start, {
+      businessId: base.businessId,
+      fileName: 'clients.csv',
+    })
+    await run.owner.as.mutation(api.clientImports.addBatch, {
+      businessId: base.businessId,
+      importId,
+      clients: [
+        {
+          key: 'c1',
+          kind: 'person',
+          name: ' ',
+          sites: [
+            {
+              addressLine: '1 Rose Street',
+              suburb: 'Bayswater',
+              state: 'WA',
+              postcode: '6053',
+            },
+          ],
+        },
+      ],
+    })
+
     slug = await t.query(internal.demo.seed.slugOf, {
       businessId: base.businessId,
     })
@@ -447,6 +474,7 @@ describe('removing a demo', () => {
       'reportSnippets',
       'noteMentions',
       'products',
+      'clientImports',
     ]) {
       expect(before[table], table).toBeGreaterThan(0)
     }
@@ -527,6 +555,7 @@ describe('removing a demo', () => {
       'optionSets',
       'reportSnippets',
       'products',
+      'clientImports',
     ]) {
       expect(totals[table] ?? 0, table).toBe(before[table])
     }

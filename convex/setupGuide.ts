@@ -16,11 +16,29 @@ import { requireActor, requireCapability } from './lib/actor'
  */
 
 export type SetupGuideItem =
-  'business' | 'letterhead' | 'licence' | 'firstJob' | 'firstReport' | 'team'
+  | 'business'
+  | 'letterhead'
+  | 'licence'
+  | 'clients'
+  | 'firstJob'
+  | 'firstReport'
+  | 'team'
 
 export const progress = query({
-  args: { businessId: v.id('businesses') },
-  handler: async (ctx, { businessId }) => {
+  args: {
+    businessId: v.id('businesses'),
+    /**
+     * Whether the page asking knows "Bring your clients across". A page
+     * from before that item — and an installed app can keep running one
+     * for a while after a release — looks each item's words up by key, and
+     * an item it has never heard of throws on the schedule. So the item is
+     * only listed for a page that says it knows it. Once no page from
+     * before it can still be running, this can go and the item always be
+     * listed.
+     */
+    withClients: v.optional(v.boolean()),
+  },
+  handler: async (ctx, { businessId, withClients }) => {
     const env = await requireActor(ctx, businessId)
     // The owner's to do, and not while switched into someone else's account.
     // Everyone else gets nothing, rather than a refusal on the schedule.
@@ -32,6 +50,10 @@ export const progress = query({
 
     const owner = await ctx.db.get(env.actor.real._id)
 
+    const client = await ctx.db
+      .query('clients')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .first()
     const job = await ctx.db
       .query('jobs')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
@@ -53,6 +75,11 @@ export const progress = query({
           Boolean(business.phone?.trim() || business.email?.trim()),
       },
       { key: 'licence', done: Boolean(owner?.licenceNumber?.trim()) },
+      // Before the first job, which needs someone to book it for. Brought
+      // across from the old app or added one at a time, either way counts.
+      ...(withClients === true
+        ? [{ key: 'clients' as const, done: client !== null }]
+        : []),
       { key: 'firstJob', done: job !== null },
       { key: 'firstReport', done: finalised !== null },
     ]
