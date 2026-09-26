@@ -1,6 +1,9 @@
 import { useId, useState } from 'react'
 import { Check, Copy, Share } from 'lucide-react'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * Ten single-use recovery codes, shown once, and a person made to put them
@@ -70,7 +73,7 @@ export function RecoveryCodes({
               () => setNote('Could not copy. Write them down instead.'),
             )
           }}
-          className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
         >
           {copied ? (
             <Check size={16} strokeWidth={2} />
@@ -93,7 +96,7 @@ export function RecoveryCodes({
                   }
                 })
             }}
-            className="flex h-11 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+            className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
           >
             <Share size={16} strokeWidth={1.7} />
             Share

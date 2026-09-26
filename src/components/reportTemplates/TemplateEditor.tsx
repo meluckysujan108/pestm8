@@ -13,7 +13,12 @@ import type { SaveStatus } from '#/lib/useAutosave'
 import { isDataField } from '#/lib/reportTemplates'
 import type { SectionDef } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
+import { FIELD_COMPACT, FIELD_SURFACE } from '#/components/forms/FormField'
 
 const SAVE_LABELS: Record<SaveStatus, string> = {
   draft: 'Saved',
@@ -213,7 +218,7 @@ export function TemplateEditor({
               onChange={(e) =>
                 setDraft((d) => ({ ...d, name: e.target.value }))
               }
-              className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD_COMPACT} w-full`}
             />
           </label>
 
@@ -225,7 +230,7 @@ export function TemplateEditor({
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, shortName: e.target.value }))
                 }
-                className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                className={`${FIELD_COMPACT} w-full`}
               />
             </label>
             <label className="flex flex-col gap-1.5">
@@ -235,7 +240,7 @@ export function TemplateEditor({
                 onChange={(e) =>
                   setDraft((d) => ({ ...d, legalBasis: e.target.value }))
                 }
-                className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+                className={`${FIELD_COMPACT} w-full`}
               />
             </label>
           </div>
@@ -247,7 +252,7 @@ export function TemplateEditor({
               onChange={(e) =>
                 setDraft((d) => ({ ...d, blurb: e.target.value }))
               }
-              className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD_COMPACT} w-full`}
             />
           </label>
 
@@ -271,7 +276,7 @@ export function TemplateEditor({
           <button
             type="button"
             onClick={addSection}
-            className="mt-2.5 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
+            className={`${SECONDARY_BUTTON_COMPACT} mt-2.5 flex w-full items-center justify-center gap-1.5`}
           >
             <Plus size={16} strokeWidth={2} />
             Add section
@@ -287,7 +292,7 @@ export function TemplateEditor({
                 setDraft((d) => ({ ...d, boilerplate: e.target.value }))
               }
               rows={6}
-              className="w-full rounded-xl bg-surface-3 p-3 text-[14px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD_SURFACE} w-full p-3`}
             />
           </label>
 
@@ -339,7 +344,7 @@ export function TemplateEditor({
             type="button"
             disabled={!hydrated || autosave.status === 'saving'}
             onClick={() => void autosave.flush()}
-            className="flex h-12 flex-1 items-center justify-center gap-2 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+            className={`${SECONDARY_BUTTON} flex flex-1 items-center justify-center gap-2`}
           >
             <Save size={17} strokeWidth={1.7} />
             {SAVE_LABELS[autosave.status]}

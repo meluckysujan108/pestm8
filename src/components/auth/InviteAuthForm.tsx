@@ -3,6 +3,7 @@ import { SecondStepForm } from '#/components/auth/SecondStepForm'
 import { authClient, needsSecondStep } from '#/lib/auth-client'
 import { couldBeInvitee } from '#/lib/inviteEmail'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 type Mode = 'signUp' | 'signIn'
 
@@ -222,7 +223,7 @@ function Field({
         minLength={minLength}
         enterKeyHint="go"
         onChange={(e) => onChange(e.target.value)}
-        className="h-12 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        className={FIELD}
       />
       {hint && <span className="text-caption text-muted">{hint}</span>}
     </label>

@@ -6,7 +6,10 @@ import { useAccess, useCan } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
 import { DANGER_ROW_CLASS } from './ui'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * The owner's way back in for a technician who has lost their phone AND their
@@ -117,7 +120,7 @@ export function ResetTwoStepButton({
             setConfirming(false)
             reset.reset()
           }}
-          className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Cancel
         </button>

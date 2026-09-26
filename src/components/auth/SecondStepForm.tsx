@@ -7,6 +7,7 @@ import {
   normaliseTotpCode,
 } from '#/lib/twoStep'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /**
  * The second half of signing in: the six-digit code from the authenticator
@@ -151,7 +152,7 @@ export function SecondStepForm({
             enterKeyHint="go"
             placeholder="xxxxx-xxxxx"
             onChange={(e) => setCode(e.target.value)}
-            className="h-12 rounded-xl bg-surface-3 px-3.5 font-mono text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} font-mono`}
           />
         )}
       </label>

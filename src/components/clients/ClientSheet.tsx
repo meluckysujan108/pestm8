@@ -14,7 +14,7 @@ import { ClientNotesSection } from '#/components/notes/ClientNotesSection'
 import { AbnInput } from '#/components/clients/AbnInput'
 import { EmailInput } from '#/components/forms/EmailInput'
 import { FormAlert } from '#/components/forms/FormAlert'
-import { FormField } from '#/components/forms/FormField'
+import { FIELD_COMPACT, FormField } from '#/components/forms/FormField'
 import { PhoneInput } from '#/components/forms/PhoneInput'
 import {
   SaveWarningsPanel,
@@ -44,7 +44,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type { AddressValue } from '#/lib/addressVerify'
-import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 type ClientKind = 'person' | 'business'
 
@@ -311,7 +311,7 @@ function ClientBody({
               <AlertDialog.Cancel asChild>
                 <button
                   type="button"
-                  className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                 >
                   Keep client
                 </button>
@@ -575,7 +575,7 @@ function ClientEditForm({
           <button
             type="button"
             onClick={onDone}
-            className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+            className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
           >
             Cancel
           </button>
@@ -739,7 +739,7 @@ function ClientContacts({
         <button
           type="button"
           onClick={() => setAdding(true)}
-          className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
         >
           <Plus size={16} strokeWidth={1.8} />
           Add contact
@@ -763,7 +763,7 @@ function ClientContacts({
               <AlertDialog.Cancel asChild>
                 <button
                   type="button"
-                  className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                  className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                 >
                   Keep contact
                 </button>
@@ -919,14 +919,14 @@ function NewContactForm({
           <button
             type="button"
             onClick={onDone}
-            className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
+            className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={create.isPending || !hydrated}
-            className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
           >
             {create.isPending ? 'Adding…' : warnings.saveLabel('Add')}
           </button>
@@ -1020,14 +1020,14 @@ function ContactEditForm({
           <button
             type="button"
             onClick={onDone}
-            className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
+            className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={save.isPending || !hydrated}
-            className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
           >
             {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
           </button>
@@ -1113,7 +1113,7 @@ function ClientProperties({
         <button
           type="button"
           onClick={() => setAdding(true)}
-          className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
         >
           <Plus size={16} strokeWidth={1.8} />
           Add another property
@@ -1343,14 +1343,14 @@ function PropertyEditForm({
           <button
             type="button"
             onClick={onDone}
-            className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
+            className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={save.isPending || !hydrated}
-            className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
           >
             {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
           </button>
@@ -1439,14 +1439,14 @@ function NewPropertyForClientForm({
           <button
             type="button"
             onClick={onDone}
-            className="h-10 flex-1 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.975]"
+            className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={create.isPending || !hydrated}
-            className="h-10 flex-1 rounded-xl bg-blue text-[14px] font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+            className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
           >
             {create.isPending ? 'Adding…' : warnings.saveLabel('Add property')}
           </button>
@@ -1617,7 +1617,7 @@ function TextInput({
       placeholder={placeholder}
       aria-label={ariaLabel}
       onChange={(e) => onChange(e.target.value)}
-      className="h-11 w-full rounded-xl bg-surface-3 px-3.5 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+      className={`${FIELD_COMPACT} w-full`}
     />
   )
 }

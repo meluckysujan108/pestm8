@@ -6,6 +6,7 @@ import {
   subscribeTwoStepNeeded,
   twoStepHref,
 } from '#/lib/twoStep'
+import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * What someone already inside the app sees when two-step sign-in becomes
@@ -81,7 +82,7 @@ export function TwoStepNeededCard() {
             twoStepHref(window.location.pathname + window.location.search),
           )
         }}
-        className="mt-3 h-12 w-full rounded-xl bg-blue text-[16px] font-semibold text-on-tint transition active:scale-[.975]"
+        className={`${NEUTRAL_BUTTON} mt-3 w-full`}
       >
         Set up now
       </button>

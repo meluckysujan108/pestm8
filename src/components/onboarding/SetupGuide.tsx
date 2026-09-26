@@ -11,6 +11,7 @@ import { rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import type { SetupGuideItem } from '../../../convex/setupGuide'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /** What each item asks, and why it is worth doing — one line each. */
 const COPY: Record<SetupGuideItem, { title: string; hint: string }> = {
@@ -128,7 +129,7 @@ export function SetupGuideCard({
             type="button"
             onClick={() => hide.mutate()}
             disabled={!hydrated || hide.isPending}
-            className="min-h-11 shrink-0 rounded-xl bg-surface-2 px-3.5 text-[15px] font-semibold text-blue transition active:scale-[.98] disabled:opacity-50"
+            className={`${LINK_BUTTON_COMPACT} shrink-0 px-3.5`}
           >
             Done
           </button>

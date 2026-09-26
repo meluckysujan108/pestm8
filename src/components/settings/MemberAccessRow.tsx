@@ -28,6 +28,7 @@ import type { Grants, Role } from '../../../convex/lib/capabilities'
 import {
   PRIMARY_BUTTON,
   PRIMARY_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
 
 export type Member = {
@@ -495,7 +496,7 @@ function RoleGroup({
             <button
               type="button"
               onClick={() => setDemoting(false)}
-              className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+              className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
             >
               Cancel
             </button>
@@ -512,7 +513,7 @@ function RoleGroup({
                   { onSettled: () => setDemoting(false) },
                 )
               }
-              className="h-11 flex-1 rounded-xl bg-blue text-body font-semibold text-white transition active:scale-[.975] disabled:opacity-50"
+              className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
             >
               {setRole.isPending ? 'Changing…' : 'Make subcontractor'}
             </button>
@@ -533,7 +534,7 @@ function RoleGroup({
             <button
               type="button"
               onClick={() => setReleasing(false)}
-              className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+              className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
             >
               Cancel
             </button>
@@ -826,7 +827,7 @@ function RemoveMember({
         <button
           type="button"
           onClick={() => setConfirming(false)}
-          className="h-11 flex-1 rounded-xl bg-surface-2 text-body font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Cancel
         </button>

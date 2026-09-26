@@ -48,6 +48,7 @@ import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /** 'site' is a new site for an existing client (Prompt 6.3). */
 type ClientMode = 'existing' | 'new' | 'site'
@@ -576,7 +577,7 @@ function NewJobForm({
               autoComplete="off"
               spellCheck={false}
               placeholder="e.g. WO-448120"
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             />
           </Field>
         ) : (
@@ -614,7 +615,7 @@ function NewJobForm({
             <select
               value={assignee}
               onChange={(e) => setAssignee(e.target.value)}
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             >
               {assignees.map((m) => (
                 <option key={m._id} value={m._id}>
@@ -638,7 +639,7 @@ function NewJobForm({
               type="time"
               value={time}
               onChange={(e) => setTime(e.target.value)}
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             />
           </Field>
           <Field label="Minutes">
@@ -648,7 +649,7 @@ function NewJobForm({
               step="15"
               value={duration}
               onChange={(e) => setDuration(e.target.value)}
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             />
           </Field>
         </div>
@@ -685,7 +686,7 @@ function NewJobForm({
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             placeholder="0.00"
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           />
         </Field>
 

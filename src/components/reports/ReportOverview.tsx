@@ -3,6 +3,7 @@ import type {
   ReportProgress,
   SectionProgress,
 } from '#/lib/reportTemplates/progress'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * Where a report is up to, and the way into it.
@@ -72,7 +73,7 @@ export function ReportOverview({
           type="button"
           disabled={disabled}
           onClick={onFinalise}
-          className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-xl border border-hairline bg-surface text-[15px] font-semibold text-ink transition active:scale-[.99] disabled:opacity-50"
+          className={`${SECONDARY_BUTTON_COMPACT} mt-3 flex w-full items-center justify-center gap-2`}
         >
           <Lock size={15} strokeWidth={2} />
           Finalise &amp; lock

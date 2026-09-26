@@ -47,7 +47,8 @@ import {
 } from './RecurrenceFields'
 import type { IntervalDraft } from './RecurrenceFields'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 /**
  * Loaded on demand, not with the schedule.
@@ -590,7 +591,7 @@ function JobDetailBody({
                   <AlertDialog.Cancel asChild>
                     <button
                       type="button"
-                      className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                      className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                     >
                       Keep job
                     </button>
@@ -643,7 +644,7 @@ function JobDetailBody({
                   <AlertDialog.Cancel asChild>
                     <button
                       type="button"
-                      className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+                      className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
                     >
                       Keep repeating
                     </button>
@@ -840,7 +841,7 @@ function JobEditForm({
           autoComplete="off"
           spellCheck={false}
           placeholder="None"
-          className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          className={`${FIELD} w-full`}
         />
       </EditField>
 
@@ -866,7 +867,7 @@ function JobEditForm({
           <select
             value={assignee}
             onChange={(e) => setAssignee(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           >
             {assignees.map((m) => (
               <option key={m._id} value={m._id}>
@@ -897,7 +898,7 @@ function JobEditForm({
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           />
         </EditField>
         <EditField label="Start">
@@ -905,7 +906,7 @@ function JobEditForm({
             type="time"
             value={time}
             onChange={(e) => setTime(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           />
         </EditField>
       </div>
@@ -918,7 +919,7 @@ function JobEditForm({
             step="15"
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
-            className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD} w-full`}
           />
         </EditField>
         {/* No box for a figure they were never shown. An input seeded from a
@@ -934,7 +935,7 @@ function JobEditForm({
               inputMode="decimal"
               value={price}
               onChange={(e) => setPrice(e.target.value)}
-              className="h-12 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD} w-full`}
             />
           </EditField>
         )}
@@ -994,7 +995,7 @@ function JobEditForm({
         <button
           type="button"
           onClick={onDone}
-          className="h-11 flex-1 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.975]"
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
         >
           Cancel
         </button>
@@ -1378,7 +1379,7 @@ function JobPhotos({
             type="button"
             disabled={busy}
             onClick={() => input.current?.click()}
-            className="flex h-10 w-full items-center justify-center gap-2 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98] disabled:opacity-50"
+            className={`${SECONDARY_BUTTON_COMPACT} flex w-full items-center justify-center gap-2`}
           >
             <Camera size={16} strokeWidth={1.8} />
             {busy ? 'Uploading…' : 'Add photos'}

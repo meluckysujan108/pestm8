@@ -4,6 +4,7 @@ import { api } from '../../../convex/_generated/api'
 import { authClient } from '#/lib/auth-client'
 import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
+import { SECONDARY_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * A signed-in account that belongs to no business and may not start one —
@@ -48,7 +49,7 @@ export function NoBusiness({ email }: { email: string | null }) {
             .then(forgetCachedPages)
             .then(() => window.location.replace('/login'))
         }}
-        className="mt-3 h-12 w-full rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+        className={`${SECONDARY_BUTTON} mt-3 w-full`}
       >
         Sign out
       </button>

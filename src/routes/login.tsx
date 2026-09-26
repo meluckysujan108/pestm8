@@ -5,6 +5,7 @@ import { authClient, needsSecondStep } from '#/lib/auth-client'
 import { forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { FIELD } from '#/components/forms/FormField'
 
 export const Route = createFileRoute('/login')({ component: LoginPage })
 
@@ -156,7 +157,7 @@ function Field({
         required
         autoComplete={autoComplete}
         onChange={(e) => onChange(e.target.value)}
-        className="h-12 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        className={FIELD}
       />
     </label>
   )

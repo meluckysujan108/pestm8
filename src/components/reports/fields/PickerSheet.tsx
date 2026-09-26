@@ -2,6 +2,11 @@ import { useState } from 'react'
 import { Check, Search } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import type { Option } from '#/lib/reportTemplates'
+import {
+  NEUTRAL_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
+import { FIELD_COMPACT } from '#/components/forms/FormField'
 
 /**
  * Choosing from a long list, on a phone, with gloves on.
@@ -125,7 +130,7 @@ export function PickerSheet({
             <button
               type="button"
               onClick={onClear}
-              className="h-11 rounded-xl bg-surface-2 px-4 text-[15px] font-semibold text-ink"
+              className={`${SECONDARY_BUTTON_COMPACT} px-4`}
             >
               Clear
             </button>
@@ -133,7 +138,7 @@ export function PickerSheet({
           <button
             type="button"
             onClick={onClose}
-            className="h-11 flex-1 rounded-xl bg-ink text-[15px] font-semibold text-surface"
+            className={`${NEUTRAL_BUTTON_COMPACT} flex-1`}
           >
             Done
           </button>
@@ -215,12 +220,12 @@ export function PickerSheet({
             }}
             placeholder={addLabel ?? 'Add another…'}
             aria-label={`${title} — add another item`}
-            className="h-11 flex-1 rounded-xl border border-hairline bg-surface px-3 text-[16px] text-ink outline-none"
+            className={`${FIELD_COMPACT} flex-1`}
           />
           <button
             type="button"
             onClick={add}
-            className="h-11 rounded-xl bg-surface-2 px-4 text-[15px] font-semibold text-ink"
+            className={`${SECONDARY_BUTTON_COMPACT} px-4`}
           >
             Add
           </button>

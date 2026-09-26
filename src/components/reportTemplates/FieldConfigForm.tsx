@@ -6,6 +6,8 @@ import { slugifyKey } from './fieldKinds'
 import { isDataField } from '#/lib/reportTemplates'
 import type { FieldDef, RichDoc } from '#/lib/reportTemplates'
 import type { Condition } from '#/lib/reportTemplates/visibility'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { FIELD_COMPACT, FIELD_SURFACE } from '#/components/forms/FormField'
 
 /**
  * Every field kind's configuration, in one form. Kept as one file rather
@@ -90,7 +92,7 @@ export function FieldConfigForm({
           value={field.label}
           onChange={(e) => setLabel(e.target.value)}
           required
-          className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          className={`${FIELD_COMPACT} w-full`}
         />
       </label>
 
@@ -99,7 +101,7 @@ export function FieldConfigForm({
         <input
           value={field.key}
           onChange={(e) => onChange({ ...field, key: e.target.value })}
-          className={`h-10 w-full rounded-xl bg-surface-3 px-3 font-mono text-[13px] outline-none focus:ring-2 focus:ring-blue ${
+          className={`h-11 w-full rounded-xl bg-surface-3 px-3.5 font-mono text-[16px] outline-none focus:ring-2 focus:ring-blue ${
             keyTaken ? 'text-red' : 'text-ink-2'
           }`}
         />
@@ -117,7 +119,7 @@ export function FieldConfigForm({
           onChange={(e) =>
             onChange({ ...field, hint: e.target.value || undefined })
           }
-          className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+          className={`${FIELD_COMPACT} w-full`}
         />
       </label>
 
@@ -403,7 +405,7 @@ function KindSpecificFields({
               onChange={(e) =>
                 onChange({ ...field, body: textToParagraphs(e.target.value) })
               }
-              className="w-full rounded-xl bg-surface-3 p-3.5 text-[16px] leading-relaxed text-ink outline-none focus:ring-2 focus:ring-blue"
+              className={`${FIELD_SURFACE} w-full p-3.5 leading-relaxed`}
             />
           </label>
         </>
@@ -418,7 +420,7 @@ function KindSpecificFields({
             onChange={(e) =>
               onChange({ ...field, source: e.target.value as typeof field.source })
             }
-            className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD_COMPACT} w-full`}
           >
             {DERIVED_SOURCES.map((group) => (
               <optgroup key={group.label} label={group.label}>
@@ -448,7 +450,7 @@ function KindSpecificFields({
             onChange={(e) =>
               onChange({ ...field, roleWord: e.target.value as 'Technician' })
             }
-            className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD_COMPACT} w-full`}
           >
             <option value="Technician">Technician</option>
             <option value="Inspector">Inspector</option>
@@ -529,7 +531,7 @@ function TextInput({
       <input
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        className={`${FIELD_COMPACT} w-full`}
       />
     </label>
   )
@@ -556,7 +558,7 @@ function NumberInput({
           const raw = e.target.value
           onChange(raw === '' ? (optional ? undefined : 0) : Number(raw))
         }}
-        className="h-11 w-full rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        className={`${FIELD_COMPACT} w-full`}
       />
     </label>
   )
@@ -583,7 +585,7 @@ function StringListEditor({
             onChange={(e) =>
               onChange(values.map((v, i) => (i === index ? e.target.value : v)))
             }
-            className="h-11 flex-1 rounded-xl bg-surface-3 px-3 text-[15px] text-ink outline-none focus:ring-2 focus:ring-blue"
+            className={`${FIELD_COMPACT} flex-1`}
           />
           <button
             type="button"
@@ -626,7 +628,7 @@ function StringListEditor({
       <button
         type="button"
         onClick={() => onChange([...values, ''])}
-        className="flex h-10 items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+        className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-1.5`}
       >
         <Plus size={15} strokeWidth={2} />
         {addLabel}

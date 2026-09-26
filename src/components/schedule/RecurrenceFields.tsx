@@ -4,6 +4,7 @@ import {
   describeInterval,
 } from '../../../convex/lib/recurrence'
 import type { Interval, IntervalUnit } from '../../../convex/lib/recurrence'
+import { FIELD } from '#/components/forms/FormField'
 
 /**
  * How often a Recurring Job repeats: a number and a unit, in that order,
@@ -22,9 +23,6 @@ export const UNIT_LABELS: Record<IntervalUnit, { one: string; many: string }> =
     month: { one: 'month', many: 'months' },
     year: { one: 'year', many: 'years' },
   }
-
-const FIELD =
-  'h-12 rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue'
 
 /**
  * The count as the input holds it: a string, because an `<input type=number>`

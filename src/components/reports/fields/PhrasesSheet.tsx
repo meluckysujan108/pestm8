@@ -7,6 +7,10 @@ import {
   sameSnippet,
 } from '#/lib/reportTemplates/snippets'
 import type { Snippet } from '#/lib/reportTemplates/snippets'
+import {
+  NEUTRAL_BUTTON_COMPACT,
+  SECONDARY_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 
 /**
  * The sentences this business writes over and over, one tap away.
@@ -70,7 +74,7 @@ export function PhrasesSheet({
             <button
               type="button"
               onClick={() => setRemoving((was) => !was)}
-              className="h-11 rounded-xl bg-surface-2 px-4 text-[15px] font-semibold text-ink"
+              className={`${SECONDARY_BUTTON_COMPACT} px-4`}
             >
               {removing ? 'Done removing' : 'Remove'}
             </button>
@@ -78,7 +82,7 @@ export function PhrasesSheet({
           <button
             type="button"
             onClick={close}
-            className="h-11 flex-1 rounded-xl bg-ink text-[15px] font-semibold text-surface"
+            className={`${NEUTRAL_BUTTON_COMPACT} flex-1`}
           >
             Done
           </button>
@@ -134,7 +138,7 @@ export function PhrasesSheet({
               setError('Could not save that phrase.'),
             )
           }}
-          className="mt-3 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[15px] font-semibold text-ink transition active:scale-[.98]"
+          className={`${SECONDARY_BUTTON_COMPACT} mt-3 flex w-full items-center justify-center gap-1.5`}
         >
           <Plus size={16} strokeWidth={2} />
           Save what’s written

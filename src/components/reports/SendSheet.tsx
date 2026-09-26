@@ -15,6 +15,7 @@ import { domainsWithoutMail, noMailMessage } from './fields/staticBlocks'
 import { deliveryRecipients } from '#/lib/reportTemplates/delivery'
 import type { ReportTemplate } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
 
 /**
  * Sending a finished report to the people it is for.
@@ -306,7 +307,7 @@ export function SendSheet({
           type="button"
           disabled={chosen.length === 0 || send.isPending || !settled}
           onClick={() => send.mutate(chosen.map((entry) => entry.address))}
-          className="flex h-12 w-full items-center justify-center gap-2 rounded-xl bg-ink text-[17px] font-semibold text-surface transition active:scale-[.975] disabled:opacity-50"
+          className={`${NEUTRAL_BUTTON} flex w-full items-center justify-center gap-2`}
         >
           <Send size={16} strokeWidth={2} />
           {send.isPending

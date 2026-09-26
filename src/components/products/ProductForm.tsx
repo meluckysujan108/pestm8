@@ -15,7 +15,11 @@ import { pdfMeta } from './model'
 import type { ReactNode } from 'react'
 import type { ProductDraft } from '#/lib/productForm'
 import type { SaveState } from './useProductSave'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import {
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
+import { FIELD_SURFACE } from '#/components/forms/FormField'
 
 /**
  * The product form, for a new product and for editing one.
@@ -34,8 +38,7 @@ import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
  * Every field is 16px: iOS zooms the page into any smaller field it focuses.
  */
 
-const INPUT =
-  'w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue disabled:opacity-60'
+const INPUT = `w-full ${FIELD_SURFACE}`
 
 export type ExistingFiles = {
   photoUrl: string | null
@@ -384,7 +387,7 @@ export function ProductForm({
             type="button"
             onClick={onCancel}
             disabled={saving}
-            className="h-12 flex-1 rounded-xl bg-surface-2 text-[17px] font-semibold text-ink transition active:scale-[.975] disabled:opacity-50"
+            className={`${SECONDARY_BUTTON} flex-1`}
           >
             Cancel
           </button>

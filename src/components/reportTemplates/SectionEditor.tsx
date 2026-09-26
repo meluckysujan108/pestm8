@@ -5,6 +5,8 @@ import { VisibleWhenEditor } from './VisibleWhenEditor'
 import { FIELD_KIND_LABELS } from './fieldKinds'
 import { isDataField } from '#/lib/reportTemplates'
 import type { FieldDef, SectionDef } from '#/lib/reportTemplates'
+import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { FIELD_COMPACT } from '#/components/forms/FormField'
 
 /**
  * One numbered section: title/preamble, its own `visibleWhen` (restricted to
@@ -91,7 +93,7 @@ export function SectionEditor({
           value={section.title}
           onChange={(e) => onChange({ ...section, title: e.target.value })}
           placeholder="Section title"
-          className="h-11 flex-1 rounded-xl bg-surface-3 px-3 text-[16px] font-semibold text-ink outline-none focus:ring-2 focus:ring-blue"
+          className={`${FIELD_COMPACT} flex-1 font-semibold`}
         />
         <button
           type="button"
@@ -125,7 +127,7 @@ export function SectionEditor({
         value={section.preamble ?? ''}
         onChange={(e) => onChange({ ...section, preamble: e.target.value || undefined })}
         placeholder="Preamble (optional)"
-        className="mt-2 h-10 w-full rounded-xl bg-surface-3 px-3 text-[14px] text-ink-2 outline-none focus:ring-2 focus:ring-blue"
+        className="mt-2 h-11 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink-2 outline-none focus:ring-2 focus:ring-blue"
       />
 
       <div className="mt-3 flex flex-col gap-1.5">
@@ -181,7 +183,7 @@ export function SectionEditor({
       <button
         type="button"
         onClick={openAdd}
-        className="mt-2 flex h-10 w-full items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-[14px] font-semibold text-ink transition active:scale-[.98]"
+        className={`${SECONDARY_BUTTON_COMPACT} mt-2 flex w-full items-center justify-center gap-1.5`}
       >
         <Plus size={15} strokeWidth={2} />
         Add field
