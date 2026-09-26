@@ -190,7 +190,7 @@ function NewReportPage() {
 
             {activeCustomTemplates.length > 0 && (
               <>
-                <p className="section-label mt-6 mb-2">Custom</p>
+                <h2 className="section-label mt-6 mb-2">Custom</h2>
                 <div className="flex flex-col gap-2.5">
                   {activeCustomTemplates.map((template) => (
                     <button

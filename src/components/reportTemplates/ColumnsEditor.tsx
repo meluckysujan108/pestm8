@@ -77,7 +77,7 @@ export function ColumnsEditor({
       {columns.map((column, index) => (
         <div
           key={column.key}
-          className="flex items-center gap-1.5 rounded-xl bg-surface-2 px-3 py-2"
+          className="flex items-center gap-0.5 rounded-xl bg-surface-2 py-0.5 pl-3 pr-0.5"
         >
           <span className="flex-1 truncate text-body text-ink">
             {column.label}{' '}
@@ -88,34 +88,34 @@ export function ColumnsEditor({
           <button
             type="button"
             disabled={index === 0}
-            aria-label={`Move column ${index + 1} up`}
+            aria-label={`Move ${column.label || `column ${index + 1}`} up`}
             onClick={() => move(index, 'up')}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
             <ChevronUp size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
             disabled={index === columns.length - 1}
-            aria-label={`Move column ${index + 1} down`}
+            aria-label={`Move ${column.label || `column ${index + 1}`} down`}
             onClick={() => move(index, 'down')}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-30"
           >
             <ChevronDown size={15} strokeWidth={2.2} />
           </button>
           <button
             type="button"
-            aria-label={`Edit column ${index + 1}`}
+            aria-label={`Edit ${column.label || `column ${index + 1}`}`}
             onClick={() => setEditingIndex(index)}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
             <Pencil size={14} strokeWidth={2} />
           </button>
           <button
             type="button"
-            aria-label={`Remove column ${index + 1}`}
+            aria-label={`Remove ${column.label || `column ${index + 1}`}`}
             onClick={() => removeAt(index)}
-            className="flex size-8 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
+            className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95]"
           >
             <Trash2 size={15} strokeWidth={2} />
           </button>

@@ -121,7 +121,7 @@ export function MonthCalendarCard({
             onMonthChange(todayKey.slice(0, 7))
             onSelect(todayKey)
           }}
-          className="text-body font-semibold text-blue"
+          className="relative tap-target text-body font-semibold text-blue"
         >
           Today
         </button>
@@ -242,7 +242,7 @@ function TeamThisMonth({
       aria-busy={stale || undefined}
       className={`mt-4 border-t border-hairline pt-3.5 transition-opacity delay-150 motion-reduce:duration-0 ${stale ? 'opacity-60' : 'delay-0'}`}
     >
-      <p className="section-label mb-2.5">Team this month</p>
+      <h2 className="section-label mb-2.5">Team this month</h2>
       <ul className="flex flex-col gap-2">
         {team.map((member) => (
           <li

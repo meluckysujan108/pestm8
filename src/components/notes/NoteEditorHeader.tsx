@@ -161,7 +161,7 @@ export function NoteEditorHeader({
                 type="button"
                 disabled={!hydrated || restore.isPending}
                 onClick={() => restore.mutate(args)}
-                className="flex h-9 items-center gap-1 rounded-full bg-blue/12 px-3 text-caption font-semibold text-blue disabled:opacity-50"
+                className="flex h-11 items-center gap-1 rounded-full bg-blue/12 px-3.5 text-caption font-semibold text-blue disabled:opacity-50"
               >
                 <RotateCcw size={13} strokeWidth={2} />
                 Restore
@@ -170,7 +170,7 @@ export function NoteEditorHeader({
                 type="button"
                 disabled={!hydrated || remove.isPending}
                 onClick={() => setConfirmPurgeOpen(true)}
-                className="flex h-9 items-center gap-1 rounded-full px-3 text-caption font-semibold text-red disabled:opacity-50"
+                className="flex h-11 items-center gap-1 rounded-full px-3.5 text-caption font-semibold text-red disabled:opacity-50"
               >
                 <Trash2 size={14} strokeWidth={2} />
                 Delete now

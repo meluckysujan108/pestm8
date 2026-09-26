@@ -256,7 +256,7 @@ export function TemplateEditor({
             />
           </label>
 
-          <p className="section-label mt-6 mb-2">Sections</p>
+          <h2 className="section-label mt-6 mb-2">Sections</h2>
           <div className="flex flex-col gap-2.5">
             {draft.sections.map((section, index) => (
               <SectionEditor

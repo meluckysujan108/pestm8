@@ -1091,7 +1091,7 @@ function PropertySiteContact({
   if (!contact) return null
   return (
     <div className="mt-3 border-t border-hairline-2 pt-3">
-      <p className="section-label mb-1">Site contact</p>
+      <h4 className="section-label mb-1">Site contact</h4>
       {contact.name && <p className="text-body text-ink">{contact.name}</p>}
       {contact.phone && (
         <>

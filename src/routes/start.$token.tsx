@@ -173,7 +173,7 @@ function StartPage() {
 
       {!taken && (
         <section className="mt-10">
-          <p className="section-label mb-3">About two minutes to set up</p>
+          <h2 className="section-label mb-3">About two minutes to set up</h2>
           <ul className="space-y-3">
             <Ahead icon={Building2} text="Your business name and ABN" />
             <Ahead icon={Palette} text="Your logo and contact details" />

@@ -286,7 +286,7 @@ function DetailsBody({
 
         {product.pdf && (
           <section className="mt-5">
-            <p className="section-label mb-1.5">Document</p>
+            <h3 className="section-label mb-1.5">Document</h3>
             <div className="rounded-2xl bg-surface p-3 shadow-elevation">
               <div className="flex items-center gap-3">
                 <PdfTile size="lg" />
@@ -461,7 +461,7 @@ function WebsiteCard({
 
   return (
     <section className="mt-5">
-      <p className="section-label mb-1.5">Website</p>
+      <h3 className="section-label mb-1.5">Website</h3>
       <div className="rounded-2xl bg-surface p-3 shadow-elevation">
         <p className="flex min-w-0 items-center gap-2 text-body">
           <Globe

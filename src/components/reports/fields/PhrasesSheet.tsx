@@ -112,7 +112,7 @@ export function PhrasesSheet({
               {removing && phrase.canRemove && (
                 <button
                   type="button"
-                  aria-label={`Remove phrase: ${phrase.text}`}
+                  aria-label={`Remove “${phrase.text}”`}
                   onClick={() => {
                     setError(null)
                     void onRemove(phrase).catch(() =>

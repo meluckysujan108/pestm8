@@ -400,7 +400,7 @@ function JobDetailBody({
                     still shown: it is who to ask for at the door. */}
                 {siteContact && (
                   <div className="mt-3 border-t border-hairline-2 pt-3">
-                    <p className="section-label mb-1">Site contact</p>
+                    <h4 className="section-label mb-1">Site contact</h4>
                     {siteContact.name && (
                       <p className="text-body text-ink">{siteContact.name}</p>
                     )}
@@ -432,7 +432,7 @@ function JobDetailBody({
                     }
                   >
                     {captionOffice && (
-                      <p className="section-label mb-1">Head office</p>
+                      <h4 className="section-label mb-1">Head office</h4>
                     )}
                     <ContactButtons
                       name={job.property.client.name}

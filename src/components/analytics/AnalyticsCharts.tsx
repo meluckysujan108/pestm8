@@ -193,7 +193,7 @@ export function AnalyticsCharts({ businessId }: { businessId: Id<'businesses'> }
 function ChartCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="rounded-2xl border border-hairline bg-surface p-4 shadow-elevation">
-      <p className="section-label mb-2">{title}</p>
+      <h2 className="section-label mb-2">{title}</h2>
       <div className="h-64 md:h-72">{children}</div>
     </div>
   )

@@ -61,7 +61,7 @@ function TemplatesPage() {
       />
 
       <div className="px-4 pt-4 pb-6">
-        <p className="section-label mb-2">Built-in</p>
+        <h2 className="section-label mb-2">Built-in</h2>
         <div className="flex flex-col gap-2.5">
           {CREATABLE_TEMPLATES.map((template) => (
             <BuiltinRow
@@ -78,7 +78,7 @@ function TemplatesPage() {
           ))}
         </div>
 
-        <p className="section-label mt-6 mb-2">Custom</p>
+        <h2 className="section-label mt-6 mb-2">Custom</h2>
         {custom.length === 0 ? (
           <EmptyState
             title="No custom templates yet"
