@@ -58,6 +58,7 @@ const RESERVED_SLUGS = new Set([
   'onboarding',
   'start',
   'two-step',
+  'welcome',
 ])
 
 export const listForUser = query({

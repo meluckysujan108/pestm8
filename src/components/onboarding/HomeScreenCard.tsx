@@ -16,7 +16,15 @@ import type { ReactNode } from 'react'
  * a browser with neither, it shows nothing. Decided after hydration: the
  * server cannot know which phone it is.
  */
-export function HomeScreenCard() {
+/**
+ * What there is to offer this device: the Share steps on an iPhone, the
+ * browser's own prompt where it has made one, or nothing — installed
+ * already, or a browser with neither. `pending` until hydration: the server
+ * cannot know which phone it is.
+ */
+export type HomeScreenOffer = 'pending' | 'apple' | 'install' | 'none'
+
+export function useHomeScreenOffer(): HomeScreenOffer {
   const install = useInstallPrompt()
   const [device, setDevice] = useState<'installed' | 'apple' | 'other' | null>(
     null,
@@ -27,21 +35,39 @@ export function HomeScreenCard() {
     )
   }, [])
 
-  if (device === null || device === 'installed') return null
-  if (device === 'other' && !install) return null
+  if (device === null) return 'pending'
+  if (device === 'apple') return 'apple'
+  if (device === 'other' && install) return 'install'
+  return 'none'
+}
+
+export function HomeScreenCard({
+  bare = false,
+}: {
+  /** Just the way to do it, under a page that has already said why. */
+  bare?: boolean
+} = {}) {
+  const install = useInstallPrompt()
+  const offer = useHomeScreenOffer()
+  if (offer !== 'apple' && offer !== 'install') return null
+  const device = offer === 'apple' ? 'apple' : 'other'
 
   return (
     <section className="rounded-2xl border border-hairline bg-surface p-4 shadow-elevation">
-      <h2 className="text-[16px] font-semibold text-ink">
-        Put PestM8 on your Home Screen
-      </h2>
-      <p className="mt-1 text-caption text-muted">
-        It opens full screen like an app, and keeps your licence and products on
-        this phone for sites with no signal.
-      </p>
+      {!bare && (
+        <>
+          <h2 className="text-[16px] font-semibold text-ink">
+            Put PestM8 on your Home Screen
+          </h2>
+          <p className="mt-1 text-caption text-muted">
+            It opens full screen like an app, and keeps your licence and
+            products on this phone for sites with no signal.
+          </p>
+        </>
+      )}
 
       {device === 'apple' ? (
-        <ol className="mt-3 space-y-2 text-body text-ink">
+        <ol className={`space-y-2 text-body text-ink ${bare ? '' : 'mt-3'}`}>
           <Step n={1}>
             In Safari, tap{' '}
             <Share
@@ -73,7 +99,7 @@ export function HomeScreenCard() {
         <button
           type="button"
           onClick={() => void install?.()}
-          className="mt-3 h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-blue transition active:scale-[.975]"
+          className={`h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-blue transition active:scale-[.975] ${bare ? '' : 'mt-3'}`}
         >
           Install PestM8
         </button>
