@@ -1,5 +1,6 @@
 import { forSelf, recordAudit } from './audit'
 import { releasedGrants } from './capabilities'
+import { inviteState } from './inviteTokens'
 import { factsFromMembership } from './membershipFacts'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { MutationCtx } from '../_generated/server'
@@ -106,4 +107,53 @@ export async function releaseTeam(
     }
   }
   return released
+}
+
+/**
+ * Every link this person sent that nobody has used yet, withdrawn — for the
+ * moment they stop being someone who may invite: a contractor demoted, or
+ * anyone removed or leaving.
+ *
+ * Their authority to bring people in ended there, and a live link is that
+ * authority written down. Every member reads the whole client book, so a link
+ * left behind by someone who left on bad terms lets a stranger into it. The
+ * owner can re-invite anyone they still want; `joinsUnder` refuses any link
+ * this does not reach. Soft, like every revoke: the row stays, as the record
+ * of an invitation that was sent and withdrawn.
+ */
+export async function revokeInvitationsFrom(
+  ctx: MutationCtx,
+  {
+    sender,
+    actorId,
+    reason,
+    at,
+  }: {
+    sender: Doc<'memberships'>
+    actorId: Id<'memberships'>
+    reason: 'demoted' | 'removed' | 'left'
+    at: number
+  },
+): Promise<number> {
+  const invitations = await ctx.db
+    .query('invitations')
+    .withIndex('by_business', (q) => q.eq('businessId', sender.businessId))
+    .collect()
+
+  let revoked = 0
+  for (const invitation of invitations) {
+    if (invitation.invitedByMembershipId !== sender._id) continue
+    if (inviteState(invitation, at) !== 'valid') continue
+    await ctx.db.patch(invitation._id, { revokedAt: at })
+    revoked += 1
+    await recordAudit(ctx, forSelf(actorId), {
+      businessId: sender.businessId,
+      action: 'invitation.revoke',
+      entityType: 'invitations',
+      entityId: invitation._id,
+      meta: { email: invitation.email, reason: `sender.${reason}` },
+      at,
+    })
+  }
+  return revoked
 }

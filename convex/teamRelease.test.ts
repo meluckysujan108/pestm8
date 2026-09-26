@@ -270,9 +270,11 @@ describe('nothing else moves', () => {
       businessId: s.businessId,
       membershipId: s.mia.id,
     })
-    // `offboard` leaves the pointer; a rejoin would have landed her back on
-    // a team that no longer exists.
-    expect((await row(s, s.mia.id)).parentMembershipId).toBe(s.jo.id)
+    // Removal clears it now, but a row removed before that did not, and
+    // still points at Jo. Rebuilt here as such a row.
+    await s.t.run(async (ctx) =>
+      ctx.db.patch(s.mia.id, { parentMembershipId: s.jo.id }),
+    )
     const grantsBefore = (await row(s, s.mia.id)).grants
 
     await s.terence.as.mutation(api.memberships.setRole, {

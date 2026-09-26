@@ -627,7 +627,8 @@ async function join(
     action: 'invitation.redeem',
     entityType: 'invitations',
     entityId: invitationId,
-    meta: { email, role: 'subcontractor' },
+    // The owner sent it, so nobody's team (`joinsUnder`).
+    meta: { email, role: 'subcontractor', parentMembershipId: null },
     at: joinedAt,
   })
   return membershipId
@@ -792,6 +793,7 @@ async function remove(
     canViewAllJobs: false,
     canViewOtherAccounts: false,
     viewingAsMembershipId: undefined,
+    parentMembershipId: undefined,
     grants: NO_GRANTS,
   })
 
