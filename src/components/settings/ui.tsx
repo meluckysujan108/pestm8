@@ -96,9 +96,8 @@ export function RowBadge({
   children: ReactNode
 }) {
   const style = {
-    // orange-ink, as FormAlert: chosen when amber-ink on amber-bg was 3.98:1,
-    // under the 4.5 this 12px text needs. amber-ink now clears it too.
-    amber: 'bg-amber-bg text-orange-ink border-amber-line',
+    // amber-ink clears the 4.5 this 12px text needs (styles.css).
+    amber: 'bg-amber-bg text-amber-ink border-amber-line',
     red: 'bg-red-bg text-red-ink border-red-line',
     green: 'bg-green-bg text-green-ink border-green-line',
     grey: 'bg-grey-bg text-grey-ink border-grey-line',

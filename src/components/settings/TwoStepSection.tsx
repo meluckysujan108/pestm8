@@ -158,7 +158,7 @@ export function TwoStepSection() {
       {error && (
         <p
           role="alert"
-          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           {error}
         </p>
@@ -222,7 +222,7 @@ export function TwoStepSection() {
           <div className="px-3.5 py-3">
             <p
               role="status"
-              className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+              className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
             >
               Your recovery codes were never confirmed as saved. Make new ones
               now and keep them somewhere other than this phone — without them,

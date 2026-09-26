@@ -78,7 +78,7 @@ function TeamPage() {
               type="button"
               disabled={!hydrated}
               onClick={() => setInviteOpen(true)}
-              className="relative tap-target flex h-9 items-center gap-1 rounded-full bg-red pl-2.5 pr-3.5 text-body font-semibold text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
+              className="relative tap-target flex h-9 items-center gap-1 rounded-full bg-red-fill pl-2.5 pr-3.5 text-body font-semibold text-white shadow-red transition active:scale-[.95] disabled:opacity-50"
             >
               <Plus aria-hidden size={18} strokeWidth={2.2} />
               Invite

@@ -159,7 +159,7 @@ export function SecondStepForm({
       {error && (
         <p
           role="alert"
-          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-orange-ink"
+          className="rounded-xl border border-amber-line bg-amber-bg px-3 py-2 text-caption text-amber-ink"
         >
           {error}
         </p>
