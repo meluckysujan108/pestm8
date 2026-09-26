@@ -100,7 +100,7 @@ Radius     card 18–22px · input 12px · segmented 8–9px · pill 100px · sh
 Elevation  0 1px 2px rgba(16,17,26,.04), 0 10px 24px -16px rgba(16,17,26,.26)
 Red button 0 1px 2px rgba(255,59,48,.22), 0 8px 18px -10px rgba(255,59,48,.55)
 Motion     sheetUp .26s cubic-bezier(.32,.72,0,1) · fadeIn .2s · button active scale(.975)
-Chrome     sticky header + tab bar, var(--chrome) + backdrop-filter blur(24px) saturate(180%)
+Chrome     sticky header + tab bar, var(--chrome) over var(--chrome-filter): blur(40px), light saturate(130%) brightness(1.04), dark saturate(120%) brightness(.7)
 Numerals   font-variant-numeric: tabular-nums globally
 Shell      max-width 460px centred on canvas
 ```

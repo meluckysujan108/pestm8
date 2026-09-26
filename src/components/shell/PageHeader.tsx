@@ -1,5 +1,6 @@
 import { ChevronDown } from 'lucide-react'
 import { SidebarTrigger } from '#/components/ui/sidebar.tsx'
+import { useScrolledUnder } from '#/lib/useScrolledUnder'
 import { ViewMenu } from './ViewMenu'
 import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -24,8 +25,17 @@ export function PageHeader({
   businessId: Id<'businesses'>
   businessSlug: string
 }) {
+  const ref = useScrolledUnder('top')
+
   return (
-    <header className="chrome-blur sticky top-0 z-30 flex items-end justify-between gap-3 border-b border-hairline px-4 pb-3 pt-[calc(12px+env(safe-area-inset-top))]">
+    // The hairline shows only once content is under the header — and not
+    // while the schedule's week strip is pinned beneath it, which carries the
+    // hairline for both so the two read as one pane of glass. The border
+    // itself stays, transparent, because the header's height is load-bearing.
+    <header
+      ref={ref}
+      className="chrome-bar sticky top-0 z-30 flex items-end justify-between gap-3 border-b border-transparent px-4 pb-3 pt-[calc(12px+env(safe-area-inset-top))] transition-colors data-scrolled:border-hairline [body:has([data-schedule-chrome][data-scrolled])_&]:border-transparent"
+    >
       {/* Collapse control lives with the page title rather than in the sidebar
           itself, so it stays reachable once the sidebar is down to icons.
           Every PageHeader renders inside AppShell's SidebarProvider, so this
