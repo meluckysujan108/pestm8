@@ -9,6 +9,7 @@
  */
 
 import type * as access from "../access.js";
+import type * as accountEmails from "../accountEmails.js";
 import type * as accountSwitches from "../accountSwitches.js";
 import type * as adminInvite from "../adminInvite.js";
 import type * as analytics from "../analytics.js";
@@ -39,6 +40,7 @@ import type * as invitations from "../invitations.js";
 import type * as jobs from "../jobs.js";
 import type * as lib_abn from "../lib/abn.js";
 import type * as lib_access from "../lib/access.js";
+import type * as lib_accountEmail from "../lib/accountEmail.js";
 import type * as lib_actor from "../lib/actor.js";
 import type * as lib_audit from "../lib/audit.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
@@ -125,6 +127,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   access: typeof access;
+  accountEmails: typeof accountEmails;
   accountSwitches: typeof accountSwitches;
   adminInvite: typeof adminInvite;
   analytics: typeof analytics;
@@ -155,6 +158,7 @@ declare const fullApi: ApiFromModules<{
   jobs: typeof jobs;
   "lib/abn": typeof lib_abn;
   "lib/access": typeof lib_access;
+  "lib/accountEmail": typeof lib_accountEmail;
   "lib/actor": typeof lib_actor;
   "lib/audit": typeof lib_audit;
   "lib/capabilities": typeof lib_capabilities;

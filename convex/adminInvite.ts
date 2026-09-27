@@ -20,8 +20,9 @@ import type { MutationCtx } from './_generated/server'
 /**
  * A CLI-only stand-in for `invitations.create`, for when nobody can sign in
  * to run the real one: the owner exists in the database but nobody at hand
- * knows their password, and this app has no password-reset flow (no email
- * provider is configured on any deployment — CLAUDE.md).
+ * knows their password and "Forgot password?" can't help — their inbox is
+ * gone, or the deployment has no account sender (`RESEND_ACCOUNT_FROM_EMAIL`,
+ * CLAUDE.md).
  *
  * Everything else about it is the real invite: a random token, hashed and
  * stored, redeemed at `/join/<token>` through the ordinary sign-up-or-sign-in

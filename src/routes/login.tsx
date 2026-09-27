@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { Link, createFileRoute } from '@tanstack/react-router'
 import { SecondStepForm } from '#/components/auth/SecondStepForm'
 import { authClient, needsSecondStep } from '#/lib/auth-client'
 import { forgetCachedPages } from '#/lib/rootState'
@@ -126,6 +126,13 @@ function LoginPage() {
           >
             {pending ? 'Signing in…' : 'Sign in'}
           </button>
+          <Link
+            to="/forgot-password"
+            search={{ email: email.trim() || undefined }}
+            className="flex min-h-11 items-center justify-center text-body text-blue"
+          >
+            Forgot password?
+          </Link>
         </form>
       )}
     </main>

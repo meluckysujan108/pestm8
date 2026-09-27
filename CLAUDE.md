@@ -66,15 +66,24 @@ Useful for read-only inspection of a deployment, including prod:
 Add `--component betterAuth` or `--component prosemirrorSync` to read a
 component's own tables (Better Auth users live there, not in the app's).
 
-Report email is **live on prod** (since 2026-09-24): `RESEND_API_KEY` and
-`RESEND_FROM_EMAIL=onboarding@resend.dev` are set there. That is Resend's test
-sender, which only delivers to the Resend account owner's own address, so
-real customers get nothing until a domain is verified in Resend and
-`RESEND_FROM_EMAIL` moves to an address on it. Every other deployment (dev,
-e2e) still has neither, so emailing a report there throws
-`EMAIL_NOT_CONFIGURED` by design (`convex/email.ts`).
-`RESEND_WEBHOOK_SECRET` is unset everywhere, so `POST /resend/webhook` answers
-404 and a delivery's status stops at "sent" — delivered/bounced never arrive.
+Email goes through Resend from the verified domain `pestm8.com.au`, as two
+senders on prod (`rare-retriever-156`):
+
+- `RESEND_FROM_EMAIL=info@pestm8.com.au` — reports to customers
+  (`convex/email.ts`); replies go to the business's own address.
+- `RESEND_ACCOUNT_FROM_EMAIL=noreply@pestm8.com.au` — account email: the
+  "Forgot password?" link and "your password was changed"
+  (`convex/accountEmails.ts`). Replies aren't read; the email says to write to
+  info@ instead. Without it, `/forgot-password` still answers normally but
+  nothing is sent (a warning is logged).
+
+Until 2026-09-27 prod sent from Resend's test sender `onboarding@resend.dev`,
+which only delivers to the Resend account owner. Every other deployment (dev,
+e2e) has no key, so emailing a report there throws `EMAIL_NOT_CONFIGURED` by
+design. `RESEND_WEBHOOK_SECRET` is only useful once a webhook for
+`https://rare-retriever-156.convex.site/resend/webhook` is registered in
+Resend; without it `POST /resend/webhook` answers 404 and a delivery's status
+stops at "sent".
 
 `RESEND_FROM_EMAIL` is required rather than optional — Resend rejects a `from`
 that is a bare display name. Set it to a **bare address** (`x@domain`), never

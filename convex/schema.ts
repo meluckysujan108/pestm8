@@ -1836,4 +1836,26 @@ export default defineSchema({
     sessionId: v.string(),
     twoFactorId: v.string(),
   }).index('by_userId', ['userId']),
+
+  /**
+   * Emails about a person's own account — a password-reset link, "your
+   * password was changed" — sent from `RESEND_ACCOUNT_FROM_EMAIL`
+   * (convex/accountEmails.ts). One row per email asked for: what the send
+   * limits count, and what the provider said. Never the link or its token.
+   */
+  accountEmails: defineTable({
+    kind: v.union(v.literal('passwordReset'), v.literal('passwordChanged')),
+    /** The Better Auth user it is about. */
+    userId: v.string(),
+    /** Lower-cased: the limits count by address. */
+    email: v.string(),
+    // Only emails actually handed to the sender get a row: a request past
+    // the limit writes nothing, so someone filling in the form over and over
+    // cannot keep the real person's next link from going.
+    status: v.union(v.literal('queued'), v.literal('sent'), v.literal('failed')),
+    providerMessageId: v.optional(v.string()),
+    error: v.optional(v.string()),
+    createdAt: v.number(),
+    sentAt: v.optional(v.number()),
+  }).index('by_email_and_createdAt', ['email', 'createdAt']),
 })
