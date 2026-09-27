@@ -17,6 +17,7 @@ import authConfig from './auth.config'
 import { components, internal } from './_generated/api'
 import { query } from './_generated/server'
 import { hashInviteToken } from './lib/inviteTokens'
+import { RESET_LINK_SECONDS } from './lib/accountEmail'
 import { isMfaRequired } from './lib/mfa'
 import {
   NEW_KEY_HEADER,
@@ -811,6 +812,36 @@ export const createAuth = (ctx: GenericCtx<DataModel>) =>
       // NIST SP 800-63B favours length over composition rules. 10 is a floor,
       // not advice; the breach check below does the work that matters.
       minPasswordLength: 10,
+      /**
+       * "Forgot password?" (src/routes/forgot-password.tsx). Better Auth makes
+       * the one-use token and answers the page the same way whether or not
+       * the address has an account; this only hands the token on, to be
+       * emailed from noreply@ by a scheduled send (convex/accountEmails.ts),
+       * so the answer takes the same time either way. The link opens our own
+       * /reset-password page, not Better Auth's redirecting GET route.
+       */
+      sendResetPassword: async ({ user, token }) => {
+        if (!('runMutation' in ctx)) return
+        await ctx.runMutation(internal.accountEmails.requestPasswordReset, {
+          userId: user.id,
+          email: user.email,
+          ...(user.name.trim() ? { name: user.name.trim() } : {}),
+          token,
+        })
+      },
+      resetPasswordTokenExpiresIn: RESET_LINK_SECONDS,
+      // A reset is what someone does when their password may be out in the
+      // world: every session it opened ends. Two-step sign-in still asks for
+      // a code at the next sign-in — a reset changes the password only.
+      revokeSessionsOnPasswordReset: true,
+      onPasswordReset: async ({ user }) => {
+        if (!('runMutation' in ctx)) return
+        await ctx.runMutation(internal.accountEmails.passwordChanged, {
+          userId: user.id,
+          email: user.email,
+          ...(user.name.trim() ? { name: user.name.trim() } : {}),
+        })
+      },
     },
     rateLimit: {
       enabled: rateLimitEnabled,

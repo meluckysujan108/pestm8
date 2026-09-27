@@ -363,21 +363,22 @@ client receive on 28 August?" answerable once the renderer has moved on.
 
 ### Configuring it
 
-Three environment variables, none of which are set on any deployment today, so
-sending fails with `EMAIL_NOT_CONFIGURED` by design. A copy the form asked for at
-finalise, or approved by an owner, is still recorded as a queued delivery.
-Nothing is scheduled to send it (that could only throw), and the report's
-history says it is waiting for email to be set up rather than letting "Queued"
-read as a promise. Those rows are not sent retroactively once email is set up;
-the report is sent again from its send sheet. `lib/emailConfig`
-is the one definition of "configured" that the sender, the pipeline and that
-history all read:
+Prod (`rare-retriever-156`) sends from the verified domain `pestm8.com.au`;
+dev and e2e have no key, so sending there fails with `EMAIL_NOT_CONFIGURED` by
+design. A copy the form asked for at finalise, or approved by an owner, is
+still recorded as a queued delivery on an unconfigured deployment. Nothing is
+scheduled to send it (that could only throw), and the report's history says it
+is waiting for email to be set up rather than letting "Queued" read as a
+promise. Those rows are not sent retroactively once email is set up; the report
+is sent again from its send sheet. `lib/emailConfig` is the one definition of
+"configured" that the sender, the pipeline and that history all read:
 
-| Variable                | What it is                                                                                                                                                                  |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `RESEND_API_KEY`        | The business's own Resend key                                                                                                                                               |
-| `RESEND_FROM_EMAIL`     | An address on a domain verified with Resend. Required, not optional: Resend rejects a `from` that is a bare display name, and the business's own address goes in `reply-to` |
-| `RESEND_WEBHOOK_SECRET` | The `whsec_…` for the endpoint, registered in Resend against this deployment's `.site` origin                                                                               |
+| Variable                    | What it is                                                                                                                                                                                                    |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `RESEND_API_KEY`            | The business's own Resend key                                                                                                                                                                                 |
+| `RESEND_FROM_EMAIL`         | Where reports come from (`info@pestm8.com.au` on prod). A bare address on a verified domain. Required: Resend rejects a `from` that is a bare display name, and the business's own address goes in `reply-to` |
+| `RESEND_ACCOUNT_FROM_EMAIL` | Where account email comes from (`noreply@pestm8.com.au` on prod): password-reset links and "your password was changed" (`convex/accountEmails.ts`). Not needed for reports                                    |
+| `RESEND_WEBHOOK_SECRET`     | The `whsec_…` for the endpoint, registered in Resend against this deployment's `.site` origin                                                                                                                 |
 
 Set them with `npx convex env set`, and confirm the deployment first —
 `.env.local` points at dev.
