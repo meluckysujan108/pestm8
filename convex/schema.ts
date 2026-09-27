@@ -1852,7 +1852,11 @@ export default defineSchema({
     // Only emails actually handed to the sender get a row: a request past
     // the limit writes nothing, so someone filling in the form over and over
     // cannot keep the real person's next link from going.
-    status: v.union(v.literal('queued'), v.literal('sent'), v.literal('failed')),
+    status: v.union(
+      v.literal('queued'),
+      v.literal('sent'),
+      v.literal('failed'),
+    ),
     providerMessageId: v.optional(v.string()),
     error: v.optional(v.string()),
     createdAt: v.number(),
