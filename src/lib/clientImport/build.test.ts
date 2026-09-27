@@ -1398,10 +1398,10 @@ describe('emails and ABNs', () => {
     ])
     expect(client.kind).toBe('person')
     expect(client.abn).toBeUndefined()
-    const note = issue(client, /a person has none/)
+    const note = issue(client, /a residential client has none/)
     expect(note).toMatchObject({ level: 'fixed', field: 'abn' })
     expect(note.message).toBe(
-      'Left out the ABN 51 824 753 556 — a person has none.',
+      'Left out the ABN 51 824 753 556 — a residential client has none.',
     )
 
     const business = recheckClient(note.fix!.apply(client), opts)
@@ -1413,42 +1413,49 @@ describe('emails and ABNs', () => {
     const [client] = review(ABN, [['', 'Jo Bloggs', ADDRESS, '1234']])
     expect(client.kind).toBe('person')
     expect(messages(client, 'fixed')).toEqual([
-      'Left out the ABN 1234 — a person has none.',
+      'Left out the ABN 1234 — a residential client has none.',
     ])
   })
 })
 
 describe('what PestM8 already holds', () => {
   const clientId = 'client1' as Id<'clients'>
+  const wattle = siteKey({
+    addressLine: '12 Wattle Street',
+    suburb: 'Bayswater',
+    postcode: '6053',
+  })
   const existing: ExistingIndex = {
     clientsByName: new Map([['wattle strata pty ltd', clientId]]),
-    siteKeys: new Set([
-      siteKey({
-        addressLine: '12 Wattle Street',
-        suburb: 'Bayswater',
-        postcode: '6053',
-      }),
-    ]),
+    siteKeys: new Set([wattle]),
+    siteHolders: new Map([[wattle, 'Wattle Strata Pty Ltd']]),
+    clientSites: new Map([[clientId, new Set([wattle])]]),
   }
 
-  test('a site already here is flagged, and a client of the same name found', () => {
+  test('a site is already here only on its own client; another client may share the address', () => {
     const clients = review(
       PLAIN,
       [
-        ['Wattle Strata P/L', '12 Wattle St, Bayswater WA 6053'],
-        ['Wattle Strata P/L', '14 Wattle St, Bayswater WA 6053'],
+        ['Wattle Strata Pty Ltd', '12 Wattle St, Bayswater WA 6053'],
+        ['Wattle Strata Pty Ltd', '14 Wattle St, Bayswater WA 6053'],
         ['Jo Bloggs', '12 wattle st., BAYSWATER WA 6053'],
       ],
       { existing },
     )
     expect(clients).toHaveLength(2)
     const [strata, jo] = clients
-    // "P/L" is not "Pty Ltd" to nameKey: a different name.
-    expect(strata.existingClientId).toBeUndefined()
+    // Its own site, however it is written, is skipped; the new one is sent.
+    expect(strata.existingClientId).toBe(clientId)
     expect(strata.sites.map((s) => s.duplicate ?? false)).toEqual([true, false])
     expect(statusOf(strata)).toBe('ready')
-    expect(jo.sites[0].duplicate).toBe(true)
-    expect(statusOf(jo)).toBe('duplicate')
+    // Another client at that address gets it too, and is told who else is.
+    expect(jo.sites[0].duplicate).toBeUndefined()
+    expect(importable(jo)).toBe(true)
+    expect(toImportClient(jo).sites).toHaveLength(1)
+    expect(jo.issues.map((i) => i.message)).toContain(
+      'Wattle Strata Pty Ltd is also at this address in PestM8 — both will have it as a site. Leave this one out if they’re the same client.',
+    )
+    expect(statusOf(jo)).toBe('warning')
   })
 
   test('a client of the same name gets new sites added', () => {
@@ -1485,18 +1492,20 @@ describe('what PestM8 already holds', () => {
     expect(back.existingClientId).toBeUndefined()
   })
 
-  test("a site on another client says whose it is; the client's own doesn't", () => {
+  test("a site on another client is sent, with whose it is; the client's own is skipped", () => {
     const at = siteKey({
       addressLine: '1 Rose Street',
       suburb: 'Bayswater',
       postcode: '6053',
     })
+    const jane = 'jane' as Id<'clients'>
     const withHolders: ExistingIndex = {
-      clientsByName: new Map([['jane doe', 'jane' as Id<'clients'>]]),
+      clientsByName: new Map([['jane doe', jane]]),
       siteKeys: new Set([at]),
       siteHolders: new Map([[at, 'Jane Doe']]),
+      clientSites: new Map([[jane, new Set([at])]]),
     }
-    const [john, jane] = review(
+    const [john, janeRow] = review(
       PLAIN,
       [
         ['John Smith', '1 Rose St, Bayswater WA 6053'],
@@ -1504,17 +1513,16 @@ describe('what PestM8 already holds', () => {
       ],
       { existing: withHolders },
     )
-    expect(john.sites[0]).toMatchObject({ duplicate: true, heldBy: 'Jane Doe' })
-    expect(duplicateSiteMessage(john.sites[0])).toBe(
-      'Already in PestM8, on Jane Doe — this site is skipped',
-    )
-    expect(jane.sites[0].duplicate).toBe(true)
-    expect(jane.sites[0].heldBy).toBeUndefined()
-    expect(duplicateSiteMessage(jane.sites[0])).toBe(
+    expect(john.sites[0]).not.toHaveProperty('duplicate')
+    expect(toImportClient(john).sites).toHaveLength(1)
+    const said = (c: ReviewClient) =>
+      c.issues.filter((i) => i.message.includes('also at this address'))
+    expect(said(john)).toHaveLength(1)
+    expect(janeRow.sites[0].duplicate).toBe(true)
+    expect(duplicateSiteMessage(janeRow.sites[0])).toBe(
       'Already in PestM8 — this site is skipped',
     )
-    // Not sent, and gone once the address is changed.
-    expect(toImportClient(john).sites).toEqual([])
+    // Moved to another address, John is no longer told of Jane.
     const moved = recheckClient(
       {
         ...john,
@@ -1522,15 +1530,17 @@ describe('what PestM8 already holds', () => {
       },
       { businessState: 'WA', existing: withHolders },
     )
-    expect(moved.sites[0]).not.toHaveProperty('heldBy')
-    expect(moved.sites[0]).not.toHaveProperty('duplicate')
+    expect(said(moved)).toEqual([])
   })
 })
 
 describe('checks across clients', () => {
-  const SAME = 'an address can only belong to one client in PestM8.'
+  /** What a later client at an address another client in the file has
+   * is told: both go in. */
+  const ALSO = (who: string) =>
+    `${who} is also at this address — both will have it as a site. Leave one out if they’re the same client.`
 
-  test('two clients at one address: the later one, with nothing else to send, is an error', () => {
+  test('two clients at one address: both go in, the later one told of the earlier', () => {
     const clients = review(PLAIN, [
       ['Old Owner', '12 Wattle St, Bayswater WA 6053', '0412 345 678'],
       ['New Owner', '12 Wattle Street, Bayswater WA 6053', '0499 888 777'],
@@ -1540,16 +1550,39 @@ describe('checks across clients', () => {
     expect(statusOf(old)).toBe('ready')
     expect(owner.issues).toEqual([
       expect.objectContaining({
-        level: 'error',
+        level: 'warning',
         field: 'addressLine',
         siteIndex: 0,
-        message: `Same address as Old Owner (row 2) — ${SAME}`,
+        message: ALSO('Old Owner (row 2)'),
       }),
     ])
-    expect(statusOf(owner)).toBe('error')
+    expect(importable(owner)).toBe(true)
+    expect(toImportClient(owner).sites).toHaveLength(1)
   })
 
-  test('a later client with another site to send: a warning on the shared one, its note named', () => {
+  test('two rows that join one client in PestM8 at one address: the later has nothing new', () => {
+    const john = 'john' as Id<'clients'>
+    const [first, second] = review(
+      PLAIN,
+      [
+        ['John Smith', '12 Wattle St, Bayswater WA 6053', '0412 345 678'],
+        ['John Smith', '12 Wattle St, Bayswater WA 6053', '0499 888 777'],
+      ],
+      {
+        existing: {
+          clientsByName: new Map([['john smith', john]]),
+          siteKeys: new Set(),
+        },
+      },
+    )
+    expect(importable(first)).toBe(true)
+    expect(messages(second, 'error')).toEqual([
+      'Same address as John Smith (row 2) — both add it to the same client in PestM8, so this one has nothing new.',
+    ])
+    expect(importable(second)).toBe(false)
+  })
+
+  test('a later client with another site to send: told of the shared one, and sends it too', () => {
     const [jane, trust] = review(PLAIN, [
       ['Jane Citizen', '12 Wattle Street, Bayswater WA 6053'],
       [
@@ -1568,14 +1601,14 @@ describe('checks across clients', () => {
         level: 'warning',
         field: 'addressLine',
         siteIndex: 0,
-        message:
-          'Same address as Jane Citizen (row 2) — this site and its note will be skipped.',
+        message: ALSO('Jane Citizen (row 2)'),
       }),
     ])
     expect(statusOf(trust)).toBe('warning')
+    expect(toImportClient(trust).sites[0].note).toBe('Gate code 4321')
   })
 
-  test('a client left out gives up its address', () => {
+  test('a client left out is no longer named to the next at its address', () => {
     const clients = review(PLAIN, [
       ['Old Owner', '12 Wattle St, Bayswater WA 6053', '0412 345 678'],
       ['New Owner', '12 Wattle St, Bayswater WA 6053', '0499 888 777'],
@@ -1587,12 +1620,12 @@ describe('checks across clients', () => {
     expect(old.issues).toEqual([])
     expect(owner.issues).toEqual([])
     expect(statusOf(owner)).toBe('ready')
-    // And takes it back when brought back in.
+    // And is named again when brought back in.
     const again = checkAcrossClients([{ ...old, included: true }, owner])
-    expect(statusOf(again[1])).toBe('error')
+    expect(statusOf(again[1])).toBe('warning')
   })
 
-  test('a site already in PestM8 claims nothing, and is claimed by nothing', () => {
+  test('an address already in PestM8 on another client: both sent, each told', () => {
     const at = siteKey({
       addressLine: '12 Wattle St',
       suburb: 'Bayswater',
@@ -1606,8 +1639,12 @@ describe('checks across clients', () => {
       ],
       { existing: { clientsByName: new Map(), siteKeys: new Set([at]) } },
     )
-    expect(clients.map(statusOf)).toEqual(['duplicate', 'duplicate'])
-    expect(clients.flatMap((c) => c.issues)).toEqual([])
+    expect(clients.map(statusOf)).toEqual(['warning', 'warning'])
+    expect(clients.map(importable)).toEqual([true, true])
+    const already =
+      'Another client in PestM8 is also at this address — both will have it as a site.'
+    expect(messages(clients[0])).toEqual([already])
+    expect(messages(clients[1])).toEqual([already, ALSO('Old Owner (row 2)')])
   })
 
   test('two clients the review keeps apart that would join one client in PestM8: a warning on each', () => {
@@ -1709,16 +1746,14 @@ describe('checks across clients', () => {
     expect(checkAcrossClients(again)[1].issues).toEqual(clients[1].issues)
     expect(messages(clients[1], 'error')).toEqual([
       'Phone “abc”: A phone number can only have digits, spaces, brackets and a +. Put a name or note somewhere else.',
-      `Same address as Old Owner (row 2) — ${SAME}`,
     ])
+    expect(messages(clients[1], 'warning')).toEqual([ALSO('Old Owner (row 2)')])
 
     // One client alone can't know; the list, run again, does.
     const edited = recheckClient({ ...clients[1], phone: undefined }, opts)
     expect(edited.issues).toEqual([])
     const [, settled] = checkAcrossClients([clients[0], edited])
-    expect(messages(settled)).toEqual([
-      `Same address as Old Owner (row 2) — ${SAME}`,
-    ])
+    expect(messages(settled)).toEqual([ALSO('Old Owner (row 2)')])
 
     // Moved to another address, it goes.
     const moved = recheckClient(
@@ -1732,7 +1767,7 @@ describe('checks across clients', () => {
     expect(clear.issues).toEqual([])
   })
 
-  test("a client that can't be imported yet claims nothing: a later one at the address keeps it", () => {
+  test("a client that can't be imported yet isn't named: a later one at the address is told once it can be", () => {
     const clients = review(PLAIN, [
       ['Landlord A', '12 Wattle St, Bayswater WA 6053', '12'],
       [
@@ -1759,7 +1794,8 @@ describe('checks across clients', () => {
       expect.objectContaining({ addressLine: '9 Rose St' }),
     ])
 
-    // Fixed, the landlord is written first, and the tenant is told.
+    // Fixed, the landlord goes in too, and the tenant is told — but keeps
+    // its site and note.
     const fix = issue(landlord, /^Phone “12”/).fix!
     const fixed = recheckClient(fix.apply(landlord), opts)
     const [claims, told] = checkAcrossClients([fixed, tenant])
@@ -1769,17 +1805,17 @@ describe('checks across clients', () => {
         level: 'warning',
         field: 'addressLine',
         siteIndex: 0,
-        message:
-          'Same address as Landlord A (row 2) — this site and its note will be skipped.',
+        message: ALSO('Landlord A (row 2)'),
       }),
     ])
     expect(statusOf(told)).toBe('warning')
+    expect(toImportClient(told).sites).toHaveLength(2)
     // Left out again, it gives the address back.
     const [, again] = checkAcrossClients([{ ...claims, included: false }, told])
     expect(again.issues).toEqual([])
   })
 
-  test('an Excel-shortened phone on the earlier client: the later one goes in; fixed, the claim moves back', () => {
+  test('an Excel-shortened phone on the earlier client: the later one goes in either way', () => {
     const clients = review(PLAIN, [
       ['Jo Smith', '1 Rose St, Bayswater WA 6053', '4.12346E+08'],
       ['Mary Brown', '1 Rose St, Bayswater WA 6053', '0499 888 777'],
@@ -1799,33 +1835,26 @@ describe('checks across clients', () => {
     expect(statusOf(back)).toBe('error')
     expect(stillIn).toBe(mary)
 
-    // Fixed: Jo is sent, and Mary, with nothing else to send, can't be.
+    // Fixed: Jo is sent, and Mary still is, told of Jo.
     const fixed = recheckClient(
       issue(jo, /Excel shortened this number/).fix!.apply(jo),
       opts,
     )
-    const [sent, shut] = checkAcrossClients([fixed, mary])
+    const [sent, told] = checkAcrossClients([fixed, mary])
     expect(importable(sent)).toBe(true)
-    expect(messages(shut, 'error')).toEqual([
-      `Same address as Jo Smith (row 2) — ${SAME}`,
-    ])
-    expect(importable(shut)).toBe(false)
+    expect(messages(told)).toEqual([ALSO('Jo Smith (row 2)')])
+    expect(importable(told)).toBe(true)
   })
 
-  test('a client shut out claims nothing: each after it is told of the one sent', () => {
+  test('three clients at one address: each later one is told of the first', () => {
     const [first, second, third] = review(PLAIN, [
       ['Old Owner', '12 Wattle St, Bayswater WA 6053', '0412 345 678'],
       ['New Owner', '12 Wattle St, Bayswater WA 6053', '0499 888 777'],
       ['Next Owner', '12 Wattle St, Bayswater WA 6053', '0455 666 777'],
     ])
     expect(first.issues).toEqual([])
-    // Each later one is told of the first, the one that is sent.
-    expect(messages(second)).toEqual([
-      `Same address as Old Owner (row 2) — ${SAME}`,
-    ])
-    expect(messages(third)).toEqual([
-      `Same address as Old Owner (row 2) — ${SAME}`,
-    ])
+    expect(messages(second)).toEqual([ALSO('Old Owner (row 2)')])
+    expect(messages(third)).toEqual([ALSO('Old Owner (row 2)')])
   })
 
   test('two that would join one client in PestM8, one of them not sendable yet: said once both would be sent', () => {
@@ -1888,9 +1917,7 @@ describe('checks across clients', () => {
       ['c4', [4], [8]],
     ])
     expect(old.issues).toEqual([])
-    expect(messages(owner)).toEqual([
-      `Same address as Old Owner (row 4) — ${SAME}`,
-    ])
+    expect(messages(owner)).toEqual([ALSO('Old Owner (row 4)')])
     expect(messages(first)).toEqual([
       'Also matched: John Smith (row 8) — both would be added to the same client in PestM8. Leave one out if they’re different people.',
     ])
@@ -1901,9 +1928,7 @@ describe('checks across clients', () => {
     // A client with no sheet rows (made by hand): its data row, plus 1.
     const { sheetRows: _rows, ...bare } = old
     const [, named] = checkAcrossClients([bare, { ...owner, issues: [] }])
-    expect(messages(named)).toEqual([
-      `Same address as Old Owner (row 2) — ${SAME}`,
-    ])
+    expect(messages(named)).toEqual([ALSO('Old Owner (row 2)')])
   })
 })
 
@@ -2011,7 +2036,7 @@ describe("two of one client's sites at one address", () => {
     expect(statusOf(joined)).toBe('fixed')
   })
 
-  test('an address an earlier client has: that client named, not the site', () => {
+  test('an address an earlier client has: that client named once, its own copy skipped', () => {
     const clients = review(PLAIN, [
       ['Old Owner', '1 Rose St, Bayswater WA 6053', '0412 345 678'],
       ['Jo', '1 Rose St, Bayswater WA 6053'],
@@ -2030,11 +2055,12 @@ describe("two of one client's sites at one address", () => {
       opts,
     )
     const [, both] = checkAcrossClients([old, edited])
-    const skipped =
-      'Same address as Old Owner (row 2) — this site will be skipped.'
     expect(both.issues.map((i) => [i.siteIndex, i.message])).toEqual([
-      [0, skipped],
-      [2, skipped],
+      [
+        0,
+        'Old Owner (row 2) is also at this address — both will have it as a site. Leave one out if they’re the same client.',
+      ],
+      [2, 'Same address as site 1 — this site will be skipped.'],
     ])
     // Old Owner left out, the address is Jo's, twice.
     const [, own] = checkAcrossClients([{ ...old, included: false }, edited])

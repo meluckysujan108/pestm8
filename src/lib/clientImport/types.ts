@@ -96,11 +96,9 @@ export type ReviewIssue = {
 }
 
 export type ReviewSite = ImportSite & {
-  /** Already in PestM8 (same street, suburb and postcode): not imported. */
+  /** Already on this client in PestM8 (same street, suburb and postcode):
+   * not imported. Another client's site at the address doesn't count. */
   duplicate?: boolean
-  /** For a duplicate, the client in PestM8 it is on, when that is another
-   * client than this one ("Already in PestM8, on Jane Doe"). Never sent. */
-  heldBy?: string
 }
 
 export type ReviewClient = {
@@ -144,8 +142,12 @@ export type ReviewStatus =
 export type ExistingIndex = {
   /** `nameKey(name)` → the client. */
   clientsByName: Map<string, Id<'clients'>>
-  /** `siteKey(site)` of every site already in PestM8. */
+  /** `siteKey(site)` of every site already in PestM8, whoever's. */
   siteKeys: Set<string>
+  /** Each client's own sites, by `siteKey`: what "already here" means for a
+   * client whose new sites join it. Another client's site at the same
+   * address is no reason to skip one — two clients may share an address. */
+  clientSites?: Map<Id<'clients'>, Set<string>>
   /** `siteKey(site)` → the name of the client that site is on, so the review
    * can say whose it is when that isn't the client being imported. */
   siteHolders?: Map<string, string>

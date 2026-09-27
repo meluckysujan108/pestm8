@@ -648,9 +648,9 @@ function draftOf(
           {
             level: 'fixed',
             field: 'abn',
-            message: `Left out the ABN ${abnDigits(value) ? formatAbn(value) : value} — a person has none.`,
+            message: `Left out the ABN ${abnDigits(value) ? formatAbn(value) : value} — a residential client has none.`,
           },
-          "It's a business — keep the ABN",
+          "It's commercial — keep the ABN",
           (c) => ({ ...c, kind: 'business', abn: value }),
         ),
         (c) => c.kind === 'person' && !c.abn,
@@ -1222,6 +1222,20 @@ function currentIssues(client: ReviewClient, opts: Opts): Array<ReviewIssue> {
   client.sites.forEach((site, i) => {
     if (site.duplicate) return
     const at = { siteIndex: i }
+    // Another client in PestM8 at this address: allowed, and said once, so
+    // a real duplicate (a name spelt two ways) is still easy to spot.
+    const key = siteKey(site)
+    if (opts.existing.siteKeys.has(key)) {
+      const alsoHere = opts.existing.siteHolders?.get(key)
+      issues.push({
+        level: 'warning',
+        field: 'addressLine',
+        ...at,
+        message: alsoHere
+          ? `${alsoHere} is also at this address in PestM8 — both will have it as a site. Leave this one out if they’re the same client.`
+          : 'Another client in PestM8 is also at this address — both will have it as a site.',
+      })
+    }
     if (!site.addressLine.trim()) {
       issues.push({
         level: 'error',
@@ -1466,16 +1480,22 @@ const sameIssues = (a: Array<ReviewIssue>, b: Array<ReviewIssue>) =>
 export function checkAcrossClients(
   clients: Array<ReviewClient>,
 ): Array<ReviewClient> {
-  // siteKey → the first client in the file to send that address.
+  // `${target}|${siteKey}` → the first client in the file to send that
+  // address to that client in PestM8. The target is the client its sites
+  // join, or itself when it is new: only one client having an address twice
+  // is a duplicate. Two different clients may share one.
   const claims = new Map<string, ReviewClient>()
+  // siteKey → the first client in the file to send that address, whoever to.
+  const firstAtAddress = new Map<string, ReviewClient>()
   const found = new Map<ReviewClient, Array<ReviewIssue>>()
   // The clients the import would send as things stand.
   const sending = new Set<ReviewClient>()
   for (const client of clients) {
     if (!client.included) continue
     const issues: Array<ReviewIssue> = []
+    const target = client.existingClientId ?? client.key
     const sent = client.sites.flatMap((site, i) =>
-      site.duplicate ? [] : [{ site, i, key: siteKey(site) }],
+      site.duplicate ? [] : [{ site, i, key: `${target}|${siteKey(site)}` }],
     )
     const what = (site: ReviewSite) =>
       site.note?.trim() ? 'this site and its note' : 'this site'
@@ -1491,7 +1511,7 @@ export function checkAcrossClients(
           level: 'error',
           field: 'addressLine',
           siteIndex: first.i,
-          message: `Same address as ${whoIs(first.by)} — an address can only belong to one client in PestM8.`,
+          message: `Same address as ${whoIs(first.by)} — both add it to the same client in PestM8, so this one has nothing new.`,
         }),
       )
     } else {
@@ -1530,13 +1550,34 @@ export function checkAcrossClients(
           ),
         )
       }
+      // Another client earlier in the file at the same address: allowed,
+      // and said once, so a real duplicate (a name spelt two ways) is still
+      // easy to spot.
+      const told = new Set<string>()
+      for (const { site, i, key } of sent) {
+        // Once a site: its own second copy is skipped, and said so above.
+        if (claims.has(key) || told.has(key)) continue
+        told.add(key)
+        const other = firstAtAddress.get(siteKey(site))
+        if (!other || other === client) continue
+        issues.push(
+          across({
+            level: 'warning',
+            field: 'addressLine',
+            siteIndex: i,
+            message: `${whoIs(other)} is also at this address — both will have it as a site. Leave one out if they’re the same client.`,
+          }),
+        )
+      }
       // A partly taken client claims the rest, once all its sites have been
       // looked at — but only if it will be sent: an address the server is
       // never sent is free for the next client in the file.
       if (wouldSend(client)) {
         sending.add(client)
-        for (const { key } of sent) {
+        for (const { site, key } of sent) {
           if (!claims.has(key)) claims.set(key, client)
+          const address = siteKey(site)
+          if (!firstAtAddress.has(address)) firstAtAddress.set(address, client)
         }
       }
     }
@@ -1590,10 +1631,8 @@ export function checkAcrossClients(
 
 /** What the review says of a site already in PestM8, and whose it is when
  * that isn't the client's own. */
-export function duplicateSiteMessage(site: ReviewSite): string {
-  return site.heldBy
-    ? `Already in PestM8, on ${site.heldBy} — this site is skipped`
-    : 'Already in PestM8 — this site is skipped'
+export function duplicateSiteMessage(_site: ReviewSite): string {
+  return 'Already in PestM8 — this site is skipped'
 }
 
 // ---------------------------------------------------------------- one client
@@ -1611,20 +1650,19 @@ export function recheckClient(
   opts: { businessState: string; existing: ExistingIndex },
 ): ReviewClient {
   const key = nameKey(client.name)
-  const sites = client.sites.map((site): ReviewSite => {
-    const { duplicate: _was, heldBy: _by, ...rest } = site
-    const at = siteKey(site)
-    if (!opts.existing.siteKeys.has(at)) return rest
-    // Whose it is, when that is another client: "Already in PestM8" alone
-    // would say this client is there, which it may not be.
-    const holder = opts.existing.siteHolders?.get(at)
-    return holder && nameKey(holder) !== key
-      ? { ...rest, duplicate: true, heldBy: holder }
-      : { ...rest, duplicate: true }
-  })
   const existingClientId = key
     ? opts.existing.clientsByName.get(key)
     : undefined
+  // Already here only when it is this client's own: a site of the client in
+  // PestM8 its new sites join. Another client's site at the same address is
+  // not — two clients may share one (currentIssues says so).
+  const own = existingClientId
+    ? opts.existing.clientSites?.get(existingClientId)
+    : undefined
+  const sites = client.sites.map((site): ReviewSite => {
+    const { duplicate: _was, ...rest } = site
+    return own?.has(siteKey(site)) ? { ...rest, duplicate: true } : rest
+  })
   const { existingClientId: _old, ...base } = client
   const next: ReviewClient = {
     ...base,

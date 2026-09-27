@@ -278,7 +278,8 @@ describe('outcomeOf', () => {
       {
         key: 'c2',
         name: 'Client c2',
-        reason: 'Its addresses are already in PestM8, or earlier in this file',
+        reason:
+          'Its addresses are already on this client in PestM8, or earlier in this file',
       },
       // The server's own words, when it gives them.
       {
@@ -332,23 +333,6 @@ describe('rowsNotImported', () => {
     expect(reasons.get(5)).toBe('Already in PestM8')
   })
 
-  it('says whose an address is, when it’s on another client', () => {
-    const { reasons } = rowsNotImported([
-      client('c1', {
-        sites: [{ ...SITE, duplicate: true, heldBy: 'Jane Doe' }],
-      }),
-      client('c2', {
-        sites: [
-          { ...SITE, duplicate: true, heldBy: 'Jane Doe' },
-          { ...SITE, addressLine: '3 Bay Pde', duplicate: true },
-        ],
-      }),
-    ])
-    expect(reasons.get(1)).toBe('Its address is already in PestM8, on Jane Doe')
-    // One of them is the client's own, already here: it is in PestM8.
-    expect(reasons.get(2)).toBe('Already in PestM8')
-  })
-
   it('after it: also the ones the server refused or found already here', () => {
     const withMore = [...review, client('c6'), client('c7')]
     const { rowNumbers, reasons } = rowsNotImported(withMore, [
@@ -363,7 +347,7 @@ describe('rowsNotImported', () => {
     // Not "Already in PestM8": the review said it wasn't, and the client
     // itself isn't — only its address is, or went in earlier in the file.
     expect(reasons.get(7)).toBe(
-      'Its address is already in PestM8, or earlier in this file',
+      'Its address is already on this client in PestM8, or earlier in this file',
     )
     // The client that went in whole keeps its rows out of the download.
     expect(reasons.has(1)).toBe(false)

@@ -137,15 +137,21 @@ export function indexExisting(
   }
   const siteKeys = new Set<string>()
   const siteHolders = new Map<string, string>()
+  const clientSites = new Map<Id<'clients'>, Set<string>>()
   for (const property of properties) {
     const key = siteKey(property)
     siteKeys.add(key)
+    if (property.clientId) {
+      const own = clientSites.get(property.clientId)
+      if (own) own.add(key)
+      else clientSites.set(property.clientId, new Set([key]))
+    }
     const holder =
       property.client?.name ??
       (property.clientId ? names.get(property.clientId) : undefined)
     if (holder && !siteHolders.has(key)) siteHolders.set(key, holder)
   }
-  return { clientsByName, siteKeys, siteHolders, numbers }
+  return { clientsByName, siteKeys, siteHolders, clientSites, numbers }
 }
 
 /** Where the review files a client: its status, or "left out" whatever its

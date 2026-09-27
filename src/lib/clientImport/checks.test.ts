@@ -3,6 +3,7 @@ import { siteKey } from '../../../convex/lib/clientImport'
 import { buildReview, recheckClient } from './build'
 import { checkClientOffline, runOfflineChecks } from './checks'
 import { statusOf } from './convert'
+import type { Id } from '../../../convex/_generated/dataModel'
 import type { ExistingIndex, ReviewClient } from './types'
 
 const NONE: ExistingIndex = { clientsByName: new Map(), siteKeys: new Set() }
@@ -80,16 +81,17 @@ describe('checkClientOffline', () => {
     )
   })
 
-  test('a site already in PestM8 is not checked', async () => {
+  test('a site the client already has in PestM8 is not checked', async () => {
+    const at = siteKey({
+      addressLine: '12 Walcott St',
+      suburb: 'Mount Lawley',
+      postcode: '6000',
+    })
+    const id = 'client1' as Id<'clients'>
     const existing: ExistingIndex = {
-      clientsByName: new Map(),
-      siteKeys: new Set([
-        siteKey({
-          addressLine: '12 Walcott St',
-          suburb: 'Mount Lawley',
-          postcode: '6000',
-        }),
-      ]),
+      clientsByName: new Map([['client 1', id]]),
+      siteKeys: new Set([at]),
+      clientSites: new Map([[id, new Set([at])]]),
     }
     const [client] = clients(['12 Walcott St, Mount Lawley WA 6000'], existing)
     const checked = await checkClientOffline(client, { businessState: 'WA' })

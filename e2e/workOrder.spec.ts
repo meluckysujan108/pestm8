@@ -280,14 +280,14 @@ test('a new business client typed in is asked for its work order too', async ({
   await expect(
     sheet.getByRole('button', { name: 'Add work order' }),
   ).toBeVisible()
-  await sheet.getByRole('radio', { name: 'Business' }).click()
+  await sheet.getByRole('radio', { name: 'Commercial' }).click()
   const field = sheet.getByLabel('Work Order (Optional)')
   await expect(field).toBeVisible()
   await expect(
     sheet.getByRole('button', { name: 'Add work order' }),
   ).toHaveCount(0)
 
-  await sheet.getByLabel('Business name').fill('Harbour Strata')
+  await sheet.getByLabel('Company name').fill('Harbour Strata')
   await sheet.getByLabel('Street address').fill('1 Quay Road')
   await sheet.getByLabel('Suburb').fill('Fremantle')
   await sheet.getByLabel('Postcode').fill('6160')

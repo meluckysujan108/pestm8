@@ -101,16 +101,15 @@ export type RunOutcome = {
 const NOT_SENT = 'Not sent — the import stopped before this one'
 
 /**
- * Why the server turned a whole client away as already here. Not "Already
- * in PestM8": the review would have said so, and didn't — the address is on
- * another client, came in since the review was read, or went in earlier in
- * this same file under someone else. The client itself isn't in PestM8.
+ * Why the server turned a whole client away as already here: every site it
+ * sent is already on the client in PestM8 it joins — added since the review
+ * was read, or earlier in this same file by another row of that client.
  */
 function alreadyHere(client: ReviewClient | undefined): string {
   const sent = client?.sites.filter((site) => !site.duplicate).length ?? 1
   return sent > 1
-    ? 'Its addresses are already in PestM8, or earlier in this file'
-    : 'Its address is already in PestM8, or earlier in this file'
+    ? 'Its addresses are already on this client in PestM8, or earlier in this file'
+    : 'Its address is already on this client in PestM8, or earlier in this file'
 }
 
 /** A client that went in without one of its sites: whatever that site's
@@ -121,17 +120,7 @@ const SITE_TURNED_AWAY =
 /** The first thing stopping a client, in the review's words. */
 function whyNot(client: ReviewClient): string {
   if (!client.included) return 'Left out'
-  if (statusOf(client) === 'duplicate') {
-    // Its address is here, on another client: this one isn't.
-    const holders = new Set(client.sites.map((site) => site.heldBy))
-    const [holder] = holders
-    if (holder === undefined || holders.has(undefined)) {
-      return 'Already in PestM8'
-    }
-    return holders.size === 1
-      ? `Its address is already in PestM8, on ${holder}`
-      : `Its addresses are already in PestM8, on ${holder} and others`
-  }
+  if (statusOf(client) === 'duplicate') return 'Already in PestM8'
   const error = client.issues.find(
     (issue) =>
       issue.level === 'error' &&

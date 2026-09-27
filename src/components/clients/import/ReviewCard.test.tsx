@@ -73,14 +73,6 @@ describe('ReviewCard', () => {
     expect(nothingNew).toContain('Already a client in PestM8')
   })
 
-  it('says whose a site already here is, when it’s someone else’s', () => {
-    const html = render(
-      client({ sites: [site(1, { duplicate: true, heldBy: 'Jane Doe' })] }),
-    )
-    expect(html).toContain('Already in PestM8, on Jane Doe')
-    expect(html).not.toContain('Already a client in PestM8')
-  })
-
   it('names the client on Leave out and Include, as on Edit', () => {
     expect(render(client())).toContain('aria-label="Leave out Jo Smith"')
     expect(render(client({ included: false }))).toContain(
