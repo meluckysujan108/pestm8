@@ -10,6 +10,7 @@ import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
 import { SetupGuideCard } from '#/components/onboarding/SetupGuide'
+import { InstallCard } from '#/components/install/InstallCard'
 import { TeamJoinedNotices } from '#/components/onboarding/TeamJoined'
 import { NewJobSheet } from '#/components/schedule/NewJobSheet'
 import {
@@ -324,7 +325,10 @@ function SchedulePage() {
       />
 
       {/* The owner's news, above the day: how far a new business's set-up
-          has got, and who has joined lately. Collapses when there is none. */}
+          has got, and who has joined lately. Then, for anyone on a phone
+          using PestM8 in its browser, the way onto the Home Screen — never
+          inserted after the page loads (see InstallCard). Collapses when
+          there is none. */}
       <div className="pb-3 empty:hidden lg:pb-0">
         <SetupGuideCard
           businessId={business._id}
@@ -338,6 +342,7 @@ function SchedulePage() {
             setNewJobOpen(true)
           }}
         />
+        <InstallCard />
       </div>
 
       {isDesktop ? (

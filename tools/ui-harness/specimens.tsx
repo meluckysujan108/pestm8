@@ -58,6 +58,14 @@ import type {
   KindFilter,
   StatusFilter as ClientStatusFilter,
 } from '#/lib/clientFilters'
+import { InstallSteps } from '#/components/install/InstallSteps'
+import { InstallSettings } from '#/components/install/InstallSettings'
+import { InstallCardView } from '#/components/install/InstallCard'
+import { InstallSheet } from '#/components/install/InstallSheet'
+import { InstallLink } from '#/components/install/InstallLink'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import type { InstallMethod } from '#/lib/installMethod'
+import type { InstallProgress } from '#/lib/installPrompt'
 import { BIZ, JOBS, MEMBERS, TZ, resolveFixture, state } from './fixtures'
 
 const bizId = BIZ as never
@@ -766,7 +774,137 @@ function LicenceAdd() {
   )
 }
 
+/** Every device's install steps, as Settings → Install app draws them. The
+ * harness is a desktop browser, so each is pinned rather than detected. */
+const INSTALL_STATES: Array<{
+  label: string
+  method: InstallMethod
+  canPrompt?: boolean
+  progress?: InstallProgress
+}> = [
+  { label: 'iPhone, Safari', method: 'ios-safari' },
+  { label: 'iPhone, Chrome', method: 'ios-browser' },
+  { label: 'iPhone, in Gmail', method: 'ios-in-app' },
+  {
+    label: 'Android, Chrome offering',
+    method: 'android-chrome',
+    canPrompt: true,
+  },
+  { label: 'Android, Chrome', method: 'android-chrome' },
+  { label: 'Android, Samsung Internet', method: 'android-samsung' },
+  { label: 'Android, in an app', method: 'android-in-app' },
+  { label: 'Computer, Chrome', method: 'desktop-chromium' },
+  { label: 'Mac, Safari', method: 'mac-safari' },
+  { label: 'Firefox on a computer', method: 'unsupported' },
+  {
+    label: 'Android, accepted, installing',
+    method: 'android-chrome',
+    progress: 'installing',
+  },
+  {
+    label: 'Android, just installed',
+    method: 'android-chrome',
+    progress: 'installed',
+  },
+  { label: 'The installed app', method: 'installed' },
+]
+
+function Install() {
+  return (
+    <Phone>
+      <Header kicker="Settings" title="Install app" />
+      <SettingsBody>
+        {INSTALL_STATES.map((device) => (
+          <SettingsGroup key={device.label} title={device.label}>
+            <div className="px-3.5 py-3.5">
+              <InstallSteps
+                method={device.method}
+                canPrompt={device.canPrompt ?? false}
+                progress={device.progress ?? null}
+                onInstall={() => {}}
+              />
+            </div>
+          </SettingsGroup>
+        ))}
+      </SettingsBody>
+    </Phone>
+  )
+}
+
+function InstallSettingsPage() {
+  return (
+    <Phone>
+      <header className="chrome-blur sticky top-0 z-30 border-b border-hairline px-4 pb-3 pt-3">
+        <BackLink
+          to="/$businessSlug/settings"
+          params={{ businessSlug: 'demo' }}
+        >
+          Settings
+        </BackLink>
+        <h1 className="truncate text-page-title text-ink">Install app</h1>
+      </header>
+      <InstallSettings method="ios-safari" />
+    </Phone>
+  )
+}
+
+function InstallCardSpecimen() {
+  return (
+    <Phone>
+      <Header kicker="September 2026" title="My jobs" />
+      <div className="pb-3">
+        <InstallCardView
+          canPrompt={false}
+          onAction={() => {}}
+          onDismiss={() => {}}
+        />
+        <InstallCardView canPrompt onAction={() => {}} onDismiss={() => {}} />
+      </div>
+      <div className="px-4 text-caption text-grey-ink">
+        Above: an iPhone (Show me how), then Android once Chrome has offered its
+        prompt (Install PestM8). The week strip and the day follow.
+      </div>
+    </Phone>
+  )
+}
+
+function InstallSheetSpecimen() {
+  return (
+    <Phone>
+      <InstallSheet open onClose={() => {}} method="ios-safari" />
+    </Phone>
+  )
+}
+
+function InstallLinkSpecimen() {
+  return (
+    <Phone>
+      <main className="flex w-full flex-col px-6 pt-16">
+        <p className="section-label mb-2">PestM8</p>
+        <h1 className="text-page-title text-ink">Sign in</h1>
+        <p className="mb-8 mt-2 text-body text-muted">
+          Scheduling and compliance reporting for Australian pest control.
+        </p>
+        <div className="flex flex-col gap-3">
+          <button type="button" className={`${PRIMARY_BUTTON} mt-2`}>
+            Sign in
+          </button>
+          <span className="flex min-h-11 items-center justify-center text-body text-blue">
+            Forgot password?
+          </span>
+          <InstallLink method="ios-safari" />
+        </div>
+      </main>
+    </Phone>
+  )
+}
+
 export const SPECIMENS: Partial<Record<string, ComponentType>> = {
+  install: Install,
+  'install-settings': InstallSettingsPage,
+  'install-card': InstallCardSpecimen,
+  'install-sheet': InstallSheetSpecimen,
+  'install-link': InstallLinkSpecimen,
   licenceadd: LicenceAdd,
   bin: RecycleBin,
   'report-settings': ReportSettings,

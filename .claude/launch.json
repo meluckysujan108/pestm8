@@ -15,17 +15,17 @@
       "port": 3000
     },
     {
-      "name": "pestm8-ui-harness",
-      "runtimeExecutable": "pnpm",
-      "runtimeArgs": ["ui:harness"],
-      "port": 5200,
-      "autoPort": true
-    },
-    {
       "name": "pestm8-3100",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "3100"],
       "port": 3100
+    },
+    {
+      "name": "ui-harness",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["ui:harness"],
+      "port": 5200,
+      "autoPort": true
     }
   ]
 }

@@ -14,6 +14,7 @@ import {
   Info,
   ListChecks,
   ShieldCheck,
+  SquarePlus,
   SunMoon,
   Trash2,
   User,
@@ -46,6 +47,7 @@ import { useAccess, useActing, useCan } from '#/lib/access'
 import { APP_VERSION } from '#/lib/appVersion'
 import { roleLabel } from '#/lib/assignees'
 import { authClient } from '#/lib/auth-client'
+import { useStandalone } from '#/lib/installPrompt'
 import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
 import { browserOnly, rq, settleWithin, warm } from '#/lib/routeQueries'
 import { THEME_LABEL } from '#/lib/theme'
@@ -141,7 +143,7 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
  * Settings, as a list of places to go rather than a page of forms: who you
  * are (and whose accounts you may work in), then the pages about you, then
  * the business's (only those this person may use), then this device's
- * Appearance and About, and Sign out. Nothing here is edited in place; every
+ * Appearance, Install app and About, and Sign out. Nothing here is edited in place; every
  * row opens its own page, and a row's value and badge say what is on it and
  * whether anything there needs doing, so the list can be read without opening
  * any of them.
@@ -157,6 +159,7 @@ function SettingsHub() {
   const hydrated = useHydrated()
   const { theme } = useRouteContext({ from: '__root__' })
   const [themePref] = useThemePref(theme)
+  const standalone = useStandalone()
 
   // The membership as it is now, not as the layout found it: route context is
   // a snapshot taken on the way in, so a licence number saved a moment ago on
@@ -382,6 +385,18 @@ function SettingsHub() {
             tint="blue"
             title="Appearance"
             value={THEME_LABEL[themePref]}
+          />
+          {/* For everyone, and for whoever deleted the app and can't find the
+              way back. "Installed" only from inside the installed app: a
+              browser can't tell whether a Home Screen copy exists, so it
+              never says "Not installed". */}
+          <SettingsLinkRow
+            to="/$businessSlug/settings/install"
+            params={{ businessSlug }}
+            icon={SquarePlus}
+            tint="blue"
+            title="Install app"
+            value={standalone ? 'Installed' : undefined}
           />
           <SettingsLinkRow
             to="/$businessSlug/settings/about"

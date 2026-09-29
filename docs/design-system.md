@@ -504,6 +504,21 @@ Build every Settings page from these, so the hub and its pages read as one group
 
 The shell uses `sidebar` and `tooltip`; the rest are there for the sidebar's sake. Don't reach for `components/ui/button`, `input` or `select` in app code: they are not the app's look. Use the constants above.
 
+### 4.9 Installing the app: `install/`
+
+Which steps a device is shown is decided in one place, `lib/installMethod.ts`, from the browser's user agent. Never write install instructions anywhere else.
+
+| Export                                                  | Use for                                                                                                                                         |
+| ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `InstallGuide`                                          | This device's steps, detected: numbered steps, one tap where Chrome offers its prompt, or the way out of an app's browser                       |
+| `InstallSteps`, `IphoneSteps`, `Step`                   | The same, for a given method, drawn without detecting anything (set-up's Home Screen card, tests, the harness)                                  |
+| `InstallSettings`                                       | Settings → Install app, under its header                                                                                                        |
+| `InstallSheet`                                          | The guide in a sheet, where there is no page for it                                                                                             |
+| `InstallLink`                                           | "Put PestM8 on your Home Screen" under Sign in, on a phone or tablet in its browser. Its row is always rendered, so nothing moves when it fills |
+| `InstallCard`, `InstallCardView`, `useInstallCardOffer` | The schedule's card for a phone using PestM8 in its browser; ✕ (or set-up having just shown the steps) puts it away for 30 days on that phone   |
+
+Never say "not installed": a browser can't tell whether a Home Screen copy exists. "Installed" is only for the installed app itself.
+
 ---
 
 ## 5. Patterns
@@ -520,6 +535,14 @@ The shell uses `sidebar` and `tooltip`; the rest are there for the sidebar's sak
 | A page failed to load        | `ErrorScreen`, via the route's error boundary                                                                                                                                                   |
 | A query failed inside a page | `LoadFailed` where its placeholder was, with `onRetry` set to the query's `refetch`. A suspending query throws to the route's `ErrorScreen` instead                                             |
 | Offline                      | Show what is kept on the phone and say so ("No signal — showing the copy kept on this phone."). An edit that needs signal says "Editing needs signal."                                          |
+
+### What only the device knows
+
+The server can't know which phone this is, so anything decided by the device (the install link and card, "Installed") is unknown until hydration. That is also the moment controls start to work, so **never insert content during hydration**: it would push what a thumb is already reaching for.
+
+- **Reserve its space** when it must show on the first load: the sign-in link's row is always 44px, empty or not.
+- **Or decide on first render**, and keep the answer: `useInstallCardOffer` reads a hydrating render as "no", so the schedule's card never appears on a full page load, and shows from the first frame when the schedule is reached from another tab. Not after Back or Forward either (`cameByHistory`): the router puts the scroll back where it was, and something new above it would land the page off by its height.
+- A value in a row that already exists (the Settings row's "Installed") may fill in late: nothing moves.
 
 ### Saving
 
