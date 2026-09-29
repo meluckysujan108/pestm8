@@ -203,7 +203,7 @@ const CLIENT = {
 function deliveriesKnown(args: { reportId: string }) {
   return {
     addresses: ['jane@gmail.com', 'info@pestm8.com.au'],
-    // Always true since approval was retired (30 Sept 2026).
+    // Always true since approval was retired (29 Sept 2026).
     unrestricted: true,
     copy: 'info@pestm8.com.au',
     emailReady: args.reportId !== 'r_nomail',
@@ -227,6 +227,7 @@ function deliveryRows(args: { reportId: string }) {
     newAddresses: [],
     waitingForEmailSetup: false,
   }
+  const kevin = { name: 'Kevin Doyle', colour: '#FF3B30' }
   // The strata manager the form was asked to copy, who is on nobody's
   // record: one email with the client, marked new (`queueFormDeliveries`).
   const withStrata = {
@@ -245,43 +246,142 @@ function deliveryRows(args: { reportId: string }) {
       {
         ...base,
         status: 'failed',
-        error: 'Not sent: the PDF could not be prepared to attach.',
+        error:
+          'Not sent: the PDF could not be prepared to attach. Open the PDF tab, then send it again.',
       },
     ],
-    // The Email tab's history: a send to someone new, made by Terence in
-    // Kevin's account, then one that failed, then the form's own.
+    // The Email tab's history — the same sends as the Logs specimen: the
+    // form's own as Kevin locked it, one to someone new made by Terence in
+    // Kevin's account, then Kevin's own to a typo that failed.
     r_history: [
       {
         ...base,
         _id: 'd_history_3',
+        sentBy: kevin,
         trigger: 'manual',
         to: ['acounts@ridgeline.com.au'],
         newAddresses: ['acounts@ridgeline.com.au'],
         status: 'failed',
         createdAt: at + 3_600_000,
-        error: 'Not sent: the PDF could not be prepared to attach.',
+        error:
+          'Not sent: the PDF could not be prepared to attach. Open the PDF tab, then send it again.',
       },
       {
         ...withStrata,
         _id: 'd_history_2',
         trigger: 'manual',
         sentBy: { name: 'Terence Walsh', colour: '#0A84FF' },
-        onBehalfOf: { name: 'Kevin Doyle', colour: '#FF3B30' },
+        onBehalfOf: kevin,
         status: 'sent',
         createdAt: at + 1_800_000,
         sentAt: at + 1_810_000,
       },
-      { ...base, status: 'sent', sentAt: at + 10_000 },
+      { ...base, sentBy: kevin, status: 'sent', sentAt: at + 10_000 },
+    ],
+    // What rows from before approval was retired look like: one still held
+    // (until `migrations/heldDeliveriesV1` runs), one it has since released,
+    // one an owner refused, and a send with no `newAddresses` at all.
+    r_legacy: [
+      {
+        ...base,
+        _id: 'd_legacy_4',
+        to: ['site.manager@example.net'],
+        newAddresses: undefined,
+        sentBy: kevin,
+        status: 'pendingApproval',
+        createdAt: at + 3_000_000,
+      },
+      {
+        ...base,
+        _id: 'd_legacy_3',
+        to: ['strata@harbourside.com.au'],
+        newAddresses: undefined,
+        sentBy: kevin,
+        status: 'failed',
+        createdAt: at + 2_000_000,
+        error:
+          'Not sent: it was waiting for an owner’s approval, which isn’t needed any more. Send it again if it should still go.',
+      },
+      {
+        ...base,
+        _id: 'd_legacy_2',
+        to: ['strata.committee@example.org'],
+        newAddresses: undefined,
+        sentBy: kevin,
+        approvedBy: { name: 'Terence Walsh', colour: '#0A84FF' },
+        status: 'failed',
+        createdAt: at + 1_000_000,
+        error: 'Not approved',
+      },
+      {
+        ...base,
+        _id: 'd_legacy_1',
+        newAddresses: undefined,
+        onBehalfOf: undefined,
+        status: 'sent',
+        sentAt: at + 10_000,
+      },
+    ],
+    // Refused by an owner before approval was retired.
+    r_refused: [
+      {
+        ...base,
+        to: ['strata.committee@example.org'],
+        approvedBy: { name: 'Terence Walsh', colour: '#0A84FF' },
+        status: 'failed',
+        error: 'Not approved',
+      },
     ],
     r_setup: [{ ...base, status: 'queued', waitingForEmailSetup: true }],
   }
   return rows[args.reportId] ?? []
 }
 
-/** A finished report's Logs: who did what, and every email's addresses. */
-function auditEntries() {
+/** A finished report's Logs: who did what, and every email's addresses.
+ * `r_logs_legacy` is a report from before approval was retired. */
+function auditEntries(args: { entityId: string }) {
   const at = perthToday(14, 38)
   const kevin = { actorName: 'Kevin Doyle', actorColour: '#FF3B30' }
+  const terence = { actorName: 'Terence Walsh', actorColour: '#0A84FF' }
+  if (args.entityId === 'r_logs_legacy') {
+    return [
+      {
+        _id: 'l4',
+        action: 'report.email.bounced',
+        at: at + 7_200_000,
+        ...kevin,
+        meta: {
+          to: ['jane@gmail.com'],
+          event: 'complained',
+          detail: 'Marked as spam by the recipient',
+        },
+      },
+      {
+        _id: 'l3',
+        action: 'report.email.rejected',
+        at: at + 3_600_000,
+        ...terence,
+        meta: { to: ['strata.committee@example.org'] },
+      },
+      {
+        _id: 'l2',
+        action: 'report.email.pending_approval',
+        at: at + 60_000,
+        ...kevin,
+        meta: {
+          to: ['strata.committee@example.org'],
+          novel: ['strata.committee@example.org'],
+        },
+      },
+      {
+        _id: 'l1',
+        action: 'report.email',
+        at,
+        ...kevin,
+        meta: { to: 'jane@gmail.com' },
+      },
+    ]
+  }
   return [
     {
       _id: 'a4',
@@ -293,7 +393,8 @@ function auditEntries() {
         bcc: ['info@pestm8.com.au'],
         newAddresses: ['acounts@ridgeline.com.au'],
         trigger: 'manual',
-        detail: 'Not sent: the PDF could not be prepared to attach.',
+        detail:
+          'Not sent: the PDF could not be prepared to attach. Open the PDF tab, then send it again.',
       },
     },
     {

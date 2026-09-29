@@ -125,7 +125,7 @@ export type Sentence = Array<string | { address: string }>
  * read in a test rather than found on a phone.
  *
  * An address that is not on the client's record is emailed with the rest:
- * nothing waits for an owner (since 30 Sept 2026). The sheet only asks for a
+ * nothing waits for an owner (since 29 Sept 2026). The sheet only asks for a
  * second look at it, because locking is what sends it.
  */
 export function lockEmailSentences(

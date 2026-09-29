@@ -365,6 +365,55 @@ describe('what the provider says afterwards', () => {
     expect(report?.emailedAt).toBeTypeOf('number')
   })
 
+  test('a bounce is logged against whoever sent it, from whose account, with everyone it was addressed to', async () => {
+    const t = convexTest(schema, modules)
+    const ids = await t.run((ctx) =>
+      seed(ctx, { clientEmail: 'client@example.com' }),
+    )
+    const reportId = await t.run((ctx) => finalisedReport(ctx, ids, ids.techId))
+    await t.run((ctx) =>
+      ctx.db.insert('reportDeliveries', {
+        businessId: ids.businessId,
+        reportId,
+        to: ['client@example.com', 'strata@example.com'],
+        cc: [],
+        bcc: ['office@pestm8.example'],
+        subject: 'Service Report',
+        trigger: 'finalise',
+        status: 'sent',
+        providerMessageId: 'resend-bounce',
+        newAddresses: ['strata@example.com'],
+        // The owner, working in the technician's account.
+        sentByMembershipId: ids.ownerId,
+        onBehalfOfMembershipId: ids.techId,
+        createdAt: Date.now(),
+        sentAt: Date.now(),
+      }),
+    )
+
+    await t.mutation(internal.deliveries.recordProviderEvent, {
+      providerMessageId: 'resend-bounce',
+      event: 'bounced',
+      detail: 'Mailbox does not exist',
+    })
+
+    const [entry] = await t.run((ctx) => ctx.db.query('auditLog').collect())
+    expect(entry).toMatchObject({
+      action: 'report.email.bounced',
+      entityId: reportId,
+      actorMembershipId: ids.ownerId,
+      onBehalfOfMembershipId: ids.techId,
+      meta: {
+        to: ['client@example.com', 'strata@example.com'],
+        bcc: ['office@pestm8.example'],
+        newAddresses: ['strata@example.com'],
+        trigger: 'finalise',
+        event: 'bounced',
+        detail: 'Mailbox does not exist',
+      },
+    })
+  })
+
   test('a delivery confirmation changes nothing', async () => {
     const t = convexTest(schema, modules)
     const ids = await t.run((ctx) =>

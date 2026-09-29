@@ -44,10 +44,10 @@ import { useHydrated } from '#/lib/useHydrated'
  *
  * So the addresses the form already asked for are offered as chips, already
  * chosen. Anyone else is one tap and a typed address away. Nothing waits for
- * an owner (since 30 Sept 2026): an address that is not on the client's record
- * goes like any other, and the sheet marks it as new before Send — a typo
- * there is a compliance document gone to a stranger — and the report's
- * history records it as new afterwards.
+ * an owner (since 29 Sept 2026): an address that is not on the client's record
+ * goes like any other, and the sheet points it out before Send — a typo there
+ * is a compliance document gone to a stranger — as the report's history does
+ * afterwards.
  */
 
 type Recipient = {
@@ -68,8 +68,13 @@ export const SEND_ERROR: Record<string, string> = {
     'Email sending isn’t set up for this business yet. Open the PDF and share it from there for now.',
   REPORT_NOT_FINALISED:
     'This report isn’t finalised yet. Finalise it, then send it.',
-  PDF_UNAVAILABLE: 'Could not prepare the PDF to attach.',
-  EMAIL_SEND_FAILED: 'The email failed to send. The history below says why.',
+  PDF_UNAVAILABLE:
+    'Could not prepare the PDF to attach. Try again in a moment.',
+  PDF_TOO_LARGE:
+    'The PDF is too large to email. Share it from the PDF tab instead.',
+  // The history is behind this sheet, not below it.
+  EMAIL_SEND_FAILED:
+    'The email failed to send. Close this to see why in the history, then try again.',
   SEND_RATE_LIMITED:
     'That is a lot of reports in an hour. Try again shortly, or ask an owner.',
   NO_RECIPIENT: 'Choose at least one person to send it to.',
@@ -372,18 +377,28 @@ export function SendSheet({
                     }`}
                   >
                     <TickBox on={entry.chosen} />
-                    <span className="min-w-0 flex-1 truncate text-body text-ink">
-                      {entry.address}
-                    </span>
-                    {/* Said before Send, not after: an address the business
-                        has never used is where a typo would be. It goes all
-                        the same, and the history records it as new. */}
-                    {settled && entry.chosen && !entry.known && (
-                      <span className="flex shrink-0 items-center gap-1 text-caption text-ink-2">
-                        <Info size={13} strokeWidth={2} aria-hidden />
-                        New address
+                    <span className="min-w-0 flex-1">
+                      {/* Whole, never cut off: the end of an address is
+                          where a typo in its domain would be. */}
+                      <span className="block break-words text-body text-ink">
+                        {entry.address}
                       </span>
-                    )}
+                      {/* Said before Send, not after: an address the business
+                          has never used is where a typo would be. It goes all
+                          the same. Shown chosen or not, so the button's name
+                          does not change as it is toggled. */}
+                      {settled && !entry.known && (
+                        <span className="mt-0.5 flex items-center gap-1 text-caption text-ink-2">
+                          <Info
+                            size={13}
+                            strokeWidth={2}
+                            aria-hidden
+                            className="shrink-0 text-blue"
+                          />
+                          Not on the client’s record
+                        </span>
+                      )}
+                    </span>
                   </button>
                   {noMailDomain && (
                     <FieldMessage id={noMailId} tone="warning">
@@ -528,7 +543,7 @@ export function SendSheet({
             <FormAlert key={result.address}>
               {result.address} —{' '}
               {(result.code && SEND_ERROR[result.code]) ??
-                'Could not send the email.'}
+                'Could not send the email. Try again in a moment.'}
             </FormAlert>
           ))}
         </div>
@@ -615,7 +630,7 @@ export function DeliveryHistory({
   // form already opened a delivery for is a lie, and one a technician would
   // act on by sending it again.
   if (rows === undefined) {
-    return <RowPending announce={false} className="py-1" />
+    return <RowPending className="py-1" />
   }
   if (rows.length === 0) {
     return <p className="text-caption text-muted">Not sent yet.</p>
@@ -628,7 +643,9 @@ export function DeliveryHistory({
           <p className="text-body text-ink">
             {STATUS_LABEL[row.status]} — {row.to.join(', ')}
           </p>
-          <p className="text-caption text-muted">
+          {/* Grey-ink, not muted: with no approval step, who sent it — and
+              from whose account — is the record an owner reads. */}
+          <p className="text-caption text-grey-ink">
             {row.sentBy?.name
               ? `${senderName(row.sentBy.name, row.onBehalfOf?.name)} · `
               : ''}
@@ -643,7 +660,7 @@ export function DeliveryHistory({
             </p>
           )}
           {/* Nothing waited on it; this is what an owner reads to see a
-              report went somewhere new. */}
+              report went somewhere new. As it was when it was sent. */}
           {row.newAddresses && row.newAddresses.length > 0 && (
             <p className="text-caption text-ink-2">
               {newAddressLine(row.newAddresses)}
@@ -670,10 +687,13 @@ export function senderName(name: string, onBehalfOf?: string): string {
   return onBehalfOf ? `${name}, in ${onBehalfOf}’s account` : name
 }
 
-/** The line a send to addresses new to this client carries, in the Email
- * tab's history and the report's Logs alike. */
+/**
+ * The line a send to addresses new to this client carries, in the Email tab's
+ * history and the report's Logs alike. In the past tense: it is what was true
+ * when it was sent, and the address may be on the record since.
+ */
 export function newAddressLine(addresses: ReadonlyArray<string>): string {
-  return `Not on the client’s record: ${addresses.join(', ')}`
+  return `${addresses.length === 1 ? 'Wasn’t' : 'Weren’t'} on the client’s record: ${addresses.join(', ')}`
 }
 
 /**
@@ -847,6 +867,7 @@ function useClock(ticking: boolean): number {
 function deliveryLine(
   row: {
     status: Doc<'reportDeliveries'>['status']
+    error?: string
     waitingForEmailSetup: boolean
   },
   who: string,
@@ -871,7 +892,7 @@ function deliveryLine(
           }
         : { text: `Sending to ${who}…`, next: null, warn: false }
     case 'pendingApproval':
-      // Held for an owner's approval before approval was retired (30 Sept
+      // Held for an owner's approval before approval was retired (29 Sept
       // 2026). Nothing will send it: `migrations/heldDeliveriesV1` marks
       // these as not sent, and until it has run this says the same.
       return {
@@ -886,11 +907,20 @@ function deliveryLine(
         warn: true,
       }
     case 'failed':
-      return {
-        text: `Could not email ${who}.`,
-        next: 'Send it again from the Email tab.',
-        warn: true,
-      }
+      // Refused by an owner before approval was retired (29 Sept 2026): what
+      // happened, rather than a nudge to send it again to an address an
+      // owner said no to.
+      return row.error === 'Not approved'
+        ? {
+            text: `Not emailed to ${who}: an owner didn’t approve it.`,
+            next: 'Open the Email tab to send it somewhere else.',
+            warn: true,
+          }
+        : {
+            text: `Could not email ${who}.`,
+            next: 'Send it again from the Email tab.',
+            warn: true,
+          }
   }
 }
 

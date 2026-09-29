@@ -5,7 +5,7 @@ import type { MutationCtx, QueryCtx } from '../_generated/server'
 /**
  * The addresses a business already corresponds with about this report.
  *
- * Nothing waits on this: since 30 Sept 2026 anyone who may send a report may
+ * Nothing waits on this: since 29 Sept 2026 anyone who may send a report may
  * send it anywhere that can receive email. What it answers is which of a
  * send's addresses are new to this client — recorded on the delivery
  * (`newAddresses`) and pointed out by the Send and lock sheets, because a

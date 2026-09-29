@@ -619,7 +619,7 @@ deploys there with a plain `npx convex dev --once`.
 three places, and every reader it has prefers `templateSnapshotId`.
 
 
-## Report email without approval (30 Sept 2026)
+## Report email without approval (29 Sept 2026)
 
 Anyone who may send a report now sends it to any address that can receive
 email; nothing waits for an owner (`convex/deliveries.ts`, and the amended
@@ -638,14 +638,14 @@ contract, because rows and a Settings switch from before still exist.
   - `deliveries.known` still answers `unrestricted`, now always `true`, so an
     old Send sheet stops saying "Needs approval";
   - `forReport` still carries `approvedBy`;
-  - `businesses.update` still accepts `allowTechnicianRecipients`, stored and
-    read by nothing, so flipping the old switch cannot fail with
-    "Server Error".
+  - `businesses.update` still accepts `allowTechnicianRecipients`, but no
+    longer stores it, so flipping the old switch cannot fail with
+    "Server Error", and cannot set it again once the migration has cleared
+    it.
 - Backend first, then merge.
 
 **Migrate.** Run `migrations/heldDeliveriesV1` (the runbook is in its header)
-after the backend deploy, and once Vercel serves the new frontend. It does two
-things:
+straight after the backend deploy. It does two things:
 
 - It marks every send still held as not sent, with the reason. It never
   emails one days late.

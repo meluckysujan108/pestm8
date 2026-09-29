@@ -14,7 +14,7 @@ import { createReport, finaliseReport } from './fixtures/reportPayloads'
  * Who a finished report goes to, and what the record says about it.
  *
  * Anyone who may send a report may send it to any address that can receive
- * email: since 30 Sept 2026 nothing waits for an owner's approval, which no
+ * email: since 29 Sept 2026 nothing waits for an owner's approval, which no
  * screen could ever give. Instead every send is a record — who asked, and
  * which of its addresses were not on the client's record — that the owner
  * reads in the report's Email and Logs tabs, and the Send sheet marks a new
@@ -97,7 +97,7 @@ test('an address on nobody’s record goes too, and the record says it was new',
   expect(row?.onBehalfOf).toBeNull()
 
   // And the sheets are told nobody needs to approve anything: a screen
-  // built before 30 Sept 2026 reads false as "needs the owner's approval".
+  // built before 29 Sept 2026 reads false as "needs the owner's approval".
   const known = await s.sub.client.query(api.deliveries.known, {
     businessId: s.businessId,
     reportId: s.reportId,
@@ -365,8 +365,8 @@ test.describe('the send sheet', () => {
     const stranger = sheet.getByRole('button', {
       name: /stranger@elsewhere\.example/,
     })
-    await expect(stranger).toContainText('New address')
-    await expect(client).not.toContainText('New address')
+    await expect(stranger).toContainText('Not on the client’s record')
+    await expect(client).not.toContainText('Not on the client’s record')
     await expect(
       sheet.getByRole('button', { name: /Send to 2 people/ }),
     ).toBeVisible()
@@ -400,6 +400,28 @@ test.describe('the send sheet', () => {
     // exists either way, which is the point of writing it before the call.
     await expect(page.getByText(/client@example\.com/)).toBeVisible()
     await expect(page.getByText(/asked for by the form/)).toBeVisible()
+  })
+
+  test('the Email tab says which addresses weren’t on the client’s record', async ({
+    page,
+  }) => {
+    const s = await reportForSub('send-history-new', 'client@example.com')
+    await s.sub.client.mutation(api.deliveries.request, {
+      businessId: s.businessId,
+      reportId: s.reportId,
+      to: ['someone@elsewhere.example'],
+    })
+
+    // What an owner reads afterwards, with nothing to approve.
+    await signInViaUi(page, s.owner.email)
+    await page.goto(`/${s.slug}/reports/${s.reportId}`)
+    await page.getByRole('tab', { name: 'Email' }).click()
+    await expect(
+      page.getByText(
+        'Wasn’t on the client’s record: someone@elsewhere.example',
+      ),
+    ).toBeVisible()
+    await expect(page.getByText(/approv/i)).toHaveCount(0)
   })
 
   test('the finished report says whether it went, above its tabs', async ({

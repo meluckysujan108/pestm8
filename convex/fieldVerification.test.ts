@@ -17,7 +17,7 @@ import type { TestActor } from '../test/harness'
  * so only a value this call changes is checked. An address the server
  * deliberately does not police (the demo seeds '6O53' and 'Joondalop') must
  * still save. And a typo already on file must not count as a "known"
- * recipient that skips the owner's approval.
+ * recipient, one a send would not point out as new.
  */
 
 const DAY = 24 * 60 * 60 * 1000
@@ -888,7 +888,7 @@ describe('sending a report', () => {
     return reportId
   }
 
-  test('a typo already on file is not a known recipient, so a send to it is marked new', async () => {
+  test('a typo already on file is not a known recipient', async () => {
     const s = await setup()
     await s.t.run((ctx) =>
       ctx.db.patch(s.businessId, {

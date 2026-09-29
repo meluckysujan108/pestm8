@@ -5,6 +5,7 @@ import { createActor, createBusiness, testApp } from '../test/harness'
 import { getTemplate } from '../src/lib/reportTemplates'
 import { deliveryAddressing } from './lib/reportEmail'
 import { RENDER_VERSION } from './reports'
+import { SEND_LIMIT_REACHED } from './lib/sendLimit'
 import type { Doc, Id } from './_generated/dataModel'
 
 /**
@@ -108,7 +109,7 @@ function deliveries(s: Setup) {
   return s.t.run((ctx) => ctx.db.query('reportDeliveries').collect())
 }
 
-/** Someone on the team who is not an owner. Until 30 Sept 2026 their email
+/** Someone on the team who is not an owner. Until 29 Sept 2026 their email
  * to an address nobody had on file waited for one; it goes now. */
 async function technician(s: Setup) {
   const person = await createActor(s.t, {
@@ -369,6 +370,115 @@ describe('only a finalised report is ever emailed', () => {
   })
 })
 
+describe('who locked it, and how many a person may send', () => {
+  test('a lock made in someone else’s account is written down as theirs, by whoever locked it', async () => {
+    const s = await setup()
+    const { membershipId } = await technician(s)
+    const reportId = await report(s, { authorMembershipId: membershipId })
+
+    await s.owner.as.mutation(api.accountSwitches.start, {
+      businessId: s.businessId,
+      targetMembershipId: membershipId,
+    })
+    await finalise(s, reportId)
+
+    const [row] = await deliveries(s)
+    expect(row).toMatchObject({
+      status: 'queued',
+      sentByMembershipId: s.ownerMembershipId,
+      onBehalfOfMembershipId: membershipId,
+    })
+  })
+
+  test('a lock over the hourly limit still locks, and its email is written down as not sent', async () => {
+    const s = await setup()
+    const { person, membershipId } = await technician(s)
+    const reportId = await report(s, { authorMembershipId: membershipId })
+    // Twenty emails already this hour.
+    await s.t.run(async (ctx) => {
+      for (let n = 0; n < 20; n++) {
+        await ctx.db.insert('reportDeliveries', {
+          businessId: s.businessId,
+          reportId,
+          to: [CLIENT],
+          cc: [],
+          subject: 'Service Report',
+          trigger: 'manual',
+          status: 'sent',
+          sentByMembershipId: membershipId,
+          createdAt: Date.now(),
+        })
+      }
+    })
+
+    await person.as.mutation(api.reports.finalise, {
+      businessId: s.businessId,
+      reportId,
+      data: {
+        serviceDate: '2026-09-29',
+        safeToStart: true,
+        treatments: [],
+        technicianSignature: { signedAt: Date.now() },
+        sendCopy: true,
+      },
+      templateVersion: getTemplate('serviceReport').version,
+    })
+
+    // The document is finished whatever becomes of its email.
+    const locked = await s.t.run((ctx) => ctx.db.get(reportId))
+    expect(locked?.status).toBe('finalised')
+    const sends = (await deliveries(s)).filter(
+      (row) => row.trigger === 'finalise',
+    )
+    expect(sends).toHaveLength(1)
+    expect(sends[0]).toMatchObject({
+      to: [CLIENT],
+      status: 'failed',
+      error: SEND_LIMIT_REACHED,
+      sentByMembershipId: membershipId,
+    })
+    const logs = await s.owner.as.query(api.auditLog.forEntity, {
+      businessId: s.businessId,
+      entityType: 'reports',
+      entityId: reportId,
+    })
+    expect(logs.find((e) => e.action === 'report.email.failed')).toMatchObject({
+      actorName: 'Kevin',
+      meta: {
+        to: [CLIENT],
+        trigger: 'finalise',
+        detail: SEND_LIMIT_REACHED,
+      },
+    })
+  })
+
+  test('the hour holds fifty addresses across every email, however they are split', async () => {
+    const s = await setup()
+    const reportId = await report(s, {
+      status: 'finalised',
+      finalisedAt: Date.now(),
+    })
+    const many = Array.from(
+      { length: 51 },
+      (_, n) => `strata${n}@harbourside.example`,
+    )
+    const send = (to: Array<string>) =>
+      s.owner.as.mutation(api.deliveries.request, {
+        businessId: s.businessId,
+        reportId,
+        to,
+      })
+
+    await expect(send(many)).rejects.toThrow(/SEND_RATE_LIMITED/)
+    expect(await deliveries(s)).toEqual([])
+    await send(many.slice(0, 49))
+    await expect(send(many.slice(49))).rejects.toThrow(/SEND_RATE_LIMITED/)
+    // The fiftieth still fits.
+    await send([many[49]])
+    expect(await deliveries(s)).toHaveLength(2)
+  })
+})
+
 describe('what Resend is asked to send', () => {
   test('the copy goes as bcc, never cc, and the client is the only visible recipient', async () => {
     const s = await setup()
@@ -527,7 +637,8 @@ describe('what Resend is asked to send', () => {
       s.t.action(internal.email.deliver, { deliveryId }),
     ).rejects.toThrow(/PDF_UNAVAILABLE/)
 
-    const said = 'Not sent: the PDF could not be prepared to attach.'
+    const said =
+      'Not sent: the PDF could not be prepared to attach. Open the PDF tab, then send it again.'
     const [row] = await deliveries(s)
     expect(row).toMatchObject({ status: 'failed', error: said })
     const logs = await s.owner.as.query(api.auditLog.forEntity, {
@@ -544,6 +655,103 @@ describe('what Resend is asked to send', () => {
         detail: said,
       },
     })
+  })
+
+  test('a refusal from Resend is logged once, with who it was for', async () => {
+    const s = await setup()
+    const reportId = await report(s, {
+      status: 'finalised',
+      finalisedAt: Date.now(),
+    })
+    await withPdf(s, reportId)
+    const { deliveryId } = await s.owner.as.mutation(api.deliveries.request, {
+      businessId: s.businessId,
+      reportId,
+      to: [CLIENT],
+    })
+    vi.stubEnv('RESEND_API_KEY', 're_test')
+    vi.stubEnv('RESEND_FROM_EMAIL', 'info@pestm8.com.au')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === 'https://api.resend.com/emails'
+          ? new Response('{"message":"The to address is invalid"}', {
+              status: 422,
+            })
+          : new Response(new Blob(['%PDF-1.7 test']), { status: 200 }),
+      ),
+    )
+
+    expect(await s.t.action(internal.email.deliver, { deliveryId })).toEqual({
+      ok: false,
+      reason: 'provider',
+    })
+    // Words with a next step on the row; Resend's own reply rides on the
+    // Logs line, out of sight, for whoever fixes it.
+    const [row] = await deliveries(s)
+    expect(row.status).toBe('failed')
+    expect(row.error).toBe(
+      'Not sent: the email service refused it, usually for an address it can’t deliver to. Check the addresses, then send it again.',
+    )
+    const logs = await s.owner.as.query(api.auditLog.forEntity, {
+      businessId: s.businessId,
+      entityType: 'reports',
+      entityId: reportId,
+    })
+    expect(logs.filter((e) => e.action.startsWith('report.email'))).toEqual([
+      expect.objectContaining({
+        action: 'report.email.failed',
+        meta: expect.objectContaining({
+          to: [CLIENT],
+          bcc: ['info@pestm8.com.au'],
+          trigger: 'manual',
+          detail: row.error,
+          reply: '{"message":"The to address is invalid"}',
+        }),
+      }),
+    ])
+  })
+
+  test('once Resend has taken it, a reply it cannot read does not make it a failed send', async () => {
+    const s = await setup()
+    const reportId = await report(s, {
+      status: 'finalised',
+      finalisedAt: Date.now(),
+    })
+    await withPdf(s, reportId)
+    const { deliveryId } = await s.owner.as.mutation(api.deliveries.request, {
+      businessId: s.businessId,
+      reportId,
+      to: [CLIENT],
+    })
+    vi.stubEnv('RESEND_API_KEY', 're_test')
+    vi.stubEnv('RESEND_FROM_EMAIL', 'info@pestm8.com.au')
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        url === 'https://api.resend.com/emails'
+          ? new Response('<html>accepted</html>', { status: 200 })
+          : new Response(new Blob(['%PDF-1.7 test']), { status: 200 }),
+      ),
+    )
+
+    // The email went: "Could not email" would have someone send it again.
+    expect(await s.t.action(internal.email.deliver, { deliveryId })).toEqual({
+      ok: true,
+    })
+    const [row] = await deliveries(s)
+    expect(row.status).toBe('sent')
+    expect(row.providerMessageId).toBeUndefined()
+    const logs = await s.owner.as.query(api.auditLog.forEntity, {
+      businessId: s.businessId,
+      entityType: 'reports',
+      entityId: reportId,
+    })
+    expect(
+      logs
+        .filter((e) => e.action.startsWith('report.email'))
+        .map((e) => e.action),
+    ).toEqual(['report.email.sent'])
   })
 
   test('a row from before blind copies is sent as it was recorded', () => {

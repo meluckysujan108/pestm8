@@ -143,7 +143,7 @@ describe('what locking will email', () => {
   test('an address nobody has on file goes with the client, and the sheet asks for a second look', () => {
     const data = { sendCopy: true, emailReportTo: ['strata@example.com'] }
     const plan = lockEmail(template, data, 'jane@gmail.com', known)
-    // One email, nothing held: approval was retired on 30 Sept 2026.
+    // One email, nothing held: approval was retired on 29 Sept 2026.
     expect(plan.sending).toEqual(['jane@gmail.com', 'strata@example.com'])
     expect(plan.newAddresses).toEqual(['strata@example.com'])
     expect(say(data, 'jane@gmail.com')).toBe(
@@ -168,6 +168,16 @@ describe('what locking will email', () => {
     }
     expect(say(data, 'jane@gmail.com')).toBe(
       'Once it’s locked, it’s emailed to jane@gmail.com, strata@example.com and agent@example.com. strata@example.com and agent@example.com aren’t on the client’s record — check they’re right. A copy goes to info@pestm8.com.au.',
+    )
+  })
+
+  test('a new address, one still typed and one that can’t be delivered are said together, in order', () => {
+    const data = {
+      sendCopy: false,
+      emailReportTo: ['jane@gmail.com', 'strata@example.com', 'bob@gmail'],
+    }
+    expect(say(data, 'jane@gmail.com')).toBe(
+      'Once it’s locked, it’s emailed to jane@gmail.com and strata@example.com. jane@gmail.com is also in “Email Report To”, so it still gets it. strata@example.com isn’t on the client’s record — check it’s right. bob@gmail can’t receive email, so it’s left out. A copy goes to info@pestm8.com.au.',
     )
   })
 

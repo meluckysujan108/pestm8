@@ -3,7 +3,7 @@ import { internal } from '../_generated/api'
 import { internalMutation, internalQuery } from '../_generated/server'
 
 /**
- * One-off (30 Sept 2026): report emails need no owner's approval any more
+ * One-off (29 Sept 2026): report emails need no owner's approval any more
  * (`convex/deliveries.ts`), so nothing may be left waiting for one — and
  * nothing that was waiting is sent now, days after it was asked for.
  *
@@ -26,9 +26,9 @@ import { internalMutation, internalQuery } from '../_generated/server'
  * nothing.
  *
  * EVERY COMMAND NAMES ITS DEPLOYMENT (see jobStatusV1.ts). For production,
- * AFTER this release's backend is deployed there — so nothing new is held
- * while it runs — and once Vercel serves its frontend, so the old Settings
- * switch is off every screen:
+ * AFTER this release's backend is deployed there: from then on nothing new
+ * is held, and `businesses.update` no longer stores the switch, so neither
+ * can come back once this has run:
  *
  *   0. SNAPSHOT: CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex export --path before-held-deliveries.zip
  *   1. PREVIEW:  CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex run migrations/heldDeliveriesV1:preview

@@ -5,7 +5,11 @@ import { action, internalAction } from './_generated/server'
 import { api, internal } from './_generated/api'
 import { renderIfNeeded } from './reportPipeline'
 import { emailConfigured } from './lib/emailConfig'
-import { deliveryAddressing, reportEmailHtml } from './lib/reportEmail'
+import {
+  addressedTo,
+  deliveryAddressing,
+  reportEmailHtml,
+} from './lib/reportEmail'
 import type { ActionCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 
@@ -50,10 +54,16 @@ export const deliver = internalAction({
     // already insists on it; this is the last door, so a path added later
     // cannot send a draft by forgetting to ask.
     if (!loaded.finalised) {
+      const detail =
+        'Not sent: the report wasn’t finalised. Finalise it, then send it again.'
       await ctx.runMutation(internal.deliveries.settle, {
         deliveryId,
         status: 'failed',
-        error: 'Not sent: the report was not finalised.',
+        error: detail,
+      })
+      await audit(ctx, businessId, reportId, delivery, {
+        action: 'report.email.failed',
+        meta: { ...addressedTo(delivery), detail },
       })
       return { ok: false, reason: 'notFinalised' }
     }
@@ -66,9 +76,6 @@ export const deliver = internalAction({
       throw new ConvexError('EMAIL_NOT_CONFIGURED')
     }
 
-    // Whether Resend has taken it. Past that point the email is out, whatever
-    // fails afterwards in our own bookkeeping.
-    let accepted = false
     try {
       const storageId = await renderIfNeeded(ctx, reportId)
       if (!storageId) throw new ConvexError('PDF_UNAVAILABLE')
@@ -152,10 +159,16 @@ export const deliver = internalAction({
         }),
       })
 
-      const pdfId = await ctx.runQuery(internal.deliveries.currentPdfId, { reportId })
-
       if (!response.ok) {
-        const detail = (await response.text()).slice(0, 500)
+        // Resend's own words are for whoever fixes it, not for the history a
+        // technician reads: they go to the deployment's logs, and ride on the
+        // Logs line out of sight, while the row says what to do next.
+        const reply = (await response.text()).slice(0, 500)
+        console.error('email.deliver: refused', deliveryId, response.status, reply)
+        const detail = refusalWords(response.status)
+        const pdfId = await ctx.runQuery(internal.deliveries.currentPdfId, {
+          reportId,
+        })
         await ctx.runMutation(internal.deliveries.settle, {
           deliveryId,
           status: 'failed',
@@ -164,25 +177,19 @@ export const deliver = internalAction({
         })
         await audit(ctx, businessId, reportId, delivery, {
           action: 'report.email.failed',
-          meta: { ...addressedTo(delivery), detail },
+          meta: { ...addressedTo(delivery), detail, reply },
         })
         return { ok: false, reason: 'provider' }
       }
 
-      accepted = true
-      const body = (await response.json()) as { id?: string }
-      await ctx.runMutation(internal.deliveries.settle, {
-        deliveryId,
-        status: 'sent',
-        ...(pdfId ? { pdfId } : {}),
-        ...(body.id ? { providerMessageId: body.id } : {}),
-      })
-      await audit(ctx, businessId, reportId, delivery, {
-        action: 'report.email.sent',
-        meta: { ...addressedTo(delivery), subject: delivery.subject },
-      })
+      // Resend has it: the email is out. `recordSent` never throws, so
+      // nothing past this point can mark it failed.
+      await recordSent(ctx, { deliveryId, delivery, businessId, reportId }, response)
       return { ok: true }
     } catch (error) {
+      // Only ever before Resend took it, so nothing went out.
+      const reply = error instanceof Error ? error.message : String(error)
+      console.error('email.deliver: not sent', deliveryId, reply)
       const detail = failureWords(error)
       await ctx.runMutation(internal.deliveries.settle, {
         deliveryId,
@@ -192,15 +199,11 @@ export const deliver = internalAction({
       // Logged as well as recorded on the row, like a refusal from the
       // provider: a report whose PDF could not be drawn or attached was not
       // emailed either, and the report's Logs are where an owner looks to
-      // see what went out and what did not. Not once Resend had taken it:
-      // "Email failed" in the Logs for an email that went would have
-      // someone send the client a second copy.
-      if (!accepted) {
-        await audit(ctx, businessId, reportId, delivery, {
-          action: 'report.email.failed',
-          meta: { ...addressedTo(delivery), detail },
-        })
-      }
+      // see what went out and what did not.
+      await audit(ctx, businessId, reportId, delivery, {
+        action: 'report.email.failed',
+        meta: { ...addressedTo(delivery), detail, reply },
+      })
       throw error
     }
   },
@@ -251,6 +254,51 @@ export const sendReportPdf = action({
   },
 })
 
+/**
+ * Writes down that Resend took an email — which file it attached, Resend's
+ * id for it, and a line in the report's Logs.
+ *
+ * Never throws. The email is out, and a failure in our own record of it must
+ * not read as a failed send: "Could not email" would have someone send the
+ * client a second copy, under a new delivery and so a new idempotency key.
+ * What could not be written down goes to the deployment's logs instead.
+ */
+async function recordSent(
+  ctx: ActionCtx,
+  {
+    deliveryId,
+    delivery,
+    businessId,
+    reportId,
+  }: {
+    deliveryId: Id<'reportDeliveries'>
+    delivery: Doc<'reportDeliveries'>
+    businessId: Id<'businesses'>
+    reportId: Id<'reports'>
+  },
+  response: Response,
+): Promise<void> {
+  try {
+    // An unreadable reply is still an accepted one: only the id is lost.
+    const body = (await response.json().catch(() => ({}))) as { id?: string }
+    const pdfId = await ctx.runQuery(internal.deliveries.currentPdfId, {
+      reportId,
+    })
+    await ctx.runMutation(internal.deliveries.settle, {
+      deliveryId,
+      status: 'sent',
+      ...(pdfId ? { pdfId } : {}),
+      ...(body.id ? { providerMessageId: body.id } : {}),
+    })
+    await audit(ctx, businessId, reportId, delivery, {
+      action: 'report.email.sent',
+      meta: { ...addressedTo(delivery), subject: delivery.subject },
+    })
+  } catch (error) {
+    console.error('email.deliver: sent, but not recorded', deliveryId, error)
+  }
+}
+
 /** Resend's own ceiling is 40 MB for the whole message; this is the safe half. */
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
 
@@ -283,43 +331,42 @@ async function audit(
 }
 
 /**
- * Everyone an email went to, as the report's Logs show it: who it was for,
- * the business's blind copy, and which of them were new to this client. Only
- * what the row has — a row from before 29 Sept 2026 has no `bcc`, and one from
- * before 30 Sept no `newAddresses`.
- */
-function addressedTo(
-  delivery: Pick<
-    Doc<'reportDeliveries'>,
-    'to' | 'cc' | 'bcc' | 'trigger' | 'newAddresses'
-  >,
-) {
-  return {
-    to: delivery.to,
-    ...(delivery.cc.length > 0 ? { cc: delivery.cc } : {}),
-    ...(delivery.bcc && delivery.bcc.length > 0 ? { bcc: delivery.bcc } : {}),
-    ...(delivery.newAddresses && delivery.newAddresses.length > 0
-      ? { newAddresses: delivery.newAddresses }
-      : {}),
-    trigger: delivery.trigger,
-  }
-}
-
-/**
- * Why a send died before the provider answered, in words: the row's history
- * and the report's Logs both show it, and "PDF_TOO_LARGE" is a code.
+ * Why a send died before Resend took it, in words, with what to do next: the
+ * Email tab's history and the report's Logs both show it, and
+ * "PDF_TOO_LARGE", or a stack trace, is not something to read on a phone.
  */
 const FAILURE_WORDS = new Map<unknown, string>([
-  ['PDF_UNAVAILABLE', 'Not sent: the PDF could not be prepared to attach.'],
+  [
+    'PDF_UNAVAILABLE',
+    'Not sent: the PDF could not be prepared to attach. Open the PDF tab, then send it again.',
+  ],
   [
     'PDF_TOO_LARGE',
     'Not sent: the PDF is too large to email. Share it from the PDF tab instead.',
   ],
-  ['NOT_FOUND', 'Not sent: the report could not be found.'],
+  [
+    'NOT_FOUND',
+    'Not sent: the report could not be found. Ask the business owner.',
+  ],
 ])
 
 function failureWords(error: unknown): string {
-  const words = FAILURE_WORDS.get((error as { data?: unknown } | null)?.data)
-  if (words) return words
-  return error instanceof Error ? error.message : String(error)
+  return (
+    FAILURE_WORDS.get((error as { data?: unknown } | null)?.data) ??
+    'Not sent: it stopped before it reached the email service. Send it again in a few minutes.'
+  )
+}
+
+/** Why Resend said no, in words, from its HTTP status. */
+function refusalWords(status: number): string {
+  if (status === 429) {
+    return 'Not sent: the email service was busy. Send it again in a few minutes.'
+  }
+  if (status === 401 || status === 403) {
+    return 'Not sent: email isn’t set up correctly for this business. Ask the business owner.'
+  }
+  if (status >= 500) {
+    return 'Not sent: the email service didn’t take it. Send it again in a few minutes.'
+  }
+  return 'Not sent: the email service refused it, usually for an address it can’t deliver to. Check the addresses, then send it again.'
 }

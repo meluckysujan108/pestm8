@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { internal } from '../_generated/api'
+import { api, internal } from '../_generated/api'
 import { createActor, createBusiness, testApp } from '../../test/harness'
 import { getTemplate } from '../../src/lib/reportTemplates'
 import { NOT_SENT } from './heldDeliveriesV1'
@@ -90,7 +90,7 @@ async function setup() {
     ctx.db.patch(businessId, { allowTechnicianRecipients: false }),
   )
   const get = (id: Id<'reportDeliveries'>) => t.run((ctx) => ctx.db.get(id))
-  return { t, businessId, ownerMembershipId, ...ids, get }
+  return { t, owner, businessId, ownerMembershipId, ...ids, get }
 }
 
 type Setup = Awaited<ReturnType<typeof setup>>
@@ -159,5 +159,52 @@ describe('retiring the owner’s approval', () => {
     ).toEqual({ held: [], switchSet: [] })
     await runToEnd(s)
     expect((await s.get(s.held))?.error).toBe(NOT_SENT)
+  })
+
+  test('a table bigger than one page is released page by page', async () => {
+    const s = await setup()
+    const more = await s.t.run(async (ctx) => {
+      const ids: Array<Id<'reportDeliveries'>> = []
+      for (let n = 0; n < 205; n++) {
+        ids.push(
+          await ctx.db.insert('reportDeliveries', {
+            businessId: s.businessId,
+            reportId: s.reportId,
+            to: [`strata${n}@harbourside.example`],
+            cc: [],
+            subject: 'Service Report',
+            trigger: 'manual',
+            status: 'pendingApproval',
+            sentByMembershipId: s.ownerMembershipId,
+            createdAt: Date.now(),
+          }),
+        )
+      }
+      return ids
+    })
+
+    await runToEnd(s)
+    const statuses = await s.t.run(async (ctx) =>
+      Promise.all(more.map(async (id) => (await ctx.db.get(id))?.status)),
+    )
+    expect(new Set(statuses)).toEqual(new Set(['failed']))
+    expect(
+      (await s.t.query(internal.migrations.heldDeliveriesV1.preview, {})).held,
+    ).toEqual([])
+  })
+
+  test('once cleared, the retired switch cannot be set again', async () => {
+    const s = await setup()
+    await runToEnd(s)
+
+    // A Settings page from before this release, still on someone's phone:
+    // accepted, so it cannot fail, and not stored, so the contract step can
+    // drop the field.
+    await s.owner.as.mutation(api.businesses.update, {
+      businessId: s.businessId,
+      allowTechnicianRecipients: true,
+    })
+    const business = await s.t.run((ctx) => ctx.db.get(s.businessId))
+    expect(business).not.toHaveProperty('allowTechnicianRecipients')
   })
 })

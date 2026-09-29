@@ -330,7 +330,7 @@ export function LogsPanel({
         // Loading is not the same as nothing: "Nothing logged yet." under a
         // report that was finalised and emailed is a lie an owner checking
         // who sent it where would believe.
-        <RowPending announce={false} className="py-1" />
+        <RowPending className="py-1" />
       ) : entries.length === 0 ? (
         <p className="text-caption text-muted">Nothing logged yet.</p>
       ) : (
@@ -344,19 +344,29 @@ export function LogsPanel({
   )
 }
 
+/** Every action a report's history can hold, in words: a code on screen
+ * tells an owner reading who did what nothing. */
 const ACTION_LABEL: Record<string, string> = {
   'report.create': 'Started',
   'report.edit': 'Edited',
+  'report.edit.byOwner': 'Edited by the owner',
+  'report.optionRenamed': 'An answer was renamed with its list',
+  'report.switchVersion': 'Moved to the current form',
+  'report.restart': 'Started again on the current form',
+  'report.amend': 'Started as a correction',
+  'report.delete': 'Moved to Recently Deleted',
+  'report.restore': 'Restored',
+  'report.purge': 'Deleted for good',
   'report.finalise': 'Finalised',
+  'report.email': 'Emailed',
   'report.email.sent': 'Emailed',
   'report.email.failed': 'Email failed',
   'report.email.bounced': 'Email bounced',
-  // Written before approval was retired (30 Sept 2026), and kept as they
+  // Written before approval was retired (29 Sept 2026), and kept as they
   // happened: nothing writes them now.
   'report.email.pending_approval': 'Held for approval',
   'report.email.approved': 'Approved to send',
   'report.email.rejected': 'Not approved',
-  'report.edit.byOwner': 'Edited by the owner',
 }
 
 function LogRow({
@@ -383,6 +393,8 @@ function LogRow({
     bcc?: Array<string>
     newAddresses?: Array<string>
     trigger?: 'finalise' | 'manual'
+    /** On a provider event: a bounce, or the recipient marking it spam. */
+    event?: 'bounced' | 'complained'
     detail?: string
   }
   const to = Array.isArray(meta.to) ? meta.to.join(', ') : meta.to
@@ -401,10 +413,15 @@ function LogRow({
       )}
       <div className="min-w-0 flex-1">
         <p className="text-body text-ink">
-          {ACTION_LABEL[entry.action] ?? entry.action}
+          {entry.action === 'report.email.bounced' &&
+          meta.event === 'complained'
+            ? 'Marked as spam'
+            : (ACTION_LABEL[entry.action] ?? entry.action)}
           {to ? ` — ${to}` : ''}
         </p>
-        <p className="text-caption text-muted">
+        {/* Grey-ink, not muted: with no approval step, who did it — and in
+            whose account — is the record an owner reads. */}
+        <p className="text-caption text-grey-ink">
           {/* Who, not just what: "Emailed" beside a colour dot tells an owner
               nothing, and who did it is the question a history answers. */}
           {entry.actorName
@@ -423,6 +440,13 @@ function LogRow({
         {meta.newAddresses && meta.newAddresses.length > 0 && (
           <p className="text-caption text-ink-2">
             {newAddressLine(meta.newAddresses)}
+          </p>
+        )}
+        {/* A line from before approval was retired, which nothing will ever
+            follow up: `migrations/heldDeliveriesV1` wrote no line of its own. */}
+        {entry.action === 'report.email.pending_approval' && (
+          <p className="text-caption text-ink-2">
+            Approval isn’t needed any more. The Email tab shows whether it went.
           </p>
         )}
         {meta.detail && (

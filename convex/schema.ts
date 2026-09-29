@@ -302,7 +302,7 @@ export default defineSchema({
      */
     reportCopyEmail: v.optional(v.string()),
     /**
-     * Retired 30 Sept 2026, and read by nothing. It let a technician email an
+     * Retired 29 Sept 2026, and read by nothing. It let a technician email an
      * address that was on nobody's record without waiting for an owner's
      * approval; there is no approval step any more (`convex/deliveries.ts`).
      * `businesses.update` still accepts it while the Settings switch that set
@@ -1646,7 +1646,7 @@ export default defineSchema({
    * renderer has moved on.
    *
    * Anyone who may send a report may send it to any address that can receive
-   * email; since 30 Sept 2026 nothing waits for an owner's approval. What
+   * email; since 29 Sept 2026 nothing waits for an owner's approval. What
    * keeps that honest is this record: who asked, from whose account, and
    * which addresses were not on the client's record (`newAddresses`).
    */
@@ -1669,7 +1669,7 @@ export default defineSchema({
     trigger: v.union(v.literal('finalise'), v.literal('manual')),
     status: v.union(
       v.literal('queued'),
-      // Retired 30 Sept 2026: a send waiting for an owner's approval. Nothing
+      // Retired 29 Sept 2026: a send waiting for an owner's approval. Nothing
       // writes it now, and `migrations/heldDeliveriesV1` marks the ones left
       // as not sent. Out of this union in the contract step.
       v.literal('pendingApproval'),
@@ -1689,20 +1689,21 @@ export default defineSchema({
     /**
      * The account it was sent from, when that was not the sender's own:
      * someone working inside another member's account. Absent means they
-     * were working as themselves, and on every row from before 30 Sept 2026.
+     * were working as themselves, and on every row written before this
+     * change shipped (29 Sept 2026).
      */
     onBehalfOfMembershipId: v.optional(v.id('memberships')),
     /**
      * Which of `to` and `cc` were not on the client's record when it was
      * asked for (`lib/recipients.knownRecipients`). Recorded rather than
      * held: an owner reading the history can see a report went somewhere
-     * new, and a typo is easier to notice. Absent on rows from before
-     * 30 Sept 2026.
+     * new, and a typo is easier to notice. Absent on rows written before
+     * this change shipped (29 Sept 2026).
      */
     newAddresses: v.optional(v.array(v.string())),
     /**
      * Who let a held send go, or refused it, on the few rows from before
-     * approval was retired (30 Sept 2026). Nothing writes it now.
+     * approval was retired (29 Sept 2026). Nothing writes it now.
      */
     approvedByMembershipId: v.optional(v.id('memberships')),
     createdAt: v.number(),
@@ -1712,7 +1713,7 @@ export default defineSchema({
     .index('by_report', ['reportId'])
     // Every delivery of one business, by its `businessId` prefix alone: the
     // demo's clean-up sweeps with it. It was the owner's approval queue too,
-    // until approval was retired (30 Sept 2026).
+    // until approval was retired (29 Sept 2026).
     .index('by_business_status', ['businessId', 'status'])
     // "how many has this person sent in the last hour" — the send limit.
     .index('by_sender', ['sentByMembershipId', 'createdAt'])

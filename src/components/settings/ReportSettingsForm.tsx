@@ -25,7 +25,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
  * title calls the business, where the business's own copy goes, and whether
  * a job may close without one. Who may email a report where is no longer a
  * setting: anyone who may send one may send it anywhere, with no owner's
- * approval (since 30 Sept 2026), and the copy is how an owner sees each one.
+ * approval (since 29 Sept 2026), and the copy is how an owner sees each one.
  *
  * The two text fields are one form with one Save; the switches save the
  * moment they are flipped. `forms` is the Forms group, which answers to a

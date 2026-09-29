@@ -567,16 +567,22 @@ function Delivered() {
   return (
     <Phone>
       <Header kicker="Service Report" title="30 Sloan Drive" />
-      {['r_sending', 'r_sent', 'r_stuck', 'r_new', 'r_failed', 'r_setup'].map(
-        (id) => (
-          <LatestDelivery
-            key={id}
-            businessId={bizId}
-            reportId={id as never}
-            onOpen={() => {}}
-          />
-        ),
-      )}
+      {[
+        'r_sending',
+        'r_sent',
+        'r_stuck',
+        'r_new',
+        'r_failed',
+        'r_refused',
+        'r_setup',
+      ].map((id) => (
+        <LatestDelivery
+          key={id}
+          businessId={bizId}
+          reportId={id as never}
+          onOpen={() => {}}
+        />
+      ))}
     </Phone>
   )
 }
@@ -601,6 +607,21 @@ function Logs() {
     <Phone>
       <Header kicker="Service Report" title="Logs" />
       <LogsPanel businessId={bizId} reportId={'r_logs' as never} />
+    </Phone>
+  )
+}
+
+/** A report from before approval was retired, in both tabs: what prod shows
+ * until `migrations/heldDeliveriesV1` runs, and after. */
+function Legacy() {
+  return (
+    <Phone>
+      <Header kicker="Service Report" title="Before 29 Sept" />
+      <div className="px-4 pb-2 pt-5">
+        <h2 className="section-label mb-2">Delivery history</h2>
+        <DeliveryHistory businessId={bizId} reportId={'r_legacy' as never} />
+      </div>
+      <LogsPanel businessId={bizId} reportId={'r_logs_legacy' as never} />
     </Phone>
   )
 }
@@ -689,6 +710,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   delivered: Delivered,
   history: History,
   logs: Logs,
+  legacy: Legacy,
   send: Send,
   'form-settings': FormSettings,
 }

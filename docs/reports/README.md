@@ -369,15 +369,15 @@ client receive on 28 August?" answerable once the renderer has moved on.
   added later can email a draft by forgetting to ask.
 - **Who may send where.** Anyone who may send a report may send it to any
   address that can receive email; nothing waits for an owner's approval.
-  Until 30 Sept 2026 a technician's email to an address that was not on the
+  Until 29 Sept 2026 a technician's email to an address that was not on the
   client record waited as `pendingApproval` for an owner — and no screen ever
   called `deliveries.approve`, so it waited forever while the Send sheet said
   it would go. Now such an address goes with the rest (at finalise, in the
   same email as the client's copy), and the row records it in
-  `newAddresses`. The Send sheet marks it "New address" before Send, and the
-  lock sheet asks for a second look ("…isn’t on the client’s record — check
-  it’s right"), because a compliance document emailed to a typo is simply
-  gone. The client's _contacts_ count as on file only for someone who may see
+  `newAddresses`. The Send sheet says "Not on the client’s record" under it
+  before Send, and the lock sheet asks for a second look ("…isn’t on the
+  client’s record — check it’s right"), because a compliance document
+  emailed to a typo is simply gone. The client's _contacts_ count as on file only for someone who may see
   that client — the report's author, anyone with `clients.directory`, or
   anyone with a job there. Reading a report is not the client-directory gate,
   so for anyone else a contact's address is simply new, and
@@ -389,14 +389,22 @@ client receive on 28 August?" answerable once the renderer has moved on.
   asked for, whoever finalised it with the box ticked — and the account they
   were working in, when it was not their own (`onBehalfOfMembershipId`). Both
   count toward that person's limit. Every outcome is a line in the report's
-  Logs too — `report.email.sent`, `.failed` (a PDF that could not be drawn or
-  attached included, in words) and `.bounced` — carrying who it went to, the
-  business's copy and any new address. So an owner sees each send three ways:
-  the report's Email tab, its Logs tab, and the blind copy in the business's
-  own inbox.
-- **How many.** Twenty per member per hour, counted from the delivery rows
-  themselves — they are already the exact record of every send, so a separate
-  token bucket would be a second, less accurate account of the same events.
+  Logs too — `report.email.sent`, `.failed` and `.bounced` — carrying who it
+  went to, the business's copy and any new address. A failure is written in
+  words with what to do next, whether Resend refused it or the PDF could not
+  be drawn or attached; Resend's own reply goes to the deployment's logs and
+  rides on the Logs line, out of sight. Once Resend has taken an email,
+  nothing afterwards marks it failed: that would have someone send the client
+  a second copy. So an owner sees each send three ways: the report's Email
+  tab, its Logs tab, and the blind copy in the business's own inbox.
+- **How many.** Twenty emails and fifty addresses per member per hour
+  (`lib/sendLimit.ts`), counted from the delivery rows themselves — they are
+  already the exact record of every send, so a separate token bucket would be
+  a second, less accurate account of the same events. It holds on both paths.
+  The Send button is refused (`SEND_RATE_LIMITED`). A lock over the limit
+  still locks, and its email is written down as not sent, and why, instead
+  of queued: with no approval step, a loop of locks would otherwise mail
+  whoever it liked from the sending domain every business shares.
 - **What "Sent" means.** That Resend accepted it. The webhook at
   `POST /resend/webhook` moves a row to `bounced` when it did not land, and
   clears the report's `emailedAt` if no other delivery of it survived — a

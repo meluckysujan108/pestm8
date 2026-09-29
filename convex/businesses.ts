@@ -243,7 +243,7 @@ export const reportSettings = query({
       reportBrandName: business.reportBrandName,
       website: business.website,
       reportCopyEmail: business.reportCopyEmail,
-      // Retired with approval (30 Sept 2026) and read by nothing. Still
+      // Retired with approval (29 Sept 2026) and read by nothing. Still
       // answered for the Settings screen built before then, until the
       // contract step.
       allowTechnicianRecipients: business.allowTechnicianRecipients === true,
@@ -272,13 +272,18 @@ export const update = mutation({
     reportBrandName: v.optional(v.string()),
     website: v.optional(v.string()),
     reportCopyEmail: v.optional(v.string()),
-    // Retired with approval (30 Sept 2026): stored, and read by nothing.
-    // Accepted until the Settings switch that sends it is off every phone —
-    // a live page would otherwise fail the switch with "Server Error".
+    // Retired with approval (29 Sept 2026). Accepted until the Settings
+    // switch that sends it is off every phone — a live page would otherwise
+    // fail the switch with "Server Error" — and never stored: once
+    // `migrations/heldDeliveriesV1` has cleared it, nothing may set it again
+    // before the contract step drops it from the schema.
     allowTechnicianRecipients: v.optional(v.boolean()),
     requireReportToComplete: v.optional(v.boolean()),
   },
-  handler: async (ctx, { businessId, ...patch }) => {
+  handler: async (
+    ctx,
+    { businessId, allowTechnicianRecipients: _retired, ...patch },
+  ) => {
     const env = await requireActor(ctx, businessId)
     requireCapability(env, 'business.manage')
     const actor = env.actor.real

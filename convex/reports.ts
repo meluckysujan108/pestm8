@@ -30,6 +30,8 @@ import {
 } from '../src/lib/reportTemplates/delivery'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import { businessCopyAddress, knownRecipients } from './lib/recipients'
+import { addressedTo } from './lib/reportEmail'
+import { SEND_LIMIT_REACHED, withinSendLimit } from './lib/sendLimit'
 import { isValidEmail } from './lib/email'
 import { settingsFor } from './templateSettings'
 import { reportSearchText } from './lib/reportSearch'
@@ -2316,7 +2318,7 @@ async function queueFormDeliveries(
   // The copy is already checked: a Business copy address that can never be
   // delivered to comes back null rather than as a copy nobody will receive.
   const copy = businessCopyAddress(business)
-  await ctx.db.insert('reportDeliveries', {
+  const delivery = {
     businessId: report.businessId,
     reportId: report._id,
     to,
@@ -2329,9 +2331,8 @@ async function queueFormDeliveries(
       businessName: business?.name ?? '',
       finalisedAt: Date.now(),
     }).title,
-    trigger: 'finalise',
-    status: 'queued',
-    // Recorded, not held — the lock sheet has already said so. Until 30 Sept
+    trigger: 'finalise' as const,
+    // Recorded, not held — the lock sheet has already said so. Until 29 Sept
     // 2026 these waited for an owner's approval, in a row of their own so
     // the client's copy did not wait with them; nothing waits now, so it is
     // one email again.
@@ -2342,6 +2343,27 @@ async function queueFormDeliveries(
     sentByMembershipId: env.actor.real._id,
     onBehalfOfMembershipId: writeAttribution(env.actor).onBehalfOfMembershipId,
     createdAt: Date.now(),
+  }
+
+  // The Send sheet's hourly limit holds here too — with no approval step, a
+  // loop of locks would otherwise email whoever it likes. Over it, the report
+  // still locks (the document is finished whatever becomes of its email),
+  // and the email is written down as not sent, and why, instead of queued.
+  if (await withinSendLimit(ctx, env.actor.real._id, to.length)) {
+    await ctx.db.insert('reportDeliveries', { ...delivery, status: 'queued' })
+    return
+  }
+  await ctx.db.insert('reportDeliveries', {
+    ...delivery,
+    status: 'failed',
+    error: SEND_LIMIT_REACHED,
+  })
+  await recordAudit(ctx, writeAttribution(env.actor), {
+    businessId: report.businessId,
+    action: 'report.email.failed',
+    entityType: 'reports',
+    entityId: report._id,
+    meta: { ...addressedTo(delivery), detail: SEND_LIMIT_REACHED },
   })
 }
 

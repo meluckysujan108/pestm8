@@ -17,6 +17,8 @@ import {
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { emailConfigured } from './lib/emailConfig'
 import { isValidEmail } from './lib/email'
+import { addressedTo } from './lib/reportEmail'
+import { assertWithinSendLimit } from './lib/sendLimit'
 import type { ActorEnvelope } from './lib/actor'
 import { memberName } from './lib/reportContext'
 import {
@@ -42,7 +44,7 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
  *
  * The row is also what keeps sending honest, now that nothing gates it.
  * Anyone who may send a report may send it to any address that can receive
- * email. Until 30 Sept 2026 a technician's email to an address that was not on
+ * email. Until 29 Sept 2026 a technician's email to an address that was not on
  * the client's record waited here as `pendingApproval` for an owner — and no
  * screen anywhere could give that approval, so it waited forever while the
  * Send sheet said it would go. So instead of a gate there is a record: every
@@ -272,7 +274,8 @@ export const known = query({
     const env = await requireActor(ctx, businessId)
     const none = {
       addresses: [],
-      unrestricted: false,
+      // Always true, like the answer below: nothing needs an owner.
+      unrestricted: true,
       copy: null,
       emailReady: false,
     }
@@ -284,7 +287,7 @@ export const known = query({
     return {
       addresses: await knownToCaller(ctx, env, report),
       /**
-       * Retired with approval (30 Sept 2026): everyone may send anywhere.
+       * Retired with approval (29 Sept 2026): everyone may send anywhere.
        * Still answered, and always true, for the screens built before then
        * — which read false as "this address needs an owner's approval" —
        * until the contract step.
@@ -372,7 +375,8 @@ export const recordProviderEvent = internalMutation({
         action: 'report.email.bounced',
         entityType: 'reports',
         entityId: delivery.reportId,
-        meta: { to: delivery.to, event, detail },
+        // Everyone that email was addressed to, as the sent line had it.
+        meta: { ...addressedTo(delivery), event, detail },
         at: Date.now(),
       },
     )
@@ -454,7 +458,7 @@ export const forReport = query({
  * Returns the row rather than sending it, because the two callers want
  * different things — someone pressing Send is watching and wants the outcome,
  * a finalise wants it off the critical path. `status` is always `queued` now;
- * it is still returned because callers written before 30 Sept 2026 read it.
+ * it is still returned because callers written before this change read it.
  */
 export const request = mutation({
   args: {
@@ -492,7 +496,11 @@ export const request = mutation({
       throw new ConvexError('INVALID_EMAIL')
     }
 
-    await assertWithinSendLimit(ctx, membership._id)
+    await assertWithinSendLimit(
+      ctx,
+      membership._id,
+      addresses.length + copies.length,
+    )
 
     const business = await ctx.db.get(businessId)
     const onFile = await knownToCaller(ctx, env, report)
@@ -523,39 +531,6 @@ export const request = mutation({
     return { deliveryId, status: 'queued' as const }
   },
 })
-
-/**
- * How many reports one person may send in an hour.
- *
- * Generous for a technician finishing a day's jobs, and far below what a
- * runaway retry loop or a compromised session would manage. A compliance
- * document is an attachment with a client's address on it: the cost of
- * sending a thousand of them is not the bandwidth.
- *
- * Counted from the delivery rows rather than a rate-limiter component,
- * because those rows already ARE the record of every send, exactly and
- * auditably — a separate token bucket would be a second, less accurate
- * account of the same events, and a dependency to keep them in step.
- */
-const SEND_LIMIT = 20
-const SEND_WINDOW_MS = 60 * 60 * 1000
-
-async function assertWithinSendLimit(
-  ctx: MutationCtx,
-  membershipId: Id<'memberships'>,
-) {
-  const since = Date.now() - SEND_WINDOW_MS
-  const recent = await ctx.db
-    .query('reportDeliveries')
-    .withIndex('by_sender', (q) =>
-      q.eq('sentByMembershipId', membershipId).gt('createdAt', since),
-    )
-    .take(SEND_LIMIT)
-
-  // `>=`, because this call is the one after the ones counted: twenty already
-  // in the window means this would be the twenty-first.
-  if (recent.length >= SEND_LIMIT) throw new ConvexError('SEND_RATE_LIMITED')
-}
 
 /**
  * Names, not membership ids. A delivery history that reads "sent by k57d9…"

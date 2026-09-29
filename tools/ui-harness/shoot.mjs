@@ -155,6 +155,7 @@ const PLAN = {
   'report-settings': { full: true },
   history: {},
   logs: {},
+  legacy: { full: true },
   send: { before: async (p) => p.waitForTimeout(700) },
   // Someone the client's record does not have: marked new, and sent like
   // anyone else.

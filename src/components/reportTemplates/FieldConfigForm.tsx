@@ -502,8 +502,8 @@ function KindSpecificFields({
       return (
         <p className="text-caption text-muted">
           Extra addresses this document is sent to when it is finalised. One
-          that isn&rsquo;t on the client&rsquo;s record goes too, and the
-          report&rsquo;s Email tab marks it as new.
+          that isn&rsquo;t on the client&rsquo;s record goes too: the lock
+          sheet points it out first, and the report&rsquo;s history after.
         </p>
       )
 

@@ -787,7 +787,7 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **Hold to act** is used for anything that reaches a client or leaves the app.
 - **Filters:** binary and ternary filters use `Segmented`, never a dropdown.
 - **The report builder** opens on an overview and fills one section at a time, with the section in the URL. A list of more than 12 options opens a picker sheet.
-- **Report emails need no owner's approval.** Anyone who may send a report may send it anywhere that can receive email. An address not on the client's record is marked "New address" (and "check it’s right" on the lock sheet), never held, and every send shows in the report's Email and Logs tabs.
+- **Report emails need no owner's approval.** Anyone who may send a report may send it anywhere that can receive email. An address not on the client's record is pointed out, never held: "Not on the client’s record" in the Send sheet, "check it’s right" on the lock sheet, and "Wasn’t on the client’s record" in the report's history. Every email is in the report's Email tab, and every outcome in its Logs.
 - **Finalising** is a read-back sheet, not a hold. Its button is never greyed for an incomplete report, because pressing it is how you find out what is missing.
 - **Dates** come from the business's day key, not the device's clock, and cards never say "Today" or "Tomorrow".
 - **Hidden prices** show "—".
