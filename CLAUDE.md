@@ -76,9 +76,15 @@ senders on prod (`rare-retriever-156`):
   that is info@pestm8.com.au.
 - `RESEND_ACCOUNT_FROM_EMAIL=noreply@pestm8.com.au` — account email: the
   "Forgot password?" link and "your password was changed"
-  (`convex/accountEmails.ts`). Replies aren't read; the email says to write to
-  info@ instead. Without it, `/forgot-password` still answers normally but
-  nothing is sent (a warning is logged).
+  (`convex/accountEmails.ts`). Replies aren't read, and the email says so.
+  Without it, `/forgot-password` still answers normally but nothing is sent
+  (a warning is logged).
+
+No email asks anyone to reply or write in — not "Reply to this email if…",
+not "Need help? Email…" (removed 29 Sept 2026 at the product owner's
+request: every question it invites is work for the business). A report
+email can still be answered with the Reply button, and that reaches the
+business's own address; nothing in it asks for one.
 
 Until 2026-09-27 prod sent from Resend's test sender `onboarding@resend.dev`,
 which only delivers to the Resend account owner. Every other deployment (dev,

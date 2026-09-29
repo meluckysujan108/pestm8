@@ -11,6 +11,10 @@ import type { Doc } from '../_generated/dataModel'
  * It says what the attachment is, where it is for, and the two or three facts
  * a client actually wants — when the visit was, who did it, when the next one
  * is due — so nobody has to open a PDF on a phone to learn a date.
+ *
+ * And it stops there. It never asks for a reply: until 29 Sept 2026 it said
+ * "Reply to this email if anything in it needs checking", and every question
+ * that invites is one the business then has to answer.
  */
 
 export type EmailFact = { label: string; value: string }
@@ -73,8 +77,7 @@ export function reportEmailHtml({
       }
       <tr>
         <td style="padding:16px 24px 24px 24px;color:${MUTED};font-size:14px;line-height:1.5;">
-          The full report is attached as a PDF. Reply to this email if anything
-          in it needs checking.
+          The full report is attached as a PDF.
           <div style="margin-top:16px;color:${INK};font-size:14px;">${escapeHtml(businessName)}</div>
         </td>
       </tr>

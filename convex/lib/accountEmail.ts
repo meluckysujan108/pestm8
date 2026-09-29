@@ -4,7 +4,10 @@
  * and is what a watch or a screen reader shows).
  *
  * Styled like the report email (lib/reportEmail.ts): a table, inline styles,
- * nothing clever. From `noreply@`, so each one says where to ask instead.
+ * nothing clever. From `noreply@`, so each one says replies aren't read. And
+ * like the report email, none asks anyone to write in: until 29 Sept 2026
+ * they ended "Need help? Email info@pestm8.com.au". Each says what to do
+ * next itself.
  */
 
 const INK = '#1C1C1E'
@@ -12,8 +15,7 @@ const MUTED = '#6B6B70'
 const RED = '#FF3B30'
 const HAIRLINE = '#E5E5EA'
 
-/** Where a question about an account email goes: nobody reads noreply@. */
-export const ACCOUNT_HELP_EMAIL = 'info@pestm8.com.au'
+const FOOTER = 'This email was sent by PestM8 and replies to it aren’t read.'
 
 /** How long a reset link works, in seconds (Better Auth's
  * `resetPasswordTokenExpiresIn`), and as the email says it. */
@@ -66,8 +68,7 @@ function layout({
           ${body}
           ${action}
           <p style="margin:16px 0 0 0;padding-top:16px;border-top:1px solid ${HAIRLINE};color:${MUTED};font-size:13px;line-height:1.5;">
-            This email was sent by PestM8 and replies to it aren’t read. Need help? Email
-            <a href="mailto:${ACCOUNT_HELP_EMAIL}" style="color:${MUTED};">${ACCOUNT_HELP_EMAIL}</a>.
+            ${escapeHtml(FOOTER)}
           </p>
         </td>
       </tr>
@@ -75,8 +76,6 @@ function layout({
   </body>
 </html>`
 }
-
-const HELP_TEXT = `This email was sent by PestM8 and replies to it aren’t read. Need help? Email ${ACCOUNT_HELP_EMAIL}.`
 
 export function passwordResetEmail({
   name,
@@ -98,18 +97,9 @@ export function passwordResetEmail({
       paragraphs: [escapeHtml(hi), ...lines.map(escapeHtml)],
       button: { label: 'Choose a new password', url },
     }),
-    text: [
-      hi,
-      '',
-      lines[0],
-      '',
-      url,
-      '',
-      lines[1],
-      lines[2],
-      '',
-      HELP_TEXT,
-    ].join('\n'),
+    text: [hi, '', lines[0], '', url, '', lines[1], lines[2], '', FOOTER].join(
+      '\n',
+    ),
   }
 }
 
@@ -123,7 +113,9 @@ export function passwordChangedEmail({
   const hi = greeting(name)
   const lines = [
     'The password for your PestM8 account has just been changed, and every device was signed out. Sign in again with the new password.',
-    `If you didn’t change it, email ${ACCOUNT_HELP_EMAIL} straight away.`,
+    // What to do, not who to write to: a new password signs every device
+    // out again, whoever was on them.
+    'If you didn’t change it, choose a new password straight away with “Forgot password?” on the sign-in page.',
   ]
   return {
     subject: 'Your PestM8 password was changed',
@@ -132,7 +124,7 @@ export function passwordChangedEmail({
       paragraphs: [escapeHtml(hi), ...lines.map(escapeHtml)],
       button: { label: 'Sign in', url: signInUrl },
     }),
-    text: [hi, '', lines[0], '', signInUrl, '', lines[1], '', HELP_TEXT].join(
+    text: [hi, '', lines[0], '', signInUrl, '', lines[1], '', FOOTER].join(
       '\n',
     ),
   }
