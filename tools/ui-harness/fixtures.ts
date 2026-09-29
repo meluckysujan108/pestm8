@@ -455,15 +455,67 @@ function auditEntries(args: { entityId: string }) {
   ]
 }
 
+/**
+ * A made-up business's logo, drawn rather than shipped: dark lettering for
+ * paper, and the version with white lettering for dark backgrounds.
+ */
+function sampleLogo(ink: string): string {
+  return (
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 104"><circle cx="52" cy="52" r="40" fill="#e8352b"/><path d="M28 62c12-26 34-34 48-29-9 5-16 13-18 25-9-7-21-5-30 4z" fill="#fff"/><text x="108" y="62" font-family="Helvetica,Arial,sans-serif" font-weight="700" font-size="46" fill="${ink}">COASTAL</text><text x="110" y="90" font-family="Helvetica,Arial,sans-serif" font-size="19" fill="#e8352b">Pest Control</text></svg>`,
+    )
+  )
+}
+export const SAMPLE_LOGO = sampleLogo('#141414')
+export const SAMPLE_LOGO_ON_DARK = sampleLogo('#ffffff')
+
+/** The businesses the Letterhead specimens show: with both logos, with no
+ * dark version, and with no logo at all. */
+export const LETTERHEAD_BIZ = {
+  both: BIZ,
+  noDark: 'biz_nodark',
+  noLogo: 'biz_nologo',
+} as const
+
 const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   // Settings → Reports for Terence's business: its copy goes to info@.
-  'businesses:reportSettings': () => ({
+  'businesses:reportSettings': (args: { businessId?: string }) => ({
     tradingName: undefined,
     reportBrandName: undefined,
-    website: undefined,
+    website: 'www.pestm8.com.au',
     reportCopyEmail: 'info@pestm8.com.au',
     requireReportToComplete: false,
     email: 'info@pestm8.com.au',
+    logoOnDarkUrl:
+      args.businessId === LETTERHEAD_BIZ.both ? SAMPLE_LOGO_ON_DARK : null,
+  }),
+  // What Settings → Business reads live, keyed by which of the three.
+  'businesses:getBySlug': (args: { slug: string }) => ({
+    _id:
+      args.slug === 'nodark'
+        ? LETTERHEAD_BIZ.noDark
+        : args.slug === 'nologo'
+          ? LETTERHEAD_BIZ.noLogo
+          : LETTERHEAD_BIZ.both,
+    name: 'Pest M8 Pest Control',
+    slug: args.slug,
+    state: 'WA',
+    timezone: TZ,
+    abn: '51 824 753 556',
+    addressLine: '12 Wattle Street',
+    suburb: 'Bayswater',
+    postcode: '6053',
+    phone: '1800 737 868',
+    email: 'info@pestm8.com.au',
+    licenceNumber: 'PMT 4132',
+    logoUrl: args.slug === 'nologo' ? null : SAMPLE_LOGO,
+    membership: {
+      _id: 'm_owner',
+      role: 'owner',
+      canViewAllJobs: true,
+      colour: '#0A84FF',
+    },
   }),
   'deliveries:known': deliveriesKnown,
   'auditLog:forEntity': auditEntries,

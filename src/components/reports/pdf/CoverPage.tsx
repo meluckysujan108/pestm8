@@ -14,6 +14,9 @@ import {
 import { COLOURS, FONT, SIZES } from './theme'
 import type { ReportModel } from '../../../lib/reportTemplates/documentModel'
 
+/** The logo's box on the cover, in points. */
+export const COVER_LOGO_BOX = { width: 240, height: 63 } as const
+
 /**
  * The page a client sees first: their own house, the operator's mark, and what
  * this document is.
@@ -44,12 +47,16 @@ const styles = StyleSheet.create({
   // half a page of one solid colour reads as a printing fault.
   panel: { position: 'absolute', top: 0, left: 0, right: 0, height: '46%' },
   wave: { position: 'absolute', top: '33%', left: 0, right: 0, height: '17%' },
+  // The letterhead's own logo at letterhead size: 240pt is about a third of
+  // the page, where a wide lockup's tagline reads at 10pt. Up from 132 × 34
+  // at 55% in Sept 2026; raised a point of the page so it clears the rule
+  // below at its new height.
   logo: {
     position: 'absolute',
-    top: '55%',
+    top: '54%',
     left: SIZES.pageX,
-    width: 132,
-    height: 34,
+    width: COVER_LOGO_BOX.width,
+    height: COVER_LOGO_BOX.height,
     objectFit: 'contain',
     objectPosition: 'left',
   },

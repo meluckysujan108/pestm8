@@ -42,6 +42,7 @@ import {
   namedMembers,
   technicianSignatureSlots,
   toPresentContext,
+  withoutLogoFile,
 } from './lib/reportContext'
 import type {
   ReportContextSnapshot,
@@ -772,6 +773,18 @@ async function projectReport(
 
     return {
       ...report,
+      // Without its logo's file id, which every reader would otherwise hold
+      // (`withoutLogoFile`); the document has the logo as `logoUrl` below.
+      ...(report.contextSnapshot
+        ? {
+            contextSnapshot: {
+              ...report.contextSnapshot,
+              business:
+                report.contextSnapshot.business &&
+                withoutLogoFile(report.contextSnapshot.business),
+            },
+          }
+        : {}),
       signatureSlots: withoutImages(report.signatureSlots),
       property,
       customTemplate,
@@ -2735,6 +2748,12 @@ const PURGE_BATCH = 25
  * The version of the painter. Bumping it makes every report re-render on its
  * next open, which is how a fix to the document reaches files already drawn.
  * A superseded file is kept, never deleted: it is what someone was sent.
+ *
+ * Not bumped when the logo's boxes grew (Sept 2026, pdf/layout.tsx and
+ * pdf/CoverPage.tsx): a redraw moves a page's content under the markup drawn
+ * on it (`reportPdfAnnotations` are fractions of the page), and a report
+ * finalised before `contextSnapshot` existed would redraw with the business's
+ * details as they are now. Files drawn since print the new boxes.
  */
 export const RENDER_VERSION = 2
 

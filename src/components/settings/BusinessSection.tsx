@@ -1,10 +1,10 @@
 import { useId, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Camera } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { normaliseProductUrl } from '../../../convex/lib/products'
 import { FieldRow, SaveBar, SettingsGroup } from './ui'
+import { LetterheadLogos } from './LetterheadLogos'
 import { AbnInput } from '#/components/clients/AbnInput'
 import { EmailInput } from '#/components/forms/EmailInput'
 import { FormAlert } from '#/components/forms/FormAlert'
@@ -19,13 +19,10 @@ import {
 } from '#/components/forms/SaveWarnings'
 import { VerifiedAddressFields } from '#/components/forms/VerifiedAddressFields'
 import { AU_STATES, TIMEZONE_BY_STATE } from '#/lib/au'
-import { prepareUpload } from '#/lib/images/prepareUpload'
 import { rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import type { FunctionArgs, FunctionReturnType } from 'convex/server'
 import type { AddressValue } from '#/lib/addressVerify'
-import type { Id } from '../../../convex/_generated/dataModel'
-import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { useSavedFlash } from './useJustSaved'
 
 /** The business as the layout's route context carries it. */
@@ -82,8 +79,8 @@ const ADDRESS_ROWS =
  * and the printed address is in it.
  *
  * One form and one Save for all of it, shown only once something has changed.
- * The logo is the exception: picking one uploads it there and then, as there
- * is nothing to type and nothing to take back.
+ * The logos are the exception (`LetterheadLogos`): picking one uploads it
+ * there and then, as there is nothing to type and nothing to take back.
  */
 export function BusinessSection({
   business: snapshot,
@@ -110,7 +107,9 @@ export function BusinessSection({
   // load runs and which carries only what the shell needs. Until this answers
   // those two fields wait, disabled, and are left out of a save: a save sent
   // before it would otherwise write them blank.
-  const { data: printedOrNull } = useQuery(rq.reportSettings(businessId))
+  const { data: printedOrNull, isError: printedFailed } = useQuery(
+    rq.reportSettings(businessId),
+  )
   const printed = printedOrNull ?? undefined
 
   // `state` rides along in the address only for the checks;
@@ -213,37 +212,6 @@ export function BusinessSection({
     }
   })
 
-  const fileInput = useRef<HTMLInputElement>(null)
-  const [logoBusy, setLogoBusy] = useState(false)
-  const [logoFailed, setLogoFailed] = useState(false)
-  const getUploadUrl = useConvexMutation(api.businesses.generateUploadUrl)
-
-  async function onPickLogo(file: File) {
-    setLogoBusy(true)
-    setLogoFailed(false)
-    try {
-      // A logo prints a few centimetres wide on a letterhead, so it keeps its
-      // own smaller budget rather than a report photo's.
-      const image = await prepareUpload(file, { maxEdge: 800 })
-      const uploadUrl = await getUploadUrl({ businessId })
-      const res = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': image.blob.type },
-        body: image.blob,
-      })
-      if (!res.ok) throw new Error('upload failed')
-      const { storageId } = (await res.json()) as { storageId: string }
-      await convexUpdate({
-        businessId,
-        logoStorageId: storageId as Id<'_storage'>,
-      })
-    } catch {
-      setLogoFailed(true)
-    } finally {
-      setLogoBusy(false)
-    }
-  }
-
   const timezone = TIMEZONE_BY_STATE[values.state]
   const showSaveBar =
     dirty || save.isPending || flash.recently || warnings.checking
@@ -329,57 +297,20 @@ export function BusinessSection({
           // in this one paints to its edges, so it has nothing to clip.
           className="[&>div]:overflow-visible"
         >
-          <div className="px-3.5 py-3">
-            <div className="flex items-center gap-3">
-              {/* Pinned light: this previews artwork bound for a white PDF
-                  page, and business logos are overwhelmingly
-                  dark-on-transparent PNGs that would vanish against a dark
-                  tile. */}
-              <span
-                data-theme="light"
-                className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-3"
-              >
-                {business.logoUrl ? (
-                  <img
-                    src={business.logoUrl}
-                    alt="Business logo"
-                    className="size-full object-contain"
-                  />
-                ) : (
-                  <Camera size={22} strokeWidth={1.7} className="text-muted" />
-                )}
-              </span>
-              <span className="min-w-0 flex-1 text-body text-ink">Logo</span>
-              <button
-                type="button"
-                disabled={logoBusy || !hydrated}
-                onClick={() => fileInput.current?.click()}
-                className={`${LINK_BUTTON_COMPACT} shrink-0 px-3.5`}
-              >
-                {logoBusy
-                  ? 'Uploading…'
-                  : business.logoUrl
-                    ? 'Change logo'
-                    : 'Add logo'}
-              </button>
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0]
-                  e.target.value = ''
-                  if (file) void onPickLogo(file)
-                }}
-              />
-            </div>
-            {logoFailed && (
-              <p role="alert" className="mt-2 text-caption text-amber-ink">
-                Upload failed. Check your signal and try again.
-              </p>
-            )}
-          </div>
+          {/* The dark logo's address comes with the report settings. Read
+              as none if they could not be read, or come from a server that
+              does not send it yet, rather than a placeholder for good. */}
+          <LetterheadLogos
+            businessId={businessId}
+            logoUrl={business.logoUrl}
+            logoOnDarkUrl={
+              printedFailed
+                ? null
+                : printed === undefined
+                  ? undefined
+                  : (printed.logoOnDarkUrl ?? null)
+            }
+          />
 
           {/* Optional: plenty of businesses print no street address. Checked
               against the state chosen above, which is the one it will be

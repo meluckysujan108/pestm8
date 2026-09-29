@@ -1,6 +1,9 @@
 import { Image, StyleSheet, Text, View } from '@react-pdf/renderer'
 import { COLOURS, FONT, SIZES } from './theme'
 
+/** The logo's box at the top of every page, in points. */
+export const LOGO_BOX = { width: 160, height: 42 } as const
+
 /**
  * The chrome every page carries: who issued this document, what it is, and
  * where you are in it.
@@ -19,8 +22,17 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
     marginBottom: 14,
   },
-  logo: { width: 76, height: 30, objectFit: 'contain', objectPosition: 'left' },
-  logoPlaceholder: { width: 76, height: 30 },
+  // As tall as the business block beside it (a name and three lines), and
+  // wide enough that a wide logo's small print can be read: a wide logo
+  // fills the width, a square one the height. Was 76 × 30 until Sept 2026,
+  // which left a Pest M8 lockup about 3mm tall and its tagline a smudge.
+  logo: {
+    width: LOGO_BOX.width,
+    height: LOGO_BOX.height,
+    objectFit: 'contain',
+    objectPosition: 'left',
+  },
+  logoPlaceholder: { width: LOGO_BOX.width, height: LOGO_BOX.height },
   business: { alignItems: 'flex-end' },
   businessName: {
     fontSize: SIZES.caption + 0.5,

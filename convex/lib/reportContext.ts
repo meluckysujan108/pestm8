@@ -317,6 +317,21 @@ export async function buildReportContext(
 }
 
 /**
+ * The business as a document prints it, without the id of its logo's file.
+ * Every member reads this context, and a storage id is all it takes to claim
+ * a file uploaded in the last few minutes as one's own (a note's picture, a
+ * job's photo) and then delete it with that. The document gets its logo as a
+ * URL instead.
+ */
+export function withoutLogoFile<T extends { logoStorageId?: unknown }>(
+  business: T,
+): Omit<T, 'logoStorageId'> {
+  const printed = { ...business }
+  delete printed.logoStorageId
+  return printed
+}
+
+/**
  * A context snapshot, in the shape `present()` reads. A draft passes the whole
  * roster, so choosing a different technician resolves their licence at once
  * rather than after the next save; a signed report reads only what it froze.
@@ -328,7 +343,7 @@ export function toPresentContext(
   return {
     client: snapshot.client,
     property: snapshot.property && { address: snapshot.property.address },
-    business: snapshot.business,
+    business: snapshot.business && withoutLogoFile(snapshot.business),
     technician: snapshot.technician,
     roster: roster
       ? Object.fromEntries(roster.map((m) => [m._id, m.printed]))

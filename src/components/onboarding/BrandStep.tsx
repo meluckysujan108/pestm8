@@ -14,13 +14,16 @@ import {
 } from '#/components/forms/SaveWarnings'
 import { VerifiedAddressFields } from '#/components/forms/VerifiedAddressFields'
 import { FieldRow, SettingsGroup } from '#/components/settings/ui'
-import { prepareUpload } from '#/lib/images/prepareUpload'
 import { useHydrated } from '#/lib/useHydrated'
+import {
+  LOGO_NOTICE_COPY,
+  LOGO_WARNINGS,
+  useLogoUpload,
+} from '#/components/settings/useLogoUpload'
 import { ReportPreview } from './ReportPreview'
 import { AsideButton, ContinueButton, SetupFrame } from './SetupFrame'
 import type { AddressValue } from '#/lib/addressVerify'
 import type { BusinessRecord } from '#/components/settings/BusinessSection'
-import type { Id } from '../../../convex/_generated/dataModel'
 import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /** The address as card rows — the same restyle Settings' letterhead gives
@@ -97,33 +100,9 @@ export function BrandStep({
   const latest = useLatest(() => ({ phone, email, address }))
 
   const fileInput = useRef<HTMLInputElement>(null)
-  const [logoBusy, setLogoBusy] = useState(false)
-  const [logoFailed, setLogoFailed] = useState(false)
-  const getUploadUrl = useConvexMutation(api.businesses.generateUploadUrl)
-
-  async function onPickLogo(file: File) {
-    setLogoBusy(true)
-    setLogoFailed(false)
-    try {
-      const image = await prepareUpload(file, { maxEdge: 800 })
-      const uploadUrl = await getUploadUrl({ businessId: business._id })
-      const res = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': image.blob.type },
-        body: image.blob,
-      })
-      if (!res.ok) throw new Error('upload failed')
-      const { storageId } = (await res.json()) as { storageId: string }
-      await update({
-        businessId: business._id,
-        logoStorageId: storageId as Id<'_storage'>,
-      })
-    } catch {
-      setLogoFailed(true)
-    } finally {
-      setLogoBusy(false)
-    }
-  }
+  // The same upload Settings uses: transparency kept, trimmed to the
+  // artwork, and its email copy drawn beside it.
+  const logo = useLogoUpload(business._id, 'logo')
 
   return (
     <SetupFrame
@@ -157,9 +136,13 @@ export function BrandStep({
           >
             <div className="px-3.5 py-3">
               <div className="flex items-center gap-3">
+                {/* Pinned light, on paper: this previews artwork bound for a
+                    white page, and a logo with dark lettering on a clear
+                    background would vanish against a dark tile. Wide enough
+                    that a wide logo is not a speck. */}
                 <span
                   data-theme="light"
-                  className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-surface-3"
+                  className="flex h-14 w-24 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-hairline bg-paper px-1.5"
                 >
                   {business.logoUrl ? (
                     <img
@@ -183,11 +166,11 @@ export function BrandStep({
                 </span>
                 <button
                   type="button"
-                  disabled={logoBusy || !hydrated}
+                  disabled={logo.busy !== null || !hydrated}
                   onClick={() => fileInput.current?.click()}
                   className={`${LINK_BUTTON_COMPACT} shrink-0 px-3.5`}
                 >
-                  {logoBusy
+                  {logo.busy === 'uploading'
                     ? 'Uploading…'
                     : business.logoUrl
                       ? 'Change'
@@ -201,15 +184,22 @@ export function BrandStep({
                   onChange={(e) => {
                     const file = e.target.files?.[0]
                     e.target.value = ''
-                    if (file) void onPickLogo(file)
+                    if (file) void logo.upload(file)
                   }}
                 />
               </div>
-              {logoFailed && (
-                <p role="alert" className="mt-2 text-caption text-amber-ink">
-                  Upload failed. Check your signal and try again.
-                </p>
-              )}
+              {/* Always there, so what lands in it is read out. */}
+              <div aria-live="polite">
+                {logo.notices.map((notice) => (
+                  <p
+                    key={notice}
+                    role={LOGO_WARNINGS.has(notice) ? undefined : 'alert'}
+                    className="mt-2 text-caption text-amber-ink"
+                  >
+                    {LOGO_NOTICE_COPY[notice]}
+                  </p>
+                ))}
+              </div>
             </div>
 
             <FieldRow id={`${id}-phone`} label="Phone">
@@ -259,7 +249,7 @@ export function BrandStep({
 
           <ContinueButton
             pending={save.isPending}
-            disabled={!hydrated || logoBusy}
+            disabled={!hydrated || logo.busy !== null}
           >
             {warnings.saveLabel('Continue')}
           </ContinueButton>

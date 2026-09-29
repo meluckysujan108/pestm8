@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
-import { reportEmailHtml } from './reportEmail'
+import { reportEmailHtml, reportEmailText } from './reportEmail'
+import type { EmailLogo } from './reportEmail'
 
 /**
  * The email a client opens says what is attached and who it is from, and
@@ -8,7 +9,7 @@ import { reportEmailHtml } from './reportEmail'
  * one the business has to answer.
  */
 
-const html = reportEmailHtml({
+const content = {
   businessName: 'Pest M8 Pest Control',
   formName: 'Service Report',
   address: '27 Gemstone Parade, Wellard',
@@ -16,20 +17,182 @@ const html = reportEmailHtml({
     { label: 'Treatment', value: 'General Pest Control' },
     { label: 'Your Next Pest Control Visit is due in', value: '6-12 Months' },
   ],
+}
+
+/** The logo on its card, as `setLogo` stores it, and its light-lettered copy. */
+const CARD: EmailLogo = {
+  url: 'https://rare-retriever-156.convex.cloud/api/storage/card?a=1&b=2',
+  width: 220,
+  height: 72,
+  carded: true,
+}
+const ON_DARK: EmailLogo = {
+  url: 'https://rare-retriever-156.convex.cloud/api/storage/dark',
+  width: 220,
+  height: 72,
+  carded: true,
+}
+
+const html = reportEmailHtml(content)
+const lettered = reportEmailHtml({
+  ...content,
+  logo: CARD,
+  logoOnDark: ON_DARK,
 })
+const text = reportEmailText(content)
+
+/** What only the mail apps that follow the email's own dark styling read. */
+function darkRules(page: string): string {
+  const start = page.indexOf('@media (prefers-color-scheme: dark)')
+  expect(start).toBeGreaterThan(-1)
+  return page.slice(start, page.indexOf('</style>', start))
+}
 
 describe('the report email', () => {
   test('says the report is attached, and who it is from', () => {
-    expect(html).toContain(
-      'Your Service Report for 27 Gemstone Parade, Wellard',
-    )
-    expect(html).toContain('The full report is attached as a PDF.')
-    expect(html).toContain('Pest M8 Pest Control')
+    for (const page of [html, lettered]) {
+      expect(page).toContain(
+        'Your Service Report for 27 Gemstone Parade, Wellard',
+      )
+      expect(page).toContain('The full report is attached as a PDF.')
+      expect(page).toContain('Pest M8 Pest Control')
+    }
   })
 
   test('never asks the client to reply or get in touch', () => {
-    expect(html).not.toMatch(
-      /reply|needs checking|get in touch|contact us|let us know|questions/i,
+    for (const page of [html, lettered, text]) {
+      expect(page).not.toMatch(
+        /reply|needs checking|get in touch|contact us|let us know|questions/i,
+      )
+    }
+  })
+})
+
+describe('its letterhead', () => {
+  test('is the logo on its card, sized for Outlook for Windows too', () => {
+    const light = reportEmailHtml({ ...content, logo: CARD })
+    // Width and height as attributes, which is all Outlook for Windows
+    // reads, and the business's name as the words a blocked image shows.
+    expect(light).toContain(
+      '<img class="pm-ink" src="https://rare-retriever-156.convex.cloud/api/storage/card?a=1&amp;b=2" width="220" height="72" alt="Pest M8 Pest Control" style="display:block;',
     )
+  })
+
+  test('with no logo, is the business’s name, in words that darken', () => {
+    expect(html).not.toContain('<img')
+    expect(html).toContain(
+      '<div class="pm-ink" style="font-size:17px;line-height:1.3;font-weight:600;color:#1C1C1E;">Pest M8 Pest Control</div>',
+    )
+  })
+
+  test('swaps to the light-lettered logo in dark mode, and Outlook for Windows never sees it', () => {
+    // The card shows until dark styling hides it…
+    expect(lettered).toContain('<img class="pm-ink pm-on-light" src=')
+    // …and the other is hidden until the same styling shows it, behind a
+    // comment Outlook for Windows reads as "skip this".
+    // Named too, for a reader whose mail app blocks images in dark mode.
+    expect(lettered).toMatch(
+      /<!--\[if !mso\]><!--><img class="pm-ink pm-on-dark" src="https:\/\/rare-retriever-156\.convex\.cloud\/api\/storage\/dark" width="220" height="72" alt="Pest M8 Pest Control" style="display:none;mso-hide:all;/,
+    )
+    expect(lettered).toContain('<!--<![endif]-->')
+    const dark = darkRules(lettered)
+    expect(dark).toContain('.pm-on-light { display: none !important; }')
+    expect(dark).toContain('.pm-on-dark { display: block !important; }')
+    // Outlook.com marks the card, whose background it recolours, instead.
+    expect(lettered).toContain(
+      '[data-ogsb] .pm-on-dark { display: block !important; }',
+    )
+  })
+
+  test('without a light-lettered logo, the card stays in dark mode and nothing swaps', () => {
+    const light = reportEmailHtml({ ...content, logo: CARD })
+    expect(light).not.toContain('pm-on-dark')
+    expect(light).not.toContain('pm-on-light')
+    expect(light).not.toContain('data-ogsb')
+  })
+
+  test('a logo stored before cards existed is put on a white box that stays white', () => {
+    const OLD = { ...CARD, url: 'https://x.test/logo.jpg', carded: false }
+    const old = reportEmailHtml({ ...content, logo: OLD })
+    // No pm- class on the box, so dark mode leaves it white, and its words
+    // for a blocked image stay dark on it.
+    expect(old).toContain(
+      '<table role="presentation" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border-radius:10px;"><tr><td style="padding:10px;"><img src="https://x.test/logo.jpg"',
+    )
+    // Beside a light-lettered logo, the box is what swaps out.
+    const swapped = reportEmailHtml({
+      ...content,
+      logo: OLD,
+      logoOnDark: ON_DARK,
+    })
+    expect(swapped).toContain(
+      '<table role="presentation" class="pm-on-light" cellpadding="0" cellspacing="0" style="background:#FFFFFF;',
+    )
+  })
+})
+
+describe('in dark mode', () => {
+  test('it says it has a dark version, and only the dark styling changes a colour', () => {
+    for (const page of [html, lettered]) {
+      expect(page).toContain(
+        '<meta name="color-scheme" content="light dark" />',
+      )
+      // Light, written on the element itself: what every mail app shows
+      // until something darkens it.
+      expect(page).toContain('background:#FFFFFF;border-radius:16px')
+      const dark = darkRules(page)
+      expect(dark).toContain(
+        '.pm-card { background: #1C1C1E !important; border-color: #38383A !important; }',
+      )
+      expect(dark).toContain('.pm-ink { color: #FFFFFF !important; }')
+    }
+  })
+})
+
+describe('in Outlook for Windows and the inbox list', () => {
+  test('the card keeps to its width, and the red rule is a cell, not a div', () => {
+    expect(html).toContain(
+      '<!--[if mso]><table role="presentation" width="520" align="center"',
+    )
+    expect(html).toContain(
+      '<td class="pm-accent" width="44" height="3" style="width:44px;height:3px;',
+    )
+    expect(html).not.toContain('<div class="pm-accent"')
+  })
+
+  test('the inbox shows what is attached beside the subject', () => {
+    expect(html).toContain(
+      'mso-hide:all;font-size:1px;line-height:1px;color:#F2F2F7;opacity:0;">Your Service Report for 27 Gemstone Parade, Wellard. The full report is attached as a PDF.</div>',
+    )
+  })
+
+  test('a long value wraps rather than widening the card', () => {
+    expect(html).toContain('overflow-wrap:anywhere;">6-12 Months</td>')
+  })
+})
+
+describe('the plain-text copy beside it', () => {
+  test('carries the same words', () => {
+    expect(text).toBe(
+      [
+        'Your Service Report for 27 Gemstone Parade, Wellard',
+        '',
+        'Treatment: General Pest Control',
+        'Your Next Pest Control Visit is due in: 6-12 Months',
+        '',
+        'The full report is attached as a PDF.',
+        '',
+        'Pest M8 Pest Control',
+      ].join('\n'),
+    )
+  })
+
+  test('a question keeps its own punctuation', () => {
+    expect(
+      reportEmailText({
+        ...content,
+        facts: [{ label: 'Is it safe to commence work?', value: 'Yes' }],
+      }),
+    ).toContain('Is it safe to commence work? Yes')
   })
 })
