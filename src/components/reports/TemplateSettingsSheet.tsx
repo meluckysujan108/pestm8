@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Check } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import { fieldsOf, getTemplate } from '#/lib/reportTemplates'
@@ -11,6 +10,7 @@ import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD_COMPACT } from '#/components/forms/FormField'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { Bone } from '#/components/shell/Pending'
+import { TickBox } from './TickBox'
 
 /**
  * What a business may change about a form it did not write.
@@ -43,10 +43,16 @@ export function TemplateSettingsSheet({
     }),
   )
 
-  const signers = fieldsOf(template).filter(
+  const pads = fieldsOf(template).filter(
     (field): field is Extract<typeof field, { kind: 'signature' }> =>
       field.kind === 'signature',
   )
+  // Only a technician's pad can be required. The client's never is
+  // (`withOptionalClientSignatures`), so it is not offered as a choice that
+  // would not do anything.
+  const signers = pads.filter((field) => field.role !== 'client')
+  const technicianSlots = signers.map((field) => field.slot)
+  const hasClientPad = pads.some((field) => field.role === 'client')
 
   // Held once the query lands, so typing is not fighting a re-render from the
   // server's copy of what was just typed.
@@ -61,9 +67,12 @@ export function TemplateSettingsSheet({
     coverTitle: saved?.print?.cover?.title ?? '',
     coverSubtitle: saved?.print?.cover?.subtitle ?? '',
     formName: saved?.print?.formName ?? '',
-    requiredSigners:
+    // A client slot saved before the rule does nothing now, and is not
+    // written back.
+    requiredSigners: (
       saved?.requiredSigners ??
-      signers.filter((field) => field.required).map((field) => field.slot),
+      signers.filter((field) => field.required).map((field) => field.slot)
+    ).filter((slot) => technicianSlots.includes(slot)),
   }
 
   const convexSet = useConvexMutation(api.templateSettings.set)
@@ -172,7 +181,7 @@ export function TemplateSettingsSheet({
             </>
           )}
 
-          {signers.length > 0 && (
+          {pads.length > 0 && (
             <>
               <h3 className="section-label mt-4">
                 Must sign before it can be locked
@@ -200,21 +209,9 @@ export function TemplateSettingsSheet({
                             : 'border-hairline bg-surface-2'
                         }`}
                       >
-                        <span
-                          className={`flex size-5 shrink-0 items-center justify-center rounded-md ${
-                            on ? 'bg-ink text-surface' : 'bg-surface-3'
-                          }`}
-                        >
-                          {on && <Check size={13} strokeWidth={2.2} />}
-                        </span>
+                        <TickBox on={on} />
                         <span className="min-w-0 flex-1 truncate text-body text-ink">
                           {field.label.replace(/:$/, '')}
-                        </span>
-                        {/* The forms label both pads "Signature" and
-                            "Technician's Signature", so on their own the two rows
-                            read almost the same. The role is the difference. */}
-                        <span className="shrink-0 text-caption text-muted">
-                          {field.role === 'client' ? 'client' : 'technician'}
                         </span>
                       </button>
                     </li>
@@ -223,11 +220,19 @@ export function TemplateSettingsSheet({
               </ul>
               {/* The honest version of "owner-relaxable": turning one off is a
                   real decision about evidence, not a preference. */}
-              <p className="mt-1.5 text-caption text-muted">
-                A report cannot be locked until every pad ticked here holds a
-                signature. Turning one off does not remove the pad — it stops
-                the app insisting on it.
-              </p>
+              {signers.length > 0 && (
+                <p className="mt-1.5 text-caption text-muted">
+                  A report cannot be locked until every pad ticked here holds a
+                  signature. Turning one off does not remove the pad — it stops
+                  the app insisting on it.
+                </p>
+              )}
+              {hasClientPad && (
+                <p className="mt-1.5 text-caption text-ink-2">
+                  The client’s signature is never needed to lock a report. The
+                  pad stays on the form for when they’re there to sign.
+                </p>
+              )}
             </>
           )}
 

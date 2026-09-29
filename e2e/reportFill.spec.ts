@@ -636,8 +636,11 @@ test.describe('the sheet before the lock', () => {
     await expect(sheet.getByText('6 Months')).toBeVisible()
     // The gate answered No still locks — and must be impossible to miss.
     await expect(sheet.getByText('No', { exact: true })).toBeVisible()
-    // An unsigned client pad is a warning, never a refusal.
-    await expect(sheet.getByText(/Signature — not signed/)).toBeVisible()
+    // The client's pad is never needed to lock: said plainly, not as a
+    // warning that reads like something still to do.
+    await expect(
+      sheet.getByText('Client’s signature — not signed (optional)'),
+    ).toBeVisible()
     await expect(sheet.getByText('No photos')).toBeVisible()
 
     // The one answer nobody could have known any earlier.

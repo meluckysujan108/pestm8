@@ -249,6 +249,8 @@ function deliveryRows(args: { reportId: string }) {
 
 const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'deliveries:known': deliveriesKnown,
+  // Nothing set yet: the form's own rule, as a new business finds it.
+  'templateSettings:get': () => null,
   'deliveries:forReport': deliveryRows,
   'setupGuide:progress': () => ({
     hidden: false,

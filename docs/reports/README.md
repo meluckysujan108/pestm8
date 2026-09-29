@@ -116,8 +116,14 @@ draft somewhere" is the state it exists to catch — and a job type
 blocked at Complete is how a business learns to switch a policy off.
 
 **Template settings** (`convex/templateSettings.ts`) — cover title and
-subtitle, the footer's form name, and which signatures a report needs before
-it can lock. That is the whole writable surface; email is not part of it. A
+subtitle, the footer's form name, and which of the technician's signatures a
+report needs before it can lock. **A client's signature is never required** —
+not by a form, a clone or these settings — so a report locks on the
+technician's alone (`withOptionalClientSignatures`, applied where a draft's
+template is resolved, so the builder and `finalise` agree). The client's pad
+stays on the form for when they are there to sign, and the lock sheet calls it
+optional rather than warning about it. That is the whole writable surface;
+email is not part of it. A
 delivery's subject is computed per report (`deliveries.subjectFor`) and its
 recipients come from the form's own semantics, with the business's blind copy
 from `businesses.reportCopyEmail` — a business column, not a template one. Anything that would change a question

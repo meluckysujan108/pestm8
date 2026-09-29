@@ -153,6 +153,7 @@ const PLAN = {
   'lock-noemail': { before: async (p) => p.waitForTimeout(700) },
   delivered: {},
   send: { before: async (p) => p.waitForTimeout(700) },
+  'form-settings': { before: async (p) => p.waitForTimeout(700) },
   'send-off': {
     spec: 'send',
     before: async (p) => {

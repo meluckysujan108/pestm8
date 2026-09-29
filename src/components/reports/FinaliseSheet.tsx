@@ -6,6 +6,7 @@ import {
   Clock,
   FileText,
   Lock,
+  PenLine,
   Send,
   TriangleAlert,
 } from 'lucide-react'
@@ -183,13 +184,22 @@ export function FinaliseSheet({
       <ul className="mt-3 flex flex-col gap-2">
         {signatures.map((field) => {
           const signed = signedSlots.includes(field.slot)
+          // The client's pad is never needed to lock
+          // (`withOptionalClientSignatures`): said as the fact it is, not as
+          // a warning, which read as something still to be done.
+          if (field.role === 'client' && !signed) {
+            return (
+              <Row key={field.key} ok={false} optional>
+                {padName(field)} — not signed (optional)
+              </Row>
+            )
+          }
           return (
-            // An unsigned pad is a warning, not a refusal. A client who has
-            // already driven off cannot sign, and the visit still has to be
-            // recorded; a pad the form requires never reaches this sheet.
+            // An unsigned technician's pad is a warning, not a refusal: a
+            // business can stop insisting on one, and a pad it still insists
+            // on never reaches this sheet unsigned.
             <Row key={field.key} ok={signed} warn={!signed}>
-              {field.label.replace(/:$/, '')} —{' '}
-              {signed ? 'signed' : 'not signed'}
+              {padName(field)} — {signed ? 'signed' : 'not signed'}
             </Row>
           )
         })}
@@ -220,13 +230,28 @@ export function FinaliseSheet({
   )
 }
 
+/**
+ * What a signature pad is called here. The forms label the client's pad
+ * plain "Signature" beside "Technician's Signature", which on this sheet —
+ * out of the form's layout — reads as the technician's own.
+ */
+function padName(field: Extract<FieldDef, { kind: 'signature' }>): string {
+  const label = field.label.replace(/:$/, '')
+  return field.role === 'client' && !/client/i.test(label)
+    ? 'Client’s signature'
+    : label
+}
+
 function Row({
   ok,
   warn,
+  optional,
   children,
 }: {
   ok: boolean
   warn?: boolean
+  /** Not done, and not needed: neither a tick nor a warning. */
+  optional?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -235,6 +260,8 @@ function Row({
     >
       {warn ? (
         <TriangleAlert size={15} strokeWidth={2} className="shrink-0" />
+      ) : optional ? (
+        <PenLine size={15} strokeWidth={2} className="shrink-0 text-muted" />
       ) : (
         <Check
           size={15}

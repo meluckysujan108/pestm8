@@ -12,6 +12,7 @@ import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
 import { SignSheet } from '#/components/reports/fields/SignSheet'
 import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
+import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
 import { LatestDelivery, SendSheet } from '#/components/reports/SendSheet'
 import { getTemplate } from '#/lib/reportTemplates'
 import { Sheet } from '#/components/primitives/Sheet'
@@ -589,6 +590,20 @@ function Send() {
   )
 }
 
+/** A form's own settings: only the technician's pad can be required. */
+function FormSettings() {
+  return (
+    <Phone>
+      <TemplateSettingsSheet
+        open
+        onClose={() => {}}
+        businessId={bizId}
+        templateId="serviceReport"
+      />
+    </Phone>
+  )
+}
+
 function RecycleBin() {
   return (
     <Phone>
@@ -623,4 +638,5 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'lock-noemail': LockNoEmail,
   delivered: Delivered,
   send: Send,
+  'form-settings': FormSettings,
 }

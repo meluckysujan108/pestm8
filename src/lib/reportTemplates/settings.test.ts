@@ -2,6 +2,8 @@ import { describe, expect, test } from 'vitest'
 import { fieldsOf, getTemplate } from './index'
 import { applyTemplateSettings } from './settings'
 import { resolveReportTemplate } from './resolve'
+import { validateReport } from './validate'
+import type { CustomTemplateShape } from './resolve'
 
 /**
  * What a business may change about a form it did not write.
@@ -62,11 +64,13 @@ describe('who has to sign', () => {
     expect(signerSlots(serviceReport)).toEqual(['technician'])
   })
 
-  test('a business can require the client as well', () => {
+  test('a business cannot require the client’s signature — only a technician’s', () => {
+    // Settings saved before the rule may name the client's slot. It asks for
+    // nothing now: the client's pad is never needed to lock.
     const applied = applyTemplateSettings(serviceReport, {
       requiredSigners: ['technician', 'client'],
     })
-    expect(signerSlots(applied).sort()).toEqual(['client', 'technician'])
+    expect(signerSlots(applied)).toEqual(['technician'])
   })
 
   test('a business can require nobody — the pads stay, the insistence goes', () => {
@@ -87,6 +91,87 @@ describe('who has to sign', () => {
     expect(signerSlots(applyTemplateSettings(serviceReport, {}))).toEqual([
       'technician',
     ])
+  })
+})
+
+describe('the client’s signature is never needed to lock', () => {
+  /** A business's own form whose author ticked Required on the client's pad. */
+  const clone: CustomTemplateShape = {
+    name: 'Bayside Service Report',
+    shortName: 'Service',
+    legalBasis: 'APVMA',
+    blurb: '',
+    boilerplate: '',
+    sections: [
+      {
+        title: 'Sign off',
+        fields: [
+          {
+            kind: 'signature',
+            key: 'techSignature',
+            label: 'Technician',
+            slot: 'technician',
+            role: 'technician',
+            required: true,
+          },
+          {
+            kind: 'signature',
+            key: 'clientSignature',
+            label: 'Client',
+            slot: 'client',
+            role: 'client',
+            required: true,
+          },
+        ],
+      },
+    ],
+  }
+
+  function lockable(signedSlots: Array<string>) {
+    const template = resolveReportTemplate({
+      template: 'custom',
+      customTemplate: clone,
+    })
+    const data: Record<string, unknown> = {}
+    for (const slot of signedSlots) {
+      data[slot === 'client' ? 'clientSignature' : 'techSignature'] = {
+        signedAt: 1790000000000,
+      }
+    }
+    return validateReport({ template, data, signedSlots })
+  }
+
+  test('a business’s own form that ticked Required on the client’s pad locks without it', () => {
+    expect(lockable(['technician']).ok).toBe(true)
+  })
+
+  test('the technician’s signature is still required', () => {
+    const result = lockable([])
+    expect(result.ok).toBe(false)
+    expect(result.ok ? [] : result.issues.map((issue) => issue.key)).toEqual([
+      'techSignature',
+    ])
+  })
+
+  test('on every built-in form, as a draft, only the technician’s pads are required', () => {
+    for (const id of [
+      'serviceReport',
+      'timberPestInspection',
+      'termiteManagementCert',
+    ] as const) {
+      const pads = fieldsOf(
+        resolveReportTemplate({
+          template: id,
+          // Today's revision: an absent version means v1, whose pads differ.
+          templateVersion: getTemplate(id).version,
+          settings: { requiredSigners: ['technician', 'installer', 'client'] },
+        }),
+      ).filter((field) => field.kind === 'signature')
+      expect(pads.some((field) => field.role === 'client')).toBe(true)
+      for (const field of pads) {
+        expect(field.required === true).toBe(field.role === 'technician')
+      }
+    }
   })
 })
 
