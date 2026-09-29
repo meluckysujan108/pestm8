@@ -367,6 +367,8 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 | `LINK_BUTTON_COMPACT`      | Same, 44px                                | The same, compact                                                                                                    |
 | `HEADER_ADD_BUTTON`        | Round red +, 36px drawn, 44px to a finger | The page's create action in `PageHeader`: New job, New client, New report. With an `aria-label` and a size-20 `Plus` |
 
+`DeleteButton` (`primitives/DeleteButton.tsx`) is the Delete at the foot of a sheet or below an edit form: a red word and a `Trash2` on the grey fill, full width, 44px ("Delete client", "Delete product"). It only opens the `ConfirmDialog`; the red fill is the dialog's.
+
 **Rules:**
 
 - **Red means commit.** One red button per view (`HEADER_ADD_BUTTON` aside). A destructive confirm is red too, but only inside `ConfirmDialog`. No button is ever filled blue.
@@ -541,8 +543,8 @@ Never on one tap.
 - **Words:**
   - "Delete" is for records (a note, a product, a draft).
   - "Remove" is for attachments and memberships (a photo, a file, a contact, a team member).
-  - "Archive" is for what can come back (clients, templates).
-- **Recovery** is a place, not a toast: Recently Deleted (30 days), Archived, "Offer again".
+  - "Archive" is for what can come back into use (templates).
+- **Recovery** is a place, not a toast: the Recycle bin (Settings → Recycle bin, 30 days: clients, properties, jobs and recurring services, with everything that went with them), Recently Deleted (report drafts and notes, 30 days), Archived, "Offer again". A delete's confirm says where it can be got back from.
 
 ### Hold to act
 

@@ -85,6 +85,10 @@ type Folder =
  */
 function inFolder(note: Note, folder: Folder, viewer: NoteViewer): boolean {
   const live = note.deletedAt === undefined
+  // Recently Deleted holds the notes deleted on their own. One that went
+  // into the Recycle bin with its client, site or job waits there with it,
+  // and comes back only with it (convex/bin.ts).
+  const onItsOwn = note.binEntryId === undefined
   if (isPrivate(note)) {
     const mine = note.authorMembershipId === viewer.real._id
     switch (folder) {
@@ -94,7 +98,7 @@ function inFolder(note: Note, folder: Folder, viewer: NoteViewer): boolean {
       case 'everyone':
         return live && !mine && viewer.godView
       case 'trash':
-        return !live && (mine || viewer.godView)
+        return !live && onItsOwn && (mine || viewer.godView)
       default:
         return false
     }
@@ -112,7 +116,7 @@ function inFolder(note: Note, folder: Folder, viewer: NoteViewer): boolean {
     case 'team':
       return live && noteKind(note) === 'team'
     case 'trash':
-      return !live
+      return !live && onItsOwn
   }
 }
 
@@ -274,6 +278,8 @@ export const list = query({
           case 'trash':
             return q.and(
               q.neq(q.field('deletedAt'), undefined),
+              // Not one waiting in the Recycle bin with its client (inFolder).
+              q.eq(q.field('binEntryId'), undefined),
               viewer.godView ? q.eq(true, true) : sharedOrMine,
             )
         }
@@ -371,7 +377,10 @@ export const search = query({
       .filter((q) => {
         const live =
           filter === 'trash'
-            ? q.neq(q.field('deletedAt'), undefined)
+            ? q.and(
+                q.neq(q.field('deletedAt'), undefined),
+                q.eq(q.field('binEntryId'), undefined),
+              )
             : q.eq(q.field('deletedAt'), undefined)
         const personal = q.eq(q.field('visibility'), 'private')
         const mine = q.eq(q.field('authorMembershipId'), me)
@@ -860,6 +869,9 @@ async function requireDeletable(
   const me = (await requireActor(ctx, businessId)).actor.real
   const note = await requireNote(ctx, businessId, noteId)
   if (!canDeleteNote(me, note)) throw new ConvexError('NO_ACCESS')
+  // In the Recycle bin with its client, site or job: restored or wiped with
+  // them, from the bin, never on its own (convex/bin.ts).
+  if (note.binEntryId !== undefined) throw new ConvexError('IN_RECYCLE_BIN')
   return note
 }
 
@@ -932,6 +944,10 @@ export const purgeExpired = internalMutation({
     const batch = await ctx.db
       .query('notes')
       .withIndex('by_deletedAt', (q) => q.gt('deletedAt', 0).lt('deletedAt', cutoff))
+      // A note in the Recycle bin with its client, site or job goes when
+      // they do, not on its own clock: wiped here, restoring the client
+      // would bring it back without them (convex/bin.ts).
+      .filter((q) => q.eq(q.field('binEntryId'), undefined))
       .take(25)
     for (const note of batch) await purgeNote(ctx, note)
     if (batch.length === 25) {

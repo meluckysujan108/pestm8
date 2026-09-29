@@ -15,6 +15,7 @@ import {
   ListChecks,
   ShieldCheck,
   SunMoon,
+  Trash2,
   User,
   Users,
 } from 'lucide-react'
@@ -356,6 +357,15 @@ function SettingsHub() {
                 icon={FileText}
                 tint="red"
                 title="Report settings"
+              />
+            )}
+            {canManageBusiness && (
+              <SettingsLinkRow
+                to="/$businessSlug/settings/bin"
+                params={{ businessSlug }}
+                icon={Trash2}
+                tint="grey"
+                title="Recycle bin"
               />
             )}
           </SettingsGroup>

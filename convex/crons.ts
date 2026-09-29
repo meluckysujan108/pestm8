@@ -41,6 +41,20 @@ crons.cron(
 )
 
 /**
+ * The Recycle bin keeps a deleted client, property, job or Recurring Job for
+ * the same thirty days, then wipes it and everything that went with it
+ * (convex/bin.ts). A finalised report never goes into the bin.
+ *
+ * Twenty minutes after the drafts purge, for the same reason.
+ */
+crons.cron(
+  'wipe expired recycle bin entries',
+  '40 19 * * *', // ~03:40 Australia/Perth
+  internal.bin.purgeExpired,
+  {},
+)
+
+/**
  * Ends switches that have run past their twelve hours, for readers.
  *
  * Hourly rather than daily because this is what a read sees: writes enforce the

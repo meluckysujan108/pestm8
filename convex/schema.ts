@@ -629,6 +629,8 @@ export default defineSchema({
   })
     .index('by_business', ['businessId'])
     .index('by_client', ['clientId'])
+    // Restore and wipe find a Recycle bin group by its entry (convex/bin.ts).
+    .index('by_binEntryId', ['binEntryId'])
     // An import asks "is this site already here?" by postcode, then compares
     // the street — exact, and bounded to one postcode's worth of sites.
     .index('by_business_and_postcode', ['businessId', 'postcode'])
@@ -684,7 +686,8 @@ export default defineSchema({
   })
     .index('by_business', ['businessId'])
     .index('by_import', ['importId'])
-    .index('by_business_and_clientNumber', ['businessId', 'clientNumber']),
+    .index('by_business_and_clientNumber', ['businessId', 'clientNumber'])
+    .index('by_binEntryId', ['binEntryId']),
 
   /**
    * A client list brought across from a spreadsheet or another app
@@ -735,7 +738,10 @@ export default defineSchema({
     // via `clientContacts.setPrimary`. Undefined/false for every other row.
     isPrimary: v.optional(v.boolean()),
     createdAt: v.number(),
-  }).index('by_client', ['clientId']),
+    ...binFields,
+  })
+    .index('by_client', ['clientId'])
+    .index('by_binEntryId', ['binEntryId']),
 
   jobs: defineTable({
     businessId: v.id('businesses'),
@@ -809,7 +815,8 @@ export default defineSchema({
     .index('by_assignee_status', ['assignedMembershipId', 'status'])
     // Materialising recurrences must be idempotent, which means asking "does
     // this occurrence already exist" on every cron run.
-    .index('by_recurrence', ['recurrenceId']),
+    .index('by_recurrence', ['recurrenceId'])
+    .index('by_binEntryId', ['binEntryId']),
 
   // A Recurring Job: the standing arrangement, of which each `jobs` row
   // carrying this row's id is one visit.
@@ -847,7 +854,8 @@ export default defineSchema({
     .index('by_business_active', ['businessId', 'active'])
     // Undoing a client import asks, of each site it brought in, whether a
     // series is booked there (convex/clientImports.ts).
-    .index('by_property', ['propertyId']),
+    .index('by_property', ['propertyId'])
+    .index('by_binEntryId', ['binEntryId']),
 
   reports: defineTable({
     businessId: v.id('businesses'),
@@ -1103,6 +1111,7 @@ export default defineSchema({
     .index('by_business_updated', ['businessId', 'updatedAt'])
     // The nightly purge's range scan; undefined sorts below every number.
     .index('by_deletedAt', ['deletedAt'])
+    .index('by_binEntryId', ['binEntryId'])
     .searchIndex('search', {
       searchField: 'searchText',
       filterFields: ['businessId'],
@@ -1170,6 +1179,7 @@ export default defineSchema({
     .index('by_client', ['clientId'])
     // The nightly purge's range scan; undefined sorts below every number.
     .index('by_deletedAt', ['deletedAt'])
+    .index('by_binEntryId', ['binEntryId'])
     .searchIndex('search', {
       searchField: 'plainText',
       filterFields: ['businessId'],
@@ -1306,7 +1316,19 @@ export default defineSchema({
     caption: v.optional(v.string()),
     order: v.number(),
     createdAt: v.number(),
-  }).index('by_job', ['jobId']),
+    /**
+     * The file was claimed for this job alone when it was added: uploaded
+     * minutes before, and held by nothing else (jobs.addPhoto). Only then may
+     * wiping the job delete the file too (convex/bin.ts) — a photo added
+     * before claims existed may share its file with something a wipe must
+     * not reach, such as a signed report. Absent on those.
+     */
+    claimed: v.optional(v.boolean()),
+  })
+    .index('by_job', ['jobId'])
+    // "Does anything else hold this file?", asked before it is claimed and
+    // before it is deleted.
+    .index('by_storageId', ['storageId']),
 
   /**
    * An open "acting in someone else's account" session.
@@ -1917,9 +1939,29 @@ export default defineSchema({
       v.object({ kind: v.literal('property'), id: v.id('properties') }),
       v.object({ kind: v.literal('job'), id: v.id('jobs') }),
       v.object({ kind: v.literal('recurrence'), id: v.id('recurrences') }),
+      v.object({ kind: v.literal('contact'), id: v.id('clientContacts') }),
     ),
     deletedAt: v.number(),
-    deletedByMembershipId: v.id('memberships'),
+    /** Who deleted it. Absent only for a client archived before the bin
+     * existed and moved here by migrations/archivedClientsToBinV1, where
+     * nothing recorded who archived it. */
+    deletedByMembershipId: v.optional(v.id('memberships')),
+    /** That client's `archivedAt`: when it was hidden, which the bin page
+     * shows instead of a delete nobody made. */
+    archivedAt: v.optional(v.number()),
+    /** What went with the record, counted when it was deleted — the bin
+     * page's "with 2 properties and 14 jobs". Numbers only. */
+    counts: v.object({
+      properties: v.number(),
+      jobs: v.number(),
+      recurrences: v.number(),
+      notes: v.number(),
+      drafts: v.number(),
+    }),
+    /** Delete forever has begun (by hand, Empty bin, or 30 days on): the
+     * group is being wiped in batches, and can no longer be restored. The
+     * entry goes when the last of it does. */
+    wipeStartedAt: v.optional(v.number()),
   })
     // The bin page, newest first.
     .index('by_businessId_and_deletedAt', ['businessId', 'deletedAt'])

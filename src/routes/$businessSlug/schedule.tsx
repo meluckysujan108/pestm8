@@ -129,6 +129,7 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
 function SchedulePage() {
   const { business } = Route.useRouteContext()
   const canDispatch = useCan('jobs.dispatch')
+  const canManageClients = useCan('clients.manage')
   // The account being worked in, so the day opens on the right person's round.
   const acting = useActing()
   const mode = useViewMode()
@@ -550,6 +551,7 @@ function SchedulePage() {
         timezone={business.timezone}
         jobId={openJobId}
         canReassign={canDispatch}
+        canDelete={canManageClients}
         onClose={() => setOpenJobId(null)}
       />
 

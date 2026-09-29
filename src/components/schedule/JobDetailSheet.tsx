@@ -25,6 +25,7 @@ import {
   formatJobDate,
   formatJobMoney,
   formatTime,
+  formatWhen,
 } from '#/lib/format'
 import { WeatherGlyph } from './WeatherGlyph'
 import { WeatherCredit } from './WeatherCredit'
@@ -50,6 +51,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { DeleteButton } from '#/components/primitives/DeleteButton'
+import type { ErrorCopy } from '#/components/forms/describeError'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 
@@ -136,6 +139,7 @@ export function JobDetailSheet({
   timezone,
   jobId,
   canReassign,
+  canDelete,
   onClose,
 }: {
   businessId: Id<'businesses'>
@@ -143,6 +147,9 @@ export function JobDetailSheet({
   timezone: string
   jobId: string | null
   canReassign: boolean
+  /** `clients.manage`: the owner and contractors. Offers Delete on a job
+   * they may edit (the server's `canEdit`). */
+  canDelete: boolean
   onClose: () => void
 }) {
   return (
@@ -160,6 +167,8 @@ export function JobDetailSheet({
           timezone={timezone}
           jobId={jobId as Id<'jobs'>}
           canReassign={canReassign}
+          canDelete={canDelete}
+          onClose={onClose}
         />
       )}
     </SheetShell>
@@ -172,18 +181,25 @@ function JobDetailBody({
   timezone,
   jobId,
   canReassign,
+  canDelete,
+  onClose,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
   timezone: string
   jobId: Id<'jobs'>
   canReassign: boolean
+  canDelete: boolean
+  onClose: () => void
 }) {
   const jobQuery = useQuery(convexQuery(api.jobs.get, { businessId, jobId }))
   const job = jobQuery.data
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
   const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] = useState(false)
   const [makeRecurringOpen, setMakeRecurringOpen] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState<'job' | 'series' | null>(
+    null,
+  )
   const [editing, setEditing] = useState(false)
   const hydrated = useHydrated()
 
@@ -207,6 +223,21 @@ function JobDetailBody({
   const cancel = useMutation({
     mutationFn: (args: { businessId: Id<'businesses'>; jobId: Id<'jobs'> }) =>
       convexCancel(args),
+  })
+
+  // Both close the sheet: what it showed is in the Recycle bin now.
+  const convexDeleteJob = useConvexMutation(api.bin.deleteJob)
+  const convexDeleteSeries = useConvexMutation(api.bin.deleteSeries)
+  const remove = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      jobId: Id<'jobs'>
+      what: 'job' | 'series'
+    }) =>
+      args.what === 'job'
+        ? convexDeleteJob({ businessId: args.businessId, jobId: args.jobId })
+        : convexDeleteSeries({ businessId: args.businessId, jobId: args.jobId }),
+    onSuccess: onClose,
   })
 
   const convexStopRepeating = useConvexMutation(api.recurrences.stopFromJob)
@@ -572,6 +603,73 @@ function JobDetailBody({
             </p>
           )}
 
+          {canDelete && job.canEdit && (
+            <>
+              <DeleteButton
+                disabled={!hydrated}
+                onClick={() => setConfirmDelete('job')}
+              >
+                Delete job
+              </DeleteButton>
+              {job.recurrence && (
+                <DeleteButton
+                  className="mt-2"
+                  disabled={!hydrated}
+                  onClick={() => setConfirmDelete('series')}
+                >
+                  Delete this recurring service
+                </DeleteButton>
+              )}
+              {/* Here, not in the dialog: it closes as Delete is pressed. */}
+              <FormAlert
+                className="mt-2"
+                error={remove.isError ? remove.error : null}
+                copy={DELETE_COPY}
+              />
+            </>
+          )}
+
+          <ConfirmDialog
+            open={confirmDelete === 'job'}
+            onOpenChange={(open) => !open && setConfirmDelete(null)}
+            title="Delete this job?"
+            body={
+              <>
+                {job.jobType} on {formatWhen(job.scheduledAt, timezone)} goes
+                to the Recycle bin with its notes and draft reports. The
+                business owner can restore it from Settings → Recycle bin for
+                30 days. Finalised reports are kept in Reports.
+              </>
+            }
+            cancel="Keep job"
+            confirm="Delete job"
+            pending={remove.isPending}
+            pendingLabel="Deleting…"
+            onConfirm={() =>
+              remove.mutate({ businessId, jobId: job._id, what: 'job' })
+            }
+          />
+          <ConfirmDialog
+            open={confirmDelete === 'series'}
+            onOpenChange={(open) => !open && setConfirmDelete(null)}
+            title="Delete this recurring service?"
+            body={
+              <>
+                Every visit of it, past and future, goes to the Recycle bin
+                with their notes and draft reports, and no more are booked.
+                The business owner can restore it from Settings → Recycle bin
+                for 30 days. Finalised reports are kept in Reports.
+              </>
+            }
+            cancel="Keep service"
+            confirm="Delete"
+            pending={remove.isPending}
+            pendingLabel="Deleting…"
+            onConfirm={() =>
+              remove.mutate({ businessId, jobId: job._id, what: 'series' })
+            }
+          />
+
           <ConfirmDialog
             open={confirmCancelOpen}
             onOpenChange={setConfirmCancelOpen}
@@ -610,10 +708,10 @@ function JobDetailBody({
             title="Stop repeating this service?"
             body={
               <>
-                This visit stays booked as shown. Any other future visits
-                already generated for this series will be removed from the
-                schedule — this cannot be undone. Past and completed visits
-                are not affected.
+                This visit stays booked as shown. The series’ other future
+                visits that haven’t started are cancelled — they stay in the
+                schedule marked cancelled, and no more are booked. Past and
+                completed visits are not affected.
               </>
             }
             cancel="Keep repeating"
@@ -1425,4 +1523,17 @@ function Section({
       </div>
     </section>
   )
+}
+
+/** Deleting a job or its series, refused — in words. */
+const DELETE_COPY: ErrorCopy = {
+  offline:
+    'Could not delete: this device is offline. Try again when you have signal.',
+  NOT_FOUND:
+    'Could not delete: it has changed since you opened this. Close it and look again.',
+  NO_ACCESS:
+    'Could not delete: your access does not cover this. Ask the business owner.',
+  TOO_MUCH_TO_DELETE:
+    'Could not delete: there are too many visits to move to the Recycle bin at once. Ask the business owner.',
+  default: 'Could not delete. Check your signal and try again.',
 }
