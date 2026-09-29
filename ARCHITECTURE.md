@@ -278,6 +278,19 @@ jobs: {
   recurrenceId?,                        // null = one-off
   completedAt?, createdAt
 }
+// *Amended (29 Sept 2026):* a job can be for several services. `jobType`
+// stays one string and names them all, joined by ", " ("General Pest
+// Control, Termite Inspection, Rodents"); convex/lib/jobTypes.ts splits and
+// joins it, and says why a second field was not added. What needs the
+// services one by one splits it: the reports a job suggests (one per form),
+// the treatments a service report starts on, the report-before-complete
+// policy (any service with a form), and analytics (a job counts under each).
+// Also `notes?`: the job's own plain-text note (≤1000 characters,
+// lib/jobNotes.ts), read by whoever can see the job, written from New Job or
+// the Notes section of its sheet, and open on an invoiced job. It is not a
+// Notes-library note, and a series puts a booking's note on its first visit
+// only — holding it as `recurrences.firstVisitNotes` until one is booked,
+// when the series starts in the past with no visit inside the horizon.
 .index("by_business_date", ["businessId", "scheduledAt"])
 .index("by_assignee_date", ["assignedMembershipId", "scheduledAt"])
 .index("by_property", ["propertyId"])

@@ -14,7 +14,7 @@ import {
   resolvePropertyId,
   withClient,
 } from './properties'
-import { suggestTemplate } from '../src/lib/reportTemplates/suggest'
+import { suggestTemplates } from '../src/lib/reportTemplates/suggest'
 import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
@@ -44,6 +44,7 @@ import {
 } from './lib/jobAccess'
 import { UNASSIGNED_COLOUR } from './lib/colours'
 import { normaliseWorkOrder } from './lib/workOrder'
+import { normaliseJobNotes } from './lib/jobNotes'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -697,6 +698,9 @@ export const create = mutation({
     scheduledAt: v.number(),
     durationMinutes: v.number(),
     workOrder: v.optional(v.string()),
+    // The job's own note (lib/jobNotes.ts). Sent only when one was typed, so
+    // booking never depends on a backend that knows the field.
+    notes: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -705,6 +709,7 @@ export const create = mutation({
       newClient,
       newProperty,
       workOrder: rawWorkOrder,
+      notes: rawNotes,
       ...args
     },
   ) => {
@@ -712,6 +717,7 @@ export const create = mutation({
     // Refused before any other work: a throw rolls the whole booking back,
     // new client included, so nothing is left half-made either way.
     const workOrder = normaliseWorkOrder(rawWorkOrder)
+    const notes = normaliseJobNotes(rawNotes)
 
     // Who the ACTING account may put work onto (`canDispatchTo`): the owner
     // anyone, a contractor their team, anyone else themselves. The roster's
@@ -738,6 +744,7 @@ export const create = mutation({
       createdAt: Date.now(),
       jobNumber,
       ...(workOrder !== undefined && { workOrder }),
+      ...(notes !== undefined && { notes }),
     })
 
     await recordOnBehalf(ctx, writeAttribution(env.actor), {
@@ -783,6 +790,8 @@ export const update = mutation({
     assignedMembershipId: v.optional(v.id('memberships')),
     // A blank string clears it; leaving it out leaves it alone.
     workOrder: v.optional(v.string()),
+    // The same: '' clears the job's note, absent leaves it alone.
+    notes: v.optional(v.string()),
     // Deliberately not `jobStatus`: 'recurring' is system-only
     // (lib/jobStatus.ts), refused here at the door so a client that sends it
     // fails argument validation before any handler code runs.
@@ -810,10 +819,15 @@ export const update = mutation({
     // An invoiced job is a billed job: re-pricing, rescheduling or moving it
     // silently contradicts an invoice that has already gone out. Its STATUS is
     // an ordinary choice like any other, so a status-only change still passes
-    // — moving it back out of invoiced is how its details are reopened.
+    // — moving it back out of invoiced is how its details are reopened. So
+    // does its note, which the invoice does not carry: "paid cash on the day"
+    // is written after the invoice, not before it.
     const touchesDetails = Object.entries(
       patch as Record<string, unknown>,
-    ).some(([field, value]) => field !== 'status' && value !== undefined)
+    ).some(
+      ([field, value]) =>
+        field !== 'status' && field !== 'notes' && value !== undefined,
+    )
     if (job.status === 'invoiced' && touchesDetails) {
       throw new ConvexError('JOB_INVOICED')
     }
@@ -841,6 +855,12 @@ export const update = mutation({
       const workOrder = normaliseWorkOrder(patch.workOrder)
       if (workOrder === job.workOrder) delete fields.workOrder
       else fields.workOrder = workOrder
+    }
+    // The same rule for the note.
+    if (patch.notes !== undefined) {
+      const notes = normaliseJobNotes(patch.notes)
+      if (notes === job.notes) delete fields.notes
+      else fields.notes = notes
     }
 
     /**
@@ -899,7 +919,10 @@ export const complete = mutation({
 async function assertReportIssued(ctx: MutationCtx, job: Doc<'jobs'>) {
   const business = await ctx.db.get(job.businessId)
   if (business?.requireReportToComplete !== true) return
-  if (suggestTemplate(job.jobType) === null) return
+  // Any of the job's services with a form is enough: a general pest service
+  // done alongside a quote visit still leaves a record behind. One finalised
+  // report answers it, as it always has — not one per form.
+  if (suggestTemplates(job.jobType).length === 0) return
 
   const reports = await ctx.db
     .query('reports')

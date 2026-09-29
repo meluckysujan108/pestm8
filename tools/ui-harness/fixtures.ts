@@ -32,7 +32,9 @@ export const JOBS = [
   {
     _id: 'j1',
     jobNumber: 1041,
-    jobType: 'General Pest Control',
+    // Several services on one visit (convex/lib/jobTypes.ts), and a note.
+    jobType: 'General Pest Control, Termite Inspection, Rodents',
+    notes: 'Tenant home after 10 — ring first.\nDog in the back yard.',
     price: 22000,
     scheduledAt: perthToday(8),
     durationMinutes: 60,
@@ -182,6 +184,47 @@ function jobGet(args: { jobId: string }) {
     },
     canEdit: true,
   }
+}
+
+/**
+ * What `properties.list` answers: every job's own site, then enough more that
+ * a picker's list is longer than the screen — the case that has to scroll.
+ */
+const MORE_SITES = [
+  ['Aisha Rahman', '4 Coode St', 'Como', '6152'],
+  ['Ben Carter', '17 Leake St', 'Bayswater', '6053'],
+  ['Chloe Nguyen', '88 Walcott St', 'Mount Lawley', '6050'],
+  ['Dev Patel', '3 Rokeby Rd', 'Subiaco', '6008'],
+  ['Ella Moore', '120 Oxford St', 'Leederville', '6007'],
+  ['Finn O’Brien', '9 Harvest Tce', 'West Perth', '6005'],
+  ['Grace Liu', '41 Guildford Rd', 'Maylands', '6051'],
+  ['Hamish Reid', '6 Kalamunda Rd', 'Kalamunda', '6076'],
+  ['Isla Thompson', '22 Canning Hwy', 'Applecross', '6153'],
+  ['Jack Wilson', '15 Scarborough Beach Rd', 'Scarborough', '6019'],
+  ['Kira Anand', '70 Great Eastern Hwy', 'Rivervale', '6103'],
+  ['Liam Hughes', '2 Marine Pde', 'Cottesloe', '6011'],
+] as const
+
+function propertiesList() {
+  const jobSites = JOBS.map((row) => ({
+    _id: 'p_' + row._id,
+    addressLine: row.addressLine,
+    suburb: row.suburb,
+    postcode: row.postcode,
+    client: {
+      name: row.clientName,
+      kind: row.clientKind,
+      phone: row.clientPhone,
+    },
+  }))
+  const more = MORE_SITES.map(([name, addressLine, suburb, postcode], i) => ({
+    _id: `p_more${i}`,
+    addressLine,
+    suburb,
+    postcode,
+    client: { name, kind: 'person' },
+  }))
+  return [...jobSites, ...more]
 }
 
 const CLIENT = {
@@ -534,6 +577,7 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'jobs:photos': () => [],
   'properties:jobHistory': () => [],
   'reports:listByProperty': () => [],
+  'properties:list': propertiesList,
   'memberships:listForBusiness': () =>
     MEMBERS.map((m) => ({ ...m, displayName: m.name, status: 'active' })),
   'weather:forDays': () => [],

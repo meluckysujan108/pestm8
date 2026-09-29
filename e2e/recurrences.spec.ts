@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  chooseJobTypes,
   chooseProperty,
   expectRejected,
   setupBusinessWithSub,
@@ -370,10 +371,7 @@ test('booking a repeating job from the schedule shows it as recurring', async ({
 
   const sheet = page.getByRole('dialog')
   await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
-  await sheet.getByLabel('Job type').click()
-  await page
-    .getByRole('button', { name: 'General Pest Control', exact: true })
-    .click()
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
   await sheet.getByRole('radio', { name: 'Recurring Job' }).click()
   await sheet.getByLabel('Repeat every').fill('3')
   await sheet.getByLabel('Repeat unit').selectOption('month')
@@ -424,8 +422,7 @@ test('a custom interval the old fixed list could not express', async ({
   // intervals (monthly/quarterly/sixMonthly/yearly) had no way to book.
   const sheet = page.getByRole('dialog')
   await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
-  await sheet.getByLabel('Job type').click()
-  await page.getByRole('button', { name: 'Rodents', exact: true }).click()
+  await chooseJobTypes(page, sheet, ['Rodents'])
   await sheet.getByRole('radio', { name: 'Recurring Job' }).click()
   await sheet.getByLabel('Repeat every').fill('2')
   await sheet.getByLabel('Repeat unit').selectOption('week')
@@ -476,8 +473,7 @@ test('editing a one-off job into a recurring one, then stopping it, from its own
 
   const newJobSheet = page.getByRole('dialog')
   await chooseProperty(page, newJobSheet, 'Nguyen', /J\. Nguyen/)
-  await newJobSheet.getByLabel('Job type').click()
-  await page.getByRole('button', { name: 'Cockroaches', exact: true }).click()
+  await chooseJobTypes(page, newJobSheet, ['Cockroaches'])
   await newJobSheet.getByLabel('Start').fill('11:00')
   await newJobSheet.getByLabel('Price (AUD)').fill('150')
   await newJobSheet.getByRole('button', { name: 'Book job' }).click()

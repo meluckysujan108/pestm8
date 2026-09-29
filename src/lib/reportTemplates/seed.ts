@@ -1,5 +1,5 @@
 import { fieldsOf } from './index'
-import { treatmentForJobType } from './suggest'
+import { treatmentsForJobType } from './suggest'
 import { weatherAnswerFrom } from './weatherAnswer'
 import type { DayForecast } from './weatherAnswer'
 import type { CellDef, FieldDef, ReportTemplate } from './types'
@@ -150,27 +150,30 @@ export function seedFromContext(
 }
 
 /**
- * The first treatment row, pre-ticked from the job's type.
+ * The first treatment row, pre-ticked from the job's services — every one of
+ * them the form has a treatment for.
  *
  * Bound by the column's own option library rather than by template id, and
- * only when the business's list still contains that treatment — an owner who
- * renames "Rodents" gets no row rather than a row naming something their form
- * no longer offers.
+ * only with the treatments the business's list still contains — an owner who
+ * renames "Rodents" gets no tick rather than one naming something their form
+ * no longer offers, and a row only when at least one is left.
  */
 function seedTreatmentRow(
   field: Extract<FieldDef, { kind: 'repeater' }>,
   jobType: string | undefined,
 ): Record<string, unknown> | null {
-  const treatment = treatmentForJobType(jobType)
-  if (!treatment) return null
+  const wanted = treatmentsForJobType(jobType)
+  if (wanted.length === 0) return null
   const column = field.columns.find(
     (cell) => 'optionsFrom' in cell && cell.optionsFrom === 'treatments',
   )
   if (!column) return null
-  if (!optionsOf(column).includes(treatment)) return null
+  const offered = optionsOf(column)
+  const treatments = wanted.filter((treatment) => offered.includes(treatment))
+  if (treatments.length === 0) return null
   // Rows carry an id so the grid can key and reorder them; `crypto.randomUUID`
   // is available in the browser and in Convex's runtime alike.
-  return { _id: crypto.randomUUID(), [column.key]: [treatment] }
+  return { _id: crypto.randomUUID(), [column.key]: treatments }
 }
 
 function optionsOf(field: FieldDef | CellDef): Array<string> {

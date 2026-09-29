@@ -1,6 +1,15 @@
+import { createContext, useContext, useEffect, useState } from 'react'
 import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import type { ReactNode, RefObject } from 'react'
+
+/**
+ * True inside a sheet. A sheet opened from one — a picker over the New Job
+ * form, Make recurring over a job — draws its scrim over the sheet below as
+ * well as the page: at the usual layer the one below stayed bright, with its
+ * own ✕ showing above the new one's, and it was not clear which was which.
+ */
+const InSheet = createContext(false)
 
 /**
  * The frame every bottom sheet in the app is drawn in: the dimmed backdrop,
@@ -19,6 +28,7 @@ export function SheetShell({
   children,
   className = '',
   returnFocusRef,
+  initialFocusRef,
 }: {
   open: boolean
   /** Dragged down, tapped outside, or ✕: the one way the sheet closes. */
@@ -29,13 +39,44 @@ export function SheetShell({
   className?: string
   /** Where focus goes when the sheet shuts (see `Sheet`). */
   returnFocusRef?: RefObject<HTMLElement | null>
+  /** Where focus goes as it opens (see `Sheet`). */
+  initialFocusRef?: RefObject<HTMLElement | null>
 }) {
+  const overSheet = useContext(InSheet)
   return (
-    <Drawer.Root open={open} onOpenChange={(next) => !next && onClose()}>
+    <Drawer.Root
+      open={open}
+      onOpenChange={(next) => !next && onClose()}
+      // Over another sheet, the body lock stays the first sheet's. Vaul keeps
+      // one lock for the page (iOS Safari, outside the installed app), and a
+      // sheet not told it is nested undoes it as it closes — the page then
+      // scrolled under New Job after every pick.
+      nested={overSheet}
+    >
       <Drawer.Portal>
-        <Drawer.Overlay className="fixed inset-0 z-40 bg-scrim" />
+        <Drawer.Overlay
+          className={`fixed inset-0 bg-scrim ${overSheet ? 'z-50' : 'z-40'}`}
+        />
         <Drawer.Content
           className={`fixed inset-x-0 bottom-0 z-50 mx-auto flex max-h-[92vh] w-full max-w-[460px] flex-col rounded-t-sheet bg-canvas outline-none ${className}`}
+          onOpenAutoFocus={
+            initialFocusRef
+              ? (event) => {
+                  // Vaul keeps focus where it was unless asked, so a phone's
+                  // keyboard does not rise over a sheet nobody has typed in
+                  // yet. Where there is a keyboard already — a mouse means a
+                  // desk — the field is ready to type into. On a phone the
+                  // sheet itself takes focus, which raises no keyboard: left
+                  // on the field that opened it, focus sat inside a sheet
+                  // just hidden from screen readers, which went on reading it.
+                  if (window.matchMedia('(pointer: fine)').matches) {
+                    initialFocusRef.current?.focus()
+                  } else if (event.target instanceof HTMLElement) {
+                    event.target.focus()
+                  }
+                }
+              : undefined
+          }
           onCloseAutoFocus={
             returnFocusRef
               ? (event) => {
@@ -47,7 +88,7 @@ export function SheetShell({
           }
         >
           <div className="mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline" />
-          {children}
+          <InSheet.Provider value>{children}</InSheet.Provider>
           <SheetCloseButton onClick={onClose} />
         </Drawer.Content>
       </Drawer.Portal>
@@ -65,8 +106,9 @@ export const SHEET_BODY =
 /**
  * A bottom sheet with a title, a scrolling body and an optional footer.
  *
- * The content is mounted only while open: a sheet holding a long searchable
- * list should not keep that list rendered behind every other screen.
+ * The content is mounted only while open, and while it slides away: a sheet
+ * holding a long searchable list should not keep that list rendered behind
+ * every other screen, nor shrink to its title as it leaves.
  */
 export function Sheet({
   open,
@@ -76,6 +118,7 @@ export function Sheet({
   children,
   footer,
   returnFocusRef,
+  initialFocusRef,
 }: {
   open: boolean
   onClose: () => void
@@ -92,9 +135,30 @@ export function Sheet({
    * keyboard or screen reader. Left out, the sheet behaves as it always has.
    */
   returnFocusRef?: RefObject<HTMLElement | null>
+  /**
+   * A search field to type into as the sheet opens — on a computer only. On
+   * a phone focus stays put, as in every sheet: a keyboard that rises on
+   * its own covers half of what the person opened the sheet to see.
+   */
+  initialFocusRef?: RefObject<HTMLElement | null>
 }) {
+  const [mounted, setMounted] = useState(open)
+  if (open && !mounted) setMounted(true)
+  useEffect(() => {
+    if (open) return
+    // Vaul's exit takes half a second. Unmounted at once, a picker closed by
+    // a pick collapsed to its title and Done before it slid away.
+    const leaving = window.setTimeout(() => setMounted(false), 500)
+    return () => window.clearTimeout(leaving)
+  }, [open])
+
   return (
-    <SheetShell open={open} onClose={onClose} returnFocusRef={returnFocusRef}>
+    <SheetShell
+      open={open}
+      onClose={onClose}
+      returnFocusRef={returnFocusRef}
+      initialFocusRef={initialFocusRef}
+    >
       <div className="px-4 pb-2 pt-3">
         <Drawer.Title className="pr-10 text-sheet-title text-ink">
           {title}
@@ -112,7 +176,7 @@ export function Sheet({
 
       {/* Without a footer the content is the last thing in the sheet, so
           it is what has to clear the home indicator. */}
-      {open && (
+      {mounted && (
         <div
           className={
             footer ? 'min-h-0 flex-1 overflow-y-auto px-4 pb-2' : SHEET_BODY

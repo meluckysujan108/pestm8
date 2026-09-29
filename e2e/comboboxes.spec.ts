@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  chooseJobTypes,
   chooseProperty,
   clickUntil,
   signInViaUi,
@@ -39,9 +40,7 @@ test('the job-type combobox accepts a value typed outside the fixed list', async
 
   const sheet = page.getByRole('dialog')
   await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
-  await sheet.getByLabel('Job type').click()
-  await page.getByRole('textbox', { name: 'Search or add a job type' }).fill('Possum Removal')
-  await page.getByRole('button', { name: 'Add "Possum Removal" as a new job type' }).click()
+  await chooseJobTypes(page, sheet, ['Possum Removal'])
   await sheet.getByLabel('Start').fill('09:00')
   await sheet.getByLabel('Price (AUD)').fill('200')
   await sheet.getByRole('button', { name: 'Book job' }).click()
@@ -76,8 +75,7 @@ test('the property combobox filters by client name, not just address', async ({ 
   await expect(page.getByRole('button', { name: /J\. Nguyen/ })).toHaveCount(0)
 
   await page.getByRole('button', { name: /M\. Roberts/ }).click()
-  await sheet.getByLabel('Job type').click()
-  await page.getByRole('button', { name: 'Rodents', exact: true }).click()
+  await chooseJobTypes(page, sheet, ['Rodents'])
   await sheet.getByLabel('Start').fill('10:00')
   await sheet.getByLabel('Price (AUD)').fill('180')
   await sheet.getByRole('button', { name: 'Book job' }).click()
@@ -140,6 +138,7 @@ test('a new job starts with no client chosen, and will not book until one is', a
   await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
   await expect(sheet.getByText('Choose the client and address for this job.')).toHaveCount(0)
   await expect(property).not.toHaveAttribute('aria-invalid', 'true')
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
 
@@ -187,17 +186,101 @@ test('the client search matches every word typed, across name and address', asyn
   await expect(page.getByText('No client or address matches.')).toBeVisible()
 
   // Enter with two sites still listed takes neither: that would be a guess.
+  // The picker stays open on both, and closed, the field still asks.
   await search.fill('a')
   await expect(page.getByRole('button', { name: /J\. Nguyen/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /M\. Roberts/ })).toBeVisible()
   await search.press('Enter')
   await expect(search).toBeVisible()
+  await expect(page.getByRole('button', { name: /M\. Roberts/ })).toBeVisible()
+  await page.keyboard.press('Escape')
   await expect(sheet.getByLabel('Property')).toContainText('Choose a client and address')
 
   // A postcode, and Enter takes the only match left.
+  await sheet.getByLabel('Property').click()
   await search.fill('6062')
   await search.press('Enter')
   await expect(sheet.getByLabel('Property')).toContainText('M. Roberts — 4 Kalinda Way, Morley')
+})
+
+/**
+ * The two things a business asked for on 29 Sept 2026: "we do general pest
+ * with termites and rodents", and somewhere on the job for a note.
+ */
+test('a job for several services, with a note, books as one job that says both', async ({
+  page,
+}) => {
+  const s = await setup('combo-services')
+  const day = perthToday()
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/schedule?date=${day}`)
+
+  const newJob = page.getByRole('button', { name: 'New job' })
+  await expect(newJob).toBeEnabled()
+  await newJob.click()
+
+  const sheet = page.getByRole('dialog')
+  await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
+  // Nothing is ticked until the person ticks it, and Book says so.
+  const jobType = sheet.getByLabel('Job type')
+  await expect(jobType).toHaveText('Choose one or more')
+  await sheet.getByLabel('Start').fill('09:00')
+  await sheet.getByRole('button', { name: 'Book job' }).click()
+  await expect(
+    sheet.getByRole('alert').filter({ hasText: 'Choose at least one job type.' }),
+  ).toBeVisible()
+  await expect(jobType).toBeFocused()
+
+  await jobType.click()
+  const picker = page.getByRole('dialog', { name: 'Job type' })
+  for (const service of ['General Pest Control', 'Termite Inspection', 'Rodents']) {
+    await picker.getByRole('checkbox', { name: service, exact: true }).click()
+  }
+  await picker.getByRole('button', { name: 'Done' }).click()
+  await expect(picker).toBeHidden()
+  const services = 'General Pest Control, Termite Inspection, Rodents'
+  await expect(sheet.getByLabel('Job type')).toHaveText(services)
+  await expect(sheet.getByText('Choose at least one job type.')).toHaveCount(0)
+
+  await sheet
+    .getByLabel('Notes (optional)')
+    .fill('Tenant home after 10 — ring first.')
+  await sheet.getByRole('button', { name: 'Book job' }).click()
+  await expect(sheet).toBeHidden()
+
+  const jobs = await s.owner.client.query(api.jobs.listDay, {
+    businessId: s.businessId,
+    dayKey: day,
+  })
+  expect(jobs).toHaveLength(1)
+  expect(jobs[0].jobType).toBe(services)
+  expect(jobs[0].notes).toBe('Tenant home after 10 — ring first.')
+
+  // The card names every service, and carries the note.
+  const card = page.getByRole('button', { name: new RegExp(services) })
+  await expect(card).toContainText('Tenant home after 10 — ring first.')
+
+  // On the job, the note is changed in place, without the edit form.
+  await card.click()
+  const detail = page.getByRole('dialog')
+  await detail.getByRole('button', { name: 'Edit note' }).click()
+  await detail
+    .getByLabel('Note for this job')
+    .fill('Tenant home after 11 — ring first.')
+  await detail.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(
+    detail.getByText('Tenant home after 11 — ring first.'),
+  ).toBeVisible()
+  await expect(detail.getByLabel('Note for this job')).toHaveCount(0)
+
+  // Both forms the job produces are a tap away.
+  await expect(
+    detail.getByRole('button', { name: 'Start Service' }),
+  ).toBeVisible()
+  await expect(
+    detail.getByRole('button', { name: 'Start Inspection' }),
+  ).toBeVisible()
 })
 
 test('a brand-new client books without choosing an existing one', async ({
@@ -220,6 +303,7 @@ test('a brand-new client books without choosing an existing one', async ({
   await sheet.getByLabel('Suburb').fill('Guildford')
   await sheet.getByLabel('Postcode').fill('6055')
   await sheet.getByLabel('Start').fill('13:00')
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
 

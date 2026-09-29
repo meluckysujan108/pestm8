@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  chooseJobTypes,
   clickUntil,
   setupBusinessWithSub,
   signInViaUi,
@@ -303,6 +304,7 @@ test('a new site for an existing business is booked from New Job, without a seco
   await page.getByRole('button', { name: /^Mahal Mart/ }).click()
   await sheet.getByLabel('Site contact name').fill('Priya Shah')
   await sheet.getByLabel('Site contact number').fill('0400 222 333')
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
   // On the card: the day's weather line names the suburb too, once the

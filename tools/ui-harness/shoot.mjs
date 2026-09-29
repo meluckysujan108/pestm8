@@ -19,6 +19,56 @@ const PLAN = {
   },
   jobcards: { full: true },
   jobdetail: { before: async (p) => p.waitForTimeout(900) },
+  // Three services and a note: the title, the Notes section, and a report
+  // shortcut for each form the job produces.
+  'jobdetail-services': { before: async (p) => p.waitForTimeout(900) },
+  'jobdetail-services-reports': {
+    spec: 'jobdetail-services',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p
+        .getByRole('heading', { name: 'Reports for this visit' })
+        .scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  'jobdetail-note-editor': {
+    spec: 'jobdetail',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Add a note' }).click()
+      await p.keyboard.type('Ring the site manager on arrival.')
+      await p.waitForTimeout(300)
+    },
+  },
+  // The edit form, and its pickers — each a sheet of its own over it.
+  'jobdetail-edit': {
+    spec: 'jobdetail',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Edit job details' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'jobtype-picker': {
+    spec: 'jobdetail',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Edit job details' }).click()
+      await p.getByRole('button', { name: 'Job type' }).click()
+      await p.getByRole('checkbox', { name: 'Rodents' }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  'property-picker': {
+    spec: 'jobdetail',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Edit job details' }).click()
+      await p.getByRole('button', { name: 'Property' }).click()
+      await p.waitForTimeout(700)
+    },
+  },
   'jobdetail-loading': {
     spec: 'jobdetail-loading',
     before: async (p) => p.waitForTimeout(700),

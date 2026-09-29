@@ -5,7 +5,7 @@ import { useConvexMutation } from '@convex-dev/react-query'
 import { Lock, Plus } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
-import { suggestTemplate } from '#/lib/reportTemplates/suggest'
+import { suggestTemplates } from '#/lib/reportTemplates/suggest'
 import { useHydrated } from '#/lib/useHydrated'
 import type { ReactNode } from 'react'
 import type { TemplateId } from '#/lib/reportTemplates'
@@ -156,7 +156,8 @@ function ReportLine({
  *
  * A termite inspection produces a Timber Pest Inspection; a general pest job
  * a Service Report. Offering that directly skips the picker entirely, and the
- * picker stays one tap away for the times the guess is wrong.
+ * picker stays one tap away for the times the guess is wrong. A job for both
+ * offers both, in the order its services are listed.
  */
 export function StartReportButtons({
   businessId,
@@ -191,12 +192,11 @@ export function StartReportButtons({
       }),
   })
 
-  const suggestedId = suggestTemplate(jobType)
-  const suggested = suggestedId
-    ? CREATABLE_TEMPLATES.find((template) => template.id === suggestedId)
-    : undefined
+  const suggested = suggestTemplates(jobType).flatMap(
+    (id) => CREATABLE_TEMPLATES.find((template) => template.id === id) ?? [],
+  )
 
-  if (!suggested) {
+  if (suggested.length === 0) {
     return (
       <Link
         to="/$businessSlug/reports/new"
@@ -210,36 +210,57 @@ export function StartReportButtons({
     )
   }
 
+  const start = (template: (typeof suggested)[number], width: string) => (
+    <button
+      key={template.id}
+      type="button"
+      disabled={create.isPending || !hydrated}
+      onClick={() =>
+        create.mutate({
+          businessId,
+          propertyId,
+          jobId,
+          template: template.id as TemplateId,
+          legalBasis: template.legalBasis,
+          // Seeded on the server from the job and the client record; an
+          // empty object is the caller saying it has nothing to add.
+          data: {},
+        })
+      }
+      className={`${NEUTRAL_BUTTON_COMPACT} flex items-center justify-center gap-2 ${width}`}
+    >
+      <Plus size={16} strokeWidth={2.2} />
+      {create.isPending && create.variables.template === template.id
+        ? 'Starting…'
+        : `Start ${template.shortName}`}
+    </button>
+  )
+  const other = (className: string) => (
+    <Link
+      to="/$businessSlug/reports/new"
+      params={{ businessSlug }}
+      search={{ propertyId, jobId }}
+      className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center ${className}`}
+    >
+      Other…
+    </Link>
+  )
+
+  // One form, as it has always been: the form and Other… side by side.
+  if (suggested.length === 1) {
+    return (
+      <div className="flex gap-2">
+        {start(suggested[0], 'flex-1')}
+        {other('px-3')}
+      </div>
+    )
+  }
+
+  // One for each form the job's services produce, then Other… under them.
   return (
-    <div className="flex gap-2">
-      <button
-        type="button"
-        disabled={create.isPending || !hydrated}
-        onClick={() =>
-          create.mutate({
-            businessId,
-            propertyId,
-            jobId,
-            template: suggested.id as TemplateId,
-            legalBasis: suggested.legalBasis,
-            // Seeded on the server from the job and the client record; an
-            // empty object is the caller saying it has nothing to add.
-            data: {},
-          })
-        }
-        className={`${NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2`}
-      >
-        <Plus size={16} strokeWidth={2.2} />
-        {create.isPending ? 'Starting…' : `Start ${suggested.shortName}`}
-      </button>
-      <Link
-        to="/$businessSlug/reports/new"
-        params={{ businessSlug }}
-        search={{ propertyId, jobId }}
-        className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center px-3`}
-      >
-        Other…
-      </Link>
+    <div className="flex flex-col gap-2">
+      {suggested.map((template) => start(template, 'w-full'))}
+      {other('w-full')}
     </div>
   )
 }
