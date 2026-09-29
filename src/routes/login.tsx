@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
 import { SecondStepForm } from '#/components/auth/SecondStepForm'
+import { InstallLink } from '#/components/install/InstallLink'
 import { authClient, needsSecondStep } from '#/lib/auth-client'
 import { forgetCachedPages } from '#/lib/rootState'
 import { useHydrated } from '#/lib/useHydrated'
@@ -133,6 +134,7 @@ function LoginPage() {
           >
             Forgot password?
           </Link>
+          <InstallLink />
         </form>
       )}
     </main>

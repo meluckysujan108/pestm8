@@ -1,4 +1,10 @@
 import { useSyncExternalStore } from 'react'
+import {
+  forgetInstalled,
+  installMethod,
+  rememberInstalled,
+} from './installMethod'
+import type { InstallMethod } from './installMethod'
 
 /**
  * Putting PestM8 on the Home Screen — which matters more here than for most
@@ -13,6 +19,9 @@ import { useSyncExternalStore } from 'react'
  * the event is caught here, as this module loads, and kept for the screen
  * that offers it. It is not `preventDefault`ed: Chrome's own banner, where it
  * shows one, is left to do what it did before.
+ *
+ * Which steps each device is shown is lib/installMethod.ts; the screens that
+ * show them are components/install/.
  */
 
 type InstallPromptEvent = Event & {
@@ -21,6 +30,15 @@ type InstallPromptEvent = Event & {
 }
 
 let deferred: InstallPromptEvent | null = null
+/**
+ * How far an install from this page has got: accepted in Chrome's prompt
+ * (it can take a few seconds more), then confirmed by `appinstalled`.
+ */
+export type InstallProgress = 'installing' | 'installed'
+let progress: InstallProgress | null = null
+/** TanStack Router's key for the history entry the last Back or Forward
+ * went to (`cameByHistory`). */
+let traversedTo: string | undefined
 const listeners = new Set<() => void>()
 
 function notify() {
@@ -30,11 +48,51 @@ function notify() {
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeinstallprompt', (event) => {
     deferred = event as InstallPromptEvent
+    // Chrome offers only what is not installed: if this browser thought it
+    // was, the app has since been deleted, and the schedule may ask again.
+    forgetInstalled(browserStorage())
     notify()
   })
   window.addEventListener('appinstalled', () => {
     deferred = null
+    progress = 'installed'
+    // So the schedule's card doesn't ask this browser again.
+    rememberInstalled(browserStorage())
     notify()
+  })
+  window.addEventListener('popstate', () => {
+    traversedTo = (window.history.state as { __TSR_key?: string } | null)
+      ?.__TSR_key
+  })
+}
+
+/**
+ * Whether the page at this history entry (TanStack Router's key for it) was
+ * reached with Back or Forward. The router puts the scroll back where it was
+ * then, so nothing may appear above it that was not there before.
+ */
+export function cameByHistory(key: string | undefined): boolean {
+  return key !== undefined && key === traversedTo
+}
+
+/** This browser's `localStorage`, or null where reading it throws (a
+ * private window, storage switched off). */
+export function browserStorage(): Storage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.localStorage
+  } catch {
+    return null
+  }
+}
+
+/** How this browser installs PestM8 (lib/installMethod.ts). */
+export function currentInstallMethod(): InstallMethod {
+  const nav = navigator as Partial<Navigator>
+  return installMethod({
+    userAgent: nav.userAgent ?? '',
+    platform: nav.platform ?? '',
+    maxTouchPoints: nav.maxTouchPoints ?? 0,
+    standalone: isStandalone(),
   })
 }
 
@@ -77,8 +135,11 @@ export function useInstallPrompt(): (() => Promise<boolean>) | null {
     try {
       await event.prompt()
       const { outcome } = await event.userChoice
-      // A prompt shows once; either way, this one is spent.
+      // A prompt shows once; either way, this one is spent. Accepted, the
+      // app takes a few seconds more to arrive, and until `appinstalled`
+      // says it has, the page says so rather than showing the steps again.
       deferred = null
+      if (outcome === 'accepted' && progress === null) progress = 'installing'
       notify()
       return outcome === 'accepted'
     } catch {
@@ -87,4 +148,26 @@ export function useInstallPrompt(): (() => Promise<boolean>) | null {
       return false
     }
   }
+}
+
+/**
+ * How this browser installs PestM8, or null while the page hydrates: the
+ * server cannot know which phone it is, so the first render must not either.
+ */
+export function useInstallMethod(): InstallMethod | null {
+  return useSyncExternalStore(subscribe, currentInstallMethod, () => null)
+}
+
+/** Opened as the installed app. False while the page hydrates. */
+export function useStandalone(): boolean {
+  return useSyncExternalStore(subscribe, isStandalone, () => false)
+}
+
+/** An install from this page: accepted, then arrived. Null otherwise. */
+export function useInstallProgress(): InstallProgress | null {
+  return useSyncExternalStore(
+    subscribe,
+    () => progress,
+    () => null,
+  )
 }
