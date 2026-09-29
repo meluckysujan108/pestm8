@@ -18,6 +18,7 @@ import { Segmented } from '#/components/primitives/Segmented'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { describeError } from '#/components/forms/describeError'
+import { isOffline } from '#/lib/online'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
@@ -450,10 +451,16 @@ function TrashActions({
     }) => convexRestore(args),
   })
   const forever = useMutation({
-    mutationFn: (args: {
+    mutationFn: async (args: {
       businessId: Id<'businesses'>
       reportId: Id<'reports'>
-    }) => convexRemove(args),
+    }) => {
+      // For good, so never later: held for signal, it would go through
+      // whenever the signal came back, after "Deleting…" had been given up
+      // on. So it says so now instead.
+      if (isOffline()) throw new Error('offline')
+      return convexRemove(args)
+    },
     onSuccess: () => setConfirming(false),
   })
 
@@ -506,6 +513,8 @@ function TrashActions({
         error={
           forever.isError
             ? describeError(forever.error, {
+                offline:
+                  'Could not delete the draft: this device is offline. Try again when you have signal.',
                 default:
                   'Could not delete the draft. Check your signal and try again.',
               })

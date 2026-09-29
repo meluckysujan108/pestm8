@@ -29,9 +29,11 @@ import { RowPending } from '#/components/shell/Pending'
 import { formatWhen } from '#/lib/format'
 import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
 import { FormAlert } from '#/components/forms/FormAlert'
+import type { ErrorCopy } from '#/components/forms/describeError'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 import { TickBox } from './TickBox'
 import { useHydrated } from '#/lib/useHydrated'
+import { isOffline } from '#/lib/online'
 
 /**
  * Sending a finished report to the people it is for.
@@ -91,6 +93,50 @@ export function sendErrorCode(error: unknown): string {
   return (
     Object.keys(SEND_ERROR).find((code) => message.includes(code)) ?? 'UNKNOWN'
   )
+}
+
+/**
+ * A tap of Send refused before anything went — only ever for want of signal
+ * (`sendToEach`), since each address's own failure is said beside it.
+ */
+export const SEND_REFUSED: ErrorCopy = {
+  offline:
+    'Could not send: this device is offline. Nothing was sent — try again when you have signal.',
+  default: 'Could not send. Check your signal and try again.',
+}
+
+/** How the send to one address went: no code when it went. */
+export type SendOutcome = { address: string; code: string | null }
+
+/**
+ * One send per recipient, and one outcome per recipient.
+ *
+ * They genuinely can differ — the client's goes while the provider refuses
+ * a strata office's, or the hourly limit is reached halfway — so a single
+ * pass/fail for the whole tap would report one of them wrongly. Nothing an
+ * address meets throws: the sheet says what happened to each.
+ *
+ * No signal is the exception, refused before the first send. The Convex
+ * client would hold each one on the dropped socket and email it whenever the
+ * signal came back — after the person had given up on the sheet, and perhaps
+ * shared the PDF another way. Inside the loop, the refusal would read as each
+ * address's own failure.
+ */
+export async function sendToEach(
+  addresses: ReadonlyArray<string>,
+  sendOne: (to: string) => Promise<unknown>,
+): Promise<Array<SendOutcome>> {
+  if (isOffline()) throw new Error('offline')
+  const results: Array<SendOutcome> = []
+  for (const address of addresses) {
+    try {
+      await sendOne(address)
+      results.push({ address, code: null })
+    } catch (error) {
+      results.push({ address, code: sendErrorCode(error) })
+    }
+  }
+  return results
 }
 
 /**
@@ -211,28 +257,9 @@ export function SendSheet({
     copy !== null && addresses.some((address) => address !== copy)
 
   const convexSend = useConvexAction(api.email.sendReportPdf)
-
-  /**
-   * One send per recipient, and one outcome per recipient.
-   *
-   * They genuinely can differ — the client's goes while the provider refuses
-   * a strata office's, or the hourly limit is reached halfway — so a single
-   * pass/fail for the whole tap would report one of them wrongly. Nothing
-   * throws: the summary below says what happened to each.
-   */
   const send = useMutation({
-    mutationFn: async (addresses: Array<string>) => {
-      const results: Array<{ address: string; code: string | null }> = []
-      for (const address of addresses) {
-        try {
-          await convexSend({ businessId, reportId, to: address })
-          results.push({ address, code: null })
-        } catch (error) {
-          results.push({ address, code: sendErrorCode(error) })
-        }
-      }
-      return results
-    },
+    mutationFn: (addresses: Array<string>) =>
+      sendToEach(addresses, (to) => convexSend({ businessId, reportId, to })),
   })
 
   const outcomes = send.data ?? []
@@ -528,6 +555,13 @@ export function SendSheet({
           </span>
         </p>
       )}
+
+      {/* The whole tap refused, with no signal: nothing went to anyone. */}
+      <FormAlert
+        error={send.isError ? send.error : null}
+        copy={SEND_REFUSED}
+        className="mt-3"
+      />
 
       {outcomes.length > 0 && (
         <div role="status" className="mt-3 flex flex-col gap-1.5">
