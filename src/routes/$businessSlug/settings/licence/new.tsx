@@ -129,10 +129,6 @@ function AddLicencePage() {
   const convexCreate = useConvexMutation(api.memberLicences.create)
   const convexAddFile = useConvexMutation(api.memberLicences.addFile)
   const add = useMutation({
-    // Run even when the phone says it is offline, so the check below says
-    // so: react-query's default would pause it, "Saving…" and all, and make
-    // the licence whenever the signal came back.
-    networkMode: 'always',
     mutationFn: async ({
       value,
       files,
