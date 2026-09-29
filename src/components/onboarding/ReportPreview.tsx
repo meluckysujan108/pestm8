@@ -60,7 +60,8 @@ export function ReportPreview({
       <div
         className={`m-2 flex items-start justify-between gap-3 rounded-xl p-2.5 transition-shadow duration-300 ${focus === 'brand' || focus === 'name' ? 'ring-2 ring-blue/35' : 'ring-0 ring-transparent'}`}
       >
-        <div className="flex h-9 w-[92px] shrink-0 items-center">
+        {/* The PDF's logo box (pdf/layout.tsx, 160 × 42pt), at its shape. */}
+        <div className="flex h-10 w-[152px] shrink-0 items-center">
           {logoUrl ? (
             <img
               src={logoUrl}

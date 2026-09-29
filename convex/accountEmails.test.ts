@@ -93,6 +93,8 @@ describe('forgot password', () => {
     expect(reset.text).toContain('Hi Kevin,')
     expect(reset.text).toContain('http://localhost:3000/reset-password?token=')
     expect(reset.text).toContain('replies to it aren’t read')
+    // Headed with the app's icon, from the app's own address.
+    expect(reset.html).toContain('src="http://localhost:3000/icon-192.png"')
 
     const token = tokenIn(reset)
     const done = await browserOn(t).post('/reset-password', {
@@ -208,6 +210,32 @@ describe('the reset email', () => {
     expect(email.text.startsWith('Hi,')).toBe(true)
     expect(email.html).not.toContain('a"b<c')
     expect(email.html).toContain('a&quot;b&lt;c')
+  })
+})
+
+describe('the top of an account email', () => {
+  test('is PestM8’s own mark, from the app’s address, not a business’s logo', () => {
+    const email = passwordResetEmail({
+      url: 'https://pestm8.vercel.app/reset-password?token=abc',
+      markUrl: 'https://pestm8.vercel.app/icon-192.png',
+    })
+    expect(email.html).toContain(
+      '<img src="https://pestm8.vercel.app/icon-192.png" width="36" height="36" alt=""',
+    )
+    expect(email.html).toContain('>PestM8</td>')
+    // A deployment with no address of its own sends it without one.
+    expect(
+      passwordResetEmail({ url: 'https://x.test/reset-password?token=abc' })
+        .html,
+    ).not.toContain('<img')
+  })
+
+  test('goes dark where the mail app allows it', () => {
+    const email = passwordChangedEmail({ signInUrl: 'https://x.test/login' })
+    expect(email.html).toContain(
+      '<meta name="color-scheme" content="light dark" />',
+    )
+    expect(email.html).toContain('@media (prefers-color-scheme: dark)')
   })
 })
 

@@ -2,6 +2,7 @@
 import { readFileSync, readdirSync } from 'node:fs'
 import { inflateSync } from 'node:zlib'
 import { describe, expect, test } from 'vitest'
+import { APP_MARK_PATH } from '../../convex/lib/accountEmail'
 import {
   APP_ICON_LINKS,
   LAUNCH_SCREENS,
@@ -202,5 +203,16 @@ describe('manifest', () => {
       manifest.background_color.toLowerCase(),
       'background_color in public/manifest.webmanifest',
     ).toBe(CANVAS.light)
+  })
+})
+
+// The password emails head with the app's icon, fetched from the live app by
+// its path: renamed or dropped here, every one of them shows a broken image.
+describe('the mark the account emails carry', () => {
+  test('is one of the icons, opaque, so it reads in light and in dark', () => {
+    const mark = png(publicFile(APP_MARK_PATH))
+    expect(mark.width).toBe(mark.height)
+    expect(mark.width).toBeGreaterThanOrEqual(36 * 3)
+    expect(mark.alpha).toBe(255)
   })
 })

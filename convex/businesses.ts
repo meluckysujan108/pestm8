@@ -1,5 +1,5 @@
 import { ConvexError, v } from 'convex/values'
-import { mutation, query } from './_generated/server'
+import { internalQuery, mutation, query } from './_generated/server'
 import { getAuthUserId, requireMembership } from './lib/access'
 import { DEFAULT_GRANTS } from './lib/capabilities'
 import { MEMBER_COLOURS } from './lib/colours'
@@ -9,7 +9,13 @@ import { abnDigits, formatAbn, normaliseAbn } from './lib/abn'
 import { normaliseEmail } from './lib/email'
 import { normalisePhone } from './lib/phone'
 import { MFA_ENROLMENT_REQUIRED } from './lib/mfa'
+import { isEmailCardSize, logoFileRefusal } from './lib/businessLogo'
+import { heldAnywhere } from './lib/fileClaims'
+import { CLAIM_WINDOW_MS } from './lib/products'
 import { businessAllowance } from './businessInvites'
+import { logoEmailImage } from './schema'
+import type { Id } from './_generated/dataModel'
+import type { MutationCtx } from './_generated/server'
 
 /**
  * The business's own ABN as stored: checked by the ATO's rule (INVALID_ABN)
@@ -246,6 +252,11 @@ export const reportSettings = query({
       requireReportToComplete: business.requireReportToComplete === true,
       /** Falls back to the business address, which is what the header prints. */
       email: business.email,
+      /** The logo with light lettering, for Settings to show on dark.
+       * Added field: a screen from before it reads nothing here. */
+      logoOnDarkUrl: business.logoOnDark
+        ? await ctx.storage.getUrl(business.logoOnDark.storageId)
+        : null,
     }
   },
 })
@@ -308,6 +319,18 @@ export const update = mutation({
         fields.phone = normalisePhone(patch.phone)
       } else delete fields.phone
     }
+    // A logo sent the old way, by a screen from before `setLogo` (a phone
+    // still running the app it had open). Claimed as `setLogo` claims one,
+    // and its email card goes with the logo it was drawn from: until the
+    // next upload draws a new card, emails carry this logo itself.
+    if (patch.logoStorageId !== undefined) {
+      if (patch.logoStorageId === business.logoStorageId) {
+        delete fields.logoStorageId
+      } else {
+        await claimLogoFile(ctx, patch.logoStorageId)
+        if (business.logoEmail) fields.logoEmail = undefined
+      }
+    }
 
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(businessId, fields)
@@ -325,6 +348,128 @@ export const update = mutation({
     }
   },
 })
+
+/**
+ * Puts a logo on the letterhead, or takes one off: `logo` is the one the PDF
+ * prints, `logoOnDark` the optional one with light lettering that a report
+ * email shows in dark mode. Each comes as two files the browser drew from one
+ * upload (src/lib/images/prepareLogo.ts, lib/businessLogo.ts): the logo, and
+ * its copy for email with the size the email gives it.
+ *
+ * `null` takes it off. The files it used are kept: a report locked with this
+ * logo prints it for good, and an email already sent still shows its copy.
+ */
+export const setLogo = mutation({
+  args: {
+    businessId: v.id('businesses'),
+    which: v.union(v.literal('logo'), v.literal('logoOnDark')),
+    files: v.union(
+      v.null(),
+      v.object({ storageId: v.id('_storage'), email: logoEmailImage }),
+    ),
+  },
+  handler: async (ctx, { businessId, which, files }) => {
+    const env = await requireActor(ctx, businessId)
+    requireCapability(env, 'business.manage')
+    const business = await ctx.db.get(businessId)
+    if (!business) throw new ConvexError('NOT_FOUND')
+
+    if (files) {
+      if (files.storageId === files.email.storageId) {
+        throw new ConvexError('WRONG_FILE_TYPE')
+      }
+      if (!isEmailCardSize(files.email)) throw new ConvexError('INVALID_SIZE')
+      await claimLogoFile(ctx, files.storageId)
+      await claimLogoFile(ctx, files.email.storageId)
+    }
+
+    const fields =
+      which === 'logo'
+        ? {
+            logoStorageId: files?.storageId,
+            logoEmail: files?.email,
+          }
+        : { logoOnDark: files ?? undefined }
+    await ctx.db.patch(businessId, fields)
+
+    // What heads every report the business issues: who changed it, and when,
+    // is part of the record, as it is for the rest of the letterhead.
+    await recordAudit(ctx, forSelf(env.actor.real._id), {
+      businessId,
+      action: 'business.update',
+      entityType: 'businesses',
+      entityId: businessId,
+      meta: { fields: Object.keys(fields) },
+      at: Date.now(),
+    })
+  },
+})
+
+/**
+ * A file this owner may put on the letterhead: uploaded in the last few
+ * minutes, held by nothing else, and a picture the PDF can draw.
+ *
+ * Storage ids are not secrets here — report queries hand them out — so "an
+ * id the caller knows" cannot mean "a file the caller may use": without this
+ * an owner could point their logo at someone's licence and read it back
+ * through `getBySlug`'s `logoUrl`. The same freshness rule products and notes
+ * use (`CLAIM_WINDOW_MS`).
+ */
+async function claimLogoFile(ctx: MutationCtx, storageId: Id<'_storage'>) {
+  const file = await ctx.db.system.get('_storage', storageId)
+  if (!file || Date.now() - file._creationTime > CLAIM_WINDOW_MS) {
+    throw new ConvexError('FILE_NOT_FOUND')
+  }
+  const refusal = logoFileRefusal(file)
+  if (refusal !== null) throw new ConvexError(refusal)
+  if (await heldAnywhere(ctx, storageId)) {
+    throw new ConvexError('ALREADY_ATTACHED')
+  }
+}
+
+/**
+ * The logos a report email heads with — the business's as they are NOW, like
+ * the email's sender name and reply-to (`email.deliver`). The attached PDF
+ * keeps the logo its report was locked with.
+ *
+ * `logo` is the card when there is one. A logo stored before cards existed has
+ * none, and comes as the logo itself with no size: `email.deliver` reads its
+ * size from the file.
+ */
+export const emailLetterhead = internalQuery({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const business = await ctx.db.get(businessId)
+    if (!business) return null
+
+    const card = business.logoEmail
+    const logo = card
+      ? await sized(ctx.storage.getUrl(card.storageId), card, true)
+      : business.logoStorageId
+        ? await sized(ctx.storage.getUrl(business.logoStorageId), null, false)
+        : null
+    const dark = business.logoOnDark?.email
+    const logoOnDark = dark
+      ? await sized(ctx.storage.getUrl(dark.storageId), dark, true)
+      : null
+    return { logo, logoOnDark }
+  },
+})
+
+async function sized(
+  url: Promise<string | null>,
+  size: { width: number; height: number } | null,
+  carded: boolean,
+) {
+  const resolved = await url
+  if (!resolved) return null
+  return {
+    url: resolved,
+    width: size?.width ?? null,
+    height: size?.height ?? null,
+    carded,
+  }
+}
 
 /**
  * Moves the owner through set-up (src/routes/onboarding.tsx): the step to
@@ -364,8 +509,8 @@ function edited(raw: string, stored: string | undefined): boolean {
   return raw.trim() !== (stored ?? '').trim()
 }
 
-/** Short-lived upload URL for the business logo — owner-gated, since only the
- * owner can change branding via `update` above. */
+/** Short-lived upload URL for a logo file (`setLogo` takes two per logo) —
+ * owner-gated, since only the owner can change the letterhead. */
 export const generateUploadUrl = mutation({
   args: { businessId: v.id('businesses') },
   handler: async (ctx, { businessId }) => {

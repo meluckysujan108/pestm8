@@ -1,16 +1,21 @@
+import { EMAIL_LOGO } from './businessLogo'
+import { EMAIL_COLOURS, EMAIL_FONT, emailHead, escapeHtml } from './emailTheme'
 import type { Doc } from '../_generated/dataModel'
 
 /**
  * The email a client opens.
  *
- * Hand-written inline-styled HTML, not a template library: every mail client
- * that matters strips `<style>` blocks, ignores flexbox and disagrees about
- * margins, so the reliable subset is a table, inline styles and nothing
- * clever. A dependency would add a build step to produce the same string.
+ * Hand-written inline-styled HTML, not a template library: mail clients
+ * ignore flexbox, disagree about margins and drop what they don't know, so
+ * the reliable subset is a table, inline styles and nothing clever. The one
+ * `<style>` block (lib/emailTheme.ts) only ever turns it dark; without it the
+ * email is complete. A dependency would add a build step to produce the same
+ * string.
  *
- * It says what the attachment is, where it is for, and the two or three facts
- * a client actually wants — when the visit was, who did it, when the next one
- * is due — so nobody has to open a PDF on a phone to learn a date.
+ * It opens on the business's letterhead — its logo, or its name — then says
+ * what the attachment is, where it is for, and the two or three facts a client
+ * actually wants — when the visit was, who did it, when the next one is due —
+ * so nobody has to open a PDF on a phone to learn a date.
  *
  * And it stops there. It never asks for a reply: until 29 Sept 2026 it said
  * "Reply to this email if anything in it needs checking", and every question
@@ -19,71 +24,174 @@ import type { Doc } from '../_generated/dataModel'
 
 export type EmailFact = { label: string; value: string }
 
-const INK = '#1C1C1E'
-const MUTED = '#6B6B70'
-const RED = '#FF3B30'
-const HAIRLINE = '#E5E5EA'
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+/** A logo as the email draws it (convex/lib/businessLogo.ts). */
+export type EmailLogo = {
+  url: string
+  /** The size the email gives it, in CSS pixels — as attributes too, since
+   * Outlook for Windows reads nothing else. */
+  width: number
+  height: number
+  /**
+   * Drawn with the card's margin already round it: the card, or the
+   * light-lettered copy on the card's geometry. A logo stored before cards
+   * existed is not, and is given the margin here.
+   */
+  carded: boolean
 }
+
+const C = EMAIL_COLOURS
 
 export function reportEmailHtml({
   businessName,
   formName,
   address,
   facts,
-  logoUrl,
+  logo,
+  logoOnDark,
 }: {
   businessName: string
   formName: string
   address?: string
   facts: Array<EmailFact>
-  logoUrl?: string
+  /** The letterhead's logo on its card; without one the business's name heads the email. */
+  logo?: EmailLogo
+  /** Its light-lettered version, swapped in by dark mode where a mail app allows it. */
+  logoOnDark?: EmailLogo
 }): string {
+  const title = emailTitle(formName, address)
   const rows = facts
     .map(
       (fact) => `
-        <tr>
-          <td style="padding:6px 0;color:${MUTED};font-size:14px;">${escapeHtml(fact.label)}</td>
-          <td style="padding:6px 0;color:${INK};font-size:14px;text-align:right;">${escapeHtml(fact.value)}</td>
-        </tr>`,
+                  <tr>
+                    <td class="pm-muted pm-rule" style="padding:8px 12px 8px 0;border-top:1px solid ${C.hairline};color:${C.muted};font-size:14px;line-height:1.4;">${escapeHtml(fact.label)}</td>
+                    <td class="pm-ink pm-rule" style="padding:8px 0;border-top:1px solid ${C.hairline};color:${C.ink};font-size:14px;line-height:1.4;text-align:right;">${escapeHtml(fact.value)}</td>
+                  </tr>`,
     )
     .join('')
 
   return `<!doctype html>
 <html lang="en-AU">
-  <body style="margin:0;padding:24px;background:#F2F2F7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;">
-    <table role="presentation" cellpadding="0" cellspacing="0" style="max-width:520px;margin:0 auto;background:#FFFFFF;border-radius:16px;border:1px solid ${HAIRLINE};">
+  <head>${emailHead({ swapsLogo: Boolean(logo && logoOnDark) })}
+    <title>${escapeHtml(title)}</title>
+  </head>
+  <body class="pm-page" style="margin:0;padding:0;background:${C.page};">
+    <table role="presentation" class="pm-page" width="100%" cellpadding="0" cellspacing="0" style="background:${C.page};">
       <tr>
-        <td style="padding:24px 24px 0 24px;">
-          ${logoUrl ? `<img src="${escapeHtml(logoUrl)}" alt="${escapeHtml(businessName)}" style="height:32px;display:block;margin-bottom:16px;" />` : ''}
-          <div style="height:3px;width:44px;background:${RED};margin-bottom:16px;"></div>
-          <h1 style="margin:0;font-size:20px;line-height:1.3;color:${INK};font-weight:600;">
-            Your ${escapeHtml(formName)}${address ? ` for ${escapeHtml(address)}` : ''}
-          </h1>
-        </td>
-      </tr>
-      ${
-        rows
-          ? `<tr><td style="padding:16px 24px 0 24px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${rows}</table>
-      </td></tr>`
-          : ''
-      }
-      <tr>
-        <td style="padding:16px 24px 24px 24px;color:${MUTED};font-size:14px;line-height:1.5;">
-          The full report is attached as a PDF.
-          <div style="margin-top:16px;color:${INK};font-size:14px;">${escapeHtml(businessName)}</div>
+        <td style="padding:24px 12px;">
+          <table role="presentation" class="pm-card" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;margin:0 auto;background:${C.card};border-radius:16px;border:1px solid ${C.hairline};font-family:${EMAIL_FONT};">
+            <tr>
+              <td style="padding:${logo ? `${24 - EMAIL_LOGO.padding}px ${24 - EMAIL_LOGO.padding}px 0` : '24px 24px 0'};">
+                ${letterhead(businessName, logo, logoOnDark)}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:${logo ? 14 : 16}px 24px 0 24px;">
+                <div class="pm-accent" style="height:3px;width:44px;background:${C.red};margin-bottom:16px;"></div>
+                <h1 class="pm-ink" style="margin:0;font-size:20px;line-height:1.3;color:${C.ink};font-weight:600;">${escapeHtml(title)}</h1>
+              </td>
+            </tr>${
+              rows
+                ? `
+            <tr>
+              <td style="padding:16px 24px 0 24px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${rows}
+                </table>
+              </td>
+            </tr>`
+                : ''
+            }
+            <tr>
+              <td class="pm-muted" style="padding:16px 24px 24px 24px;color:${C.muted};font-size:14px;line-height:1.5;">
+                The full report is attached as a PDF.
+                <div class="pm-ink" style="margin-top:16px;color:${C.ink};font-size:14px;">${escapeHtml(businessName)}</div>
+              </td>
+            </tr>
+          </table>
         </td>
       </tr>
     </table>
   </body>
 </html>`
+}
+
+/**
+ * The same email as plain text, which travels beside the HTML: spam filters
+ * trust a message that has both, and it is what a watch or a screen reader
+ * shows.
+ */
+export function reportEmailText({
+  businessName,
+  formName,
+  address,
+  facts,
+}: {
+  businessName: string
+  formName: string
+  address?: string
+  facts: Array<EmailFact>
+}): string {
+  return [
+    emailTitle(formName, address),
+    '',
+    ...facts.map((fact) => `${fact.label}: ${fact.value}`),
+    ...(facts.length > 0 ? [''] : []),
+    'The full report is attached as a PDF.',
+    '',
+    businessName,
+  ].join('\n')
+}
+
+function emailTitle(formName: string, address: string | undefined) {
+  return `Your ${formName}${address ? ` for ${address}` : ''}`
+}
+
+/**
+ * The top of the email: the logo on its card, with its light-lettered version
+ * behind it for dark mode — or, with no logo, the business's name in words
+ * that darken with the rest.
+ *
+ * The dark version is hidden until the dark styling swaps it in, and Outlook
+ * for Windows, which reads neither the styling nor `display:none` reliably,
+ * never sees it at all (the conditional comment and `mso-hide`).
+ */
+function letterhead(
+  businessName: string,
+  logo: EmailLogo | undefined,
+  logoOnDark: EmailLogo | undefined,
+): string {
+  if (!logo) {
+    return `<div class="pm-ink" style="font-size:17px;line-height:1.3;font-weight:600;color:${C.ink};">${escapeHtml(businessName)}</div>`
+  }
+  const light = framed(
+    logo,
+    businessName,
+    logoOnDark ? 'pm-on-light' : '',
+    'display:block;',
+  )
+  if (!logoOnDark) return light
+  const dark = framed(
+    logoOnDark,
+    '',
+    'pm-on-dark',
+    'display:none;mso-hide:all;',
+  )
+  return `${light}
+                <!--[if !mso]><!-->${dark}<!--<![endif]-->`
+}
+
+/** One logo image, with the card's margin round it if it was not drawn with
+ * one. The class that swaps it goes on whichever element is outermost. */
+function framed(
+  logo: EmailLogo,
+  alt: string,
+  swap: string,
+  display: string,
+): string {
+  const image = (className: string, style: string) =>
+    `<img${className ? ` class="${className}"` : ''} src="${escapeHtml(logo.url)}" width="${logo.width}" height="${logo.height}" alt="${escapeHtml(alt)}" style="${style}border:0;outline:none;text-decoration:none;width:${logo.width}px;height:${logo.height}px;font-family:${EMAIL_FONT};font-size:17px;font-weight:600;color:${C.ink};" />`
+  if (logo.carded)
+    return image(['pm-ink', swap].filter(Boolean).join(' '), display)
+  return `<div${swap ? ` class="${swap}"` : ''} style="${display}padding:${EMAIL_LOGO.padding}px;">${image('pm-ink', 'display:block;')}</div>`
 }
 
 /**

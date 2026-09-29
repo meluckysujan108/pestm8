@@ -260,6 +260,17 @@ export { clientStatus }
 export const addressCheck = v.union(v.literal('picked'), v.literal('typed'))
 
 /**
+ * A logo's copy for email (convex/lib/businessLogo.ts): the file, and the
+ * size the email gives it, in CSS pixels. The file is drawn at three times
+ * that, so it is sharp on a phone.
+ */
+export const logoEmailImage = v.object({
+  storageId: v.id('_storage'),
+  width: v.number(),
+  height: v.number(),
+})
+
+/**
  * Phases 1–2 (ARCHITECTURE.md §6.1–6.2): tenancy plus the core scheduling
  * loop. Reports, invoices, notes and tasks land in Phase 3.
  */
@@ -277,6 +288,21 @@ export default defineSchema({
     // Printed on the report PDF header/cover — distinct from a member's own
     // `memberships.licenceNumber`, which is the technician's personal licence.
     logoStorageId: v.optional(v.id('_storage')),
+    /**
+     * That logo on a white card, as a report email carries it — see
+     * lib/businessLogo.ts for why a card. Set and cleared with
+     * `logoStorageId`; a logo stored before cards existed (Sept 2026) has
+     * none, and its email shows the logo itself.
+     */
+    logoEmail: v.optional(logoEmailImage),
+    /**
+     * Optional: the logo with light lettering, for the mail apps that follow
+     * an email's own dark styling. `storageId` is it as uploaded (trimmed),
+     * for Settings; `email` its copy on the card's geometry, transparent.
+     */
+    logoOnDark: v.optional(
+      v.object({ storageId: v.id('_storage'), email: logoEmailImage }),
+    ),
     addressLine: v.optional(v.string()),
     suburb: v.optional(v.string()),
     postcode: v.optional(v.string()),

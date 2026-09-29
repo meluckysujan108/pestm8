@@ -2735,8 +2735,11 @@ const PURGE_BATCH = 25
  * The version of the painter. Bumping it makes every report re-render on its
  * next open, which is how a fix to the document reaches files already drawn.
  * A superseded file is kept, never deleted: it is what someone was sent.
+ *
+ * 3 (Sept 2026): the logo's boxes grew (pdf/layout.tsx, pdf/CoverPage.tsx).
+ * Layout only — each report still prints the logo it was locked with.
  */
-export const RENDER_VERSION = 2
+export const RENDER_VERSION = 3
 
 /**
  * Take the job of rendering this report, or say who already has it.

@@ -20,6 +20,10 @@
  * - Strips the rest of the metadata by re-encoding, which quietly removes the
  *   GPS tag a phone camera writes into every shot. A client's report should
  *   not carry the technician's coordinates as a hidden payload.
+ *
+ * Not for a logo. Everything here comes out a JPEG, which has no
+ * transparency — a see-through logo came out a black box until Sept 2026.
+ * A logo goes through `prepareLogo.ts`.
  */
 
 export type PreparedImage = {

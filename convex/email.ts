@@ -5,11 +5,15 @@ import { action, internalAction } from './_generated/server'
 import { api, internal } from './_generated/api'
 import { renderIfNeeded } from './reportPipeline'
 import { emailConfigured } from './lib/emailConfig'
+import { fitEmailLogo } from './lib/businessLogo'
+import { imageSize } from './lib/imageSize'
 import {
   addressedTo,
   deliveryAddressing,
   reportEmailHtml,
+  reportEmailText,
 } from './lib/reportEmail'
+import type { EmailLogo } from './lib/reportEmail'
 import type { ActionCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 
@@ -121,6 +125,21 @@ export const deliver = internalAction({
       const fromEmail = process.env.RESEND_FROM_EMAIL
       if (!fromEmail) throw new ConvexError('EMAIL_NOT_CONFIGURED')
       const sender = report.sender?.name ?? report.businessName
+      const content = {
+        businessName: report.businessName,
+        formName: template.print?.formName ?? template.name,
+        address: report.property
+          ? `${report.property.addressLine}, ${report.property.suburb}`
+          : undefined,
+        // The same handful the finalise sheet reads back, for the same
+        // reason: nobody should have to open a PDF on a phone to find out
+        // when the next visit is due.
+        facts: reportSummary(
+          template,
+          (report.data ?? {}) as Record<string, unknown>,
+          report.context,
+        ).map((line) => ({ label: line.label, value: line.text })),
+      }
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',
         headers: {
@@ -137,22 +156,13 @@ export const deliver = internalAction({
           ...deliveryAddressing(delivery),
           reply_to: report.sender?.email || report.business?.email || undefined,
           subject: delivery.subject,
+          // Headed with the business's logo as it is NOW, like the from-name:
+          // the attached PDF keeps the one its report was locked with.
           html: reportEmailHtml({
-            businessName: report.businessName,
-            formName: template.print?.formName ?? template.name,
-            address: report.property
-              ? `${report.property.addressLine}, ${report.property.suburb}`
-              : undefined,
-            // The same handful the finalise sheet reads back, for the same
-            // reason: nobody should have to open a PDF on a phone to find out
-            // when the next visit is due.
-            facts: reportSummary(
-              template,
-              (report.data ?? {}) as Record<string, unknown>,
-              report.context,
-            ).map((line) => ({ label: line.label, value: line.text })),
-            logoUrl: report.business?.logoUrl ?? undefined,
+            ...content,
+            ...(await emailLogos(ctx, businessId)),
           }),
+          text: reportEmailText(content),
           attachments: [
             { filename: identity.fileName, content: pdf.toString('base64') },
           ],
@@ -301,6 +311,67 @@ async function recordSent(
 
 /** Resend's own ceiling is 40 MB for the whole message; this is the safe half. */
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+
+/**
+ * The logos an email heads with, sized (`businesses.emailLetterhead`).
+ *
+ * Never the reason an email fails: a logo that cannot be found or sized is
+ * left out, and the email heads with the business's name instead.
+ */
+async function emailLogos(
+  ctx: ActionCtx,
+  businessId: Id<'businesses'>,
+): Promise<{ logo?: EmailLogo; logoOnDark?: EmailLogo }> {
+  try {
+    const found = await ctx.runQuery(internal.businesses.emailLetterhead, {
+      businessId,
+    })
+    if (!found) return {}
+    const [logo, logoOnDark] = await Promise.all([
+      sizedLogo(found.logo),
+      sizedLogo(found.logoOnDark),
+    ])
+    return {
+      ...(logo ? { logo } : {}),
+      ...(logo && logoOnDark ? { logoOnDark } : {}),
+    }
+  } catch (error) {
+    console.error('email.deliver: no logo', businessId, error)
+    return {}
+  }
+}
+
+/**
+ * A card comes with its size. A logo stored before cards existed does not, so
+ * its size is read from the file's header and fitted to the email's box.
+ */
+async function sizedLogo(
+  found: {
+    url: string
+    width: number | null
+    height: number | null
+    carded: boolean
+  } | null,
+): Promise<EmailLogo | undefined> {
+  if (!found) return undefined
+  if (found.width !== null && found.height !== null) {
+    return {
+      url: found.url,
+      width: found.width,
+      height: found.height,
+      carded: found.carded,
+    }
+  }
+  const response = await fetch(found.url)
+  if (!response.ok) return undefined
+  const size = imageSize(new Uint8Array(await response.arrayBuffer()))
+  if (!size) return undefined
+  return {
+    url: found.url,
+    ...fitEmailLogo(size.width, size.height),
+    carded: false,
+  }
+}
 
 async function audit(
   ctx: ActionCtx,

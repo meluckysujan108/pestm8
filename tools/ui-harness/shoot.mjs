@@ -154,6 +154,10 @@ const PLAN = {
   'lock-noemail': { before: async (p) => p.waitForTimeout(700) },
   delivered: {},
   'report-settings': { full: true },
+  // Whole page: the Letterhead card sits below the Business one.
+  letterhead: { full: true },
+  'letterhead-nodark': { full: true },
+  'letterhead-nologo': { full: true },
   history: {},
   logs: {},
   legacy: { full: true },

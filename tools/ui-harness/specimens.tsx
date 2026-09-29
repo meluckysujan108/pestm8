@@ -11,6 +11,7 @@ import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
 import { ReportSettingsForm } from '#/components/settings/ReportSettingsForm'
+import { BusinessSection } from '#/components/settings/BusinessSection'
 import { LicenceFields } from '#/components/settings/LicenceFields'
 import { StagedLicenceFiles } from '#/components/settings/StagedLicenceFiles'
 import type { StagedFiles } from '#/components/settings/StagedLicenceFiles'
@@ -57,7 +58,7 @@ import type {
   KindFilter,
   StatusFilter as ClientStatusFilter,
 } from '#/lib/clientFilters'
-import { BIZ, JOBS, MEMBERS, TZ, state } from './fixtures'
+import { BIZ, JOBS, MEMBERS, TZ, resolveFixture, state } from './fixtures'
 
 const bizId = BIZ as never
 
@@ -678,6 +679,20 @@ function ReportSettings() {
   )
 }
 
+/** Settings → Business, for the Letterhead's logos. `slug` picks which:
+ * both logos, no dark version, or no logo at all (fixtures.ts). */
+function Letterhead({ slug }: { slug: 'both' | 'nodark' | 'nologo' }) {
+  const business = resolveFixture('businesses:getBySlug', { slug })
+  return (
+    <Phone>
+      <Header kicker="Settings" title="Business" />
+      <SettingsBody>
+        <BusinessSection business={business as never} />
+      </SettingsBody>
+    </Phone>
+  )
+}
+
 function RecycleBin() {
   return (
     <Phone>
@@ -755,6 +770,9 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   licenceadd: LicenceAdd,
   bin: RecycleBin,
   'report-settings': ReportSettings,
+  letterhead: () => <Letterhead slug="both" />,
+  'letterhead-nodark': () => <Letterhead slug="nodark" />,
+  'letterhead-nologo': () => <Letterhead slug="nologo" />,
   dock: Dock,
   jobcards: JobCards,
   jobdetail: JobDetail,

@@ -3,6 +3,7 @@ import { components, internal } from '../_generated/api'
 import { internalMutation, internalQuery } from '../_generated/server'
 import { authComponent } from '../auth'
 import { purgeNote } from '../notes'
+import { logoFilesOf } from '../lib/businessLogo'
 import { heldAsLicence } from '../lib/fileClaims'
 import { DEMO_PLAN, PLACEHOLDER_EMAIL_DOMAIN } from './shared'
 import type { Doc, Id, TableNames } from '../_generated/dataModel'
@@ -566,7 +567,8 @@ const clearInvitations: Step = (run) =>
 /**
  * The files the seed stored, as its 'demo.seed' audit row lists them — read
  * here, before the audit trail goes — plus the members' saved signatures and
- * the logo, either of which someone may have replaced while trying the demo.
+ * the logo's files, any of which someone may have replaced while trying the
+ * demo.
  * Most are gone already, with the rows that used them.
  */
 const clearFiles: Step = async (run) => {
@@ -576,7 +578,7 @@ const clearFiles: Step = async (run) => {
     ...(await membersOf(run)).flatMap((m) =>
       m.savedSignatureStorageId ? [m.savedSignatureStorageId] : [],
     ),
-    ...(business.logoStorageId ? [business.logoStorageId] : []),
+    ...logoFilesOf(business),
   ]
   for (const file of candidates) {
     if (run.left <= 0) return false
@@ -850,8 +852,10 @@ async function filesElsewhere(run: Run): Promise<Set<Id<'_storage'>>> {
       if (other.savedSignatureStorageId) {
         theirs.add(other.savedSignatureStorageId)
       }
-      const logo = (await ctx.db.get(other.businessId))?.logoStorageId
-      if (logo) theirs.add(logo)
+      const elsewhereBusiness = await ctx.db.get(other.businessId)
+      if (elsewhereBusiness) {
+        for (const logo of logoFilesOf(elsewhereBusiness)) theirs.add(logo)
+      }
     }
   }
   return theirs

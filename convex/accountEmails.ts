@@ -6,7 +6,11 @@ import {
   internalQuery,
 } from './_generated/server'
 import { accountEmailFrom } from './lib/emailConfig'
-import { passwordChangedEmail, passwordResetEmail } from './lib/accountEmail'
+import {
+  APP_MARK_PATH,
+  passwordChangedEmail,
+  passwordResetEmail,
+} from './lib/accountEmail'
 import type { MutationCtx } from './_generated/server'
 
 /**
@@ -167,10 +171,13 @@ export const send = internalAction({
       })
       return
     }
+    // The app's own address, which serves its icon; none on a deployment
+    // without one, and the email goes without the mark.
+    const markUrl = siteUrl() ? `${siteUrl()}${APP_MARK_PATH}` : undefined
     const content =
       row.kind === 'passwordReset'
-        ? passwordResetEmail({ name, url })
-        : passwordChangedEmail({ name, signInUrl: url })
+        ? passwordResetEmail({ name, url, markUrl })
+        : passwordChangedEmail({ name, signInUrl: url, markUrl })
     try {
       const response = await fetch('https://api.resend.com/emails', {
         method: 'POST',

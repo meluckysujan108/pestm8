@@ -31,7 +31,7 @@ describe('what a photo is scaled to', () => {
   })
 
   test('honours a caller that wants something smaller', () => {
-    // The business logo, which is printed a few centimetres wide.
+    // A thumbnail's budget, say, where a whole photo is not needed.
     expect(targetSize(2400, 1200, 800)).toEqual({ width: 800, height: 400 })
   })
 
