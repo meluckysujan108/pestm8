@@ -708,10 +708,10 @@ function JobDetailBody({
             title="Stop repeating this service?"
             body={
               <>
-                This visit stays booked as shown. Any other future visits
-                already generated for this series will be removed from the
-                schedule — this cannot be undone. Past and completed visits
-                are not affected.
+                This visit stays booked as shown. The series’ other future
+                visits that haven’t started are cancelled — they stay in the
+                schedule marked cancelled, and no more are booked. Past and
+                completed visits are not affected.
               </>
             }
             cancel="Keep repeating"

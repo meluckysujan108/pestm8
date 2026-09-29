@@ -3,6 +3,7 @@ import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import {
   CalendarDays,
+  Contact,
   MapPin,
   Repeat,
   RotateCcw,
@@ -141,6 +142,7 @@ const ICON: Record<Entry['kind'], LucideIcon> = {
   property: MapPin,
   job: CalendarDays,
   recurrence: Repeat,
+  contact: Contact,
 }
 
 const KIND_LABEL: Record<Entry['kind'], string> = {
@@ -148,6 +150,7 @@ const KIND_LABEL: Record<Entry['kind'], string> = {
   property: 'Property',
   job: 'Job',
   recurrence: 'Recurring service',
+  contact: 'Contact',
 }
 
 function BinRow({
@@ -178,9 +181,14 @@ function BinRow({
     onSuccess: () => setConfirming(false),
   })
 
-  const deleted = entry.deletedBy
-    ? `Deleted ${formatWhen(entry.deletedAt, timezone)} by ${entry.deletedBy}`
-    : `Deleted ${formatWhen(entry.deletedAt, timezone)}`
+  // A client archived before the bin existed has no one who deleted it —
+  // only when it was archived (migrations/archivedClientsToBinV1).
+  const deleted =
+    entry.archivedAt !== null && !entry.deletedBy
+      ? `Archived ${formatWhen(entry.archivedAt, timezone)}`
+      : entry.deletedBy
+        ? `Deleted ${formatWhen(entry.deletedAt, timezone)} by ${entry.deletedBy}`
+        : `Deleted ${formatWhen(entry.deletedAt, timezone)}`
   const wipes = formatJobDate(
     dayKeyOf(entry.wipesAt, timezone),
     todayKey(timezone),
@@ -270,6 +278,9 @@ function describe(entry: Entry, timezone: string): string {
     case 'recurrence':
       if (entry.suburb) parts.push(entry.suburb)
       parts.push(describeInterval(entry.interval))
+      break
+    case 'contact':
+      if (entry.clientName) parts.push(entry.clientName)
       break
     case 'client':
       break

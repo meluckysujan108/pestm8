@@ -271,6 +271,17 @@ export function resolveFixture(fn: string, args: unknown): unknown {
 const HOUR = 60 * 60 * 1000
 export const BIN_ENTRIES = [
   {
+    _id: 'bin0',
+    kind: 'contact',
+    title: 'Tom Hale',
+    clientName: 'Subi Café Group',
+    deletedAt: Date.now() - HOUR,
+    wipesAt: Date.now() - HOUR + 30 * 24 * HOUR,
+    deletedBy: 'Terence Van Der Walt',
+    archivedAt: null,
+    counts: { properties: 0, jobs: 0, recurrences: 0, notes: 0, drafts: 0 },
+  },
+  {
     _id: 'bin1',
     kind: 'job',
     title: 'Termite Inspection',
@@ -311,5 +322,15 @@ export const BIN_ENTRIES = [
     wipesAt: Date.now() - 9 * 24 * HOUR + 30 * 24 * HOUR,
     deletedBy: 'Terence Van Der Walt',
     counts: { properties: 0, jobs: 4, recurrences: 0, notes: 0, drafts: 0 },
+  },
+  {
+    _id: 'bin5',
+    kind: 'client',
+    title: 'Coastal Holiday Units',
+    deletedAt: Date.now() - 3 * HOUR,
+    wipesAt: Date.now() - 3 * HOUR + 30 * 24 * HOUR,
+    deletedBy: '',
+    archivedAt: Date.now() - 17 * 24 * HOUR,
+    counts: { properties: 1, jobs: 9, recurrences: 0, notes: 1, drafts: 0 },
   },
 ]

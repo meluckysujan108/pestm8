@@ -53,6 +53,14 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
+  'client-contact-remove': {
+    spec: 'client',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Remove Tom Hale' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
   'client-delete-confirm': {
     spec: 'client',
     before: async (p) => {

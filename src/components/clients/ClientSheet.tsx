@@ -279,6 +279,7 @@ function ClientBody({
           businessId={businessId}
           businessState={businessState}
           clientId={clientId}
+          canRemove={canManageClients}
         />
       )}
 
@@ -682,10 +683,13 @@ function ClientContacts({
   businessId,
   businessState,
   clientId,
+  canRemove,
 }: {
   businessId: Id<'businesses'>
   businessState: string
   clientId: Id<'clients'>
+  /** `clients.manage`: removing a contact puts it in the Recycle bin. */
+  canRemove: boolean
 }) {
   const { data: contacts } = useQuery(
     convexQuery(api.clientContacts.list, { businessId, clientId }),
@@ -695,15 +699,16 @@ function ClientContacts({
   // that opened the dialog, go with it.
   const addButton = useRef<HTMLButtonElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
-  // The primary contact is the client's contact person (Prompt 6.1), shown
-  // under its name and edited from the client form, so removing them asks
-  // first. Anyone else goes on one tap, as before.
+  // Every removal asks first: a contact goes to the Recycle bin with their
+  // number and email, and the confirm says where to get them back. The
+  // primary contact's also says they are the client's contact person.
   const [confirmRemove, setConfirmRemove] = useState<{
     _id: Id<'clientContacts'>
     name: string
+    isPrimary?: boolean
   } | null>(null)
 
-  const convexRemove = useConvexMutation(api.clientContacts.remove)
+  const convexRemove = useConvexMutation(api.bin.deleteContact)
   const remove = useMutation({
     mutationFn: (args: { businessId: Id<'businesses'>; contactId: Id<'clientContacts'> }) =>
       convexRemove(args),
@@ -781,19 +786,17 @@ function ClientContacts({
                       <Star size={14} strokeWidth={2} />
                     </button>
                   )}
-                  <button
-                    type="button"
-                    aria-label={`Remove ${contact.name}`}
-                    disabled={remove.isPending}
-                    onClick={() =>
-                      contact.isPrimary
-                        ? setConfirmRemove(contact)
-                        : removeContact(contact._id)
-                    }
-                    className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
-                  >
-                    <Trash2 size={14} strokeWidth={2} />
-                  </button>
+                  {canRemove && (
+                    <button
+                      type="button"
+                      aria-label={`Remove ${contact.name}`}
+                      disabled={remove.isPending}
+                      onClick={() => setConfirmRemove(contact)}
+                      className="flex size-11 shrink-0 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
+                    >
+                      <Trash2 size={14} strokeWidth={2} />
+                    </button>
+                  )}
                 </div>
                 <ContactButtons name={contact.name} phone={contact.phone} email={contact.email} />
               </div>
@@ -837,7 +840,7 @@ function ClientContacts({
         open={confirmRemove !== null}
         onOpenChange={(open) => !open && setConfirmRemove(null)}
         title={`Remove ${confirmRemove?.name ?? ''}?`}
-        body="They’re this client’s contact person."
+        body={`${confirmRemove?.isPrimary ? 'They’re this client’s contact person. ' : ''}They go to the Recycle bin with their number and email, and stop getting this client’s reports. The business owner can restore them from Settings → Recycle bin for 30 days.`}
         cancel="Keep contact"
         confirm="Remove"
         pending={remove.isPending}
