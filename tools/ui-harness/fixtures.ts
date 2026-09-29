@@ -203,7 +203,8 @@ const CLIENT = {
 function deliveriesKnown(args: { reportId: string }) {
   return {
     addresses: ['jane@gmail.com', 'info@pestm8.com.au'],
-    unrestricted: false,
+    // Always true since approval was retired (30 Sept 2026).
+    unrestricted: true,
     copy: 'info@pestm8.com.au',
     emailReady: args.reportId !== 'r_nomail',
   }
@@ -221,8 +222,17 @@ function deliveryRows(args: { reportId: string }) {
     trigger: 'finalise',
     createdAt: at,
     sentBy: { name: 'Terence Walsh', colour: '#0A84FF' },
+    onBehalfOf: null,
     approvedBy: null,
+    newAddresses: [],
     waitingForEmailSetup: false,
+  }
+  // The strata manager the form was asked to copy, who is on nobody's
+  // record: one email with the client, marked new (`queueFormDeliveries`).
+  const withStrata = {
+    ...base,
+    to: ['jane@gmail.com', 'strata@harbourside.com.au'],
+    newAddresses: ['strata@harbourside.com.au'],
   }
   const rows: Record<string, Array<unknown>> = {
     // Moments ago, so it is still on its way.
@@ -230,25 +240,104 @@ function deliveryRows(args: { reportId: string }) {
     // Queued ten minutes ago and never sent: not "Sending…" any more.
     r_stuck: [{ ...base, status: 'queued', createdAt: Date.now() - 600_000 }],
     r_sent: [{ ...base, status: 'sent', sentAt: at + 10_000 }],
-    // One lock, two rows: the client's copy went, and the strata manager's
-    // waits for the owner (`queueFormDeliveries`).
-    r_held: [
-      { ...base, status: 'sent', sentAt: at + 10_000 },
+    r_new: [{ ...withStrata, status: 'sent', sentAt: at + 10_000 }],
+    r_failed: [
       {
         ...base,
-        _id: 'd_r_held_2',
-        to: ['strata@harbourside.com.au'],
-        status: 'pendingApproval',
+        status: 'failed',
+        error: 'Not sent: the PDF could not be prepared to attach.',
       },
     ],
-    r_failed: [{ ...base, status: 'failed', error: 'PDF_UNAVAILABLE' }],
+    // The Email tab's history: a send to someone new, made by Terence in
+    // Kevin's account, then one that failed, then the form's own.
+    r_history: [
+      {
+        ...base,
+        _id: 'd_history_3',
+        trigger: 'manual',
+        to: ['acounts@ridgeline.com.au'],
+        newAddresses: ['acounts@ridgeline.com.au'],
+        status: 'failed',
+        createdAt: at + 3_600_000,
+        error: 'Not sent: the PDF could not be prepared to attach.',
+      },
+      {
+        ...withStrata,
+        _id: 'd_history_2',
+        trigger: 'manual',
+        sentBy: { name: 'Terence Walsh', colour: '#0A84FF' },
+        onBehalfOf: { name: 'Kevin Doyle', colour: '#FF3B30' },
+        status: 'sent',
+        createdAt: at + 1_800_000,
+        sentAt: at + 1_810_000,
+      },
+      { ...base, status: 'sent', sentAt: at + 10_000 },
+    ],
     r_setup: [{ ...base, status: 'queued', waitingForEmailSetup: true }],
   }
   return rows[args.reportId] ?? []
 }
 
+/** A finished report's Logs: who did what, and every email's addresses. */
+function auditEntries() {
+  const at = perthToday(14, 38)
+  const kevin = { actorName: 'Kevin Doyle', actorColour: '#FF3B30' }
+  return [
+    {
+      _id: 'a4',
+      action: 'report.email.failed',
+      at: at + 3_600_000,
+      ...kevin,
+      meta: {
+        to: ['acounts@ridgeline.com.au'],
+        bcc: ['info@pestm8.com.au'],
+        newAddresses: ['acounts@ridgeline.com.au'],
+        trigger: 'manual',
+        detail: 'Not sent: the PDF could not be prepared to attach.',
+      },
+    },
+    {
+      _id: 'a3',
+      action: 'report.email.sent',
+      at: at + 1_810_000,
+      actorName: 'Terence Walsh',
+      actorColour: '#0A84FF',
+      onBehalfOfName: 'Kevin Doyle',
+      meta: {
+        to: ['jane@gmail.com', 'strata@harbourside.com.au'],
+        bcc: ['info@pestm8.com.au'],
+        newAddresses: ['strata@harbourside.com.au'],
+        trigger: 'manual',
+      },
+    },
+    {
+      _id: 'a2',
+      action: 'report.email.sent',
+      at: at + 10_000,
+      ...kevin,
+      meta: {
+        to: ['jane@gmail.com'],
+        bcc: ['info@pestm8.com.au'],
+        trigger: 'finalise',
+      },
+    },
+    { _id: 'a1', action: 'report.finalise', at, ...kevin, meta: {} },
+  ]
+}
+
 const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
+  // Settings → Reports for Terence's business: its copy goes to info@.
+  'businesses:reportSettings': () => ({
+    tradingName: undefined,
+    reportBrandName: undefined,
+    website: undefined,
+    reportCopyEmail: 'info@pestm8.com.au',
+    allowTechnicianRecipients: false,
+    requireReportToComplete: false,
+    email: 'info@pestm8.com.au',
+  }),
   'deliveries:known': deliveriesKnown,
+  'auditLog:forEntity': auditEntries,
   // Nothing set yet: the form's own rule, as a new business finds it.
   'templateSettings:get': () => null,
   'deliveries:forReport': deliveryRows,

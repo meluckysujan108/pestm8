@@ -302,9 +302,12 @@ export default defineSchema({
      */
     reportCopyEmail: v.optional(v.string()),
     /**
-     * Let a technician send a report to an address that is on nobody's
-     * record. Off by default: a compliance document emailed to a typo is
-     * gone, and the owner is the one who would notice.
+     * Retired 30 Sept 2026, and read by nothing. It let a technician email an
+     * address that was on nobody's record without waiting for an owner's
+     * approval; there is no approval step any more (`convex/deliveries.ts`).
+     * `businesses.update` still accepts it while the Settings switch that set
+     * it may be on a phone. The contract step removes it, after
+     * `migrations/heldDeliveriesV1` has cleared it.
      */
     allowTechnicianRecipients: v.optional(v.boolean()),
     /**
@@ -1642,10 +1645,10 @@ export default defineSchema({
    * client receive on 28 August?" a question with an answer once the
    * renderer has moved on.
    *
-   * `pendingApproval` is the recipient rule: a technician may send to the
-   * addresses already on the client's record, and anywhere else waits for an
-   * owner. The row exists either way, so an approval is a decision about a
-   * real request rather than a fresh one typed from memory.
+   * Anyone who may send a report may send it to any address that can receive
+   * email; since 30 Sept 2026 nothing waits for an owner's approval. What
+   * keeps that honest is this record: who asked, from whose account, and
+   * which addresses were not on the client's record (`newAddresses`).
    */
   reportDeliveries: defineTable({
     businessId: v.id('businesses'),
@@ -1666,6 +1669,9 @@ export default defineSchema({
     trigger: v.union(v.literal('finalise'), v.literal('manual')),
     status: v.union(
       v.literal('queued'),
+      // Retired 30 Sept 2026: a send waiting for an owner's approval. Nothing
+      // writes it now, and `migrations/heldDeliveriesV1` marks the ones left
+      // as not sent. Out of this union in the contract step.
       v.literal('pendingApproval'),
       v.literal('sent'),
       v.literal('failed'),
@@ -1680,13 +1686,33 @@ export default defineSchema({
      * their instruction. It counts toward that person's send limit either way.
      */
     sentByMembershipId: v.optional(v.id('memberships')),
+    /**
+     * The account it was sent from, when that was not the sender's own:
+     * someone working inside another member's account. Absent means they
+     * were working as themselves, and on every row from before 30 Sept 2026.
+     */
+    onBehalfOfMembershipId: v.optional(v.id('memberships')),
+    /**
+     * Which of `to` and `cc` were not on the client's record when it was
+     * asked for (`lib/recipients.knownRecipients`). Recorded rather than
+     * held: an owner reading the history can see a report went somewhere
+     * new, and a typo is easier to notice. Absent on rows from before
+     * 30 Sept 2026.
+     */
+    newAddresses: v.optional(v.array(v.string())),
+    /**
+     * Who let a held send go, or refused it, on the few rows from before
+     * approval was retired (30 Sept 2026). Nothing writes it now.
+     */
     approvedByMembershipId: v.optional(v.id('memberships')),
     createdAt: v.number(),
     /** Set when the provider accepted it, which is what "Sent" means here. */
     sentAt: v.optional(v.number()),
   })
     .index('by_report', ['reportId'])
-    // The owner's approval queue, and nothing else reads by status.
+    // Every delivery of one business, by its `businessId` prefix alone: the
+    // demo's clean-up sweeps with it. It was the owner's approval queue too,
+    // until approval was retired (30 Sept 2026).
     .index('by_business_status', ['businessId', 'status'])
     // "how many has this person sent in the last hour" — the send limit.
     .index('by_sender', ['sentByMembershipId', 'createdAt'])

@@ -243,6 +243,9 @@ export const reportSettings = query({
       reportBrandName: business.reportBrandName,
       website: business.website,
       reportCopyEmail: business.reportCopyEmail,
+      // Retired with approval (30 Sept 2026) and read by nothing. Still
+      // answered for the Settings screen built before then, until the
+      // contract step.
       allowTechnicianRecipients: business.allowTechnicianRecipients === true,
       requireReportToComplete: business.requireReportToComplete === true,
       /** Falls back to the business address, which is what the header prints. */
@@ -269,6 +272,9 @@ export const update = mutation({
     reportBrandName: v.optional(v.string()),
     website: v.optional(v.string()),
     reportCopyEmail: v.optional(v.string()),
+    // Retired with approval (30 Sept 2026): stored, and read by nothing.
+    // Accepted until the Settings switch that sends it is off every phone —
+    // a live page would otherwise fail the switch with "Server Error".
     allowTechnicianRecipients: v.optional(v.boolean()),
     requireReportToComplete: v.optional(v.boolean()),
   },

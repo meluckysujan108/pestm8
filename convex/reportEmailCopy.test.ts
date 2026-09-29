@@ -108,7 +108,8 @@ function deliveries(s: Setup) {
   return s.t.run((ctx) => ctx.db.query('reportDeliveries').collect())
 }
 
-/** Someone on the team who is not an owner, so a new address waits. */
+/** Someone on the team who is not an owner. Until 30 Sept 2026 their email
+ * to an address nobody had on file waited for one; it goes now. */
 async function technician(s: Setup) {
   const person = await createActor(s.t, {
     email: 'kev@pestm8.test',
@@ -203,6 +204,8 @@ describe('the business keeps a hidden copy of every report it emails', () => {
       cc: [],
       bcc: ['info@pestm8.com.au'],
       trigger: 'manual',
+      // On the client's record: nothing to point out.
+      newAddresses: [],
     })
   })
 
@@ -265,7 +268,7 @@ describe('the business keeps a hidden copy of every report it emails', () => {
 })
 
 describe('only a finalised report is ever emailed', () => {
-  test('a technician’s lock sends the client’s copy now, and holds only the address nobody has on file', async () => {
+  test('a technician’s lock emails everyone the form asked for at once, and records who was new', async () => {
     const s = await setup()
     const { person, membershipId } = await technician(s)
     const reportId = await report(s, { authorMembershipId: membershipId })
@@ -284,33 +287,33 @@ describe('only a finalised report is ever emailed', () => {
       templateVersion: getTemplate('serviceReport').version,
     })
 
+    // One email, nothing held: the strata manager nobody has on file goes
+    // with the client, and the row says they were new.
     const rows = await deliveries(s)
-    // Two rows: held as one, the strata manager kept the client from ever
-    // getting the report the lock sheet said was on its way.
     expect(
-      rows.map(({ to, bcc, status, trigger }) => ({
-        to,
-        bcc,
-        status,
-        trigger,
-      })),
+      rows.map(
+        ({ to, bcc, status, trigger, newAddresses, sentByMembershipId }) => ({
+          to,
+          bcc,
+          status,
+          trigger,
+          newAddresses,
+          sentByMembershipId,
+        }),
+      ),
     ).toEqual([
       {
-        to: [CLIENT],
+        to: [CLIENT, 'strata@harbourside.example'],
         bcc: ['info@pestm8.com.au'],
         status: 'queued',
         trigger: 'finalise',
-      },
-      {
-        to: ['strata@harbourside.example'],
-        bcc: ['info@pestm8.com.au'],
-        status: 'pendingApproval',
-        trigger: 'finalise',
+        newAddresses: ['strata@harbourside.example'],
+        sentByMembershipId: membershipId,
       },
     ])
   })
 
-  test('a technician is told where the copy goes, not only an owner', async () => {
+  test('a technician is told where the copy goes, and that nothing needs an owner', async () => {
     const s = await setup()
     const { person, membershipId } = await technician(s)
     const reportId = await report(s, { authorMembershipId: membershipId })
@@ -320,7 +323,10 @@ describe('only a finalised report is ever emailed', () => {
       reportId,
     })
     expect(told.copy).toBe('info@pestm8.com.au')
-    expect(told.unrestricted).toBe(false)
+    expect(told.addresses).toContain(CLIENT)
+    // Always true since approval was retired: a screen from before then reads
+    // false as "this address needs an owner's approval".
+    expect(told.unrestricted).toBe(true)
   })
 
   test('asking to send a draft is refused', async () => {
@@ -392,7 +398,7 @@ describe('what Resend is asked to send', () => {
     expect(row).toMatchObject({ status: 'sent', providerMessageId: 'msg_1' })
   })
 
-  test('a send held for an owner carries the copy when it is let go', async () => {
+  test('a technician’s send to someone nobody has on file goes at once, with the copy, and the Logs say so', async () => {
     const s = await setup()
     const { person, membershipId } = await technician(s)
     const reportId = await report(s, {
@@ -402,8 +408,6 @@ describe('what Resend is asked to send', () => {
     })
     await withPdf(s, reportId)
 
-    // An address nobody has on file: the technician's request waits, and the
-    // copy is part of what it asked for.
     const { deliveryId, status } = await person.as.mutation(
       api.deliveries.request,
       {
@@ -412,24 +416,133 @@ describe('what Resend is asked to send', () => {
         to: ['strata@harbourside.example'],
       },
     )
-    expect(status).toBe('pendingApproval')
-    const [held] = await deliveries(s)
-    expect(held.bcc).toEqual(['info@pestm8.com.au'])
-
-    // Let go with email off, so nothing is scheduled behind the test's back;
-    // the send is then driven by hand.
-    await s.owner.as.mutation(api.deliveries.approve, {
-      businessId: s.businessId,
-      deliveryId,
+    expect(status).toBe('queued')
+    const [row] = await deliveries(s)
+    expect(row).toMatchObject({
+      to: ['strata@harbourside.example'],
+      bcc: ['info@pestm8.com.au'],
+      newAddresses: ['strata@harbourside.example'],
+      sentByMembershipId: membershipId,
     })
+    expect(row.onBehalfOfMembershipId).toBeUndefined()
+
     const sent = fakeResend()
     expect(await s.t.action(internal.email.deliver, { deliveryId })).toEqual({
       ok: true,
     })
-    expect(sent).toHaveLength(1)
     expect(sent[0]).toMatchObject({
       to: ['strata@harbourside.example'],
       bcc: ['info@pestm8.com.au'],
+    })
+
+    // What the owner reads afterwards: who, to whom, where the copy went,
+    // and that the address was new to this client.
+    const logs = await s.owner.as.query(api.auditLog.forEntity, {
+      businessId: s.businessId,
+      entityType: 'reports',
+      entityId: reportId,
+    })
+    expect(logs.filter((e) => e.action.startsWith('report.email'))).toEqual([
+      expect.objectContaining({
+        action: 'report.email.sent',
+        actorName: 'Kevin',
+        meta: {
+          to: ['strata@harbourside.example'],
+          bcc: ['info@pestm8.com.au'],
+          newAddresses: ['strata@harbourside.example'],
+          trigger: 'manual',
+          subject: row.subject,
+        },
+      }),
+    ])
+  })
+
+  test('a send made in someone else’s account is logged as theirs, by whoever made it', async () => {
+    const s = await setup()
+    const { membershipId } = await technician(s)
+    const reportId = await report(s, {
+      authorMembershipId: membershipId,
+      status: 'finalised',
+      finalisedAt: Date.now(),
+    })
+    await withPdf(s, reportId)
+
+    await s.owner.as.mutation(api.accountSwitches.start, {
+      businessId: s.businessId,
+      targetMembershipId: membershipId,
+    })
+    const { deliveryId } = await s.owner.as.mutation(api.deliveries.request, {
+      businessId: s.businessId,
+      reportId,
+      to: [CLIENT],
+    })
+    const [row] = await deliveries(s)
+    expect(row.sentByMembershipId).toBe(s.ownerMembershipId)
+    expect(row.onBehalfOfMembershipId).toBe(membershipId)
+
+    fakeResend()
+    await s.t.action(internal.email.deliver, { deliveryId })
+    await s.owner.as.mutation(api.accountSwitches.stop, {
+      businessId: s.businessId,
+    })
+
+    const history = await s.owner.as.query(api.deliveries.forReport, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(history[0]).toMatchObject({
+      sentBy: { name: 'Terence' },
+      onBehalfOf: { name: 'Kevin' },
+    })
+    const logs = await s.owner.as.query(api.auditLog.forEntity, {
+      businessId: s.businessId,
+      entityType: 'reports',
+      entityId: reportId,
+    })
+    expect(logs.find((e) => e.action === 'report.email.sent')).toMatchObject({
+      actorName: 'Terence',
+      onBehalfOfName: 'Kevin',
+    })
+  })
+
+  test('a send that dies preparing the PDF is logged too, in words', async () => {
+    const s = await setup()
+    const reportId = await report(s, {
+      status: 'finalised',
+      finalisedAt: Date.now(),
+    })
+    await withPdf(s, reportId)
+    const { deliveryId } = await s.owner.as.mutation(api.deliveries.request, {
+      businessId: s.businessId,
+      reportId,
+      to: [CLIENT],
+    })
+    vi.stubEnv('RESEND_API_KEY', 're_test')
+    vi.stubEnv('RESEND_FROM_EMAIL', 'info@pestm8.com.au')
+    // Storage answers with an error page, so there is no PDF to attach.
+    const fetch = vi.fn(async () => new Response('gone', { status: 500 }))
+    vi.stubGlobal('fetch', fetch)
+
+    await expect(
+      s.t.action(internal.email.deliver, { deliveryId }),
+    ).rejects.toThrow(/PDF_UNAVAILABLE/)
+
+    const said = 'Not sent: the PDF could not be prepared to attach.'
+    const [row] = await deliveries(s)
+    expect(row).toMatchObject({ status: 'failed', error: said })
+    const logs = await s.owner.as.query(api.auditLog.forEntity, {
+      businessId: s.businessId,
+      entityType: 'reports',
+      entityId: reportId,
+    })
+    expect(logs.find((e) => e.action === 'report.email.failed')).toMatchObject({
+      actorName: 'Terence',
+      meta: {
+        to: [CLIENT],
+        bcc: ['info@pestm8.com.au'],
+        trigger: 'manual',
+        detail: said,
+      },
     })
   })
 

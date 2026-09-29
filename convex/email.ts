@@ -7,7 +7,7 @@ import { renderIfNeeded } from './reportPipeline'
 import { emailConfigured } from './lib/emailConfig'
 import { deliveryAddressing, reportEmailHtml } from './lib/reportEmail'
 import type { ActionCtx } from './_generated/server'
-import type { Id } from './_generated/dataModel'
+import type { Doc, Id } from './_generated/dataModel'
 
 /**
  * Sending a finished report to the people it is for.
@@ -66,6 +66,9 @@ export const deliver = internalAction({
       throw new ConvexError('EMAIL_NOT_CONFIGURED')
     }
 
+    // Whether Resend has taken it. Past that point the email is out, whatever
+    // fails afterwards in our own bookkeeping.
+    let accepted = false
     try {
       const storageId = await renderIfNeeded(ctx, reportId)
       if (!storageId) throw new ConvexError('PDF_UNAVAILABLE')
@@ -159,13 +162,14 @@ export const deliver = internalAction({
           error: detail,
           ...(pdfId ? { pdfId } : {}),
         })
-        await audit(ctx, businessId, reportId, delivery.sentByMembershipId, {
+        await audit(ctx, businessId, reportId, delivery, {
           action: 'report.email.failed',
-          meta: { to: delivery.to, detail },
+          meta: { ...addressedTo(delivery), detail },
         })
         return { ok: false, reason: 'provider' }
       }
 
+      accepted = true
       const body = (await response.json()) as { id?: string }
       await ctx.runMutation(internal.deliveries.settle, {
         deliveryId,
@@ -173,18 +177,30 @@ export const deliver = internalAction({
         ...(pdfId ? { pdfId } : {}),
         ...(body.id ? { providerMessageId: body.id } : {}),
       })
-      await audit(ctx, businessId, reportId, delivery.sentByMembershipId, {
+      await audit(ctx, businessId, reportId, delivery, {
         action: 'report.email.sent',
-        meta: { to: delivery.to, subject: delivery.subject },
+        meta: { ...addressedTo(delivery), subject: delivery.subject },
       })
       return { ok: true }
     } catch (error) {
-      const detail = error instanceof Error ? error.message : String(error)
+      const detail = failureWords(error)
       await ctx.runMutation(internal.deliveries.settle, {
         deliveryId,
         status: 'failed',
         error: detail,
       })
+      // Logged as well as recorded on the row, like a refusal from the
+      // provider: a report whose PDF could not be drawn or attached was not
+      // emailed either, and the report's Logs are where an owner looks to
+      // see what went out and what did not. Not once Resend had taken it:
+      // "Email failed" in the Logs for an email that went would have
+      // someone send the client a second copy.
+      if (!accepted) {
+        await audit(ctx, businessId, reportId, delivery, {
+          action: 'report.email.failed',
+          meta: { ...addressedTo(delivery), detail },
+        })
+      }
       throw error
     }
   },
@@ -194,8 +210,9 @@ export const deliver = internalAction({
  * Sends a finished report to one address, on someone's say-so.
  *
  * Keeps its argument shape: the report action bar and the e2e suite both call
- * it this way. What changed is underneath — the send is a delivery row, and a
- * recipient nobody has on file waits for an owner.
+ * it this way. What changed is underneath — the send is a delivery row, which
+ * records whether the address was new to this client. Nothing waits for an
+ * owner (`deliveries.ts`).
  */
 export const sendReportPdf = action({
   args: {
@@ -220,17 +237,11 @@ export const sendReportPdf = action({
       throw new ConvexError('EMAIL_NOT_CONFIGURED')
     }
 
-    const { deliveryId, status } = await ctx.runMutation(api.deliveries.request, {
+    const { deliveryId } = await ctx.runMutation(api.deliveries.request, {
       businessId,
       reportId,
       to: [to],
     })
-
-    if (status === 'pendingApproval') {
-      // The request is recorded and an owner can let it go; the person who
-      // asked needs to know it has not been sent.
-      throw new ConvexError('RECIPIENT_NEEDS_APPROVAL')
-    }
 
     // Run it here rather than scheduling it: whoever pressed Send is watching,
     // and "it went" or "it did not" is the answer they asked for.
@@ -247,19 +258,68 @@ async function audit(
   ctx: ActionCtx,
   businessId: Id<'businesses'>,
   reportId: Id<'reports'>,
-  actorMembershipId: Id<'memberships'> | undefined,
+  delivery: Pick<
+    Doc<'reportDeliveries'>,
+    'sentByMembershipId' | 'onBehalfOfMembershipId'
+  >,
   entry: { action: string; meta: unknown },
 ) {
   // Every delivery written now names who asked for it (see the schema). A
   // row without one has nobody to attribute the outcome to, and the delivery
   // row is its record — an audit line attributed to nobody would be worse.
-  if (!actorMembershipId) return
+  if (!delivery.sentByMembershipId) return
   await ctx.runMutation(internal.auditLog.log, {
     businessId,
-    actorMembershipId,
+    actorMembershipId: delivery.sentByMembershipId,
+    // "Terence, in Kevin's account" when that is where it was sent from.
+    ...(delivery.onBehalfOfMembershipId
+      ? { onBehalfOfMembershipId: delivery.onBehalfOfMembershipId }
+      : {}),
     action: entry.action,
     entityType: 'reports',
     entityId: reportId,
     meta: entry.meta,
   })
+}
+
+/**
+ * Everyone an email went to, as the report's Logs show it: who it was for,
+ * the business's blind copy, and which of them were new to this client. Only
+ * what the row has — a row from before 29 Sept 2026 has no `bcc`, and one from
+ * before 30 Sept no `newAddresses`.
+ */
+function addressedTo(
+  delivery: Pick<
+    Doc<'reportDeliveries'>,
+    'to' | 'cc' | 'bcc' | 'trigger' | 'newAddresses'
+  >,
+) {
+  return {
+    to: delivery.to,
+    ...(delivery.cc.length > 0 ? { cc: delivery.cc } : {}),
+    ...(delivery.bcc && delivery.bcc.length > 0 ? { bcc: delivery.bcc } : {}),
+    ...(delivery.newAddresses && delivery.newAddresses.length > 0
+      ? { newAddresses: delivery.newAddresses }
+      : {}),
+    trigger: delivery.trigger,
+  }
+}
+
+/**
+ * Why a send died before the provider answered, in words: the row's history
+ * and the report's Logs both show it, and "PDF_TOO_LARGE" is a code.
+ */
+const FAILURE_WORDS = new Map<unknown, string>([
+  ['PDF_UNAVAILABLE', 'Not sent: the PDF could not be prepared to attach.'],
+  [
+    'PDF_TOO_LARGE',
+    'Not sent: the PDF is too large to email. Share it from the PDF tab instead.',
+  ],
+  ['NOT_FOUND', 'Not sent: the report could not be found.'],
+])
+
+function failureWords(error: unknown): string {
+  const words = FAILURE_WORDS.get((error as { data?: unknown } | null)?.data)
+  if (words) return words
+  return error instanceof Error ? error.message : String(error)
 }

@@ -8,7 +8,13 @@ import { convexQuery } from '@convex-dev/react-query'
 import { Segmented } from '../primitives/Segmented'
 import { api } from '../../../convex/_generated/api'
 import { useHydrated } from '#/lib/useHydrated'
-import { DeliveryHistory, LatestDelivery, SendSheet } from './SendSheet'
+import {
+  DeliveryHistory,
+  LatestDelivery,
+  SendSheet,
+  newAddressLine,
+  senderName,
+} from './SendSheet'
 import { ReportPdfCard } from './ReportPdfCard'
 import { ReportPdfViewer } from './ReportPdfViewer'
 import { replacedBadge } from './reportPdfModel'
@@ -20,6 +26,8 @@ import type { PresentContext } from '#/lib/reportTemplates/present'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
+import { LoadFailed } from '#/components/primitives/EmptyState'
+import { RowPending } from '#/components/shell/Pending'
 import { formatWhen } from '#/lib/format'
 import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
 import { dateTimeFormat, dayKeyOf } from '../../../convex/lib/dates'
@@ -291,29 +299,43 @@ function EmailPanel({
   )
 }
 
-function LogsPanel({
+/**
+ * A report's Logs tab: everything done to it, newest first — who started,
+ * edited and finalised it, and every email of it, with who it went to, where
+ * the business's copy went, and which addresses were new to the client.
+ * Exported for the UI harness.
+ */
+export function LogsPanel({
   businessId,
   reportId,
 }: {
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
 }) {
-  const { data: logs } = useQuery(
+  const logs = useQuery(
     convexQuery(api.auditLog.forEntity, {
       businessId,
       entityType: 'reports',
       entityId: reportId,
     }),
   )
+  const entries = logs.data
 
   return (
     <div className="px-4 pt-5 pb-8">
       <h2 className="section-label mb-2">Activity</h2>
-      {!logs || logs.length === 0 ? (
+      {entries === undefined && logs.isError ? (
+        <LoadFailed what="the activity" onRetry={() => void logs.refetch()} />
+      ) : entries === undefined ? (
+        // Loading is not the same as nothing: "Nothing logged yet." under a
+        // report that was finalised and emailed is a lie an owner checking
+        // who sent it where would believe.
+        <RowPending announce={false} className="py-1" />
+      ) : entries.length === 0 ? (
         <p className="text-caption text-muted">Nothing logged yet.</p>
       ) : (
         <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
-          {logs.map((entry) => (
+          {entries.map((entry) => (
             <LogRow key={entry._id} entry={entry} />
           ))}
         </ul>
@@ -328,6 +350,9 @@ const ACTION_LABEL: Record<string, string> = {
   'report.finalise': 'Finalised',
   'report.email.sent': 'Emailed',
   'report.email.failed': 'Email failed',
+  'report.email.bounced': 'Email bounced',
+  // Written before approval was retired (30 Sept 2026), and kept as they
+  // happened: nothing writes them now.
   'report.email.pending_approval': 'Held for approval',
   'report.email.approved': 'Approved to send',
   'report.email.rejected': 'Not approved',
@@ -350,11 +375,20 @@ function LogRow({
   }
 }) {
   const timezone = useBusinessTimezone()
+  // What `email.deliver` records about a send (`addressedTo`): an older row
+  // has only `to`.
   const meta = (entry.meta ?? {}) as {
     to?: string | Array<string>
+    cc?: Array<string>
+    bcc?: Array<string>
+    newAddresses?: Array<string>
+    trigger?: 'finalise' | 'manual'
     detail?: string
   }
   const to = Array.isArray(meta.to) ? meta.to.join(', ') : meta.to
+  // The business's blind copy, and a visible cc on a row from before copies
+  // were blind — as the Email tab lists them.
+  const copies = [...new Set([...(meta.bcc ?? []), ...(meta.cc ?? [])])]
   return (
     <li className="flex gap-2.5 px-3.5 py-3">
       {/* The member's own colour, as the schedule and the notes list use it. */}
@@ -374,12 +408,23 @@ function LogRow({
           {/* Who, not just what: "Emailed" beside a colour dot tells an owner
               nothing, and who did it is the question a history answers. */}
           {entry.actorName
-            ? entry.onBehalfOfName
-              ? `${entry.actorName}, in ${entry.onBehalfOfName}’s account · `
-              : `${entry.actorName} · `
+            ? `${senderName(entry.actorName, entry.onBehalfOfName)} · `
             : ''}
           {formatWhen(entry.at, timezone)}
+          {meta.trigger === 'finalise' ? ' · asked for by the form' : ''}
         </p>
+        {/* Only on a send that went: on a failure it would read as though
+            the copy had gone when nothing did. */}
+        {entry.action === 'report.email.sent' && copies.length > 0 && (
+          <p className="text-caption text-muted">Copy to {copies.join(', ')}</p>
+        )}
+        {/* Nothing waits for an owner any more; this is how one sees that a
+            report went somewhere the client's record does not have. */}
+        {meta.newAddresses && meta.newAddresses.length > 0 && (
+          <p className="text-caption text-ink-2">
+            {newAddressLine(meta.newAddresses)}
+          </p>
+        )}
         {meta.detail && (
           <p className="mt-1 text-caption text-amber-ink">{meta.detail}</p>
         )}

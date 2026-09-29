@@ -2255,8 +2255,9 @@ export async function finaliseReport(
 
     // What the form itself asked for. Opened as a delivery row here, in the
     // same transaction that locks the report, so "the form said send it" is
-    // recorded even if the send never happens — and a recipient nobody has on
-    // file waits for an owner, exactly as it would from the send sheet.
+    // recorded even if the send never happens — and an address nobody has on
+    // file goes, and is recorded as new, exactly as it would from the send
+    // sheet.
     await queueFormDeliveries(ctx, report, data as Record<string, unknown>, env)
 
     // Render now, not when someone first asks for it. The technician who
@@ -2272,13 +2273,14 @@ export async function finaliseReport(
 }
 
 /**
- * Opens the deliveries the form asked for, at the moment it is locked.
+ * Opens the delivery the form asked for, at the moment it is locked.
  *
  * A technician who ticked "Send copy of the report to the client email above"
  * has given an instruction, and it belongs to the record whether or not the
- * provider is configured, whether or not the send succeeds. The recipient rule
- * applies here too: a novel address typed into `Email Report To` is a request
- * an owner approves, not a send that happens because a form was locked.
+ * provider is configured, whether or not the send succeeds. Everyone the form
+ * asked for is on the one email, whoever locked it: there is no approval step
+ * (`deliveries.ts`). An address typed into `Email Report To` that is not on
+ * the client's record goes too, and the row records that it was new.
  */
 async function queueFormDeliveries(
   ctx: MutationCtx,
@@ -2304,60 +2306,43 @@ async function queueFormDeliveries(
   // refuses the rest by. An address typed into the form's email field was
   // checked a moment ago, by `assertComplete`; the client's own address was
   // not, and comes from a record saved before the app checked them
-  // ("bob@gmail"), and a row for one would sit in the history — or in the
-  // owner's approval queue — as a send that was never going to arrive. The
-  // report can still be sent from the send sheet once the address is put
-  // right.
+  // ("bob@gmail"), and a row for one would sit in the history as a send that
+  // was never going to arrive. The report can still be sent from the send
+  // sheet once the address is put right.
   const to = asked.to.filter(isValidEmail)
   if (to.length === 0) return
 
   const known = await knownRecipients(ctx, report)
-  // The same rule as `deliveries.request`, which this mirrors for the sends
-  // the form itself asked for: sending anywhere is the owner's authority, and
-  // not from inside somebody else's account.
-  const unrestricted =
-    hasCapability(env, 'business.manage') ||
-    business?.allowTechnicianRecipients === true
-  const held = unrestricted
-    ? []
-    : to.filter((address) => !known.includes(address))
-  const now = to.filter((address) => !held.includes(address))
-
-  // Two rows, not one, when some of it is held: the address nobody has on
-  // file waits for an owner, and the client's own copy does not wait with it
-  // — the send sheet already sends person by person for the same reason.
-  // Held as one row, a strata manager typed into "Email Report To" kept the
-  // client from ever getting the report the lock sheet said was on its way.
   // The copy is already checked: a Business copy address that can never be
   // delivered to comes back null rather than as a copy nobody will receive.
   const copy = businessCopyAddress(business)
-  const subject = documentIdentity({
-    template,
-    property,
-    businessName: business?.name ?? '',
-    finalisedAt: Date.now(),
-  }).title
-  for (const [addresses, status] of [
-    [now, 'queued'],
-    [held, 'pendingApproval'],
-  ] as const) {
-    if (addresses.length === 0) continue
-    await ctx.db.insert('reportDeliveries', {
-      businessId: report.businessId,
-      reportId: report._id,
-      to: addresses,
-      cc: [],
-      // The business's own copy, blind: the client sees only who it is for.
-      bcc: blindCopy(copy, addresses),
-      subject,
-      trigger: 'finalise',
-      status,
-      // The human who locked it, like `finalisedByMembershipId`: it is their
-      // send the approval queue and the rate limit are about.
-      sentByMembershipId: env.actor.real._id,
-      createdAt: Date.now(),
-    })
-  }
+  await ctx.db.insert('reportDeliveries', {
+    businessId: report.businessId,
+    reportId: report._id,
+    to,
+    cc: [],
+    // The business's own copy, blind: the client sees only who it is for.
+    bcc: blindCopy(copy, to),
+    subject: documentIdentity({
+      template,
+      property,
+      businessName: business?.name ?? '',
+      finalisedAt: Date.now(),
+    }).title,
+    trigger: 'finalise',
+    status: 'queued',
+    // Recorded, not held — the lock sheet has already said so. Until 30 Sept
+    // 2026 these waited for an owner's approval, in a row of their own so
+    // the client's copy did not wait with them; nothing waits now, so it is
+    // one email again.
+    newAddresses: to.filter((address) => !known.includes(address)),
+    // The human who locked it, like `finalisedByMembershipId`: it is their
+    // send the rate limit counts and the history names, and the account it
+    // was locked in when that was not their own.
+    sentByMembershipId: env.actor.real._id,
+    onBehalfOfMembershipId: writeAttribution(env.actor).onBehalfOfMembershipId,
+    createdAt: Date.now(),
+  })
 }
 
 /**

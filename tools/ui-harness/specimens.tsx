@@ -10,10 +10,16 @@ import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
+import { ReportSettingsForm } from '#/components/settings/ReportSettingsForm'
 import { SignSheet } from '#/components/reports/fields/SignSheet'
 import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
 import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
-import { LatestDelivery, SendSheet } from '#/components/reports/SendSheet'
+import {
+  DeliveryHistory,
+  LatestDelivery,
+  SendSheet,
+} from '#/components/reports/SendSheet'
+import { LogsPanel } from '#/components/reports/ReportActionBar'
 import { getTemplate } from '#/lib/reportTemplates'
 import { Sheet } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
@@ -534,7 +540,9 @@ function Lock() {
   )
 }
 
-function LockHeld() {
+/** A strata manager nobody has on file: emailed with the client, and the
+ * sheet asks for a second look before the lock. */
+function LockNewAddress() {
   return (
     <LockSheet
       reportId="r_lock"
@@ -559,7 +567,7 @@ function Delivered() {
   return (
     <Phone>
       <Header kicker="Service Report" title="30 Sloan Drive" />
-      {['r_sending', 'r_sent', 'r_stuck', 'r_held', 'r_failed', 'r_setup'].map(
+      {['r_sending', 'r_sent', 'r_stuck', 'r_new', 'r_failed', 'r_setup'].map(
         (id) => (
           <LatestDelivery
             key={id}
@@ -569,6 +577,30 @@ function Delivered() {
           />
         ),
       )}
+    </Phone>
+  )
+}
+
+/** The Email tab's history: who sent each email, from whose account, where
+ * the copy went, and which addresses were new to the client. */
+function History() {
+  return (
+    <Phone>
+      <Header kicker="Service Report" title="Email" />
+      <div className="px-4 pb-8 pt-5">
+        <h2 className="section-label mb-2">Delivery history</h2>
+        <DeliveryHistory businessId={bizId} reportId={'r_history' as never} />
+      </div>
+    </Phone>
+  )
+}
+
+/** The Logs tab: the same sends, as the report's activity. */
+function Logs() {
+  return (
+    <Phone>
+      <Header kicker="Service Report" title="Logs" />
+      <LogsPanel businessId={bizId} reportId={'r_logs' as never} />
     </Phone>
   )
 }
@@ -604,6 +636,23 @@ function FormSettings() {
   )
 }
 
+/** Settings → Reports: the business copy, and no approval switch — anyone
+ * may email a report anywhere, and the copy is how the owner sees it. */
+function ReportSettings() {
+  return (
+    <Phone>
+      <Header kicker="Settings" title="Reports" />
+      <SettingsBody>
+        <ReportSettingsForm
+          businessId={bizId}
+          businessSlug="demo"
+          businessName="Pest M8 Pest Control"
+        />
+      </SettingsBody>
+    </Phone>
+  )
+}
+
 function RecycleBin() {
   return (
     <Phone>
@@ -617,6 +666,7 @@ function RecycleBin() {
 
 export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   bin: RecycleBin,
+  'report-settings': ReportSettings,
   dock: Dock,
   jobcards: JobCards,
   jobdetail: JobDetail,
@@ -634,9 +684,11 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   inputs: Inputs,
   nomatch: NoMatchesDemo,
   lock: Lock,
-  'lock-held': LockHeld,
+  'lock-new': LockNewAddress,
   'lock-noemail': LockNoEmail,
   delivered: Delivered,
+  history: History,
+  logs: Logs,
   send: Send,
   'form-settings': FormSettings,
 }

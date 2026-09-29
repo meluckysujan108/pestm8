@@ -501,9 +501,9 @@ function KindSpecificFields({
     case 'emails':
       return (
         <p className="text-caption text-muted">
-          Extra addresses this document is sent to when it is finalised. An
-          address that is on nobody&rsquo;s record still prints, but waits for
-          an owner to approve the send.
+          Extra addresses this document is sent to when it is finalised. One
+          that isn&rsquo;t on the client&rsquo;s record goes too, and the
+          report&rsquo;s Email tab marks it as new.
         </p>
       )
 

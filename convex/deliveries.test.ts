@@ -13,10 +13,10 @@ const modules = import.meta.glob('./**/*.ts')
 /**
  * What the form asks for, and what a settled delivery records.
  *
- * The recipient RULE — a technician may send where the business already
- * corresponds, and an owner decides the rest — is exercised in
- * `e2e/deliveries.spec.ts` instead: it runs through `requireMembership`, and
- * convex-test has no Better Auth component registered to answer that.
+ * Who may send, and what a send records about its addresses, is exercised in
+ * `reportEmailCopy.test.ts` (through the test harness's signed-in actors) and
+ * `e2e/deliveries.spec.ts`: it runs through `requireMembership`, which these
+ * bare convex-test rows cannot answer.
  */
 
 async function seed(ctx: MutationCtx, options: { clientEmail?: string } = {}) {
@@ -245,21 +245,43 @@ describe('what a settled delivery records', () => {
     )
     const { reportId, deliveryId } = await queued(ids, t)
 
-    const held = await t.mutation(internal.deliveries.queue, {
+    const failed = await t.mutation(internal.deliveries.queue, {
       reportId,
       to: ['someone@elsewhere.example'],
       cc: [],
       subject: 'Service Report',
       trigger: 'manual',
-      status: 'pendingApproval',
+      status: 'queued',
       sentByMembershipId: ids.techId,
     })
+    await t.mutation(internal.deliveries.settle, {
+      deliveryId: failed,
+      status: 'failed',
+      error: 'Provider said no',
+    })
+    // Held before approval was retired, and not yet released by
+    // migrations/heldDeliveriesV1: not sent by a render finishing either.
+    const held = await t.run((ctx) =>
+      ctx.db.insert('reportDeliveries', {
+        businessId: ids.businessId,
+        reportId,
+        to: ['strata@elsewhere.example'],
+        cc: [],
+        subject: 'Service Report',
+        trigger: 'finalise',
+        status: 'pendingApproval',
+        sentByMembershipId: ids.techId,
+        createdAt: Date.now(),
+      }),
+    )
 
     const ready = await t.query(internal.deliveries.readyForReport, {
       reportId,
     })
-    // The held one stays held: a render finishing is not an approval.
+    // A send that already failed is retried by a person, from the Send
+    // sheet — not again, unasked, whenever the PDF is next drawn.
     expect(ready).toEqual([deliveryId])
+    expect(ready).not.toContain(failed)
     expect(ready).not.toContain(held)
   })
 })

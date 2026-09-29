@@ -5,10 +5,10 @@ import {
   Check,
   ChevronRight,
   CircleAlert,
+  Info,
   LoaderCircle,
   Plus,
   Send,
-  ShieldAlert,
   TriangleAlert,
 } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
@@ -43,9 +43,11 @@ import { useHydrated } from '#/lib/useHydrated'
  * said so.
  *
  * So the addresses the form already asked for are offered as chips, already
- * chosen. Anyone else is one tap and a typed address away, and the sheet says
- * plainly — before Send, not after — when that address is one only an owner
- * can approve.
+ * chosen. Anyone else is one tap and a typed address away. Nothing waits for
+ * an owner (since 30 Sept 2026): an address that is not on the client's record
+ * goes like any other, and the sheet marks it as new before Send — a typo
+ * there is a compliance document gone to a stranger — and the report's
+ * history records it as new afterwards.
  */
 
 type Recipient = {
@@ -64,8 +66,6 @@ export const SEND_ERROR: Record<string, string> = {
   INVALID_EMAIL: 'That address can’t receive email. Check it for a typo.',
   EMAIL_NOT_CONFIGURED:
     'Email sending isn’t set up for this business yet. Open the PDF and share it from there for now.',
-  RECIPIENT_NEEDS_APPROVAL:
-    'Sent to the owner to approve — it will go once they say yes.',
   REPORT_NOT_FINALISED:
     'This report isn’t finalised yet. Finalise it, then send it.',
   PDF_UNAVAILABLE: 'Could not prepare the PDF to attach.',
@@ -95,9 +95,9 @@ export function sendErrorCode(error: unknown): string {
  *
  * An address that can never be delivered to is never chosen by default. One
  * saved before addresses were checked ("bob@gmail") still reaches here from
- * the client's record, and chosen it read "Needs approval", then failed at
- * the server with no reason given. It shows as "Can’t be delivered", with
- * the address most likely meant one tap away.
+ * the client's record, and chosen it failed at the server with no reason
+ * given. It shows as "Can’t be delivered", with the address most likely
+ * meant one tap away.
  */
 export function suggestedRecipients(
   asked: ReadonlyArray<string>,
@@ -150,12 +150,11 @@ export function SendSheet({
   )
 
   // `undefined` means "not yet", which is not the same as "nobody is on
-  // file" — and the difference matters, because the second one puts a "Needs
-  // approval" warning against the client's own address. The same mistake the
-  // finalise sheet made about signatures.
+  // file" — and the difference matters, because the second one marks the
+  // client's own address as new. The same mistake the finalise sheet made
+  // about signatures.
   const settled = known !== undefined
   const knownAddresses = known?.addresses ?? []
-  const unrestricted = known?.unrestricted ?? false
   // The business's own blind copy (`lib/recipients.businessCopyAddress`),
   // which every email of this report carries.
   const copy = known?.copy ?? null
@@ -205,18 +204,16 @@ export function SendSheet({
   // second, hidden one (`blindCopy`).
   const copied = (addresses: ReadonlyArray<string>) =>
     copy !== null && addresses.some((address) => address !== copy)
-  const needsApproval =
-    settled && !unrestricted && chosen.some((entry) => !entry.known)
 
   const convexSend = useConvexAction(api.email.sendReportPdf)
 
   /**
    * One send per recipient, and one outcome per recipient.
    *
-   * They genuinely can differ — a client's own address goes while a strata
-   * office's waits for the owner — so a single pass/fail for the whole tap
-   * would report one of them wrongly. Nothing throws: the summary below says
-   * what happened to each.
+   * They genuinely can differ — the client's goes while the provider refuses
+   * a strata office's, or the hourly limit is reached halfway — so a single
+   * pass/fail for the whole tap would report one of them wrongly. Nothing
+   * throws: the summary below says what happened to each.
    */
   const send = useMutation({
     mutationFn: async (addresses: Array<string>) => {
@@ -235,13 +232,7 @@ export function SendSheet({
 
   const outcomes = send.data ?? []
   const sent = outcomes.filter((result) => result.code === null)
-  const held = outcomes.filter(
-    (result) => result.code === 'RECIPIENT_NEEDS_APPROVAL',
-  )
-  const failed = outcomes.filter(
-    (result) =>
-      result.code !== null && result.code !== 'RECIPIENT_NEEDS_APPROVAL',
-  )
+  const failed = outcomes.filter((result) => result.code !== null)
 
   const typed = draft.trim().toLowerCase()
   const draftProblem = typed === '' ? null : emailProblem(typed)
@@ -337,9 +328,7 @@ export function SendSheet({
           <Send size={16} strokeWidth={2} />
           {send.isPending
             ? 'Sending…'
-            : needsApproval
-              ? 'Request approval'
-              : `Send to ${chosen.length === 1 ? '1 person' : `${chosen.length} people`}`}
+            : `Send to ${chosen.length === 1 ? '1 person' : `${chosen.length} people`}`}
         </button>
       }
     >
@@ -386,18 +375,15 @@ export function SendSheet({
                     <span className="min-w-0 flex-1 truncate text-body text-ink">
                       {entry.address}
                     </span>
-                    {/* Said before Send, not after: a technician should know
-                        their request is going to the owner before they make
-                        it. */}
-                    {settled &&
-                      entry.chosen &&
-                      !entry.known &&
-                      !unrestricted && (
-                        <span className="flex shrink-0 items-center gap-1 text-caption text-amber-ink">
-                          <ShieldAlert size={13} strokeWidth={2} />
-                          Needs approval
-                        </span>
-                      )}
+                    {/* Said before Send, not after: an address the business
+                        has never used is where a typo would be. It goes all
+                        the same, and the history records it as new. */}
+                    {settled && entry.chosen && !entry.known && (
+                      <span className="flex shrink-0 items-center gap-1 text-caption text-ink-2">
+                        <Info size={13} strokeWidth={2} aria-hidden />
+                        New address
+                      </span>
+                    )}
                   </button>
                   {noMailDomain && (
                     <FieldMessage id={noMailId} tone="warning">
@@ -538,12 +524,6 @@ export function SendSheet({
                 : ''}
             </p>
           )}
-          {held.length > 0 && (
-            <p className="rounded-xl border border-hairline bg-surface-2 px-3 py-2 text-caption text-ink-2">
-              {SEND_ERROR.RECIPIENT_NEEDS_APPROVAL}{' '}
-              {held.map((result) => result.address).join(', ')}
-            </p>
-          )}
           {failed.map((result) => (
             <FormAlert key={result.address}>
               {result.address} —{' '}
@@ -602,11 +582,13 @@ function UndeliverableChip({
 }
 
 /**
- * Every attempt to send this report, and how each one went.
+ * Every attempt to send this report, and how each one went: who asked (and
+ * from whose account), who it went to, where the business's copy went, and
+ * which addresses were new to this client.
  *
  * Read from the delivery rows rather than the audit log: a row exists from the
- * moment someone asks, so a send that is waiting on an owner or that died
- * mid-flight appears here too, rather than only the ones that finished.
+ * moment someone asks, so a send still on its way, or one that died
+ * mid-flight, appears here too, rather than only the ones that finished.
  */
 export function DeliveryHistory({
   businessId,
@@ -647,20 +629,24 @@ export function DeliveryHistory({
             {STATUS_LABEL[row.status]} — {row.to.join(', ')}
           </p>
           <p className="text-caption text-muted">
-            {row.sentBy?.name ? `${row.sentBy.name} · ` : ''}
+            {row.sentBy?.name
+              ? `${senderName(row.sentBy.name, row.onBehalfOf?.name)} · `
+              : ''}
             {formatWhen(row.sentAt ?? row.createdAt, timezone)}
             {row.trigger === 'finalise' ? ' · asked for by the form' : ''}
           </p>
-          {/* Only once it went: on a held or failed row it would read as
-              though the copy had gone when nothing did. */}
+          {/* Only once it went: on a failed row it would read as though the
+              copy had gone when nothing did. */}
           {row.status === 'sent' && copiesOf(row).length > 0 && (
             <p className="text-caption text-muted">
               Copy to {copiesOf(row).join(', ')}
             </p>
           )}
-          {row.status === 'pendingApproval' && row.approvedBy === null && (
-            <p className="mt-1 text-caption text-amber-ink">
-              Waiting for an owner to approve this address.
+          {/* Nothing waited on it; this is what an owner reads to see a
+              report went somewhere new. */}
+          {row.newAddresses && row.newAddresses.length > 0 && (
+            <p className="text-caption text-ink-2">
+              {newAddressLine(row.newAddresses)}
             </p>
           )}
           {row.waitingForEmailSetup && (
@@ -676,6 +662,18 @@ export function DeliveryHistory({
       ))}
     </ul>
   )
+}
+
+/** "Terence", or "Terence, in Kevin’s account" when it was sent from there —
+ * as the report's Logs say it. */
+export function senderName(name: string, onBehalfOf?: string): string {
+  return onBehalfOf ? `${name}, in ${onBehalfOf}’s account` : name
+}
+
+/** The line a send to addresses new to this client carries, in the Email
+ * tab's history and the report's Logs alike. */
+export function newAddressLine(addresses: ReadonlyArray<string>): string {
+  return `Not on the client’s record: ${addresses.join(', ')}`
 }
 
 /**
@@ -699,10 +697,10 @@ function copiesOf(row: {
  * go, and to whom?" gets answered: "Sending…" for the few seconds the PDF
  * takes to draw, then who it went to and where the business's copy went.
  *
- * One line per email in that send, not only the newest row: a lock can open
- * two (the client's, and one held for an address nobody has on file), and a
- * tap of Send opens one per person. It opens the Email tab, which has the
- * whole history. Nothing at all for a report that was never emailed.
+ * One line per email in that send, not only the newest row: a lock opens one
+ * email for everyone the form asked for, but a tap of Send opens one per
+ * person. It opens the Email tab, which has the whole history. Nothing at all
+ * for a report that was never emailed.
  */
 export function LatestDelivery({
   businessId,
@@ -736,11 +734,9 @@ export function LatestDelivery({
     // A send takes seconds: the PDF is drawn, then Resend is called. A row
     // still queued minutes later is not on its way — its render failed, or
     // it was never scheduled — and a spinner beside it would be a promise.
-    // Not for one an owner let go: that row keeps the time it was asked for.
     const stuck =
       row.status === 'queued' &&
       !row.waitingForEmailSetup &&
-      row.approvedBy === null &&
       now - row.createdAt > STUCK_AFTER_MS
     const line = deliveryLine(row, row.to.join(', '), stuck)
     const sending =
@@ -851,7 +847,6 @@ function useClock(ticking: boolean): number {
 function deliveryLine(
   row: {
     status: Doc<'reportDeliveries'>['status']
-    error?: string
     waitingForEmailSetup: boolean
   },
   who: string,
@@ -876,12 +871,12 @@ function deliveryLine(
           }
         : { text: `Sending to ${who}…`, next: null, warn: false }
     case 'pendingApproval':
-      // No approval is promised: the app has no screen yet where an owner
-      // lets a held email go. An owner sending it from the report can happen
-      // today, so that is what it says.
+      // Held for an owner's approval before approval was retired (30 Sept
+      // 2026). Nothing will send it: `migrations/heldDeliveriesV1` marks
+      // these as not sent, and until it has run this says the same.
       return {
-        text: `Not emailed to ${who}: not on the client’s record.`,
-        next: 'An owner can send it from the Email tab.',
+        text: `Not emailed to ${who}.`,
+        next: 'Send it again from the Email tab.',
         warn: true,
       }
     case 'bounced':
@@ -891,23 +886,18 @@ function deliveryLine(
         warn: true,
       }
     case 'failed':
-      return row.error === 'Not approved'
-        ? {
-            text: `An owner didn’t approve emailing ${who}.`,
-            next: 'Open the Email tab to send it somewhere else.',
-            warn: true,
-          }
-        : {
-            text: `Could not email ${who}.`,
-            next: 'Send it again from the Email tab.',
-            warn: true,
-          }
+      return {
+        text: `Could not email ${who}.`,
+        next: 'Send it again from the Email tab.',
+        warn: true,
+      }
   }
 }
 
 const STATUS_LABEL: Record<string, string> = {
   queued: 'Queued',
-  pendingApproval: 'Waiting for approval',
+  // Retired with approval: a row still held before the migration runs.
+  pendingApproval: 'Not sent',
   sent: 'Sent',
   failed: 'Failed',
   bounced: 'Bounced',

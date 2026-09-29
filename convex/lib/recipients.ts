@@ -5,13 +5,14 @@ import type { MutationCtx, QueryCtx } from '../_generated/server'
 /**
  * The addresses a business already corresponds with about this report.
  *
- * The recipient rule reads from here: a technician may send a report to the
- * people on the client's record, and anywhere else waits for an owner. That is
- * not distrust — a compliance document emailed to a typo is simply gone, and
- * the person who would notice a wrong address is the one who owns the client
- * relationship.
+ * Nothing waits on this: since 30 Sept 2026 anyone who may send a report may
+ * send it anywhere that can receive email. What it answers is which of a
+ * send's addresses are new to this client — recorded on the delivery
+ * (`newAddresses`) and pointed out by the Send and lock sheets, because a
+ * compliance document emailed to a typo is simply gone, and an address the
+ * business has never used is where a typo would be.
  *
- * Shared by `finalise` (which opens the deliveries the form asked for) and
+ * Shared by `finalise` (which opens the delivery the form asked for) and
  * `deliveries.request` (which opens the one a person asked for), because two
  * implementations of "is this address known?" would disagree the first time a
  * contact was added.
@@ -90,9 +91,9 @@ export function businessCopyAddress(
 
 /**
  * Being on file is not the same as being right. An address saved before the
- * app checked them ("bob@gmail", "jan@hotmail..com") is the typo this rule
- * exists to catch, so it does not skip the owner's approval merely by having
- * been typed into the client record first.
+ * app checked them ("bob@gmail", "jan@hotmail..com") is the kind of typo this
+ * exists to catch, so it does not count as known merely by having been typed
+ * into the client record first.
  */
 function deliverable(address: string | undefined): address is string {
   return address !== undefined && isValidEmail(address)

@@ -149,10 +149,25 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
-  'lock-held': { before: async (p) => p.waitForTimeout(700) },
+  'lock-new': { before: async (p) => p.waitForTimeout(700) },
   'lock-noemail': { before: async (p) => p.waitForTimeout(700) },
   delivered: {},
+  'report-settings': { full: true },
+  history: {},
+  logs: {},
   send: { before: async (p) => p.waitForTimeout(700) },
+  // Someone the client's record does not have: marked new, and sent like
+  // anyone else.
+  'send-new': {
+    spec: 'send',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Send to someone else' }).click()
+      await p.getByLabel('Email address').fill('strata@harbourside.com.au')
+      await p.getByRole('button', { name: 'Add', exact: true }).click()
+      await p.waitForTimeout(300)
+    },
+  },
   'form-settings': { before: async (p) => p.waitForTimeout(700) },
   'send-off': {
     spec: 'send',
