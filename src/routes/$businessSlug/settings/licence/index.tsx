@@ -27,8 +27,9 @@ export const Route = createFileRoute('/$businessSlug/settings/licence/')({
 })
 
 /**
- * Licences: the number printed on your reports, and every licence you hold —
- * each with its own page for its files.
+ * Licences & insurance: the number printed on your reports, and every licence
+ * and insurance policy you hold — one list, each with its own page for its
+ * files.
  *
  * Nothing here waits for the signed-in user. With no signal that query never
  * answers (a Convex query waits rather than fails), and the copy of the
@@ -45,7 +46,7 @@ function LicencesPage() {
       <PageHeader
         businessId={business._id}
         businessSlug={business.slug}
-        title="Licences"
+        title="Licences & insurance"
         back={
           <BackLink
             to="/$businessSlug/settings"

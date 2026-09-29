@@ -10,7 +10,7 @@ import { daysUntilExpiry } from '../../../convex/lib/memberLicences'
  * 1st for everyone in the business, whatever their phone is set to.
  *
  * Pure, so the rules can be tested, and so the list, the licence page, the
- * hub's badge and the Show my licence sheet cannot disagree.
+ * hub's badge and the Show my licences & insurance sheet cannot disagree.
  */
 
 /** How many days before it runs out a licence turns amber. */
@@ -70,8 +70,9 @@ export function licenceSubtitle(
 }
 
 /**
- * The most pressing thing about a whole wallet, for the hub's Licences row:
- * any licence expired, else any running out within `WARN_DAYS`, else nothing.
+ * The most pressing thing about a whole wallet, for the hub's Licences &
+ * insurance row: any one expired, else any running out within `WARN_DAYS`,
+ * else nothing.
  */
 export function walletExpiry(
   licences: ReadonlyArray<{ expiresOn?: string }>,

@@ -27,12 +27,12 @@ import type {
 } from './keptLicence'
 
 /**
- * My licences, kept on the holder's phone for sites with no signal: the list
- * and every file, refreshed whenever the list answers. What matters is that a
- * copy is never shown to anyone but the person who kept it — a licence card
- * is personal — that it goes whenever the person signed in changes, that it
- * follows the list (a file taken off goes from the phone too), and that it
- * stops at its budget rather than fill the phone.
+ * Licences & insurance, kept on the holder's phone for sites with no signal:
+ * the list and every file, refreshed whenever the list answers. What matters
+ * is that a copy is never shown to anyone but the person who kept it — a
+ * licence card is personal — that it goes whenever the person signed in
+ * changes, that it follows the list (a file taken off goes from the phone
+ * too), and that it stops at its budget rather than fill the phone.
  */
 
 vi.mock('#/lib/initialState', () => ({ getInitialState: vi.fn() }))

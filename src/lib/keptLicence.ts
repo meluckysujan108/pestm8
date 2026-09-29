@@ -31,9 +31,9 @@ import { signedInUserId } from '#/lib/rootState'
  *    changes once added (a new picture is a new file), so the two name these
  *    exact bytes wherever they are served from.
  *  - Thumbnails are their own small copies. The lists draw one per licence
- *    and the Show my licence sheet one per file, and twenty 2400px photos
- *    decoded at once to fill 48px tiles is what gets a web app killed on an
- *    iPhone.
+ *    and the Show my licences & insurance sheet one per file, and twenty
+ *    2400px photos decoded at once to fill 48px tiles is what gets a web app
+ *    killed on an iPhone.
  *  - Whose they are is written first (`keeper.json`) and checked against the
  *    person signed in (`signedInUserId`) before anything here is read or
  *    written. Someone else, and every kept licence goes. They also go at

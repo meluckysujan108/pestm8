@@ -10,6 +10,7 @@ import { useConvexMutation } from '@convex-dev/react-query'
 import { z } from 'zod'
 import { api } from '../../../../../convex/_generated/api'
 import {
+  MAX_LICENCE_FILES,
   checkExpiresOn,
   cleanLicenceName,
   cleanLicenceNumber,
@@ -53,9 +54,17 @@ export const Route = createFileRoute(
   '/$businessSlug/settings/licence/$licenceId',
 )({
   validateSearch: z.object({
-    // Set by Add licence, so the page says what comes next. Lenient: a
-    // mangled value is no hint, not an error page.
-    added: z.boolean().optional().catch(undefined),
+    // Set by Add new when it made the licence but did not hear back about
+    // every file it sent: how many it sent, so the page can say how many have
+    // not arrived, until they have. Lenient: a mangled value is no notice,
+    // not an error page.
+    expected: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_LICENCE_FILES)
+      .optional()
+      .catch(undefined),
   }),
   // Warmed, never waited on past LOADER_WAIT_MS: with no signal a Convex
   // query never answers, and this page falls back to the copy kept on the
@@ -73,21 +82,22 @@ export const Route = createFileRoute(
 })
 
 /**
- * One licence of the signed-in person's: its name, number and expiry (one
- * form, one Save), its files, and — last, in red — deleting it.
+ * One licence or insurance policy of the signed-in person's: its name, number
+ * and expiry (one form, one Save), its files, and — last, in red — deleting
+ * it.
  *
- * Found in the person's own list, never asked for by id: a licence that is
- * not theirs (someone else's id in the address), or one deleted since, is
- * simply not there, and the page says so.
+ * Found in the person's own list, never asked for by id: one that is not
+ * theirs (someone else's id in the address), or one deleted since, is simply
+ * not there, and the page says so.
  */
 function LicencePage() {
   const { business, membership } = Route.useRouteContext()
   const { licenceId } = Route.useParams()
-  const { added } = Route.useSearch()
+  const { expected } = Route.useSearch()
   const { live, shown, nothing } = useMyLicences(business._id, membership._id)
 
   // Deleting it from here: the list answers without it a moment before the
-  // page has gone back to Licences, and "deleted" must not flash up first.
+  // page has gone back to the list, and "deleted" must not flash up first.
   const [leaving, setLeaving] = useState(false)
   const last = useRef<WalletLicence | undefined>(undefined)
   const found = shown?.licences.find((licence) => licence._id === licenceId)
@@ -103,7 +113,7 @@ function LicencePage() {
           membershipId={membership._id}
           licence={licence}
           fromPhone={shown.fromPhone}
-          justAdded={added === true}
+          expectedFiles={expected}
           onLeaving={setLeaving}
         />
       </LicenceFrame>
@@ -112,13 +122,13 @@ function LicencePage() {
 
   if (shown === undefined) {
     return (
-      <LicenceFrame title="Licence">
+      <LicenceFrame title="Licence or insurance">
         {live.isError ? (
           <FormAlert error={live.error} copy={licenceErrorCopy('load')} />
         ) : nothing ? (
           <EmptyState
             title="No signal"
-            body="Your licences show here once this phone has signal."
+            body="Your licences and insurance show here once this phone has signal."
           />
         ) : (
           <SectionPending />
@@ -130,15 +140,11 @@ function LicencePage() {
   return (
     <LicenceFrame title="Not found">
       <EmptyState
-        title={
-          shown.fromPhone
-            ? 'That licence isn’t on this phone.'
-            : 'That licence isn’t in your list.'
-        }
+        title={shown.fromPhone ? 'Not on this phone' : 'Not in your list'}
         body={
           shown.fromPhone
             ? 'It may have been added since this phone last had signal.'
-            : 'It has been deleted, or the link was for someone else’s.'
+            : 'It has been deleted, or it belongs to someone else.'
         }
       />
       <div className="mt-4 text-center">
@@ -147,7 +153,7 @@ function LicencePage() {
           params={{ businessSlug: business.slug }}
           className="relative tap-target text-body font-semibold text-blue"
         >
-          Back to Licences
+          Back to Licences & insurance
         </Link>
       </div>
     </LicenceFrame>
@@ -160,7 +166,7 @@ function LicenceLoaded({
   membershipId,
   licence,
   fromPhone,
-  justAdded,
+  expectedFiles,
   onLeaving,
 }: {
   businessId: Id<'businesses'>
@@ -168,8 +174,8 @@ function LicenceLoaded({
   membershipId: Id<'memberships'>
   licence: WalletLicence
   fromPhone: boolean
-  justAdded: boolean
-  /** On its way back to Licences, having been deleted — or not, after all. */
+  expectedFiles?: number
+  /** On its way back to the list, having been deleted — or not, after all. */
   onLeaving: (leaving: boolean) => void
 }) {
   const navigate = useNavigate()
@@ -194,7 +200,10 @@ function LicenceLoaded({
   const dirty = draft !== null && !matchesSaved(draft, licence)
 
   const convexUpdate = useConvexMutation(api.memberLicences.update)
+  // Both run even when the phone says it is offline, so their own check says
+  // so: react-query's default would pause them until the signal came back.
   const save = useMutation({
+    networkMode: 'always',
     mutationFn: async (args: {
       name: string
       number: string | null
@@ -216,6 +225,7 @@ function LicenceLoaded({
   const deleteButton = useRef<HTMLButtonElement>(null)
   const convexRemove = useConvexMutation(api.memberLicences.remove)
   const remove = useMutation({
+    networkMode: 'always',
     mutationFn: async () => {
       if (isOffline()) {
         throw new Error('offline')
@@ -272,7 +282,7 @@ function LicenceLoaded({
         }}
       >
         <SettingsGroup
-          title="Licence"
+          title="Details"
           footer={
             readOnly
               ? 'No signal — showing the copy kept on this phone.'
@@ -309,7 +319,7 @@ function LicenceLoaded({
         licence={licence}
         readOnly={readOnly}
         fromPhone={fromPhone}
-        justAdded={justAdded}
+        expectedFiles={expectedFiles}
       />
 
       {!readOnly && (
@@ -324,7 +334,7 @@ function LicenceLoaded({
             disabled={!hydrated || remove.isPending}
             className={DANGER_ROW_CLASS}
           >
-            {remove.isPending ? 'Deleting…' : 'Delete licence'}
+            {remove.isPending ? 'Deleting…' : 'Delete'}
           </button>
         </DangerGroup>
       )}
@@ -338,7 +348,7 @@ function LicenceLoaded({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={`Delete ${licence.name}?`}
-        body="It goes from your licences with its files, here and from this phone. The number on your reports stays as it is."
+        body="It and its files go from your list and from this phone. The number on your reports stays as it is."
         confirm="Delete"
         cancel="Keep it"
         onConfirm={() => {
@@ -399,7 +409,7 @@ function LicenceFrame({
             to="/$businessSlug/settings/licence"
             params={{ businessSlug: business.slug }}
           >
-            Licences
+            Licences & insurance
           </BackLink>
         }
       />
