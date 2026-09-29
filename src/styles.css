@@ -444,6 +444,24 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
+
+  /*
+   * iOS Safari draws a date or time input at a width of its own — its value
+   * plus room for the native control — which neither `width: 100%` nor a grid
+   * column takes it below. In the job form's two-column rows, Date covered
+   * Start and pushed it off the side of the screen (seen 29 Sept 2026).
+   * Without the native look it is an ordinary field the layout can size, and
+   * a tap still opens the system's own picker.
+   */
+  input:is([type='date'], [type='time'], [type='datetime-local']) {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 0;
+  }
+  /* Its value starts where every other field's text does, not centred. */
+  input::-webkit-date-and-time-value {
+    text-align: left;
+  }
 }
 
 /*

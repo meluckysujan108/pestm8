@@ -288,6 +288,41 @@ export async function chooseProperty(
   await expect(sheet.getByLabel('Property')).toContainText(option)
 }
 
+/**
+ * Sets an open New Job sheet's (or job edit form's) services to exactly these,
+ * in this order. A job can be for several, and New Job starts on General Pest
+ * Control, so whatever is ticked is unticked first. A service the list does
+ * not have is typed in and added.
+ */
+export async function chooseJobTypes(
+  page: Page,
+  sheet: Locator,
+  types: Array<string>,
+) {
+  await sheet.getByLabel('Job type').click()
+  const picker = page.getByRole('dialog', { name: 'Job type' })
+  await expect(picker).toBeVisible()
+  const ticked = picker.getByRole('checkbox', { checked: true })
+  while ((await ticked.count()) > 0) await ticked.first().click()
+  for (const type of types) {
+    const row = picker.getByRole('checkbox', { name: type, exact: true })
+    if ((await row.count()) === 0) {
+      await picker
+        .getByRole('textbox', { name: 'Search or add a job type' })
+        .fill(type)
+      await picker
+        .getByRole('button', { name: `Add “${type}” as a new job type` })
+        .click()
+    } else {
+      await row.click()
+    }
+    await expect(row).toBeChecked()
+  }
+  await picker.getByRole('button', { name: 'Done' }).click()
+  await expect(picker).toBeHidden()
+  await expect(sheet.getByLabel('Job type')).toHaveText(types.join(', '))
+}
+
 export function uniqueEmail(label: string) {
   return `${label}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}@pestm8.test`
 }

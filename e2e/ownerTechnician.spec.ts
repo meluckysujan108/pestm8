@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test'
 import {
   api,
+  chooseJobTypes,
   chooseProperty,
   setupBusinessWithSub,
   signInViaUi,
@@ -81,10 +82,7 @@ test('a subcontractor’s new job is theirs, with no one else to pick', async ({
   const sheet = page.getByRole('dialog')
   await expect(sheet.getByText('Assigned to you')).toBeVisible()
   await chooseProperty(page, sheet, 'Nguyen', /J\. Nguyen/)
-  await sheet.getByLabel('Job type').click()
-  await page
-    .getByRole('button', { name: 'Termite Inspection', exact: true })
-    .click()
+  await chooseJobTypes(page, sheet, ['Termite Inspection'])
   await sheet.getByLabel('Start').fill('15:30')
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()

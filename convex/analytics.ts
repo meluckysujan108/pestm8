@@ -2,6 +2,7 @@ import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { authComponent } from './auth'
 import { dayKeyOf, startOfDayInZone, todayKeyInZone } from './lib/dates'
+import { splitJobTypes } from './lib/jobTypes'
 import { jobsInRange } from './jobs'
 import type { Id } from './_generated/dataModel'
 import { requireActor } from './lib/actor'
@@ -74,7 +75,13 @@ export const overview = query({
         revenueByMonth.set(monthKey, (revenueByMonth.get(monthKey) ?? 0) + job.price)
       }
       statusCounts.set(job.status, (statusCounts.get(job.status) ?? 0) + 1)
-      typeCounts.set(job.jobType, (typeCounts.get(job.jobType) ?? 0) + 1)
+      // A job for several services counts once under each of them, so a bar
+      // is how many jobs included that service (lib/jobTypes.ts). The raw
+      // label stands in for one with no service at all.
+      const services = splitJobTypes(job.jobType)
+      for (const service of services.length > 0 ? services : [job.jobType]) {
+        typeCounts.set(service, (typeCounts.get(service) ?? 0) + 1)
+      }
       technicianCounts.set(
         job.assignedMembershipId,
         (technicianCounts.get(job.assignedMembershipId) ?? 0) + 1,

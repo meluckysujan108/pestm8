@@ -17,6 +17,7 @@ import {
 } from './lib/jobStatus'
 import { redactJob } from './lib/prices'
 import { normaliseWorkOrder } from './lib/workOrder'
+import { normaliseJobNotes } from './lib/jobNotes'
 import {
   HORIZON_DAYS,
   assertInterval,
@@ -95,6 +96,13 @@ export const create = mutation({
     anchorDate: v.number(),
     durationMinutes: v.number(),
     workOrder: v.optional(v.string()),
+    /**
+     * A note typed while booking. It goes on the FIRST visit only — a job's
+     * note is about that visit (schema.ts), and the series copies no note onto
+     * the rest. What every visit needs is a site note ("Before you arrive"),
+     * which each visit at the address already shows.
+     */
+    notes: v.optional(v.string()),
   },
   handler: async (
     ctx,
@@ -106,6 +114,7 @@ export const create = mutation({
     // which describe a repeat.
     assertInterval({ count: args.intervalCount, unit: args.intervalUnit })
     const workOrder = normaliseWorkOrder(args.workOrder)
+    const notes = normaliseJobNotes(args.notes)
 
     // Same rule as jobs.create, and it matters more here: the daily cron keeps
     // booking a series onto its assignee for as long as it runs.
@@ -147,6 +156,26 @@ export const create = mutation({
       )
     }
     await materialiseOne(ctx, recurrenceId, args.durationMinutes)
+    // Onto the series' first visit: the one booked above, or — for a series
+    // that starts in the past, where no visit is invented for the missed
+    // date — the first one projected. With no visit inside the horizon yet,
+    // it waits on the series for the first the engine books. Never dropped.
+    if (notes !== undefined) {
+      const visits = await ctx.db
+        .query('jobs')
+        .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
+        // A new series holds at most the first visit and one run's worth.
+        .take(MAX_VISITS_PER_RUN + 1)
+      const first = visits.reduce<Doc<'jobs'> | null>(
+        (earliest, visit) =>
+          earliest === null || visit.scheduledAt < earliest.scheduledAt
+            ? visit
+            : earliest,
+        null,
+      )
+      if (first) await ctx.db.patch(first._id, { notes })
+      else await ctx.db.patch(recurrenceId, { firstVisitNotes: notes })
+    }
     await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.create', {
       assignedMembershipId: args.assignedMembershipId,
       interval: describeInterval({
@@ -247,6 +276,8 @@ export async function insertVisit(
   scheduledAt: number,
   durationMinutes: number,
   origin: 'manual' | 'recurrence',
+  /** The booking's note, for the first visit only (`firstVisitNotes`). */
+  notes?: string,
 ): Promise<void> {
   await ctx.db.insert('jobs', {
     // Which occurrence this is, kept even if the visit is later moved — see
@@ -268,6 +299,7 @@ export async function insertVisit(
     ...(recurrence.workOrder !== undefined && {
       workOrder: recurrence.workOrder,
     }),
+    ...(notes !== undefined && { notes }),
   })
 }
 
@@ -307,6 +339,9 @@ export async function materialiseOne(
 
   const now = Date.now()
   let created = 0
+  // A booking's note still waiting for a visit goes on the first one booked
+  // here, and on no other.
+  let waitingNotes = recurrence.firstVisitNotes
   for (const scheduledAt of occurrencesFrom(
     recurrence.anchorDate,
     intervalOf(recurrence),
@@ -334,7 +369,12 @@ export async function materialiseOne(
       scheduledAt,
       durationMinutes,
       'recurrence',
+      waitingNotes,
     )
+    if (waitingNotes !== undefined) {
+      await ctx.db.patch(recurrence._id, { firstVisitNotes: undefined })
+      waitingNotes = undefined
+    }
     created++
   }
 

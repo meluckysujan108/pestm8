@@ -49,10 +49,14 @@ export function FilterDropdown({
         <ChevronDown size={14} strokeWidth={2.2} className={active ? 'text-blue' : 'text-muted'} />
       </Popover.Trigger>
       <Popover.Portal>
+        {/* Never taller than the room the screen has for it (a phone held
+            sideways, a long team), and a scroll that reaches its end stops
+            there instead of scrolling the page behind it. */}
         <Popover.Content
           align="start"
           sideOffset={6}
-          className="z-50 max-h-96 w-56 overflow-y-auto rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
+          collisionPadding={12}
+          className="z-50 max-h-[min(24rem,var(--radix-popover-content-available-height))] w-56 overflow-y-auto overscroll-contain rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
         >
           {options.map((option) => (
             <button

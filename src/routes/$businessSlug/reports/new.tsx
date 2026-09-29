@@ -11,7 +11,7 @@ import {
   EmptyStateButton,
 } from '#/components/primitives/EmptyState'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
-import { suggestTemplate } from '#/lib/reportTemplates/suggest'
+import { suggestReports } from '#/lib/reportTemplates/suggest'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -65,13 +65,21 @@ function NewReportPage() {
     ),
     enabled: Boolean(jobId),
   })
-  const suggestedId = job ? suggestTemplate(job.jobType) : null
-  const templates = suggestedId
-    ? [
-        ...CREATABLE_TEMPLATES.filter((template) => template.id === suggestedId),
-        ...CREATABLE_TEMPLATES.filter((template) => template.id !== suggestedId),
-      ]
-    : CREATABLE_TEMPLATES
+  // A job for several services suggests a form for each (a general pest
+  // service with a termite inspection: a Service Report and a Timber Pest
+  // Inspection), first service first, each saying which services it is for.
+  const suggestions = job ? suggestReports(job.jobType) : []
+  const suggestionFor = (templateId: string) =>
+    suggestions.find((suggestion) => suggestion.templateId === templateId)
+  const templates = [
+    ...suggestions.flatMap(
+      (suggestion) =>
+        CREATABLE_TEMPLATES.find(
+          (template) => template.id === suggestion.templateId,
+        ) ?? [],
+    ),
+    ...CREATABLE_TEMPLATES.filter((template) => !suggestionFor(template.id)),
+  ]
 
   useEffect(() => {
     if (propertyId) return
@@ -178,9 +186,10 @@ function NewReportPage() {
                       {template.legalBasis}
                     </span>
                   </div>
-                  {template.id === suggestedId && job && (
+                  {suggestionFor(template.id) && (
                     <p className="mt-1 text-caption font-semibold text-ink">
-                      Suggested for {job.jobType}
+                      Suggested for{' '}
+                      {suggestionFor(template.id)?.services.join(', ')}
                     </p>
                   )}
                   <p className="mt-1 text-body text-muted">{template.blurb}</p>

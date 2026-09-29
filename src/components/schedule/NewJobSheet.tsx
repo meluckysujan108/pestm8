@@ -6,7 +6,6 @@ import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
 import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
-import { JOB_TYPES } from '#/lib/format'
 import {
   DEFAULT_INTERVAL,
   RecurrenceFields,
@@ -14,6 +13,7 @@ import {
 } from './RecurrenceFields'
 import { Combobox } from '#/components/primitives/Combobox'
 import { Segmented } from '#/components/primitives/Segmented'
+import { JobTypePicker } from './JobTypePicker'
 import {
   EMPTY_NEW_CLIENT,
   EMPTY_NEW_SITE,
@@ -47,8 +47,10 @@ import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
+import { MAX_JOB_NOTES_LENGTH } from '../../../convex/lib/jobNotes'
+import { joinJobTypes } from '../../../convex/lib/jobTypes'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
-import { FIELD } from '#/components/forms/FormField'
+import { FIELD, FIELD_SURFACE } from '#/components/forms/FormField'
 import { Plus } from 'lucide-react'
 
 /** 'site' is a new site for an existing client (Prompt 6.3). */
@@ -56,6 +58,7 @@ type ClientMode = 'existing' | 'new' | 'site'
 
 const PROPERTY_ERROR_ID = 'new-job-property-error'
 const CLIENT_ERROR_ID = 'new-job-client-error'
+const JOB_TYPE_ERROR_ID = 'new-job-type-error'
 
 /**
  * Why a booking failed, in FormAlert. This used to say "You may not have
@@ -69,6 +72,7 @@ const BOOKING_ERROR_COPY: ErrorCopy = {
     'Could not book this job: your access does not cover that calendar. Ask the business owner.',
   INVALID_ASSIGNEE:
     'Could not book this job: that person is no longer on the team. Choose someone else under Assigned to.',
+  NOTES_TOO_LONG: `Could not book this job: the note is longer than ${MAX_JOB_NOTES_LENGTH} characters. Shorten it and try again.`,
   default: 'Could not book this job. Check your signal and try again.',
 }
 
@@ -168,7 +172,15 @@ function NewJobForm({
     state: businessState || EMPTY_NEW_SITE.state,
   }))
   const [assignee, setAssignee] = useState<string>(assignTo ?? '')
-  const [jobType, setJobType] = useState<string>(JOB_TYPES[0])
+  // Nothing ticked until the person ticks it, like the client. It used to
+  // start on General Pest Control, which was harmless while picking another
+  // REPLACED it. Now that picking adds, a default would be added to: tap
+  // Bed Bugs out of habit and the job is booked, and its report started, as
+  // general pest control too.
+  const [jobTypes, setJobTypes] = useState<Array<string>>([])
+  const [jobTypeMissing, setJobTypeMissing] = useState(false)
+  const jobTypeTrigger = useRef<HTMLButtonElement>(null)
+  const [notes, setNotes] = useState('')
   const [time, setTime] = useState('09:00')
   const [price, setPrice] = useState('')
   const [duration, setDuration] = useState('60')
@@ -280,6 +292,7 @@ function NewJobForm({
       scheduledAt: number
       durationMinutes: number
       workOrder: string | undefined
+      notes: string | undefined
       repeat: { count: number; unit: IntervalUnit } | null
       // Returns a job id or a recurrence id depending on the branch, and the
       // caller needs neither — void keeps them from being conflated.
@@ -300,6 +313,8 @@ function NewJobForm({
             // Listed by hand, like everything in this branch: a field left
             // off here is silently dropped from every visit of the series.
             workOrder: job.workOrder,
+            // The first visit's only (recurrences.create says why).
+            notes: job.notes,
           }).then(() => undefined)
     },
     onSuccess: () => {
@@ -351,11 +366,14 @@ function NewJobForm({
               }
             : { newClient: newClientArgs(newClient) },
       assignedMembershipId: assignee as Id<'memberships'>,
-      jobType,
+      jobType: joinJobTypes(jobTypes),
       price: Math.round(Number(price || '0') * 100),
       scheduledAt,
       durationMinutes: Number(duration),
       workOrder: workOrder.trim() || undefined,
+      // Left out when blank, so a booking without one never depends on a
+      // backend that knows the field.
+      notes: notes.trim() || undefined,
       repeat: chosenInterval,
     }
   }
@@ -378,7 +396,14 @@ function NewJobForm({
       propertyTrigger.current?.focus()
       return false
     }
-    return !clientNeeded()
+    if (clientNeeded()) return false
+    // Below the client, so asked after it, the order the form reads in.
+    if (jobTypes.length === 0) {
+      setJobTypeMissing(true)
+      jobTypeTrigger.current?.focus()
+      return false
+    }
+    return true
   }
   const latestReady = useLatest(readyToBook)
 
@@ -454,7 +479,7 @@ function NewJobForm({
                 options={propertyOptionList}
                 placeholder="Search by name or address"
                 emptyLabel="Choose a client and address"
-                noMatchLabel="No client or address matches. Use New client above, or New site below for another address of an existing client."
+                noMatchLabel="No client or address matches. Close this and use New client, or New site for an existing client’s other address."
                 ariaLabel="Property"
                 invalid={propertyMissing}
                 errorId={PROPERTY_ERROR_ID}
@@ -500,9 +525,10 @@ function NewJobForm({
                   setClientMissing(false)
                 }}
                 options={clientOptionList}
+                title="Client"
                 placeholder="Search by name, phone or suburb"
                 emptyLabel="Choose a client"
-                noMatchLabel="No client matches. Use New client above to add them."
+                noMatchLabel="No client matches. Close this and use New client to add them."
                 ariaLabel="New site for"
                 invalid={showClientMissing}
                 errorId={CLIENT_ERROR_ID}
@@ -588,16 +614,27 @@ function NewJobForm({
         )}
 
         <Field label="Job type">
-          <Combobox
-            value={jobType}
-            onChange={setJobType}
-            options={JOB_TYPES.map((t) => ({ value: t, label: t }))}
-            allowCustom
-            customLabel={(q) => `Add "${q}" as a new job type`}
-            placeholder="Search or add a job type"
-            ariaLabel="Job type"
+          <JobTypePicker
+            value={jobTypes}
+            onChange={(next) => {
+              setJobTypes(next)
+              if (next.length > 0) setJobTypeMissing(false)
+            }}
+            invalid={jobTypeMissing}
+            errorId={JOB_TYPE_ERROR_ID}
+            triggerRef={jobTypeTrigger}
           />
         </Field>
+        {/* Outside the <label>, like the property's. */}
+        {jobTypeMissing && (
+          <p
+            id={JOB_TYPE_ERROR_ID}
+            role="alert"
+            className="mt-1.5 text-caption text-red-ink"
+          >
+            Choose at least one job type.
+          </p>
+        )}
 
         <Field label="Assigned to">
           {assignees.length > 1 ? (
@@ -622,7 +659,9 @@ function NewJobForm({
           <OffViewNote assignee={assignee} people={assignees} />
         </Field>
 
-        <div className="grid grid-cols-2 gap-3">
+        {/* A cell never grows past its half of the row (see styles.css on
+            date and time inputs). */}
+        <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0">
           <Field label="Start">
             <input
               type="time"
@@ -678,6 +717,30 @@ function NewJobForm({
             className={`${FIELD} w-full`}
           />
         </Field>
+
+        <Field label="Notes (optional)">
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            maxLength={MAX_JOB_NOTES_LENGTH}
+            rows={3}
+            autoCapitalize="sentences"
+            placeholder="e.g. Tenant home after 10 — ring first"
+            aria-describedby="new-job-notes-hint"
+            className={`${FIELD_SURFACE} w-full py-3 leading-relaxed`}
+          />
+        </Field>
+        {/* Outside the <label>, so it is not read as part of its name. Who
+            reads it, as the job sheet says: prices can be hidden from a
+            technician, a note cannot. A series copies no note, so a
+            repeating booking's is the first visit's. */}
+        <p
+          id="new-job-notes-hint"
+          className="mt-1.5 text-caption text-grey-ink"
+        >
+          Everyone who can see this job can read it.
+          {repeats && ' It goes on the first visit only.'}
+        </p>
 
         <FormAlert
           error={create.isError ? create.error : null}

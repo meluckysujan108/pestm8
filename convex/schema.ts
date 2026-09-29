@@ -742,6 +742,8 @@ export default defineSchema({
     businessId: v.id('businesses'),
     propertyId: v.id('properties'),
     assignedMembershipId: v.id('memberships'),
+    // One service or several, joined: "General Pest Control, Rodents"
+    // (lib/jobTypes.ts says why it is one string).
     jobType: v.string(),
     price: v.number(), // cents
     scheduledAt: v.number(),
@@ -789,6 +791,17 @@ export default defineSchema({
      * invoiced, since the invoice already carries it.
      */
     workOrder: v.optional(v.string()),
+    /**
+     * The job's own note — "tenant home after 10, ring first", "bring the
+     * long ladder" — typed when it is booked or on the job sheet. Plain text
+     * (`lib/jobNotes.ts`), read by whoever can see the job and changed by
+     * whoever can edit it, invoiced or not: it is not on the invoice.
+     *
+     * Not a Notes library note. Those are a personal notebook and a site's
+     * standing knowledge ("Before you arrive"); this is about this one visit,
+     * so a series does not copy it onto its other visits.
+     */
+    notes: v.optional(v.string()),
     ...binFields,
   })
     .index('by_business_date', ['businessId', 'scheduledAt'])
@@ -841,6 +854,15 @@ export default defineSchema({
      * `price`; a visit's own copy is then edited on its own.
      */
     workOrder: v.optional(v.string()),
+    /**
+     * A note typed when the series was booked, waiting for its first visit
+     * because none could be booked with it: a series that starts in the past
+     * and whose next date is beyond the horizon (a yearly inspection entered
+     * after the last one). `materialiseOne` puts it on the first visit it
+     * books and clears it. Otherwise a booking's note goes straight onto the
+     * first visit, and a series holds none (`recurrences.create`).
+     */
+    firstVisitNotes: v.optional(v.string()),
     ...binFields,
   })
     .index('by_business', ['businessId'])

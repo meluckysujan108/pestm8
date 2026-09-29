@@ -247,7 +247,7 @@ The layers are fixed. Pick from these and never invent one: the drift test fails
 | `z-20`              | Sticky bars inside content: `SaveBar`, a sticky column header                                                                 |
 | `z-30`              | The sticky `PageHeader` and its placeholder; fixed bottom action bars (the builder's); the update banner; address suggestions |
 | `z-40`              | The mobile dock; a sheet's scrim; the note format bar                                                                         |
-| `z-50`              | Sheets, popovers, dropdown menus, comboboxes, tooltips, the photo annotator                                                   |
+| `z-50`              | Sheets, popovers, dropdown menus, comboboxes, tooltips, the photo annotator; the scrim of a sheet opened over another sheet   |
 | `z-[60]` / `z-[70]` | `ConfirmDialog`'s scrim / panel; `NavProgress` at 60                                                                          |
 | `z-[80]`            | Full-screen viewers (document, image)                                                                                         |
 | `z-[90]`            | A viewer's own menus and status                                                                                               |
@@ -419,7 +419,7 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 | Export           | Use for                                                                                                                                                                                  |
 | ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Segmented`      | Two to four options, all visible. `kind="tabs"` switches what shows below (Day/Week/Month); `kind="choice"` answers a form question (Residential/Commercial). Never a dropdown for these |
-| `Combobox`       | A searchable single choice from a long list (a property, a job type). `allowCustom` adds what was typed                                                                                  |
+| `Combobox`       | A searchable choice from a long list (a property, a job's services), picked in a sheet of its own. `allowCustom` adds what was typed; `multiple` ticks several                           |
 | `FilterDropdown` | A compact single-select filter chip in a header row (status, staff)                                                                                                                      |
 | `SearchBox`      | A search field whose typing is instant and whose query follows after a pause                                                                                                             |
 
@@ -436,6 +436,9 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 **Rules:**
 
 - `Drawer.Root`, `Drawer.Portal`, `Drawer.Overlay` and `Drawer.Content` appear only in `primitives/Sheet.tsx` **(lint)**.
+- **A sheet opened from inside another** (a picker over New Job, Make recurring over a job) dims the one under it: `SheetShell` knows it is nested and lifts its scrim to `z-50`.
+- **Focus stays put when a sheet opens,** so a phone's keyboard never rises on its own over what the person opened it to see. `initialFocusRef` puts it in a search field on a computer (a fine pointer) only.
+- **Never anchor a popover to a field inside a sheet.** The sheet locks scrolling to itself, so a portalled list cannot be scrolled with a finger, and the keyboard covers it. Choose in a sheet of its own (`Combobox`).
 - `AlertDialog` appears only in `ConfirmDialog.tsx` **(lint)**, and never `window.confirm` **(lint)**.
 - A sheet closes three ways, all equivalent: dragged down, tapped outside, or ✕. A sheet that is only a list or a read-out ends with a "Done".
 - **`ConfirmDialog` wording:**
@@ -584,6 +587,7 @@ Call, Text, Email and Map are holds (`HoldButton`), so a pocket or a brushing th
 
 - **A tappable card** has `active:scale-[.99]`; a tappable row has a chevron.
 - **A card lists only the suburb.** The full street address appears only in detail and on the report, and Map carries the street.
+- **A card's Service and Note rows run to two lines,** so a job for three services names them all, and "ring first" is seen on the day's list.
 - **What a job card offers depends on its status.** Committed work gets the contact holds; a due recurring visit gets "… to book"; future or cancelled work gets nothing.
 - **Recurring projections are shown but never counted** in totals.
 
@@ -818,6 +822,8 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **Hidden prices** show "—".
 - **New Job opens with nothing chosen:** it asks rather than guesses.
 - **Notes are personal by default,** and each one says who can see it.
+- **A job's own note** is plain text on the job (the Notes section of its sheet, and New Job), read by whoever can see the job — and it says so under the box. It is not a note in Notes, and a series does not copy it.
+- **A job can be for several services** ("General Pest Control, Termite Inspection, Rodents"). New Job starts with none ticked and asks, as it does for the client: with picking now adding rather than replacing, a default would be booked alongside whatever was picked.
 - **PDFs** open in the in-app viewer, never in Safari and never as a forced download.
 - **When behaviour departs from `ARCHITECTURE.md`,** amend it there with a dated _Amended_ note.
 
