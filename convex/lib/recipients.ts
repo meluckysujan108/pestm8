@@ -51,6 +51,8 @@ export async function knownRecipients(
       ? await ctx.db
           .query('clientContacts')
           .withIndex('by_client', (q) => q.eq('clientId', client._id))
+          // A contact in the Recycle bin gets no reports (lib/bin.ts).
+          .filter((q) => q.eq(q.field('deletedAt'), undefined))
           .take(MAX_CONTACTS)
       : []
   const business = await ctx.db.get(report.businessId)

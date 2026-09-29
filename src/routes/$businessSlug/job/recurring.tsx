@@ -34,6 +34,7 @@ export const Route = createFileRoute('/$businessSlug/job/recurring')({
 function RecurringJobPage() {
   const { business } = Route.useRouteContext()
   const canDispatch = useCan('jobs.dispatch')
+  const canManageClients = useCan('clients.manage')
   const { jobId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -105,6 +106,7 @@ function RecurringJobPage() {
         timezone={business.timezone}
         jobId={jobId ?? null}
         canReassign={canDispatch}
+        canDelete={canManageClients}
         onClose={() =>
           navigate({
             search: (prev) => ({ ...prev, jobId: undefined }),

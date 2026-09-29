@@ -1,3 +1,4 @@
+import { isBinned } from './bin'
 import { isInScope } from './capabilities'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { QueryCtx } from '../_generated/server'
@@ -18,6 +19,9 @@ import type { RowScope } from './capabilities'
  * in memory) is the thing `by_assignee_date` was added to avoid. For a business
  * with a handful of subcontractors per contractor, a handful of indexed scans
  * is the cheaper and more obviously correct answer.
+ *
+ * Jobs in the Recycle bin are left out here, before any limit, so every list
+ * built on these two reads skips them (lib/bin.ts).
  */
 export async function jobsInScope(
   ctx: QueryCtx,
@@ -46,6 +50,7 @@ export async function jobsInScope(
         if (to !== undefined) return eq.lt('scheduledAt', to)
         return eq
       })
+      .filter((f) => f.eq(f.field('deletedAt'), undefined))
       .order(order)
     return limit === undefined ? q.collect() : q.take(limit)
   }
@@ -65,6 +70,7 @@ export async function jobsInScope(
           if (to !== undefined) return eq.lt('scheduledAt', to)
           return eq
         })
+        .filter((f) => f.eq(f.field('deletedAt'), undefined))
         .order(order)
       // Each member contributes up to `limit`, because the true top `limit`
       // across a team can all come from one person. Trimmed after merging.
@@ -118,6 +124,7 @@ export async function jobsNewestFirst(
           .withIndex('by_business_status', (q) =>
             q.eq('businessId', businessId).eq('status', status),
           )
+          .filter((q) => q.eq(q.field('deletedAt'), undefined))
           .order('desc')
           .take(limit),
       ),
@@ -136,6 +143,7 @@ export async function jobsNewestFirst(
           .withIndex('by_assignee_status', (q) =>
             q.eq('assignedMembershipId', membershipId).eq('status', status),
           )
+          .filter((q) => q.eq(q.field('deletedAt'), undefined))
           .order('desc')
           // The true newest `limit` can all be one person's, in one status.
           .take(limit),
@@ -158,9 +166,9 @@ export async function jobsNewestFirst(
  * about the colleague's round.
  */
 export function visibleJob<
-  T extends { assignedMembershipId: Id<'memberships'> },
+  T extends { assignedMembershipId: Id<'memberships'>; deletedAt?: number },
 >(scope: RowScope, job: T | null): T | null {
-  if (!job) return null
+  if (!job || isBinned(job)) return null
   return isInScope(scope, job) ? job : null
 }
 

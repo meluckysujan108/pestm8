@@ -1,5 +1,6 @@
 import { ConvexError } from 'convex/values'
 import { requireAssignableMember } from './access'
+import { unbinned } from './bin'
 import { requireWriteActor, teamOf } from './actor'
 import { canDispatchTo, canEditJob } from './capabilities'
 import { factsFromMembership } from './membershipFacts'
@@ -55,7 +56,8 @@ export async function requireEditableJob(
 ): Promise<{ env: WriteEnvelope; job: Doc<'jobs'> }> {
   const env = await requireWriteActor(ctx, businessId)
 
-  const job = await ctx.db.get(jobId)
+  // A job in the Recycle bin is not edited until it is restored (lib/bin.ts).
+  const job = unbinned(await ctx.db.get(jobId))
   if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
   if (!(await mayEditJob(ctx, env.actor, job))) {
     throw new ConvexError('NO_ACCESS')

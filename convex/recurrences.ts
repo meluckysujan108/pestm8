@@ -1,6 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation, mutation, query } from './_generated/server'
 import { allocateJobNumber } from './jobs'
+import { isBinned, unbinned } from './lib/bin'
 import { requireActor, requireWriteActor } from './lib/actor'
 import { recordOnBehalf } from './lib/audit'
 import { isInScope, writeAttribution } from './lib/capabilities'
@@ -55,6 +56,7 @@ export const listForBusiness = query({
     const all = await ctx.db
       .query('recurrences')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
 
     // Scoped like everything else. This query gated on bare membership, so
@@ -200,7 +202,7 @@ export const setActive = mutation({
   handler: async (ctx, { businessId, recurrenceId, active }) => {
     const env = await requireWriteActor(ctx, businessId)
 
-    const recurrence = await ctx.db.get(recurrenceId)
+    const recurrence = unbinned(await ctx.db.get(recurrenceId))
     if (!recurrence || recurrence.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -279,8 +281,14 @@ export async function materialiseOne(
   recurrenceId: Id<'recurrences'>,
   durationMinutes = 60,
 ): Promise<number> {
-  const recurrence = await ctx.db.get(recurrenceId)
+  // Nothing is booked for a series in the Recycle bin, or at a site that is
+  // in it or gone. The site is checked on its own, not taken on trust from
+  // the series: `insertVisit` never reads it, so a series whose property was
+  // binned or wiped without it would go on booking visits at an address no
+  // screen can open, for six months ahead, every night (lib/bin.ts).
+  const recurrence = unbinned(await ctx.db.get(recurrenceId))
   if (!recurrence || !recurrence.active) return 0
+  if (!unbinned(await ctx.db.get(recurrence.propertyId))) return 0
 
   // The series repeats on the tenant's calendar, not the server's.
   const business = await ctx.db.get(recurrence.businessId)
@@ -292,7 +300,9 @@ export async function materialiseOne(
     .collect()
 
   // Which OCCURRENCES are spoken for, not which instants — a visit somebody
-  // moved still occupies the one it was projected onto (schema.ts).
+  // moved still occupies the one it was projected onto (schema.ts). A visit
+  // in the Recycle bin still occupies its occurrence too: deleting one visit
+  // must not have the next run book it again.
   const taken = new Set(existing.map((j) => j.occurrenceAt ?? j.scheduledAt))
 
   const now = Date.now()
@@ -339,7 +349,7 @@ export const materialiseAll = internalMutation({
 
     let created = 0
     for (const recurrence of recurrences) {
-      if (!recurrence.active) continue
+      if (!recurrence.active || isBinned(recurrence)) continue
       // Booking work for someone who has left is how a removed subcontractor
       // keeps appearing on the schedule for the next six months.
       const assignee = await ctx.db.get(recurrence.assignedMembershipId)
@@ -356,7 +366,7 @@ export const materialise = mutation({
   handler: async (ctx, { businessId, recurrenceId }) => {
     await requireWriteActor(ctx, businessId)
 
-    const recurrence = await ctx.db.get(recurrenceId)
+    const recurrence = unbinned(await ctx.db.get(recurrenceId))
     if (!recurrence || recurrence.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -388,7 +398,7 @@ export const convertJobToRecurring = mutation({
     const { env, job } = await requireEditableJob(ctx, businessId, jobId)
 
     if (job.recurrenceId) {
-      const existing = await ctx.db.get(job.recurrenceId)
+      const existing = unbinned(await ctx.db.get(job.recurrenceId))
       if (existing?.active) throw new ConvexError('ALREADY_RECURRING')
     }
 
@@ -443,7 +453,7 @@ export const stopFromJob = mutation({
     if (!job.recurrenceId) throw new ConvexError('NOT_RECURRING')
 
     const recurrenceId = job.recurrenceId
-    const recurrence = await ctx.db.get(recurrenceId)
+    const recurrence = unbinned(await ctx.db.get(recurrenceId))
     if (!recurrence || recurrence.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }

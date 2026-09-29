@@ -35,6 +35,7 @@ import { Route as BusinessSlugReportsNewRouteImport } from './routes/$businessSl
 import { Route as BusinessSlugSettingsIndexRouteImport } from './routes/$businessSlug/settings/index'
 import { Route as BusinessSlugSettingsAboutRouteImport } from './routes/$businessSlug/settings/about'
 import { Route as BusinessSlugSettingsAppearanceRouteImport } from './routes/$businessSlug/settings/appearance'
+import { Route as BusinessSlugSettingsBinRouteImport } from './routes/$businessSlug/settings/bin'
 import { Route as BusinessSlugSettingsBusinessRouteImport } from './routes/$businessSlug/settings/business'
 import { Route as BusinessSlugSettingsDetailsRouteImport } from './routes/$businessSlug/settings/details'
 import { Route as BusinessSlugSettingsSignInRouteImport } from './routes/$businessSlug/settings/sign-in'
@@ -187,6 +188,11 @@ const BusinessSlugSettingsAppearanceRoute =
     path: '/settings/appearance',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
+const BusinessSlugSettingsBinRoute = BusinessSlugSettingsBinRouteImport.update({
+  id: '/settings/bin',
+  path: '/settings/bin',
+  getParentRoute: () => BusinessSlugRouteRoute,
+} as any)
 const BusinessSlugSettingsBusinessRoute =
   BusinessSlugSettingsBusinessRouteImport.update({
     id: '/settings/business',
@@ -288,6 +294,7 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/$businessSlug/settings/about': typeof BusinessSlugSettingsAboutRoute
   '/$businessSlug/settings/appearance': typeof BusinessSlugSettingsAppearanceRoute
+  '/$businessSlug/settings/bin': typeof BusinessSlugSettingsBinRoute
   '/$businessSlug/settings/business': typeof BusinessSlugSettingsBusinessRoute
   '/$businessSlug/settings/details': typeof BusinessSlugSettingsDetailsRoute
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
@@ -328,6 +335,7 @@ export interface FileRoutesByTo {
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/$businessSlug/settings/about': typeof BusinessSlugSettingsAboutRoute
   '/$businessSlug/settings/appearance': typeof BusinessSlugSettingsAppearanceRoute
+  '/$businessSlug/settings/bin': typeof BusinessSlugSettingsBinRoute
   '/$businessSlug/settings/business': typeof BusinessSlugSettingsBusinessRoute
   '/$businessSlug/settings/details': typeof BusinessSlugSettingsDetailsRoute
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
@@ -370,6 +378,7 @@ export interface FileRoutesById {
   '/$businessSlug/reports/new': typeof BusinessSlugReportsNewRoute
   '/$businessSlug/settings/about': typeof BusinessSlugSettingsAboutRoute
   '/$businessSlug/settings/appearance': typeof BusinessSlugSettingsAppearanceRoute
+  '/$businessSlug/settings/bin': typeof BusinessSlugSettingsBinRoute
   '/$businessSlug/settings/business': typeof BusinessSlugSettingsBusinessRoute
   '/$businessSlug/settings/details': typeof BusinessSlugSettingsDetailsRoute
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
@@ -413,6 +422,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/new'
     | '/$businessSlug/settings/about'
     | '/$businessSlug/settings/appearance'
+    | '/$businessSlug/settings/bin'
     | '/$businessSlug/settings/business'
     | '/$businessSlug/settings/details'
     | '/$businessSlug/settings/sign-in'
@@ -453,6 +463,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/new'
     | '/$businessSlug/settings/about'
     | '/$businessSlug/settings/appearance'
+    | '/$businessSlug/settings/bin'
     | '/$businessSlug/settings/business'
     | '/$businessSlug/settings/details'
     | '/$businessSlug/settings/sign-in'
@@ -494,6 +505,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/new'
     | '/$businessSlug/settings/about'
     | '/$businessSlug/settings/appearance'
+    | '/$businessSlug/settings/bin'
     | '/$businessSlug/settings/business'
     | '/$businessSlug/settings/details'
     | '/$businessSlug/settings/sign-in'
@@ -711,6 +723,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessSlugSettingsAppearanceRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
+    '/$businessSlug/settings/bin': {
+      id: '/$businessSlug/settings/bin'
+      path: '/settings/bin'
+      fullPath: '/$businessSlug/settings/bin'
+      preLoaderRoute: typeof BusinessSlugSettingsBinRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
     '/$businessSlug/settings/business': {
       id: '/$businessSlug/settings/business'
       path: '/settings/business'
@@ -830,6 +849,7 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugReportsNewRoute: typeof BusinessSlugReportsNewRoute
   BusinessSlugSettingsAboutRoute: typeof BusinessSlugSettingsAboutRoute
   BusinessSlugSettingsAppearanceRoute: typeof BusinessSlugSettingsAppearanceRoute
+  BusinessSlugSettingsBinRoute: typeof BusinessSlugSettingsBinRoute
   BusinessSlugSettingsBusinessRoute: typeof BusinessSlugSettingsBusinessRoute
   BusinessSlugSettingsDetailsRoute: typeof BusinessSlugSettingsDetailsRoute
   BusinessSlugSettingsSignInRoute: typeof BusinessSlugSettingsSignInRoute
@@ -859,6 +879,7 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugReportsNewRoute: BusinessSlugReportsNewRoute,
   BusinessSlugSettingsAboutRoute: BusinessSlugSettingsAboutRoute,
   BusinessSlugSettingsAppearanceRoute: BusinessSlugSettingsAppearanceRoute,
+  BusinessSlugSettingsBinRoute: BusinessSlugSettingsBinRoute,
   BusinessSlugSettingsBusinessRoute: BusinessSlugSettingsBusinessRoute,
   BusinessSlugSettingsDetailsRoute: BusinessSlugSettingsDetailsRoute,
   BusinessSlugSettingsSignInRoute: BusinessSlugSettingsSignInRoute,
@@ -899,3 +920,12 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { createStart } from '@tanstack/react-start'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+  }
+}

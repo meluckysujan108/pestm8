@@ -1,5 +1,5 @@
 import { useId, useRef, useState } from 'react'
-import { Camera, FileText, LoaderCircle, Package, Trash2 } from 'lucide-react'
+import { Camera, FileText, LoaderCircle, Package } from 'lucide-react'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { formatBytes, looksLikePdf } from '#/lib/pdfFiles'
 import {
@@ -21,6 +21,7 @@ import {
 } from '#/components/primitives/buttons'
 import { FIELD_SURFACE } from '#/components/forms/FormField'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { DeleteButton } from '#/components/primitives/DeleteButton'
 
 /**
  * The product form, for a new product and for editing one.
@@ -439,14 +440,8 @@ export function DeleteProductButton({
   onClick: () => void
 }) {
   return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className="mt-6 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl bg-surface-2 text-body font-semibold text-red transition active:scale-[.975] disabled:opacity-50"
-    >
-      <Trash2 aria-hidden size={16} strokeWidth={2} />
+    <DeleteButton disabled={disabled} onClick={onClick}>
       Delete product
-    </button>
+    </DeleteButton>
   )
 }

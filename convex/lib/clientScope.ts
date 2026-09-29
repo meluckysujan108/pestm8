@@ -52,6 +52,8 @@ export async function visibleClientIds(
       // Their own, deliberately — see the note above.
       q.eq('assignedMembershipId', env.actor.acting._id),
     )
+    // A job in the Recycle bin makes nobody's client theirs (lib/bin.ts).
+    .filter((q) => q.eq(q.field('deletedAt'), undefined))
     .order('desc')
     .take(JOB_WINDOW)
 
