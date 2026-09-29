@@ -1,3 +1,5 @@
+import type { Doc } from '../_generated/dataModel'
+
 /**
  * The email a client opens.
  *
@@ -98,5 +100,28 @@ export function deliveryAddressing(delivery: {
     to: delivery.to,
     ...(delivery.cc.length > 0 ? { cc: delivery.cc } : {}),
     ...(delivery.bcc && delivery.bcc.length > 0 ? { bcc: delivery.bcc } : {}),
+  }
+}
+
+/**
+ * Everyone an email went to, as the report's Logs show it: who it was for,
+ * the business's blind copy, and which of them were new to this client. Only
+ * what the row has — a row from before 29 Sept 2026 has no `bcc`, and one from
+ * before this change shipped (29 Sept 2026) no `newAddresses`.
+ */
+export function addressedTo(
+  delivery: Pick<
+    Doc<'reportDeliveries'>,
+    'to' | 'cc' | 'bcc' | 'trigger' | 'newAddresses'
+  >,
+) {
+  return {
+    to: delivery.to,
+    ...(delivery.cc.length > 0 ? { cc: delivery.cc } : {}),
+    ...(delivery.bcc && delivery.bcc.length > 0 ? { bcc: delivery.bcc } : {}),
+    ...(delivery.newAddresses && delivery.newAddresses.length > 0
+      ? { newAddresses: delivery.newAddresses }
+      : {}),
+    trigger: delivery.trigger,
   }
 }

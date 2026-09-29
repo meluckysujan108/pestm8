@@ -665,7 +665,7 @@ export const NAMED_JOBS: Array<NamedJobSpec> = [
   // The subcontractor's: a draft left untouched for six days (the stale-draft
   // banner); a timber inspection tomorrow (a draft they cannot finalise: no
   // licence on file); and a finished job whose report asks to email someone
-  // not on file (held for the owner's approval).
+  // not on file (it goes, and its history marks the address as new).
   {
     key: 'subStaleDraft',
     propertyKey: 'ppm3',

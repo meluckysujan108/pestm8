@@ -17,7 +17,7 @@ import type { TestActor } from '../test/harness'
  * so only a value this call changes is checked. An address the server
  * deliberately does not police (the demo seeds '6O53' and 'Joondalop') must
  * still save. And a typo already on file must not count as a "known"
- * recipient that skips the owner's approval.
+ * recipient, one a send would not point out as new.
  */
 
 const DAY = 24 * 60 * 60 * 1000
@@ -888,7 +888,7 @@ describe('sending a report', () => {
     return reportId
   }
 
-  test('a typo already on file is not a known recipient, so it cannot skip the owner’s approval', async () => {
+  test('a typo already on file is not a known recipient', async () => {
     const s = await setup()
     await s.t.run((ctx) =>
       ctx.db.patch(s.businessId, {
@@ -913,7 +913,7 @@ describe('sending a report', () => {
     expect([...shown.addresses].sort()).toEqual(expected)
   })
 
-  test('to an address that can never be delivered to is refused, not queued or held', async () => {
+  test('to an address that can never be delivered to is refused, not queued', async () => {
     const s = await setup()
     const reportId = await withReport(s, { email: 'accounts@cafe.test' })
     for (const recipients of [
@@ -1004,55 +1004,6 @@ describe('sending a report', () => {
       cc: [],
       trigger: 'finalise',
     })
-  })
-
-  test('an owner cannot approve a held send to an address that can never be delivered to', async () => {
-    const s = await setup()
-    const reportId = await withReport(s, { email: 'accounts@cafe.test' })
-    // Held before the app checked addresses, as a technician's request for
-    // one nobody had on file.
-    const held = (to: Array<string>, cc: Array<string> = []) =>
-      s.t.run((ctx) =>
-        ctx.db.insert('reportDeliveries', {
-          businessId: s.businessId,
-          reportId,
-          to,
-          cc,
-          subject: 'Service Report',
-          trigger: 'manual',
-          status: 'pendingApproval',
-          sentByMembershipId: s.ownerMembershipId,
-          createdAt: Date.now(),
-        }),
-      )
-    const approve = (deliveryId: Id<'reportDeliveries'>) =>
-      s.owner.as.mutation(api.deliveries.approve, {
-        businessId: s.businessId,
-        deliveryId,
-      })
-
-    const typo = await held(['accounts@cafe'])
-    const typoCopy = await held(['accounts@cafe.test'], ['copies@coastal'])
-    for (const deliveryId of [typo, typoCopy]) {
-      await expect(approve(deliveryId)).rejects.toThrow(/INVALID_EMAIL/)
-    }
-    const good = await held(['strata@example.com'])
-    await approve(good)
-
-    // It can still be refused, which is what puts it in the history as not
-    // sent.
-    await s.owner.as.mutation(api.deliveries.reject, {
-      businessId: s.businessId,
-      deliveryId: typo,
-    })
-    const status = await s.t.run(async (ctx) =>
-      Promise.all(
-        [typo, typoCopy, good].map(
-          async (id) => (await ctx.db.get(id))?.status,
-        ),
-      ),
-    )
-    expect(status).toEqual(['failed', 'pendingApproval', 'queued'])
   })
 })
 

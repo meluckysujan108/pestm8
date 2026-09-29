@@ -14,7 +14,6 @@ import {
 import { rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import { ReportPolicySection } from './ReportPolicySection'
-import { ReportSwitchRow } from './ReportSwitchRow'
 import { reportTextChanges } from './reportChanges'
 import { FieldRow, SaveBar, SettingsGroup, SettingsLinkRow } from './ui'
 import { useSavedFlash } from './useJustSaved'
@@ -23,8 +22,10 @@ import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
  * Settings → Reports, for whoever holds `business.manage`: what a report's
- * title calls the business, where the business's own copy goes, who may send
- * a report where, and whether a job may close without one.
+ * title calls the business, where the business's own copy goes, and whether
+ * a job may close without one. Who may email a report where is no longer a
+ * setting: anyone who may send one may send it anywhere, with no owner's
+ * approval (since 29 Sept 2026), and the copy is how an owner sees each one.
  *
  * The two text fields are one form with one Save; the switches save the
  * moment they are flipped. `forms` is the Forms group, which answers to a
@@ -68,10 +69,6 @@ export function ReportSettingsForm({
       reportBrandName?: string
       reportCopyEmail?: string
     }) => convexUpdate(args),
-  })
-  const setTechnicianRecipients = useMutation({
-    mutationFn: (allowTechnicianRecipients: boolean) =>
-      convexUpdate({ businessId, allowTechnicianRecipients }),
   })
 
   const warnings = useSaveWarnings()
@@ -152,10 +149,11 @@ export function ReportSettingsForm({
           // What every report email does with it (`businessCopyAddress`):
           // the one a form sends as it is locked and the one from the
           // report's own Send button both carry it as a blind copy, falling
-          // back to the business email. With no business email on file there
-          // is nothing to fall back to, and the line says what the
+          // back to the business email — whoever sends it, so the owner sees
+          // every report the team emails. With no business email on file
+          // there is nothing to fall back to, and the line says what the
           // placeholder does.
-          footer={`Gets a hidden copy of every report you email — your client won’t see it.${
+          footer={`Gets a hidden copy of every report your team emails — your client won’t see it.${
             loading
               ? ''
               : settings.email
@@ -174,25 +172,6 @@ export function ReportSettingsForm({
               }
             />
           </FieldRow>
-        </SettingsGroup>
-
-        {/* A group of its own, so the Sending footer sits under the field it
-            explains rather than under this switch's own line of help. */}
-        <SettingsGroup id={`${id}-approvals`} title="Approvals">
-          {/* The recipient rule (convex/lib/recipients.ts): someone without
-              business.manage may send to the addresses on the client's
-              record, and anywhere else waits in the owner's approval queue.
-              This lets those sends go straight away. */}
-          <ReportSwitchRow
-            title="Technicians can email new addresses"
-            description="Off, a report to an address not on the client’s record waits for your approval."
-            checked={settings?.allowTechnicianRecipients}
-            disabled={!hydrated || setTechnicianRecipients.isPending}
-            failed={setTechnicianRecipients.isError}
-            onCheckedChange={(checked) =>
-              setTechnicianRecipients.mutate(checked)
-            }
-          />
         </SettingsGroup>
 
         <ReportPolicySection businessId={businessId} />

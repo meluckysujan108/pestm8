@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
-import { SEND_ERROR, sendErrorCode, suggestedRecipients } from './SendSheet'
+import {
+  SEND_ERROR,
+  newAddressLine,
+  sendErrorCode,
+  senderName,
+  suggestedRecipients,
+} from './SendSheet'
 
 describe('the addresses the send sheet offers', () => {
   it('never chooses one that can never be delivered to', () => {
     // Saved on the client before addresses were checked, and put on the
-    // sheet by the form's "send a copy to the client". Chosen, it read
-    // "Needs approval" and then failed with no reason given.
+    // sheet by the form's "send a copy to the client". Chosen, it failed at
+    // the server with no reason given.
     const [bad, good] = suggestedRecipients(
       ['bob@gmail', 'strata@office.com.au'],
       [],
@@ -52,5 +58,21 @@ describe('what a failed send says', () => {
     )
     expect(sendErrorCode(new Error('socket hang up'))).toBe('UNKNOWN')
     expect(sendErrorCode({ data: 'SOMETHING_NEW' })).toBe('UNKNOWN')
+  })
+})
+
+describe('how a send is described afterwards', () => {
+  it('names who sent it, and the account it was sent from', () => {
+    expect(senderName('Terence')).toBe('Terence')
+    expect(senderName('Terence', 'Kevin')).toBe('Terence, in Kevin’s account')
+  })
+
+  it('says which addresses weren’t on the client’s record, as they were then', () => {
+    expect(newAddressLine(['strata@example.com'])).toBe(
+      'Wasn’t on the client’s record: strata@example.com',
+    )
+    expect(newAddressLine(['a@example.com', 'b@example.com'])).toBe(
+      'Weren’t on the client’s record: a@example.com, b@example.com',
+    )
   })
 })

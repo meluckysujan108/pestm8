@@ -21,8 +21,8 @@ import type { MemberKey } from './shared'
  *
  * Two kinds of check. The reports are the ones the brief asks for, in the
  * states it asks for (finalised with every section answered, stopped as
- * unsafe, held for approval and refused, corrected twice, stale, binned, a
- * suggestion left unconfirmed). And every one is a state the app could have
+ * unsafe, emailed to an address the client's record does not have, corrected
+ * twice, stale, binned, a suggestion left unconfirmed). And every one is a state the app could have
  * written: a finalised report passes the same validation finalise applies,
  * against the wording frozen for it; numbers go out in the order reports were
  * locked; the migrations' invariants hold; and the app's own queries and
@@ -39,7 +39,7 @@ const NAMED = [
   'srLastVisit',
   'srUnsafe',
   'srSubAnts',
-  'srSubRejected',
+  'srSubCallBack',
   'srPhotoJob',
   'srToday',
   'srStale',
@@ -60,7 +60,7 @@ const FINALISED = new Set<string>([
   'srLastVisit',
   'srUnsafe',
   'srSubAnts',
-  'srSubRejected',
+  'srSubCallBack',
   'srPhotoJob',
   'tpFlagged',
   'tpClean',
@@ -402,41 +402,38 @@ describe('the demo reports', () => {
     expect(deliveriesOf(r)).toHaveLength(0)
   })
 
-  test('the subcontractor’s send to an address nobody has on file waits for the owner', async () => {
+  test('the subcontractor’s copy for someone nobody has on file goes, and says it was new', () => {
     const r = report('srSubAnts')
     expect(r.authorMembershipId).toBe(member('sub'))
-    // Only the address nobody has on file waits: the client's own copy is a
-    // delivery of its own, and does not wait with it.
-    const sends = deliveriesOf(r)
-    const delivery = sends.find((d) => d.status === 'pendingApproval')!
-    expect(delivery.to).toEqual(['site.manager@example.net'])
+    // One email for everyone the form asked for: nothing waits for an owner,
+    // so the site manager's copy no longer needs a row of its own.
+    const [delivery, ...more] = deliveriesOf(r)
+    expect(more).toHaveLength(0)
+    expect(delivery.status).toBe('queued')
+    expect(delivery.to).toContain('site.manager@example.net')
+    expect(delivery.newAddresses).toEqual(['site.manager@example.net'])
     expect(delivery.sentByMembershipId).toBe(member('sub'))
-    expect(
-      sends.filter((d) => d !== delivery).every((d) => d.status === 'queued'),
-    ).toBe(true)
-
-    const queue = await run.owner.as.query(
-      api.deliveries.pendingApproval,
-      signed(),
-    )
-    expect(queue.map((d) => d._id)).toEqual([delivery._id])
   })
 
-  test('the second one the owner refused, as deliveries.reject leaves it', () => {
-    const r = report('srSubRejected')
+  test('the call-back’s copy for the strata committee goes too, and nothing anywhere waits for approval', () => {
+    const r = report('srSubCallBack')
     expect(r.authorMembershipId).toBe(member('sub'))
-    const delivery = deliveriesOf(r).find((d) => d.status !== 'queued')!
-    expect(delivery.to).toEqual(['strata.committee@example.org'])
-    expect(delivery.status).toBe('failed')
-    expect(delivery.error).toBe('Not approved')
-    expect(delivery.approvedByMembershipId).toBe(member('owner'))
-    const refused = rows.audit.filter(
-      (a) => a.entityId === r._id && a.action === 'report.email.rejected',
+    const [delivery, ...more] = deliveriesOf(r)
+    expect(more).toHaveLength(0)
+    expect(delivery.status).toBe('queued')
+    expect(delivery.newAddresses).toEqual(['strata.committee@example.org'])
+    expect(rows.deliveries.map((d) => d.status)).not.toContain(
+      'pendingApproval',
     )
-    expect(refused).toHaveLength(1)
-    expect(refused[0].actorMembershipId).toBe(member('owner'))
-    expect(refused[0].meta).toEqual({ to: delivery.to })
-    expect(refused[0].at).toBeGreaterThan(r.finalisedAt ?? Infinity)
+    expect(
+      rows.audit.filter((a) =>
+        [
+          'report.email.pending_approval',
+          'report.email.approved',
+          'report.email.rejected',
+        ].includes(a.action),
+      ),
+    ).toEqual([])
   })
 
   test('the bird-proofing report is the contractor’s, on the job with photos', () => {
@@ -834,7 +831,7 @@ describe('the demo reports', () => {
       theirs.map((r) => r._id).sort(),
     )
     expect(theirs.map((r) => r._id).sort()).toEqual(
-      ['srStale', 'srSubAnts', 'srSubRejected', 'tpSubDraft'].map(id).sort(),
+      ['srStale', 'srSubAnts', 'srSubCallBack', 'tpSubDraft'].map(id).sort(),
     )
     expect(
       await as.query(api.reports.get, {

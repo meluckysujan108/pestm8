@@ -18,10 +18,11 @@ import type { ReportTemplate } from '#/lib/reportTemplates'
 
 /** What `deliveries.known` answers, as far as locking needs it. */
 export type SendingKnown = {
-  /** The addresses on file, which go without an owner's approval. */
+  /**
+   * The addresses on the client's record. Any other address is emailed all
+   * the same — nothing waits for an owner — but is worth a second look.
+   */
   addresses: ReadonlyArray<string>
-  /** An owner, or a business that lets anyone email anywhere. */
-  unrestricted: boolean
   /** The business's blind copy on every email of this report. */
   copy: string | null
 }
@@ -63,14 +64,15 @@ export function clientToggleOf(
 }
 
 export type LockEmail = {
-  /** Emailed as soon as it is locked, in the form's order. */
+  /** Emailed as soon as it is locked, in the form's order: one email. */
   sending: Array<string>
   /**
-   * Not on file, for someone who may not email just anywhere: their email
-   * waits for an owner. A row of its own (`queueFormDeliveries`), so the
-   * client's copy goes without it.
+   * Those of `sending` that are not on the client's record. Emailed with the
+   * rest, and recorded on the delivery as new (`queueFormDeliveries`) — a
+   * compliance document sent to a typo is gone, so the sheet asks for a
+   * second look before the lock rather than after.
    */
-  held: Array<string>
+  newAddresses: Array<string>
   /** Addresses the form asks for that can never be delivered to. */
   undeliverable: Array<string>
   /**
@@ -94,24 +96,24 @@ export function lockEmail(
   const deliverable = asked.to.filter(
     (address) => emailProblem(address) === null,
   )
-  const held = known.unrestricted
-    ? []
-    : deliverable.filter((address) => !known.addresses.includes(address))
-  const sending = deliverable.filter((address) => !held.includes(address))
   const toggle = clientToggleOf(template, data, clientEmail)
 
   return {
-    sending,
-    held,
+    sending: deliverable,
+    newAddresses: deliverable.filter(
+      (address) => !known.addresses.includes(address),
+    ),
     undeliverable: asked.to.filter((address) => emailProblem(address) !== null),
     stillTyped:
       toggle && !toggle.on && asked.to.includes(toggle.address)
         ? toggle.address
         : null,
     // Nothing sent, nothing copied: the copy rides on an email, it is not one
-    // of its own. The held email carries one too, if an owner lets it go.
+    // of its own.
     copy:
-      sending.length > 0 ? (blindCopy(known.copy, sending)[0] ?? null) : null,
+      deliverable.length > 0
+        ? (blindCopy(known.copy, deliverable)[0] ?? null)
+        : null,
   }
 }
 
@@ -122,9 +124,9 @@ export type Sentence = Array<string | { address: string }>
  * What the sheet says, in the order it says it. Pure, so every case can be
  * read in a test rather than found on a phone.
  *
- * A held address is not promised an approval: the app has no screen yet
- * where an owner lets a held email go. What is true today is that the owner
- * can send it from the report, so that is what it says.
+ * An address that is not on the client's record is emailed with the rest:
+ * nothing waits for an owner (since 29 Sept 2026). The sheet only asks for a
+ * second look at it, because locking is what sends it.
  */
 export function lockEmailSentences(
   plan: LockEmail,
@@ -156,18 +158,18 @@ export function lockEmailSentences(
       ' is also in “Email Report To”, so it still gets it.',
     ])
   }
-  if (plan.held.length > 0) {
+  if (plan.newAddresses.length > 0) {
     out.push([
-      ...list(plan.held),
-      plan.held.length === 1
-        ? ' isn’t on the client’s record, so that email waits for the owner. They can send it from the report.'
-        : ' aren’t on the client’s record, so those emails wait for the owner. They can send them from the report.',
+      ...list(plan.newAddresses),
+      plan.newAddresses.length === 1
+        ? ' isn’t on the client’s record — check it’s right.'
+        : ' aren’t on the client’s record — check they’re right.',
     ])
   }
   if (plan.undeliverable.length > 0) {
     const one = plan.undeliverable.length === 1
     out.push(
-      plan.sending.length > 0 || plan.held.length > 0
+      plan.sending.length > 0
         ? [
             ...list(plan.undeliverable),
             one

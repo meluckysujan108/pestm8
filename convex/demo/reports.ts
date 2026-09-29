@@ -1,7 +1,7 @@
 import { ConvexError, v } from 'convex/values'
 import { internalMutation } from '../_generated/server'
 import { writeEnvelopeForMember } from '../lib/actor'
-import { forSelf, recordAudit, recordOnce } from '../lib/audit'
+import { forSelf, recordOnce } from '../lib/audit'
 import { dayKeyOf, timeKeyOf } from '../lib/dates'
 import { loadOverrides } from '../lib/optionSets'
 import {
@@ -27,7 +27,8 @@ import type { DemoBase, ManifestJob, MemberKey } from './shared'
  * The demo's reports: service reports, timber inspections, a termite
  * certificate corrected twice, and the business's own forms, in every state
  * the library shows — drafts fresh and stale, one in the bin, finalised ones
- * with their deliveries queued, held and refused.
+ * with their deliveries queued, one of them to an address that is not on the
+ * client's record.
  *
  * Each goes through the app's own path. A draft is started by
  * `insertNewDraft` (reports.create's body), so it is seeded from its job
@@ -408,8 +409,8 @@ export const seed = internalMutation({
         .finalise(endOf(job) + 55 * MINUTE)
     }
 
-    // ── The subcontractor's: a send nobody has on file (held for the
-    // owner), and a second one the owner then refused ─────────────────────
+    // ── The subcontractor's: a copy for someone nobody has on file, which
+    // goes and is recorded as new, and a warranty call-back ────────────────
     const subAnts = book.named('subAntsDone')
     {
       const job = subAnts
@@ -444,7 +445,7 @@ export const seed = internalMutation({
       const t = job.scheduledAt
       const finalisedAt = endOf(job) + 60 * MINUTE
       story
-        .draft('srSubRejected', {
+        .draft('srSubCallBack', {
           author: 'sub',
           template: 'serviceReport',
           job,
@@ -463,7 +464,7 @@ export const seed = internalMutation({
                 method: ['Gels applied with Gel Gun'],
               },
             ],
-            'srSubRejected',
+            'srSubCallBack',
           ),
           risks: ['No Risk Safe Access Given'],
           riskActions: ['Safe access given'],
@@ -476,8 +477,6 @@ export const seed = internalMutation({
         .sign(t + 26 * MINUTE, 'technicianSignature', { technician: 'sub' })
         .confirm(t + 26 * MINUTE)
         .finalise(finalisedAt)
-        // First thing the next morning, from the approvals list.
-        .reject(finalisedAt + 17 * HOUR)
     }
 
     // ── Bird proofing, with the job's own photos beside the report's ──────
@@ -1245,7 +1244,6 @@ type Report = {
   ownerOpens: (at: number) => Report
   finalise: (at: number, by?: Worker) => Report
   trash: (at: number) => Report
-  reject: (at: number) => Report
   amend: (at: number, key: string, reason: string) => Report
 }
 
@@ -1521,37 +1519,6 @@ function storyteller(
             throw new Error(`demo: ${key} is finalised and cannot be binned`)
           }
           await ctx.db.patch(report._id, { deletedAt: when, updatedAt: when })
-        })
-        return self
-      },
-
-      /** deliveries.reject, by the owner, of the send the form held. */
-      reject(ts) {
-        schedule(ts, async (when) => {
-          const report = await read(key)
-          const held = (
-            await ctx.db
-              .query('reportDeliveries')
-              .withIndex('by_report', (q) => q.eq('reportId', report._id))
-              .take(20)
-          ).find((delivery) => delivery.status === 'pendingApproval')
-          if (!held) {
-            throw new Error(`demo: ${key} has no send waiting for approval`)
-          }
-          const owner = base.members.owner
-          await ctx.db.patch(held._id, {
-            status: 'failed',
-            error: 'Not approved',
-            approvedByMembershipId: owner,
-          })
-          await recordAudit(ctx, forSelf(owner), {
-            businessId: report.businessId,
-            action: 'report.email.rejected',
-            entityType: 'reports',
-            entityId: held.reportId,
-            meta: { to: held.to },
-            at: when,
-          })
         })
         return self
       },

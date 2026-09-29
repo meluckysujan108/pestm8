@@ -12,18 +12,23 @@ import type { SendingKnown } from './lockEmail'
  * What the sheet that locks a report says about the email locking sends.
  *
  * The rule is the server's (`queueFormDeliveries`): who the form asks for,
- * less anyone who can never be delivered to; the addresses on file go at
- * once and any other waits for an owner, as a delivery of its own; the
- * business's copy rides blind on what goes. These pin the sheet to that rule,
- * and pin what it SAYS in each case — the words are the feature.
+ * less anyone who can never be delivered to, all in one email as soon as it
+ * locks — nothing waits for an owner — with any address that is not on the
+ * client's record pointed out; the business's copy rides blind on what goes.
+ * These pin the sheet to that rule, and pin what it SAYS in each case — the
+ * words are the feature.
  */
 
 const template = getTemplate('serviceReport')
 
 const known: SendingKnown = {
   addresses: ['jane@gmail.com', 'info@pestm8.com.au'],
-  unrestricted: false,
   copy: 'info@pestm8.com.au',
+}
+
+/** `known`, with more of the client's contacts on file. */
+function onFile(...addresses: Array<string>): SendingKnown {
+  return { ...known, addresses: [...known.addresses, ...addresses] }
 }
 
 function say(
@@ -73,7 +78,7 @@ describe('what locking will email', () => {
       lockEmail(template, { sendCopy: true }, 'jane@gmail.com', known),
     ).toEqual({
       sending: ['jane@gmail.com'],
-      held: [],
+      newAddresses: [],
       undeliverable: [],
       stillTyped: null,
       copy: 'info@pestm8.com.au',
@@ -128,43 +133,52 @@ describe('what locking will email', () => {
           emailReportTo: ['strata@example.com', 'agent@example.com'],
         },
         'jane@gmail.com',
-        { ...known, unrestricted: true },
+        onFile('strata@example.com', 'agent@example.com'),
       ),
     ).toBe(
       'Once it’s locked, it’s emailed to jane@gmail.com, strata@example.com and agent@example.com. A copy goes to info@pestm8.com.au.',
     )
   })
 
-  test('an address nobody has on file waits for the owner, and the client’s copy does not wait with it', () => {
+  test('an address nobody has on file goes with the client, and the sheet asks for a second look', () => {
     const data = { sendCopy: true, emailReportTo: ['strata@example.com'] }
     const plan = lockEmail(template, data, 'jane@gmail.com', known)
-    expect(plan.sending).toEqual(['jane@gmail.com'])
-    expect(plan.held).toEqual(['strata@example.com'])
-    // No approval is promised: the app has nowhere to give one. The owner
-    // sending it from the report is what can actually happen.
+    // One email, nothing held: approval was retired on 29 Sept 2026.
+    expect(plan.sending).toEqual(['jane@gmail.com', 'strata@example.com'])
+    expect(plan.newAddresses).toEqual(['strata@example.com'])
     expect(say(data, 'jane@gmail.com')).toBe(
-      'Once it’s locked, it’s emailed to jane@gmail.com. strata@example.com isn’t on the client’s record, so that email waits for the owner. They can send it from the report. A copy goes to info@pestm8.com.au.',
+      'Once it’s locked, it’s emailed to jane@gmail.com and strata@example.com. strata@example.com isn’t on the client’s record — check it’s right. A copy goes to info@pestm8.com.au.',
     )
   })
 
-  test('with only a held address, nothing goes at once and nothing is copied yet', () => {
+  test('with the client switched off, a new address still goes, with the copy', () => {
     const data = { sendCopy: false, emailReportTo: ['strata@example.com'] }
     const plan = lockEmail(template, data, 'jane@gmail.com', known)
-    expect(plan.sending).toEqual([])
-    expect(plan.copy).toBeNull()
+    expect(plan.sending).toEqual(['strata@example.com'])
+    expect(plan.copy).toBe('info@pestm8.com.au')
     expect(say(data, 'jane@gmail.com')).toBe(
-      'strata@example.com isn’t on the client’s record, so that email waits for the owner. They can send it from the report.',
+      'Once it’s locked, it’s emailed to strata@example.com. strata@example.com isn’t on the client’s record — check it’s right. A copy goes to info@pestm8.com.au.',
     )
   })
 
-  test('an owner is never held', () => {
-    const data = { sendCopy: true, emailReportTo: ['strata@example.com'] }
-    expect(
-      lockEmail(template, data, 'jane@gmail.com', {
-        ...known,
-        unrestricted: true,
-      }).held,
-    ).toEqual([])
+  test('two new addresses are asked about together', () => {
+    const data = {
+      sendCopy: true,
+      emailReportTo: ['strata@example.com', 'agent@example.com'],
+    }
+    expect(say(data, 'jane@gmail.com')).toBe(
+      'Once it’s locked, it’s emailed to jane@gmail.com, strata@example.com and agent@example.com. strata@example.com and agent@example.com aren’t on the client’s record — check they’re right. A copy goes to info@pestm8.com.au.',
+    )
+  })
+
+  test('a new address, one still typed and one that can’t be delivered are said together, in order', () => {
+    const data = {
+      sendCopy: false,
+      emailReportTo: ['jane@gmail.com', 'strata@example.com', 'bob@gmail'],
+    }
+    expect(say(data, 'jane@gmail.com')).toBe(
+      'Once it’s locked, it’s emailed to jane@gmail.com and strata@example.com. jane@gmail.com is also in “Email Report To”, so it still gets it. strata@example.com isn’t on the client’s record — check it’s right. bob@gmail can’t receive email, so it’s left out. A copy goes to info@pestm8.com.au.',
+    )
   })
 
   test('an address that can never be delivered to is left out, and says so', () => {
@@ -177,7 +191,7 @@ describe('what locking will email', () => {
       say(
         { sendCopy: true, emailReportTo: ['strata@example.com'] },
         'bob@gmail',
-        { ...known, unrestricted: true },
+        onFile('strata@example.com'),
       ),
     ).toBe(
       'Once it’s locked, it’s emailed to strata@example.com. bob@gmail can’t receive email, so it’s left out. A copy goes to info@pestm8.com.au.',

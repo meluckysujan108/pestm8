@@ -5,19 +5,20 @@ import {
   mutation,
   query,
 } from './_generated/server'
-import { internal } from './_generated/api'
 import { requireMembership } from './lib/access'
-import {
-  hasCapability,
-  requireActor,
-  requireCapability,
-  requireWriteActor,
-} from './lib/actor'
+import { requireActor, requireWriteActor } from './lib/actor'
 import { forSelf, recordAudit } from './lib/audit'
-import { clientScope, reportReadable } from './lib/capabilities'
+import type { AuditAttribution } from './lib/audit'
+import {
+  clientScope,
+  reportReadable,
+  writeAttribution,
+} from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { emailConfigured } from './lib/emailConfig'
 import { isValidEmail } from './lib/email'
+import { addressedTo } from './lib/reportEmail'
+import { assertWithinSendLimit } from './lib/sendLimit'
 import type { ActorEnvelope } from './lib/actor'
 import { memberName } from './lib/reportContext'
 import {
@@ -41,10 +42,16 @@ import type { MutationCtx, QueryCtx } from './_generated/server'
  * about is usually the delivery, so every attempt is a row here, written
  * BEFORE the provider is called, naming the `reportPdfs` row it attached.
  *
- * The row is also where the recipient rule lives. A technician may send to the
- * addresses already on the client's record; anywhere else is `pendingApproval`
- * until an owner says yes — a decision about a request that exists, rather
- * than one retyped from memory.
+ * The row is also what keeps sending honest, now that nothing gates it.
+ * Anyone who may send a report may send it to any address that can receive
+ * email. Until 29 Sept 2026 a technician's email to an address that was not on
+ * the client's record waited here as `pendingApproval` for an owner — and no
+ * screen anywhere could give that approval, so it waited forever while the
+ * Send sheet said it would go. So instead of a gate there is a record: every
+ * row names who asked, from whose account, and which of its addresses were
+ * not on the client's record (`newAddresses`); the report's Email and Logs
+ * tabs show all of it; and the business's own copy goes, blind, on every
+ * email (`lib/recipients.businessCopyAddress`).
  */
 
 export type DeliveryStatus = Doc<'reportDeliveries'>['status']
@@ -61,7 +68,7 @@ export const queue = internalMutation({
     bcc: v.optional(v.array(v.string())),
     subject: v.string(),
     trigger: v.union(v.literal('finalise'), v.literal('manual')),
-    status: v.union(v.literal('queued'), v.literal('pendingApproval')),
+    status: v.literal('queued'),
     sentByMembershipId: v.optional(v.id('memberships')),
   },
   handler: async (ctx, { reportId, ...rest }) => {
@@ -163,11 +170,10 @@ export const readyForReport = internalQuery({
 /**
  * The addresses already on this client's record.
  *
- * The recipient rule: a technician may send a report to the people the
- * business already corresponds with, and anywhere else waits for an owner.
- * That is not distrust of technicians — it is that a compliance document
- * emailed to a typo is gone, and the person best placed to notice a wrong
- * address is the one who owns the client relationship.
+ * Nothing waits on this any more. It is what a send records as new
+ * (`newAddresses`): a compliance document emailed to a typo is simply gone,
+ * so an address the business has never corresponded with is worth a second
+ * look, by the person sending it and by an owner reading the history.
  */
 export const knownRecipients = internalQuery({
   args: { reportId: v.id('reports') },
@@ -229,8 +235,9 @@ async function subjectFor(
  * reports always count. Anyone else outside the client's scope still gets the
  * client's own address and the business's — both already on the report they
  * are looking at — and every other address is treated as new, which only
- * means an owner approves it. `request` applies the same rule, so its
- * queued-or-held answer cannot be used to test a guessed address either.
+ * means the send records it as new. `request` applies the same rule, so what
+ * a row records cannot be used to test whether a guessed address is one of
+ * the client's contacts either.
  */
 async function knownToCaller(
   ctx: QueryCtx,
@@ -254,7 +261,7 @@ async function knownToCaller(
  * The addresses this business already corresponds with about this report,
  * and what happens to an email of it.
  *
- * Public so the send sheet can say "this one needs the owner's approval"
+ * Public so the send sheet can mark an address that is new to this client
  * BEFORE someone presses Send, rather than after — and so it, and the sheet
  * that locks a draft, can say where the business's own copy goes before
  * anything is sent. Nothing here is new to the caller: they can already open
@@ -267,7 +274,8 @@ export const known = query({
     const env = await requireActor(ctx, businessId)
     const none = {
       addresses: [],
-      unrestricted: false,
+      // Always true, like the answer below: nothing needs an owner.
+      unrestricted: true,
       copy: null,
       emailReady: false,
     }
@@ -278,9 +286,13 @@ export const known = query({
     const business = await ctx.db.get(businessId)
     return {
       addresses: await knownToCaller(ctx, env, report),
-      unrestricted:
-        hasCapability(env, 'business.manage') ||
-        business?.allowTechnicianRecipients === true,
+      /**
+       * Retired with approval (29 Sept 2026): everyone may send anywhere.
+       * Still answered, and always true, for the screens built before then
+       * — which read false as "this address needs an owner's approval" —
+       * until the contract step.
+       */
+      unrestricted: true,
       /** The blind copy every email of this report carries, if any. */
       copy: businessCopyAddress(business),
       /** Whether this deployment can send at all (`lib/emailConfig`). */
@@ -352,17 +364,19 @@ export const recordProviderEvent = internalMutation({
 
     await recordAudit(
       ctx,
-      forSelf(
-        delivery.sentByMembershipId ??
-          delivery.approvedByMembershipId ??
-          (await anyOwner(ctx, delivery.businessId)),
-      ),
+      delivery.sentByMembershipId
+        ? sendAttribution(delivery.sentByMembershipId, delivery)
+        : forSelf(
+            delivery.approvedByMembershipId ??
+              (await anyOwner(ctx, delivery.businessId)),
+          ),
       {
         businessId: delivery.businessId,
         action: 'report.email.bounced',
         entityType: 'reports',
         entityId: delivery.reportId,
-        meta: { to: delivery.to, event, detail },
+        // Everyone that email was addressed to, as the sent line had it.
+        meta: { ...addressedTo(delivery), event, detail },
         at: Date.now(),
       },
     )
@@ -370,9 +384,25 @@ export const recordProviderEvent = internalMutation({
 })
 
 /**
+ * Who a delivery's outcome is written down against: whoever asked for it,
+ * and the account they asked from when it was not their own — so the report's
+ * Logs read "Terence, in Kevin's account" for a send made there, as they do
+ * for an edit.
+ */
+function sendAttribution(
+  sentByMembershipId: Id<'memberships'>,
+  delivery: Pick<Doc<'reportDeliveries'>, 'onBehalfOfMembershipId'>,
+): AuditAttribution {
+  return {
+    actorMembershipId: sentByMembershipId,
+    onBehalfOfMembershipId: delivery.onBehalfOfMembershipId,
+  }
+}
+
+/**
  * An audit row needs an actor and a bounce has none — the provider is not a
- * member. Attributed to whoever asked for the send, and to an owner when the
- * form itself did.
+ * member. Attributed to whoever asked for the send, and to an owner on a row
+ * from before every delivery named who asked.
  */
 async function anyOwner(ctx: MutationCtx, businessId: Id<'businesses'>) {
   const owner = await ctx.db
@@ -414,42 +444,21 @@ export const forReport = query({
 })
 
 /**
- * The owner's approval queue: recipients a technician typed that are on
- * nobody's record.
- */
-export const pendingApproval = query({
-  args: { businessId: v.id('businesses') },
-  handler: async (ctx, { businessId }) => {
-    const env = await requireActor(ctx, businessId)
-    // An empty list rather than an error, because the badge that reads this
-    // renders for everyone. `business.manage` rather than a role: approving a
-    // send is the owner's call, and not from inside somebody else's account.
-    if (!hasCapability(env, 'business.manage')) return []
-
-    const rows = await ctx.db
-      .query('reportDeliveries')
-      .withIndex('by_business_status', (q) =>
-        q.eq('businessId', businessId).eq('status', 'pendingApproval'),
-      )
-      .take(50)
-
-    return withActors(
-      ctx,
-      rows.sort((a, b) => b.createdAt - a.createdAt),
-    )
-  },
-})
-
-/**
  * Asks for a report to be sent to someone.
  *
  * All of the deciding happens here, in a mutation with database access: who
- * the caller is, whether the address is one the business already corresponds
- * with, what the subject should say. The action that follows only sends.
+ * the caller is, whether they may send this report, what the subject should
+ * say, and which of the addresses the business has never corresponded with
+ * about it. The action that follows only sends.
+ *
+ * Every address that can receive email is queued, whoever asks: there is no
+ * approval step (see the top of this file). An address that is new to this
+ * client goes too, and the row says it was new.
  *
  * Returns the row rather than sending it, because the two callers want
  * different things — someone pressing Send is watching and wants the outcome,
- * a finalise wants it off the critical path.
+ * a finalise wants it off the critical path. `status` is always `queued` now;
+ * it is still returned because callers written before this change read it.
  */
 export const request = mutation({
   args: {
@@ -480,24 +489,21 @@ export const request = mutation({
     if (addresses.length === 0) throw new ConvexError('NO_RECIPIENT')
     const copies = normaliseAddresses(cc ?? [])
     // An address that can never be delivered to (lib/email.ts) is refused
-    // outright rather than queued, or held for an owner to approve: either
-    // way it would sit in the history as a send that was never going to
-    // arrive, and the technician would have left the site believing it had.
+    // outright rather than queued: it would sit in the history as a send that
+    // was never going to arrive, and the technician would have left the site
+    // believing it had.
     if (![...addresses, ...copies].every(isValidEmail)) {
       throw new ConvexError('INVALID_EMAIL')
     }
 
-    await assertWithinSendLimit(ctx, membership._id)
+    await assertWithinSendLimit(
+      ctx,
+      membership._id,
+      addresses.length + copies.length,
+    )
 
     const business = await ctx.db.get(businessId)
     const onFile = await knownToCaller(ctx, env, report)
-    // An owner may send where they like; it is their client relationship.
-    const unrestricted =
-      hasCapability(env, 'business.manage') ||
-      business?.allowTechnicianRecipients === true
-    const novel = addresses.filter((address) => !onFile.includes(address))
-    const status =
-      unrestricted || novel.length === 0 ? 'queued' : 'pendingApproval'
 
     const deliveryId = await ctx.db.insert('reportDeliveries', {
       businessId,
@@ -510,135 +516,19 @@ export const request = mutation({
       bcc: blindCopy(businessCopyAddress(business), [...addresses, ...copies]),
       subject: await subjectFor(ctx, report),
       trigger: 'manual',
-      status,
+      status: 'queued',
+      // Recorded, not held: what an owner reading the history needs to see
+      // that a report went somewhere new.
+      newAddresses: [...addresses, ...copies].filter(
+        (address) => !onFile.includes(address),
+      ),
       sentByMembershipId: membership._id,
+      onBehalfOfMembershipId: writeAttribution(env.actor)
+        .onBehalfOfMembershipId,
       createdAt: Date.now(),
     })
 
-    if (status === 'pendingApproval') {
-      await recordAudit(ctx, forSelf(membership._id), {
-        businessId,
-        action: 'report.email.pending_approval',
-        entityType: 'reports',
-        entityId: reportId,
-        meta: { to: addresses, novel },
-        at: Date.now(),
-      })
-    }
-
-    return { deliveryId, status }
-  },
-})
-
-/**
- * How many reports one person may send in an hour.
- *
- * Generous for a technician finishing a day's jobs, and far below what a
- * runaway retry loop or a compromised session would manage. A compliance
- * document is an attachment with a client's address on it: the cost of
- * sending a thousand of them is not the bandwidth.
- *
- * Counted from the delivery rows rather than a rate-limiter component,
- * because those rows already ARE the record of every send, exactly and
- * auditably — a separate token bucket would be a second, less accurate
- * account of the same events, and a dependency to keep them in step.
- */
-const SEND_LIMIT = 20
-const SEND_WINDOW_MS = 60 * 60 * 1000
-
-async function assertWithinSendLimit(
-  ctx: MutationCtx,
-  membershipId: Id<'memberships'>,
-) {
-  const since = Date.now() - SEND_WINDOW_MS
-  const recent = await ctx.db
-    .query('reportDeliveries')
-    .withIndex('by_sender', (q) =>
-      q.eq('sentByMembershipId', membershipId).gt('createdAt', since),
-    )
-    .take(SEND_LIMIT)
-
-  // `>=`, because this call is the one after the ones counted: twenty already
-  // in the window means this would be the twenty-first.
-  if (recent.length >= SEND_LIMIT) throw new ConvexError('SEND_RATE_LIMITED')
-}
-
-/**
- * An owner lets a held delivery go. The row is not rewritten — the request is
- * the technician's, and who approved it is part of the record.
- */
-export const approve = mutation({
-  args: {
-    businessId: v.id('businesses'),
-    deliveryId: v.id('reportDeliveries'),
-  },
-  handler: async (ctx, { businessId, deliveryId }) => {
-    const env = await requireActor(ctx, businessId)
-    requireCapability(env, 'business.manage')
-    const owner = env.actor.real
-    const delivery = await ctx.db.get(deliveryId)
-    if (!delivery || delivery.businessId !== businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
-    if (delivery.status !== 'pendingApproval') return
-    // The rule `request` refuses these by, held to here as well: a row
-    // waiting since before the app checked addresses can hold "bob@gmail",
-    // and approving it would log a send that can never arrive. The owner
-    // can still refuse it, which records that it was not sent.
-    if (![...delivery.to, ...delivery.cc].every(isValidEmail)) {
-      throw new ConvexError('INVALID_EMAIL')
-    }
-
-    await ctx.db.patch(deliveryId, {
-      status: 'queued',
-      approvedByMembershipId: owner._id,
-    })
-    await recordAudit(ctx, forSelf(owner._id), {
-      businessId,
-      action: 'report.email.approved',
-      entityType: 'reports',
-      entityId: delivery.reportId,
-      meta: { to: delivery.to },
-      at: Date.now(),
-    })
-    // Approved is approved; sending waits for email to be set up, and the
-    // history says so (`forReport`) rather than logging a send that can only
-    // throw.
-    if (emailConfigured()) {
-      await ctx.scheduler.runAfter(0, internal.email.deliver, { deliveryId })
-    }
-  },
-})
-
-/** An owner refuses one. Kept, not deleted: a refusal is part of the record. */
-export const reject = mutation({
-  args: {
-    businessId: v.id('businesses'),
-    deliveryId: v.id('reportDeliveries'),
-  },
-  handler: async (ctx, { businessId, deliveryId }) => {
-    const env = await requireActor(ctx, businessId)
-    requireCapability(env, 'business.manage')
-    const owner = env.actor.real
-    const delivery = await ctx.db.get(deliveryId)
-    if (!delivery || delivery.businessId !== businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
-    if (delivery.status !== 'pendingApproval') return
-
-    await ctx.db.patch(deliveryId, {
-      status: 'failed',
-      error: 'Not approved',
-      approvedByMembershipId: owner._id,
-    })
-    await recordAudit(ctx, forSelf(owner._id), {
-      businessId,
-      action: 'report.email.rejected',
-      entityType: 'reports',
-      entityId: delivery.reportId,
-      meta: { to: delivery.to },
-      at: Date.now(),
-    })
+    return { deliveryId, status: 'queued' as const }
   },
 })
 
@@ -657,9 +547,11 @@ async function withActors(
   const ids = [
     ...new Set(
       rows.flatMap((row) =>
-        [row.sentByMembershipId, row.approvedByMembershipId].filter(
-          (id): id is Id<'memberships'> => id !== undefined,
-        ),
+        [
+          row.sentByMembershipId,
+          row.onBehalfOfMembershipId,
+          row.approvedByMembershipId,
+        ].filter((id): id is Id<'memberships'> => id !== undefined),
       ),
     ),
   ]
@@ -684,6 +576,13 @@ async function withActors(
   return rows.map((row) => ({
     ...row,
     sentBy: who(row.sentByMembershipId),
+    /** The account it was sent from, when that was not the sender's own. */
+    onBehalfOf: who(row.onBehalfOfMembershipId),
+    /**
+     * Who let a held send go, or refused it, before approval was retired.
+     * Still returned for the screens built before then, until the contract
+     * step: they read `null` as "nobody has approved it".
+     */
     approvedBy: who(row.approvedByMembershipId),
   }))
 }

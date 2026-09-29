@@ -13,10 +13,10 @@ const modules = import.meta.glob('./**/*.ts')
 /**
  * What the form asks for, and what a settled delivery records.
  *
- * The recipient RULE — a technician may send where the business already
- * corresponds, and an owner decides the rest — is exercised in
- * `e2e/deliveries.spec.ts` instead: it runs through `requireMembership`, and
- * convex-test has no Better Auth component registered to answer that.
+ * Who may send, and what a send records about its addresses, is exercised in
+ * `reportEmailCopy.test.ts` (through the test harness's signed-in actors) and
+ * `e2e/deliveries.spec.ts`: it runs through `requireMembership`, which these
+ * bare convex-test rows cannot answer.
  */
 
 async function seed(ctx: MutationCtx, options: { clientEmail?: string } = {}) {
@@ -245,21 +245,43 @@ describe('what a settled delivery records', () => {
     )
     const { reportId, deliveryId } = await queued(ids, t)
 
-    const held = await t.mutation(internal.deliveries.queue, {
+    const failed = await t.mutation(internal.deliveries.queue, {
       reportId,
       to: ['someone@elsewhere.example'],
       cc: [],
       subject: 'Service Report',
       trigger: 'manual',
-      status: 'pendingApproval',
+      status: 'queued',
       sentByMembershipId: ids.techId,
     })
+    await t.mutation(internal.deliveries.settle, {
+      deliveryId: failed,
+      status: 'failed',
+      error: 'Provider said no',
+    })
+    // Held before approval was retired, and not yet released by
+    // migrations/heldDeliveriesV1: not sent by a render finishing either.
+    const held = await t.run((ctx) =>
+      ctx.db.insert('reportDeliveries', {
+        businessId: ids.businessId,
+        reportId,
+        to: ['strata@elsewhere.example'],
+        cc: [],
+        subject: 'Service Report',
+        trigger: 'finalise',
+        status: 'pendingApproval',
+        sentByMembershipId: ids.techId,
+        createdAt: Date.now(),
+      }),
+    )
 
     const ready = await t.query(internal.deliveries.readyForReport, {
       reportId,
     })
-    // The held one stays held: a render finishing is not an approval.
+    // A send that already failed is retried by a person, from the Send
+    // sheet — not again, unasked, whenever the PDF is next drawn.
     expect(ready).toEqual([deliveryId])
+    expect(ready).not.toContain(failed)
     expect(ready).not.toContain(held)
   })
 })
@@ -341,6 +363,55 @@ describe('what the provider says afterwards', () => {
     // Somebody still received it, so the report has been sent.
     const report = await t.run((ctx) => ctx.db.get(reportId))
     expect(report?.emailedAt).toBeTypeOf('number')
+  })
+
+  test('a bounce is logged against whoever sent it, from whose account, with everyone it was addressed to', async () => {
+    const t = convexTest(schema, modules)
+    const ids = await t.run((ctx) =>
+      seed(ctx, { clientEmail: 'client@example.com' }),
+    )
+    const reportId = await t.run((ctx) => finalisedReport(ctx, ids, ids.techId))
+    await t.run((ctx) =>
+      ctx.db.insert('reportDeliveries', {
+        businessId: ids.businessId,
+        reportId,
+        to: ['client@example.com', 'strata@example.com'],
+        cc: [],
+        bcc: ['office@pestm8.example'],
+        subject: 'Service Report',
+        trigger: 'finalise',
+        status: 'sent',
+        providerMessageId: 'resend-bounce',
+        newAddresses: ['strata@example.com'],
+        // The owner, working in the technician's account.
+        sentByMembershipId: ids.ownerId,
+        onBehalfOfMembershipId: ids.techId,
+        createdAt: Date.now(),
+        sentAt: Date.now(),
+      }),
+    )
+
+    await t.mutation(internal.deliveries.recordProviderEvent, {
+      providerMessageId: 'resend-bounce',
+      event: 'bounced',
+      detail: 'Mailbox does not exist',
+    })
+
+    const [entry] = await t.run((ctx) => ctx.db.query('auditLog').collect())
+    expect(entry).toMatchObject({
+      action: 'report.email.bounced',
+      entityId: reportId,
+      actorMembershipId: ids.ownerId,
+      onBehalfOfMembershipId: ids.techId,
+      meta: {
+        to: ['client@example.com', 'strata@example.com'],
+        bcc: ['office@pestm8.example'],
+        newAddresses: ['strata@example.com'],
+        trigger: 'finalise',
+        event: 'bounced',
+        detail: 'Mailbox does not exist',
+      },
+    })
   })
 
   test('a delivery confirmation changes nothing', async () => {

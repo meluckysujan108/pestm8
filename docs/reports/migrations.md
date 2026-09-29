@@ -618,3 +618,56 @@ deploys there with a plain `npx convex dev --once`.
 **Rollback** is a redeploy of the previous `main`: its schema is looser in all
 three places, and every reader it has prefers `templateSnapshotId`.
 
+
+## Report email without approval (29 Sept 2026)
+
+Anyone who may send a report now sends it to any address that can receive
+email; nothing waits for an owner (`convex/deliveries.ts`, and the amended
+"Who a report may be sent to" in `ARCHITECTURE.md`). It is expand → migrate →
+contract, because rows and a Settings switch from before still exist.
+
+**Expand — this release.**
+
+- Nothing writes `pendingApproval`. It stays in the status union until the
+  contract step.
+- `reportDeliveries` gains `newAddresses` and `onBehalfOfMembershipId`. Both
+  are optional, so there is no backfill.
+- `deliveries.pendingApproval`, `approve` and `reject` are gone. Nothing in
+  `src/` ever called them.
+- The previous frontend keeps working unchanged:
+  - `deliveries.known` still answers `unrestricted`, now always `true`, so an
+    old Send sheet stops saying "Needs approval";
+  - `forReport` still carries `approvedBy`;
+  - `businesses.update` still accepts `allowTechnicianRecipients`, but no
+    longer stores it, so flipping the old switch cannot fail with
+    "Server Error", and cannot set it again once the migration has cleared
+    it.
+- Backend first, then merge.
+
+**Migrate.** Run `migrations/heldDeliveriesV1` (the runbook is in its header)
+straight after the backend deploy. It does two things:
+
+- It marks every send still held as not sent, with the reason. It never
+  emails one days late.
+- It clears the retired switch.
+
+Production held one send on 29 Sept 2026: the demo business's seeded example.
+No business had the switch set. Run it on dev and e2e too.
+
+**Contract — a later PR,** once `preview` lists nothing on prod, dev and e2e:
+
+- Drop `v.literal('pendingApproval')` from the status union.
+- Drop `allowTechnicianRecipients`: from `businesses` in the schema, from
+  `businesses.update`, and from `reportSettings`.
+- Drop `unrestricted` from `deliveries.known` and `approvedBy` from
+  `forReport`.
+- Delete the migration.
+
+Keep two things:
+
+- `approvedByMembershipId` stays declared. It records who refused the few
+  sends that were refused, and dropping the declaration would refuse the push
+  to any deployment that holds one. This is the same reasoning as
+  `customTemplateSnapshot` above.
+- The index `by_business_status` stays. The demo's clean-up sweeps a
+  business's deliveries through its `businessId` prefix.
