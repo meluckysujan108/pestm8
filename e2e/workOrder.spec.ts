@@ -3,6 +3,7 @@ import type { Locator } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  chooseJobTypes,
   chooseProperty,
   signInViaUi,
   signUpActor,
@@ -104,6 +105,7 @@ test('a business client’s work order is asked for, saved, shown, and can be co
   ).toHaveCount(0)
   await field.fill('  WO-448120 ')
   await sheet.getByLabel('Start').fill('08:30')
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
 
@@ -196,6 +198,7 @@ test('anyone else’s job can still carry one, a tap away', async ({ page }) => 
   await expect(field).toHaveValue('REA-2231')
 
   await sheet.getByLabel('Start').fill('10:00')
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
 
@@ -253,6 +256,7 @@ test('a work order typed for a business client is never sent unseen', async ({
     sheet.getByRole('button', { name: 'Add work order' }),
   ).toBeVisible()
   await sheet.getByLabel('Start').fill('11:00')
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
   const [job] = await s.owner.client.query(api.jobs.listDay, {
@@ -293,6 +297,7 @@ test('a new business client typed in is asked for its work order too', async ({
   await sheet.getByLabel('Postcode').fill('6160')
   await field.fill('HS-0042')
   await sheet.getByLabel('Start').fill('12:00')
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
 
@@ -322,6 +327,7 @@ test('a Recurring Job booked under a work order books every visit under it', asy
   await sheet.getByLabel('Repeat every').fill('1')
   await sheet.getByLabel('Repeat unit').selectOption('month')
   await sheet.getByLabel('Start').fill('07:00')
+  await chooseJobTypes(page, sheet, ['General Pest Control'])
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
 

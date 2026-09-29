@@ -112,22 +112,32 @@ function JobCards() {
   )
 }
 
-function JobDetail() {
-  return (
-    <Phone>
-      <Header title="Schedule" />
-      <JobDetailSheet
-        businessId={bizId}
-        businessSlug="demo"
-        timezone={TZ}
-        jobId="j2"
-        canReassign
-        canDelete
-        onClose={() => {}}
-      />
-    </Phone>
-  )
+function jobDetail(jobId: string) {
+  return function JobDetail() {
+    return (
+      <Phone>
+        {/* The edit form asks who may be booked, which reads access. */}
+        <AccessProvider businessId={bizId}>
+          <Header title="Schedule" />
+          <JobDetailSheet
+            businessId={bizId}
+            businessSlug="demo"
+            timezone={TZ}
+            jobId={jobId}
+            canReassign
+            canDelete
+            onClose={() => {}}
+          />
+        </AccessProvider>
+      </Phone>
+    )
+  }
 }
+
+/** A job with no note and one service. */
+const JobDetail = jobDetail('j2')
+/** A job for three services, with a note. */
+const JobDetailServices = jobDetail('j1')
 
 function JobDetailLoading() {
   return (
@@ -758,6 +768,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   dock: Dock,
   jobcards: JobCards,
   jobdetail: JobDetail,
+  'jobdetail-services': JobDetailServices,
   'jobdetail-loading': JobDetailLoading,
   client: Client,
   sign: Sign,

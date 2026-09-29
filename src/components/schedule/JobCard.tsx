@@ -53,20 +53,31 @@ export type JobRow = {
   /** How often the visit's series repeats, while it runs. Absent for a
    * one-off, a stopped series, and on a backend older than the indicator. */
   repeats?: Interval
+  /** The job's own note, when it has one. */
+  notes?: string
 }
 
-/** A label on the left, its value right-aligned against it. */
+/**
+ * A label on the left, its value right-aligned against it: on one line, or
+ * on two for a value that is often longer than the card is wide.
+ */
 function Row({
   label,
+  lines = 1,
   children,
 }: {
   label: string
+  lines?: 1 | 2
   children: React.ReactNode
 }) {
   return (
-    <span className="flex items-center justify-between gap-3 py-[3px]">
+    <span
+      className={`flex justify-between gap-3 py-[3px] ${lines === 1 ? 'items-center' : 'items-start'}`}
+    >
       <span className="shrink-0 text-caption text-muted">{label}</span>
-      <span className="min-w-0 truncate text-right text-caption font-semibold text-ink-2">
+      <span
+        className={`min-w-0 text-right text-caption font-semibold text-ink-2 ${lines === 1 ? 'truncate' : 'line-clamp-2 break-words'}`}
+      >
         {children}
       </span>
     </span>
@@ -245,7 +256,11 @@ export function JobCard({
           </span>
 
           <span className="block border-t border-hairline-2 pt-1.5">
-            <Row label="Service">{job.jobType}</Row>
+            {/* Two lines: a job for general pest, termites and rodents
+                names all three. */}
+            <Row label="Service" lines={2}>
+              {job.jobType}
+            </Row>
             {showDate && (
               <Row label="Date">
                 <time dateTime={jobDay}>
@@ -260,6 +275,13 @@ export function JobCard({
                 it is — which a screen reader cannot see, so it still says. */}
             {job.assigneeName && hideTechnician && (
               <span className="sr-only">Technician: {job.assigneeName}</span>
+            )}
+            {/* The start of the job's note, so "ring first" is seen on the
+                day's list and not only by whoever opens the job. */}
+            {job.notes && (
+              <Row label="Note" lines={2}>
+                {job.notes}
+              </Row>
             )}
             {job.assigneeName && !hideTechnician && (
               <Row label="Technician">

@@ -1,7 +1,13 @@
 import { describe, expect, test } from 'vitest'
 import { getTemplate } from './index'
 import { seedFromContext } from './seed'
-import { suggestTemplate, treatmentForJobType } from './suggest'
+import {
+  suggestReports,
+  suggestTemplate,
+  suggestTemplates,
+  treatmentForJobType,
+  treatmentsForJobType,
+} from './suggest'
 import { weatherAnswerFrom } from './weatherAnswer'
 
 /**
@@ -95,6 +101,17 @@ describe('seeding a service report from its job', () => {
     // The other three columns stay for the technician: what was applied, how
     // much and how are not deducible from a booking.
     expect(rows[0].product).toBeUndefined()
+  })
+
+  test('ticks every service the job is for, in the form own words', () => {
+    const { data } = seedFromContext(template, {
+      today: TODAY,
+      // Bed Bugs has no treatment on the form, so it adds nothing.
+      jobType: 'General Pest Control, Bed Bugs, Rodents',
+    })
+    const rows = data.treatments as Array<Record<string, unknown>>
+    expect(rows).toHaveLength(1)
+    expect(rows[0].treatment).toEqual(['General Pest Control', 'Rodents'])
   })
 
   test('leaves the grid empty for a job type the form has no treatment for', () => {
@@ -242,5 +259,42 @@ describe('which form a job suggests', () => {
   test('has no treatment for a pest the service report does not list', () => {
     expect(treatmentForJobType('Bed Bugs')).toBeNull()
     expect(treatmentForJobType('Ants')).toBe('Ant Full Block Spray')
+  })
+
+  test('a job for several services suggests each form once, first service first', () => {
+    expect(
+      suggestTemplates('Termite Inspection, General Pest Control, Rodents'),
+    ).toEqual(['timberPestInspection', 'serviceReport'])
+    expect(
+      suggestReports('General Pest Control, Termite Inspection, Rodents'),
+    ).toEqual([
+      {
+        templateId: 'serviceReport',
+        services: ['General Pest Control', 'Rodents'],
+      },
+      { templateId: 'timberPestInspection', services: ['Termite Inspection'] },
+    ])
+    expect(suggestTemplate('Bed Bugs, Termite Treatment')).toBe(
+      'termiteManagementCert',
+    )
+    expect(suggestTemplates('Bed Bugs, Rodent Bait Top-Up')).toEqual([])
+  })
+
+  test('a name the tables do not hold is not found in what they inherit', () => {
+    expect(suggestTemplates('constructor, toString')).toEqual([])
+    expect(treatmentsForJobType('constructor, Ants')).toEqual([
+      'Ant Full Block Spray',
+    ])
+  })
+
+  test('a service is found whatever its case', () => {
+    expect(suggestTemplates('rodents, TERMITE INSPECTION')).toEqual([
+      'serviceReport',
+      'timberPestInspection',
+    ])
+    expect(treatmentsForJobType('general pest control, rodents')).toEqual([
+      'General Pest Control',
+      'Rodents',
+    ])
   })
 })
