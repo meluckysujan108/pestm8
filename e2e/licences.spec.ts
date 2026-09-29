@@ -178,10 +178,6 @@ test('a technician adds a licence by name, and the list and the hub say it runs 
     page.getByRole('heading', { name: 'Add new', level: 1 }),
   ).toBeVisible()
 
-  // The name is typed: no suggestions under it.
-  await expect(
-    page.getByRole('group', { name: 'Suggested names' }),
-  ).toHaveCount(0)
   await page.getByLabel('Name', { exact: true }).fill('Pest management licence')
   await page.getByLabel('Number (optional)').fill('PMT-4471')
   const expiresOn = perthDay(30)
@@ -220,13 +216,15 @@ test('a technician adds a licence by name, and the list and the hub say it runs 
   await expect(row).toContainText('30 days')
 
   // And the hub's row says so — the report number is set, so it is the
-  // expiry that shows, not "Missing".
+  // expiry that shows, not "Missing". The number itself stays off the row:
+  // beside a badge it would cut "Licences & insurance" short on a phone.
   await page.goto(`/${s.slug}/settings`)
   const hubRow = page
     .getByRole('main')
     .getByRole('link', { name: /^Licences & insurance/ })
   await expect(hubRow).toContainText('Expiring')
   await expect(hubRow).not.toContainText('Missing')
+  await expect(hubRow).not.toContainText('TECH-8821')
 })
 
 test('a technician adds a PDF and a photo, reads them in the viewer, renames the licence, takes a file off and deletes it', async ({

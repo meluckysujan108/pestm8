@@ -135,7 +135,7 @@ function LicencePage() {
         body={
           shown.fromPhone
             ? 'It may have been added since this phone last had signal.'
-            : 'It has been deleted, or the link was for someone else’s.'
+            : 'It has been deleted, or it belongs to someone else.'
         }
       />
       <div className="mt-4 text-center">
@@ -335,7 +335,7 @@ function LicenceLoaded({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={`Delete ${licence.name}?`}
-        body="It goes from your licences and insurance with its files, here and from this phone. The number on your reports stays as it is."
+        body="It and its files go from your list and from this phone. The number on your reports stays as it is."
         confirm="Delete"
         cancel="Keep it"
         onConfirm={() => {

@@ -39,7 +39,7 @@ const WORDS: Record<string, string> = {
   INVALID_NUMBER: `That number is too long. It can be up to ${MAX_LICENCE_NUMBER_LENGTH} characters.`,
   INVALID_DATE:
     'That expiry date doesn’t exist. Pick it again from the calendar.',
-  TOO_MANY_LICENCES: `You can keep up to ${MAX_LICENCES}. Delete one you no longer need, then add this one.`,
+  TOO_MANY_LICENCES: `Your list can hold up to ${MAX_LICENCES}. Delete one you no longer need, then add this one.`,
   TOO_MANY_FILES: `It can hold up to ${MAX_LICENCE_FILES} files. Remove one, then add this.`,
   WRONG_FILE_TYPE: 'That file isn’t a PDF, PNG or JPG. Choose one of those.',
   FILE_TOO_LARGE: `That file is too big: a PDF can be up to ${mb(MAX_LICENCE_PDF_BYTES)} MB, a photo up to ${mb(MAX_LICENCE_IMAGE_BYTES)} MB.`,

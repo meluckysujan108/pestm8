@@ -424,7 +424,7 @@ export function LicenceFiles({
             {leftOut > 0 && (
               <FormAlert>
                 {leftOut === 1 ? 'One file was' : `${leftOut} files were`} left
-                out: it holds up to {MAX_LICENCE_FILES}.
+                out: up to {MAX_LICENCE_FILES} files fit here.
               </FormAlert>
             )}
           </div>
