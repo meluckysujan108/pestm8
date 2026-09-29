@@ -141,3 +141,4 @@ current dependency set (see `optimizeDeps.exclude` in `vite.config.ts`).
 | `pnpm test`                 | Vitest + convex-test unit suite (no deployment needed)      |
 | `pnpm test:e2e`             | Playwright access-control suite                             |
 | `pnpm lint` / `pnpm format` | ESLint + Prettier                                           |
+| `pnpm icons`                | Redraw the icons and iOS launch screens from `icon.svg`     |
