@@ -15,6 +15,7 @@ import type * as adminInvite from "../adminInvite.js";
 import type * as analytics from "../analytics.js";
 import type * as auditLog from "../auditLog.js";
 import type * as auth from "../auth.js";
+import type * as bin from "../bin.js";
 import type * as businessInvites from "../businessInvites.js";
 import type * as businesses from "../businesses.js";
 import type * as clientContacts from "../clientContacts.js";
@@ -134,6 +135,7 @@ declare const fullApi: ApiFromModules<{
   analytics: typeof analytics;
   auditLog: typeof auditLog;
   auth: typeof auth;
+  bin: typeof bin;
   businessInvites: typeof businessInvites;
   businesses: typeof businesses;
   clientContacts: typeof clientContacts;

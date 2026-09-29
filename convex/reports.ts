@@ -291,7 +291,12 @@ export const list = query({
       .order('desc')
       .filter((q) =>
         filter === 'trash'
-          ? q.neq(q.field('deletedAt'), undefined)
+          ? q.and(
+              q.neq(q.field('deletedAt'), undefined),
+              // Deleted on its own. A draft in the Recycle bin with its
+              // client, site or job waits there with it (convex/bin.ts).
+              q.eq(q.field('binEntryId'), undefined),
+            )
           : q.eq(q.field('deletedAt'), undefined),
       )
       .filter((q) => segmentPredicate(q, filter))
@@ -339,7 +344,12 @@ export const search = query({
       // real matches out of the results.
       .filter((q) =>
         filter === 'trash'
-          ? q.neq(q.field('deletedAt'), undefined)
+          ? q.and(
+              q.neq(q.field('deletedAt'), undefined),
+              // Deleted on its own. A draft in the Recycle bin with its
+              // client, site or job waits there with it (convex/bin.ts).
+              q.eq(q.field('binEntryId'), undefined),
+            )
           : q.eq(q.field('deletedAt'), undefined),
       )
       .filter((q) => segmentPredicate(q, filter))
@@ -438,7 +448,7 @@ export const counts = query({
     for (const r of rows) {
       if (!reportReadable(listScope, actor.real._id, r)) continue
       if (r.deletedAt !== undefined) {
-        counted.trash += 1
+        if (r.binEntryId === undefined) counted.trash += 1
         continue
       }
       counted.all += 1
@@ -2591,6 +2601,9 @@ async function requireDeletable(
   if (!canEditReport(env.actor, reportFactsFrom(report))) {
     throw new ConvexError('NO_ACCESS')
   }
+  // In the Recycle bin with its client, site or job: restored or wiped with
+  // them, from the bin, never on its own (convex/bin.ts).
+  if (report.binEntryId !== undefined) throw new ConvexError('IN_RECYCLE_BIN')
   return { env, report }
 }
 
@@ -2660,6 +2673,9 @@ export const purgeExpired = internalMutation({
     const batch = await ctx.db
       .query('reports')
       .withIndex('by_deletedAt', (q) => q.gt('deletedAt', 0).lt('deletedAt', cutoff))
+      // A draft in the Recycle bin with its client, site or job goes when
+      // they do, not on its own clock (convex/bin.ts).
+      .filter((q) => q.eq(q.field('binEntryId'), undefined))
       .take(PURGE_BATCH)
     for (const report of batch) {
       // A report that was finalised while in the trash is a record now, and

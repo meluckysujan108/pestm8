@@ -629,6 +629,8 @@ export default defineSchema({
   })
     .index('by_business', ['businessId'])
     .index('by_client', ['clientId'])
+    // Restore and wipe find a Recycle bin group by its entry (convex/bin.ts).
+    .index('by_binEntryId', ['binEntryId'])
     // An import asks "is this site already here?" by postcode, then compares
     // the street — exact, and bounded to one postcode's worth of sites.
     .index('by_business_and_postcode', ['businessId', 'postcode'])
@@ -684,7 +686,8 @@ export default defineSchema({
   })
     .index('by_business', ['businessId'])
     .index('by_import', ['importId'])
-    .index('by_business_and_clientNumber', ['businessId', 'clientNumber']),
+    .index('by_business_and_clientNumber', ['businessId', 'clientNumber'])
+    .index('by_binEntryId', ['binEntryId']),
 
   /**
    * A client list brought across from a spreadsheet or another app
@@ -809,7 +812,8 @@ export default defineSchema({
     .index('by_assignee_status', ['assignedMembershipId', 'status'])
     // Materialising recurrences must be idempotent, which means asking "does
     // this occurrence already exist" on every cron run.
-    .index('by_recurrence', ['recurrenceId']),
+    .index('by_recurrence', ['recurrenceId'])
+    .index('by_binEntryId', ['binEntryId']),
 
   // A Recurring Job: the standing arrangement, of which each `jobs` row
   // carrying this row's id is one visit.
@@ -847,7 +851,8 @@ export default defineSchema({
     .index('by_business_active', ['businessId', 'active'])
     // Undoing a client import asks, of each site it brought in, whether a
     // series is booked there (convex/clientImports.ts).
-    .index('by_property', ['propertyId']),
+    .index('by_property', ['propertyId'])
+    .index('by_binEntryId', ['binEntryId']),
 
   reports: defineTable({
     businessId: v.id('businesses'),
@@ -1103,6 +1108,7 @@ export default defineSchema({
     .index('by_business_updated', ['businessId', 'updatedAt'])
     // The nightly purge's range scan; undefined sorts below every number.
     .index('by_deletedAt', ['deletedAt'])
+    .index('by_binEntryId', ['binEntryId'])
     .searchIndex('search', {
       searchField: 'searchText',
       filterFields: ['businessId'],
@@ -1170,6 +1176,7 @@ export default defineSchema({
     .index('by_client', ['clientId'])
     // The nightly purge's range scan; undefined sorts below every number.
     .index('by_deletedAt', ['deletedAt'])
+    .index('by_binEntryId', ['binEntryId'])
     .searchIndex('search', {
       searchField: 'plainText',
       filterFields: ['businessId'],
@@ -1920,6 +1927,15 @@ export default defineSchema({
     ),
     deletedAt: v.number(),
     deletedByMembershipId: v.id('memberships'),
+    /** What went with the record, counted when it was deleted — the bin
+     * page's "with 2 properties and 14 jobs". Numbers only. */
+    counts: v.object({
+      properties: v.number(),
+      jobs: v.number(),
+      recurrences: v.number(),
+      notes: v.number(),
+      drafts: v.number(),
+    }),
   })
     // The bin page, newest first.
     .index('by_businessId_and_deletedAt', ['businessId', 'deletedAt'])
