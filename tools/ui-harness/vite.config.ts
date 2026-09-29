@@ -5,10 +5,12 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 // HARNESS_REPO points the harness at another checkout's src (a worktree of
-// main, say) to render "before" beside this checkout's "after".
+// main, say) to render "before" beside this checkout's "after". A relative
+// one is from the repo root, as in the README: left relative, Vite would
+// resolve the alias below from each importing file instead.
 const here = path.dirname(fileURLToPath(import.meta.url))
 const root = path.resolve(here, '../..')
-const repo = process.env.HARNESS_REPO ?? root
+const repo = path.resolve(root, process.env.HARNESS_REPO ?? '.')
 
 export default defineConfig({
   root: here,
@@ -22,7 +24,15 @@ export default defineConfig({
     ),
   },
   resolve: {
-    alias: { '#': path.join(repo, 'src') },
+    alias: [
+      // A server function only the TanStack Start plugin can build: see
+      // initialState.stub.ts. Ahead of '#', because the first match wins.
+      {
+        find: '#/lib/initialState',
+        replacement: path.join(here, 'initialState.stub.ts'),
+      },
+      { find: '#', replacement: path.join(repo, 'src') },
+    ],
     dedupe: ['react', 'react-dom'],
   },
   server: {
