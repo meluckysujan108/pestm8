@@ -738,7 +738,10 @@ export default defineSchema({
     // via `clientContacts.setPrimary`. Undefined/false for every other row.
     isPrimary: v.optional(v.boolean()),
     createdAt: v.number(),
-  }).index('by_client', ['clientId']),
+    ...binFields,
+  })
+    .index('by_client', ['clientId'])
+    .index('by_binEntryId', ['binEntryId']),
 
   jobs: defineTable({
     businessId: v.id('businesses'),
@@ -1313,7 +1316,19 @@ export default defineSchema({
     caption: v.optional(v.string()),
     order: v.number(),
     createdAt: v.number(),
-  }).index('by_job', ['jobId']),
+    /**
+     * The file was claimed for this job alone when it was added: uploaded
+     * minutes before, and held by nothing else (jobs.addPhoto). Only then may
+     * wiping the job delete the file too (convex/bin.ts) — a photo added
+     * before claims existed may share its file with something a wipe must
+     * not reach, such as a signed report. Absent on those.
+     */
+    claimed: v.optional(v.boolean()),
+  })
+    .index('by_job', ['jobId'])
+    // "Does anything else hold this file?", asked before it is claimed and
+    // before it is deleted.
+    .index('by_storageId', ['storageId']),
 
   /**
    * An open "acting in someone else's account" session.
@@ -1924,9 +1939,16 @@ export default defineSchema({
       v.object({ kind: v.literal('property'), id: v.id('properties') }),
       v.object({ kind: v.literal('job'), id: v.id('jobs') }),
       v.object({ kind: v.literal('recurrence'), id: v.id('recurrences') }),
+      v.object({ kind: v.literal('contact'), id: v.id('clientContacts') }),
     ),
     deletedAt: v.number(),
-    deletedByMembershipId: v.id('memberships'),
+    /** Who deleted it. Absent only for a client archived before the bin
+     * existed and moved here by migrations/archivedClientsToBinV1, where
+     * nothing recorded who archived it. */
+    deletedByMembershipId: v.optional(v.id('memberships')),
+    /** That client's `archivedAt`: when it was hidden, which the bin page
+     * shows instead of a delete nobody made. */
+    archivedAt: v.optional(v.number()),
     /** What went with the record, counted when it was deleted — the bin
      * page's "with 2 properties and 14 jobs". Numbers only. */
     counts: v.object({
