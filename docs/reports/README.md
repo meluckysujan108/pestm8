@@ -293,7 +293,10 @@ without a word, which is how reports locked with Pest M8's old GIF logo printed
 none. Settings now only ever stores PNG or JPEG (`src/lib/images/prepareLogo.ts`,
 `convex/lib/businessLogo.ts`): a PNG whenever the logo has any transparency, since
 a JPEG turns clear pixels black, and trimmed to its artwork so it fills its box.
-A report prints the logo it was locked with, for good.
+A report prints the logo it was locked with, for good. `RENDER_VERSION` was not
+bumped for the bigger boxes, so a file already drawn keeps its layout: a redraw
+would move each page's content under the markup drawn on it, and redraw a report
+finalised before `contextSnapshot` existed with the business as it is now.
 
 **First body page** — a solid red title band, `{brand} {form name} for {year}`
 with the document's date fenced off at its right end. The AS forms print their
@@ -425,7 +428,7 @@ client receive on 28 August?" answerable once the renderer has moved on.
   email by inverting its colours and never its images, so a transparent logo
   with dark lettering would vanish there. Mail apps that follow the email's
   own dark styling (Apple Mail, Outlook for Mac and phones, Outlook.com via
-  `[data-ogsc]`) get a dark card instead, and the business's light-lettered
+  `[data-ogsb]`) get a dark card instead, and the business's light-lettered
   logo when it has one (`logoOnDark`). Width and height are attributes as well
   as styles, since Outlook for Windows reads only those; a logo stored before
   cards existed is sized from its file's header (`lib/imageSize.ts`). A logo

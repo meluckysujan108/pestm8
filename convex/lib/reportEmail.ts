@@ -1,5 +1,12 @@
 import { EMAIL_LOGO } from './businessLogo'
-import { EMAIL_COLOURS, EMAIL_FONT, emailHead, escapeHtml } from './emailTheme'
+import {
+  EMAIL_COLOURS,
+  EMAIL_FONT,
+  accentRule,
+  emailBody,
+  emailHead,
+  escapeHtml,
+} from './emailTheme'
 import type { Doc } from '../_generated/dataModel'
 
 /**
@@ -59,26 +66,20 @@ export function reportEmailHtml({
   logoOnDark?: EmailLogo
 }): string {
   const title = emailTitle(formName, address)
-  const rows = facts
+  // Long values (an email address, a product's full name) wrap rather than
+  // push the card wider than a phone.
+  const wrap = 'word-break:break-word;overflow-wrap:anywhere;'
+  const facts_ = facts
     .map(
       (fact) => `
                   <tr>
-                    <td class="pm-muted pm-rule" style="padding:8px 12px 8px 0;border-top:1px solid ${C.hairline};color:${C.muted};font-size:14px;line-height:1.4;">${escapeHtml(fact.label)}</td>
-                    <td class="pm-ink pm-rule" style="padding:8px 0;border-top:1px solid ${C.hairline};color:${C.ink};font-size:14px;line-height:1.4;text-align:right;">${escapeHtml(fact.value)}</td>
+                    <td class="pm-muted pm-rule" style="padding:8px 12px 8px 0;border-top:1px solid ${C.hairline};color:${C.muted};font-size:14px;line-height:1.4;${wrap}">${escapeHtml(fact.label)}</td>
+                    <td class="pm-ink pm-rule" style="padding:8px 0;border-top:1px solid ${C.hairline};color:${C.ink};font-size:14px;line-height:1.4;text-align:right;${wrap}">${escapeHtml(fact.value)}</td>
                   </tr>`,
     )
     .join('')
 
-  return `<!doctype html>
-<html lang="en-AU">
-  <head>${emailHead({ swapsLogo: Boolean(logo && logoOnDark) })}
-    <title>${escapeHtml(title)}</title>
-  </head>
-  <body class="pm-page" style="margin:0;padding:0;background:${C.page};">
-    <table role="presentation" class="pm-page" width="100%" cellpadding="0" cellspacing="0" style="background:${C.page};">
-      <tr>
-        <td style="padding:24px 12px;">
-          <table role="presentation" class="pm-card" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;margin:0 auto;background:${C.card};border-radius:16px;border:1px solid ${C.hairline};font-family:${EMAIL_FONT};">
+  const rows = `
             <tr>
               <td style="padding:${logo ? `${24 - EMAIL_LOGO.padding}px ${24 - EMAIL_LOGO.padding}px 0` : '24px 24px 0'};">
                 ${letterhead(businessName, logo, logoOnDark)}
@@ -86,15 +87,15 @@ export function reportEmailHtml({
             </tr>
             <tr>
               <td style="padding:${logo ? 14 : 16}px 24px 0 24px;">
-                <div class="pm-accent" style="height:3px;width:44px;background:${C.red};margin-bottom:16px;"></div>
-                <h1 class="pm-ink" style="margin:0;font-size:20px;line-height:1.3;color:${C.ink};font-weight:600;">${escapeHtml(title)}</h1>
+                ${accentRule()}
+                <h1 class="pm-ink" style="margin:16px 0 0 0;font-size:20px;line-height:1.3;color:${C.ink};font-weight:600;${wrap}">${escapeHtml(title)}</h1>
               </td>
             </tr>${
-              rows
+              facts_
                 ? `
             <tr>
               <td style="padding:16px 24px 0 24px;">
-                <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${rows}
+                <table role="presentation" cellpadding="0" cellspacing="0" width="100%">${facts_}
                 </table>
               </td>
             </tr>`
@@ -105,12 +106,13 @@ export function reportEmailHtml({
                 The full report is attached as a PDF.
                 <div class="pm-ink" style="margin-top:16px;color:${C.ink};font-size:14px;">${escapeHtml(businessName)}</div>
               </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
+            </tr>`
+
+  return `<!doctype html>
+<html lang="en-AU">
+  <head>${emailHead({ swapsLogo: Boolean(logo && logoOnDark) })}
+    <title>${escapeHtml(title)}</title>
+  </head>${emailBody({ preheader: `${title}. The full report is attached as a PDF.`, rows })}
 </html>`
 }
 
@@ -133,7 +135,12 @@ export function reportEmailText({
   return [
     emailTitle(formName, address),
     '',
-    ...facts.map((fact) => `${fact.label}: ${fact.value}`),
+    // "Is it safe to commence work?: Yes" reads badly; a label that ends in
+    // its own punctuation keeps it.
+    ...facts.map(
+      (fact) =>
+        `${fact.label}${/[?:]$/.test(fact.label.trim()) ? '' : ':'} ${fact.value}`,
+    ),
     ...(facts.length > 0 ? [''] : []),
     'The full report is attached as a PDF.',
     '',
@@ -152,7 +159,9 @@ function emailTitle(formName: string, address: string | undefined) {
  *
  * The dark version is hidden until the dark styling swaps it in, and Outlook
  * for Windows, which reads neither the styling nor `display:none` reliably,
- * never sees it at all (the conditional comment and `mso-hide`).
+ * never sees it at all (the conditional comment and `mso-hide`). Both carry
+ * the business's name, for a reader whose mail app blocks images; only one is
+ * ever shown, so it is never read twice.
  */
 function letterhead(
   businessName: string,
@@ -162,36 +171,35 @@ function letterhead(
   if (!logo) {
     return `<div class="pm-ink" style="font-size:17px;line-height:1.3;font-weight:600;color:${C.ink};">${escapeHtml(businessName)}</div>`
   }
-  const light = framed(
-    logo,
-    businessName,
-    logoOnDark ? 'pm-on-light' : '',
-    'display:block;',
-  )
+  const light = framed(logo, businessName, logoOnDark ? 'pm-on-light' : '')
   if (!logoOnDark) return light
-  const dark = framed(
-    logoOnDark,
-    '',
-    'pm-on-dark',
-    'display:none;mso-hide:all;',
-  )
+  const dark = framed(logoOnDark, businessName, 'pm-on-dark', true)
   return `${light}
                 <!--[if !mso]><!-->${dark}<!--<![endif]-->`
 }
 
-/** One logo image, with the card's margin round it if it was not drawn with
- * one. The class that swaps it goes on whichever element is outermost. */
+/**
+ * One logo, and the class that swaps it (on its outermost element).
+ *
+ * A card comes with its margin drawn in. A logo stored before cards existed
+ * is put on a white box here instead: without one, a see-through logo's dark
+ * lettering would sit on the card after dark mode darkens it. The box has no
+ * `pm-` class, so it stays white while the rest goes dark — and the logo's
+ * words, for a blocked image, stay dark on it.
+ */
 function framed(
   logo: EmailLogo,
   alt: string,
   swap: string,
-  display: string,
+  hidden = false,
 ): string {
-  const image = (className: string, style: string) =>
-    `<img${className ? ` class="${className}"` : ''} src="${escapeHtml(logo.url)}" width="${logo.width}" height="${logo.height}" alt="${escapeHtml(alt)}" style="${style}border:0;outline:none;text-decoration:none;width:${logo.width}px;height:${logo.height}px;font-family:${EMAIL_FONT};font-size:17px;font-weight:600;color:${C.ink};" />`
-  if (logo.carded)
+  const image = (className: string, display: string) =>
+    `<img${className ? ` class="${className}"` : ''} src="${escapeHtml(logo.url)}" width="${logo.width}" height="${logo.height}" alt="${escapeHtml(alt)}" style="${display}border:0;outline:none;text-decoration:none;width:${logo.width}px;height:${logo.height}px;font-family:${EMAIL_FONT};font-size:17px;font-weight:600;color:${C.ink};" />`
+  const display = hidden ? 'display:none;mso-hide:all;' : 'display:block;'
+  if (logo.carded) {
     return image(['pm-ink', swap].filter(Boolean).join(' '), display)
-  return `<div${swap ? ` class="${swap}"` : ''} style="${display}padding:${EMAIL_LOGO.padding}px;">${image('pm-ink', 'display:block;')}</div>`
+  }
+  return `<table role="presentation"${swap ? ` class="${swap}"` : ''} cellpadding="0" cellspacing="0" style="${hidden ? display : ''}background:#FFFFFF;border-radius:${EMAIL_LOGO.radius}px;"><tr><td style="padding:${EMAIL_LOGO.padding}px;">${image('', 'display:block;')}</td></tr></table>`
 }
 
 /**

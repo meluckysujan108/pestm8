@@ -115,7 +115,7 @@ describe('putting a logo on the letterhead', () => {
     expect(kept.every((file) => file !== null)).toBe(true)
   })
 
-  test('the light-lettered logo is separate and optional, and Settings reads it back', async () => {
+  test('the light-lettered logo is optional, a version of the logo, and Settings reads it back', async () => {
     const s = await setup()
     const settings = () =>
       s.owner.as.query(api.businesses.reportSettings, {
@@ -123,19 +123,48 @@ describe('putting a logo on the letterhead', () => {
       })
     expect((await settings())?.logoOnDarkUrl).toBeNull()
 
+    // Not without a logo to be a version of: a tab left open elsewhere.
+    await expect(setLogo(s, 'logoOnDark', await logoFiles(s))).rejects.toThrow(
+      /NO_LOGO/,
+    )
+
+    await setLogo(s, 'logo', await logoFiles(s))
     const dark = await logoFiles(s)
-    await setLogo(s, 'logoOnDark', dark)
+    expect(await setLogo(s, 'logoOnDark', dark)).toEqual({
+      clearedOnDark: false,
+    })
     expect((await business(s))?.logoOnDark).toEqual(dark)
     expect((await settings())?.logoOnDarkUrl).toBeTruthy()
 
-    // Changing the logo leaves the dark one alone…
-    await setLogo(s, 'logo', await logoFiles(s))
-    expect((await business(s))?.logoOnDark).toEqual(dark)
-
-    // …and it comes off on its own.
+    // It comes off on its own, leaving the logo.
     await setLogo(s, 'logoOnDark', null)
     expect((await business(s))?.logoOnDark).toBeUndefined()
+    expect((await business(s))?.logoStorageId).toBeDefined()
     expect((await settings())?.logoOnDarkUrl).toBeNull()
+  })
+
+  test('changing the logo takes its dark version off, and says so', async () => {
+    const s = await setup()
+    await setLogo(s, 'logo', await logoFiles(s))
+    await setLogo(s, 'logoOnDark', await logoFiles(s))
+
+    const rebrand = await logoFiles(s)
+    expect(await setLogo(s, 'logo', rebrand)).toEqual({ clearedOnDark: true })
+
+    const after = await business(s)
+    expect(after?.logoStorageId).toBe(rebrand.storageId)
+    // Left behind, it would show the old brand to every client reading in
+    // dark mode.
+    expect(after?.logoOnDark).toBeUndefined()
+  })
+
+  test('taking off what is not there changes nothing and records nothing', async () => {
+    const s = await setup()
+    expect(await setLogo(s, 'logo', null)).toEqual({ clearedOnDark: false })
+    expect(await setLogo(s, 'logoOnDark', null)).toEqual({
+      clearedOnDark: false,
+    })
+    expect(await auditFields(s)).toEqual([])
   })
 
   test('taking the logo off takes its dark version with it', async () => {
@@ -239,6 +268,7 @@ describe('a logo sent the old way, by a phone still on the previous app', () => 
     vi.useFakeTimers({ toFake: ['Date'] })
     const s = await setup()
     await setLogo(s, 'logo', await logoFiles(s))
+    await setLogo(s, 'logoOnDark', await logoFiles(s))
     const update = (logoStorageId: Id<'_storage'>) =>
       s.owner.as.mutation(api.businesses.update, {
         businessId: s.businessId,
@@ -252,6 +282,8 @@ describe('a logo sent the old way, by a phone still on the previous app', () => 
     // The card showed the old logo; until a new one is drawn, emails carry
     // this logo itself.
     expect(after?.logoEmail).toBeUndefined()
+    // And its light-lettered version went with it.
+    expect(after?.logoOnDark).toBeUndefined()
 
     // The same one sent back is not a change.
     const before = await auditFields(s)
@@ -285,6 +317,71 @@ describe('the letterhead a report email heads with', () => {
     expect(await letterhead()).toMatchObject({
       logo: { width: null, height: null, carded: false },
     })
+  })
+})
+
+describe('who can learn a logo’s file', () => {
+  test('a report hands its readers the logo as a URL, never the file’s id', async () => {
+    // A storage id is all it takes to claim a fresh upload as one's own and
+    // delete it with that; every member reads a report.
+    const s = await setup()
+    const files = await logoFiles(s)
+    await setLogo(s, 'logo', files)
+    const reportId = await s.t.run(async (ctx) => {
+      const now = Date.now()
+      const clientId = await ctx.db.insert('clients', {
+        businessId: s.businessId,
+        kind: 'person',
+        name: 'Jane Nguyen',
+        createdAt: now,
+        updatedAt: now,
+      })
+      const propertyId = await ctx.db.insert('properties', {
+        businessId: s.businessId,
+        clientId,
+        addressLine: '30 Sloan Drive',
+        suburb: 'Leda',
+        state: 'WA',
+        postcode: '6170',
+        createdAt: now,
+      })
+      return ctx.db.insert('reports', {
+        businessId: s.businessId,
+        propertyId,
+        authorMembershipId: s.ownerMembershipId,
+        template: 'serviceReport',
+        templateVersion: getTemplate('serviceReport').version,
+        legalBasis: 'APVMA · AEPMA',
+        status: 'finalised',
+        finalisedAt: now,
+        data: {},
+        photoIds: [],
+        createdAt: now,
+        contextSnapshot: {
+          capturedAt: now,
+          client: null,
+          property: null,
+          business: {
+            name: 'Pest M8 Pest Control',
+            logoStorageId: files.storageId,
+          },
+          technician: null,
+          author: { membershipId: s.ownerMembershipId },
+          roster: {},
+        },
+      })
+    })
+
+    const report = await s.owner.as.query(api.reports.get, {
+      businessId: s.businessId,
+      reportId,
+    })
+
+    expect(report?.business?.logoUrl).toBeTruthy()
+    expect(report?.context.business).toMatchObject({
+      name: 'Pest M8 Pest Control',
+    })
+    expect(JSON.stringify(report)).not.toContain(files.storageId)
   })
 })
 
@@ -428,8 +525,29 @@ describe('the email Resend is asked to send', () => {
     await s.t.action(internal.email.deliver, { deliveryId })
 
     expect(sent[0].html).toContain(
-      `<div style="display:block;padding:10px;"><img class="pm-ink" src="${logoUrl}" width="200" height="52"`,
+      `<tr><td style="padding:10px;"><img src="${logoUrl}" width="200" height="52"`,
     )
+  })
+
+  test('an old WebP logo is left out, since Outlook for Windows cannot draw one', async () => {
+    const s = await setup()
+    // RIFF…WEBP, VP8X, 1246 × 326.
+    const webp = Uint8Array.from([
+      0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50,
+      0x38, 0x58, 10, 0, 0, 0, 0, 0, 0, 0, 0xdd, 0x04, 0, 0x45, 0x01, 0,
+    ])
+    const logo = await upload(s, webp)
+    await s.t.run((ctx) => ctx.db.patch(s.businessId, { logoStorageId: logo }))
+    const logoUrl = await s.t.run((ctx) => ctx.storage.getUrl(logo))
+    const deliveryId = await queued(s)
+    const sent = fakeResend((url) =>
+      url === logoUrl ? new Response(webp, { status: 200 }) : pdf(),
+    )
+
+    await s.t.action(internal.email.deliver, { deliveryId })
+
+    expect(sent[0].html).not.toContain('<img')
+    expect(sent[0].html).toContain('>Pest M8 Pest Control</div>')
   })
 
   test('a logo that cannot be read never stops the email: the name heads it instead', async () => {

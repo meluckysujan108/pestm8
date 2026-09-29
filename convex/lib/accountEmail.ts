@@ -1,4 +1,10 @@
-import { EMAIL_COLOURS, EMAIL_FONT, emailHead, escapeHtml } from './emailTheme'
+import {
+  EMAIL_COLOURS,
+  accentRule,
+  emailBody,
+  emailHead,
+  escapeHtml,
+} from './emailTheme'
 
 /**
  * The emails PestM8 sends about someone's own account, as the subject, an
@@ -69,33 +75,24 @@ function layout({
                   </tr>
                 </table>`
     : ''
-  return `<!doctype html>
-<html lang="en-AU">
-  <head>${emailHead({ swapsLogo: false })}
-    <title>${escapeHtml(heading)}</title>
-  </head>
-  <body class="pm-page" style="margin:0;padding:0;background:${C.page};">
-    <table role="presentation" class="pm-page" width="100%" cellpadding="0" cellspacing="0" style="background:${C.page};">
-      <tr>
-        <td style="padding:24px 12px;">
-          <table role="presentation" class="pm-card" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;margin:0 auto;background:${C.card};border-radius:16px;border:1px solid ${C.hairline};font-family:${EMAIL_FONT};">
+  const rows = `
             <tr>
               <td style="padding:24px;">
                 ${mark}
-                <div class="pm-accent" style="height:3px;width:44px;background:${C.red};margin-bottom:16px;"></div>
-                <h1 class="pm-ink" style="margin:0 0 16px 0;font-size:20px;line-height:1.3;color:${C.ink};font-weight:600;">${escapeHtml(heading)}</h1>
+                ${accentRule()}
+                <h1 class="pm-ink" style="margin:16px 0 16px 0;font-size:20px;line-height:1.3;color:${C.ink};font-weight:600;">${escapeHtml(heading)}</h1>
                 ${body}
                 ${action}
                 <p class="pm-muted pm-rule" style="margin:16px 0 0 0;padding-top:16px;border-top:1px solid ${C.hairline};color:${C.muted};font-size:13px;line-height:1.5;">
                   ${escapeHtml(FOOTER)}
                 </p>
               </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </body>
+            </tr>`
+  return `<!doctype html>
+<html lang="en-AU">
+  <head>${emailHead({ swapsLogo: false })}
+    <title>${escapeHtml(heading)}</title>
+  </head>${emailBody({ rows })}
 </html>`
 }
 

@@ -118,6 +118,38 @@ describe('reading a logo', () => {
   })
 })
 
+describe('which background a see-through logo is for', () => {
+  const RED: [number, number, number, number] = [250, 5, 8, 255]
+  const withArt = (colour: [number, number, number, number]) =>
+    image(400, 200, CLEAR, { x: 100, y: 50, width: 200, height: 60, colour })
+
+  test('white lettering is for dark backgrounds', () => {
+    expect(analyseLogo(withArt(WHITE)).tone).toBe('light')
+  })
+
+  test('dark lettering is for paper', () => {
+    expect(analyseLogo(withArt(BLACK)).tone).toBe('dark')
+  })
+
+  test('a mark in a brand colour is for either', () => {
+    expect(analyseLogo(withArt(RED)).tone).toBeNull()
+  })
+
+  test('a logo with its own background shows on either, so has no tone', () => {
+    expect(
+      analyseLogo(
+        image(400, 200, WHITE, {
+          x: 100,
+          y: 50,
+          width: 200,
+          height: 60,
+          colour: BLACK,
+        }),
+      ).tone,
+    ).toBeNull()
+  })
+})
+
 describe('what a logo is saved as', () => {
   test('anything see-through is a PNG, whatever it came as', () => {
     expect(logoEncoding('image/jpeg', true)).toBe('image/png')

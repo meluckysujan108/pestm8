@@ -1,26 +1,63 @@
 import { useState } from 'react'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
+import { errorCode } from '#/components/forms/describeError'
 import { prepareLogo } from '#/lib/images/prepareLogo'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /** The letterhead's logo, or its optional version with light lettering. */
 export type LogoSlot = 'logo' | 'logoOnDark'
 
-/** What the row says after its last action, if anything. */
+/** What a row says after its last action. */
 export type LogoNotice = keyof typeof LOGO_NOTICE_COPY
 
 /**
- * The words for each. Only `darkBackground` is a warning rather than a
- * failure: the logo went up, and may be exactly what the owner wants.
+ * The words for each. The last four are warnings, not failures: the logo went
+ * up, and may be exactly what the owner meant (`LOGO_WARNINGS`).
  */
 export const LOGO_NOTICE_COPY = {
   unreadable: 'Could not read that image. Try a PNG or a JPEG.',
+  tooLarge:
+    'Could not upload: that image is too large. Try a smaller copy of the logo.',
+  noLogo: 'Could not add it: the logo has been taken off. Add the logo first.',
+  noAccess:
+    'Could not change the logo: your access does not cover the letterhead. Ask the business owner.',
   failed: 'Could not upload the logo. Check your signal and try again.',
   removeFailed: 'Could not remove the logo. Check your signal and try again.',
   darkBackground:
     'This logo sits on a dark background, so it prints as a dark box. A version with a clear or white background looks best.',
+  lightLettering:
+    'This logo is mostly white, so it won’t show on white paper. Use it as the logo for dark backgrounds, and a version with dark lettering here.',
+  darkLettering:
+    'This version has dark lettering, so it won’t show in a dark email. Use one with white lettering.',
+  clearedOnDark:
+    'The logo for dark backgrounds went with the old logo. Add one that matches this logo.',
 } as const
+
+/** The notices that say the logo went up, and something about it. */
+export const LOGO_WARNINGS: ReadonlySet<LogoNotice> = new Set([
+  'darkBackground',
+  'lightLettering',
+  'darkLettering',
+  'clearedOnDark',
+])
+
+/** A refusal from `setLogo`, in the row's words. */
+function refusal(error: unknown): LogoNotice {
+  switch (errorCode(error)) {
+    case 'FILE_TOO_LARGE':
+      return 'tooLarge'
+    case 'WRONG_FILE_TYPE':
+    case 'INVALID_SIZE':
+      return 'unreadable'
+    case 'NO_LOGO':
+      return 'noLogo'
+    case 'NO_ACCESS':
+      return 'noAccess'
+    default:
+      return 'failed'
+  }
+}
 
 /**
  * Picking, uploading and taking off one of the letterhead's logos.
@@ -35,7 +72,7 @@ export function useLogoUpload(businessId: Id<'businesses'>, which: LogoSlot) {
   const generateUploadUrl = useConvexMutation(api.businesses.generateUploadUrl)
   const setLogo = useConvexMutation(api.businesses.setLogo)
   const [busy, setBusy] = useState<'uploading' | 'removing' | null>(null)
-  const [notice, setNotice] = useState<LogoNotice | null>(null)
+  const [notices, setNotices] = useState<Array<LogoNotice>>([])
 
   async function put(blob: Blob): Promise<Id<'_storage'>> {
     const url = await generateUploadUrl({ businessId })
@@ -51,18 +88,18 @@ export function useLogoUpload(businessId: Id<'businesses'>, which: LogoSlot) {
 
   async function upload(file: File) {
     setBusy('uploading')
-    setNotice(null)
+    setNotices([])
     try {
       const prepared = await prepareLogo(file, which).catch(() => null)
       if (!prepared) {
-        setNotice('unreadable')
+        setNotices(['unreadable'])
         return
       }
       const [storageId, emailStorageId] = await Promise.all([
         put(prepared.logo.blob),
         put(prepared.email.blob),
       ])
-      await setLogo({
+      const result = await setLogo({
         businessId,
         which,
         files: {
@@ -74,25 +111,31 @@ export function useLogoUpload(businessId: Id<'businesses'>, which: LogoSlot) {
           },
         },
       })
-      if (prepared.darkBackground) setNotice('darkBackground')
-    } catch {
-      setNotice('failed')
+      setNotices([
+        ...(prepared.warning ? [prepared.warning] : []),
+        ...(result.clearedOnDark ? (['clearedOnDark'] as const) : []),
+      ])
+    } catch (error) {
+      setNotices([refusal(error)])
     } finally {
       setBusy(null)
     }
   }
 
-  async function remove() {
+  /** True once it is off. */
+  async function remove(): Promise<boolean> {
     setBusy('removing')
-    setNotice(null)
+    setNotices([])
     try {
       await setLogo({ businessId, which, files: null })
+      return true
     } catch {
-      setNotice('removeFailed')
+      setNotices(['removeFailed'])
+      return false
     } finally {
       setBusy(null)
     }
   }
 
-  return { busy, notice, upload, remove }
+  return { busy, notices, upload, remove, clear: () => setNotices([]) }
 }

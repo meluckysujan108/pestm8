@@ -90,16 +90,17 @@ describe('its letterhead', () => {
     expect(lettered).toContain('<img class="pm-ink pm-on-light" src=')
     // …and the other is hidden until the same styling shows it, behind a
     // comment Outlook for Windows reads as "skip this".
+    // Named too, for a reader whose mail app blocks images in dark mode.
     expect(lettered).toMatch(
-      /<!--\[if !mso\]><!--><img class="pm-ink pm-on-dark" src="https:\/\/rare-retriever-156\.convex\.cloud\/api\/storage\/dark" width="220" height="72" alt="" style="display:none;mso-hide:all;/,
+      /<!--\[if !mso\]><!--><img class="pm-ink pm-on-dark" src="https:\/\/rare-retriever-156\.convex\.cloud\/api\/storage\/dark" width="220" height="72" alt="Pest M8 Pest Control" style="display:none;mso-hide:all;/,
     )
     expect(lettered).toContain('<!--<![endif]-->')
     const dark = darkRules(lettered)
     expect(dark).toContain('.pm-on-light { display: none !important; }')
     expect(dark).toContain('.pm-on-dark { display: block !important; }')
-    // Outlook.com marks what it recolours instead.
+    // Outlook.com marks the card, whose background it recolours, instead.
     expect(lettered).toContain(
-      '[data-ogsc] .pm-on-dark { display: block !important; }',
+      '[data-ogsb] .pm-on-dark { display: block !important; }',
     )
   })
 
@@ -107,16 +108,25 @@ describe('its letterhead', () => {
     const light = reportEmailHtml({ ...content, logo: CARD })
     expect(light).not.toContain('pm-on-dark')
     expect(light).not.toContain('pm-on-light')
-    expect(light).not.toContain('data-ogsc')
+    expect(light).not.toContain('data-ogsb')
   })
 
-  test('a logo stored before cards existed is given the card’s margin', () => {
-    const old = reportEmailHtml({
-      ...content,
-      logo: { ...CARD, url: 'https://x.test/logo.jpg', carded: false },
-    })
+  test('a logo stored before cards existed is put on a white box that stays white', () => {
+    const OLD = { ...CARD, url: 'https://x.test/logo.jpg', carded: false }
+    const old = reportEmailHtml({ ...content, logo: OLD })
+    // No pm- class on the box, so dark mode leaves it white, and its words
+    // for a blocked image stay dark on it.
     expect(old).toContain(
-      '<div style="display:block;padding:10px;"><img class="pm-ink" src="https://x.test/logo.jpg"',
+      '<table role="presentation" cellpadding="0" cellspacing="0" style="background:#FFFFFF;border-radius:10px;"><tr><td style="padding:10px;"><img src="https://x.test/logo.jpg"',
+    )
+    // Beside a light-lettered logo, the box is what swaps out.
+    const swapped = reportEmailHtml({
+      ...content,
+      logo: OLD,
+      logoOnDark: ON_DARK,
+    })
+    expect(swapped).toContain(
+      '<table role="presentation" class="pm-on-light" cellpadding="0" cellspacing="0" style="background:#FFFFFF;',
     )
   })
 })
@@ -139,6 +149,28 @@ describe('in dark mode', () => {
   })
 })
 
+describe('in Outlook for Windows and the inbox list', () => {
+  test('the card keeps to its width, and the red rule is a cell, not a div', () => {
+    expect(html).toContain(
+      '<!--[if mso]><table role="presentation" width="520" align="center"',
+    )
+    expect(html).toContain(
+      '<td class="pm-accent" width="44" height="3" style="width:44px;height:3px;',
+    )
+    expect(html).not.toContain('<div class="pm-accent"')
+  })
+
+  test('the inbox shows what is attached beside the subject', () => {
+    expect(html).toContain(
+      'mso-hide:all;font-size:1px;line-height:1px;color:#F2F2F7;opacity:0;">Your Service Report for 27 Gemstone Parade, Wellard. The full report is attached as a PDF.</div>',
+    )
+  })
+
+  test('a long value wraps rather than widening the card', () => {
+    expect(html).toContain('overflow-wrap:anywhere;">6-12 Months</td>')
+  })
+})
+
 describe('the plain-text copy beside it', () => {
   test('carries the same words', () => {
     expect(text).toBe(
@@ -153,5 +185,14 @@ describe('the plain-text copy beside it', () => {
         'Pest M8 Pest Control',
       ].join('\n'),
     )
+  })
+
+  test('a question keeps its own punctuation', () => {
+    expect(
+      reportEmailText({
+        ...content,
+        facts: [{ label: 'Is it safe to commence work?', value: 'Yes' }],
+      }),
+    ).toContain('Is it safe to commence work? Yes')
   })
 })

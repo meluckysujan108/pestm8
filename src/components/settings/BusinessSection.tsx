@@ -107,7 +107,9 @@ export function BusinessSection({
   // load runs and which carries only what the shell needs. Until this answers
   // those two fields wait, disabled, and are left out of a save: a save sent
   // before it would otherwise write them blank.
-  const { data: printedOrNull } = useQuery(rq.reportSettings(businessId))
+  const { data: printedOrNull, isError: printedFailed } = useQuery(
+    rq.reportSettings(businessId),
+  )
   const printed = printedOrNull ?? undefined
 
   // `state` rides along in the address only for the checks;
@@ -295,11 +297,18 @@ export function BusinessSection({
           // in this one paints to its edges, so it has nothing to clip.
           className="[&>div]:overflow-visible"
         >
+          {/* The dark logo's address comes with the report settings. Read
+              as none if they could not be read, or come from a server that
+              does not send it yet, rather than a placeholder for good. */}
           <LetterheadLogos
             businessId={businessId}
             logoUrl={business.logoUrl}
             logoOnDarkUrl={
-              printed === undefined ? undefined : printed.logoOnDarkUrl
+              printedFailed
+                ? null
+                : printed === undefined
+                  ? undefined
+                  : (printed.logoOnDarkUrl ?? null)
             }
           />
 

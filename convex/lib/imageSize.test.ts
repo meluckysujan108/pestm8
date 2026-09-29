@@ -39,13 +39,14 @@ describe('what size a logo is', () => {
       be32(1246),
       be32(326),
     )
-    expect(imageSize(png)).toEqual({ width: 1246, height: 326 })
+    expect(imageSize(png)).toEqual({ width: 1246, height: 326, format: 'png' })
   })
 
   test('a GIF, from its logical screen (the old Pest M8 logo was one)', () => {
     expect(imageSize(bytes('GIF87a', le16(800), le16(200)))).toEqual({
       width: 800,
       height: 200,
+      format: 'gif',
     })
   })
 
@@ -66,7 +67,7 @@ describe('what size a logo is', () => {
       be16(360),
       be16(800),
     )
-    expect(imageSize(jpeg)).toEqual({ width: 800, height: 360 })
+    expect(imageSize(jpeg)).toEqual({ width: 800, height: 360, format: 'jpeg' })
   })
 
   test('a WebP, lossless or extended', () => {
@@ -80,7 +81,11 @@ describe('what size a logo is', () => {
       (h >> 2) & 0xff,
       (h >> 10) & 0x0f,
     ])
-    expect(imageSize(lossless)).toEqual({ width: 1246, height: 326 })
+    expect(imageSize(lossless)).toEqual({
+      width: 1246,
+      height: 326,
+      format: 'webp',
+    })
 
     const extended = bytes(
       'RIFF',
@@ -92,7 +97,11 @@ describe('what size a logo is', () => {
       le24(1245),
       le24(325),
     )
-    expect(imageSize(extended)).toEqual({ width: 1246, height: 326 })
+    expect(imageSize(extended)).toEqual({
+      width: 1246,
+      height: 326,
+      format: 'webp',
+    })
   })
 
   test('anything else, or too little of it, is null rather than a guess', () => {

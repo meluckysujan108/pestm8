@@ -13,8 +13,9 @@
  *
  * - **Following the email's own dark styling.** Apple Mail on the iPhone and
  *   the Mac, Outlook for Mac and phones: they read `prefers-color-scheme`
- *   below. Outlook.com marks what it recolours with `data-ogsc`, which the
- *   second block reads.
+ *   below. Outlook.com marks each element whose background it recolours with
+ *   `data-ogsb` — the card always, since its white is written on it — which
+ *   the second block reads.
  * - **Inverting its colours.** The Gmail app and Outlook for Windows ignore
  *   the styling and invert whatever colours they find, but never an image —
  *   which is why a logo travels on its own white card (lib/businessLogo.ts).
@@ -65,8 +66,8 @@ export function emailHead({
   const outlookSwap = swapsLogo
     ? `
     <style>
-      [data-ogsc] .pm-on-light { display: none !important; }
-      [data-ogsc] .pm-on-dark { display: block !important; }
+      [data-ogsb] .pm-on-light { display: none !important; }
+      [data-ogsb] .pm-on-dark { display: block !important; }
     </style>`
     : ''
   return `
@@ -85,6 +86,50 @@ export function emailHead({
         .pm-accent { background: ${DARK.red} !important; }${swap}
       }
     </style>${outlookSwap}`
+}
+
+/**
+ * The page and its card, around the card's rows (`<tr>…</tr>`).
+ *
+ * `max-width` keeps the card to 520px everywhere but Outlook for Windows,
+ * which ignores it and would stretch the card across the reading pane: it
+ * alone reads the table in the conditional comment. `preheader` is what an
+ * inbox shows beside the subject, hidden from the email itself.
+ */
+export function emailBody({
+  preheader,
+  rows,
+}: {
+  preheader?: string
+  rows: string
+}): string {
+  const C = EMAIL_COLOURS
+  const hidden = preheader
+    ? `
+    <div style="display:none;max-height:0;overflow:hidden;mso-hide:all;font-size:1px;line-height:1px;color:${C.page};opacity:0;">${escapeHtml(preheader)}</div>`
+    : ''
+  return `
+  <body class="pm-page" style="margin:0;padding:0;background:${C.page};">${hidden}
+    <table role="presentation" class="pm-page" width="100%" cellpadding="0" cellspacing="0" style="background:${C.page};">
+      <tr>
+        <td align="center" style="padding:24px 12px;">
+          <!--[if mso]><table role="presentation" width="520" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+          <table role="presentation" class="pm-card" cellpadding="0" cellspacing="0" style="width:100%;max-width:520px;margin:0 auto;background:${C.card};border-radius:16px;border:1px solid ${C.hairline};font-family:${EMAIL_FONT};">${rows}
+          </table>
+          <!--[if mso]></td></tr></table><![endif]-->
+        </td>
+      </tr>
+    </table>
+  </body>`
+}
+
+/**
+ * The short red rule above a heading, as a table cell: Outlook for Windows
+ * gives a `<div>` no width of its own and paints its background across the
+ * page.
+ */
+export function accentRule(): string {
+  return `<table role="presentation" cellpadding="0" cellspacing="0"><tr><td class="pm-accent" width="44" height="3" style="width:44px;height:3px;background:${EMAIL_COLOURS.red};font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td></tr></table>`
 }
 
 export function escapeHtml(text: string): string {

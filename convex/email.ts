@@ -341,9 +341,19 @@ async function emailLogos(
   }
 }
 
+/** As much of an old logo's file as is read for its size: a header is a few
+ * hundred bytes, and a JPEG's comes after whatever was written before it. */
+const HEADER_BYTES = 256 * 1024
+
+/** How long an old logo's file may take to answer before the email goes
+ * without it. */
+const HEADER_WAIT_MS = 4000
+
 /**
  * A card comes with its size. A logo stored before cards existed does not, so
- * its size is read from the file's header and fitted to the email's box.
+ * its size is read from the file's header — only the header — and fitted to
+ * the email's box. A WebP is left out, and the name heads the email instead:
+ * Outlook for Windows draws a broken image for one.
  */
 async function sizedLogo(
   found: {
@@ -362,15 +372,45 @@ async function sizedLogo(
       carded: found.carded,
     }
   }
-  const response = await fetch(found.url)
-  if (!response.ok) return undefined
-  const size = imageSize(new Uint8Array(await response.arrayBuffer()))
-  if (!size) return undefined
+  const response = await fetch(found.url, {
+    signal: AbortSignal.timeout(HEADER_WAIT_MS),
+  })
+  if (!response.ok || !response.body) return undefined
+  const size = imageSize(await readUpTo(response.body, HEADER_BYTES))
+  if (!size || size.format === 'webp') return undefined
   return {
     url: found.url,
     ...fitEmailLogo(size.width, size.height),
     carded: false,
   }
+}
+
+/** The first `limit` bytes of a body, or all of it if shorter; the rest is
+ * never downloaded. */
+async function readUpTo(
+  body: ReadableStream<Uint8Array>,
+  limit: number,
+): Promise<Uint8Array> {
+  const reader = body.getReader()
+  const chunks: Array<Uint8Array> = []
+  let total = 0
+  try {
+    while (total < limit) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      total += value.length
+    }
+  } finally {
+    await reader.cancel().catch(() => undefined)
+  }
+  const bytes = new Uint8Array(total)
+  let at = 0
+  for (const chunk of chunks) {
+    bytes.set(chunk, at)
+    at += chunk.length
+  }
+  return bytes
 }
 
 async function audit(

@@ -24,6 +24,13 @@ export type LogoAnalysis = {
   background: readonly [number, number, number] | null
   /** That colour is dark: on white paper the logo prints as a dark box. */
   darkBackground: boolean
+  /**
+   * For a see-through logo, what most of its artwork is: 'light' (white
+   * lettering, lost on white paper) or 'dark' (dark lettering, lost in a dark
+   * email). Null when it is neither, or when the logo carries its own
+   * background and so shows either way.
+   */
+  tone: 'light' | 'dark' | null
   /** Its artwork and a hairline round it: what is kept. The whole image
    * when nothing tells artwork from background. */
   box: Box
@@ -65,10 +72,36 @@ export function analyseLogo(image: Rgba): LogoAnalysis {
     transparent,
     background,
     darkBackground: background !== null && luminance(background) < DARK,
+    tone: transparent ? artworkTone(image) : null,
     box: isArtwork
       ? artworkBox(image, isArtwork)
       : { x: 0, y: 0, width, height },
   }
+}
+
+/** Half or more of it, by area, for a logo to count as that tone. */
+const MOSTLY = 0.5
+
+/**
+ * What most of a see-through logo's solid artwork is. White lettering reads
+ * over 0.8 luminance and black under 0.05; red, blue or mid grey is neither,
+ * so a logo of mostly brand colour is left alone.
+ */
+function artworkTone({ data }: Rgba): 'light' | 'dark' | null {
+  let solid = 0
+  let light = 0
+  let dark = 0
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] <= 128) continue
+    solid++
+    const l = luminance([data[i], data[i + 1], data[i + 2]])
+    if (l > 0.8) light++
+    else if (l < 0.05) dark++
+  }
+  if (solid === 0) return null
+  if (light / solid >= MOSTLY) return 'light'
+  if (dark / solid >= MOSTLY) return 'dark'
+  return null
 }
 
 /**
@@ -138,13 +171,15 @@ function edgeColour({
   return agreeing >= edge.length * EDGE_AGREEMENT ? colour : null
 }
 
-/** Relative luminance, 0 (black) to 1 (white), by the sRGB curve. */
+/** Each 0–255 channel value, linearised by the sRGB curve, worked out once. */
+const LINEAR = Array.from({ length: 256 }, (_, c) => {
+  const v = c / 255
+  return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
+})
+
+/** Relative luminance, 0 (black) to 1 (white). */
 function luminance([r, g, b]: readonly [number, number, number]): number {
-  const linear = (c: number) => {
-    const v = c / 255
-    return v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4
-  }
-  return 0.2126 * linear(r) + 0.7152 * linear(g) + 0.0722 * linear(b)
+  return 0.2126 * LINEAR[r] + 0.7152 * LINEAR[g] + 0.0722 * LINEAR[b]
 }
 
 /**

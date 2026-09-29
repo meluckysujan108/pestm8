@@ -321,14 +321,16 @@ export const update = mutation({
     }
     // A logo sent the old way, by a screen from before `setLogo` (a phone
     // still running the app it had open). Claimed as `setLogo` claims one,
-    // and its email card goes with the logo it was drawn from: until the
-    // next upload draws a new card, emails carry this logo itself.
+    // and what was drawn from the old logo goes with it, as `setLogo` has it
+    // go: its email card, and its light-lettered version. Until the next
+    // upload draws a new card, emails carry this logo itself.
     if (patch.logoStorageId !== undefined) {
       if (patch.logoStorageId === business.logoStorageId) {
         delete fields.logoStorageId
       } else {
         await claimLogoFile(ctx, patch.logoStorageId)
         if (business.logoEmail) fields.logoEmail = undefined
+        if (business.logoOnDark) fields.logoOnDark = undefined
       }
     }
 
@@ -358,6 +360,11 @@ export const update = mutation({
  *
  * `null` takes it off. The files it used are kept: a report locked with this
  * logo prints it for good, and an email already sent still shows its copy.
+ *
+ * The light-lettered logo is a version of the logo, so it goes whenever the
+ * logo does — taken off, or changed for another. Left behind, it would go on
+ * showing the old brand to every client reading in dark mode, which nobody
+ * at the business ever sees. `clearedOnDark` says so, for Settings to say.
  */
 export const setLogo = mutation({
   args: {
@@ -375,6 +382,11 @@ export const setLogo = mutation({
     if (!business) throw new ConvexError('NOT_FOUND')
 
     if (files) {
+      // A version of a logo there is not: a tab left open while the logo
+      // was taken off elsewhere. Settings shows no row to add one from.
+      if (which === 'logoOnDark' && business.logoStorageId === undefined) {
+        throw new ConvexError('NO_LOGO')
+      }
       if (files.storageId === files.email.storageId) {
         throw new ConvexError('WRONG_FILE_TYPE')
       }
@@ -383,18 +395,24 @@ export const setLogo = mutation({
       await claimLogoFile(ctx, files.email.storageId)
     }
 
-    // Taking the logo off takes its dark version with it: that is a version
-    // of this logo, and would otherwise come back beside the next one.
+    const clearedOnDark = which === 'logo' && business.logoOnDark !== undefined
     const fields =
       which === 'logoOnDark'
         ? { logoOnDark: files ?? undefined }
-        : files
-          ? { logoStorageId: files.storageId, logoEmail: files.email }
-          : {
-              logoStorageId: undefined,
-              logoEmail: undefined,
-              ...(business.logoOnDark ? { logoOnDark: undefined } : {}),
-            }
+        : {
+            logoStorageId: files?.storageId,
+            logoEmail: files?.email,
+            ...(clearedOnDark ? { logoOnDark: undefined } : {}),
+          }
+
+    // Taking off what is not there changes nothing, and is not recorded.
+    const unchanged = Object.entries(fields).every(
+      ([key, value]) =>
+        value === undefined &&
+        business[key as keyof typeof fields] === undefined,
+    )
+    if (unchanged) return { clearedOnDark: false }
+
     await ctx.db.patch(businessId, fields)
 
     // What heads every report the business issues: who changed it, and when,
@@ -407,6 +425,7 @@ export const setLogo = mutation({
       meta: { fields: Object.keys(fields) },
       at: Date.now(),
     })
+    return { clearedOnDark }
   },
 })
 

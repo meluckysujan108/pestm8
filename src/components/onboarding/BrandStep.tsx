@@ -17,6 +17,7 @@ import { FieldRow, SettingsGroup } from '#/components/settings/ui'
 import { useHydrated } from '#/lib/useHydrated'
 import {
   LOGO_NOTICE_COPY,
+  LOGO_WARNINGS,
   useLogoUpload,
 } from '#/components/settings/useLogoUpload'
 import { ReportPreview } from './ReportPreview'
@@ -187,14 +188,18 @@ export function BrandStep({
                   }}
                 />
               </div>
-              {logo.notice && (
-                <p
-                  role={logo.notice === 'darkBackground' ? 'status' : 'alert'}
-                  className="mt-2 text-caption text-amber-ink"
-                >
-                  {LOGO_NOTICE_COPY[logo.notice]}
-                </p>
-              )}
+              {/* Always there, so what lands in it is read out. */}
+              <div aria-live="polite">
+                {logo.notices.map((notice) => (
+                  <p
+                    key={notice}
+                    role={LOGO_WARNINGS.has(notice) ? undefined : 'alert'}
+                    className="mt-2 text-caption text-amber-ink"
+                  >
+                    {LOGO_NOTICE_COPY[notice]}
+                  </p>
+                ))}
+              </div>
             </div>
 
             <FieldRow id={`${id}-phone`} label="Phone">

@@ -46,19 +46,17 @@ test('an owner can set branding details and a logo, and they survive a reload', 
   await page
     .locator('input[data-logo-input=logo]')
     .setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG })
-  await expect(page.getByRole('button', { name: 'Change logo' })).toBeVisible({
-    timeout: 20_000,
-  })
+  await expect(
+    page.getByRole('button', { name: 'Change logo', exact: true }),
+  ).toBeVisible({ timeout: 20_000 })
   await expect(page.getByRole('img', { name: 'Business logo' })).toBeVisible()
 
   // With a logo, its optional light-lettered version for dark-mode email.
-  await page
-    .locator('input[data-logo-input=logoOnDark]')
-    .setInputFiles({
-      name: 'logo-dark.png',
-      mimeType: 'image/png',
-      buffer: PNG,
-    })
+  await page.locator('input[data-logo-input=logoOnDark]').setInputFiles({
+    name: 'logo-dark.png',
+    mimeType: 'image/png',
+    buffer: PNG,
+  })
   await expect(
     page.getByRole('img', { name: 'Logo for dark backgrounds' }),
   ).toBeVisible({ timeout: 20_000 })

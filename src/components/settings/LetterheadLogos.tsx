@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { ImagePlus, Trash2 } from 'lucide-react'
 import { ConfirmDialog } from './ConfirmDialog'
-import { LOGO_NOTICE_COPY, useLogoUpload } from './useLogoUpload'
+import { LOGO_NOTICE_COPY, LOGO_WARNINGS, useLogoUpload } from './useLogoUpload'
 import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { Bone } from '#/components/shell/Pending'
 import { useHydrated } from '#/lib/useHydrated'
@@ -32,7 +32,12 @@ export function LetterheadLogos({
 }) {
   return (
     <>
-      <LogoRow which="logo" businessId={businessId} url={logoUrl} />
+      <LogoRow
+        which="logo"
+        businessId={businessId}
+        url={logoUrl}
+        hasDarkVersion={Boolean(logoOnDarkUrl)}
+      />
       {/* Only with a logo to be a version of: an email swaps one for the
           other, and has nothing to swap without the first. */}
       {logoUrl && (
@@ -56,7 +61,7 @@ const WORDS = {
     alt: 'Business logo',
     removeTitle: 'Remove the logo?',
     removeBody:
-      'New reports and emails go out without one, and its version for dark backgrounds goes too. A report already locked keeps the logo it was locked with. You can add a logo again at any time.',
+      'A report already locked keeps the logo it was locked with. You can add a logo again at any time.',
     keep: 'Keep logo',
   },
   logoOnDark: {
@@ -77,6 +82,7 @@ function LogoRow({
   businessId,
   url,
   fallbackUrl,
+  hasDarkVersion = false,
 }: {
   which: LogoSlot
   businessId: Id<'businesses'>
@@ -84,10 +90,15 @@ function LogoRow({
   url: string | null | undefined
   /** The logo a dark email shows on its card when this one is missing. */
   fallbackUrl?: string
+  /** The logo has a light-lettered version, which goes with it. */
+  hasDarkVersion?: boolean
 }) {
   const hydrated = useHydrated()
   const words = WORDS[which]
-  const { busy, notice, upload, remove } = useLogoUpload(businessId, which)
+  const { busy, notices, upload, remove, clear } = useLogoUpload(
+    businessId,
+    which,
+  )
   const [confirming, setConfirming] = useState(false)
   const input = useRef<HTMLInputElement>(null)
   const pick = useRef<HTMLButtonElement>(null)
@@ -159,7 +170,10 @@ function LogoRow({
             ref={trash}
             type="button"
             disabled={!hydrated || busy !== null}
-            onClick={() => setConfirming(true)}
+            onClick={() => {
+              clear()
+              setConfirming(true)
+            }}
             aria-label={`Remove ${onDark ? 'logo for dark backgrounds' : 'logo'}`}
             className="ml-auto flex size-11 shrink-0 items-center justify-center rounded-full text-red outline-none transition active:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue disabled:opacity-40"
           >
@@ -180,23 +194,49 @@ function LogoRow({
         />
       </div>
 
-      {notice && (
-        <p
-          role={notice === 'darkBackground' ? 'status' : 'alert'}
-          className="mt-2 text-caption text-amber-ink"
-        >
-          {LOGO_NOTICE_COPY[notice]}
-        </p>
-      )}
+      {/* Always there, so what lands in it is read out. A failure in the
+          dialog is said there instead. */}
+      <div aria-live="polite">
+        {notices
+          .filter((notice) => !confirming || notice !== 'removeFailed')
+          .map((notice) => (
+            <p
+              key={notice}
+              role={LOGO_WARNINGS.has(notice) ? undefined : 'alert'}
+              className="mt-2 text-caption text-amber-ink"
+            >
+              {LOGO_NOTICE_COPY[notice]}
+            </p>
+          ))}
+      </div>
 
+      {/* Kept open until the logo is off, so the button can say so, and
+          focus goes back to Add — enabled by then — rather than to the
+          page. */}
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
         title={words.removeTitle}
-        body={words.removeBody}
+        body={
+          onDark
+            ? words.removeBody
+            : `New reports and emails go out without one${hasDarkVersion ? ', and its version for dark backgrounds goes with it' : ''}. ${words.removeBody}`
+        }
         cancel={words.keep}
         confirm="Remove"
-        onConfirm={() => void remove()}
+        pending={busy === 'removing'}
+        pendingLabel="Removing…"
+        error={
+          notices.includes('removeFailed')
+            ? LOGO_NOTICE_COPY.removeFailed
+            : undefined
+        }
+        closeOnConfirm={false}
+        onConfirm={() => {
+          void remove().then((removed) => {
+            if (removed) setConfirming(false)
+          })
+        }}
         returnFocus={(removed) => (removed ? pick.current : trash.current)}
       />
     </div>

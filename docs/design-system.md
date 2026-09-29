@@ -796,7 +796,7 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 **Emails have a dark mode of their own** (`convex/lib/emailTheme.ts`):
 
 - Every colour is written inline, in light. That is the whole email wherever a `<style>` block is dropped.
-- One `<style>` block overrides them where a mail app follows `prefers-color-scheme` (Apple Mail, Outlook for Mac and phones) or marks what it recolours (`[data-ogsc]`, Outlook.com). Its dark values mirror the dark tokens.
+- One `<style>` block overrides them where a mail app follows `prefers-color-scheme` (Apple Mail, Outlook for Mac and phones) or marks what it recolours (`[data-ogsb]`, Outlook.com). Its dark values mirror the dark tokens.
 - The Gmail app and Outlook for Windows invert colours themselves and never images, so a logo travels on its own white card (`convex/lib/businessLogo.ts`), and a light-lettered logo is swapped in only where the dark styling is read.
 
 ---
