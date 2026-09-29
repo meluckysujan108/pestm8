@@ -56,7 +56,7 @@ const WORDS = {
     alt: 'Business logo',
     removeTitle: 'Remove the logo?',
     removeBody:
-      'New reports and emails go out without one. A report already locked keeps the logo it was locked with.',
+      'New reports and emails go out without one, and its version for dark backgrounds goes too. A report already locked keeps the logo it was locked with. You can add a logo again at any time.',
     keep: 'Keep logo',
   },
   logoOnDark: {
@@ -67,7 +67,7 @@ const WORDS = {
     alt: 'Logo for dark backgrounds',
     removeTitle: 'Remove the logo for dark backgrounds?',
     removeBody:
-      'Emails read in dark mode show your logo on its white card instead.',
+      'Emails read in dark mode show your logo on its white card instead. You can add it again at any time.',
     keep: 'Keep it',
   },
 } as const

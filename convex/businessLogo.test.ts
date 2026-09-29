@@ -137,6 +137,23 @@ describe('putting a logo on the letterhead', () => {
     expect((await business(s))?.logoOnDark).toBeUndefined()
     expect((await settings())?.logoOnDarkUrl).toBeNull()
   })
+
+  test('taking the logo off takes its dark version with it', async () => {
+    const s = await setup()
+    await setLogo(s, 'logo', await logoFiles(s))
+    await setLogo(s, 'logoOnDark', await logoFiles(s))
+
+    await setLogo(s, 'logo', null)
+
+    const after = await business(s)
+    expect(after?.logoStorageId).toBeUndefined()
+    expect(after?.logoOnDark).toBeUndefined()
+    expect((await auditFields(s)).at(-1)).toEqual([
+      'logoStorageId',
+      'logoEmail',
+      'logoOnDark',
+    ])
+  })
 })
 
 describe('what may become a logo', () => {

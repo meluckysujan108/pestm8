@@ -158,6 +158,7 @@ const PLAN = {
   letterhead: { full: true },
   'letterhead-nodark': { full: true },
   'letterhead-nologo': { full: true },
+  'report-preview': {},
   history: {},
   logs: {},
   legacy: { full: true },

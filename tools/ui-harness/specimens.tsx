@@ -4,6 +4,7 @@ import { ErrorComponent } from '@tanstack/react-router'
 import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
 import { MobileDock } from '#/components/shell/MobileDock'
 import { SetupGuideCard } from '#/components/onboarding/SetupGuide'
+import { ReportPreview } from '#/components/onboarding/ReportPreview'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { EmailInput } from '#/components/forms/EmailInput'
 import { JobCard } from '#/components/schedule/JobCard'
@@ -66,7 +67,15 @@ import { InstallLink } from '#/components/install/InstallLink'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import type { InstallMethod } from '#/lib/installMethod'
 import type { InstallProgress } from '#/lib/installPrompt'
-import { BIZ, JOBS, MEMBERS, TZ, resolveFixture, state } from './fixtures'
+import {
+  BIZ,
+  JOBS,
+  MEMBERS,
+  SAMPLE_LOGO,
+  TZ,
+  resolveFixture,
+  state,
+} from './fixtures'
 
 const bizId = BIZ as never
 
@@ -701,6 +710,26 @@ function Letterhead({ slug }: { slug: 'both' | 'nodark' | 'nologo' }) {
   )
 }
 
+/** Set-up's likeness of the top of a report, its logo box the PDF's shape. */
+function ReportPreviewSpecimen() {
+  return (
+    <Phone>
+      <div className="p-4">
+        <ReportPreview
+          name="Pest M8 Pest Control"
+          logoUrl={SAMPLE_LOGO}
+          email="info@pestm8.com.au"
+          phone="1800 737 868"
+          abn="51 824 753 556"
+          state="WA"
+          licenceNumber="PMT 4132"
+          focus={null}
+        />
+      </div>
+    </Phone>
+  )
+}
+
 function RecycleBin() {
   return (
     <Phone>
@@ -911,6 +940,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   letterhead: () => <Letterhead slug="both" />,
   'letterhead-nodark': () => <Letterhead slug="nodark" />,
   'letterhead-nologo': () => <Letterhead slug="nologo" />,
+  'report-preview': ReportPreviewSpecimen,
   dock: Dock,
   jobcards: JobCards,
   jobdetail: JobDetail,

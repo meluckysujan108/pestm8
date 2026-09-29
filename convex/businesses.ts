@@ -383,13 +383,18 @@ export const setLogo = mutation({
       await claimLogoFile(ctx, files.email.storageId)
     }
 
+    // Taking the logo off takes its dark version with it: that is a version
+    // of this logo, and would otherwise come back beside the next one.
     const fields =
-      which === 'logo'
-        ? {
-            logoStorageId: files?.storageId,
-            logoEmail: files?.email,
-          }
-        : { logoOnDark: files ?? undefined }
+      which === 'logoOnDark'
+        ? { logoOnDark: files ?? undefined }
+        : files
+          ? { logoStorageId: files.storageId, logoEmail: files.email }
+          : {
+              logoStorageId: undefined,
+              logoEmail: undefined,
+              ...(business.logoOnDark ? { logoOnDark: undefined } : {}),
+            }
     await ctx.db.patch(businessId, fields)
 
     // What heads every report the business issues: who changed it, and when,
