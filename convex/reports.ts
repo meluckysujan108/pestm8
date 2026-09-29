@@ -2651,12 +2651,21 @@ async function recordRetirement(
  * The preview is the exception because the server made it, for this report
  * alone, and nothing else is ever pointed at it.
  */
-async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
+export async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
   const photos = await ctx.db
     .query('reportPhotos')
     .withIndex('by_report_field', (q) => q.eq('reportId', report._id))
     .collect()
   for (const photo of photos) await ctx.db.delete(photo._id)
+
+  // Marks drawn on the draft's preview go with it: left behind, they were
+  // rows about a report that no longer exists, with nothing that could ever
+  // read or remove them.
+  const marks = await ctx.db
+    .query('reportPdfAnnotations')
+    .withIndex('by_report_page', (q) => q.eq('reportId', report._id))
+    .collect()
+  for (const mark of marks) await ctx.db.delete(mark._id)
 
   if (report.previewStorageId) await ctx.storage.delete(report.previewStorageId)
 

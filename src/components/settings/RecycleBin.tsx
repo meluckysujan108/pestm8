@@ -1,11 +1,27 @@
+import { useState } from 'react'
 import { useMutation, useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { CalendarDays, MapPin, Repeat, RotateCcw, User } from 'lucide-react'
+import {
+  CalendarDays,
+  Contact,
+  MapPin,
+  Repeat,
+  RotateCcw,
+  Trash2,
+  User,
+} from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { EmptyState } from '#/components/primitives/EmptyState'
 import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { FormAlert } from '#/components/forms/FormAlert'
-import { IconTile, SettingsGroup } from '#/components/settings/ui'
+import { describeError } from '#/components/forms/describeError'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import {
+  DANGER_ROW_CLASS,
+  DangerGroup,
+  IconTile,
+  SettingsGroup,
+} from '#/components/settings/ui'
 import { formatJobDate, formatWhen, todayKey } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
 import { dayKeyOf } from '../../../convex/lib/dates'
@@ -15,12 +31,13 @@ import type { LucideIcon } from 'lucide-react'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import type { Id } from '../../../convex/_generated/dataModel'
 
-/**
- * What is in the Recycle bin, each delete with its Restore (convex/bin.ts) —
- * Settings → Recycle bin's list, the owner's.
- */
 type Entry = FunctionReturnType<typeof api.bin.list>['entries'][number]
 
+/**
+ * What is in the Recycle bin, each delete with its Restore and Delete now,
+ * and Empty bin under them (convex/bin.ts) — Settings → Recycle bin's list,
+ * the owner's.
+ */
 export function RecycleBinList({
   businessId,
   timezone,
@@ -34,7 +51,7 @@ export function RecycleBinList({
     return (
       <EmptyState
         title="Nothing deleted"
-        body="Clients, properties, jobs and recurring services you delete wait here until you restore them."
+        body="Clients, properties, jobs and recurring services you delete wait here for 30 days, then are deleted for good."
       />
     )
   }
@@ -44,8 +61,9 @@ export function RecycleBinList({
       <SettingsGroup
         footer={
           <>
-            Restoring brings back everything that was deleted with it. Finalised
-            reports are never deleted, and stay in Reports.
+            Each is deleted for good 30 days after it was deleted. Restoring
+            brings back everything that was deleted with it. Finalised reports
+            are never deleted, and stay in Reports.
             {data.capped && ' Showing the most recent 200.'}
           </>
         }
@@ -63,6 +81,58 @@ export function RecycleBinList({
         Report drafts and notes deleted on their own are kept in Reports →
         Deleted and Notes → Recently deleted.
       </p>
+      <EmptyBin businessId={businessId} count={data.entries.length} />
+    </>
+  )
+}
+
+function EmptyBin({
+  businessId,
+  count,
+}: {
+  businessId: Id<'businesses'>
+  count: number
+}) {
+  const hydrated = useHydrated()
+  const [confirming, setConfirming] = useState(false)
+  const convexEmpty = useConvexMutation(api.bin.empty)
+  const empty = useMutation({
+    mutationFn: (args: { businessId: Id<'businesses'> }) => convexEmpty(args),
+    onSuccess: () => setConfirming(false),
+  })
+
+  return (
+    <>
+      <DangerGroup>
+        <button
+          type="button"
+          disabled={!hydrated}
+          onClick={() => {
+            empty.reset()
+            setConfirming(true)
+          }}
+          className={DANGER_ROW_CLASS}
+        >
+          Empty Recycle bin
+        </button>
+      </DangerGroup>
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title="Empty the Recycle bin?"
+        body={`${count === 1 ? 'The 1 thing' : `All ${count} things`} in it, and everything deleted with them, are gone for good. This can’t be undone. Finalised reports are kept in Reports.`}
+        cancel="Keep them"
+        confirm="Empty bin"
+        closeOnConfirm={false}
+        pending={empty.isPending}
+        pendingLabel="Emptying…"
+        error={
+          empty.isError
+            ? describeError(empty.error, wipeCopy('empty the Recycle bin'))
+            : null
+        }
+        onConfirm={() => empty.mutate({ businessId })}
+      />
     </>
   )
 }
@@ -72,6 +142,7 @@ const ICON: Record<Entry['kind'], LucideIcon> = {
   property: MapPin,
   job: CalendarDays,
   recurrence: Repeat,
+  contact: Contact,
 }
 
 const KIND_LABEL: Record<Entry['kind'], string> = {
@@ -79,6 +150,7 @@ const KIND_LABEL: Record<Entry['kind'], string> = {
   property: 'Property',
   job: 'Job',
   recurrence: 'Recurring service',
+  contact: 'Contact',
 }
 
 function BinRow({
@@ -99,9 +171,29 @@ function BinRow({
     }) => convexRestore(args),
   })
 
-  const deleted = entry.deletedBy
-    ? `Deleted ${formatWhen(entry.deletedAt, timezone)} by ${entry.deletedBy}`
-    : `Deleted ${formatWhen(entry.deletedAt, timezone)}`
+  const [confirming, setConfirming] = useState(false)
+  const convexWipe = useConvexMutation(api.bin.wipe)
+  const wipe = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      entryId: Id<'binEntries'>
+    }) => convexWipe(args),
+    onSuccess: () => setConfirming(false),
+  })
+
+  // A client archived before the bin existed has no one who deleted it —
+  // only when it was archived (migrations/archivedClientsToBinV1).
+  const deleted =
+    entry.archivedAt !== null && !entry.deletedBy
+      ? `Archived ${formatWhen(entry.archivedAt, timezone)}`
+      : entry.deletedBy
+        ? `Deleted ${formatWhen(entry.deletedAt, timezone)} by ${entry.deletedBy}`
+        : `Deleted ${formatWhen(entry.deletedAt, timezone)}`
+  const wipes = formatJobDate(
+    dayKeyOf(entry.wipesAt, timezone),
+    todayKey(timezone),
+  )
+  const withIt = withWhat(entry.counts)
 
   return (
     <div className="px-3.5 py-3">
@@ -111,21 +203,56 @@ function BinRow({
           <p className="truncate text-body text-ink">{entry.title}</p>
           <p className="text-caption text-muted">{describe(entry, timezone)}</p>
           <p className="text-caption text-muted">{deleted}</p>
+          <p className="text-caption text-muted">Deleted for good on {wipes}</p>
         </div>
+      </div>
+      <div className="mt-3 flex gap-2">
         <button
           type="button"
           disabled={!hydrated || restore.isPending}
           onClick={() => restore.mutate({ businessId, entryId: entry._id })}
-          className={`${SECONDARY_BUTTON_COMPACT} flex shrink-0 items-center gap-1.5 px-3`}
+          className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-1.5`}
         >
           <RotateCcw aria-hidden size={15} strokeWidth={2} />
           {restore.isPending ? 'Restoring…' : 'Restore'}
+        </button>
+        <button
+          type="button"
+          disabled={!hydrated}
+          onClick={() => {
+            wipe.reset()
+            setConfirming(true)
+          }}
+          // A grey button with its word in red, as Reports → Deleted draws
+          // its Delete now: SECONDARY_BUTTON_COMPACT's shape, which cannot
+          // take a second text colour.
+          className="flex h-11 flex-1 items-center justify-center gap-1.5 rounded-xl bg-fill-secondary text-body font-semibold text-red outline-none transition focus-visible:ring-2 focus-visible:ring-blue active:scale-[.975] disabled:opacity-50"
+        >
+          <Trash2 aria-hidden size={15} strokeWidth={2} />
+          Delete now
         </button>
       </div>
       <FormAlert
         className="mt-2"
         error={restore.isError ? restore.error : null}
         copy={RESTORE_COPY}
+      />
+      <ConfirmDialog
+        open={confirming}
+        onOpenChange={setConfirming}
+        title={`Delete ${entry.title} for good?`}
+        body={`${withIt ? `It and the ${withIt} deleted with it are` : 'It is'} gone for good. This can’t be undone. Finalised reports are kept in Reports.`}
+        cancel="Keep it"
+        confirm="Delete for good"
+        closeOnConfirm={false}
+        pending={wipe.isPending}
+        pendingLabel="Deleting…"
+        error={
+          wipe.isError
+            ? describeError(wipe.error, wipeCopy('delete this for good'))
+            : null
+        }
+        onConfirm={() => wipe.mutate({ businessId, entryId: entry._id })}
       />
     </div>
   )
@@ -151,6 +278,9 @@ function describe(entry: Entry, timezone: string): string {
     case 'recurrence':
       if (entry.suburb) parts.push(entry.suburb)
       parts.push(describeInterval(entry.interval))
+      break
+    case 'contact':
+      if (entry.clientName) parts.push(entry.clientName)
       break
     case 'client':
       break
@@ -184,6 +314,7 @@ const RESTORE_COPY: ErrorCopy = {
     'Could not restore: the recurring service it belongs to is in the Recycle bin too. Restore that first.',
   RESTORE_PARENT_GONE:
     'Could not restore: what it belonged to has been deleted for good.',
+  WIPING: 'Could not restore: it is already being deleted for good.',
   NOT_FOUND:
     'Could not restore: it has changed since you opened this page. Look again.',
   NO_ACCESS:
@@ -191,4 +322,13 @@ const RESTORE_COPY: ErrorCopy = {
   offline:
     'Could not restore: this device is offline. Try again when you have signal.',
   default: 'Could not restore. Check your signal and try again.',
+}
+
+/** Delete now and Empty bin, refused — in words. */
+function wipeCopy(action: string): ErrorCopy {
+  return {
+    NO_ACCESS: `Could not ${action}: only the business owner can.`,
+    offline: `Could not ${action}: this device is offline. Try again when you have signal.`,
+    default: `Could not ${action}. Check your signal and try again.`,
+  }
 }

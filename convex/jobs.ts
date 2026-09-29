@@ -20,6 +20,8 @@ import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import { jobsInScope, jobsNewestFirst } from './lib/jobScope'
 import { unbinned } from './lib/bin'
+import { heldAnywhere } from './lib/fileClaims'
+import { CLAIM_WINDOW_MS } from './lib/products'
 import {
   assertStatusChange,
   entersDone,
@@ -958,10 +960,36 @@ export const addPhoto = mutation({
       caption,
       order: existing.length,
       createdAt: Date.now(),
+      ...((await claimableForJob(ctx, storageId)) && { claimed: true }),
     })
     await recordJobWrite(ctx, env, job, 'job.photo.add')
   },
 })
+
+/**
+ * Whether a file just added to a job is that job's alone: uploaded within
+ * the claim window (as a product's or a licence's file must be), and held by
+ * no other job photo and by none of the rows `heldAnywhere` can ask.
+ *
+ * It does not refuse the photo — the job sheet adds each upload straight
+ * after it lands, so a real one always passes, and a photo is never lost to
+ * a slow network. It decides only whether wiping the job may delete the file
+ * too (`jobPhotos.claimed`, convex/bin.ts): an id that fails this could be
+ * any file in the deployment, a signed report's included.
+ */
+async function claimableForJob(
+  ctx: MutationCtx,
+  storageId: Id<'_storage'>,
+): Promise<boolean> {
+  const file = await ctx.db.system.get('_storage', storageId)
+  if (!file || Date.now() - file._creationTime > CLAIM_WINDOW_MS) return false
+  const other = await ctx.db
+    .query('jobPhotos')
+    .withIndex('by_storageId', (q) => q.eq('storageId', storageId))
+    .first()
+  if (other) return false
+  return !(await heldAnywhere(ctx, storageId))
+}
 
 export const removePhoto = mutation({
   args: {
