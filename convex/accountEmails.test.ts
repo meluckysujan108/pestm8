@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { testApp } from '../test/harness'
 import { AuthBrowser } from '../test/authBrowser'
 import { RESETS_PER_DAY } from './accountEmails'
-import { passwordResetEmail } from './lib/accountEmail'
+import { passwordChangedEmail, passwordResetEmail } from './lib/accountEmail'
 import type { TestApp } from '../test/harness'
 
 /**
@@ -92,7 +92,7 @@ describe('forgot password', () => {
     })
     expect(reset.text).toContain('Hi Kevin,')
     expect(reset.text).toContain('http://localhost:3000/reset-password?token=')
-    expect(reset.text).toContain('info@pestm8.com.au')
+    expect(reset.text).toContain('replies to it aren’t read')
 
     const token = tokenIn(reset)
     const done = await browserOn(t).post('/reset-password', {
@@ -208,5 +208,36 @@ describe('the reset email', () => {
     expect(email.text.startsWith('Hi,')).toBe(true)
     expect(email.html).not.toContain('a"b<c')
     expect(email.html).toContain('a&quot;b&lt;c')
+  })
+})
+
+describe('account email asks nobody to write in', () => {
+  const emails = {
+    reset: passwordResetEmail({
+      name: 'Kevin Walsh',
+      url: 'https://app.pestm8.com.au/reset-password?token=abc',
+    }),
+    changed: passwordChangedEmail({
+      name: 'Kevin Walsh',
+      signInUrl: 'https://app.pestm8.com.au/login',
+    }),
+  }
+
+  test.each(Object.entries(emails))(
+    'the %s email says replies aren’t read, and gives no address to ask',
+    (_, email) => {
+      for (const body of [email.text, email.html]) {
+        expect(body).toContain('replies to it aren’t read')
+        expect(body).not.toMatch(/need help|get in touch|contact us/i)
+        expect(body).not.toMatch(/[\w.+-]+@[\w-]+\.\w/)
+      }
+      expect(email.html).not.toContain('mailto:')
+    },
+  )
+
+  test('a password nobody meant to change is fixed from the sign-in page', () => {
+    expect(emails.changed.text).toContain(
+      'If you didn’t change it, choose a new password straight away with “Forgot password?” on the sign-in page.',
+    )
   })
 })
