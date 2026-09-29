@@ -200,10 +200,7 @@ function LicenceLoaded({
   const dirty = draft !== null && !matchesSaved(draft, licence)
 
   const convexUpdate = useConvexMutation(api.memberLicences.update)
-  // Both run even when the phone says it is offline, so their own check says
-  // so: react-query's default would pause them until the signal came back.
   const save = useMutation({
-    networkMode: 'always',
     mutationFn: async (args: {
       name: string
       number: string | null
@@ -225,7 +222,6 @@ function LicenceLoaded({
   const deleteButton = useRef<HTMLButtonElement>(null)
   const convexRemove = useConvexMutation(api.memberLicences.remove)
   const remove = useMutation({
-    networkMode: 'always',
     mutationFn: async () => {
       if (isOffline()) {
         throw new Error('offline')
