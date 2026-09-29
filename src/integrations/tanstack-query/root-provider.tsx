@@ -79,6 +79,22 @@ export function getContext() {
         // would only keep it alive past the response.
         gcTime: typeof window === 'undefined' ? Infinity : 15 * 60_000,
       },
+      // A save runs the moment it is tapped, signal or not, so one that
+      // checks `isOffline()` first (lib/online.ts) gets to say so.
+      // React-query's default holds back any mutation started after the
+      // browser has fired `offline`: the check never ran, the button said
+      // "Saving…" for as long as the phone was out of range, and the save
+      // went through by itself when the signal came back — a licence made
+      // minutes later, after the person had given up on it.
+      //
+      // A save with no check of its own still waits for signal, in Convex's
+      // queue instead of react-query's: the Convex client holds a mutation
+      // or action asked for on a dropped socket, and sends it when the
+      // socket is back. One that skips Convex (Better Auth's, over HTTP) now
+      // fails at once instead, and FormAlert says the phone is offline. None
+      // relied on react-query's queue: nothing here persists or resumes a
+      // paused mutation.
+      mutations: { networkMode: 'always' },
     },
   })
 

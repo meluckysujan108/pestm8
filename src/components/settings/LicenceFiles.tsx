@@ -96,10 +96,6 @@ export function LicenceFiles({
   )
   const convexAddFile = useConvexMutation(api.memberLicences.addFile)
   const upload = useMutation({
-    // Run even when the phone says it is offline, so `uploadLicenceFile`
-    // says so: react-query's default would pause it, "Uploading…" and all,
-    // until the signal came back.
-    networkMode: 'always',
     mutationFn: async (files: Array<File>) => {
       for (const [i, file] of files.entries()) {
         const n = i + 1
@@ -139,7 +135,6 @@ export function LicenceFiles({
 
   const convexRemoveFile = useConvexMutation(api.memberLicences.removeFile)
   const removeFile = useMutation({
-    networkMode: 'always',
     mutationFn: async (fileId: string) => {
       if (isOffline()) {
         throw new Error('offline')
