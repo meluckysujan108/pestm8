@@ -162,7 +162,7 @@ export function LicenceFiles({
   /** Nothing can be changed: shown from the copy on this phone. */
   readOnly: boolean
   fromPhone: boolean
-  /** Arrived from Add licence: say what comes next. */
+  /** Arrived from Add new: say what comes next. */
   justAdded: boolean
 }) {
   const hydrated = useHydrated()
@@ -424,7 +424,7 @@ export function LicenceFiles({
             {leftOut > 0 && (
               <FormAlert>
                 {leftOut === 1 ? 'One file was' : `${leftOut} files were`} left
-                out: a licence holds up to {MAX_LICENCE_FILES}.
+                out: it holds up to {MAX_LICENCE_FILES}.
               </FormAlert>
             )}
           </div>
@@ -450,7 +450,7 @@ export function LicenceFiles({
           if (!open) setConfirming(null)
         }}
         title={`Remove ${confirmed.current?.fileName ?? 'this file'}?`}
-        body="It goes from this licence, and from this phone. You can add it again at any time."
+        body="It goes from here and from this phone. You can add it again at any time."
         cancel="Keep file"
         confirm="Remove"
         onConfirm={() => {

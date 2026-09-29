@@ -122,6 +122,8 @@ Shell      max-width 460px centred on canvas
 
 *Amended (Appearance moves to Settings):* the header's account button is gone. Its Appearance picker (Light / Dark / System) is now the hub's **Appearance** page, beside About — saved per device, as before. Its "Work in another account" list is now a group near the top of the hub, for contractors and granted subcontractors only; the owner keeps the view menu beside the +. Its Notifications entry was a placeholder with nothing behind it, and was removed with it; a bell comes back in the header when notifications are built.
 
+*Amended (2026-09-29):* the You group's licence row is now **Licences & insurance**. It is one list, with free-text names and no licence/insurance type: "Public liability" sits beside "Pest management", its number is the policy number, and its expiry is the renewal date. Adding one asks only for a name, a number and an expiry. The name suggestions are gone. The report licence number ("On your reports") is unchanged and is still a licence. The route (`/settings/licence`) and the `memberLicences` tables keep their names.
+
 **Modal sheets (5):**
 1. Month picker — bottom sheet, month grid, job-count dots, "Today"
 2. Job detail — bottom sheet, 92vh max, property/assignment/recurrence/actions

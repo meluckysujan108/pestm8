@@ -45,7 +45,7 @@ describe('licenceErrorCopy', () => {
   test('the limits are the rules’ own numbers', () => {
     const copy = licenceErrorCopy('upload')
     expect(copy.TOO_MANY_FILES).toContain('up to 6 files')
-    expect(copy.TOO_MANY_LICENCES).toContain('up to 20 licences')
+    expect(copy.TOO_MANY_LICENCES).toContain('up to 20.')
     expect(copy.FILE_TOO_LARGE).toContain('20 MB')
     expect(copy.FILE_TOO_LARGE).toContain('10 MB')
     expect(copy.INVALID_NAME).toContain('80 characters')

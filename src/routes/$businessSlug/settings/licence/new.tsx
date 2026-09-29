@@ -46,10 +46,14 @@ export const Route = createFileRoute('/$businessSlug/settings/licence/new')({
 const EMPTY: LicenceDraft = { name: '', number: '', expiresOn: '' }
 
 /**
- * Add licence: a name (typed, or one of the suggestions), a number and an
- * expiry — the files come next, on the licence's own page, where Add lands
- * with a word saying so. A licence with no file is still worth having: the
- * number and the date are what the reminder needs.
+ * Add new — a licence or an insurance policy: a name, a number and an expiry
+ * — the files come next, on its own page, where Add lands with a word saying
+ * so. One with no file is still worth having: the number and the date are
+ * what the reminder needs.
+ *
+ * Titled "Add new", not "Add licence or insurance": a page title is cut
+ * rather than wrapped, and that one does not fit beside the owner's view
+ * menu on a 375pt phone. The back link above it says where it adds to.
  */
 function AddLicencePage() {
   const { business, membership } = Route.useRouteContext()
@@ -97,13 +101,13 @@ function AddLicencePage() {
       <PageHeader
         businessId={business._id}
         businessSlug={business.slug}
-        title="Add licence"
+        title="Add new"
         back={
           <BackLink
             to="/$businessSlug/settings/licence"
             params={{ businessSlug: business.slug }}
           >
-            Licences
+            Licences & insurance
           </BackLink>
         }
       />
@@ -122,7 +126,7 @@ function AddLicencePage() {
           }}
         >
           <SettingsGroup
-            title="Licence"
+            title="Details"
             footer="Add a photo or PDF of it on the next page."
           >
             <LicenceFields

@@ -634,7 +634,7 @@ This isn't a pass at the end. Each point below is how the shared pieces already 
 - **Plain, short, Australian English:** "colour", "licence", "finalise", "organise", "enrol". Talk to a technician on a job, not to an administrator.
 - **Second person, and no "please" or "sorry"** in the app's own voice. (Words quoted verbatim from a report template are the template's.)
 - **Say "signal", not "connection"** (a phone on a job has signal or it doesn't).
-- **Use the product's nouns:** client, job, property, site, report, template, technician, team, licence. Don't introduce synonyms (customer, visit, worker).
+- **Use the product's nouns:** client, job, property, site, report, template, technician, team, licence, insurance. Don't introduce synonyms (customer, visit, worker). A person's licences and insurance policies are one list, called "Licences & insurance".
 
 ### Case and labels
 

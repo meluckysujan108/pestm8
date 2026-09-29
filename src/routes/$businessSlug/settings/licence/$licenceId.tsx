@@ -53,7 +53,7 @@ export const Route = createFileRoute(
   '/$businessSlug/settings/licence/$licenceId',
 )({
   validateSearch: z.object({
-    // Set by Add licence, so the page says what comes next. Lenient: a
+    // Set by Add new, so the page says what comes next. Lenient: a
     // mangled value is no hint, not an error page.
     added: z.boolean().optional().catch(undefined),
   }),
@@ -73,12 +73,13 @@ export const Route = createFileRoute(
 })
 
 /**
- * One licence of the signed-in person's: its name, number and expiry (one
- * form, one Save), its files, and — last, in red — deleting it.
+ * One licence or insurance policy of the signed-in person's: its name, number
+ * and expiry (one form, one Save), its files, and — last, in red — deleting
+ * it.
  *
- * Found in the person's own list, never asked for by id: a licence that is
- * not theirs (someone else's id in the address), or one deleted since, is
- * simply not there, and the page says so.
+ * Found in the person's own list, never asked for by id: one that is not
+ * theirs (someone else's id in the address), or one deleted since, is simply
+ * not there, and the page says so.
  */
 function LicencePage() {
   const { business, membership } = Route.useRouteContext()
@@ -87,7 +88,7 @@ function LicencePage() {
   const { live, shown, nothing } = useMyLicences(business._id, membership._id)
 
   // Deleting it from here: the list answers without it a moment before the
-  // page has gone back to Licences, and "deleted" must not flash up first.
+  // page has gone back to the list, and "deleted" must not flash up first.
   const [leaving, setLeaving] = useState(false)
   const last = useRef<WalletLicence | undefined>(undefined)
   const found = shown?.licences.find((licence) => licence._id === licenceId)
@@ -112,13 +113,13 @@ function LicencePage() {
 
   if (shown === undefined) {
     return (
-      <LicenceFrame title="Licence">
+      <LicenceFrame title="Licence or insurance">
         {live.isError ? (
           <FormAlert error={live.error} copy={licenceErrorCopy('load')} />
         ) : nothing ? (
           <EmptyState
             title="No signal"
-            body="Your licences show here once this phone has signal."
+            body="Your licences and insurance show here once this phone has signal."
           />
         ) : (
           <SectionPending />
@@ -130,11 +131,7 @@ function LicencePage() {
   return (
     <LicenceFrame title="Not found">
       <EmptyState
-        title={
-          shown.fromPhone
-            ? 'That licence isn’t on this phone.'
-            : 'That licence isn’t in your list.'
-        }
+        title={shown.fromPhone ? 'Not on this phone' : 'Not in your list'}
         body={
           shown.fromPhone
             ? 'It may have been added since this phone last had signal.'
@@ -147,7 +144,7 @@ function LicencePage() {
           params={{ businessSlug: business.slug }}
           className="relative tap-target text-body font-semibold text-blue"
         >
-          Back to Licences
+          Back to Licences & insurance
         </Link>
       </div>
     </LicenceFrame>
@@ -169,7 +166,7 @@ function LicenceLoaded({
   licence: WalletLicence
   fromPhone: boolean
   justAdded: boolean
-  /** On its way back to Licences, having been deleted — or not, after all. */
+  /** On its way back to the list, having been deleted — or not, after all. */
   onLeaving: (leaving: boolean) => void
 }) {
   const navigate = useNavigate()
@@ -272,7 +269,7 @@ function LicenceLoaded({
         }}
       >
         <SettingsGroup
-          title="Licence"
+          title="Details"
           footer={
             readOnly
               ? 'No signal — showing the copy kept on this phone.'
@@ -324,7 +321,7 @@ function LicenceLoaded({
             disabled={!hydrated || remove.isPending}
             className={DANGER_ROW_CLASS}
           >
-            {remove.isPending ? 'Deleting…' : 'Delete licence'}
+            {remove.isPending ? 'Deleting…' : 'Delete'}
           </button>
         </DangerGroup>
       )}
@@ -338,7 +335,7 @@ function LicenceLoaded({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title={`Delete ${licence.name}?`}
-        body="It goes from your licences with its files, here and from this phone. The number on your reports stays as it is."
+        body="It goes from your licences and insurance with its files, here and from this phone. The number on your reports stays as it is."
         confirm="Delete"
         cancel="Keep it"
         onConfirm={() => {
@@ -399,7 +396,7 @@ function LicenceFrame({
             to="/$businessSlug/settings/licence"
             params={{ businessSlug: business.slug }}
           >
-            Licences
+            Licences & insurance
           </BackLink>
         }
       />

@@ -16,7 +16,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import { RowPending } from '#/components/shell/Pending'
 
 /**
- * A member's licences on their page under Team, for the owner: each one's
+ * A member's licences & insurance on their page under Team, for the owner —
+ * a subcontractor's public liability as much as their licence: each one's
  * name, number and expiry, and its files to open — read-only. No adding,
  * renaming or taking off (those are the holder's alone, and the server takes
  * them from nobody else), no Share, and nothing kept on the owner's phone
@@ -72,7 +73,7 @@ export function MemberLicences({
   return (
     <>
       <SettingsGroup
-        title="Licences"
+        title="Licences & insurance"
         footer={`Read-only. Only ${name} can add or change these.`}
       >
         {licences === undefined ? (
@@ -81,10 +82,10 @@ export function MemberLicences({
               <FormAlert error={list.error} copy={licenceErrorCopy('load')} />
             </div>
           ) : (
-            <RowPending label="Loading their licences" />
+            <RowPending label="Loading their licences and insurance" />
           )
         ) : licences.length === 0 ? (
-          <SettingsRow title="No licences added" />
+          <SettingsRow title="Nothing added" />
         ) : (
           licences.map((licence) =>
             licence.files.length > 0 ? (

@@ -312,7 +312,7 @@ function Settings() {
             to="/"
             icon={KeyRound}
             tint="green"
-            title="Licences"
+            title="Licences & insurance"
             badge={<RowBadge tone="amber">Expires soon</RowBadge>}
           />
           <SettingsLinkRow

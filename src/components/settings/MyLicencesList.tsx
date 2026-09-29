@@ -10,9 +10,10 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import { RowPending } from '#/components/shell/Pending'
 
 /**
- * "My licences" on the Licences page: one row per licence the person holds —
- * its first photo, name, number and expiry, a badge once it is close to
- * running out — each opening that licence's page, and a last row to add one.
+ * "My licences & insurance" on the Licences & insurance page: one row per
+ * licence or insurance policy the person holds — one list, whichever it is —
+ * with its first photo, name, number and expiry, a badge once it is close to
+ * running out, each opening its own page; and a last row to add one.
  *
  * Separate from the number above it ("On your reports"), which is what
  * prints on reports; nothing here changes that.
@@ -38,7 +39,7 @@ export function MyLicencesList({
 
   return (
     <SettingsGroup
-      title="My licences"
+      title="My licences & insurance"
       footer={
         shown?.fromPhone
           ? 'No signal — showing the copy kept on this phone.'
@@ -53,10 +54,10 @@ export function MyLicencesList({
         ) : nothing ? (
           <SettingsRow
             title="No signal"
-            subtitle="Your licences show here once this phone has signal."
+            subtitle="They show here once this phone has signal."
           />
         ) : (
-          <RowPending label="Loading your licences" />
+          <RowPending label="Loading your licences and insurance" />
         )
       ) : (
         <>
@@ -84,7 +85,7 @@ export function MyLicencesList({
             <SettingsRow
               icon={Plus}
               tint="grey"
-              title="Add licence"
+              title="Add licence or insurance"
               subtitle={`You can keep up to ${MAX_LICENCES}. Delete one to add another.`}
             />
           ) : (
@@ -93,7 +94,9 @@ export function MyLicencesList({
               params={{ businessSlug }}
               leading={<AddTile />}
               title={
-                <span className="font-semibold text-blue">Add licence</span>
+                <span className="font-semibold text-blue">
+                  Add licence or insurance
+                </span>
               }
             />
           )}
