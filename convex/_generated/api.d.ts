@@ -98,6 +98,7 @@ import type * as migrations_accessV3 from "../migrations/accessV3.js";
 import type * as migrations_archivedClientsToBinV1 from "../migrations/archivedClientsToBinV1.js";
 import type * as migrations_clientNumbersV1 from "../migrations/clientNumbersV1.js";
 import type * as migrations_jobStatusV1 from "../migrations/jobStatusV1.js";
+import type * as migrations_letterheadPestM8V1 from "../migrations/letterheadPestM8V1.js";
 import type * as migrations_memberColoursV1 from "../migrations/memberColoursV1.js";
 import type * as migrations_notesV2 from "../migrations/notesV2.js";
 import type * as migrations_propertyFixesV1 from "../migrations/propertyFixesV1.js";
@@ -223,6 +224,7 @@ declare const fullApi: ApiFromModules<{
   "migrations/archivedClientsToBinV1": typeof migrations_archivedClientsToBinV1;
   "migrations/clientNumbersV1": typeof migrations_clientNumbersV1;
   "migrations/jobStatusV1": typeof migrations_jobStatusV1;
+  "migrations/letterheadPestM8V1": typeof migrations_letterheadPestM8V1;
   "migrations/memberColoursV1": typeof migrations_memberColoursV1;
   "migrations/notesV2": typeof migrations_notesV2;
   "migrations/propertyFixesV1": typeof migrations_propertyFixesV1;

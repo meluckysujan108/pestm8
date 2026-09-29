@@ -439,7 +439,10 @@ export const setLogo = mutation({
  * through `getBySlug`'s `logoUrl`. The same freshness rule products and notes
  * use (`CLAIM_WINDOW_MS`).
  */
-async function claimLogoFile(ctx: MutationCtx, storageId: Id<'_storage'>) {
+export async function claimLogoFile(
+  ctx: MutationCtx,
+  storageId: Id<'_storage'>,
+) {
   const file = await ctx.db.system.get('_storage', storageId)
   if (!file || Date.now() - file._creationTime > CLAIM_WINDOW_MS) {
     throw new ConvexError('FILE_NOT_FOUND')
