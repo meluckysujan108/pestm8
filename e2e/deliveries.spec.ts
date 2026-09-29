@@ -95,14 +95,6 @@ test('an address on nobody’s record goes too, and the record says it was new',
   expect(row?.newAddresses).toEqual(['someone@elsewhere.example'])
   expect(row?.sentBy?.name).toBe('Kevin')
   expect(row?.onBehalfOf).toBeNull()
-
-  // And the sheets are told nobody needs to approve anything: a screen
-  // built before 29 Sept 2026 reads false as "needs the owner's approval".
-  const known = await s.sub.client.query(api.deliveries.known, {
-    businessId: s.businessId,
-    reportId: s.reportId,
-  })
-  expect(known.unrestricted).toBe(true)
 })
 
 /**

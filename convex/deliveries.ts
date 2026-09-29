@@ -272,13 +272,7 @@ export const known = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const env = await requireActor(ctx, businessId)
-    const none = {
-      addresses: [],
-      // Always true, like the answer below: nothing needs an owner.
-      unrestricted: true,
-      copy: null,
-      emailReady: false,
-    }
+    const none = { addresses: [], copy: null, emailReady: false }
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return none
     if (!reportReadable(env.scope, env.actor.real._id, report)) return none
@@ -286,13 +280,6 @@ export const known = query({
     const business = await ctx.db.get(businessId)
     return {
       addresses: await knownToCaller(ctx, env, report),
-      /**
-       * Retired with approval (29 Sept 2026): everyone may send anywhere.
-       * Still answered, and always true, for the screens built before then
-       * — which read false as "this address needs an owner's approval" —
-       * until the contract step.
-       */
-      unrestricted: true,
       /** The blind copy every email of this report carries, if any. */
       copy: businessCopyAddress(business),
       /** Whether this deployment can send at all (`lib/emailConfig`). */
@@ -547,11 +534,9 @@ async function withActors(
   const ids = [
     ...new Set(
       rows.flatMap((row) =>
-        [
-          row.sentByMembershipId,
-          row.onBehalfOfMembershipId,
-          row.approvedByMembershipId,
-        ].filter((id): id is Id<'memberships'> => id !== undefined),
+        [row.sentByMembershipId, row.onBehalfOfMembershipId].filter(
+          (id): id is Id<'memberships'> => id !== undefined,
+        ),
       ),
     ),
   ]
@@ -578,11 +563,5 @@ async function withActors(
     sentBy: who(row.sentByMembershipId),
     /** The account it was sent from, when that was not the sender's own. */
     onBehalfOf: who(row.onBehalfOfMembershipId),
-    /**
-     * Who let a held send go, or refused it, before approval was retired.
-     * Still returned for the screens built before then, until the contract
-     * step: they read `null` as "nobody has approved it".
-     */
-    approvedBy: who(row.approvedByMembershipId),
   }))
 }

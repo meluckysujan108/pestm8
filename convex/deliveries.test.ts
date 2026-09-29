@@ -259,22 +259,6 @@ describe('what a settled delivery records', () => {
       status: 'failed',
       error: 'Provider said no',
     })
-    // Held before approval was retired, and not yet released by
-    // migrations/heldDeliveriesV1: not sent by a render finishing either.
-    const held = await t.run((ctx) =>
-      ctx.db.insert('reportDeliveries', {
-        businessId: ids.businessId,
-        reportId,
-        to: ['strata@elsewhere.example'],
-        cc: [],
-        subject: 'Service Report',
-        trigger: 'finalise',
-        status: 'pendingApproval',
-        sentByMembershipId: ids.techId,
-        createdAt: Date.now(),
-      }),
-    )
-
     const ready = await t.query(internal.deliveries.readyForReport, {
       reportId,
     })
@@ -282,7 +266,6 @@ describe('what a settled delivery records', () => {
     // sheet — not again, unasked, whenever the PDF is next drawn.
     expect(ready).toEqual([deliveryId])
     expect(ready).not.toContain(failed)
-    expect(ready).not.toContain(held)
   })
 })
 

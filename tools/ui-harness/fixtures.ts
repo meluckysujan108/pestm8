@@ -203,8 +203,6 @@ const CLIENT = {
 function deliveriesKnown(args: { reportId: string }) {
   return {
     addresses: ['jane@gmail.com', 'info@pestm8.com.au'],
-    // Always true since approval was retired (29 Sept 2026).
-    unrestricted: true,
     copy: 'info@pestm8.com.au',
     emailReady: args.reportId !== 'r_nomail',
   }
@@ -223,7 +221,6 @@ function deliveryRows(args: { reportId: string }) {
     createdAt: at,
     sentBy: { name: 'Terence Walsh', colour: '#0A84FF' },
     onBehalfOf: null,
-    approvedBy: null,
     newAddresses: [],
     waitingForEmailSetup: false,
   }
@@ -278,19 +275,10 @@ function deliveryRows(args: { reportId: string }) {
       },
       { ...base, sentBy: kevin, status: 'sent', sentAt: at + 10_000 },
     ],
-    // What rows from before approval was retired look like: one still held
-    // (until `migrations/heldDeliveriesV1` runs), one it has since released,
-    // one an owner refused, and a send with no `newAddresses` at all.
+    // What rows from before approval was retired (29 Sept 2026) look like:
+    // one that was still held and was released as not sent, one an owner
+    // refused, and a send with no `newAddresses` at all.
     r_legacy: [
-      {
-        ...base,
-        _id: 'd_legacy_4',
-        to: ['site.manager@example.net'],
-        newAddresses: undefined,
-        sentBy: kevin,
-        status: 'pendingApproval',
-        createdAt: at + 3_000_000,
-      },
       {
         ...base,
         _id: 'd_legacy_3',
@@ -308,7 +296,6 @@ function deliveryRows(args: { reportId: string }) {
         to: ['strata.committee@example.org'],
         newAddresses: undefined,
         sentBy: kevin,
-        approvedBy: { name: 'Terence Walsh', colour: '#0A84FF' },
         status: 'failed',
         createdAt: at + 1_000_000,
         error: 'Not approved',
@@ -327,7 +314,6 @@ function deliveryRows(args: { reportId: string }) {
       {
         ...base,
         to: ['strata.committee@example.org'],
-        approvedBy: { name: 'Terence Walsh', colour: '#0A84FF' },
         status: 'failed',
         error: 'Not approved',
       },
@@ -433,7 +419,6 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
     reportBrandName: undefined,
     website: undefined,
     reportCopyEmail: 'info@pestm8.com.au',
-    allowTechnicianRecipients: false,
     requireReportToComplete: false,
     email: 'info@pestm8.com.au',
   }),

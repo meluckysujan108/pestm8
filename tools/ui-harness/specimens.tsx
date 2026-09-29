@@ -615,8 +615,8 @@ function Logs() {
   )
 }
 
-/** A report from before approval was retired, in both tabs: what prod shows
- * until `migrations/heldDeliveriesV1` runs, and after. */
+/** A report from before approval was retired (29 Sept 2026), in both tabs:
+ * what its rows and Logs lines still say. */
 function Legacy() {
   return (
     <Phone>

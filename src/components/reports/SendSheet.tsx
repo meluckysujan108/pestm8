@@ -891,15 +891,6 @@ function deliveryLine(
             warn: true,
           }
         : { text: `Sending to ${who}…`, next: null, warn: false }
-    case 'pendingApproval':
-      // Held for an owner's approval before approval was retired (29 Sept
-      // 2026). Nothing will send it: `migrations/heldDeliveriesV1` marks
-      // these as not sent, and until it has run this says the same.
-      return {
-        text: `Not emailed to ${who}.`,
-        next: 'Send it again from the Email tab.',
-        warn: true,
-      }
     case 'bounced':
       return {
         text: `The email to ${who} bounced.`,
@@ -926,8 +917,6 @@ function deliveryLine(
 
 const STATUS_LABEL: Record<string, string> = {
   queued: 'Queued',
-  // Retired with approval: a row still held before the migration runs.
-  pendingApproval: 'Not sent',
   sent: 'Sent',
   failed: 'Failed',
   bounced: 'Bounced',

@@ -302,15 +302,6 @@ export default defineSchema({
      */
     reportCopyEmail: v.optional(v.string()),
     /**
-     * Retired 29 Sept 2026, and read by nothing. It let a technician email an
-     * address that was on nobody's record without waiting for an owner's
-     * approval; there is no approval step any more (`convex/deliveries.ts`).
-     * `businesses.update` still accepts it while the Settings switch that set
-     * it may be on a phone. The contract step removes it, after
-     * `migrations/heldDeliveriesV1` has cleared it.
-     */
-    allowTechnicianRecipients: v.optional(v.boolean()),
-    /**
      * Refuse to mark a job complete until its report is finalised.
      *
      * Off by default, because it is a policy and not a fact: plenty of jobs
@@ -1667,12 +1658,11 @@ export default defineSchema({
     subject: v.string(),
     /** The form's own send-copy toggle, or someone pressing Send. */
     trigger: v.union(v.literal('finalise'), v.literal('manual')),
+    // `pendingApproval` — a send waiting for an owner's approval — went with
+    // approval itself (29 Sept 2026): every one still held was marked as not
+    // sent, and nothing writes it now. See docs/reports/migrations.md.
     status: v.union(
       v.literal('queued'),
-      // Retired 29 Sept 2026: a send waiting for an owner's approval. Nothing
-      // writes it now, and `migrations/heldDeliveriesV1` marks the ones left
-      // as not sent. Out of this union in the contract step.
-      v.literal('pendingApproval'),
       v.literal('sent'),
       v.literal('failed'),
       v.literal('bounced'),
