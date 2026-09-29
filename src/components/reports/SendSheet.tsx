@@ -519,8 +519,10 @@ export function SendSheet({
             aria-hidden
             className="mt-0.5 shrink-0"
           />
+          {/* One email per person (see `send`), so one copy per email: the
+              business's inbox then shows each email and who it went to. */}
           <span>
-            A copy goes to{' '}
+            {chosen.length > 1 ? 'A copy of each goes to ' : 'A copy goes to '}
             <span className="break-words font-semibold text-ink">{copy}</span>.
           </span>
         </p>
@@ -649,7 +651,9 @@ export function DeliveryHistory({
             {formatWhen(row.sentAt ?? row.createdAt, timezone)}
             {row.trigger === 'finalise' ? ' · asked for by the form' : ''}
           </p>
-          {copiesOf(row).length > 0 && (
+          {/* Only once it went: on a held or failed row it would read as
+              though the copy had gone when nothing did. */}
+          {row.status === 'sent' && copiesOf(row).length > 0 && (
             <p className="text-caption text-muted">
               Copy to {copiesOf(row).join(', ')}
             </p>
@@ -687,16 +691,18 @@ function copiesOf(row: {
 }
 
 /**
- * The newest delivery of a finished report, in one line above its tabs.
+ * The newest send of a finished report, above its tabs.
  *
  * Locking is what sends a report — the form asks whether to send the client a
- * copy "when you submit this form" — so the page a technician lands on after
- * Finalise is where "did it go, and to whom?" gets answered: "Sending…" for
- * the few seconds the PDF takes to draw, then who it went to and where the
- * business's copy went. It opens the Email tab, which has the whole history.
+ * copy "when you submit this form", and it is Yes whenever the client has an
+ * email — so the page a technician lands on after Finalise is where "did it
+ * go, and to whom?" gets answered: "Sending…" for the few seconds the PDF
+ * takes to draw, then who it went to and where the business's copy went.
  *
- * Nothing at all for a report nobody has emailed: that is most of them, and
- * a line saying so on every one would be noise.
+ * One line per email in that send, not only the newest row: a lock can open
+ * two (the client's, and one held for an address nobody has on file), and a
+ * tap of Send opens one per person. It opens the Email tab, which has the
+ * whole history. Nothing at all for a report that was never emailed.
  */
 export function LatestDelivery({
   businessId,
@@ -713,33 +719,45 @@ export function LatestDelivery({
   const { data: rows } = useQuery(
     convexQuery(api.deliveries.forReport, { businessId, reportId }),
   )
-  const latest = rows?.[0]
-  // A send takes seconds: the PDF is drawn, then Resend is called. A row
-  // still queued minutes later is not on its way — its render failed, or it
-  // was never scheduled — and a spinner beside it would be a promise.
-  const stuck = useOlderThan(
-    latest?.status === 'queued' && !latest.waitingForEmailSetup
-      ? latest.createdAt
-      : undefined,
-    STUCK_AFTER_MS,
-  )
-  if (!latest) return null
+  const all = rows ?? []
+  const newest = all.at(0)
+  // Newest first already (`forReport`): everything opened in the same moment
+  // as the newest row — one lock, or one tap of Send.
+  const batch = newest
+    ? all
+        .filter((row) => newest.createdAt - row.createdAt < BATCH_MS)
+        .slice(0, 3)
+    : []
+  const now = useClock(batch.some((row) => row.status === 'queued'))
+  if (batch.length === 0) return null
 
-  const who = latest.to.join(', ')
-  const copies = copiesOf(latest)
-  const line = deliveryLine(latest, who, stuck)
-  const sending =
-    latest.status === 'queued' && !latest.waitingForEmailSetup && !stuck
-  const detail =
-    latest.status === 'sent'
-      ? `${formatWhen(latest.sentAt ?? latest.createdAt, timezone)}${
-          copies.length > 0 ? ` · copy to ${copies.join(', ')}` : ''
-        }`
-      : sending
-        ? copies.length > 0
-          ? `A copy goes to ${copies.join(', ')}.`
-          : null
-        : line.next
+  const lines = batch.map((row) => {
+    const copies = copiesOf(row)
+    // A send takes seconds: the PDF is drawn, then Resend is called. A row
+    // still queued minutes later is not on its way — its render failed, or
+    // it was never scheduled — and a spinner beside it would be a promise.
+    // Not for one an owner let go: that row keeps the time it was asked for.
+    const stuck =
+      row.status === 'queued' &&
+      !row.waitingForEmailSetup &&
+      row.approvedBy === null &&
+      now - row.createdAt > STUCK_AFTER_MS
+    const line = deliveryLine(row, row.to.join(', '), stuck)
+    const sending =
+      row.status === 'queued' && !row.waitingForEmailSetup && !stuck
+    const detail =
+      row.status === 'sent'
+        ? `${formatWhen(row.sentAt ?? row.createdAt, timezone)}${
+            copies.length > 0 ? ` · copy to ${copies.join(', ')}` : ''
+          }`
+        : sending
+          ? copies.length > 0
+            ? `A copy goes to ${copies.join(', ')}.`
+            : null
+          : line.next
+    return { row, line, sending, detail }
+  })
+  const allWarn = lines.every(({ line }) => line.warn)
 
   return (
     <div className="mx-4 mt-4">
@@ -748,54 +766,60 @@ export function LatestDelivery({
         disabled={!hydrated}
         onClick={onOpen}
         className={`flex w-full items-center gap-2.5 rounded-2xl border px-3.5 py-3 text-left active:scale-[.99] ${
-          line.warn
+          allWarn
             ? 'border-amber-line bg-amber-bg'
             : 'border-hairline bg-surface shadow-elevation'
         }`}
       >
-        {line.warn ? (
-          <TriangleAlert
-            size={16}
-            strokeWidth={2}
-            aria-hidden
-            className="shrink-0 text-amber-ink"
-          />
-        ) : latest.status === 'sent' ? (
-          <Check
-            size={16}
-            strokeWidth={2.2}
-            aria-hidden
-            className="shrink-0 text-green"
-          />
-        ) : (
-          <LoaderCircle
-            size={16}
-            strokeWidth={2}
-            aria-hidden
-            className="shrink-0 animate-spin text-muted"
-          />
-        )}
         {/* Polite, so "Sending…" turning into "Emailed" is heard: it changes
             by itself a few seconds after the page opens. */}
-        <span aria-live="polite" className="min-w-0 flex-1">
-          <span
-            className={`block break-words text-body ${line.warn ? 'text-amber-ink' : 'text-ink'}`}
-          >
-            {line.text}
-          </span>
-          {detail && (
-            <span
-              className={`block break-words text-caption ${line.warn ? 'text-amber-ink' : 'text-ink-2'}`}
-            >
-              {detail}
+        <span aria-live="polite" className="flex min-w-0 flex-1 flex-col gap-2">
+          {lines.map(({ row, line, sending, detail }) => (
+            <span key={row._id} className="flex items-start gap-2.5">
+              {line.warn ? (
+                <TriangleAlert
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden
+                  className="mt-0.5 shrink-0 text-amber-ink"
+                />
+              ) : sending ? (
+                <LoaderCircle
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden
+                  className="mt-0.5 shrink-0 animate-spin text-muted"
+                />
+              ) : (
+                <Check
+                  size={16}
+                  strokeWidth={2.2}
+                  aria-hidden
+                  className="mt-0.5 shrink-0 text-green"
+                />
+              )}
+              <span className="min-w-0 flex-1">
+                <span
+                  className={`block break-words text-body ${line.warn ? 'text-amber-ink' : 'text-ink'}`}
+                >
+                  {line.text}
+                </span>
+                {detail && (
+                  <span
+                    className={`block break-words text-caption ${line.warn ? 'text-amber-ink' : 'text-ink-2'}`}
+                  >
+                    {detail}
+                  </span>
+                )}
+              </span>
             </span>
-          )}
+          ))}
         </span>
         <ChevronRight
           size={16}
           strokeWidth={2.2}
           aria-hidden
-          className={`shrink-0 ${line.warn ? 'text-amber-ink' : 'text-muted'}`}
+          className={`shrink-0 ${allWarn ? 'text-amber-ink' : 'text-muted'}`}
         />
       </button>
     </div>
@@ -805,24 +829,22 @@ export function LatestDelivery({
 /** How long a delivery may sit queued before it is plainly not on its way. */
 const STUCK_AFTER_MS = 2 * 60_000
 
+/** Rows opened this close together are one send: one lock, or one tap. */
+const BATCH_MS = 60_000
+
 /**
- * Whether `at` is more than `ms` ago — noticed when it becomes so, not only
- * on the next render, so a page left open stops saying "Sending…".
+ * The time, read again every fifteen seconds while `ticking` — so a page left
+ * open stops saying "Sending…" once a queued row has plainly stopped.
  */
-function useOlderThan(at: number | undefined, ms: number): boolean {
+function useClock(ticking: boolean): number {
   const [now, setNow] = useState(() => Date.now())
-  const due = at === undefined ? null : at + ms
   useEffect(() => {
-    if (due === null) return
-    const wait = due - Date.now()
-    if (wait <= 0) {
-      setNow(Date.now())
-      return
-    }
-    const timer = setTimeout(() => setNow(Date.now()), wait + 50)
-    return () => clearTimeout(timer)
-  }, [due])
-  return due !== null && now >= due
+    if (!ticking) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 15_000)
+    return () => clearInterval(timer)
+  }, [ticking])
+  return now
 }
 
 /** What one delivery's state reads as, and what to do about it. */
@@ -837,7 +859,7 @@ function deliveryLine(
 ): { text: string; next: string | null; warn: boolean } {
   switch (row.status) {
     case 'sent':
-      return { text: `Emailed to ${who}`, next: null, warn: false }
+      return { text: `Emailed to ${who}.`, next: null, warn: false }
     case 'queued':
       if (row.waitingForEmailSetup) {
         return {
@@ -848,15 +870,18 @@ function deliveryLine(
       }
       return stuck
         ? {
-            text: `Not sent to ${who} yet.`,
-            next: 'Send it again from the Email tab.',
+            text: `Not sent to ${who}.`,
+            next: 'Send it from the Email tab.',
             warn: true,
           }
         : { text: `Sending to ${who}…`, next: null, warn: false }
     case 'pendingApproval':
+      // No approval is promised: the app has no screen yet where an owner
+      // lets a held email go. An owner sending it from the report can happen
+      // today, so that is what it says.
       return {
-        text: `Waiting for an owner to approve emailing ${who}.`,
-        next: 'It goes once they say yes.',
+        text: `Not emailed to ${who}: not on the client’s record.`,
+        next: 'An owner can send it from the Email tab.',
         warn: true,
       }
     case 'bounced':

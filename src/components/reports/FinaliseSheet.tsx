@@ -26,9 +26,9 @@ import { deviceTimezone } from '#/lib/useBusinessTimezone'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { lockEmail, lockEmailSentences } from './lockEmail'
+import { clientToggleOf, lockEmail, lockEmailSentences } from './lockEmail'
 import { TickBox } from './TickBox'
-import type { Sentence } from './lockEmail'
+import type { Sentence, SendingKnown } from './lockEmail'
 
 /**
  * The last screen before a document becomes a record.
@@ -85,6 +85,12 @@ export function FinaliseSheet({
 }) {
   const fields = visibleSections(sectionsOf(template), data).flatMap(
     (section) => section.fields,
+  )
+  // Asked here rather than inside the sheet's body, which only mounts while
+  // it is open: this component is rendered all the while the form is being
+  // filled, so the answer is waiting by the time anyone opens the sheet.
+  const known = useQuery(
+    convexQuery(api.deliveries.known, { businessId, reportId }),
   )
   const summary = reportSummary(template, data, context)
   const signatures = fields.filter(
@@ -201,11 +207,13 @@ export function FinaliseSheet({
       </ul>
 
       <LockEmailNote
-        businessId={businessId}
         reportId={reportId}
         template={template}
         data={data}
         clientEmail={context?.client?.email}
+        known={known.data}
+        failed={known.isError}
+        onRetry={() => void known.refetch()}
         onAnswer={onAnswer}
       />
     </Sheet>
@@ -264,30 +272,29 @@ function readableNow(): string {
  * screen before the email goes is where "not yet" gets decided.
  */
 function LockEmailNote({
-  businessId,
   reportId,
   template,
   data,
   clientEmail,
+  known,
+  failed,
+  onRetry,
   onAnswer,
 }: {
-  businessId: Id<'businesses'>
   reportId: Id<'reports'>
   template: ReportTemplate
   data: Record<string, unknown>
   clientEmail?: string
+  /** `deliveries.known`, or undefined while it is being asked. */
+  known?: SendingKnown & { emailReady: boolean }
+  failed: boolean
+  onRetry: () => void
   onAnswer: (key: string, value: unknown) => void
 }) {
-  // Asked while the form is filled, not when the sheet opens, so the answer
-  // is waiting by the time anyone reads it.
-  const known = useQuery(
-    convexQuery(api.deliveries.known, { businessId, reportId }),
-  )
-
-  const plan = known.data
-    ? lockEmail(template, data, clientEmail, known.data)
-    : null
-  const toggle = plan?.clientToggle ?? null
+  // From the form alone, so it is there at once — on weak signal too, which
+  // is exactly when "not yet" is worth being able to say.
+  const toggle = clientToggleOf(template, data, clientEmail)
+  const plan = known ? lockEmail(template, data, clientEmail, known) : null
 
   return (
     <section className="mt-4" aria-labelledby={`lock-email-${reportId}`}>
@@ -320,7 +327,7 @@ function LockEmailNote({
           )}
         </button>
       )}
-      {plan && known.data ? (
+      {plan && known ? (
         <div className="mt-1.5 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5">
           <Send
             size={15}
@@ -331,17 +338,22 @@ function LockEmailNote({
           {/* Polite, so switching the client's copy off is heard as well as
               seen: the sentence is the answer to the tap. */}
           <p aria-live="polite" className="text-caption text-ink-2">
-            {lockEmailSentences(plan, known.data.emailReady, {
+            {/* Only an explicit "no" means email is off. A backend older than
+                this screen does not say, and reading that silence as "won't
+                be emailed" on a deployment that does email is the very
+                instruction that sent clients a second copy. */}
+            {lockEmailSentences(plan, known.emailReady !== false, {
+              clientToggle: toggle,
               clientHasEmail: Boolean(clientEmail?.trim()),
             }).map((sentence, index) => (
               <SentenceText key={index} sentence={sentence} lead={index > 0} />
             ))}
           </p>
         </div>
-      ) : known.isError ? (
+      ) : failed ? (
         <LoadFailed
           what="who this goes to"
-          onRetry={() => void known.refetch()}
+          onRetry={onRetry}
           className="mt-1.5"
         />
       ) : (

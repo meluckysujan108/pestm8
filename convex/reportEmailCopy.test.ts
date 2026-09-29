@@ -108,6 +108,60 @@ function deliveries(s: Setup) {
   return s.t.run((ctx) => ctx.db.query('reportDeliveries').collect())
 }
 
+/** Someone on the team who is not an owner, so a new address waits. */
+async function technician(s: Setup) {
+  const person = await createActor(s.t, {
+    email: 'kev@pestm8.test',
+    name: 'Kevin',
+  })
+  const membershipId = await s.t.run((ctx) =>
+    ctx.db.insert('memberships', {
+      userId: person.userId,
+      businessId: s.businessId,
+      role: 'subcontractor',
+      canViewAllJobs: false,
+      colour: '#34C759',
+      status: 'active',
+      createdAt: Date.now(),
+    }),
+  )
+  return { person, membershipId }
+}
+
+/** A file already drawn at the current renderer, so nothing re-renders. */
+function withPdf(s: Setup, reportId: Id<'reports'>) {
+  return s.t.run(async (ctx) => {
+    const storageId = await ctx.storage.store(
+      new Blob(['%PDF-1.7 test'], { type: 'application/pdf' }),
+    )
+    await ctx.db.patch(reportId, {
+      pdfStorageId: storageId,
+      pdfRenderVersion: RENDER_VERSION,
+      pdfStatus: 'ready',
+    })
+  })
+}
+
+/** Resend, faked: every email asked for, and the stored PDF when fetched. */
+function fakeResend() {
+  vi.stubEnv('RESEND_API_KEY', 're_test')
+  vi.stubEnv('RESEND_FROM_EMAIL', 'info@pestm8.com.au')
+  const sent: Array<Record<string, unknown>> = []
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === 'https://api.resend.com/emails') {
+        sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
+        return new Response(JSON.stringify({ id: `msg_${sent.length}` }), {
+          status: 200,
+        })
+      }
+      return new Response(new Blob(['%PDF-1.7 test']), { status: 200 })
+    }),
+  )
+  return sent
+}
+
 describe('the business keeps a hidden copy of every report it emails', () => {
   test('the email a form asks for at finalise copies the business email, blind', async () => {
     const s = await setup()
@@ -211,6 +265,64 @@ describe('the business keeps a hidden copy of every report it emails', () => {
 })
 
 describe('only a finalised report is ever emailed', () => {
+  test('a technician’s lock sends the client’s copy now, and holds only the address nobody has on file', async () => {
+    const s = await setup()
+    const { person, membershipId } = await technician(s)
+    const reportId = await report(s, { authorMembershipId: membershipId })
+
+    await person.as.mutation(api.reports.finalise, {
+      businessId: s.businessId,
+      reportId,
+      data: {
+        serviceDate: '2026-09-29',
+        safeToStart: true,
+        treatments: [],
+        technicianSignature: { signedAt: Date.now() },
+        sendCopy: true,
+        emailReportTo: ['strata@harbourside.example'],
+      },
+      templateVersion: getTemplate('serviceReport').version,
+    })
+
+    const rows = await deliveries(s)
+    // Two rows: held as one, the strata manager kept the client from ever
+    // getting the report the lock sheet said was on its way.
+    expect(
+      rows.map(({ to, bcc, status, trigger }) => ({
+        to,
+        bcc,
+        status,
+        trigger,
+      })),
+    ).toEqual([
+      {
+        to: [CLIENT],
+        bcc: ['info@pestm8.com.au'],
+        status: 'queued',
+        trigger: 'finalise',
+      },
+      {
+        to: ['strata@harbourside.example'],
+        bcc: ['info@pestm8.com.au'],
+        status: 'pendingApproval',
+        trigger: 'finalise',
+      },
+    ])
+  })
+
+  test('a technician is told where the copy goes, not only an owner', async () => {
+    const s = await setup()
+    const { person, membershipId } = await technician(s)
+    const reportId = await report(s, { authorMembershipId: membershipId })
+
+    const told = await person.as.query(api.deliveries.known, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(told.copy).toBe('info@pestm8.com.au')
+    expect(told.unrestricted).toBe(false)
+  })
+
   test('asking to send a draft is refused', async () => {
     const s = await setup()
     const reportId = await report(s)
@@ -258,38 +370,14 @@ describe('what Resend is asked to send', () => {
       status: 'finalised',
       finalisedAt: Date.now(),
     })
-    // A file already drawn at the current renderer, so nothing re-renders.
-    await s.t.run(async (ctx) => {
-      const storageId = await ctx.storage.store(
-        new Blob(['%PDF-1.7 test'], { type: 'application/pdf' }),
-      )
-      await ctx.db.patch(reportId, {
-        pdfStorageId: storageId,
-        pdfRenderVersion: RENDER_VERSION,
-        pdfStatus: 'ready',
-      })
-    })
+    await withPdf(s, reportId)
     await s.owner.as.mutation(api.deliveries.request, {
       businessId: s.businessId,
       reportId,
       to: [CLIENT],
     })
     const [{ _id: deliveryId }] = await deliveries(s)
-
-    vi.stubEnv('RESEND_API_KEY', 're_test')
-    vi.stubEnv('RESEND_FROM_EMAIL', 'info@pestm8.com.au')
-    const sent: Array<Record<string, unknown>> = []
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async (url: string, init?: RequestInit) => {
-        if (url === 'https://api.resend.com/emails') {
-          sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>)
-          return new Response(JSON.stringify({ id: 'msg_1' }), { status: 200 })
-        }
-        // The stored PDF, fetched to be attached.
-        return new Response(new Blob(['%PDF-1.7 test']), { status: 200 })
-      }),
-    )
+    const sent = fakeResend()
 
     const result = await s.t.action(internal.email.deliver, { deliveryId })
 
@@ -302,6 +390,47 @@ describe('what Resend is asked to send', () => {
     expect(sent[0]).not.toHaveProperty('cc')
     const [row] = await deliveries(s)
     expect(row).toMatchObject({ status: 'sent', providerMessageId: 'msg_1' })
+  })
+
+  test('a send held for an owner carries the copy when it is let go', async () => {
+    const s = await setup()
+    const { person, membershipId } = await technician(s)
+    const reportId = await report(s, {
+      authorMembershipId: membershipId,
+      status: 'finalised',
+      finalisedAt: Date.now(),
+    })
+    await withPdf(s, reportId)
+
+    // An address nobody has on file: the technician's request waits, and the
+    // copy is part of what it asked for.
+    const { deliveryId, status } = await person.as.mutation(
+      api.deliveries.request,
+      {
+        businessId: s.businessId,
+        reportId,
+        to: ['strata@harbourside.example'],
+      },
+    )
+    expect(status).toBe('pendingApproval')
+    const [held] = await deliveries(s)
+    expect(held.bcc).toEqual(['info@pestm8.com.au'])
+
+    // Let go with email off, so nothing is scheduled behind the test's back;
+    // the send is then driven by hand.
+    await s.owner.as.mutation(api.deliveries.approve, {
+      businessId: s.businessId,
+      deliveryId,
+    })
+    const sent = fakeResend()
+    expect(await s.t.action(internal.email.deliver, { deliveryId })).toEqual({
+      ok: true,
+    })
+    expect(sent).toHaveLength(1)
+    expect(sent[0]).toMatchObject({
+      to: ['strata@harbourside.example'],
+      bcc: ['info@pestm8.com.au'],
+    })
   })
 
   test('a row from before blind copies is sent as it was recorded', () => {

@@ -224,21 +224,27 @@ function deliveryRows(args: { reportId: string }) {
     approvedBy: null,
     waitingForEmailSetup: false,
   }
-  const rows: Record<string, unknown> = {
+  const rows: Record<string, Array<unknown>> = {
     // Moments ago, so it is still on its way.
-    r_sending: { ...base, status: 'queued', createdAt: Date.now() },
+    r_sending: [{ ...base, status: 'queued', createdAt: Date.now() }],
     // Queued ten minutes ago and never sent: not "Sending…" any more.
-    r_stuck: { ...base, status: 'queued', createdAt: Date.now() - 600_000 },
-    r_sent: { ...base, status: 'sent', sentAt: at + 10_000 },
-    r_held: {
-      ...base,
-      to: ['jane@gmail.com', 'strata@harbourside.com.au'],
-      status: 'pendingApproval',
-    },
-    r_failed: { ...base, status: 'failed', error: 'PDF_UNAVAILABLE' },
-    r_setup: { ...base, status: 'queued', waitingForEmailSetup: true },
+    r_stuck: [{ ...base, status: 'queued', createdAt: Date.now() - 600_000 }],
+    r_sent: [{ ...base, status: 'sent', sentAt: at + 10_000 }],
+    // One lock, two rows: the client's copy went, and the strata manager's
+    // waits for the owner (`queueFormDeliveries`).
+    r_held: [
+      { ...base, status: 'sent', sentAt: at + 10_000 },
+      {
+        ...base,
+        _id: 'd_r_held_2',
+        to: ['strata@harbourside.com.au'],
+        status: 'pendingApproval',
+      },
+    ],
+    r_failed: [{ ...base, status: 'failed', error: 'PDF_UNAVAILABLE' }],
+    r_setup: [{ ...base, status: 'queued', waitingForEmailSetup: true }],
   }
-  return rows[args.reportId] ? [rows[args.reportId]] : []
+  return rows[args.reportId] ?? []
 }
 
 const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {

@@ -24,7 +24,10 @@ import { validateReport } from '../src/lib/reportTemplates/validate'
 import { dayKeyOf, timeKeyOf, todayKeyInZone } from './lib/dates'
 import { suburbKeyOf, withinForecastWindow } from './lib/forecastWindow'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
-import { deliveryRecipients } from '../src/lib/reportTemplates/delivery'
+import {
+  blindCopy,
+  deliveryRecipients,
+} from '../src/lib/reportTemplates/delivery'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import { businessCopyAddress, knownRecipients } from './lib/recipients'
 import { isValidEmail } from './lib/email'
@@ -2296,9 +2299,6 @@ async function queueFormDeliveries(
 
   const asked = deliveryRecipients(template, data, {
     clientEmail: client?.email,
-    // Already checked: a Business copy address that can never be delivered to
-    // comes back null rather than as a copy nobody will receive.
-    businessCopyEmail: businessCopyAddress(business),
   })
   // Only the addresses that can be delivered to, the rule `deliveries.request`
   // refuses the rest by. An address typed into the form's email field was
@@ -2318,28 +2318,46 @@ async function queueFormDeliveries(
   const unrestricted =
     hasCapability(env, 'business.manage') ||
     business?.allowTechnicianRecipients === true
-  const novel = to.filter((address) => !known.includes(address))
+  const held = unrestricted
+    ? []
+    : to.filter((address) => !known.includes(address))
+  const now = to.filter((address) => !held.includes(address))
 
-  await ctx.db.insert('reportDeliveries', {
-    businessId: report.businessId,
-    reportId: report._id,
-    to,
-    cc: [],
-    // The business's own copy, blind: the client sees only who it is for.
-    bcc: asked.bcc,
-    subject: documentIdentity({
-      template,
-      property,
-      businessName: business?.name ?? '',
-      finalisedAt: Date.now(),
-    }).title,
-    trigger: 'finalise',
-    status: unrestricted || novel.length === 0 ? 'queued' : 'pendingApproval',
-    // The human who locked it, like `finalisedByMembershipId`: it is their
-    // send the approval queue and the rate limit are about.
-    sentByMembershipId: env.actor.real._id,
-    createdAt: Date.now(),
-  })
+  // Two rows, not one, when some of it is held: the address nobody has on
+  // file waits for an owner, and the client's own copy does not wait with it
+  // — the send sheet already sends person by person for the same reason.
+  // Held as one row, a strata manager typed into "Email Report To" kept the
+  // client from ever getting the report the lock sheet said was on its way.
+  // The copy is already checked: a Business copy address that can never be
+  // delivered to comes back null rather than as a copy nobody will receive.
+  const copy = businessCopyAddress(business)
+  const subject = documentIdentity({
+    template,
+    property,
+    businessName: business?.name ?? '',
+    finalisedAt: Date.now(),
+  }).title
+  for (const [addresses, status] of [
+    [now, 'queued'],
+    [held, 'pendingApproval'],
+  ] as const) {
+    if (addresses.length === 0) continue
+    await ctx.db.insert('reportDeliveries', {
+      businessId: report.businessId,
+      reportId: report._id,
+      to: addresses,
+      cc: [],
+      // The business's own copy, blind: the client sees only who it is for.
+      bcc: blindCopy(copy, addresses),
+      subject,
+      trigger: 'finalise',
+      status,
+      // The human who locked it, like `finalisedByMembershipId`: it is their
+      // send the approval queue and the rate limit are about.
+      sentByMembershipId: env.actor.real._id,
+      createdAt: Date.now(),
+    })
+  }
 }
 
 /**

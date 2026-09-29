@@ -405,10 +405,15 @@ describe('the demo reports', () => {
   test('the subcontractor’s send to an address nobody has on file waits for the owner', async () => {
     const r = report('srSubAnts')
     expect(r.authorMembershipId).toBe(member('sub'))
-    const [delivery] = deliveriesOf(r)
-    expect(delivery.status).toBe('pendingApproval')
-    expect(delivery.to).toContain('site.manager@example.net')
+    // Only the address nobody has on file waits: the client's own copy is a
+    // delivery of its own, and does not wait with it.
+    const sends = deliveriesOf(r)
+    const delivery = sends.find((d) => d.status === 'pendingApproval')!
+    expect(delivery.to).toEqual(['site.manager@example.net'])
     expect(delivery.sentByMembershipId).toBe(member('sub'))
+    expect(
+      sends.filter((d) => d !== delivery).every((d) => d.status === 'queued'),
+    ).toBe(true)
 
     const queue = await run.owner.as.query(
       api.deliveries.pendingApproval,
@@ -420,7 +425,8 @@ describe('the demo reports', () => {
   test('the second one the owner refused, as deliveries.reject leaves it', () => {
     const r = report('srSubRejected')
     expect(r.authorMembershipId).toBe(member('sub'))
-    const [delivery] = deliveriesOf(r)
+    const delivery = deliveriesOf(r).find((d) => d.status !== 'queued')!
+    expect(delivery.to).toEqual(['strata.committee@example.org'])
     expect(delivery.status).toBe('failed')
     expect(delivery.error).toBe('Not approved')
     expect(delivery.approvedByMembershipId).toBe(member('owner'))

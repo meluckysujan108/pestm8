@@ -366,7 +366,13 @@ client receive on 28 August?" answerable once the renderer has moved on.
   else is `pendingApproval` until an owner says yes, unless the business sets
   `allowTechnicianRecipients`. The held row IS the request, so approving is a
   decision about something real rather than a send retyped from memory, and
-  who asked and who allowed are kept as separate facts. The client's
+  who asked and who allowed are kept as separate facts. At finalise the held
+  addresses are a row of their own: the ones on file go at once, so a strata
+  manager typed into "Email Report To" never holds up the client's copy.
+  `deliveries.approve` and `reject` exist, but **no screen calls them yet**,
+  so a held send waits until an owner sends the report from its Email tab —
+  which is what the app tells the technician, rather than promising an
+  approval nobody can give. The client's
   _contacts_ count as on file only for someone who may see that client —
   the report's author, anyone with `clients.directory`, or anyone with a job
   there. Reading a report is not the client-directory gate, so for anyone

@@ -1,16 +1,21 @@
 import { describe, expect, test } from 'vitest'
 import { getTemplate } from '#/lib/reportTemplates'
-import { lockEmail, lockEmailSentences, sentenceText } from './lockEmail'
+import {
+  clientToggleOf,
+  lockEmail,
+  lockEmailSentences,
+  sentenceText,
+} from './lockEmail'
 import type { SendingKnown } from './lockEmail'
 
 /**
  * What the sheet that locks a report says about the email locking sends.
  *
  * The rule is the server's (`queueFormDeliveries`): who the form asks for,
- * less anyone who can never be delivered to, held as a whole for an owner if
- * any of them is not on file, with the business's copy riding along blind.
- * These pin the sheet to that rule, and pin what it SAYS in each case — the
- * words are the feature.
+ * less anyone who can never be delivered to; the addresses on file go at
+ * once and any other waits for an owner, as a delivery of its own; the
+ * business's copy rides blind on what goes. These pin the sheet to that rule,
+ * and pin what it SAYS in each case — the words are the feature.
  */
 
 const template = getTemplate('serviceReport')
@@ -19,40 +24,58 @@ const known: SendingKnown = {
   addresses: ['jane@gmail.com', 'info@pestm8.com.au'],
   unrestricted: false,
   copy: 'info@pestm8.com.au',
-  emailReady: true,
 }
 
 function say(
   data: Record<string, unknown>,
   clientEmail: string | undefined,
   answer: SendingKnown = known,
+  emailReady = true,
 ) {
-  const plan = lockEmail(template, data, clientEmail, answer)
-  return lockEmailSentences(plan, answer.emailReady, {
-    clientHasEmail: Boolean(clientEmail),
-  })
+  return lockEmailSentences(
+    lockEmail(template, data, clientEmail, answer),
+    emailReady,
+    {
+      clientToggle: clientToggleOf(template, data, clientEmail),
+      clientHasEmail: Boolean(clientEmail),
+    },
+  )
     .map(sentenceText)
     .join(' ')
 }
 
+describe('the switch on the sheet', () => {
+  test('is the form’s own send-copy question, for the client on file', () => {
+    expect(
+      clientToggleOf(template, { sendCopy: true }, 'Jane@Gmail.com'),
+    ).toEqual({
+      key: 'sendCopy',
+      address: 'jane@gmail.com',
+      on: true,
+      problem: null,
+    })
+  })
+
+  test('is not offered when the client has no email to send to', () => {
+    expect(clientToggleOf(template, { sendCopy: false }, undefined)).toBeNull()
+  })
+
+  test('knows an address that can never be delivered to', () => {
+    expect(
+      clientToggleOf(template, { sendCopy: true }, 'bob@gmail')?.problem,
+    ).not.toBeNull()
+  })
+})
+
 describe('what locking will email', () => {
   test('the client, with the business’s copy — the everyday case', () => {
-    const plan = lockEmail(
-      template,
-      { sendCopy: true },
-      'Jane@Gmail.com',
-      known,
-    )
-    expect(plan).toEqual({
-      clientToggle: {
-        key: 'sendCopy',
-        address: 'jane@gmail.com',
-        on: true,
-        problem: null,
-      },
+    expect(
+      lockEmail(template, { sendCopy: true }, 'jane@gmail.com', known),
+    ).toEqual({
       sending: ['jane@gmail.com'],
       held: [],
       undeliverable: [],
+      stillTyped: null,
       copy: 'info@pestm8.com.au',
     })
     expect(say({ sendCopy: true }, 'jane@gmail.com')).toBe(
@@ -67,12 +90,21 @@ describe('what locking will email', () => {
       'jane@gmail.com',
       known,
     )
-    expect(plan.clientToggle?.on).toBe(false)
     expect(plan.sending).toEqual([])
     // A copy rides on an email; with no email there is no copy.
     expect(plan.copy).toBeNull()
     expect(say({ sendCopy: false }, 'jane@gmail.com')).toBe(
       'Not emailed. You can send it from the report once it’s locked.',
+    )
+  })
+
+  test('switched off, but typed into “Email Report To” too — it still goes, and says why', () => {
+    const data = { sendCopy: false, emailReportTo: ['jane@gmail.com'] }
+    expect(lockEmail(template, data, 'jane@gmail.com', known).stillTyped).toBe(
+      'jane@gmail.com',
+    )
+    expect(say(data, 'jane@gmail.com')).toBe(
+      'Once it’s locked, it’s emailed to jane@gmail.com. jane@gmail.com is also in “Email Report To”, so it still gets it. A copy goes to info@pestm8.com.au.',
     )
   })
 
@@ -103,12 +135,25 @@ describe('what locking will email', () => {
     )
   })
 
-  test('an address nobody has on file holds the whole email for an owner', () => {
+  test('an address nobody has on file waits for the owner, and the client’s copy does not wait with it', () => {
     const data = { sendCopy: true, emailReportTo: ['strata@example.com'] }
     const plan = lockEmail(template, data, 'jane@gmail.com', known)
+    expect(plan.sending).toEqual(['jane@gmail.com'])
     expect(plan.held).toEqual(['strata@example.com'])
+    // No approval is promised: the app has nowhere to give one. The owner
+    // sending it from the report is what can actually happen.
     expect(say(data, 'jane@gmail.com')).toBe(
-      'strata@example.com isn’t on the client’s record, so an owner approves this email first. Then it goes to jane@gmail.com and strata@example.com. A copy goes to info@pestm8.com.au.',
+      'Once it’s locked, it’s emailed to jane@gmail.com. strata@example.com isn’t on the client’s record, so that email waits for the owner. They can send it from the report. A copy goes to info@pestm8.com.au.',
+    )
+  })
+
+  test('with only a held address, nothing goes at once and nothing is copied yet', () => {
+    const data = { sendCopy: false, emailReportTo: ['strata@example.com'] }
+    const plan = lockEmail(template, data, 'jane@gmail.com', known)
+    expect(plan.sending).toEqual([])
+    expect(plan.copy).toBeNull()
+    expect(say(data, 'jane@gmail.com')).toBe(
+      'strata@example.com isn’t on the client’s record, so that email waits for the owner. They can send it from the report.',
     )
   })
 
@@ -124,7 +169,6 @@ describe('what locking will email', () => {
 
   test('an address that can never be delivered to is left out, and says so', () => {
     const plan = lockEmail(template, { sendCopy: true }, 'bob@gmail', known)
-    expect(plan.clientToggle?.problem).not.toBeNull()
     expect(plan.sending).toEqual([])
     expect(say({ sendCopy: true }, 'bob@gmail')).toBe(
       'Not emailed: bob@gmail can’t receive email. Fix the address, then send it from the report once it’s locked.',
@@ -140,21 +184,14 @@ describe('what locking will email', () => {
     )
   })
 
-  test('a client with no email is not offered the switch, and is told why', () => {
-    const plan = lockEmail(template, { sendCopy: false }, undefined, known)
-    expect(plan.clientToggle).toBeNull()
+  test('a client with no email is told why nothing goes', () => {
     expect(say({ sendCopy: false }, undefined)).toBe(
       'Not emailed: the client has no email address on file. You can send it from the report once it’s locked.',
     )
   })
 
   test('without email set up, nothing is promised', () => {
-    expect(
-      say({ sendCopy: true }, 'jane@gmail.com', {
-        ...known,
-        emailReady: false,
-      }),
-    ).toBe(
+    expect(say({ sendCopy: true }, 'jane@gmail.com', known, false)).toBe(
       'Email isn’t set up for this business yet, so it won’t be emailed. Share the PDF from the report once it’s locked.',
     )
   })
@@ -163,7 +200,7 @@ describe('what locking will email', () => {
     const [sentence] = lockEmailSentences(
       lockEmail(template, { sendCopy: true }, 'jane@gmail.com', known),
       true,
-      { clientHasEmail: true },
+      { clientToggle: null, clientHasEmail: true },
     )
     expect(sentence).toEqual([
       'Once it’s locked, it’s emailed to ',
