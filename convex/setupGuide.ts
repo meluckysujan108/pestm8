@@ -53,10 +53,13 @@ export const progress = query({
     const client = await ctx.db
       .query('clients')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      // One in the Recycle bin is not a step done (lib/bin.ts).
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .first()
     const job = await ctx.db
       .query('jobs')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .first()
     const finalised = await ctx.db
       .query('reports')

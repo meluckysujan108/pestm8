@@ -2,6 +2,8 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { requireActor } from './lib/actor'
+import { unbinned } from './lib/bin'
+import { binContact } from './bin'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { isNameCorrection, sameName } from './lib/contactNames'
 import { normaliseEmail } from './lib/email'
@@ -29,9 +31,12 @@ export async function setContactPerson(
   rawName: string,
 ) {
   const name = rawName.trim()
+  // One in the Recycle bin is not in the list: it takes no star, and a name
+  // matching it is a new contact (lib/bin.ts).
   const contacts = await ctx.db
     .query('clientContacts')
     .withIndex('by_client', (q) => q.eq('clientId', clientId))
+    .filter((q) => q.eq(q.field('deletedAt'), undefined))
     .collect()
   const primary = contacts.find((c) => c.isPrimary)
 
@@ -75,7 +80,8 @@ export const list = query({
   handler: async (ctx, { businessId, clientId }) => {
     const env = await requireActor(ctx, businessId)
 
-    const client = await ctx.db.get(clientId)
+    // A binned client's contacts go with it (lib/bin.ts).
+    const client = unbinned(await ctx.db.get(clientId))
     if (!client || client.businessId !== businessId) return []
     // Names, numbers and email addresses for a client they may not see are
     // the most sensitive part of the directory, not an afterthought to it.
@@ -85,6 +91,7 @@ export const list = query({
     return ctx.db
       .query('clientContacts')
       .withIndex('by_client', (q) => q.eq('clientId', clientId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
   },
 })
@@ -101,7 +108,7 @@ export const create = mutation({
   handler: async (ctx, { businessId, clientId, ...rest }) => {
     await requireMembership(ctx, businessId)
 
-    const client = await ctx.db.get(clientId)
+    const client = unbinned(await ctx.db.get(clientId))
     if (!client || client.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -138,7 +145,7 @@ export const update = mutation({
   handler: async (ctx, { businessId, contactId, ...patch }) => {
     await requireMembership(ctx, businessId)
 
-    const contact = await ctx.db.get(contactId)
+    const contact = unbinned(await ctx.db.get(contactId))
     if (!contact || contact.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -183,7 +190,7 @@ export const setPrimary = mutation({
   handler: async (ctx, { businessId, contactId }) => {
     await requireMembership(ctx, businessId)
 
-    const contact = await ctx.db.get(contactId)
+    const contact = unbinned(await ctx.db.get(contactId))
     if (!contact || contact.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -191,6 +198,7 @@ export const setPrimary = mutation({
     const siblings = await ctx.db
       .query('clientContacts')
       .withIndex('by_client', (q) => q.eq('clientId', contact.clientId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
 
     await Promise.all(
@@ -202,15 +210,15 @@ export const setPrimary = mutation({
   },
 })
 
+/**
+ * Kept for a client sheet still on an older build: it now does what
+ * `bin.deleteContact` does. It used to erase the contact on the spot, for
+ * anyone in the business; now it goes to the Recycle bin, and only for the
+ * owner and contractors (`clients.manage`).
+ */
 export const remove = mutation({
   args: { businessId: v.id('businesses'), contactId: v.id('clientContacts') },
   handler: async (ctx, { businessId, contactId }) => {
-    await requireMembership(ctx, businessId)
-
-    const contact = await ctx.db.get(contactId)
-    if (!contact || contact.businessId !== businessId) {
-      throw new ConvexError('NOT_FOUND')
-    }
-    await ctx.db.delete(contactId)
+    await binContact(ctx, businessId, contactId)
   },
 })

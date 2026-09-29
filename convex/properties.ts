@@ -13,6 +13,7 @@ import { assignClientNumber, normaliseTags } from './lib/clientRecord'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { requireActor } from './lib/actor'
+import { unbinned } from './lib/bin'
 
 /** Embeds the owning client alongside a property — the detail-view shape
  * (mirrors how `jobs.get` embeds `assignee`/`property` wholesale). */
@@ -42,6 +43,7 @@ export const list = query({
     const properties = await ctx.db
       .query('properties')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
     // Wider than `clients.list`, and easy to miss: this embeds the whole
     // client document on every row, so leaving it unscoped would hand back
@@ -79,12 +81,16 @@ export const search = query({
         ? await ctx.db
             .query('properties')
             .withIndex('by_business', (idx) => idx.eq('businessId', businessId))
+            .filter((idx) => idx.eq(idx.field('deletedAt'), undefined))
             .take(50)
         : await ctx.db
             .query('properties')
             .withSearchIndex('search', (s) =>
               s.search('addressLine', q).eq('businessId', businessId),
             )
+            // Before the limit, so a site in the Recycle bin never costs a
+            // live one its place in the results (lib/bin.ts).
+            .filter((idx) => idx.eq(idx.field('deletedAt'), undefined))
             .take(50)
     return Promise.all(properties.map((p) => withClient(ctx, p)))
   },
@@ -95,7 +101,7 @@ export const get = query({
   handler: async (ctx, { businessId, propertyId }) => {
     await requireMembership(ctx, businessId)
 
-    const property = await ctx.db.get(propertyId)
+    const property = unbinned(await ctx.db.get(propertyId))
     // Checking the parent business prevents reading a property by id from
     // another tenant even with a valid membership somewhere.
     if (!property || property.businessId !== businessId) return null
@@ -111,7 +117,7 @@ export const listByClient = query({
   handler: async (ctx, { businessId, clientId }) => {
     const env = await requireActor(ctx, businessId)
 
-    const client = await ctx.db.get(clientId)
+    const client = unbinned(await ctx.db.get(clientId))
     if (!client || client.businessId !== businessId) return []
     const visible = await visibleClientIds(ctx, env)
     if (!inClientScope(visible, client._id)) return []
@@ -119,6 +125,7 @@ export const listByClient = query({
     return ctx.db
       .query('properties')
       .withIndex('by_client', (q) => q.eq('clientId', clientId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
   },
 })
@@ -191,7 +198,8 @@ async function requireClientOf(
   businessId: Id<'businesses'>,
   clientId: Id<'clients'>,
 ) {
-  const client = await ctx.db.get(clientId)
+  // No new site for a client in the Recycle bin (lib/bin.ts).
+  const client = unbinned(await ctx.db.get(clientId))
   if (!client || client.businessId !== businessId) {
     throw new ConvexError('NOT_FOUND')
   }
@@ -327,7 +335,8 @@ export async function resolvePropertyId(
   },
 ): Promise<Id<'properties'>> {
   if (input.propertyId !== undefined) {
-    const property = await ctx.db.get(input.propertyId)
+    // Nothing is booked at a site in the Recycle bin.
+    const property = unbinned(await ctx.db.get(input.propertyId))
     if (!property || property.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -383,7 +392,7 @@ export const update = mutation({
   ) => {
     await requireMembership(ctx, businessId)
 
-    const property = await ctx.db.get(propertyId)
+    const property = unbinned(await ctx.db.get(propertyId))
     if (!property || property.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -431,12 +440,13 @@ export const jobHistory = query({
   handler: async (ctx, { businessId, propertyId }) => {
     const { scope, caps } = await requireActor(ctx, businessId)
 
-    const property = await ctx.db.get(propertyId)
+    const property = unbinned(await ctx.db.get(propertyId))
     if (!property || property.businessId !== businessId) return []
 
     const jobs = await ctx.db
       .query('jobs')
       .withIndex('by_property', (q) => q.eq('propertyId', propertyId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .order('desc')
       .collect()
 

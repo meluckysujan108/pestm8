@@ -219,7 +219,7 @@ function ClientsPage() {
         timezone={business.timezone}
         businessSlug={business.slug}
         businessState={business.state}
-        isOwner={canManageClients}
+        canManageClients={canManageClients}
         clientId={openId}
         onClose={() => setOpenId(null)}
       />

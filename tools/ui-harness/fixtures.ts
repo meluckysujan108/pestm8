@@ -258,9 +258,79 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
     MEMBERS.map((m) => ({ ...m, displayName: m.name, status: 'active' })),
   'weather:forDays': () => [],
   'notes:unreadMentionCount': () => 2,
+  'bin:list': () => ({ entries: BIN_ENTRIES, capped: false }),
 }
 
 export function resolveFixture(fn: string, args: unknown): unknown {
   const f = FIXTURES[fn]
   return f ? f(args) : undefined
 }
+
+/** What `bin.list` answers: one of each kind, as Settings → Recycle bin
+ * shows them. */
+const HOUR = 60 * 60 * 1000
+export const BIN_ENTRIES = [
+  {
+    _id: 'bin0',
+    kind: 'contact',
+    title: 'Tom Hale',
+    clientName: 'Subi Café Group',
+    deletedAt: Date.now() - HOUR,
+    wipesAt: Date.now() - HOUR + 30 * 24 * HOUR,
+    deletedBy: 'Terence Van Der Walt',
+    archivedAt: null,
+    counts: { properties: 0, jobs: 0, recurrences: 0, notes: 0, drafts: 0 },
+  },
+  {
+    _id: 'bin1',
+    kind: 'job',
+    title: 'Termite Inspection',
+    suburb: 'Bayswater',
+    scheduledAt: Date.now() + 26 * HOUR,
+    deletedAt: Date.now() - 2 * HOUR,
+    wipesAt: Date.now() - 2 * HOUR + 30 * 24 * HOUR,
+    deletedBy: 'Kevin Tran',
+    counts: { properties: 0, jobs: 0, recurrences: 0, notes: 1, drafts: 1 },
+  },
+  {
+    _id: 'bin2',
+    kind: 'client',
+    title: 'Jane Smith',
+    deletedAt: Date.now() - 30 * HOUR,
+    wipesAt: Date.now() - 30 * HOUR + 30 * 24 * HOUR,
+    deletedBy: 'Terence Van Der Walt',
+    counts: { properties: 2, jobs: 14, recurrences: 1, notes: 3, drafts: 0 },
+  },
+  {
+    _id: 'bin3',
+    kind: 'property',
+    title: '9 Rokeby Rd',
+    suburb: 'Subiaco',
+    clientName: 'Harbour Strata',
+    deletedAt: Date.now() - 5 * 24 * HOUR,
+    wipesAt: Date.now() - 5 * 24 * HOUR + 30 * 24 * HOUR,
+    deletedBy: 'Terence Van Der Walt',
+    counts: { properties: 0, jobs: 3, recurrences: 0, notes: 0, drafts: 0 },
+  },
+  {
+    _id: 'bin4',
+    kind: 'recurrence',
+    title: 'General Pest',
+    suburb: 'Cottesloe',
+    interval: { count: 3, unit: 'month' },
+    deletedAt: Date.now() - 9 * 24 * HOUR,
+    wipesAt: Date.now() - 9 * 24 * HOUR + 30 * 24 * HOUR,
+    deletedBy: 'Terence Van Der Walt',
+    counts: { properties: 0, jobs: 4, recurrences: 0, notes: 0, drafts: 0 },
+  },
+  {
+    _id: 'bin5',
+    kind: 'client',
+    title: 'Coastal Holiday Units',
+    deletedAt: Date.now() - 3 * HOUR,
+    wipesAt: Date.now() - 3 * HOUR + 30 * 24 * HOUR,
+    deletedBy: '',
+    archivedAt: Date.now() - 17 * 24 * HOUR,
+    counts: { properties: 1, jobs: 9, recurrences: 0, notes: 1, drafts: 0 },
+  },
+]

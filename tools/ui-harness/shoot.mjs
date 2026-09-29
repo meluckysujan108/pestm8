@@ -24,6 +24,68 @@ const PLAN = {
     before: async (p) => p.waitForTimeout(700),
   },
   client: { before: async (p) => p.waitForTimeout(900) },
+  'client-scrolled': {
+    spec: 'client',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.evaluate(() => {
+        const el = [
+          ...document.querySelectorAll('[data-vaul-drawer] div'),
+        ].find(
+          (d) =>
+            d.scrollHeight > d.clientHeight + 20 &&
+            getComputedStyle(d).overflowY === 'auto',
+        )
+        if (el) el.scrollTop = el.scrollHeight
+      })
+      await p.waitForTimeout(300)
+    },
+  },
+  'client-property-edit': {
+    spec: 'client',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Edit 9 Rokeby Rd' }).click()
+      await p.waitForTimeout(400)
+      await p
+        .getByRole('button', { name: 'Delete this property' })
+        .scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  'client-contact-remove': {
+    spec: 'client',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Remove Tom Hale' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'client-delete-confirm': {
+    spec: 'client',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Delete client' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  bin: { full: true, before: async (p) => p.waitForTimeout(600) },
+  'bin-delete-confirm': {
+    spec: 'bin',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: 'Delete now' }).first().click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'bin-empty-confirm': {
+    spec: 'bin',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: 'Empty Recycle bin' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
   schedule: { full: false },
   'jobdetail-scrolled': {
     spec: 'jobdetail',

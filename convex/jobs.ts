@@ -19,6 +19,9 @@ import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import { jobsInScope, jobsNewestFirst } from './lib/jobScope'
+import { unbinned } from './lib/bin'
+import { heldAnywhere } from './lib/fileClaims'
+import { CLAIM_WINDOW_MS } from './lib/products'
 import {
   assertStatusChange,
   entersDone,
@@ -417,6 +420,7 @@ export const listRecurring = query({
       .withIndex('by_business_active', (q) =>
         q.eq('businessId', businessId).eq('active', true),
       )
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
 
     return {
@@ -632,7 +636,9 @@ export const get = query({
     // never implies write access.
     const env = await requireActor(ctx, businessId)
 
-    const job = await ctx.db.get(jobId)
+    // In the Recycle bin reads as gone (lib/bin.ts): the bin page is where
+    // a deleted job is seen, not a deep link to it.
+    const job = unbinned(await ctx.db.get(jobId))
     if (!job || job.businessId !== businessId) return null
 
     if (!isInScope(env.scope, job)) {
@@ -815,7 +821,8 @@ export const update = mutation({
     // Same tenant check `create` already performs — a job can be corrected
     // to a different address, never moved to another business's property.
     if (patch.propertyId !== undefined) {
-      const property = await ctx.db.get(patch.propertyId)
+      // Nor onto a property in the Recycle bin.
+      const property = unbinned(await ctx.db.get(patch.propertyId))
       if (!property || property.businessId !== businessId) {
         throw new ConvexError('NOT_FOUND')
       }
@@ -953,10 +960,36 @@ export const addPhoto = mutation({
       caption,
       order: existing.length,
       createdAt: Date.now(),
+      ...((await claimableForJob(ctx, storageId)) && { claimed: true }),
     })
     await recordJobWrite(ctx, env, job, 'job.photo.add')
   },
 })
+
+/**
+ * Whether a file just added to a job is that job's alone: uploaded within
+ * the claim window (as a product's or a licence's file must be), and held by
+ * no other job photo and by none of the rows `heldAnywhere` can ask.
+ *
+ * It does not refuse the photo — the job sheet adds each upload straight
+ * after it lands, so a real one always passes, and a photo is never lost to
+ * a slow network. It decides only whether wiping the job may delete the file
+ * too (`jobPhotos.claimed`, convex/bin.ts): an id that fails this could be
+ * any file in the deployment, a signed report's included.
+ */
+async function claimableForJob(
+  ctx: MutationCtx,
+  storageId: Id<'_storage'>,
+): Promise<boolean> {
+  const file = await ctx.db.system.get('_storage', storageId)
+  if (!file || Date.now() - file._creationTime > CLAIM_WINDOW_MS) return false
+  const other = await ctx.db
+    .query('jobPhotos')
+    .withIndex('by_storageId', (q) => q.eq('storageId', storageId))
+    .first()
+  if (other) return false
+  return !(await heldAnywhere(ctx, storageId))
+}
 
 export const removePhoto = mutation({
   args: {
@@ -981,7 +1014,7 @@ export const photos = query({
   handler: async (ctx, { businessId, jobId }) => {
     const { scope } = await requireActor(ctx, businessId)
 
-    const job = await ctx.db.get(jobId)
+    const job = unbinned(await ctx.db.get(jobId))
     if (!job || job.businessId !== businessId) return []
     if (!isInScope(scope, job)) return []
 
