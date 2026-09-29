@@ -544,7 +544,7 @@ Never on one tap.
   - "Delete" is for records (a note, a product, a draft).
   - "Remove" is for attachments and memberships (a photo, a file, a contact, a team member).
   - "Archive" is for what can come back into use (templates).
-- **Recovery** is a place, not a toast: the Recycle bin (Settings → Recycle bin: clients, properties, jobs and recurring services, with everything that went with them), Recently Deleted (report drafts and notes, 30 days), Archived, "Offer again". A delete's confirm says where it can be got back from.
+- **Recovery** is a place, not a toast: the Recycle bin (Settings → Recycle bin, 30 days: clients, properties, jobs and recurring services, with everything that went with them), Recently Deleted (report drafts and notes, 30 days), Archived, "Offer again". A delete's confirm says where it can be got back from.
 
 ### Hold to act
 

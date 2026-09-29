@@ -61,7 +61,23 @@ const PLAN = {
       await p.waitForTimeout(500)
     },
   },
-  bin: { before: async (p) => p.waitForTimeout(600) },
+  bin: { full: true, before: async (p) => p.waitForTimeout(600) },
+  'bin-delete-confirm': {
+    spec: 'bin',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: 'Delete now' }).first().click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'bin-empty-confirm': {
+    spec: 'bin',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: 'Empty Recycle bin' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
   schedule: { full: false },
   'jobdetail-scrolled': {
     spec: 'jobdetail',

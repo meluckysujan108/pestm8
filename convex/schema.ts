@@ -1936,6 +1936,10 @@ export default defineSchema({
       notes: v.number(),
       drafts: v.number(),
     }),
+    /** Delete forever has begun (by hand, Empty bin, or 30 days on): the
+     * group is being wiped in batches, and can no longer be restored. The
+     * entry goes when the last of it does. */
+    wipeStartedAt: v.optional(v.number()),
   })
     // The bin page, newest first.
     .index('by_businessId_and_deletedAt', ['businessId', 'deletedAt'])

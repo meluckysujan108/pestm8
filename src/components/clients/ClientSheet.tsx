@@ -336,8 +336,8 @@ function ClientBody({
           <>
             They go to the Recycle bin with their properties, jobs,
             recurring services, notes and draft reports. The business owner
-            can restore them from Settings → Recycle bin. Finalised reports
-            are kept in Reports.
+            can restore them from Settings → Recycle bin for 30 days.
+            Finalised reports are kept in Reports.
           </>
         }
         cancel="Keep client"
@@ -1451,8 +1451,8 @@ function PropertyEditForm({
                 <>
                   It goes to the Recycle bin with its jobs, recurring
                   services, notes and draft reports. The business owner can
-                  restore it from Settings → Recycle bin. Finalised reports
-                  are kept in Reports.
+                  restore it from Settings → Recycle bin for 30 days.
+                  Finalised reports are kept in Reports.
                 </>
               }
               cancel="Keep property"

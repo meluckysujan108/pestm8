@@ -637,8 +637,8 @@ function JobDetailBody({
               <>
                 {job.jobType} on {formatWhen(job.scheduledAt, timezone)} goes
                 to the Recycle bin with its notes and draft reports. The
-                business owner can restore it from Settings → Recycle bin.
-                Finalised reports are kept in Reports.
+                business owner can restore it from Settings → Recycle bin for
+                30 days. Finalised reports are kept in Reports.
               </>
             }
             cancel="Keep job"
@@ -657,8 +657,8 @@ function JobDetailBody({
               <>
                 Every visit of it, past and future, goes to the Recycle bin
                 with their notes and draft reports, and no more are booked.
-                The business owner can restore it from Settings → Recycle bin.
-                Finalised reports are kept in Reports.
+                The business owner can restore it from Settings → Recycle bin
+                for 30 days. Finalised reports are kept in Reports.
               </>
             }
             cancel="Keep service"
