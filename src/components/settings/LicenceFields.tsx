@@ -17,25 +17,13 @@ import { useHydrated } from '#/lib/useHydrated'
 import { FieldRow } from './ui'
 
 /**
- * A licence's name, number and expiry, as both "Add licence" and a licence's
- * own page edit them — one set of fields, one set of checks, the same rules
- * the server keeps (`convex/lib/memberLicences.ts`).
+ * A licence's or an insurance policy's name, number and expiry, as both "Add
+ * new" and its own page edit them — one set of fields, one set of checks, the
+ * same rules the server keeps (`convex/lib/memberLicences.ts`).
+ *
+ * The name is a plain field, with no suggestions under it: it is whatever the
+ * person calls it ("Pest management", "Public liability").
  */
-
-/**
- * What most people in the trade carry, offered as one tap while the name is
- * empty. Only suggestions: the name is whatever the person calls it.
- */
-export const SUGGESTED_LICENCE_NAMES = [
-  'Pest management licence',
-  'Fumigation licence',
-  'Timber pest inspection',
-  'White card',
-  'First aid',
-  'Driver licence',
-  'Working at heights',
-  'ChemCert',
-] as const
 
 /** The fields as typed. An empty number or date means none. */
 export type LicenceDraft = { name: string; number: string; expiresOn: string }
@@ -81,13 +69,12 @@ export function LicenceFields({
    * save a change with. */
   disabled?: boolean
 }) {
-  // The fields take typing before hydration like any form's; the buttons
-  // (a suggestion, Clear) do nothing until then, so they wait for it.
+  // The fields take typing before hydration like any form's; Clear does
+  // nothing until then, so it waits for it.
   const hydrated = useHydrated()
   const nameId = useId()
   const numberId = useId()
   const expiryId = useId()
-  const nameInput = useRef<HTMLInputElement>(null)
   const expiryInput = useRef<HTMLInputElement>(null)
   const set = (field: keyof LicenceDraft, value: string) =>
     onChange({ ...draft, [field]: value })
@@ -96,7 +83,6 @@ export function LicenceFields({
     <>
       <FieldRow id={nameId} label="Name">
         <input
-          ref={nameInput}
           id={nameId}
           value={draft.name}
           onChange={(e) => set('name', e.target.value)}
@@ -115,29 +101,6 @@ export function LicenceFields({
           <FieldMessage id={fieldMessageId(nameId, 'error')} tone="error">
             {errors.name}
           </FieldMessage>
-        )}
-        {/* Only while empty: once there is a name they are in the way. */}
-        {draft.name === '' && !disabled && (
-          <div
-            role="group"
-            aria-label="Suggested names"
-            className="mt-2.5 flex flex-wrap gap-1.5"
-          >
-            {SUGGESTED_LICENCE_NAMES.map((name) => (
-              <button
-                key={name}
-                type="button"
-                onClick={(e) => {
-                  handFocusOn(e.currentTarget, nameInput.current)
-                  set('name', name)
-                }}
-                disabled={!hydrated}
-                className="min-h-11 rounded-full bg-surface-2 px-3.5 text-caption font-semibold text-ink-2 outline-none transition active:scale-[.97] focus-visible:ring-2 focus-visible:ring-blue"
-              >
-                {name}
-              </button>
-            ))}
-          </div>
         )}
       </FieldRow>
 
@@ -211,12 +174,11 @@ export function LicenceFields({
 }
 
 /**
- * For a button that removes itself when pressed — a suggestion, gone once
- * there is a name; Clear, gone once there is no date — focus on it goes to
- * its field rather than falling to the page, which would send someone on a
- * keyboard or a screen reader back to the top. Only when it HAD focus: a tap
- * on an iPhone never gives a button focus, and moving it to the field would
- * put up a keyboard, or the date wheel, that nobody asked for.
+ * For a button that removes itself when pressed — Clear, gone once there is
+ * no date — focus on it goes to its field rather than falling to the page,
+ * which would send someone on a keyboard or a screen reader back to the top.
+ * Only when it HAD focus: a tap on an iPhone never gives a button focus, and
+ * moving it to the field would put up the date wheel nobody asked for.
  */
 function handFocusOn(from: HTMLElement, to: HTMLElement | null): void {
   if (document.activeElement === from) to?.focus()

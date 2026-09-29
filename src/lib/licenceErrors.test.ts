@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import { ConvexError } from 'convex/values'
 import { describeError } from '#/components/forms/describeError'
-import { licenceErrorCopy, licenceRefusal } from './licenceErrors'
+import {
+  licenceErrorCopy,
+  licenceRefusal,
+  missingFilesWords,
+} from './licenceErrors'
 import { SWITCH_ENDED } from './productErrors'
 import type { LicenceAction } from './licenceErrors'
 
@@ -45,7 +49,7 @@ describe('licenceErrorCopy', () => {
   test('the limits are the rules’ own numbers', () => {
     const copy = licenceErrorCopy('upload')
     expect(copy.TOO_MANY_FILES).toContain('up to 6 files')
-    expect(copy.TOO_MANY_LICENCES).toContain('up to 20 licences')
+    expect(copy.TOO_MANY_LICENCES).toContain('up to 20.')
     expect(copy.FILE_TOO_LARGE).toContain('20 MB')
     expect(copy.FILE_TOO_LARGE).toContain('10 MB')
     expect(copy.INVALID_NAME).toContain('80 characters')
@@ -86,5 +90,16 @@ describe('licenceErrorCopy', () => {
     const copy = licenceErrorCopy('upload')
     expect(describeError(new Error('offline'), copy)).toBe(copy.offline)
     expect(describeError(new Error('Timed out'), copy)).toBe(copy.offline)
+  })
+})
+
+describe('files Add new sent that are not on the licence yet', () => {
+  test('say so, and what to do if they do not arrive', () => {
+    expect(missingFilesWords(1)).toBe(
+      'Added, but 1 file hasn’t arrived yet. If it isn’t listed here in a minute, add it again.',
+    )
+    expect(missingFilesWords(3)).toBe(
+      'Added, but 3 files haven’t arrived yet. If they aren’t listed here in a minute, add them again.',
+    )
   })
 })

@@ -13,9 +13,10 @@ import type { Actor } from './fixtures'
 import type { Id } from '../convex/_generated/dataModel'
 
 /**
- * My licences: every licence a person holds — a name they choose, a number,
- * an expiry, and up to six files — apart from the licence number printed on
- * their reports, which stays where it was.
+ * Licences & insurance: every licence and insurance policy a person holds —
+ * one list, each with a name they type, a number, an expiry, and up to six
+ * files — apart from the licence number printed on their reports, which stays
+ * where it was.
  *
  * The holder adds and changes their own; the owner reads anyone's, and
  * changes nothing; nobody else sees them at all. The whole wallet is kept on
@@ -153,79 +154,122 @@ async function addFile(
   await (await chooser).setFiles(file)
 }
 
-test('a technician adds a licence from a suggestion, and the list and the hub say it runs out soon', async ({
+test('a technician adds a licence with its photo in one go, lands back on the list, and the hub says it runs out soon', async ({
   page,
 }) => {
   const s = await setupBusinessWithSub('licences-add')
   await signInViaUi(page, s.sub.email)
+  // Every file sent to storage, to prove nothing goes up before Add.
+  const uploadsSent: Array<string> = []
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().includes('/api/storage/upload')
+    ) {
+      uploadsSent.push(request.url())
+    }
+  })
 
   await page.goto(`/${s.slug}/settings/licence`)
   await expect(
-    page.getByRole('heading', { name: 'Licences', level: 1 }),
+    page.getByRole('heading', {
+      name: 'Licences & insurance',
+      exact: true,
+      level: 1,
+    }),
   ).toBeVisible()
   // The number on reports is where it was, and apart.
   await expect(page.getByText('On your reports')).toBeVisible()
-  await expect(page.getByText('My licences')).toBeVisible()
+  await expect(page.getByText('My licences & insurance')).toBeVisible()
 
-  await page.getByRole('link', { name: 'Add licence' }).click()
+  await page.getByRole('link', { name: 'Add licence or insurance' }).click()
   await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings/licence/new$`))
   await expect(
-    page.getByRole('heading', { name: 'Add licence', level: 1 }),
+    page.getByRole('heading', { name: 'Add new', level: 1 }),
   ).toBeVisible()
 
-  // A suggestion fills the name in one tap; it can still be anything.
-  const suggestion = page
-    .getByRole('group', { name: 'Suggested names' })
-    .getByRole('button', { name: 'Pest management licence' })
-  await expect(suggestion).toBeEnabled()
-  await suggestion.click()
-  await expect(page.getByLabel('Name', { exact: true })).toHaveValue(
-    'Pest management licence',
-  )
-  // Gone once there is a name.
+  // A file that is not a PDF, PNG or JPG is turned away as it is picked.
+  await addFile(page, {
+    name: 'Licence.docx',
+    mimeType:
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: Buffer.from('not a licence'),
+  })
   await expect(
-    page.getByRole('group', { name: 'Suggested names' }),
-  ).toHaveCount(0)
+    page.getByText('That file isn’t a PDF, PNG or JPG. Choose one of those.'),
+  ).toBeVisible()
+
+  // The card's photo, and a PDF picked by mistake and taken off again.
+  // Picked, not sent: nothing exists until Add.
+  await addFile(page, {
+    name: 'Card front.png',
+    mimeType: 'image/png',
+    buffer: solidPng(900, 560),
+  })
+  await addFile(page, {
+    name: 'Wrong one.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf({ pages: 1 }),
+  })
+  await expect(page.getByText(/^Card front\.(jpg|png)$/)).toBeVisible()
+  await expect(page.getByText('Wrong one.pdf')).toBeVisible()
+  // Asked first: a photo just taken is on this page and nowhere else.
+  await page.getByRole('button', { name: 'Remove Wrong one.pdf' }).click()
+  const confirmRemove = page.getByRole('alertdialog', {
+    name: 'Remove Wrong one.pdf?',
+  })
+  await confirmRemove
+    .getByRole('button', { name: 'Remove', exact: true })
+    .click()
+  await expect(page.getByText('Wrong one.pdf')).toHaveCount(0)
+  expect(
+    (await listOf(s.sub, s.businessId, s.subMembershipId)).licences,
+  ).toEqual([])
+  expect(uploadsSent).toEqual([])
+
+  await page.getByLabel('Name', { exact: true }).fill('Pest management licence')
   await page.getByLabel('Number (optional)').fill('PMT-4471')
   const expiresOn = perthDay(30)
   await page.getByLabel('Expires (optional)').fill(expiresOn)
   await page.getByRole('button', { name: 'Add', exact: true }).click()
 
-  // Onto the licence's own page, which says what comes next.
-  await expect(page).toHaveURL(
-    new RegExp(`/${s.slug}/settings/licence/[^/?]+\\?added=true$`),
-    { timeout: SAVE_TIMEOUT },
-  )
-  await expect(
-    page.getByRole('heading', { name: 'Pest management licence', level: 1 }),
-  ).toBeVisible()
-  await expect(
-    page.getByText('Added. Now add a photo or PDF of it.'),
-  ).toBeVisible()
+  // Straight back to the list — no second page to finish it on — with its
+  // number and expiry, and amber at thirty days out.
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings/licence$`), {
+    timeout: SAVE_TIMEOUT,
+  })
+  const row = page.getByRole('link', { name: /^Pest management licence/ })
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('PMT-4471 · Expires')
+  await expect(row).toContainText('30 days')
 
+  // Made with its photo, and only that — the one file sent, sent on Add.
+  expect(uploadsSent).toHaveLength(1)
   const { licences } = await listOf(s.sub, s.businessId, s.subMembershipId)
   expect(licences).toEqual([
     expect.objectContaining({
       name: 'Pest management licence',
       number: 'PMT-4471',
       expiresOn,
-      files: [],
+      files: [
+        expect.objectContaining({
+          kind: 'image',
+          fileName: expect.stringMatching(/^Card front\.(jpg|png)$/),
+        }),
+      ],
     }),
   ])
 
-  // The list: its number and expiry, and amber at thirty days out.
-  await page.getByRole('link', { name: 'Licences', exact: true }).click()
-  const row = page.getByRole('link', { name: /^Pest management licence/ })
-  await expect(row).toBeVisible()
-  await expect(row).toContainText('PMT-4471 · Expires')
-  await expect(row).toContainText('30 days')
-
   // And the hub's row says so — the report number is set, so it is the
-  // expiry that shows.
+  // expiry that shows, not "Missing". The number itself stays off the row:
+  // beside a badge it would cut "Licences & insurance" short on a phone.
   await page.goto(`/${s.slug}/settings`)
-  const hubRow = page.getByRole('main').getByRole('link', { name: /^Licences/ })
-  await expect(hubRow).toContainText('TECH-8821')
+  const hubRow = page
+    .getByRole('main')
+    .getByRole('link', { name: /^Licences & insurance/ })
   await expect(hubRow).toContainText('Expiring')
+  await expect(hubRow).not.toContainText('Missing')
+  await expect(hubRow).not.toContainText('TECH-8821')
 })
 
 test('a technician adds a PDF and a photo, reads them in the viewer, renames the licence, takes a file off and deletes it', async ({
@@ -327,7 +371,7 @@ test('a technician adds a PDF and a photo, reads them in the viewer, renames the
   ])
 
   // ── And the licence deleted, back to the list ───────────────────────────
-  await page.getByRole('button', { name: 'Delete licence' }).click()
+  await page.getByRole('button', { name: 'Delete', exact: true }).click()
   const confirmDelete = page.getByRole('alertdialog', {
     name: 'Delete White card (construction)?',
   })
@@ -367,6 +411,7 @@ test('the owner reads a subcontractor’s licences on their Team page, and can c
   // The report number, as it was.
   await expect(page.getByLabel('Licence number')).toHaveValue('TECH-8821')
 
+  await expect(page.getByText('Licences & insurance')).toBeVisible()
   const row = page.getByRole('button', { name: /^Fumigation licence/ })
   await expect(row).toBeVisible()
   await expect(row).toContainText('FUM-77')
@@ -422,7 +467,9 @@ test('a subcontractor opening the owner’s licence by its address finds nothing
   await expect(
     page.getByRole('heading', { name: 'Not found', level: 1 }),
   ).toBeVisible({ timeout: SAVE_TIMEOUT })
-  await expect(page.getByText('That licence isn’t in your list.')).toBeVisible()
+  await expect(
+    page.getByText('Not in your list', { exact: true }),
+  ).toBeVisible()
   await expect(page.getByText('Timber pest inspection')).toHaveCount(0)
   await expect(page.getByText('TPI-9')).toHaveCount(0)
 
@@ -514,9 +561,11 @@ test.describe('licences kept on this phone', () => {
         page.getByRole('heading', { name: 'Settings', level: 1 }),
       ).toBeVisible()
 
-      const sheet = page.getByRole('dialog', { name: 'My licences' })
+      const sheet = page.getByRole('dialog', {
+        name: 'My licences & insurance',
+      })
       await clickUntil(
-        page.getByRole('button', { name: 'Show my licence' }),
+        page.getByRole('button', { name: 'Show my licences & insurance' }),
         () => expect(sheet).toBeVisible({ timeout: 2_000 }),
       )
       await expect(

@@ -20,8 +20,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
 
 /*
  * Apart from the pages' upload and edit code, so the hub — which reads the
- * wallet for its badge and its Show my licence — does not bring those into
- * the chunk every Settings visit loads.
+ * wallet for its badge and its Show my licences & insurance — does not bring
+ * those into the chunk every Settings visit loads.
  */
 
 /** How long the live list may wait before the kept copy stands in. */
@@ -75,10 +75,11 @@ export type Wallet = {
  * line: that would put back the list as it was then, and forget every file
  * kept since. `syncKeptWallet` refuses a list older than the kept one too.
  *
- * One hook for the hub, the Licences page, a licence's page and the Show my
- * licence sheet, so none of them can disagree about what the phone can show
- * an inspector. Never suspends: with no signal a Convex query waits rather
- * than fails, and this is read on the pages a technician opens on site.
+ * One hook for the hub, the Licences & insurance page, an item's page and
+ * the Show my licences & insurance sheet, so none of them can disagree about
+ * what the phone can show an inspector. Never suspends: with no signal a
+ * Convex query waits rather than fails, and this is read on the pages a
+ * technician opens on site.
  */
 export function useMyLicences(
   businessId: Id<'businesses'>,

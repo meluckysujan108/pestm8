@@ -11,9 +11,10 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
- * The hub's "Show my licence": every licence the signed-in person holds, as
- * cards in a sheet — the name, number and expiry an inspector asks about, and
- * each file to open full screen — one tap from Settings rather than three.
+ * The hub's "Show my licences & insurance": every licence and insurance policy
+ * the signed-in person holds, as cards in a sheet — the name, number and
+ * expiry an inspector or a site manager asks about, and each file to open
+ * full screen — one tap from Settings rather than three.
  *
  * Never suspends: it is handed the wallet the hub reads (`useMyLicences`),
  * which with no signal is the copy kept on this phone after a few seconds —
@@ -25,7 +26,8 @@ import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
  * closes the sheet, and Done in the viewer brings it back.
  *
  * Nothing is changed from here. Adding and taking off belongs on the
- * Licences page, which has the picker, its checks and its error messages.
+ * Licences & insurance page, which has the picker, its checks and its error
+ * messages.
  */
 export function ShowMyLicenceButton({
   businessId,
@@ -62,10 +64,6 @@ export function ShowMyLicenceButton({
   const viewed = viewing
     ? wallet.licences.find((licence) => licence._id === viewing.licence._id)
     : undefined
-  // The button and the sheet it opens say the same thing, in the number the
-  // person actually has.
-  const plural = wallet.licences.length !== 1
-
   return (
     <>
       <button
@@ -80,13 +78,13 @@ export function ShowMyLicenceButton({
           strokeWidth={1.7}
           className="shrink-0 text-blue"
         />
-        {plural ? 'Show my licences' : 'Show my licence'}
+        Show my licences & insurance
       </button>
 
       <Sheet
         open={sheetOpen}
         onClose={() => setSheetOpen(false)}
-        title={plural ? 'My licences' : 'My licence'}
+        title="My licences & insurance"
         description={
           wallet.fromPhone
             ? 'No signal — showing the copy kept on this phone.'
@@ -126,7 +124,7 @@ export function ShowMyLicenceButton({
   )
 }
 
-/** One licence, as a card an inspector can read at arm's length. */
+/** One licence or policy, as a card an inspector can read at arm's length. */
 function LicenceCard({
   businessId,
   membershipId,

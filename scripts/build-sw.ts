@@ -92,7 +92,10 @@ export async function buildServiceWorker(publicDir: string) {
     // its no-WebAssembly JPEG 2000 decoder is a 450 KB `.js` the pattern above
     // would otherwise hand every installed phone. src/sw.ts caches that folder
     // on first use instead, and keptProducts warms it once a product is kept.
-    globIgnores: ['sw.js', '**/*.map', 'pdfjs/**'],
+    // `splash/` is the iOS launch screens (scripts/build-icons.mjs), 1.4 MB of
+    // PNGs of which a phone wants its own two, once, when it is added to the
+    // Home Screen — and iOS fetches those itself.
+    globIgnores: ['sw.js', '**/*.map', 'pdfjs/**', 'splash/**'],
     injectionPoint: 'self.__SW_MANIFEST',
   })
 

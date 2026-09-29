@@ -134,6 +134,7 @@ const PLAN = {
     },
   },
   settings: { full: true },
+  licenceadd: { full: true },
   error: {},
   guide: { before: async (p) => p.waitForTimeout(500) },
   confirm: { before: async (p) => p.waitForTimeout(500) },

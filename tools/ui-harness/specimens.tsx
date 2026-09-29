@@ -11,6 +11,10 @@ import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
 import { ReportSettingsForm } from '#/components/settings/ReportSettingsForm'
+import { LicenceFields } from '#/components/settings/LicenceFields'
+import { StagedLicenceFiles } from '#/components/settings/StagedLicenceFiles'
+import type { StagedFiles } from '#/components/settings/StagedLicenceFiles'
+import type { LicenceDraft } from '#/components/settings/LicenceFields'
 import { SignSheet } from '#/components/reports/fields/SignSheet'
 import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
 import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
@@ -325,8 +329,8 @@ function Settings() {
             to="/"
             icon={KeyRound}
             tint="green"
-            title="Licences"
-            badge={<RowBadge tone="amber">Expires soon</RowBadge>}
+            title="Licences & insurance"
+            badge={<RowBadge tone="amber">Expiring</RowBadge>}
           />
           <SettingsLinkRow
             to="/"
@@ -685,7 +689,70 @@ function RecycleBin() {
   )
 }
 
+/** A card's photo, drawn rather than shipped: the thumbnail's stand-in. */
+const CARD_PHOTO =
+  'data:image/svg+xml;utf8,' +
+  encodeURIComponent(
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 86 54"><rect width="86" height="54" rx="4" fill="#2f7d4f"/><rect x="6" y="8" width="20" height="26" rx="2" fill="#cfe8d8"/><rect x="32" y="10" width="44" height="5" rx="2" fill="#e8f3ec"/><rect x="32" y="20" width="36" height="4" rx="2" fill="#bfe0cb"/><rect x="32" y="28" width="30" height="4" rx="2" fill="#bfe0cb"/></svg>',
+  )
+
+/**
+ * Add new: the details and the files picked with them — a photo and a PDF
+ * held until Add, each with a way to take it off.
+ */
+function LicenceAdd() {
+  const [draft, setDraft] = useState<LicenceDraft>({
+    name: 'Public liability insurance',
+    number: 'PL-2026-118',
+    expiresOn: '2027-04-17',
+  })
+  const staged: StagedFiles = {
+    files: [
+      {
+        id: 'a',
+        blob: new Blob([new Uint8Array(312_000)]),
+        type: { kind: 'image', contentType: 'image/jpeg' },
+        fileName: 'Card front.png',
+        previewUrl: CARD_PHOTO,
+      },
+      {
+        id: 'b',
+        blob: new Blob([new Uint8Array(1_240_000)]),
+        type: { kind: 'pdf', contentType: 'application/pdf' },
+        fileName: 'Certificate of currency.pdf',
+        previewUrl: null,
+      },
+    ],
+    preparing: null,
+    pickError: null,
+    leftOut: 0,
+    pick: async () => {},
+    remove: () => {},
+  }
+  return (
+    <Phone>
+      <header className="chrome-blur sticky top-0 z-30 border-b border-hairline px-4 pb-3 pt-3">
+        <BackLink
+          to="/$businessSlug/settings/licence"
+          params={{ businessSlug: 'demo' }}
+        >
+          Licences & insurance
+        </BackLink>
+        <h1 className="truncate text-page-title text-ink">Add new</h1>
+      </header>
+      <SettingsBody>
+        <SettingsGroup title="Details">
+          <LicenceFields draft={draft} onChange={setDraft} />
+        </SettingsGroup>
+        <StagedLicenceFiles staged={staged} uploading={null} locked={false} />
+        <SaveBar visible pending={false} label="Add" />
+      </SettingsBody>
+    </Phone>
+  )
+}
+
 export const SPECIMENS: Partial<Record<string, ComponentType>> = {
+  licenceadd: LicenceAdd,
   bin: RecycleBin,
   'report-settings': ReportSettings,
   dock: Dock,

@@ -19,7 +19,8 @@ const SAVE_COPY = {
 
 /**
  * Step 3: the owner's own licence number — the one printed on what they sign
- * (`memberships.licenceNumber`, set as Settings → My licence sets it).
+ * (`memberships.licenceNumber`, set as Settings → Licences & insurance sets
+ * it).
  *
  * Asked here because it is the one gap that stops work: a termite
  * certificate or a timber pest report will not finalise without it, and

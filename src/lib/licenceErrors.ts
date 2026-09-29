@@ -12,9 +12,11 @@ import { SWITCH_ENDED } from './productErrors'
 import type { ErrorCopy } from '#/components/forms/describeError'
 
 /**
- * What went wrong with a licence, in the words a technician reads — for
- * FormAlert's `copy`, which falls back to its own words for the codes every
- * form shares and to "offline" when the phone is.
+ * What went wrong with a licence or an insurance policy, in the words a
+ * technician reads — for FormAlert's `copy`, which falls back to its own
+ * words for the codes every form shares and to "offline" when the phone is.
+ * Worded so they read right for either: "Give it a name", not "Give the
+ * licence a name".
  *
  * `convex/memberLicences.ts` refuses with a bare code; the page turns each
  * into a sentence that says what happened and what to do. The same codes
@@ -33,12 +35,12 @@ export type LicenceAction =
 const mb = (bytes: number) => Math.round(bytes / (1024 * 1024))
 
 const WORDS: Record<string, string> = {
-  INVALID_NAME: `Give the licence a name, up to ${MAX_LICENCE_NAME_LENGTH} characters.`,
+  INVALID_NAME: `Give it a name, up to ${MAX_LICENCE_NAME_LENGTH} characters.`,
   INVALID_NUMBER: `That number is too long. It can be up to ${MAX_LICENCE_NUMBER_LENGTH} characters.`,
   INVALID_DATE:
     'That expiry date doesn’t exist. Pick it again from the calendar.',
-  TOO_MANY_LICENCES: `You can keep up to ${MAX_LICENCES} licences. Delete one you no longer hold, then add this one.`,
-  TOO_MANY_FILES: `A licence can hold up to ${MAX_LICENCE_FILES} files. Remove one, then add this.`,
+  TOO_MANY_LICENCES: `Your list can hold up to ${MAX_LICENCES}. Delete one you no longer need, then add this one.`,
+  TOO_MANY_FILES: `It can hold up to ${MAX_LICENCE_FILES} files. Remove one, then add this.`,
   WRONG_FILE_TYPE: 'That file isn’t a PDF, PNG or JPG. Choose one of those.',
   FILE_TOO_LARGE: `That file is too big: a PDF can be up to ${mb(MAX_LICENCE_PDF_BYTES)} MB, a photo up to ${mb(MAX_LICENCE_IMAGE_BYTES)} MB.`,
   FILE_NOT_FOUND: 'The upload took too long to finish. Try again.',
@@ -50,8 +52,8 @@ const WORDS: Record<string, string> = {
   ADD_FILE_UNCONFIRMED:
     'The file went up, but PestM8 hasn’t confirmed it yet. If it isn’t listed here in a minute, add it again.',
   ALREADY_ATTACHED: 'That file is already used elsewhere. Choose another.',
-  NOT_FOUND: 'This licence has been deleted, perhaps on another phone.',
-  NO_ACCESS: 'Only the person who holds a licence can change it.',
+  NOT_FOUND: 'This has been deleted, perhaps on another phone.',
+  NO_ACCESS: 'Only the person it belongs to can change it.',
   SWITCH_EXPIRED: SWITCH_ENDED,
   SWITCH_REVOKED: SWITCH_ENDED,
   SWITCH_NOT_PERMITTED: SWITCH_ENDED,
@@ -60,12 +62,12 @@ const WORDS: Record<string, string> = {
 }
 
 const FALLBACK: Record<LicenceAction, string> = {
-  add: 'Could not add this licence. Check your signal and try again.',
-  save: 'Could not save this licence. Check your signal and try again.',
-  delete: 'Could not delete this licence. Check your signal and try again.',
+  add: 'Could not add it. Check your signal and try again.',
+  save: 'Could not save the changes. Check your signal and try again.',
+  delete: 'Could not delete it. Check your signal and try again.',
   upload: 'Could not add the file. Check your signal and try again.',
   removeFile: 'Could not remove the file. Check your signal and try again.',
-  load: 'Could not load the licences. Try again later.',
+  load: 'Could not load the licences and insurance. Try again later.',
 }
 
 /** Said when the phone knows it has no signal: nothing was sent. */
@@ -85,6 +87,19 @@ export function licenceErrorCopy(action: LicenceAction): ErrorCopy {
     offline: OFFLINE,
     default: FALLBACK[action],
   }
+}
+
+/**
+ * Said on a licence's page when Add new made it but `missing` of the files it
+ * sent are not on it yet: a signal that dropped just then. They may yet land
+ * (a Convex mutation queued on a dropped socket goes when it comes back), and
+ * the page stops saying so once they have. So this says what to do if they
+ * do not arrive, not that they failed.
+ */
+export function missingFilesWords(missing: number): string {
+  return missing === 1
+    ? 'Added, but 1 file hasn’t arrived yet. If it isn’t listed here in a minute, add it again.'
+    : `Added, but ${missing} files haven’t arrived yet. If they aren’t listed here in a minute, add them again.`
 }
 
 /**

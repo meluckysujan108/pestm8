@@ -74,7 +74,7 @@ All tokens live in `src/styles.css`.
 | `--surface`            | `#ffffff`                   | `#1c1c1e`                   | Cards, rows in a sheet, popovers                                                                                                    |
 | `--surface-2`          | `#f2f2f7`                   | `#2c2c2e`                   | Inset blocks inside a card: locked boilerplate, a note, a quiet chip, a thumbnail                                                   |
 | `--surface-3`          | `#f4f4f8`                   | `#2a2a2c`                   | Input wells: every field's fill, and read-only values shown as fields                                                               |
-| `--canvas`             | `#ededf1`                   | `#000000`                   | The app background, and a sheet's background                                                                                        |
+| `--canvas`             | `#ededf1`                   | `#000000`                   | The app background, a sheet's background, and the iOS launch screens (`pnpm icons` redraws them)                                    |
 | `--fill-track`         | `rgba(118, 118, 128, 0.08)` | `rgba(120, 120, 128, 0.28)` | A segmented control's track                                                                                                         |
 | `--fill-secondary`     | `rgba(118, 118, 128, 0.12)` | `rgba(118, 118, 128, 0.24)` | Grey buttons (`SECONDARY_BUTTON`, `LINK_BUTTON`)                                                                                    |
 | `--red`                | `#ff3b30`                   | `#ff453a`                   | Brand as a word or glyph: today, the current tab, a destructive text row, an invalid field's ring                                   |
@@ -637,7 +637,7 @@ This isn't a pass at the end. Each point below is how the shared pieces already 
 - **Plain, short, Australian English:** "colour", "licence", "finalise", "organise", "enrol". Talk to a technician on a job, not to an administrator.
 - **Second person, and no "please" or "sorry"** in the app's own voice. (Words quoted verbatim from a report template are the template's.)
 - **Say "signal", not "connection"** (a phone on a job has signal or it doesn't).
-- **Use the product's nouns:** client, job, property, site, report, template, technician, team, licence. Don't introduce synonyms (customer, visit, worker).
+- **Use the product's nouns:** client, job, property, site, report, template, technician, team, licence, insurance. Don't introduce synonyms (customer, visit, worker). A person's licences and insurance policies are one list, called "Licences & insurance".
 
 ### Case and labels
 

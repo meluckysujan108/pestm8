@@ -99,9 +99,9 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
     }
   },
   // The signed-in user (the name and the rows' values), the licences "Show
-  // my licence" opens (and the Licences row badges), for whoever may see it
-  // the Team row's two lists, and for everyone but the owner the accounts
-  // they may work in. `access.me` is already in the cache: the layout's
+  // my licences & insurance" opens (and that row badges), for whoever may
+  // see it the Team row's two lists, and for everyone but the owner the
+  // accounts they may work in. `access.me` is already in the cache: the layout's
   // beforeLoad warms it, so reading the capability here costs nothing and
   // keeps a technician from asking for a roster they cannot have.
   //
@@ -170,9 +170,10 @@ function SettingsHub() {
   const licenceNumber = me.licenceNumber?.trim()
   const phone = me.phone?.trim()
 
-  // This person's licences, live or — with no signal — as kept on this phone,
-  // for Show my licence and the Licences row's badge. Read here, once, rather
-  // than by each: the read is also what keeps the phone's copy up to date.
+  // This person's licences & insurance, live or — with no signal — as kept on
+  // this phone, for Show my licences & insurance and its row's badge. Read
+  // here, once, rather than by each: the read is also what keeps the phone's
+  // copy up to date.
   const wallet = useMyLicences(business._id, membership._id).shown
   const today = useBusinessToday(live?.timezone ?? business.timezone)
   const expiring = walletExpiry(wallet?.licences ?? [], today)
@@ -291,8 +292,10 @@ function SettingsHub() {
             params={{ businessSlug }}
             icon={IdCard}
             tint="green"
-            title="Licences"
-            value={licenceNumber}
+            title="Licences & insurance"
+            // No value: beside a badge, the report number would cut the
+            // title short on a phone, and the number is one tap away.
+            //
             // One badge, the most pressing first. The report number is
             // printed on every certificate they finalise, and finalising
             // refuses a blank one — so its absence outranks a licence that
