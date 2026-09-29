@@ -23,6 +23,7 @@ import {
   SettingsGroup,
 } from '#/components/settings/ui'
 import { formatJobDate, formatWhen, todayKey } from '#/lib/format'
+import { isOffline } from '#/lib/online'
 import { useHydrated } from '#/lib/useHydrated'
 import { dayKeyOf } from '../../../convex/lib/dates'
 import { describeInterval } from '../../../convex/lib/recurrence'
@@ -97,7 +98,13 @@ function EmptyBin({
   const [confirming, setConfirming] = useState(false)
   const convexEmpty = useConvexMutation(api.bin.empty)
   const empty = useMutation({
-    mutationFn: (args: { businessId: Id<'businesses'> }) => convexEmpty(args),
+    mutationFn: async (args: { businessId: Id<'businesses'> }) => {
+      // Emptying wipes what is in the bin when it runs. Held for signal, it
+      // would also wipe, for good, whatever was deleted in the meantime —
+      // things nobody saw on this list. So it says so now instead.
+      if (isOffline()) throw new Error('offline')
+      return convexEmpty(args)
+    },
     onSuccess: () => setConfirming(false),
   })
 
@@ -174,10 +181,16 @@ function BinRow({
   const [confirming, setConfirming] = useState(false)
   const convexWipe = useConvexMutation(api.bin.wipe)
   const wipe = useMutation({
-    mutationFn: (args: {
+    mutationFn: async (args: {
       businessId: Id<'businesses'>
       entryId: Id<'binEntries'>
-    }) => convexWipe(args),
+    }) => {
+      // For good, so never later: held for signal, it would go through
+      // whenever the signal came back, after "Deleting…" had been given up
+      // on. So it says so now instead.
+      if (isOffline()) throw new Error('offline')
+      return convexWipe(args)
+    },
     onSuccess: () => setConfirming(false),
   })
 

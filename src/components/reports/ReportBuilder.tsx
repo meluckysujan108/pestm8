@@ -62,7 +62,10 @@ import { formatJobDate, formatTime, todayKey } from '#/lib/format'
 import { deviceTimezone } from '#/lib/useBusinessTimezone'
 import { dayKeyOf } from '../../../convex/lib/dates'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { describeError } from '#/components/forms/describeError'
+import type { ErrorCopy } from '#/components/forms/describeError'
 import { ABOVE_DOCK } from '#/components/shell/dock'
+import { isOffline } from '#/lib/online'
 
 /**
  * Honest about §5.5: there is no offline mutation queue, so a failed save is a
@@ -333,12 +336,19 @@ export function ReportBuilder({
 
   const convexFinalise = useConvexMutation(api.reports.finalise)
   const finalise = useMutation({
-    mutationFn: (args: {
+    mutationFn: async (args: {
       businessId: Id<'businesses'>
       reportId: Id<'reports'>
       data: unknown
       templateVersion?: number
-    }) => convexFinalise(args),
+    }) => {
+      // Locking emails the report. With no signal the Convex client would
+      // hold the lock and send it whenever the signal came back — the report
+      // locked, and emailed, long after the person had given up, with
+      // anything typed since refused. So it says so now instead.
+      if (isOffline()) throw new Error('offline')
+      return convexFinalise(args)
+    },
     onSuccess: onFinalised,
     // The server validates too. When it refuses, it says which questions —
     // show those rather than "something went wrong", which is what a stale tab
@@ -639,8 +649,11 @@ export function ReportBuilder({
     confirmKeys(justConfirmed)
 
     // Finalise sends its own payload, but flushing first means a failed
-    // finalise still leaves the latest draft on the server.
-    await autosave.flush()
+    // finalise still leaves the latest draft on the server. Not with no
+    // signal: the draft's save is waiting for it, and this tap would wait
+    // with it, doing nothing until the signal came back. The sheet opens,
+    // and locking from it says the phone is offline.
+    if (!isOffline()) await autosave.flush()
 
     // `pending` is this render's answer and does not know about the line
     // above; validating against it would refuse the report for suggestions
@@ -1224,7 +1237,7 @@ function QuickAnswer({
  * The licence cases name the fix, because the fix is not something they can do
  * from this screen and they need to know who to ask.
  */
-function finaliseError(
+export function finaliseError(
   error: unknown,
   {
     isCorrection,
@@ -1279,5 +1292,16 @@ function finaliseError(
   if (message.includes('NO_ACCESS') || message.includes('NOT_EDITABLE')) {
     return 'This report belongs to someone else, so you cannot finalise it.'
   }
-  return 'Could not finalise this report. Your answers are still saved — try again in a moment.'
+  return describeError(error, FINALISE_COPY)
+}
+
+/**
+ * A finalise refused for none of the reasons above: no signal (said before
+ * the lock is sent), or a refusal every form meets, in describeError's words.
+ */
+const FINALISE_COPY: ErrorCopy = {
+  offline:
+    'Could not finalise: this device is offline. Your answers are still here — try again when you have signal.',
+  default:
+    'Could not finalise this report. Your answers are still saved — try again in a moment.',
 }

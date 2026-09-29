@@ -532,6 +532,7 @@ The shell uses `sidebar` and `tooltip`; the rest are there for the sidebar's sak
    - The report builder and the template editor save automatically (`useAutosave`) and show the state in their own bar.
    - A switch or a colour saves the moment it changes.
 5. **No toasts.** The app has none. Say it where the eye already is: the button, the row, the sheet closing. A copy button says "Copied" with a tick for two seconds.
+6. **A save that reaches someone else, or can't be undone, never waits for signal.** An email, a lock, an invitation link, a delete for good: its `mutationFn` checks `isOffline()` first and throws `Error('offline')`, and its copy map's `offline` words say so at once ("Could not send: this device is offline. Nothing was sent — try again when you have signal."). Otherwise it says "Sending…" until the signal comes back, then goes through after the person has given up. An autosave, or a save that only keeps the person's own work, may wait. `ARCHITECTURE.md` §5.5 lists which do which.
 
 ### Destructive actions
 

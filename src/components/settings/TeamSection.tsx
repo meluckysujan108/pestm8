@@ -34,6 +34,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { Role } from '../../../convex/lib/capabilities'
 import { useAccess } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
+import { isOffline } from '#/lib/online'
 import { rq } from '#/lib/routeQueries'
 import { needsLicence } from './needsLicence'
 import {
@@ -108,11 +109,18 @@ export function TeamSection({
 
   const convexCreate = useConvexAction(api.invitations.create)
   const invite = useMutation({
-    mutationFn: (args: {
+    mutationFn: async (args: {
       businessId: Id<'businesses'>
       email: string
       role: Role
-    }) => convexCreate(args),
+    }) => {
+      // With no signal the Convex client would hold this and mint the link
+      // whenever the signal came back: shown to nobody if the sheet has been
+      // closed, and cancelling any link that address already has — one made
+      // on another phone meanwhile, and texted. So it says so now instead.
+      if (isOffline()) throw new Error('offline')
+      return convexCreate(args)
+    },
     onSuccess: ({ url }, variables) => {
       setEmail('')
       // Back to the everyday choice: a contractor is a deliberate one, and
@@ -143,15 +151,20 @@ export function TeamSection({
 
   const convexRegenerate = useConvexAction(api.invitations.regenerate)
   const regenerate = useMutation({
-    mutationFn: (args: {
+    mutationFn: async (args: {
       businessId: Id<'businesses'>
       invitationId: Id<'invitations'>
       email: string
-    }) =>
-      convexRegenerate({
+    }) => {
+      // A new link kills the old one. Held for signal, it would kill the
+      // link already texted whenever the signal came back, long after this
+      // tap seemed to do nothing. So it says so now instead.
+      if (isOffline()) throw new Error('offline')
+      return convexRegenerate({
         businessId: args.businessId,
         invitationId: args.invitationId,
-      }),
+      })
+    },
     onSuccess: ({ url }, variables) => {
       setFreshLink({ email: variables.email, url })
       onInviteOpenChange(true)
