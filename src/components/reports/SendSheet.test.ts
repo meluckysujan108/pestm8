@@ -1,8 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { MutationObserver, onlineManager } from '@tanstack/react-query'
+import { ConvexError } from 'convex/values'
+import { describeError } from '#/components/forms/describeError'
+import { getContext } from '#/integrations/tanstack-query/root-provider'
 import {
   SEND_ERROR,
+  SEND_REFUSED,
   newAddressLine,
   sendErrorCode,
+  sendToEach,
   senderName,
   suggestedRecipients,
 } from './SendSheet'
@@ -58,6 +64,63 @@ describe('what a failed send says', () => {
     )
     expect(sendErrorCode(new Error('socket hang up'))).toBe('UNKNOWN')
     expect(sendErrorCode({ data: 'SOMETHING_NEW' })).toBe('UNKNOWN')
+  })
+})
+
+describe('a tap of Send', () => {
+  afterEach(() => {
+    onlineManager.setOnline(true)
+    vi.unstubAllGlobals()
+    vi.unstubAllEnvs()
+  })
+
+  it('sends to each address in turn, and says how each one went', async () => {
+    const sendOne = vi.fn(async (to: string) => {
+      if (to === 'strata@office.com.au') {
+        throw new ConvexError('SEND_RATE_LIMITED')
+      }
+    })
+    const addresses = ['jane@gmail.com', 'strata@office.com.au', 'bob@x.com.au']
+
+    await expect(sendToEach(addresses, sendOne)).resolves.toEqual([
+      { address: 'jane@gmail.com', code: null },
+      { address: 'strata@office.com.au', code: 'SEND_RATE_LIMITED' },
+      { address: 'bob@x.com.au', code: null },
+    ])
+    expect(sendOne.mock.calls.map(([to]) => to)).toEqual(addresses)
+  })
+
+  it('with no signal emails nobody — then, or when the signal comes back', async () => {
+    // The app's own client, mounted as QueryClientProvider mounts it: it
+    // listens for the signal to come back. No socket is opened without
+    // `window`.
+    vi.stubEnv('VITE_CONVEX_URL', 'https://happy-otter-123.convex.cloud')
+    vi.stubGlobal('navigator', { onLine: false })
+    onlineManager.setOnline(false)
+    const client = getContext().queryClient
+    client.mount()
+    try {
+      const sendOne = vi.fn(async () => {})
+      const send = new MutationObserver(client, {
+        mutationFn: (addresses: Array<string>) =>
+          sendToEach(addresses, sendOne),
+      })
+
+      await expect(
+        send.mutate(['jane@gmail.com', 'strata@office.com.au']),
+      ).rejects.toThrow('offline')
+      // One line for the whole tap, not a failure beside each address.
+      const words = describeError(send.getCurrentResult().error, SEND_REFUSED)
+      expect(words).toBe(SEND_REFUSED.offline)
+      expect(words).toMatch(/Nothing was sent/)
+
+      vi.stubGlobal('navigator', { onLine: true })
+      onlineManager.setOnline(true)
+      await new Promise((resolve) => setTimeout(resolve, 10))
+      expect(sendOne).not.toHaveBeenCalled()
+    } finally {
+      client.unmount()
+    }
   })
 })
 

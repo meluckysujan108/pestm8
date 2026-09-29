@@ -10,6 +10,14 @@ component's Convex queries are answered from `fixtures.ts`; mutations resolve
 to nothing. A component whose query has no fixture shows its loading state,
 and the query's name is logged, which is how you find what to add.
 
+There is no TanStack Start plugin either, which is why `initialState.stub.ts`
+exists: `src/lib/initialState.ts` is a server function only that plugin can
+build, and the licence specimens reach it through `rootState.ts`. Without the
+stub the server exits on start with
+`Could not resolve '#tanstack-router-entry'`; a specimen that reaches another
+server-only module needs a stub of its own, aliased ahead of `#` in
+`vite.config.ts`.
+
 ## Use
 
 ```bash

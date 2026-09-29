@@ -13,6 +13,7 @@ import {
 } from '#/components/forms/SaveWarnings'
 import { InviteLinkCard } from '#/components/settings/InviteLinkCard'
 import { FIELD_LABEL } from '#/components/settings/ui'
+import { isOffline } from '#/lib/online'
 import { useHydrated } from '#/lib/useHydrated'
 import { AsideButton, SetupFrame } from './SetupFrame'
 import type { LucideIcon } from 'lucide-react'
@@ -60,12 +61,18 @@ export function TeamStep({
 
   const createInvite = useConvexAction(api.invitations.create)
   const invite = useMutation({
-    mutationFn: (to: string) =>
-      createInvite({
+    mutationFn: async (to: string) => {
+      // Not left to wait for signal, as the step's progress is (`reach` in
+      // routes/onboarding.tsx): held, it would keep the step busy — Continue
+      // and Skip wait on it — until the signal came back, then mint a link
+      // perhaps nobody is there to see. So it says so now instead.
+      if (isOffline()) throw new Error('offline')
+      return createInvite({
         businessId: business._id,
         email: to,
         role: 'subcontractor',
-      }),
+      })
+    },
     onSuccess: ({ url }, to) => {
       setEmail('')
       setLinks((prev) => [...prev, { email: to, url }])
