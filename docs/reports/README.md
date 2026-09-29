@@ -284,6 +284,17 @@ red rule, then `Submitted by: … @ 11:35:53 28 Aug 2026`, `Version:` and
 `Submission ID:`. Those three labels are the source form's, over PestM8's own
 values.
 
+**The logo** is drawn `contain` in a box: 240 × 63pt on the cover, 160 × 42pt at
+the top of every page — as tall as the business block beside it. A wide lockup
+fills the width and a square mark the height. Until Sept 2026 the boxes were
+132 × 34 and 76 × 30, which left Pest M8's lockup about 3mm tall and its tagline
+a smudge. The painter draws only PNG and JPEG: a GIF or a WebP is skipped
+without a word, which is how reports locked with Pest M8's old GIF logo printed
+none. Settings now only ever stores PNG or JPEG (`src/lib/images/prepareLogo.ts`,
+`convex/lib/businessLogo.ts`): a PNG whenever the logo has any transparency, since
+a JPEG turns clear pixels black, and trimmed to its artwork so it fills its box.
+A report prints the logo it was locked with, for good.
+
 **First body page** — a solid red title band, `{brand} {form name} for {year}`
 with the document's date fenced off at its right end. The AS forms print their
 own header lines and standards reference instead; a band above them would say
@@ -405,6 +416,20 @@ client receive on 28 August?" answerable once the renderer has moved on.
   still locks, and its email is written down as not sent, and why, instead
   of queued: with no approval step, a loop of locks would otherwise mail
   whoever it liked from the sending domain every business shares.
+- **What it looks like** (`lib/reportEmail.ts`, `lib/emailTheme.ts`). The
+  business's letterhead — its logo, or its name — then what is attached, for
+  where, and the facts the lock sheet reads back, with a plain-text copy beside
+  the HTML. The logo is the business's **as it is now**, like the from-name;
+  the attached PDF keeps the one its report was locked with. It travels on its
+  own white card (`logoEmail`): the Gmail app and Outlook for Windows darken an
+  email by inverting its colours and never its images, so a transparent logo
+  with dark lettering would vanish there. Mail apps that follow the email's
+  own dark styling (Apple Mail, Outlook for Mac and phones, Outlook.com via
+  `[data-ogsc]`) get a dark card instead, and the business's light-lettered
+  logo when it has one (`logoOnDark`). Width and height are attributes as well
+  as styles, since Outlook for Windows reads only those; a logo stored before
+  cards existed is sized from its file's header (`lib/imageSize.ts`). A logo
+  that cannot be found or sized never stops an email: the name heads it.
 - **What "Sent" means.** That Resend accepted it. The webhook at
   `POST /resend/webhook` moves a row to `bounced` when it did not land, and
   clears the report's `emailedAt` if no other delivery of it survived — a

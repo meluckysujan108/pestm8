@@ -44,12 +44,24 @@ test('an owner can set branding details and a logo, and they survive a reload', 
   await page.getByLabel('Business licence number').fill('PMT-88213')
 
   await page
-    .locator('input[type=file]')
+    .locator('input[data-logo-input=logo]')
     .setInputFiles({ name: 'logo.png', mimeType: 'image/png', buffer: PNG })
   await expect(page.getByRole('button', { name: 'Change logo' })).toBeVisible({
     timeout: 20_000,
   })
   await expect(page.getByRole('img', { name: 'Business logo' })).toBeVisible()
+
+  // With a logo, its optional light-lettered version for dark-mode email.
+  await page
+    .locator('input[data-logo-input=logoOnDark]')
+    .setInputFiles({
+      name: 'logo-dark.png',
+      mimeType: 'image/png',
+      buffer: PNG,
+    })
+  await expect(
+    page.getByRole('img', { name: 'Logo for dark backgrounds' }),
+  ).toBeVisible({ timeout: 20_000 })
 
   // One Save for the whole page, and only while something has changed.
   await page.getByRole('button', { name: 'Save', exact: true }).click()
@@ -68,6 +80,19 @@ test('an owner can set branding details and a logo, and they survive a reload', 
   await expect(page.getByLabel('Business licence number')).toHaveValue(
     'PMT-88213',
   )
+  await expect(page.getByRole('img', { name: 'Business logo' })).toBeVisible()
+  await expect(
+    page.getByRole('img', { name: 'Logo for dark backgrounds' }),
+  ).toBeVisible()
+
+  // Taking the dark one off asks first, and leaves the logo.
+  await page
+    .getByRole('button', { name: 'Remove logo for dark backgrounds' })
+    .click()
+  await page.getByRole('button', { name: 'Remove', exact: true }).click()
+  await expect(
+    page.getByRole('img', { name: 'Logo for dark backgrounds' }),
+  ).toHaveCount(0)
   await expect(page.getByRole('img', { name: 'Business logo' })).toBeVisible()
 })
 
@@ -143,6 +168,15 @@ test('a subcontractor cannot edit business branding', async () => {
     () =>
       s.sub.client.mutation(api.businesses.generateUploadUrl, {
         businessId: s.businessId,
+      }),
+    'NO_ACCESS',
+  )
+  await expectRejected(
+    () =>
+      s.sub.client.mutation(api.businesses.setLogo, {
+        businessId: s.businessId,
+        which: 'logo',
+        files: null,
       }),
     'NO_ACCESS',
   )

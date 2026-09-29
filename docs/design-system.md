@@ -791,6 +791,14 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 
 **Canvas drawing** (a signature, an annotation, a markup pen) sets its stroke colour in code. Use the token's value and name the token in a comment.
 
+**A business's logo is shown on what it will be seen on.** In Settings (`settings/LetterheadLogos.tsx`) the logo sits on `bg-paper`, pinned light, and its optional light-lettered version on the dark email's card (`bg-surface`, pinned dark). Without that version, its tile shows what a dark email does instead: the logo on its white card.
+
+**Emails have a dark mode of their own** (`convex/lib/emailTheme.ts`):
+
+- Every colour is written inline, in light. That is the whole email wherever a `<style>` block is dropped.
+- One `<style>` block overrides them where a mail app follows `prefers-color-scheme` (Apple Mail, Outlook for Mac and phones) or marks what it recolours (`[data-ogsc]`, Outlook.com). Its dark values mirror the dark tokens.
+- The Gmail app and Outlook for Windows invert colours themselves and never images, so a logo travels on its own white card (`convex/lib/businessLogo.ts`), and a light-lettered logo is swapped in only where the dark styling is read.
+
 ---
 
 ## 10. Decisions already made
@@ -819,6 +827,7 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **New Job opens with nothing chosen:** it asks rather than guesses.
 - **Notes are personal by default,** and each one says who can see it.
 - **PDFs** open in the in-app viewer, never in Safari and never as a forced download.
+- **A report email heads with the business's logo as it is now;** the attached PDF keeps the logo its report was locked with. Account emails carry PestM8's own mark, never a business's: a login can belong to more than one.
 - **When behaviour departs from `ARCHITECTURE.md`,** amend it there with a dated _Amended_ note.
 
 ---
