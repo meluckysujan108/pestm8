@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Share, SquarePlus } from 'lucide-react'
+import { hideInstallCard } from '#/lib/installMethod'
 import {
+  browserStorage,
+  currentInstallMethod,
   isAppleMobile,
   isStandalone,
   useInstallPrompt,
 } from '#/lib/installPrompt'
-import type { ReactNode } from 'react'
+import { InstallSteps } from '#/components/install/InstallSteps'
+import { LINK_BUTTON_COMPACT } from '#/components/primitives/buttons'
 
 /**
  * "Put PestM8 on your Home Screen", at the end of set-up — the moment it has
@@ -15,6 +18,10 @@ import type { ReactNode } from 'react'
  * the browser has offered to install, one tap does it; already installed, or
  * a browser with neither, it shows nothing. Decided after hydration: the
  * server cannot know which phone it is.
+ *
+ * The steps are Settings → Install app's own (components/install/), which
+ * covers every other device too; set-up stays with these two, so a computer
+ * goes straight on to its jobs.
  */
 /**
  * What there is to offer this device: the Share steps on an iPhone, the
@@ -49,7 +56,15 @@ export function HomeScreenCard({
 } = {}) {
   const install = useInstallPrompt()
   const offer = useHomeScreenOffer()
-  if (offer !== 'apple' && offer !== 'install') return null
+  const offered = offer === 'apple' || offer === 'install'
+
+  // Set-up has just shown the way, so the schedule it leads to doesn't ask
+  // again with its own card (components/install/InstallCard) for a while.
+  useEffect(() => {
+    if (offered) hideInstallCard(browserStorage(), Date.now())
+  }, [offered])
+
+  if (!offered) return null
   const device = offer === 'apple' ? 'apple' : 'other'
 
   return (
@@ -59,7 +74,7 @@ export function HomeScreenCard({
           <h2 className="text-[16px] font-semibold text-ink">
             Put PestM8 on your Home Screen
           </h2>
-          <p className="mt-1 text-caption text-muted">
+          <p className="mt-1 text-caption text-grey-ink">
             It opens full screen like an app, and keeps your licence and
             products on this phone for sites with no signal.
           </p>
@@ -67,57 +82,27 @@ export function HomeScreenCard({
       )}
 
       {device === 'apple' ? (
-        <ol className={`space-y-2 text-body text-ink ${bare ? '' : 'mt-3'}`}>
-          <Step n={1}>
-            In Safari, tap{' '}
-            <Share
-              aria-label="Share"
-              size={17}
-              strokeWidth={2}
-              className="mx-0.5 inline -translate-y-px text-blue"
-            />{' '}
-            — under ••• if you don’t see it
-          </Step>
-          <Step n={2}>
-            Choose{' '}
-            <span className="font-semibold">
-              Add to Home Screen{' '}
-              <SquarePlus
-                aria-hidden
-                size={16}
-                strokeWidth={2}
-                className="inline -translate-y-px"
-              />
-            </span>
-          </Step>
-          <Step n={3}>
-            Tap <span className="font-semibold">Add</span>, then open PestM8
-            from your Home Screen
-          </Step>
-        </ol>
+        <div className={bare ? '' : 'mt-3'}>
+          {/* This iPhone's own steps: Safari's, another browser's, or — for
+              an invitation opened in Gmail's or Outlook's own browser, which
+              can't install anything — the way out to Safari. Only drawn
+              after hydration (`offer`), so the device can be read here. */}
+          <InstallSteps
+            method={currentInstallMethod()}
+            canPrompt={false}
+            onInstall={() => {}}
+            progress={null}
+          />
+        </div>
       ) : (
         <button
           type="button"
           onClick={() => void install?.()}
-          className={`h-11 w-full rounded-xl bg-surface-2 text-[16px] font-semibold text-blue transition active:scale-[.975] ${bare ? '' : 'mt-3'}`}
+          className={`${LINK_BUTTON_COMPACT} w-full ${bare ? '' : 'mt-3'}`}
         >
           Install PestM8
         </button>
       )}
     </section>
-  )
-}
-
-function Step({ n, children }: { n: number; children: ReactNode }) {
-  return (
-    <li className="flex items-start gap-3">
-      <span
-        aria-hidden
-        className="mt-px flex size-6 shrink-0 items-center justify-center rounded-full bg-surface-3 text-caption font-semibold text-ink-2"
-      >
-        {n}
-      </span>
-      <span className="min-w-0">{children}</span>
-    </li>
   )
 }

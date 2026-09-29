@@ -1,3 +1,4 @@
+import { isAppleTouch } from './device'
 import type { LoadProgress } from '#/components/pdf/types'
 
 /**
@@ -351,29 +352,10 @@ function bytesOf(blob: Blob): Promise<ArrayBuffer> {
     : new Response(blob).arrayBuffer()
 }
 
-/** What the platform check reads, split out so it can be tested. */
-export type DeviceHints = {
-  userAgent: string
-  platform: string
-  maxTouchPoints: number
-}
-
-/**
- * An iPhone, iPod touch or iPad — including an iPad asking for desktop sites,
- * which it does by default from iPadOS 13 on and which then reports itself
- * as a Mac ("Macintosh" in the user agent, "MacIntel" as the platform). What
- * gives it away is the touch screen: no Mac has one, so a "Mac" with more
- * than one touch point is an iPad. Chrome and Firefox on iOS are WebKit
- * underneath and say "iPhone" or "iPad" like Safari does, so they are covered
- * too — and they share its rules about downloads and the share sheet.
- */
-export function isAppleTouch(hints: DeviceHints): boolean {
-  if (/\b(iPhone|iPad|iPod)\b/.test(hints.userAgent)) return true
-  if (/^(iPhone|iPad|iPod)/.test(hints.platform)) return true
-  const saysMac =
-    /^Mac/.test(hints.platform) || /\bMacintosh\b/.test(hints.userAgent)
-  return saysMac && hints.maxTouchPoints > 1
-}
+// In lib/device.ts, which the install steps load on every page without
+// bringing these PDF helpers with them.
+export { isAppleTouch }
+export type { DeviceHints } from './device'
 
 /** `isAppleTouch` for this browser. False on the server. */
 export function isAppleTouchDevice(): boolean {

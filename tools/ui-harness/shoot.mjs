@@ -221,6 +221,11 @@ const PLAN = {
     },
   },
   'form-settings': { before: async (p) => p.waitForTimeout(700) },
+  install: { full: true },
+  'install-settings': { full: true },
+  'install-card': {},
+  'install-sheet': { before: async (p) => p.waitForTimeout(600) },
+  'install-link': {},
   'send-off': {
     spec: 'send',
     before: async (p) => {

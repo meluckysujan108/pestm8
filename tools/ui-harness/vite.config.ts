@@ -14,6 +14,9 @@ const repo = path.resolve(root, process.env.HARNESS_REPO ?? '.')
 
 export default defineConfig({
   root: here,
+  // The app's own files (its icons, which the install card shows), at the
+  // paths the app serves them from.
+  publicDir: path.join(repo, 'public'),
   define: {
     __APP_VERSION__: JSON.stringify('harness'),
     'import.meta.env.VITE_CONVEX_URL': JSON.stringify(

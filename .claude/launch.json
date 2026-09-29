@@ -19,6 +19,13 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--", "--port", "3100"],
       "port": 3100
+    },
+    {
+      "name": "ui-harness",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["ui:harness"],
+      "port": 5200,
+      "autoPort": true
     }
   ]
 }
