@@ -19,6 +19,7 @@ import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import { jobsInScope, jobsNewestFirst } from './lib/jobScope'
+import { unbinned } from './lib/bin'
 import {
   assertStatusChange,
   entersDone,
@@ -417,6 +418,7 @@ export const listRecurring = query({
       .withIndex('by_business_active', (q) =>
         q.eq('businessId', businessId).eq('active', true),
       )
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
 
     return {
@@ -632,7 +634,9 @@ export const get = query({
     // never implies write access.
     const env = await requireActor(ctx, businessId)
 
-    const job = await ctx.db.get(jobId)
+    // In the Recycle bin reads as gone (lib/bin.ts): the bin page is where
+    // a deleted job is seen, not a deep link to it.
+    const job = unbinned(await ctx.db.get(jobId))
     if (!job || job.businessId !== businessId) return null
 
     if (!isInScope(env.scope, job)) {
@@ -815,7 +819,8 @@ export const update = mutation({
     // Same tenant check `create` already performs — a job can be corrected
     // to a different address, never moved to another business's property.
     if (patch.propertyId !== undefined) {
-      const property = await ctx.db.get(patch.propertyId)
+      // Nor onto a property in the Recycle bin.
+      const property = unbinned(await ctx.db.get(patch.propertyId))
       if (!property || property.businessId !== businessId) {
         throw new ConvexError('NOT_FOUND')
       }
@@ -981,7 +986,7 @@ export const photos = query({
   handler: async (ctx, { businessId, jobId }) => {
     const { scope } = await requireActor(ctx, businessId)
 
-    const job = await ctx.db.get(jobId)
+    const job = unbinned(await ctx.db.get(jobId))
     if (!job || job.businessId !== businessId) return []
     if (!isInScope(scope, job)) return []
 

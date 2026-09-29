@@ -3,6 +3,28 @@ import { v } from 'convex/values'
 import { clientStatus } from './lib/clientRecord'
 
 /**
+ * In the Recycle bin (convex/lib/bin.ts): what a client, property, job or
+ * Recurring Job carries once someone has deleted it.
+ *
+ * `deletedAt` is the marker every reader checks — a binned row is left out
+ * of every list, search, count and picker, and reads as not found when asked
+ * for by id. It is set on the record that was deleted AND on everything that
+ * went with it (a client's properties, their jobs, …), so no reader ever has
+ * to look up a parent to know a row is binned.
+ *
+ * `binEntryId` says which delete put it there (`binEntries`), so Restore
+ * brings back exactly that group — and not something deleted on its own
+ * before or after, which keeps its own entry.
+ *
+ * Both absent on every live row. Optional, so adding them needs no
+ * migration: every row already stored reads as live.
+ */
+const binFields = {
+  deletedAt: v.optional(v.number()),
+  binEntryId: v.optional(v.id('binEntries')),
+}
+
+/**
  * `contractor` is new: a member who has a team of subcontractors, sees their
  * own jobs, dispatches to their team, and can be given read-write access to
  * their team's accounts. Widening a union is additive — every row already
@@ -603,6 +625,7 @@ export default defineSchema({
     /** Brought in by a client import (convex/clientImports.ts) — what its
      * Undo may take back, and nothing else. */
     importId: v.optional(v.id('clientImports')),
+    ...binFields,
   })
     .index('by_business', ['businessId'])
     .index('by_client', ['clientId'])
@@ -657,6 +680,7 @@ export default defineSchema({
     /** The business's own labels ("Real estate", "Termite contract"), at
      * most `MAX_TAGS`, each unique whatever its capitals. */
     tags: v.optional(v.array(v.string())),
+    ...binFields,
   })
     .index('by_business', ['businessId'])
     .index('by_import', ['importId'])
@@ -764,6 +788,7 @@ export default defineSchema({
      * invoiced, since the invoice already carries it.
      */
     workOrder: v.optional(v.string()),
+    ...binFields,
   })
     .index('by_business_date', ['businessId', 'scheduledAt'])
     .index('by_assignee_date', ['assignedMembershipId', 'scheduledAt'])
@@ -814,6 +839,7 @@ export default defineSchema({
      * `price`; a visit's own copy is then edited on its own.
      */
     workOrder: v.optional(v.string()),
+    ...binFields,
   })
     .index('by_business', ['businessId'])
     // The Recurring Job view counts active series, not projected visits, so
@@ -1035,6 +1061,10 @@ export default defineSchema({
      * the evidence photos attached to it.
      */
     deletedAt: v.optional(v.number()),
+    /** The Recycle bin delete that took this draft with it — a client,
+     * property or job it belongs to (`binFields`). Absent when it was
+     * deleted on its own, so restoring that client leaves it where it is. */
+    binEntryId: v.optional(v.id('binEntries')),
     /**
      * Last touched — an answer typed, a photo added, a lock closed.
      *
@@ -1115,6 +1145,9 @@ export default defineSchema({
     pinnedAt: v.optional(v.number()),
     // Soft delete → "Recently Deleted", purged by cron after 30 days.
     deletedAt: v.optional(v.number()),
+    /** As `reports.binEntryId`: set when the note went into the Recycle bin
+     * with the client, property or job it is about. */
+    binEntryId: v.optional(v.id('binEntries')),
     createdAt: v.number(),
     updatedAt: v.number(),
     visibility: v.optional(v.literal('private')),
@@ -1862,4 +1895,34 @@ export default defineSchema({
     createdAt: v.number(),
     sentAt: v.optional(v.number()),
   }).index('by_email_and_createdAt', ['email', 'createdAt']),
+
+  /**
+   * The Recycle bin: one row per thing someone deleted — a client, a
+   * property, a job or a Recurring Job — standing for it and everything that
+   * went with it (convex/lib/bin.ts, `binFields`).
+   *
+   * What the bin page lists, what Restore undoes (every row carrying this
+   * id, and only those), and what Delete forever and the 30-day purge work
+   * through. Deleted when the group is restored or wiped, so a row here is
+   * always something in the bin now.
+   *
+   * Holds ids and times only. The name the bin shows is read from the
+   * binned record itself, so wiping the record leaves nothing of it behind
+   * here.
+   */
+  binEntries: defineTable({
+    businessId: v.id('businesses'),
+    root: v.union(
+      v.object({ kind: v.literal('client'), id: v.id('clients') }),
+      v.object({ kind: v.literal('property'), id: v.id('properties') }),
+      v.object({ kind: v.literal('job'), id: v.id('jobs') }),
+      v.object({ kind: v.literal('recurrence'), id: v.id('recurrences') }),
+    ),
+    deletedAt: v.number(),
+    deletedByMembershipId: v.id('memberships'),
+  })
+    // The bin page, newest first.
+    .index('by_businessId_and_deletedAt', ['businessId', 'deletedAt'])
+    // The nightly purge: everything binned before the cut-off.
+    .index('by_deletedAt', ['deletedAt']),
 })

@@ -43,6 +43,7 @@ import type * as lib_access from "../lib/access.js";
 import type * as lib_accountEmail from "../lib/accountEmail.js";
 import type * as lib_actor from "../lib/actor.js";
 import type * as lib_audit from "../lib/audit.js";
+import type * as lib_bin from "../lib/bin.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
 import type * as lib_clientImport from "../lib/clientImport.js";
 import type * as lib_clientRecord from "../lib/clientRecord.js";
@@ -161,6 +162,7 @@ declare const fullApi: ApiFromModules<{
   "lib/accountEmail": typeof lib_accountEmail;
   "lib/actor": typeof lib_actor;
   "lib/audit": typeof lib_audit;
+  "lib/bin": typeof lib_bin;
   "lib/capabilities": typeof lib_capabilities;
   "lib/clientImport": typeof lib_clientImport;
   "lib/clientRecord": typeof lib_clientRecord;

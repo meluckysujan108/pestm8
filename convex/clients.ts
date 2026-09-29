@@ -18,13 +18,16 @@ import type { QueryCtx } from './_generated/server'
 import { requireActor, requireCapability } from './lib/actor'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { redactJobs } from './lib/prices'
+import { unbinned } from './lib/bin'
 
 async function requireClient(
   ctx: QueryCtx,
   businessId: Id<'businesses'>,
   clientId: Id<'clients'>,
 ) {
-  const client = await ctx.db.get(clientId)
+  // A client in the Recycle bin reads as gone, and is not edited until it is
+  // restored (lib/bin.ts).
+  const client = unbinned(await ctx.db.get(clientId))
   if (!client || client.businessId !== businessId) {
     throw new ConvexError('NOT_FOUND')
   }
@@ -40,6 +43,7 @@ export const list = query({
     const clients = await ctx.db
       .query('clients')
       .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
     return clients
       .filter((c) => c.archivedAt === undefined)
@@ -52,7 +56,7 @@ export const get = query({
   handler: async (ctx, { businessId, clientId }) => {
     const env = await requireActor(ctx, businessId)
 
-    const client = await ctx.db.get(clientId)
+    const client = unbinned(await ctx.db.get(clientId))
     if (!client || client.businessId !== businessId) return null
     // Null, not an error: a client they may not see must be indistinguishable
     // from one that is not there.
@@ -220,6 +224,7 @@ export const jobHistory = query({
     const properties = await ctx.db
       .query('properties')
       .withIndex('by_client', (q) => q.eq('clientId', clientId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
 
     const jobsByProperty = await Promise.all(
@@ -227,6 +232,7 @@ export const jobHistory = query({
         ctx.db
           .query('jobs')
           .withIndex('by_property', (q) => q.eq('propertyId', property._id))
+          .filter((q) => q.eq(q.field('deletedAt'), undefined))
           .collect(),
       ),
     )
@@ -260,6 +266,7 @@ export const reports = query({
     const properties = await ctx.db
       .query('properties')
       .withIndex('by_client', (q) => q.eq('clientId', clientId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
 
     const reportsByProperty = await Promise.all(

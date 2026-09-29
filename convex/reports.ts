@@ -16,6 +16,7 @@ import {
   sectionsOf,
   templateFor,
 } from '../src/lib/reportTemplates'
+import { unbinned } from './lib/bin'
 import { freezeTemplate } from './lib/templateSnapshot'
 import type { CustomSource } from './lib/templateSnapshot'
 import { seedFromContext } from '../src/lib/reportTemplates/seed'
@@ -1599,7 +1600,9 @@ export const create = mutation({
      */
     const by = writeAttribution(env.actor)
 
-    const property = await ctx.db.get(args.propertyId)
+    // No new report at a site, or against a job, in the Recycle bin
+    // (lib/bin.ts) — both read as gone until restored.
+    const property = unbinned(await ctx.db.get(args.propertyId))
     if (!property || property.businessId !== args.businessId) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -1608,7 +1611,7 @@ export const create = mutation({
     // others — so it has to be one of this business's jobs, not an id from
     // somewhere else.
     if (args.jobId) {
-      const job = await ctx.db.get(args.jobId)
+      const job = unbinned(await ctx.db.get(args.jobId))
       if (!job || job.businessId !== args.businessId) {
         throw new ConvexError('NOT_FOUND')
       }

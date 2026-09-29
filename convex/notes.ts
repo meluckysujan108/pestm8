@@ -3,6 +3,7 @@ import { ConvexError, v } from 'convex/values'
 import { components, internal } from './_generated/api'
 import { internalMutation, mutation, query } from './_generated/server'
 import { authComponent } from './auth'
+import { unbinned } from './lib/bin'
 import { requireMembership } from './lib/access'
 import { isInScope } from './lib/capabilities'
 import { jobsInScope } from './lib/jobScope'
@@ -439,7 +440,7 @@ export const listForProperty = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
     const viewer = await noteViewer(ctx, businessId)
-    const property = await ctx.db.get(propertyId)
+    const property = unbinned(await ctx.db.get(propertyId))
     if (!property || property.businessId !== businessId) {
       return { site: [], visits: [] }
     }
@@ -638,7 +639,9 @@ async function resolveLinks(
 ): Promise<Links> {
   const businessId = viewer.real.businessId
   if (args.jobId) {
-    const job = await ctx.db.get(args.jobId)
+    // Nothing new is written about a job, site or client in the Recycle bin
+    // (lib/bin.ts): it reads as gone until it is restored.
+    const job = unbinned(await ctx.db.get(args.jobId))
     if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     // Linking is a write: judged as the real caller, not the viewed-as one.
     if (!isInScope(viewer.ownRows, job)) throw new ConvexError('NOT_FOUND')
@@ -646,12 +649,12 @@ async function resolveLinks(
     return { jobId: job._id, propertyId: job.propertyId, clientId: property?.clientId }
   }
   if (args.propertyId) {
-    const property = await ctx.db.get(args.propertyId)
+    const property = unbinned(await ctx.db.get(args.propertyId))
     if (!property || property.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     return { propertyId: property._id, clientId: property.clientId }
   }
   if (args.clientId) {
-    const client = await ctx.db.get(args.clientId)
+    const client = unbinned(await ctx.db.get(args.clientId))
     if (!client || client.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     return { clientId: client._id }
   }

@@ -2,6 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { requireActor } from './lib/actor'
+import { unbinned } from './lib/bin'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { isNameCorrection, sameName } from './lib/contactNames'
 import { normaliseEmail } from './lib/email'
@@ -75,7 +76,8 @@ export const list = query({
   handler: async (ctx, { businessId, clientId }) => {
     const env = await requireActor(ctx, businessId)
 
-    const client = await ctx.db.get(clientId)
+    // A binned client's contacts go with it (lib/bin.ts).
+    const client = unbinned(await ctx.db.get(clientId))
     if (!client || client.businessId !== businessId) return []
     // Names, numbers and email addresses for a client they may not see are
     // the most sensitive part of the directory, not an afterthought to it.
@@ -101,7 +103,7 @@ export const create = mutation({
   handler: async (ctx, { businessId, clientId, ...rest }) => {
     await requireMembership(ctx, businessId)
 
-    const client = await ctx.db.get(clientId)
+    const client = unbinned(await ctx.db.get(clientId))
     if (!client || client.businessId !== businessId) {
       throw new ConvexError('NOT_FOUND')
     }
