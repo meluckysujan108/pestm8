@@ -141,6 +141,28 @@ const PLAN = {
   inputs: { before: async (p) => p.waitForTimeout(600) },
   empty: {},
   nomatch: {},
+  lock: { before: async (p) => p.waitForTimeout(700) },
+  'lock-off': {
+    spec: 'lock',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /Email the client/ }).click()
+      await p.waitForTimeout(300)
+    },
+  },
+  'lock-held': { before: async (p) => p.waitForTimeout(700) },
+  'lock-noemail': { before: async (p) => p.waitForTimeout(700) },
+  delivered: {},
+  send: { before: async (p) => p.waitForTimeout(700) },
+  'form-settings': { before: async (p) => p.waitForTimeout(700) },
+  'send-off': {
+    spec: 'send',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /jane@gmail\.com/ }).click()
+      await p.waitForTimeout(300)
+    },
+  },
 }
 
 const browser = await chromium.launch({

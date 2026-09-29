@@ -43,7 +43,7 @@ const PDFJS_CACHE = `${PDFJS_CACHE_PREFIX}${pdfjsVersion}`
 const PDFJS_LIST = '/pdfjs/version.json'
 
 /**
- * The precache manifest without anything under pdfjs/.
+ * The precache manifest without anything under pdfjs/ or splash/.
  *
  * scripts/build-sw.ts precaches every `.js` in the client output, and
  * pdf.js ships one JavaScript file among its runtime assets —
@@ -51,15 +51,22 @@ const PDFJS_LIST = '/pdfjs/version.json'
  * WebAssembly switched off (iOS Lockdown Mode). Precached, every install
  * would download it on a phone plan for the rare phone that needs it. Left
  * out here, it is fetched on demand like its neighbours and cached by the
- * rule below. build-sw.ts's `globIgnores` keeps pdfjs/ out of the manifest
- * in the first place; this filter holds even if that entry is ever lost.
+ * rule below.
+ *
+ * splash/ is the iOS launch screens (scripts/build-icons.mjs): every `.png`
+ * is precached too, and those are 1.4 MB for every install, of which an
+ * iPhone uses two, fetched by iOS itself when the app is added to the Home
+ * Screen.
+ *
+ * build-sw.ts's `globIgnores` keeps both out of the manifest in the first
+ * place; this filter holds even if those entries are ever lost.
  */
-function withoutPdfjs(
+function withoutFetchedOnDemand(
   entries: Array<PrecacheEntry | string> | undefined,
 ): Array<PrecacheEntry | string> {
   return (entries ?? []).filter((entry) => {
     const url = typeof entry === 'string' ? entry : entry.url
-    return !/^(\.?\/)?pdfjs\//.test(url)
+    return !/^(\.?\/)?(pdfjs|splash)\//.test(url)
   })
 }
 
@@ -72,7 +79,7 @@ function withoutPdfjs(
  * this must not be marketed as fully offline-capable.
  */
 const serwist = new Serwist({
-  precacheEntries: withoutPdfjs(self.__SW_MANIFEST),
+  precacheEntries: withoutFetchedOnDemand(self.__SW_MANIFEST),
   skipWaiting: true,
   clientsClaim: true,
   navigationPreload: true,

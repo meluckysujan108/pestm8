@@ -296,8 +296,9 @@ export default defineSchema({
     reportBrandName: v.optional(v.string()),
     website: v.optional(v.string()),
     /**
-     * Where the business keeps its own copy of every report it sends. Falls
-     * back to `email`; a business that wants no copy sets neither.
+     * Where the business keeps its own copy of every report it emails, sent
+     * blind (bcc) on each one. Falls back to `email`; a business that wants no
+     * copy sets neither.
      */
     reportCopyEmail: v.optional(v.string()),
     /**
@@ -1653,6 +1654,13 @@ export default defineSchema({
     pdfId: v.optional(v.id('reportPdfs')),
     to: v.array(v.string()),
     cc: v.array(v.string()),
+    /**
+     * The business's own copy (`lib/recipients.businessCopyAddress`), sent
+     * blind so the client never sees it and a Reply All never includes it.
+     * Absent on rows written before 29 Sept 2026, which carried that copy in
+     * `cc` instead, and only on the sends a form asked for at finalise.
+     */
+    bcc: v.optional(v.array(v.string())),
     subject: v.string(),
     /** The form's own send-copy toggle, or someone pressing Send. */
     trigger: v.union(v.literal('finalise'), v.literal('manual')),

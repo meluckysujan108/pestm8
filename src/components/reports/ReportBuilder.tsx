@@ -971,6 +971,8 @@ export function ReportBuilder({
         </Sheet>
 
         <FinaliseSheet
+          businessId={businessId}
+          reportId={reportId}
           open={confirming}
           onClose={() => {
             setConfirming(false)

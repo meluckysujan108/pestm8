@@ -1,7 +1,7 @@
 import { templateFor } from './index'
 import { deriveGenericSchema } from './deriveSchema'
 import { applyOptionSets } from './optionSets'
-import { applyTemplateSettings } from './settings'
+import { applyTemplateSettings, withOptionalClientSignatures } from './settings'
 import type { OptionSetOverrides } from './optionSets'
 import type { TemplateSettings } from './settings'
 import type {
@@ -81,12 +81,14 @@ export function resolveReportTemplate(report: {
 
   if (report.template !== 'custom') {
     if (!snapshot) {
-      return applyTemplateSettings(
-        applyOptionSets(
-          templateFor(report.template, report.templateVersion),
-          report.optionSets,
+      return withOptionalClientSignatures(
+        applyTemplateSettings(
+          applyOptionSets(
+            templateFor(report.template, report.templateVersion),
+            report.optionSets,
+          ),
+          report.settings,
         ),
-        report.settings,
       )
     }
 
@@ -143,9 +145,13 @@ export function resolveReportTemplate(report: {
   }
   if (frozen) return built
 
-  const overlaid = applyTemplateSettings(
-    applyOptionSets(built, report.optionSets),
-    report.settings,
+  // Before the schema is derived: a clone that marked the client's pad
+  // required would otherwise have the rule built into its schema too.
+  const overlaid = withOptionalClientSignatures(
+    applyTemplateSettings(
+      applyOptionSets(built, report.optionSets),
+      report.settings,
+    ),
   )
   return overlaid === built
     ? built

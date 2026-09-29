@@ -16,6 +16,7 @@ import { NavProgress } from '#/components/shell/NavProgress'
 import { ServiceWorker } from '#/components/shell/ServiceWorker'
 import { TwoStepPromptHost } from '#/components/auth/TwoStepPrompt'
 import { useHydrated } from '#/lib/useHydrated'
+import { APP_ICON_LINKS } from '#/lib/appIcons'
 import { authClient } from '#/lib/auth-client'
 import { openSignedOut } from '#/lib/convexClient'
 import { getInitialState } from '#/lib/initialState'
@@ -57,7 +58,7 @@ export const Route = createRootRouteWithContext<RouterContext>()({
     links: [
       { rel: 'stylesheet', href: appCss },
       { rel: 'manifest', href: '/manifest.webmanifest' },
-      { rel: 'apple-touch-icon', href: '/icon-192.png' },
+      ...APP_ICON_LINKS,
     ],
   }),
   beforeLoad: async ({ context }) => {

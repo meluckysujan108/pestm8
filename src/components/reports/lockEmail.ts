@@ -1,0 +1,209 @@
+import { emailProblem } from '../../../convex/lib/email'
+import { sectionsOf } from '#/lib/reportTemplates'
+import { blindCopy, deliveryRecipients } from '#/lib/reportTemplates/delivery'
+import { visibleSections } from '#/lib/reportTemplates/visibility'
+import type { ReportTemplate } from '#/lib/reportTemplates'
+
+/**
+ * What locking a report will email, worked out the way `reports.finalise`
+ * works it out (`queueFormDeliveries`), so the sheet that locks it can say so
+ * before anyone presses the button.
+ *
+ * Locking sends: the form asks "Send copy of the report to the client email
+ * above when you submit this form?", and when the answer is Yes the report is
+ * emailed within seconds of the lock. The sheet used to say "Send it from the
+ * report once it’s locked" — true before email was switched on, and an
+ * instruction that, once it was, sent the client a second copy.
+ */
+
+/** What `deliveries.known` answers, as far as locking needs it. */
+export type SendingKnown = {
+  /** The addresses on file, which go without an owner's approval. */
+  addresses: ReadonlyArray<string>
+  /** An owner, or a business that lets anyone email anywhere. */
+  unrestricted: boolean
+  /** The business's blind copy on every email of this report. */
+  copy: string | null
+}
+
+/**
+ * The form's own send-a-copy question, when it is being asked and the client
+ * has an address to send to. Needs nothing from the server, so the switch is
+ * there the moment the sheet opens, signal or not.
+ */
+export type ClientToggle = {
+  key: string
+  address: string
+  /** The answer as it stands. */
+  on: boolean
+  /** Why that address can never be delivered to, or null. */
+  problem: string | null
+}
+
+export function clientToggleOf(
+  template: ReportTemplate,
+  data: Record<string, unknown>,
+  clientEmail: string | null | undefined,
+): ClientToggle | null {
+  const field = visibleSections(sectionsOf(template), data)
+    .flatMap((section) => section.fields)
+    .find(
+      (candidate) =>
+        candidate.semantic === 'sendCopyToClient' &&
+        candidate.kind === 'toggle',
+    )
+  const address = clientEmail?.trim().toLowerCase() ?? ''
+  if (!field || address === '') return null
+  return {
+    key: field.key,
+    address,
+    on: data[field.key] === true,
+    problem: emailProblem(address),
+  }
+}
+
+export type LockEmail = {
+  /** Emailed as soon as it is locked, in the form's order. */
+  sending: Array<string>
+  /**
+   * Not on file, for someone who may not email just anywhere: their email
+   * waits for an owner. A row of its own (`queueFormDeliveries`), so the
+   * client's copy goes without it.
+   */
+  held: Array<string>
+  /** Addresses the form asks for that can never be delivered to. */
+  undeliverable: Array<string>
+  /**
+   * The client's address, switched off here but typed into "Email Report
+   * To" as well — so it is still emailed, and the switch has to say why.
+   */
+  stillTyped: string | null
+  /** The business's blind copy on what goes now, if anything goes now. */
+  copy: string | null
+}
+
+export function lockEmail(
+  template: ReportTemplate,
+  data: Record<string, unknown>,
+  clientEmail: string | null | undefined,
+  known: SendingKnown,
+): LockEmail {
+  const asked = deliveryRecipients(template, data, { clientEmail })
+  // `isValidEmail` on the server is `emailProblem` on a non-blank address,
+  // and nothing blank reaches here.
+  const deliverable = asked.to.filter(
+    (address) => emailProblem(address) === null,
+  )
+  const held = known.unrestricted
+    ? []
+    : deliverable.filter((address) => !known.addresses.includes(address))
+  const sending = deliverable.filter((address) => !held.includes(address))
+  const toggle = clientToggleOf(template, data, clientEmail)
+
+  return {
+    sending,
+    held,
+    undeliverable: asked.to.filter((address) => emailProblem(address) !== null),
+    stillTyped:
+      toggle && !toggle.on && asked.to.includes(toggle.address)
+        ? toggle.address
+        : null,
+    // Nothing sent, nothing copied: the copy rides on an email, it is not one
+    // of its own. The held email carries one too, if an owner lets it go.
+    copy:
+      sending.length > 0 ? (blindCopy(known.copy, sending)[0] ?? null) : null,
+  }
+}
+
+/** A run of words, with the addresses kept apart so they can be set bold. */
+export type Sentence = Array<string | { address: string }>
+
+/**
+ * What the sheet says, in the order it says it. Pure, so every case can be
+ * read in a test rather than found on a phone.
+ *
+ * A held address is not promised an approval: the app has no screen yet
+ * where an owner lets a held email go. What is true today is that the owner
+ * can send it from the report, so that is what it says.
+ */
+export function lockEmailSentences(
+  plan: LockEmail,
+  emailReady: boolean,
+  {
+    clientToggle,
+    clientHasEmail,
+  }: { clientToggle: ClientToggle | null; clientHasEmail: boolean },
+): Array<Sentence> {
+  const later = 'You can send it from the report once it’s locked.'
+
+  if (!emailReady) {
+    // Still recorded — the delivery is opened either way — but nothing on
+    // this deployment will send it, and "emailed" would be a promise.
+    return [
+      [
+        'Email isn’t set up for this business yet, so it won’t be emailed. Share the PDF from the report once it’s locked.',
+      ],
+    ]
+  }
+
+  const out: Array<Sentence> = []
+  if (plan.sending.length > 0) {
+    out.push(['Once it’s locked, it’s emailed to ', ...list(plan.sending), '.'])
+  }
+  if (plan.stillTyped) {
+    out.push([
+      { address: plan.stillTyped },
+      ' is also in “Email Report To”, so it still gets it.',
+    ])
+  }
+  if (plan.held.length > 0) {
+    out.push([
+      ...list(plan.held),
+      plan.held.length === 1
+        ? ' isn’t on the client’s record, so that email waits for the owner. They can send it from the report.'
+        : ' aren’t on the client’s record, so those emails wait for the owner. They can send them from the report.',
+    ])
+  }
+  if (plan.undeliverable.length > 0) {
+    const one = plan.undeliverable.length === 1
+    out.push(
+      plan.sending.length > 0 || plan.held.length > 0
+        ? [
+            ...list(plan.undeliverable),
+            one
+              ? ' can’t receive email, so it’s left out.'
+              : ' can’t receive email, so they’re left out.',
+          ]
+        : [
+            'Not emailed: ',
+            ...list(plan.undeliverable),
+            ` can’t receive email. Fix ${one ? 'the address' : 'the addresses'}, then send it from the report once it’s locked.`,
+          ],
+    )
+  }
+  if (plan.copy) out.push(['A copy goes to ', { address: plan.copy }, '.'])
+  if (out.length > 0) return out
+
+  if (clientToggle) return [['Not emailed. ' + later]]
+  if (!clientHasEmail) {
+    return [['Not emailed: the client has no email address on file. ' + later]]
+  }
+  return [['Not emailed: the form didn’t ask for a copy. ' + later]]
+}
+
+/** "a", "a and b", "a, b and c". */
+function list(addresses: ReadonlyArray<string>): Sentence {
+  const out: Sentence = []
+  addresses.forEach((address, index) => {
+    if (index > 0) out.push(index === addresses.length - 1 ? ' and ' : ', ')
+    out.push({ address })
+  })
+  return out
+}
+
+/** The words alone, as a screen reader or a test reads them. */
+export function sentenceText(sentence: Sentence): string {
+  return sentence
+    .map((part) => (typeof part === 'string' ? part : part.address))
+    .join('')
+}
