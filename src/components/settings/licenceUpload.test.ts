@@ -1,4 +1,4 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, test, vi } from 'vitest'
 import { CLAIM_WINDOW_MS } from '../../../convex/lib/products'
 import { MAX_LICENCE_PDF_BYTES } from '../../../convex/lib/licences'
 import {
@@ -9,6 +9,11 @@ import {
   withinMs,
 } from './licenceUpload'
 import type { LicenceUploadMemo } from './licenceUpload'
+
+// `licenceUpload` keeps files on the phone (`keptLicence`), which reads who is
+// signed in through the root state — and that sets up the auth server, which
+// needs a deployment's URL this test has none of. As `keptLicence.test.ts`.
+vi.mock('#/lib/initialState', () => ({ getInitialState: vi.fn() }))
 
 /**
  * The steps a licence file takes on its way up, shared by a licence's own
