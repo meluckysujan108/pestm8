@@ -25,7 +25,7 @@ import { suburbKeyOf, withinForecastWindow } from './lib/forecastWindow'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { deliveryRecipients } from '../src/lib/reportTemplates/delivery'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
-import { knownRecipients } from './lib/recipients'
+import { businessCopyAddress, knownRecipients } from './lib/recipients'
 import { isValidEmail } from './lib/email'
 import { settingsFor } from './templateSettings'
 import { reportSearchText } from './lib/reportSearch'
@@ -2283,18 +2283,19 @@ async function queueFormDeliveries(
 
   const asked = deliveryRecipients(template, data, {
     clientEmail: client?.email,
-    businessCopyEmail: business?.reportCopyEmail ?? business?.email,
+    // Already checked: a Business copy address that can never be delivered to
+    // comes back null rather than as a copy nobody will receive.
+    businessCopyEmail: businessCopyAddress(business),
   })
   // Only the addresses that can be delivered to, the rule `deliveries.request`
   // refuses the rest by. An address typed into the form's email field was
-  // checked a moment ago, by `assertComplete`; the client's own address and
-  // the business's copy were not, and come from records
-  // saved before the app checked them ("bob@gmail"), and a row for one would
-  // sit in the history — or in the owner's approval queue — as a send that
-  // was never going to arrive. The report can still be sent from the send
-  // sheet once the address is put right.
+  // checked a moment ago, by `assertComplete`; the client's own address was
+  // not, and comes from a record saved before the app checked them
+  // ("bob@gmail"), and a row for one would sit in the history — or in the
+  // owner's approval queue — as a send that was never going to arrive. The
+  // report can still be sent from the send sheet once the address is put
+  // right.
   const to = asked.to.filter(isValidEmail)
-  const cc = asked.cc.filter(isValidEmail)
   if (to.length === 0) return
 
   const known = await knownRecipients(ctx, report)
@@ -2310,7 +2311,9 @@ async function queueFormDeliveries(
     businessId: report.businessId,
     reportId: report._id,
     to,
-    cc,
+    cc: [],
+    // The business's own copy, blind: the client sees only who it is for.
+    bcc: asked.bcc,
     subject: documentIdentity({
       template,
       property,

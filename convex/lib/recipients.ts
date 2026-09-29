@@ -67,6 +67,26 @@ export async function knownRecipients(
 }
 
 /**
+ * Where a business keeps its own copy of every report it emails: its Business
+ * copy address (Settings → Reports), else its business email. Every send
+ * carries it as a blind copy (`blindCopy`), so the client never sees it.
+ *
+ * Null when the business has neither — or when the one it chose could never
+ * be delivered to ("reports@coastal", saved before addresses were checked).
+ * That is not a reason to send the copy to a different inbox than the one the
+ * owner named, so it does not fall back past a bad Business copy address.
+ */
+export function businessCopyAddress(
+  business: Pick<Doc<'businesses'>, 'email' | 'reportCopyEmail'> | null,
+): string | null {
+  const address =
+    business?.reportCopyEmail?.trim() || business?.email?.trim() || ''
+  return address !== '' && isValidEmail(address)
+    ? normaliseAddress(address)
+    : null
+}
+
+/**
  * Being on file is not the same as being right. An address saved before the
  * app checked them ("bob@gmail", "jan@hotmail..com") is the typo this rule
  * exists to catch, so it does not skip the owner's approval merely by having

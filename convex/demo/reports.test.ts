@@ -385,7 +385,9 @@ describe('the demo reports', () => {
     expect(more).toHaveLength(0)
     expect(delivery.status).toBe('queued')
     expect(delivery.to).toEqual(['marcus.roberts@example.com'])
-    expect(delivery.cc).toEqual(['reports@example.com'])
+    // The business's copy rides blind: Marcus sees only his own address.
+    expect(delivery.cc).toEqual([])
+    expect(delivery.bcc).toEqual(['reports@example.com'])
     expect(delivery.trigger).toBe('finalise')
     expect(delivery.sentByMembershipId).toBe(member('owner'))
   })

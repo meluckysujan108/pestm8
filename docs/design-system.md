@@ -572,6 +572,7 @@ Call, Text, Email and Map are holds (`HoldButton`), so a pocket or a brushing th
 
 - **Something the app worked out** (the forecast, the start time) is marked "Suggested" until it is confirmed. A fact read off a record is not marked.
 - **Locking is two acts.** "Finalise & lock" opens a read-back sheet first.
+- **Locking emails it,** so the read-back sheet says who to and where the business's copy goes, and the finished report says whether it went (`LatestDelivery`, above its tabs).
 - **Locked boilerplate** sits in a grey inset (`bg-surface-2`) with a `Lock` glyph.
 
 ---

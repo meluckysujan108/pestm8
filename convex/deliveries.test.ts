@@ -95,7 +95,7 @@ describe('what the form itself asks for', () => {
   const template = getTemplate('serviceReport')
 
   test('the send-copy toggle means the client, when there is a client email', () => {
-    const { to, cc } = deliveryRecipients(
+    const { to, bcc } = deliveryRecipients(
       template,
       { sendCopy: true },
       {
@@ -105,7 +105,8 @@ describe('what the form itself asks for', () => {
     )
     // Lower-cased, because case is not what makes two addresses different.
     expect(to).toEqual(['client@example.com'])
-    expect(cc).toEqual(['office@pestm8.example'])
+    // The business's own copy rides along blind: never "the client".
+    expect(bcc).toEqual(['office@pestm8.example'])
   })
 
   test('the toggle asks for nobody when the client has no email on file', () => {
@@ -134,7 +135,7 @@ describe('what the form itself asks for', () => {
   })
 
   test('a business that is also the client is copied once, not twice', () => {
-    const { to, cc } = deliveryRecipients(
+    const { to, bcc } = deliveryRecipients(
       template,
       { sendCopy: true },
       {
@@ -143,7 +144,7 @@ describe('what the form itself asks for', () => {
       },
     )
     expect(to).toEqual(['office@pestm8.example'])
-    expect(cc).toEqual([])
+    expect(bcc).toEqual([])
   })
 
   test('a form that asked for nothing sends to nobody', () => {

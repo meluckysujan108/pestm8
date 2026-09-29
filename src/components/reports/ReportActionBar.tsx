@@ -8,7 +8,7 @@ import { convexQuery } from '@convex-dev/react-query'
 import { Segmented } from '../primitives/Segmented'
 import { api } from '../../../convex/_generated/api'
 import { useHydrated } from '#/lib/useHydrated'
-import { DeliveryHistory, SendSheet } from './SendSheet'
+import { DeliveryHistory, LatestDelivery, SendSheet } from './SendSheet'
 import { ReportPdfCard } from './ReportPdfCard'
 import { ReportPdfViewer } from './ReportPdfViewer'
 import { replacedBadge } from './reportPdfModel'
@@ -169,6 +169,14 @@ export function ReportActionBar({
   return (
     <>
       <SgarNotice businessSlug={businessSlug} report={report} />
+
+      {/* Where it went, above every tab: locking sends it, and this is the
+          page that opens straight after. */}
+      <LatestDelivery
+        businessId={businessId}
+        reportId={reportId}
+        onOpen={() => setTab('email')}
+      />
 
       <div className="px-4 pt-4">
         <Segmented

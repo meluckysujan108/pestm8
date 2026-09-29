@@ -119,8 +119,8 @@ blocked at Complete is how a business learns to switch a policy off.
 subtitle, the footer's form name, and which signatures a report needs before
 it can lock. That is the whole writable surface; email is not part of it. A
 delivery's subject is computed per report (`deliveries.subjectFor`) and its
-recipients come from the form's own semantics plus `businesses.reportCopyEmail`
-— a business column, not a template one. Anything that would change a question
+recipients come from the form's own semantics, with the business's blind copy
+from `businesses.reportCopyEmail` — a business column, not a template one. Anything that would change a question
 or an answer is on the other side of the line: a clone.
 
 **Phrases** (`convex/snippets.ts`) — saved wording for the long-answer boxes,
@@ -338,7 +338,29 @@ client receive on 28 August?" answerable once the renderer has moved on.
   labels: `sendCopyToClient` means the client's address, `emailTo` means
   whatever was typed into the form's own "Email Report To". `finalise` opens
   those deliveries in the same transaction that locks the report, and the
-  render pipeline sends them once there is a file to attach.
+  render pipeline sends them once there is a file to attach — within seconds,
+  so **locking is what emails it**. The form's own question says as much
+  ("…when you submit this form?").
+- **Said before and after.** The sheet that locks a report says who it is
+  about to be emailed to and where the business's copy goes, worked out by
+  the same rule `finalise` applies (`src/components/reports/lockEmail.ts`),
+  and the client's copy can be switched off there. The finished report then
+  shows its newest delivery above its tabs (`LatestDelivery`): "Sending…",
+  then who it went to — or why it did not, including a row still queued
+  minutes later, which is not on its way.
+- **The business keeps a copy of every one.** Its Business copy address
+  (`reportCopyEmail`, Settings → Reports), else its business email, rides on
+  every report email as a **bcc** (`lib/recipients.businessCopyAddress`,
+  `blindCopy`): the one a form asks for at finalise and the one from the Send
+  button alike. Blind, so the client sees only who it is for and a Reply All
+  never reaches it; not added when that address is itself a recipient; and
+  not swapped for the business email when a Business copy address can never
+  be delivered to. Recorded on the row as `bcc`. Rows from before 29 Sept 2026
+  carried the copy as a visible `cc`, and only on sends at finalise.
+- **Only a finished report.** `deliveries.request` refuses a draft
+  (`REPORT_NOT_FINALISED`), `finalise` opens its deliveries in the locking
+  transaction, and the sender (`email.deliver`) checks again, so no path
+  added later can email a draft by forgetting to ask.
 - **Who may send where.** A technician may send to addresses already on the
   client record — the client, their contacts, the business itself. Anywhere
   else is `pendingApproval` until an owner says yes, unless the business sets

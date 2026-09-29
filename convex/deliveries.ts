@@ -21,9 +21,11 @@ import { isValidEmail } from './lib/email'
 import type { ActorEnvelope } from './lib/actor'
 import { memberName } from './lib/reportContext'
 import {
+  businessCopyAddress,
   knownRecipients as knownFor,
   normaliseAddresses,
 } from './lib/recipients'
+import { blindCopy } from '../src/lib/reportTemplates/delivery'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import type { Doc, Id } from './_generated/dataModel'
@@ -56,6 +58,7 @@ export const queue = internalMutation({
     reportId: v.id('reports'),
     to: v.array(v.string()),
     cc: v.array(v.string()),
+    bcc: v.optional(v.array(v.string())),
     subject: v.string(),
     trigger: v.union(v.literal('finalise'), v.literal('manual')),
     status: v.union(v.literal('queued'), v.literal('pendingApproval')),
@@ -122,6 +125,9 @@ export const forSending = internalQuery({
       delivery,
       reportId: delivery.reportId,
       businessId: delivery.businessId,
+      // Every way a row is opened already requires a finalised report; the
+      // sender checks again, so no future path can email a draft.
+      finalised: report.status === 'finalised',
     }
   },
 })
@@ -245,21 +251,29 @@ async function knownToCaller(
 }
 
 /**
- * The addresses this business already corresponds with about this report.
+ * The addresses this business already corresponds with about this report,
+ * and what happens to an email of it.
  *
  * Public so the send sheet can say "this one needs the owner's approval"
- * BEFORE someone presses Send, rather than after. Nothing here is new to the
- * caller: they can already open the client record it comes from.
+ * BEFORE someone presses Send, rather than after — and so it, and the sheet
+ * that locks a draft, can say where the business's own copy goes before
+ * anything is sent. Nothing here is new to the caller: they can already open
+ * the client record the addresses come from, and the business's email is on
+ * every report it prints.
  */
 export const known = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const env = await requireActor(ctx, businessId)
+    const none = {
+      addresses: [],
+      unrestricted: false,
+      copy: null,
+      emailReady: false,
+    }
     const report = await ctx.db.get(reportId)
-    if (!report || report.businessId !== businessId)
-      return { addresses: [], unrestricted: false }
-    if (!reportReadable(env.scope, env.actor.real._id, report))
-      return { addresses: [], unrestricted: false }
+    if (!report || report.businessId !== businessId) return none
+    if (!reportReadable(env.scope, env.actor.real._id, report)) return none
 
     const business = await ctx.db.get(businessId)
     return {
@@ -267,6 +281,10 @@ export const known = query({
       unrestricted:
         hasCapability(env, 'business.manage') ||
         business?.allowTechnicianRecipients === true,
+      /** The blind copy every email of this report carries, if any. */
+      copy: businessCopyAddress(business),
+      /** Whether this deployment can send at all (`lib/emailConfig`). */
+      emailReady: emailConfigured(),
     }
   },
 })
@@ -486,6 +504,10 @@ export const request = mutation({
       reportId,
       to: addresses,
       cc: copies,
+      // The business's own copy of every report it emails, and not only the
+      // ones a form asked for: a send from this sheet is the same kind of
+      // email, to the same kind of person. Blind, as at finalise.
+      bcc: blindCopy(businessCopyAddress(business), [...addresses, ...copies]),
       subject: await subjectFor(ctx, report),
       trigger: 'manual',
       status,

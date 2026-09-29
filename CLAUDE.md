@@ -70,7 +70,10 @@ Email goes through Resend from the verified domain `pestm8.com.au`, as two
 senders on prod (`rare-retriever-156`):
 
 - `RESEND_FROM_EMAIL=info@pestm8.com.au` — reports to customers
-  (`convex/email.ts`); replies go to the business's own address.
+  (`convex/email.ts`); replies go to the business's own address. Every report
+  email also carries a **bcc** to the business's own copy address (Settings →
+  Reports → Business copy, else its business email). For Pest M8 Pest Control
+  that is info@pestm8.com.au.
 - `RESEND_ACCOUNT_FROM_EMAIL=noreply@pestm8.com.au` — account email: the
   "Forgot password?" link and "your password was changed"
   (`convex/accountEmails.ts`). Replies aren't read; the email says to write to

@@ -377,6 +377,41 @@ test.describe('the send sheet', () => {
     await expect(page.getByText(/asked for by the form/)).toBeVisible()
   })
 
+  test('the finished report says whether it went, above its tabs', async ({
+    page,
+  }) => {
+    const s = await setupBusinessWithSub('send-status-line')
+    const property = await s.owner.client.query(api.properties.get, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    await s.owner.client.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId: property!.clientId,
+      email: 'client@example.com',
+    })
+    const reportId = await createReport(s.owner.client, s, 'serviceReport')
+    await finaliseReport(s.owner.client, s, reportId, 'serviceReport', {
+      sendCopy: true,
+    })
+
+    await signInViaUi(page, s.owner.email)
+    await page.goto(`/${s.slug}/reports/${reportId}`)
+
+    // Locking sent it — or, with no Resend key here, could not — and the page
+    // that opens straight after is where that is said, not only in a tab.
+    const status = page.getByRole('button', {
+      name: /Not emailed: email isn’t set up for this business yet/,
+    })
+    await expect(status).toBeVisible()
+    await status.click()
+    await expect(page.getByRole('tab', { name: 'Email' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    )
+    await expect(page.getByText(/asked for by the form/)).toBeVisible()
+  })
+
   test('says what happened to each recipient, not one verdict for all', async ({
     page,
   }) => {

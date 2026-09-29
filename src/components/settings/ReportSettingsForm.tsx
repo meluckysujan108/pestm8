@@ -149,13 +149,13 @@ export function ReportSettingsForm({
         <SettingsGroup
           id={`${id}-sending`}
           title="Sending"
-          // What `reports.finalise` does with it (queueFormDeliveries): the
-          // copy rides along on the emails a form asks for as it is locked,
-          // and falls back to the business email. A send from the report's
-          // own Send button carries no copy, so this does not claim one.
-          // With no business email on file there is nothing to fall back to,
-          // and the line says what the placeholder does.
-          footer={`Copied on the emails a form sends as it’s finalised.${
+          // What every report email does with it (`businessCopyAddress`):
+          // the one a form sends as it is locked and the one from the
+          // report's own Send button both carry it as a blind copy, falling
+          // back to the business email. With no business email on file there
+          // is nothing to fall back to, and the line says what the
+          // placeholder does.
+          footer={`Gets a hidden copy of every report you email — your client won’t see it.${
             loading
               ? ''
               : settings.email
