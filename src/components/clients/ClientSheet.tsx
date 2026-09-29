@@ -47,6 +47,7 @@ import type { ErrorCopy } from '#/components/forms/describeError'
 import type { AddressValue } from '#/lib/addressVerify'
 import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { DeleteButton } from '#/components/primitives/DeleteButton'
 import {
   ClientStatusPill,
   TagChips,
@@ -63,6 +64,14 @@ type ClientKind = 'person' | 'business'
 
 /** What a failed archive, remove or make-primary says: these are not saves,
  * so describeError's "Could not save" words would name the wrong thing. */
+/** A delete's refusals, in words: `actionCopy`, and the one it adds. */
+function deleteCopy(thing: string): ErrorCopy {
+  return {
+    ...actionCopy(`delete ${thing}`),
+    TOO_MUCH_TO_DELETE: `Could not delete ${thing}: it has too many records to move to the Recycle bin at once. Delete its properties one at a time first.`,
+  }
+}
+
 function actionCopy(action: string): ErrorCopy {
   return {
     offline: `Could not ${action}: this device is offline. Try again when you have signal.`,
@@ -77,7 +86,7 @@ export function ClientSheet({
   timezone,
   businessSlug,
   businessState,
-  isOwner,
+  canManageClients,
   clientId,
   onClose,
 }: {
@@ -86,7 +95,8 @@ export function ClientSheet({
   businessSlug: string
   /** Where address suggestions lean, and a new property's starting state. */
   businessState: string
-  isOwner: boolean
+  /** `clients.manage`: the owner and contractors. Offers Delete. */
+  canManageClients: boolean
   clientId: string | null
   onClose: () => void
 }) {
@@ -99,7 +109,7 @@ export function ClientSheet({
           timezone={timezone}
           businessSlug={businessSlug}
           businessState={businessState}
-          isOwner={isOwner}
+          canManageClients={canManageClients}
           clientId={clientId as Id<'clients'>}
           onClose={onClose}
         />
@@ -113,7 +123,7 @@ function ClientBody({
   timezone,
   businessSlug,
   businessState,
-  isOwner,
+  canManageClients,
   clientId,
   onClose,
 }: {
@@ -121,7 +131,8 @@ function ClientBody({
   timezone: string
   businessSlug: string
   businessState: string
-  isOwner: boolean
+  /** `clients.manage`: the owner and contractors. Offers Delete. */
+  canManageClients: boolean
   clientId: Id<'clients'>
   onClose: () => void
 }) {
@@ -139,12 +150,13 @@ function ClientBody({
   )
   const contactPerson = contacts?.find((c) => c.isPrimary)?.name
   const [editing, setEditing] = useState(false)
-  const [confirmArchiveOpen, setConfirmArchiveOpen] = useState(false)
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  const hydrated = useHydrated()
 
-  const convexArchive = useConvexMutation(api.clients.archive)
-  const archive = useMutation({
+  const convexDelete = useConvexMutation(api.bin.deleteClient)
+  const remove = useMutation({
     mutationFn: (args: { businessId: Id<'businesses'>; clientId: Id<'clients'> }) =>
-      convexArchive(args),
+      convexDelete(args),
     onSuccess: onClose,
   })
 
@@ -275,6 +287,7 @@ function ClientBody({
         businessState={businessState}
         clientId={clientId}
         clientKind={client.kind}
+        canDelete={canManageClients}
       />
 
       <ClientNotesSection
@@ -300,38 +313,38 @@ function ClientBody({
         timezone={timezone}
       />
 
-      {isOwner && (
-        <button
-          type="button"
-          onClick={() => setConfirmArchiveOpen(true)}
-          className="mt-6 h-11 w-full rounded-xl bg-surface-2 text-body font-semibold text-amber-ink transition active:scale-[.975]"
+      {canManageClients && (
+        <DeleteButton
+          disabled={!hydrated}
+          onClick={() => setConfirmDeleteOpen(true)}
         >
-          Archive client
-        </button>
+          Delete client
+        </DeleteButton>
       )}
-      {/* Here, not in the dialog: the dialog closes as Archive is pressed. */}
+      {/* Here, not in the dialog: the dialog closes as Delete is pressed. */}
       <FormAlert
         className="mt-2"
-        error={archive.isError ? archive.error : null}
-        copy={actionCopy('archive this client')}
+        error={remove.isError ? remove.error : null}
+        copy={deleteCopy('this client')}
       />
 
       <ConfirmDialog
-        open={confirmArchiveOpen}
-        onOpenChange={setConfirmArchiveOpen}
-        title={`Archive ${client.name}?`}
+        open={confirmDeleteOpen}
+        onOpenChange={setConfirmDeleteOpen}
+        title={`Delete ${client.name}?`}
         body={
           <>
-            This removes them from pickers for new jobs, properties and
-            reports. Nothing is deleted — every existing property, job and
-            report stays exactly as it is, and you can unarchive them later.
+            They go to the Recycle bin with their properties, jobs,
+            recurring services, notes and draft reports. The business owner
+            can restore them from Settings → Recycle bin. Finalised reports
+            are kept in Reports.
           </>
         }
         cancel="Keep client"
-        confirm="Archive"
-        pending={archive.isPending}
-        pendingLabel="Archiving…"
-        onConfirm={() => archive.mutate({ businessId, clientId })}
+        confirm="Delete"
+        pending={remove.isPending}
+        pendingLabel="Deleting…"
+        onConfirm={() => remove.mutate({ businessId, clientId })}
       />
     </div>
   )
@@ -1091,11 +1104,13 @@ function ClientProperties({
   businessState,
   clientId,
   clientKind,
+  canDelete,
 }: {
   businessId: Id<'businesses'>
   businessState: string
   clientId: Id<'clients'>
   clientKind: ClientKind
+  canDelete: boolean
 }) {
   const { data: properties } = useQuery(
     convexQuery(api.properties.listByClient, { businessId, clientId }),
@@ -1115,6 +1130,7 @@ function ClientProperties({
                 businessState={businessState}
                 clientKind={clientKind}
                 property={property}
+                canDelete={canDelete}
                 onDone={() => setEditingId(null)}
               />
             ) : (
@@ -1298,6 +1314,7 @@ function PropertyEditForm({
   businessState,
   clientKind,
   property,
+  canDelete,
   onDone,
 }: {
   businessId: Id<'businesses'>
@@ -1312,6 +1329,7 @@ function PropertyEditForm({
     siteContactName?: string
     siteContactPhone?: string
   }
+  canDelete: boolean
   onDone: () => void
 }) {
   // What the property has saved, as the save below compares with.
@@ -1327,6 +1345,16 @@ function PropertyEditForm({
   const [addressCheck, setAddressCheck] = useState<AddressCheck>('typed')
   const hydrated = useHydrated()
   const warnings = useSaveWarnings()
+
+  const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  const convexDelete = useConvexMutation(api.bin.deleteProperty)
+  const remove = useMutation({
+    mutationFn: (args: {
+      businessId: Id<'businesses'>
+      propertyId: Id<'properties'>
+    }) => convexDelete(args),
+    onSuccess: onDone,
+  })
 
   const convexUpdate = useConvexMutation(api.properties.update)
   const save = useMutation({
@@ -1402,6 +1430,41 @@ function PropertyEditForm({
             {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
           </button>
         </div>
+        {canDelete && (
+          <>
+            <DeleteButton
+              className="mt-1"
+              disabled={!hydrated || save.isPending}
+              onClick={() => setConfirmDeleteOpen(true)}
+            >
+              Delete this property
+            </DeleteButton>
+            <FormAlert
+              error={remove.isError ? remove.error : null}
+              copy={deleteCopy('this property')}
+            />
+            <ConfirmDialog
+              open={confirmDeleteOpen}
+              onOpenChange={setConfirmDeleteOpen}
+              title={`Delete ${property.addressLine}?`}
+              body={
+                <>
+                  It goes to the Recycle bin with its jobs, recurring
+                  services, notes and draft reports. The business owner can
+                  restore it from Settings → Recycle bin. Finalised reports
+                  are kept in Reports.
+                </>
+              }
+              cancel="Keep property"
+              confirm="Delete"
+              pending={remove.isPending}
+              pendingLabel="Deleting…"
+              onConfirm={() =>
+                remove.mutate({ businessId, propertyId: property._id })
+              }
+            />
+          </>
+        )}
       </form>
     </SaveWarningsProvider>
   )
