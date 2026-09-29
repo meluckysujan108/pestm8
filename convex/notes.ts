@@ -3,6 +3,7 @@ import { ConvexError, v } from 'convex/values'
 import { components, internal } from './_generated/api'
 import { internalMutation, mutation, query } from './_generated/server'
 import { authComponent } from './auth'
+import { unbinned } from './lib/bin'
 import { requireMembership } from './lib/access'
 import { isInScope } from './lib/capabilities'
 import { jobsInScope } from './lib/jobScope'
@@ -84,6 +85,10 @@ type Folder =
  */
 function inFolder(note: Note, folder: Folder, viewer: NoteViewer): boolean {
   const live = note.deletedAt === undefined
+  // Recently Deleted holds the notes deleted on their own. One that went
+  // into the Recycle bin with its client, site or job waits there with it,
+  // and comes back only with it (convex/bin.ts).
+  const onItsOwn = note.binEntryId === undefined
   if (isPrivate(note)) {
     const mine = note.authorMembershipId === viewer.real._id
     switch (folder) {
@@ -93,7 +98,7 @@ function inFolder(note: Note, folder: Folder, viewer: NoteViewer): boolean {
       case 'everyone':
         return live && !mine && viewer.godView
       case 'trash':
-        return !live && (mine || viewer.godView)
+        return !live && onItsOwn && (mine || viewer.godView)
       default:
         return false
     }
@@ -111,7 +116,7 @@ function inFolder(note: Note, folder: Folder, viewer: NoteViewer): boolean {
     case 'team':
       return live && noteKind(note) === 'team'
     case 'trash':
-      return !live
+      return !live && onItsOwn
   }
 }
 
@@ -273,6 +278,8 @@ export const list = query({
           case 'trash':
             return q.and(
               q.neq(q.field('deletedAt'), undefined),
+              // Not one waiting in the Recycle bin with its client (inFolder).
+              q.eq(q.field('binEntryId'), undefined),
               viewer.godView ? q.eq(true, true) : sharedOrMine,
             )
         }
@@ -370,7 +377,10 @@ export const search = query({
       .filter((q) => {
         const live =
           filter === 'trash'
-            ? q.neq(q.field('deletedAt'), undefined)
+            ? q.and(
+                q.neq(q.field('deletedAt'), undefined),
+                q.eq(q.field('binEntryId'), undefined),
+              )
             : q.eq(q.field('deletedAt'), undefined)
         const personal = q.eq(q.field('visibility'), 'private')
         const mine = q.eq(q.field('authorMembershipId'), me)
@@ -439,7 +449,7 @@ export const listForProperty = query({
   args: { businessId: v.id('businesses'), propertyId: v.id('properties') },
   handler: async (ctx, { businessId, propertyId }) => {
     const viewer = await noteViewer(ctx, businessId)
-    const property = await ctx.db.get(propertyId)
+    const property = unbinned(await ctx.db.get(propertyId))
     if (!property || property.businessId !== businessId) {
       return { site: [], visits: [] }
     }
@@ -638,7 +648,9 @@ async function resolveLinks(
 ): Promise<Links> {
   const businessId = viewer.real.businessId
   if (args.jobId) {
-    const job = await ctx.db.get(args.jobId)
+    // Nothing new is written about a job, site or client in the Recycle bin
+    // (lib/bin.ts): it reads as gone until it is restored.
+    const job = unbinned(await ctx.db.get(args.jobId))
     if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     // Linking is a write: judged as the real caller, not the viewed-as one.
     if (!isInScope(viewer.ownRows, job)) throw new ConvexError('NOT_FOUND')
@@ -646,12 +658,12 @@ async function resolveLinks(
     return { jobId: job._id, propertyId: job.propertyId, clientId: property?.clientId }
   }
   if (args.propertyId) {
-    const property = await ctx.db.get(args.propertyId)
+    const property = unbinned(await ctx.db.get(args.propertyId))
     if (!property || property.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     return { propertyId: property._id, clientId: property.clientId }
   }
   if (args.clientId) {
-    const client = await ctx.db.get(args.clientId)
+    const client = unbinned(await ctx.db.get(args.clientId))
     if (!client || client.businessId !== businessId) throw new ConvexError('NOT_FOUND')
     return { clientId: client._id }
   }
@@ -857,6 +869,9 @@ async function requireDeletable(
   const me = (await requireActor(ctx, businessId)).actor.real
   const note = await requireNote(ctx, businessId, noteId)
   if (!canDeleteNote(me, note)) throw new ConvexError('NO_ACCESS')
+  // In the Recycle bin with its client, site or job: restored or wiped with
+  // them, from the bin, never on its own (convex/bin.ts).
+  if (note.binEntryId !== undefined) throw new ConvexError('IN_RECYCLE_BIN')
   return note
 }
 
@@ -929,6 +944,10 @@ export const purgeExpired = internalMutation({
     const batch = await ctx.db
       .query('notes')
       .withIndex('by_deletedAt', (q) => q.gt('deletedAt', 0).lt('deletedAt', cutoff))
+      // A note in the Recycle bin with its client, site or job goes when
+      // they do, not on its own clock: wiped here, restoring the client
+      // would bring it back without them (convex/bin.ts).
+      .filter((q) => q.eq(q.field('binEntryId'), undefined))
       .take(25)
     for (const note of batch) await purgeNote(ctx, note)
     if (batch.length === 25) {

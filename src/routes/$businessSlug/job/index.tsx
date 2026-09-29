@@ -38,6 +38,7 @@ export const Route = createFileRoute('/$businessSlug/job/')({
 function JobListPage() {
   const { business } = Route.useRouteContext()
   const canDispatch = useCan('jobs.dispatch')
+  const canManageClients = useCan('clients.manage')
   const { status, jobId } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
 
@@ -158,6 +159,7 @@ function JobListPage() {
         timezone={business.timezone}
         jobId={jobId ?? null}
         canReassign={canDispatch}
+        canDelete={canManageClients}
         onClose={() =>
           navigate({
             search: (prev) => ({ ...prev, jobId: undefined }),

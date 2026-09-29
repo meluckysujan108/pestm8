@@ -323,6 +323,9 @@ async function existingClient(
     !row ||
     row.businessId !== businessId ||
     row.archivedAt !== undefined ||
+    // Nor one in the Recycle bin: imported into, it would stay binned, and
+    // everything this import adds to it would vanish with it (lib/bin.ts).
+    row.deletedAt !== undefined ||
     // A name of punctuation alone has no key, and "" matching "" is no
     // evidence of anything.
     key === '' ||
@@ -354,6 +357,9 @@ function knownSites(ctx: MutationCtx, businessId: Id<'businesses'>) {
       .withIndex('by_business_and_postcode', (q) =>
         q.eq('businessId', businessId).eq('postcode', postcode),
       )
+      // A site in the Recycle bin is not "already here": skipped as a
+      // duplicate, the imported address would not be anywhere anyone can see.
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .collect()
   return {
     /** True when the client hasn't this site, and claimed: the next one

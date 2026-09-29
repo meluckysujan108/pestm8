@@ -9,6 +9,7 @@ import { EmailInput } from '#/components/forms/EmailInput'
 import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
+import { RecycleBinList } from '#/components/settings/RecycleBin'
 import { SignSheet } from '#/components/reports/fields/SignSheet'
 import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
 import { LatestDelivery, SendSheet } from '#/components/reports/SendSheet'
@@ -110,6 +111,7 @@ function JobDetail() {
         timezone={TZ}
         jobId="j2"
         canReassign
+        canDelete
         onClose={() => {}}
       />
     </Phone>
@@ -126,6 +128,7 @@ function JobDetailLoading() {
         timezone={TZ}
         jobId="loading"
         canReassign
+        canDelete
         onClose={() => {}}
       />
     </Phone>
@@ -141,7 +144,7 @@ function Client() {
         timezone={TZ}
         businessSlug="demo"
         businessState="WA"
-        isOwner
+        canManageClients
         clientId="c1"
         onClose={() => {}}
       />
@@ -586,7 +589,19 @@ function Send() {
   )
 }
 
+function RecycleBin() {
+  return (
+    <Phone>
+      <Header kicker="Settings" title="Recycle bin" />
+      <SettingsBody>
+        <RecycleBinList businessId={bizId} timezone={TZ} />
+      </SettingsBody>
+    </Phone>
+  )
+}
+
 export const SPECIMENS: Partial<Record<string, ComponentType>> = {
+  bin: RecycleBin,
   dock: Dock,
   jobcards: JobCards,
   jobdetail: JobDetail,

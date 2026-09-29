@@ -16,6 +16,7 @@ import {
   sectionsOf,
   templateFor,
 } from '../src/lib/reportTemplates'
+import { unbinned } from './lib/bin'
 import { freezeTemplate } from './lib/templateSnapshot'
 import type { CustomSource } from './lib/templateSnapshot'
 import { seedFromContext } from '../src/lib/reportTemplates/seed'
@@ -290,7 +291,12 @@ export const list = query({
       .order('desc')
       .filter((q) =>
         filter === 'trash'
-          ? q.neq(q.field('deletedAt'), undefined)
+          ? q.and(
+              q.neq(q.field('deletedAt'), undefined),
+              // Deleted on its own. A draft in the Recycle bin with its
+              // client, site or job waits there with it (convex/bin.ts).
+              q.eq(q.field('binEntryId'), undefined),
+            )
           : q.eq(q.field('deletedAt'), undefined),
       )
       .filter((q) => segmentPredicate(q, filter))
@@ -338,7 +344,12 @@ export const search = query({
       // real matches out of the results.
       .filter((q) =>
         filter === 'trash'
-          ? q.neq(q.field('deletedAt'), undefined)
+          ? q.and(
+              q.neq(q.field('deletedAt'), undefined),
+              // Deleted on its own. A draft in the Recycle bin with its
+              // client, site or job waits there with it (convex/bin.ts).
+              q.eq(q.field('binEntryId'), undefined),
+            )
           : q.eq(q.field('deletedAt'), undefined),
       )
       .filter((q) => segmentPredicate(q, filter))
@@ -437,7 +448,7 @@ export const counts = query({
     for (const r of rows) {
       if (!reportReadable(listScope, actor.real._id, r)) continue
       if (r.deletedAt !== undefined) {
-        counted.trash += 1
+        if (r.binEntryId === undefined) counted.trash += 1
         continue
       }
       counted.all += 1
@@ -1599,7 +1610,9 @@ export const create = mutation({
      */
     const by = writeAttribution(env.actor)
 
-    const property = await ctx.db.get(args.propertyId)
+    // No new report at a site, or against a job, in the Recycle bin
+    // (lib/bin.ts) — both read as gone until restored.
+    const property = unbinned(await ctx.db.get(args.propertyId))
     if (!property || property.businessId !== args.businessId) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -1608,7 +1621,7 @@ export const create = mutation({
     // others — so it has to be one of this business's jobs, not an id from
     // somewhere else.
     if (args.jobId) {
-      const job = await ctx.db.get(args.jobId)
+      const job = unbinned(await ctx.db.get(args.jobId))
       if (!job || job.businessId !== args.businessId) {
         throw new ConvexError('NOT_FOUND')
       }
@@ -2591,6 +2604,9 @@ async function requireDeletable(
   if (!canEditReport(env.actor, reportFactsFrom(report))) {
     throw new ConvexError('NO_ACCESS')
   }
+  // In the Recycle bin with its client, site or job: restored or wiped with
+  // them, from the bin, never on its own (convex/bin.ts).
+  if (report.binEntryId !== undefined) throw new ConvexError('IN_RECYCLE_BIN')
   return { env, report }
 }
 
@@ -2638,12 +2654,21 @@ async function recordRetirement(
  * The preview is the exception because the server made it, for this report
  * alone, and nothing else is ever pointed at it.
  */
-async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
+export async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
   const photos = await ctx.db
     .query('reportPhotos')
     .withIndex('by_report_field', (q) => q.eq('reportId', report._id))
     .collect()
   for (const photo of photos) await ctx.db.delete(photo._id)
+
+  // Marks drawn on the draft's preview go with it: left behind, they were
+  // rows about a report that no longer exists, with nothing that could ever
+  // read or remove them.
+  const marks = await ctx.db
+    .query('reportPdfAnnotations')
+    .withIndex('by_report_page', (q) => q.eq('reportId', report._id))
+    .collect()
+  for (const mark of marks) await ctx.db.delete(mark._id)
 
   if (report.previewStorageId) await ctx.storage.delete(report.previewStorageId)
 
@@ -2660,6 +2685,9 @@ export const purgeExpired = internalMutation({
     const batch = await ctx.db
       .query('reports')
       .withIndex('by_deletedAt', (q) => q.gt('deletedAt', 0).lt('deletedAt', cutoff))
+      // A draft in the Recycle bin with its client, site or job goes when
+      // they do, not on its own clock (convex/bin.ts).
+      .filter((q) => q.eq(q.field('binEntryId'), undefined))
       .take(PURGE_BATCH)
     for (const report of batch) {
       // A report that was finalised while in the trash is a record now, and
