@@ -1,4 +1,4 @@
-import type { ReportTemplate, SectionDef } from './types'
+import type { FieldDef, ReportTemplate, SectionDef } from './types'
 
 /**
  * The parts of a form a business owns.
@@ -23,8 +23,10 @@ export type TemplateSettings = {
     formName?: string
   }
   /**
-   * Slots that must hold a signature before a report can lock. An empty or
-   * absent list leaves the form's own `required` flags standing.
+   * Slots that must hold a signature before a report can lock. Absent leaves
+   * the form's own `required` flags standing; an empty list requires nobody.
+   * A client's pad is never required, whatever this says
+   * (`withOptionalClientSignatures`).
    */
   requiredSigners?: Array<string>
 }
@@ -92,7 +94,9 @@ function applySigners(
   const next = sections.map((section) => {
     const fields = section.fields.map((field) => {
       if (field.kind !== 'signature') return field
-      const shouldRequire = required.has(field.slot)
+      // A client's pad cannot be made required from here either: a setting
+      // saved before that rule, naming the client's slot, now asks nothing.
+      const shouldRequire = field.role !== 'client' && required.has(field.slot)
       return (field.required ?? false) === shouldRequire
         ? field
         : { ...field, required: shouldRequire }
@@ -101,6 +105,51 @@ function applySigners(
   })
 
   return same(next, sections) ? sections : next
+}
+
+/**
+ * A client's signature is never required to lock a report.
+ *
+ * The technician's signature is what makes the record theirs, and it is the
+ * one the forms insist on. The client's is welcome when they are there to
+ * give it — and often they are not: the job was done while they were at
+ * work, or they had gone by the time the paperwork was. Holding the lock for
+ * a signature nobody can give stops the record being made at all. So a pad
+ * the client signs is optional, whatever a form, a business's own clone or
+ * its settings say. Decided 29 Sept 2026, at Pest M8 Pest Control's request.
+ *
+ * Applied where a draft's template is resolved (`resolveReportTemplate`), so
+ * the builder, its progress, the finalise sheet and the server's finalise
+ * gate all read the same rule. Returns the same object when nothing changes,
+ * which keeps the builder's memoised template from re-rendering every field.
+ */
+export function withOptionalClientSignatures(
+  template: ReportTemplate,
+): ReportTemplate {
+  const sections = template.sections?.map((section) => {
+    const fields = optionalForClients(section.fields)
+    return fields === section.fields ? section : { ...section, fields }
+  })
+  const fields = optionalForClients(template.fields)
+  const sectionsChanged =
+    sections !== undefined &&
+    template.sections !== undefined &&
+    !same(sections, template.sections)
+  if (!sectionsChanged && fields === template.fields) return template
+  return {
+    ...template,
+    ...(sectionsChanged ? { sections } : {}),
+    fields,
+  }
+}
+
+function optionalForClients(fields: Array<FieldDef>): Array<FieldDef> {
+  const next = fields.map((field) =>
+    field.kind === 'signature' && field.role === 'client' && field.required
+      ? { ...field, required: false }
+      : field,
+  )
+  return same(next, fields) ? fields : next
 }
 
 function same<T>(next: Array<T>, before: Array<T>): boolean {

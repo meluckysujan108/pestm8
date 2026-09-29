@@ -11,6 +11,10 @@ import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
 import { SignSheet } from '#/components/reports/fields/SignSheet'
+import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
+import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
+import { LatestDelivery, SendSheet } from '#/components/reports/SendSheet'
+import { getTemplate } from '#/lib/reportTemplates'
 import { Sheet } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
 import { SearchBox } from '#/components/primitives/SearchBox'
@@ -476,6 +480,130 @@ function NoMatchesDemo() {
   )
 }
 
+const SERVICE = getTemplate('serviceReport')
+
+/**
+ * The sheet that locks a report, at its email note. The report id picks the
+ * fixture (`deliveries:known`): `r_nomail` is a deployment with no email set
+ * up. The client's copy can be switched off here, as in the app.
+ */
+function LockSheet({
+  reportId,
+  answers,
+  clientEmail,
+}: {
+  reportId: string
+  answers: Record<string, unknown>
+  clientEmail?: string
+}) {
+  const [data, setData] = useState<Record<string, unknown>>({
+    serviceDate: '2026-09-29',
+    safeToStart: true,
+    nextVisit: '3 Months',
+    ...answers,
+  })
+  return (
+    <Phone>
+      <FinaliseSheet
+        businessId={bizId}
+        reportId={reportId as never}
+        open
+        onClose={() => {}}
+        onConfirm={() => {}}
+        pending={false}
+        template={SERVICE}
+        data={data}
+        context={{ client: { name: 'Jane Nguyen', email: clientEmail } }}
+        signedSlots={['technician']}
+        photoCount={3}
+        onAnswer={(key, value) =>
+          setData((prev) => ({ ...prev, [key]: value }))
+        }
+      />
+    </Phone>
+  )
+}
+
+function Lock() {
+  return (
+    <LockSheet
+      reportId="r_lock"
+      answers={{ sendCopy: true }}
+      clientEmail="jane@gmail.com"
+    />
+  )
+}
+
+function LockHeld() {
+  return (
+    <LockSheet
+      reportId="r_lock"
+      answers={{ sendCopy: true, emailReportTo: ['strata@harbourside.com.au'] }}
+      clientEmail="jane@gmail.com"
+    />
+  )
+}
+
+function LockNoEmail() {
+  return (
+    <LockSheet
+      reportId="r_lock"
+      answers={{ sendCopy: false }}
+      clientEmail={undefined}
+    />
+  )
+}
+
+/** The line above a finished report's tabs, in each state it can be in. */
+function Delivered() {
+  return (
+    <Phone>
+      <Header kicker="Service Report" title="30 Sloan Drive" />
+      {['r_sending', 'r_sent', 'r_stuck', 'r_held', 'r_failed', 'r_setup'].map(
+        (id) => (
+          <LatestDelivery
+            key={id}
+            businessId={bizId}
+            reportId={id as never}
+            onOpen={() => {}}
+          />
+        ),
+      )}
+    </Phone>
+  )
+}
+
+function Send() {
+  return (
+    <Phone>
+      <SendSheet
+        open
+        onClose={() => {}}
+        businessId={bizId}
+        reportId={'r_lock' as never}
+        template={SERVICE}
+        data={{ sendCopy: true }}
+        clientEmail="jane@gmail.com"
+        subject="Service Report — 30 Sloan Drive, Leda — 29 Sept 2026"
+      />
+    </Phone>
+  )
+}
+
+/** A form's own settings: only the technician's pad can be required. */
+function FormSettings() {
+  return (
+    <Phone>
+      <TemplateSettingsSheet
+        open
+        onClose={() => {}}
+        businessId={bizId}
+        templateId="serviceReport"
+      />
+    </Phone>
+  )
+}
+
 function RecycleBin() {
   return (
     <Phone>
@@ -505,4 +633,10 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   confirm: Confirm,
   inputs: Inputs,
   nomatch: NoMatchesDemo,
+  lock: Lock,
+  'lock-held': LockHeld,
+  'lock-noemail': LockNoEmail,
+  delivered: Delivered,
+  send: Send,
+  'form-settings': FormSettings,
 }

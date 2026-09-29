@@ -80,3 +80,23 @@ export function reportEmailHtml({
   </body>
 </html>`
 }
+
+/**
+ * Who one delivery goes to, as Resend's API spells it.
+ *
+ * The business's own copy is `bcc`, so the client never sees another address
+ * on their email and a Reply All never reaches it. A row written before blind
+ * copies (29 Sept 2026) carries that copy in `cc` instead, and is sent as it
+ * was recorded: a delivery row is the record of what was asked for.
+ */
+export function deliveryAddressing(delivery: {
+  to: Array<string>
+  cc: Array<string>
+  bcc?: Array<string>
+}): { to: Array<string>; cc?: Array<string>; bcc?: Array<string> } {
+  return {
+    to: delivery.to,
+    ...(delivery.cc.length > 0 ? { cc: delivery.cc } : {}),
+    ...(delivery.bcc && delivery.bcc.length > 0 ? { bcc: delivery.bcc } : {}),
+  }
+}

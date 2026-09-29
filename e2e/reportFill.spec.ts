@@ -636,8 +636,11 @@ test.describe('the sheet before the lock', () => {
     await expect(sheet.getByText('6 Months')).toBeVisible()
     // The gate answered No still locks — and must be impossible to miss.
     await expect(sheet.getByText('No', { exact: true })).toBeVisible()
-    // An unsigned client pad is a warning, never a refusal.
-    await expect(sheet.getByText(/Signature — not signed/)).toBeVisible()
+    // The client's pad is never needed to lock: said plainly, not as a
+    // warning that reads like something still to do.
+    await expect(
+      sheet.getByText('Client’s signature — not signed (optional)'),
+    ).toBeVisible()
     await expect(sheet.getByText('No photos')).toBeVisible()
 
     // The one answer nobody could have known any earlier.
@@ -751,6 +754,63 @@ test.describe('the sheet before the lock', () => {
       reportId,
     })
     expect(report!.status).toBe('draft')
+  })
+  test('says locking emails the client, and the client’s copy can be held back there', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, propertyId, reportId } =
+      await startJobReport('fill-sheet-email')
+    const property = await owner.client.query(api.properties.get, {
+      businessId,
+      propertyId,
+    })
+    await owner.client.mutation(api.clients.update, {
+      businessId,
+      clientId: property!.clientId,
+      email: 'jnguyen@example.com',
+    })
+    await readyToLock(owner, businessId, reportId, {
+      safeToStart: true,
+      treatments: [],
+      sendCopy: true,
+    })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    await builderReady(page)
+    await page.getByRole('button', { name: 'Finalise & lock' }).click()
+
+    const sheet = page.getByRole('dialog', { name: 'Ready to lock' })
+    // Locking is what emails it, so the last screen before it says so —
+    // rather than "send it from the report", which once sent a second copy.
+    // This deployment has no email set up, and the sheet promises nothing.
+    await expect(
+      sheet.getByText(/Email isn’t set up for this business yet/),
+    ).toBeVisible()
+    const toClient = sheet.getByRole('button', { name: /Email the client/ })
+    await expect(toClient).toHaveAttribute('aria-pressed', 'true')
+    await expect(toClient).toContainText('jnguyen@example.com')
+
+    // "Not yet" is decided here: switched off, the lock opens no delivery.
+    await toClient.click()
+    await expect(toClient).toHaveAttribute('aria-pressed', 'false')
+    await sheet.getByRole('button', { name: 'Finalise & lock' }).click()
+
+    await expect
+      .poll(async () => {
+        const report = await owner.client.query(api.reports.get, {
+          businessId,
+          reportId,
+        })
+        return report!.status
+      })
+      .toBe('finalised')
+    expect(
+      await owner.client.query(api.deliveries.forReport, {
+        businessId,
+        reportId,
+      }),
+    ).toEqual([])
   })
 })
 

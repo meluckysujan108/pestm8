@@ -5,7 +5,7 @@ import { action, internalAction } from './_generated/server'
 import { api, internal } from './_generated/api'
 import { renderIfNeeded } from './reportPipeline'
 import { emailConfigured } from './lib/emailConfig'
-import { reportEmailHtml } from './lib/reportEmail'
+import { deliveryAddressing, reportEmailHtml } from './lib/reportEmail'
 import type { ActionCtx } from './_generated/server'
 import type { Id } from './_generated/dataModel'
 
@@ -45,6 +45,17 @@ export const deliver = internalAction({
     const { delivery, reportId, businessId } = loaded
     if (delivery.status !== 'queued') {
       return { ok: false, reason: delivery.status }
+    }
+    // Only a finished report is ever emailed. Every way a row is opened
+    // already insists on it; this is the last door, so a path added later
+    // cannot send a draft by forgetting to ask.
+    if (!loaded.finalised) {
+      await ctx.runMutation(internal.deliveries.settle, {
+        deliveryId,
+        status: 'failed',
+        error: 'Not sent: the report was not finalised.',
+      })
+      return { ok: false, reason: 'notFinalised' }
     }
 
     const apiKey = process.env.RESEND_API_KEY
@@ -113,8 +124,7 @@ export const deliver = internalAction({
           // signed: a from-name and a reply-to are delivery settings, not
           // content. A reply to a mailbox they closed is not a reply.
           from: `${sender} <${fromEmail}>`,
-          to: delivery.to,
-          ...(delivery.cc.length > 0 ? { cc: delivery.cc } : {}),
+          ...deliveryAddressing(delivery),
           reply_to: report.sender?.email || report.business?.email || undefined,
           subject: delivery.subject,
           html: reportEmailHtml({

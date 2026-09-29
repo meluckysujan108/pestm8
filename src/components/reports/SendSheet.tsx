@@ -1,7 +1,16 @@
-import { useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexAction } from '@convex-dev/react-query'
-import { Check, CircleAlert, Plus, Send, ShieldAlert } from 'lucide-react'
+import {
+  Check,
+  ChevronRight,
+  CircleAlert,
+  LoaderCircle,
+  Plus,
+  Send,
+  ShieldAlert,
+  TriangleAlert,
+} from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import {
@@ -14,13 +23,15 @@ import { describedBy, fieldMessageId } from '#/components/forms/FormField'
 import { domainsWithoutMail, noMailMessage } from './fields/staticBlocks'
 import { deliveryRecipients } from '#/lib/reportTemplates/delivery'
 import type { ReportTemplate } from '#/lib/reportTemplates'
-import type { Id } from '../../../convex/_generated/dataModel'
+import type { Doc, Id } from '../../../convex/_generated/dataModel'
 import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
 import { RowPending } from '#/components/shell/Pending'
 import { formatWhen } from '#/lib/format'
 import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { LoadFailed } from '#/components/primitives/EmptyState'
+import { TickBox } from './TickBox'
+import { useHydrated } from '#/lib/useHydrated'
 
 /**
  * Sending a finished report to the people it is for.
@@ -145,6 +156,9 @@ export function SendSheet({
   const settled = known !== undefined
   const knownAddresses = known?.addresses ?? []
   const unrestricted = known?.unrestricted ?? false
+  // The business's own blind copy (`lib/recipients.businessCopyAddress`),
+  // which every email of this report carries.
+  const copy = known?.copy ?? null
 
   const suggested = useMemo(
     () =>
@@ -187,6 +201,10 @@ export function SendSheet({
     })),
   ]
   const chosen = recipients.filter((entry) => entry.chosen)
+  // Said wherever it is true: an email to the copy address itself carries no
+  // second, hidden one (`blindCopy`).
+  const copied = (addresses: ReadonlyArray<string>) =>
+    copy !== null && addresses.some((address) => address !== copy)
   const needsApproval =
     settled && !unrestricted && chosen.some((entry) => !entry.known)
 
@@ -364,13 +382,7 @@ export function SendSheet({
                         : 'border-hairline bg-surface-2 opacity-60'
                     }`}
                   >
-                    <span
-                      className={`flex size-5 shrink-0 items-center justify-center rounded-md ${
-                        entry.chosen ? 'bg-ink text-surface' : 'bg-surface-3'
-                      }`}
-                    >
-                      {entry.chosen && <Check size={13} strokeWidth={2.2} />}
-                    </span>
+                    <TickBox on={entry.chosen} />
                     <span className="min-w-0 flex-1 truncate text-body text-ink">
                       {entry.address}
                     </span>
@@ -499,11 +511,31 @@ export function SendSheet({
         </button>
       )}
 
+      {copy && copied(chosen.map((entry) => entry.address)) && (
+        <p className="mt-3 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
+          <Send
+            size={13}
+            strokeWidth={2}
+            aria-hidden
+            className="mt-0.5 shrink-0"
+          />
+          {/* One email per person (see `send`), so one copy per email: the
+              business's inbox then shows each email and who it went to. */}
+          <span>
+            {chosen.length > 1 ? 'A copy of each goes to ' : 'A copy goes to '}
+            <span className="break-words font-semibold text-ink">{copy}</span>.
+          </span>
+        </p>
+      )}
+
       {outcomes.length > 0 && (
         <div role="status" className="mt-3 flex flex-col gap-1.5">
           {sent.length > 0 && (
             <p className="rounded-xl border border-hairline bg-surface-2 px-3 py-2 text-caption text-ink-2">
               Sent to {sent.map((result) => result.address).join(', ')}.
+              {copied(sent.map((result) => result.address))
+                ? ` A copy went to ${copy}.`
+                : ''}
             </p>
           )}
           {held.length > 0 && (
@@ -619,6 +651,13 @@ export function DeliveryHistory({
             {formatWhen(row.sentAt ?? row.createdAt, timezone)}
             {row.trigger === 'finalise' ? ' · asked for by the form' : ''}
           </p>
+          {/* Only once it went: on a held or failed row it would read as
+              though the copy had gone when nothing did. */}
+          {row.status === 'sent' && copiesOf(row).length > 0 && (
+            <p className="text-caption text-muted">
+              Copy to {copiesOf(row).join(', ')}
+            </p>
+          )}
           {row.status === 'pendingApproval' && row.approvedBy === null && (
             <p className="mt-1 text-caption text-amber-ink">
               Waiting for an owner to approve this address.
@@ -637,6 +676,233 @@ export function DeliveryHistory({
       ))}
     </ul>
   )
+}
+
+/**
+ * Who else a delivery went to: the business's blind copy, and — on a row from
+ * before copies were blind (29 Sept 2026), or one an API caller asked for —
+ * its visible cc.
+ */
+function copiesOf(row: {
+  cc: Array<string>
+  bcc?: Array<string>
+}): Array<string> {
+  return [...new Set([...(row.bcc ?? []), ...row.cc])]
+}
+
+/**
+ * The newest send of a finished report, above its tabs.
+ *
+ * Locking is what sends a report — the form asks whether to send the client a
+ * copy "when you submit this form", and it is Yes whenever the client has an
+ * email — so the page a technician lands on after Finalise is where "did it
+ * go, and to whom?" gets answered: "Sending…" for the few seconds the PDF
+ * takes to draw, then who it went to and where the business's copy went.
+ *
+ * One line per email in that send, not only the newest row: a lock can open
+ * two (the client's, and one held for an address nobody has on file), and a
+ * tap of Send opens one per person. It opens the Email tab, which has the
+ * whole history. Nothing at all for a report that was never emailed.
+ */
+export function LatestDelivery({
+  businessId,
+  reportId,
+  onOpen,
+}: {
+  businessId: Id<'businesses'>
+  reportId: Id<'reports'>
+  /** Opens the Email tab. */
+  onOpen: () => void
+}) {
+  const timezone = useBusinessTimezone()
+  const hydrated = useHydrated()
+  const { data: rows } = useQuery(
+    convexQuery(api.deliveries.forReport, { businessId, reportId }),
+  )
+  const all = rows ?? []
+  const newest = all.at(0)
+  // Newest first already (`forReport`): everything opened in the same moment
+  // as the newest row — one lock, or one tap of Send.
+  const batch = newest
+    ? all
+        .filter((row) => newest.createdAt - row.createdAt < BATCH_MS)
+        .slice(0, 3)
+    : []
+  const now = useClock(batch.some((row) => row.status === 'queued'))
+  if (batch.length === 0) return null
+
+  const lines = batch.map((row) => {
+    const copies = copiesOf(row)
+    // A send takes seconds: the PDF is drawn, then Resend is called. A row
+    // still queued minutes later is not on its way — its render failed, or
+    // it was never scheduled — and a spinner beside it would be a promise.
+    // Not for one an owner let go: that row keeps the time it was asked for.
+    const stuck =
+      row.status === 'queued' &&
+      !row.waitingForEmailSetup &&
+      row.approvedBy === null &&
+      now - row.createdAt > STUCK_AFTER_MS
+    const line = deliveryLine(row, row.to.join(', '), stuck)
+    const sending =
+      row.status === 'queued' && !row.waitingForEmailSetup && !stuck
+    const detail =
+      row.status === 'sent'
+        ? `${formatWhen(row.sentAt ?? row.createdAt, timezone)}${
+            copies.length > 0 ? ` · copy to ${copies.join(', ')}` : ''
+          }`
+        : sending
+          ? copies.length > 0
+            ? `A copy goes to ${copies.join(', ')}.`
+            : null
+          : line.next
+    return { row, line, sending, detail }
+  })
+  const allWarn = lines.every(({ line }) => line.warn)
+
+  return (
+    <div className="mx-4 mt-4">
+      <button
+        type="button"
+        disabled={!hydrated}
+        onClick={onOpen}
+        className={`flex w-full items-center gap-2.5 rounded-2xl border px-3.5 py-3 text-left active:scale-[.99] ${
+          allWarn
+            ? 'border-amber-line bg-amber-bg'
+            : 'border-hairline bg-surface shadow-elevation'
+        }`}
+      >
+        {/* Polite, so "Sending…" turning into "Emailed" is heard: it changes
+            by itself a few seconds after the page opens. */}
+        <span aria-live="polite" className="flex min-w-0 flex-1 flex-col gap-2">
+          {lines.map(({ row, line, sending, detail }) => (
+            <span key={row._id} className="flex items-start gap-2.5">
+              {line.warn ? (
+                <TriangleAlert
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden
+                  className="mt-0.5 shrink-0 text-amber-ink"
+                />
+              ) : sending ? (
+                <LoaderCircle
+                  size={16}
+                  strokeWidth={2}
+                  aria-hidden
+                  className="mt-0.5 shrink-0 animate-spin text-muted"
+                />
+              ) : (
+                <Check
+                  size={16}
+                  strokeWidth={2.2}
+                  aria-hidden
+                  className="mt-0.5 shrink-0 text-green"
+                />
+              )}
+              <span className="min-w-0 flex-1">
+                <span
+                  className={`block break-words text-body ${line.warn ? 'text-amber-ink' : 'text-ink'}`}
+                >
+                  {line.text}
+                </span>
+                {detail && (
+                  <span
+                    className={`block break-words text-caption ${line.warn ? 'text-amber-ink' : 'text-ink-2'}`}
+                  >
+                    {detail}
+                  </span>
+                )}
+              </span>
+            </span>
+          ))}
+        </span>
+        <ChevronRight
+          size={16}
+          strokeWidth={2.2}
+          aria-hidden
+          className={`shrink-0 ${allWarn ? 'text-amber-ink' : 'text-muted'}`}
+        />
+      </button>
+    </div>
+  )
+}
+
+/** How long a delivery may sit queued before it is plainly not on its way. */
+const STUCK_AFTER_MS = 2 * 60_000
+
+/** Rows opened this close together are one send: one lock, or one tap. */
+const BATCH_MS = 60_000
+
+/**
+ * The time, read again every fifteen seconds while `ticking` — so a page left
+ * open stops saying "Sending…" once a queued row has plainly stopped.
+ */
+function useClock(ticking: boolean): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!ticking) return
+    setNow(Date.now())
+    const timer = setInterval(() => setNow(Date.now()), 15_000)
+    return () => clearInterval(timer)
+  }, [ticking])
+  return now
+}
+
+/** What one delivery's state reads as, and what to do about it. */
+function deliveryLine(
+  row: {
+    status: Doc<'reportDeliveries'>['status']
+    error?: string
+    waitingForEmailSetup: boolean
+  },
+  who: string,
+  stuck: boolean,
+): { text: string; next: string | null; warn: boolean } {
+  switch (row.status) {
+    case 'sent':
+      return { text: `Emailed to ${who}.`, next: null, warn: false }
+    case 'queued':
+      if (row.waitingForEmailSetup) {
+        return {
+          text: 'Not emailed: email isn’t set up for this business yet.',
+          next: 'Download or share the PDF instead.',
+          warn: true,
+        }
+      }
+      return stuck
+        ? {
+            text: `Not sent to ${who}.`,
+            next: 'Send it from the Email tab.',
+            warn: true,
+          }
+        : { text: `Sending to ${who}…`, next: null, warn: false }
+    case 'pendingApproval':
+      // No approval is promised: the app has no screen yet where an owner
+      // lets a held email go. An owner sending it from the report can happen
+      // today, so that is what it says.
+      return {
+        text: `Not emailed to ${who}: not on the client’s record.`,
+        next: 'An owner can send it from the Email tab.',
+        warn: true,
+      }
+    case 'bounced':
+      return {
+        text: `The email to ${who} bounced.`,
+        next: 'Check the address, then send it again from the Email tab.',
+        warn: true,
+      }
+    case 'failed':
+      return row.error === 'Not approved'
+        ? {
+            text: `An owner didn’t approve emailing ${who}.`,
+            next: 'Open the Email tab to send it somewhere else.',
+            warn: true,
+          }
+        : {
+            text: `Could not email ${who}.`,
+            next: 'Send it again from the Email tab.',
+            warn: true,
+          }
+  }
 }
 
 const STATUS_LABEL: Record<string, string> = {

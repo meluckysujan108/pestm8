@@ -1,5 +1,18 @@
-import { Check, Clock, FileText, Lock, TriangleAlert } from 'lucide-react'
+import { useQuery } from '@tanstack/react-query'
+import { convexQuery } from '@convex-dev/react-query'
+import {
+  Check,
+  CircleAlert,
+  Clock,
+  FileText,
+  Lock,
+  PenLine,
+  Send,
+  TriangleAlert,
+} from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
+import { LoadFailed } from '#/components/primitives/EmptyState'
+import { RowPending } from '#/components/shell/Pending'
 import { sectionsOf } from '#/lib/reportTemplates'
 import { visibleSections } from '#/lib/reportTemplates/visibility'
 import { reportSummary } from '#/lib/reportTemplates/summary'
@@ -12,6 +25,11 @@ import {
 import { formatTime } from '#/lib/format'
 import { deviceTimezone } from '#/lib/useBusinessTimezone'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { api } from '../../../convex/_generated/api'
+import type { Id } from '../../../convex/_generated/dataModel'
+import { clientToggleOf, lockEmail, lockEmailSentences } from './lockEmail'
+import { TickBox } from './TickBox'
+import type { Sentence, SendingKnown } from './lockEmail'
 
 /**
  * The last screen before a document becomes a record.
@@ -20,14 +38,16 @@ import { FormAlert } from '#/components/forms/FormAlert'
  * edited after it is signed and sent is worth nothing — and the button for it
  * sits on the same bar as Save, one stray tap from a locked report nobody can
  * correct. So this says what is about to be locked, in the form's own words:
- * what the report claims, who signed it, how much evidence it carries and who
- * the form says should receive a copy.
+ * what the report claims, who signed it, how much evidence it carries — and
+ * who it is about to be emailed to, since locking is what sends it.
  *
  * Deliberately not a hold-to-confirm gesture. Long presses misfire through
  * gloves and in the rain, and a sheet that tells you what is about to happen
  * guards better than one that only asks whether you are sure.
  */
 export function FinaliseSheet({
+  businessId,
+  reportId,
   open,
   onClose,
   onConfirm,
@@ -41,6 +61,8 @@ export function FinaliseSheet({
   onPreview,
   previewTrouble,
 }: {
+  businessId: Id<'businesses'>
+  reportId: Id<'reports'>
   open: boolean
   onClose: () => void
   onConfirm: () => void
@@ -65,6 +87,12 @@ export function FinaliseSheet({
   const fields = visibleSections(sectionsOf(template), data).flatMap(
     (section) => section.fields,
   )
+  // Asked here rather than inside the sheet's body, which only mounts while
+  // it is open: this component is rendered all the while the form is being
+  // filled, so the answer is waiting by the time anyone opens the sheet.
+  const known = useQuery(
+    convexQuery(api.deliveries.known, { businessId, reportId }),
+  )
   const summary = reportSummary(template, data, context)
   const signatures = fields.filter(
     (field): field is Extract<FieldDef, { kind: 'signature' }> =>
@@ -72,7 +100,6 @@ export function FinaliseSheet({
   )
   const finish = fields.find((field) => field.semantic === 'finishTime')
   const finishAnswered = finish ? isAnswered(data[finish.key]) : true
-  const recipients = recipientsOf(fields, data, context)
   const asksForPhotos = fields.some(
     (field) =>
       field.kind === 'gallery' ||
@@ -157,13 +184,22 @@ export function FinaliseSheet({
       <ul className="mt-3 flex flex-col gap-2">
         {signatures.map((field) => {
           const signed = signedSlots.includes(field.slot)
+          // The client's pad is never needed to lock
+          // (`withOptionalClientSignatures`): said as the fact it is, not as
+          // a warning, which read as something still to be done.
+          if (field.role === 'client' && !signed) {
+            return (
+              <Row key={field.key} ok={false} optional>
+                {padName(field)} — not signed (optional)
+              </Row>
+            )
+          }
           return (
-            // An unsigned pad is a warning, not a refusal. A client who has
-            // already driven off cannot sign, and the visit still has to be
-            // recorded; a pad the form requires never reaches this sheet.
+            // An unsigned technician's pad is a warning, not a refusal: a
+            // business can stop insisting on one, and a pad it still insists
+            // on never reaches this sheet unsigned.
             <Row key={field.key} ok={signed} warn={!signed}>
-              {field.label.replace(/:$/, '')} —{' '}
-              {signed ? 'signed' : 'not signed'}
+              {padName(field)} — {signed ? 'signed' : 'not signed'}
             </Row>
           )
         })}
@@ -180,38 +216,42 @@ export function FinaliseSheet({
         )}
       </ul>
 
-      {recipients.length > 0 && (
-        <div className="mt-4">
-          <h3 className="section-label">Copy to</h3>
-          <div className="mt-1.5 flex flex-wrap gap-1.5">
-            {recipients.map((address) => (
-              <span
-                key={address}
-                className="rounded-full bg-surface-2 px-2.5 py-1 text-caption text-ink-2"
-              >
-                {address}
-              </span>
-            ))}
-          </div>
-          {/* Honest about what locking does today: it records the recipients
-              the form asked for. Sending is its own step, from the finished
-              report, and saying "will be emailed" here would promise it. */}
-          <p className="mt-1.5 text-caption text-muted">
-            Recorded on the report. Send it from the report once it’s locked.
-          </p>
-        </div>
-      )}
+      <LockEmailNote
+        reportId={reportId}
+        template={template}
+        data={data}
+        clientEmail={context?.client?.email}
+        known={known.data}
+        failed={known.isError}
+        onRetry={() => void known.refetch()}
+        onAnswer={onAnswer}
+      />
     </Sheet>
   )
+}
+
+/**
+ * What a signature pad is called here. The forms label the client's pad
+ * plain "Signature" beside "Technician's Signature", which on this sheet —
+ * out of the form's layout — reads as the technician's own.
+ */
+function padName(field: Extract<FieldDef, { kind: 'signature' }>): string {
+  const label = field.label.replace(/:$/, '')
+  return field.role === 'client' && !/client/i.test(label)
+    ? 'Client’s signature'
+    : label
 }
 
 function Row({
   ok,
   warn,
+  optional,
   children,
 }: {
   ok: boolean
   warn?: boolean
+  /** Not done, and not needed: neither a tick nor a warning. */
+  optional?: boolean
   children: React.ReactNode
 }) {
   return (
@@ -220,6 +260,8 @@ function Row({
     >
       {warn ? (
         <TriangleAlert size={15} strokeWidth={2} className="shrink-0" />
+      ) : optional ? (
+        <PenLine size={15} strokeWidth={2} className="shrink-0 text-muted" />
       ) : (
         <Check
           size={15}
@@ -248,31 +290,127 @@ function readableNow(): string {
 }
 
 /**
- * Who the form says gets a copy — the client when the send-copy toggle is Yes,
- * plus whatever was typed into the form's own "Email Report To".
+ * Who locking emails this report to, said before the button that does it.
  *
- * Read through the semantics rather than the labels, because the three forms
- * word the same instruction three ways and the wording is reproduced verbatim.
+ * Read from the same rule `reports.finalise` applies (`lockEmail`), with the
+ * server's own answer about what is on file, where the business's copy goes
+ * and whether this deployment can send at all. The client's copy can be
+ * switched off here: it is the form's own send-copy question, and the last
+ * screen before the email goes is where "not yet" gets decided.
  */
-function recipientsOf(
-  fields: Array<FieldDef>,
-  data: Record<string, unknown>,
-  context?: PresentContext | null,
-): Array<string> {
-  const out: Array<string> = []
-  for (const field of fields) {
-    if (field.semantic === 'sendCopyToClient' && data[field.key] === true) {
-      const email = context?.client?.email
-      if (email) out.push(email)
-    }
-    if (field.semantic === 'emailTo') {
-      const value = data[field.key]
-      const list = Array.isArray(value) ? value : [value]
-      for (const entry of list) {
-        if (typeof entry === 'string' && entry.trim() !== '')
-          out.push(entry.trim())
-      }
-    }
-  }
-  return [...new Set(out)]
+function LockEmailNote({
+  reportId,
+  template,
+  data,
+  clientEmail,
+  known,
+  failed,
+  onRetry,
+  onAnswer,
+}: {
+  reportId: Id<'reports'>
+  template: ReportTemplate
+  data: Record<string, unknown>
+  clientEmail?: string
+  /** `deliveries.known`, or undefined while it is being asked. */
+  known?: SendingKnown & { emailReady: boolean }
+  failed: boolean
+  onRetry: () => void
+  onAnswer: (key: string, value: unknown) => void
+}) {
+  // From the form alone, so it is there at once — on weak signal too, which
+  // is exactly when "not yet" is worth being able to say.
+  const toggle = clientToggleOf(template, data, clientEmail)
+  const plan = known ? lockEmail(template, data, clientEmail, known) : null
+
+  return (
+    <section className="mt-4" aria-labelledby={`lock-email-${reportId}`}>
+      <h3 id={`lock-email-${reportId}`} className="section-label">
+        Email
+      </h3>
+      {toggle && (
+        <button
+          type="button"
+          aria-pressed={toggle.on}
+          onClick={() => onAnswer(toggle.key, !toggle.on)}
+          className={`mt-1.5 flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
+            toggle.on
+              ? 'border-ink/15 bg-surface'
+              : 'border-hairline bg-surface-2'
+          }`}
+        >
+          <TickBox on={toggle.on} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-body text-ink">Email the client</span>
+            <span className="block truncate text-caption text-ink-2">
+              {toggle.address}
+            </span>
+          </span>
+          {toggle.on && toggle.problem !== null && (
+            <span className="flex shrink-0 items-center gap-1 text-caption text-red-ink">
+              <CircleAlert size={13} strokeWidth={2} />
+              Can’t be delivered
+            </span>
+          )}
+        </button>
+      )}
+      {plan && known ? (
+        <div className="mt-1.5 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5">
+          <Send
+            size={15}
+            strokeWidth={2}
+            aria-hidden
+            className="mt-0.5 shrink-0 text-ink-2"
+          />
+          {/* Polite, so switching the client's copy off is heard as well as
+              seen: the sentence is the answer to the tap. */}
+          <p aria-live="polite" className="text-caption text-ink-2">
+            {/* Only an explicit "no" means email is off. A backend older than
+                this screen does not say, and reading that silence as "won't
+                be emailed" on a deployment that does email is the very
+                instruction that sent clients a second copy. */}
+            {lockEmailSentences(plan, known.emailReady !== false, {
+              clientToggle: toggle,
+              clientHasEmail: Boolean(clientEmail?.trim()),
+            }).map((sentence, index) => (
+              <SentenceText key={index} sentence={sentence} lead={index > 0} />
+            ))}
+          </p>
+        </div>
+      ) : failed ? (
+        <LoadFailed
+          what="who this goes to"
+          onRetry={onRetry}
+          className="mt-1.5"
+        />
+      ) : (
+        <RowPending announce={false} className="mt-1.5 py-1" />
+      )}
+    </section>
+  )
+}
+
+/** One sentence of `lockEmailSentences`, its addresses set in ink. */
+function SentenceText({
+  sentence,
+  lead,
+}: {
+  sentence: Sentence
+  /** Not the first sentence, so it follows a space. */
+  lead: boolean
+}) {
+  return (
+    <>
+      {lead ? ' ' : ''}
+      {sentence.map((part, index) =>
+        typeof part === 'string' ? (
+          part
+        ) : (
+          <span key={index} className="break-words font-semibold text-ink">
+            {part.address}
+          </span>
+        ),
+      )}
+    </>
+  )
 }

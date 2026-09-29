@@ -138,18 +138,29 @@ export function FieldConfigForm({
           printed note the promise is worse than empty: ticking it makes the
           finalise gate demand a value for a block with no control, and the
           report can never be locked. */}
-      {isDataField(field) && field.kind !== 'areas' && (
-        <label className="flex items-center justify-between gap-2">
-          <span className="text-body text-ink">Required</span>
-          <input
-            type="checkbox"
-            checked={field.required ?? false}
-            onChange={(e) =>
-              onChange({ ...field, required: e.target.checked || undefined })
-            }
-            className="size-5"
-          />
-        </label>
+      {isDataField(field) &&
+        field.kind !== 'areas' &&
+        !(field.kind === 'signature' && field.role === 'client') && (
+          <label className="flex items-center justify-between gap-2">
+            <span className="text-body text-ink">Required</span>
+            <input
+              type="checkbox"
+              checked={field.required ?? false}
+              onChange={(e) =>
+                onChange({ ...field, required: e.target.checked || undefined })
+              }
+              className="size-5"
+            />
+          </label>
+        )}
+      {/* The client's signature is never required to lock a report
+          (`withOptionalClientSignatures`), so there is no switch that would
+          promise otherwise — only the reason there is none. */}
+      {field.kind === 'signature' && field.role === 'client' && (
+        <p className="text-caption text-ink-2">
+          A client’s signature is never required to lock a report. The pad is
+          there for when they can sign.
+        </p>
       )}
 
       <KindSpecificFields field={field} onChange={onChange} />
@@ -310,7 +321,15 @@ function KindSpecificFields({
             { value: 'technician', label: 'Technician' },
             { value: 'client', label: 'Client' },
           ]}
-          onChange={(role) => onChange({ ...field, role })}
+          // Switched to the client, it drops any `required` it carried as a
+          // technician's pad: a client's pad never blocks a lock.
+          onChange={(role) =>
+            onChange(
+              role === 'client'
+                ? { ...field, role, required: undefined }
+                : { ...field, role },
+            )
+          }
         />
       )
 

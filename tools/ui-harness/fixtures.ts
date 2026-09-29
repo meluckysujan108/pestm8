@@ -198,7 +198,60 @@ const CLIENT = {
   postcode: '6008',
 }
 
+/** What `deliveries.known` says about Terence's business, whose copy inbox
+ * is info@. `r_nomail` is a deployment with no email set up. */
+function deliveriesKnown(args: { reportId: string }) {
+  return {
+    addresses: ['jane@gmail.com', 'info@pestm8.com.au'],
+    unrestricted: false,
+    copy: 'info@pestm8.com.au',
+    emailReady: args.reportId !== 'r_nomail',
+  }
+}
+
+/** One delivery per report id, one per state `LatestDelivery` can show. */
+function deliveryRows(args: { reportId: string }) {
+  const at = perthToday(14, 38)
+  const base = {
+    _id: `d_${args.reportId}`,
+    to: ['jane@gmail.com'],
+    cc: [],
+    bcc: ['info@pestm8.com.au'],
+    subject: 'Service Report — 30 Sloan Drive, Leda',
+    trigger: 'finalise',
+    createdAt: at,
+    sentBy: { name: 'Terence Walsh', colour: '#0A84FF' },
+    approvedBy: null,
+    waitingForEmailSetup: false,
+  }
+  const rows: Record<string, Array<unknown>> = {
+    // Moments ago, so it is still on its way.
+    r_sending: [{ ...base, status: 'queued', createdAt: Date.now() }],
+    // Queued ten minutes ago and never sent: not "Sending…" any more.
+    r_stuck: [{ ...base, status: 'queued', createdAt: Date.now() - 600_000 }],
+    r_sent: [{ ...base, status: 'sent', sentAt: at + 10_000 }],
+    // One lock, two rows: the client's copy went, and the strata manager's
+    // waits for the owner (`queueFormDeliveries`).
+    r_held: [
+      { ...base, status: 'sent', sentAt: at + 10_000 },
+      {
+        ...base,
+        _id: 'd_r_held_2',
+        to: ['strata@harbourside.com.au'],
+        status: 'pendingApproval',
+      },
+    ],
+    r_failed: [{ ...base, status: 'failed', error: 'PDF_UNAVAILABLE' }],
+    r_setup: [{ ...base, status: 'queued', waitingForEmailSetup: true }],
+  }
+  return rows[args.reportId] ?? []
+}
+
 const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
+  'deliveries:known': deliveriesKnown,
+  // Nothing set yet: the form's own rule, as a new business finds it.
+  'templateSettings:get': () => null,
+  'deliveries:forReport': deliveryRows,
   'setupGuide:progress': () => ({
     hidden: false,
     items: [
