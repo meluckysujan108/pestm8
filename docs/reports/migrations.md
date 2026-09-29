@@ -651,10 +651,15 @@ straight after the backend deploy. It does two things:
   emails one days late.
 - It clears the retired switch.
 
-Production held one send on 29 Sept 2026: the demo business's seeded example.
-No business had the switch set. Run it on dev and e2e too.
+Ran 29 Sept 2026:
 
-**Contract — a later PR,** once `preview` lists nothing on prod, dev and e2e:
+- Production held one send: the demo business's seeded example.
+- E2E held 130.
+- Dev held 54. Dev also first needed `jobStatusV1:retireInProgress` (28 jobs).
+- No business anywhere had the switch set.
+
+**Contract — done 29 Sept 2026,** once `preview` listed nothing on prod, dev
+and e2e:
 
 - Drop `v.literal('pendingApproval')` from the status union.
 - Drop `allowTechnicianRecipients`: from `businesses` in the schema, from
@@ -671,3 +676,16 @@ Keep two things:
   `customTemplateSnapshot` above.
 - The index `by_business_status` stays. The demo's clean-up sweeps a
   business's deliveries through its `businessId` prefix.
+
+The migration is deleted. Suppose an older branch is pushed to dev or e2e, holds
+sends there again, and a later push of this schema is refused with
+`Value: "pendingApproval"`. Then:
+
+1. Restore the migration with
+   `git show d551371:convex/migrations/heldDeliveriesV1.ts`.
+2. Loosen the status union.
+3. Push, run the migration, and revert, as in the general recipe above.
+
+Before deploying anything that assumes this, check with a read-only count:
+
+    npx convex run --inline-query 'let n = 0; for await (const r of ctx.db.query("reportDeliveries")) if (r.status === "pendingApproval") n++; return n'

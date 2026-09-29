@@ -314,7 +314,7 @@ describe('only a finalised report is ever emailed', () => {
     ])
   })
 
-  test('a technician is told where the copy goes, and that nothing needs an owner', async () => {
+  test('a technician is told where the copy goes, not only an owner', async () => {
     const s = await setup()
     const { person, membershipId } = await technician(s)
     const reportId = await report(s, { authorMembershipId: membershipId })
@@ -325,9 +325,6 @@ describe('only a finalised report is ever emailed', () => {
     })
     expect(told.copy).toBe('info@pestm8.com.au')
     expect(told.addresses).toContain(CLIENT)
-    // Always true since approval was retired: a screen from before then reads
-    // false as "this address needs an owner's approval".
-    expect(told.unrestricted).toBe(true)
   })
 
   test('asking to send a draft is refused', async () => {

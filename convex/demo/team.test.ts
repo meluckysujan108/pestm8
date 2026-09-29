@@ -129,7 +129,6 @@ describe('the demo team', () => {
     // sets neither, and the later steps own them.
     for (const unset of [
       'requireReportToComplete',
-      'allowTechnicianRecipients',
       'reportBrandName',
       'website',
       'nextJobNumber',

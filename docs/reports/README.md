@@ -381,8 +381,8 @@ client receive on 28 August?" answerable once the renderer has moved on.
   that client — the report's author, anyone with `clients.directory`, or
   anyone with a job there. Reading a report is not the client-directory gate,
   so for anyone else a contact's address is simply new, and
-  `deliveries.known` does not read it out. A send still held from before is
-  marked as not sent by `migrations/heldDeliveriesV1` rather than emailed
+  `deliveries.known` does not read it out. The sends still held on 29 Sept
+  2026 were marked as not sent by a one-off migration rather than emailed
   days late (`migrations.md`).
 - **Who asked, and where it is written down.** Every delivery names the
   person who asked for it: whoever pressed Send, or, for the copy the form

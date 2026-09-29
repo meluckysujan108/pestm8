@@ -422,9 +422,6 @@ describe('the demo reports', () => {
     expect(more).toHaveLength(0)
     expect(delivery.status).toBe('queued')
     expect(delivery.newAddresses).toEqual(['strata.committee@example.org'])
-    expect(rows.deliveries.map((d) => d.status)).not.toContain(
-      'pendingApproval',
-    )
     expect(
       rows.audit.filter((a) =>
         [

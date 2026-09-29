@@ -443,7 +443,7 @@ function LogRow({
           </p>
         )}
         {/* A line from before approval was retired, which nothing will ever
-            follow up: `migrations/heldDeliveriesV1` wrote no line of its own. */}
+            follow up: the one-off that released them wrote no line of its own. */}
         {entry.action === 'report.email.pending_approval' && (
           <p className="text-caption text-ink-2">
             Approval isn’t needed any more. The Email tab shows whether it went.
