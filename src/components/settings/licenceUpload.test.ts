@@ -5,8 +5,10 @@ import {
   UPLOAD_FRESH_MS,
   prepareLicenceFile,
   stageText,
+  uploadStagedFiles,
   withinMs,
 } from './licenceUpload'
+import type { LicenceUploadMemo } from './licenceUpload'
 
 /**
  * The steps a licence file takes on its way up, shared by a licence's own
@@ -91,5 +93,104 @@ describe('an answer that does not come', () => {
   test('a refusal is passed on as it came', async () => {
     const refused = Promise.reject(new Error('NO_ACCESS'))
     await expect(withinMs(refused, 1_000)).rejects.toThrow('NO_ACCESS')
+  })
+})
+
+describe('sending the files picked on Add new', () => {
+  const file = (name: string) => ({ name, blob: new Blob([name]) })
+
+  test('each goes up once, in order, and is remembered', async () => {
+    const memo: LicenceUploadMemo = new WeakMap()
+    const sent: Array<string> = []
+    const front = file('front')
+    const back = file('back')
+    await uploadStagedFiles(
+      [front, back],
+      memo,
+      (f, n, of) => {
+        sent.push(`${f.name} ${n}/${of}`)
+        return Promise.resolve(`id-${f.name}`)
+      },
+      () => 1_000,
+    )
+    expect(sent).toEqual(['front 1/2', 'back 2/2'])
+    expect(memo.get(front.blob)).toEqual({ storageId: 'id-front', at: 1_000 })
+    expect(memo.get(back.blob)).toEqual({ storageId: 'id-back', at: 1_000 })
+  })
+
+  test('a second Add sends only what did not get there', async () => {
+    const memo: LicenceUploadMemo = new WeakMap()
+    const front = file('front')
+    const back = file('back')
+    memo.set(front.blob, { storageId: 'id-front', at: 1_000 })
+    const sent: Array<string> = []
+    await uploadStagedFiles(
+      [front, back],
+      memo,
+      (f) => {
+        sent.push(f.name)
+        return Promise.resolve(`id-${f.name}`)
+      },
+      () => 2_000,
+    )
+    expect(sent).toEqual(['back'])
+    expect(memo.get(front.blob)?.storageId).toBe('id-front')
+  })
+
+  test('one that has aged past the claim window goes up again', async () => {
+    const memo: LicenceUploadMemo = new WeakMap()
+    const front = file('front')
+    memo.set(front.blob, { storageId: 'old', at: 0 })
+    await uploadStagedFiles(
+      [front],
+      memo,
+      () => Promise.resolve('new'),
+      () => UPLOAD_FRESH_MS,
+    )
+    expect(memo.get(front.blob)).toEqual({
+      storageId: 'new',
+      at: UPLOAD_FRESH_MS,
+    })
+  })
+
+  test('a photo that aged while a big PDF went up is sent again, once', async () => {
+    const memo: LicenceUploadMemo = new WeakMap()
+    const photo = file('photo')
+    const pdf = file('pdf')
+    let clock = 0
+    const sent: Array<string> = []
+    await uploadStagedFiles(
+      [photo, pdf],
+      memo,
+      (f) => {
+        sent.push(f.name)
+        // The PDF, the first time, takes longer than the window.
+        if (f.name === 'pdf' && sent.length === 2) clock += UPLOAD_FRESH_MS
+        return Promise.resolve(`id-${f.name}-${sent.length}`)
+      },
+      () => clock,
+    )
+    expect(sent).toEqual(['photo', 'pdf', 'photo'])
+    expect(memo.get(photo.blob)?.storageId).toBe('id-photo-3')
+    expect(memo.get(pdf.blob)?.storageId).toBe('id-pdf-2')
+  })
+
+  test('a failed upload stops the Add, and what went up before it is kept', async () => {
+    const memo: LicenceUploadMemo = new WeakMap()
+    const front = file('front')
+    const back = file('back')
+    await expect(
+      uploadStagedFiles(
+        [front, back],
+        memo,
+        (f) =>
+          f.name === 'back'
+            ? Promise.reject(new Error('UPLOAD_STALLED'))
+            : Promise.resolve('id-front'),
+        () => 1_000,
+      ),
+    ).rejects.toThrow('UPLOAD_STALLED')
+    expect(memo.get(front.blob)?.storageId).toBe('id-front')
+    expect(memo.has(back.blob)).toBe(false)
   })
 })

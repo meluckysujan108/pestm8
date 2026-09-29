@@ -4,7 +4,7 @@ import { describeError } from '#/components/forms/describeError'
 import {
   licenceErrorCopy,
   licenceRefusal,
-  unconfirmedFilesWords,
+  missingFilesWords,
 } from './licenceErrors'
 import { SWITCH_ENDED } from './productErrors'
 import type { LicenceAction } from './licenceErrors'
@@ -93,13 +93,13 @@ describe('licenceErrorCopy', () => {
   })
 })
 
-describe('files Add new made but could not confirm', () => {
-  test('say so, and what to do if they do not turn up', () => {
-    expect(unconfirmedFilesWords(1)).toBe(
-      'Added, but 1 file wasn’t confirmed yet. If it isn’t listed here in a minute, add it again.',
+describe('files Add new sent that are not on the licence yet', () => {
+  test('say so, and what to do if they do not arrive', () => {
+    expect(missingFilesWords(1)).toBe(
+      'Added, but 1 file hasn’t arrived yet. If it isn’t listed here in a minute, add it again.',
     )
-    expect(unconfirmedFilesWords(3)).toBe(
-      'Added, but 3 files weren’t confirmed yet. If they aren’t listed here in a minute, add them again.',
+    expect(missingFilesWords(3)).toBe(
+      'Added, but 3 files haven’t arrived yet. If they aren’t listed here in a minute, add them again.',
     )
   })
 })

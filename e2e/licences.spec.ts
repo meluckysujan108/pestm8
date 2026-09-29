@@ -159,6 +159,16 @@ test('a technician adds a licence with its photo in one go, lands back on the li
 }) => {
   const s = await setupBusinessWithSub('licences-add')
   await signInViaUi(page, s.sub.email)
+  // Every file sent to storage, to prove nothing goes up before Add.
+  const uploadsSent: Array<string> = []
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      request.url().includes('/api/storage/upload')
+    ) {
+      uploadsSent.push(request.url())
+    }
+  })
 
   await page.goto(`/${s.slug}/settings/licence`)
   await expect(
@@ -203,11 +213,19 @@ test('a technician adds a licence with its photo in one go, lands back on the li
   })
   await expect(page.getByText(/^Card front\.(jpg|png)$/)).toBeVisible()
   await expect(page.getByText('Wrong one.pdf')).toBeVisible()
+  // Asked first: a photo just taken is on this page and nowhere else.
   await page.getByRole('button', { name: 'Remove Wrong one.pdf' }).click()
+  const confirmRemove = page.getByRole('alertdialog', {
+    name: 'Remove Wrong one.pdf?',
+  })
+  await confirmRemove
+    .getByRole('button', { name: 'Remove', exact: true })
+    .click()
   await expect(page.getByText('Wrong one.pdf')).toHaveCount(0)
   expect(
     (await listOf(s.sub, s.businessId, s.subMembershipId)).licences,
   ).toEqual([])
+  expect(uploadsSent).toEqual([])
 
   await page.getByLabel('Name', { exact: true }).fill('Pest management licence')
   await page.getByLabel('Number (optional)').fill('PMT-4471')
@@ -225,7 +243,8 @@ test('a technician adds a licence with its photo in one go, lands back on the li
   await expect(row).toContainText('PMT-4471 · Expires')
   await expect(row).toContainText('30 days')
 
-  // Made with its photo, and only that.
+  // Made with its photo, and only that — the one file sent, sent on Add.
+  expect(uploadsSent).toHaveLength(1)
   const { licences } = await listOf(s.sub, s.businessId, s.subMembershipId)
   expect(licences).toEqual([
     expect.objectContaining({

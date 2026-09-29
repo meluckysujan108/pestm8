@@ -4,6 +4,7 @@ import { FormAlert } from '#/components/forms/FormAlert'
 import { licenceErrorCopy } from '#/lib/licenceErrors'
 import { ExpiryBadge, LicenceLeading } from './LicenceBits'
 import { licenceSubtitle } from './licenceExpiry'
+import { addFromListState } from './licenceNav'
 import { SettingsGroup, SettingsLinkRow, SettingsRow } from './ui'
 import { useBusinessToday, useMyLicences } from './useMyLicences'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -92,6 +93,9 @@ export function MyLicencesList({
             <SettingsLinkRow
               to="/$businessSlug/settings/licence/new"
               params={{ businessSlug }}
+              // So a finished Add goes back here rather than stacking a
+              // second copy of this page (`licenceNav.ts`).
+              state={addFromListState}
               leading={<AddTile />}
               title={
                 <span className="font-semibold text-blue">

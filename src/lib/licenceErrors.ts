@@ -90,15 +90,16 @@ export function licenceErrorCopy(action: LicenceAction): ErrorCopy {
 }
 
 /**
- * Said on a licence's page when Add new made it but `count` of its files did
- * not confirm in time (a signal that dropped just then). They may yet land —
- * a Convex mutation queued on a dropped socket goes when it comes back — so
- * this says what to do if they do not, not that they failed.
+ * Said on a licence's page when Add new made it but `missing` of the files it
+ * sent are not on it yet: a signal that dropped just then. They may yet land
+ * (a Convex mutation queued on a dropped socket goes when it comes back), and
+ * the page stops saying so once they have. So this says what to do if they
+ * do not arrive, not that they failed.
  */
-export function unconfirmedFilesWords(count: number): string {
-  return count === 1
-    ? 'Added, but 1 file wasn’t confirmed yet. If it isn’t listed here in a minute, add it again.'
-    : `Added, but ${count} files weren’t confirmed yet. If they aren’t listed here in a minute, add them again.`
+export function missingFilesWords(missing: number): string {
+  return missing === 1
+    ? 'Added, but 1 file hasn’t arrived yet. If it isn’t listed here in a minute, add it again.'
+    : `Added, but ${missing} files haven’t arrived yet. If they aren’t listed here in a minute, add them again.`
 }
 
 /**

@@ -9,6 +9,7 @@ import { FormAlert } from '#/components/forms/FormAlert'
 import { licenceErrorCopy } from '#/lib/licenceErrors'
 import { formatBytes } from '#/lib/pdfFiles'
 import { useHydrated } from '#/lib/useHydrated'
+import { ConfirmDialog } from './ConfirmDialog'
 import { UploadSpinner } from './LicenceBits'
 import { prepareLicenceFile, stageText } from './licenceUpload'
 import { ROW_CLASS, RowBody, SettingsGroup } from './ui'
@@ -45,6 +46,10 @@ export type StagedFiles = ReturnType<typeof useStagedLicenceFiles>
  */
 export function useStagedLicenceFiles() {
   const [files, setFiles] = useState<Array<StagedLicenceFile>>([])
+  // The files as they are now, for the room a pick has and the file a remove
+  // means — not as they were when the callback was made.
+  const current = useRef(files)
+  current.current = files
   const [preparing, setPreparing] = useState<UploadStage | null>(null)
   const [pickError, setPickError] = useState<unknown>(null)
   const [leftOut, setLeftOut] = useState(0)
@@ -62,47 +67,46 @@ export function useStagedLicenceFiles() {
     }
   }, [])
 
-  const pick = useCallback(
-    async (picked: Array<File>) => {
-      setPickError(null)
-      // As many as fit; the rest are named, not silently dropped.
-      const room = Math.max(0, MAX_LICENCE_FILES - files.length)
-      const taken = picked.slice(0, room)
-      setLeftOut(picked.length - taken.length)
-      for (const [i, file] of taken.entries()) {
-        try {
-          const prepared = await prepareLicenceFile(file, () =>
-            setPreparing({ step: 'preparing', n: i + 1, of: taken.length }),
-          )
-          if (!mounted.current) return
-          const previewUrl =
-            prepared.type.kind === 'image'
-              ? URL.createObjectURL(prepared.blob)
-              : null
-          if (previewUrl) previews.current.add(previewUrl)
-          const id = `staged-${nextId.current++}`
-          setFiles((was) => [...was, { ...prepared, id, previewUrl }])
-        } catch (error) {
-          // One refused says why; the others still go on.
-          setPickError(error)
-        }
+  const pick = useCallback(async (picked: Array<File>) => {
+    setPickError(null)
+    // As many as fit; the rest are named, not silently dropped.
+    const room = Math.max(0, MAX_LICENCE_FILES - current.current.length)
+    const taken = picked.slice(0, room)
+    setLeftOut(picked.length - taken.length)
+    for (const [i, file] of taken.entries()) {
+      try {
+        const prepared = await prepareLicenceFile(file, () =>
+          setPreparing({ step: 'preparing', n: i + 1, of: taken.length }),
+        )
+        if (!mounted.current) return
+        const previewUrl =
+          prepared.type.kind === 'image'
+            ? URL.createObjectURL(prepared.blob)
+            : null
+        if (previewUrl) previews.current.add(previewUrl)
+        const id = `staged-${nextId.current++}`
+        const next = [...current.current, { ...prepared, id, previewUrl }]
+        current.current = next
+        setFiles(next)
+      } catch (error) {
+        // One refused says why; the others still go on.
+        setPickError(error)
       }
-      setPreparing(null)
-    },
-    [files.length],
-  )
+    }
+    setPreparing(null)
+  }, [])
 
   const remove = useCallback((id: string) => {
     setPickError(null)
     setLeftOut(0)
-    setFiles((was) => {
-      const gone = was.find((file) => file.id === id)
-      if (gone?.previewUrl) {
-        URL.revokeObjectURL(gone.previewUrl)
-        previews.current.delete(gone.previewUrl)
-      }
-      return was.filter((file) => file.id !== id)
-    })
+    const gone = current.current.find((file) => file.id === id)
+    if (gone?.previewUrl) {
+      URL.revokeObjectURL(gone.previewUrl)
+      previews.current.delete(gone.previewUrl)
+    }
+    const next = current.current.filter((file) => file.id !== id)
+    current.current = next
+    setFiles(next)
   }, [])
 
   return { files, preparing, pickError, leftOut, pick, remove }
@@ -128,6 +132,10 @@ export function StagedLicenceFiles({
   const hydrated = useHydrated()
   const picker = useRef<HTMLInputElement>(null)
   const addButton = useRef<HTMLButtonElement>(null)
+  const [confirming, setConfirming] = useState<StagedLicenceFile | null>(null)
+  // Its name stays in the dialog's title while the dialog fades out.
+  const confirmed = useRef<StagedLicenceFile | null>(null)
+  if (confirming) confirmed.current = confirming
   const { files, preparing, pickError, leftOut } = staged
   const count = files.length
   const room = Math.max(0, MAX_LICENCE_FILES - count)
@@ -139,26 +147,6 @@ export function StagedLicenceFiles({
     // So picking the same file again still fires a change.
     event.target.value = ''
     if (picked.length > 0) void staged.pick(picked)
-  }
-
-  const takeOff = (file: StagedLicenceFile, button: HTMLElement) => {
-    // Its row goes, and focus with it: to the next file's button instead, or
-    // the one before, or Add when it was the only one. Only when it HAD
-    // focus — a tap on an iPhone never gives a button focus.
-    if (document.activeElement === button) {
-      const at = files.findIndex((f) => f.id === file.id)
-      const rest = files.filter((f) => f.id !== file.id)
-      const neighbour = rest.at(Math.min(at, rest.length - 1))
-      requestAnimationFrame(() => {
-        const next = neighbour
-          ? document.querySelector<HTMLElement>(
-              `[data-staged-remove="${CSS.escape(neighbour.id)}"]`,
-            )
-          : addButton.current
-        next?.focus()
-      })
-    }
-    staged.remove(file.id)
   }
 
   return (
@@ -198,7 +186,7 @@ export function StagedLicenceFiles({
               <button
                 type="button"
                 data-staged-remove={file.id}
-                onClick={(e) => takeOff(file, e.currentTarget)}
+                onClick={() => setConfirming(file)}
                 disabled={busy || !hydrated}
                 aria-label={`Remove ${name}`}
                 className="mr-1.5 flex size-11 shrink-0 items-center justify-center rounded-full text-red outline-none transition active:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue disabled:opacity-40"
@@ -266,6 +254,48 @@ export function StagedLicenceFiles({
         aria-hidden
         onChange={onPicked}
       />
+
+      {/* Asked, not done on one tap: a photo taken with the camera from the
+          picker is on this page and nowhere else. */}
+      <ConfirmDialog
+        open={confirming !== null}
+        onOpenChange={(open) => {
+          if (!open) setConfirming(null)
+        }}
+        title={`Remove ${
+          confirmed.current
+            ? cleanLicenceFileName(
+                confirmed.current.fileName,
+                confirmed.current.type,
+              )
+            : 'this file'
+        }?`}
+        body="It won’t be added. A photo just taken isn’t kept anywhere else."
+        cancel="Keep file"
+        confirm="Remove"
+        onConfirm={() => {
+          if (confirming) staged.remove(confirming.id)
+          setConfirming(null)
+        }}
+        returnFocus={(removed) => {
+          const file = confirmed.current
+          if (!file) return null
+          if (!removed) return removeButton(file.id)
+          // Its row is going, and focus with it: the next file's button
+          // instead, or the one before, or Add when it was the only one.
+          const at = files.findIndex((f) => f.id === file.id)
+          const rest = files.filter((f) => f.id !== file.id)
+          const neighbour = rest.at(Math.min(at, rest.length - 1))
+          return neighbour ? removeButton(neighbour.id) : addButton.current
+        }}
+      />
     </>
+  )
+}
+
+/** A picked file's Remove button, by the file's id. */
+function removeButton(id: string): HTMLElement | null {
+  return document.querySelector<HTMLElement>(
+    `[data-staged-remove="${CSS.escape(id)}"]`,
   )
 }

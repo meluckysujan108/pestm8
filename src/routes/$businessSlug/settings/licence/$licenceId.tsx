@@ -54,10 +54,11 @@ export const Route = createFileRoute(
   '/$businessSlug/settings/licence/$licenceId',
 )({
   validateSearch: z.object({
-    // Set by Add new when it made the licence but some of its files did not
-    // confirm in time, so the page says so. Lenient: a mangled value is no
-    // notice, not an error page.
-    unconfirmed: z
+    // Set by Add new when it made the licence but did not hear back about
+    // every file it sent: how many it sent, so the page can say how many have
+    // not arrived, until they have. Lenient: a mangled value is no notice,
+    // not an error page.
+    expected: z
       .number()
       .int()
       .min(1)
@@ -92,7 +93,7 @@ export const Route = createFileRoute(
 function LicencePage() {
   const { business, membership } = Route.useRouteContext()
   const { licenceId } = Route.useParams()
-  const { unconfirmed } = Route.useSearch()
+  const { expected } = Route.useSearch()
   const { live, shown, nothing } = useMyLicences(business._id, membership._id)
 
   // Deleting it from here: the list answers without it a moment before the
@@ -112,7 +113,7 @@ function LicencePage() {
           membershipId={membership._id}
           licence={licence}
           fromPhone={shown.fromPhone}
-          unconfirmed={unconfirmed}
+          expectedFiles={expected}
           onLeaving={setLeaving}
         />
       </LicenceFrame>
@@ -165,7 +166,7 @@ function LicenceLoaded({
   membershipId,
   licence,
   fromPhone,
-  unconfirmed,
+  expectedFiles,
   onLeaving,
 }: {
   businessId: Id<'businesses'>
@@ -173,7 +174,7 @@ function LicenceLoaded({
   membershipId: Id<'memberships'>
   licence: WalletLicence
   fromPhone: boolean
-  unconfirmed?: number
+  expectedFiles?: number
   /** On its way back to the list, having been deleted — or not, after all. */
   onLeaving: (leaving: boolean) => void
 }) {
@@ -199,7 +200,10 @@ function LicenceLoaded({
   const dirty = draft !== null && !matchesSaved(draft, licence)
 
   const convexUpdate = useConvexMutation(api.memberLicences.update)
+  // Both run even when the phone says it is offline, so their own check says
+  // so: react-query's default would pause them until the signal came back.
   const save = useMutation({
+    networkMode: 'always',
     mutationFn: async (args: {
       name: string
       number: string | null
@@ -221,6 +225,7 @@ function LicenceLoaded({
   const deleteButton = useRef<HTMLButtonElement>(null)
   const convexRemove = useConvexMutation(api.memberLicences.remove)
   const remove = useMutation({
+    networkMode: 'always',
     mutationFn: async () => {
       if (isOffline()) {
         throw new Error('offline')
@@ -314,7 +319,7 @@ function LicenceLoaded({
         licence={licence}
         readOnly={readOnly}
         fromPhone={fromPhone}
-        unconfirmed={unconfirmed}
+        expectedFiles={expectedFiles}
       />
 
       {!readOnly && (

@@ -9,7 +9,7 @@ import { FormAlert } from '#/components/forms/FormAlert'
 import {
   licenceErrorCopy,
   licenceRefusal,
-  unconfirmedFilesWords,
+  missingFilesWords,
 } from '#/lib/licenceErrors'
 import { formatBytes } from '#/lib/pdfFiles'
 import { useHydrated } from '#/lib/useHydrated'
@@ -49,7 +49,7 @@ export function LicenceFiles({
   licence,
   readOnly,
   fromPhone,
-  unconfirmed = 0,
+  expectedFiles,
 }: {
   businessId: Id<'businesses'>
   membershipId: Id<'memberships'>
@@ -57,9 +57,10 @@ export function LicenceFiles({
   /** Nothing can be changed: shown from the copy on this phone. */
   readOnly: boolean
   fromPhone: boolean
-  /** Arrived from Add new with this many files not yet confirmed on it:
-   * the page says so, and what to do if they do not turn up. */
-  unconfirmed?: number
+  /** Arrived from Add new, which sent this many files and did not hear back
+   * about all of them: the page says how many have not arrived, until they
+   * have. */
+  expectedFiles?: number
 }) {
   const hydrated = useHydrated()
   const picker = useRef<HTMLInputElement>(null)
@@ -71,12 +72,16 @@ export function LicenceFiles({
   if (confirming) confirmed.current = confirming
   const [stage, setStage] = useState<UploadStage | null>(null)
   const [leftOut, setLeftOut] = useState(0)
-  // Said until this person adds or takes off a file here: by then they have
-  // seen what is on it, and acted on it.
-  const [unconfirmedShown, setUnconfirmedShown] = useState(unconfirmed > 0)
+  // Said until the files arrive, or this person adds or takes off a file
+  // here: by then they have seen what is on it, and acted on it.
+  const [missingNoticed, setMissingNoticed] = useState(false)
 
   const count = licence.files.length
   const room = Math.max(0, MAX_LICENCE_FILES - count)
+  const missing =
+    expectedFiles === undefined || missingNoticed
+      ? 0
+      : Math.max(0, expectedFiles - count)
 
   // Fired when this page goes, so an upload still on its way stops.
   const leaving = useRef<AbortController | null>(null)
@@ -91,6 +96,10 @@ export function LicenceFiles({
   )
   const convexAddFile = useConvexMutation(api.memberLicences.addFile)
   const upload = useMutation({
+    // Run even when the phone says it is offline, so `uploadLicenceFile`
+    // says so: react-query's default would pause it, "Uploading…" and all,
+    // until the signal came back.
+    networkMode: 'always',
     mutationFn: async (files: Array<File>) => {
       for (const [i, file] of files.entries()) {
         const n = i + 1
@@ -130,6 +139,7 @@ export function LicenceFiles({
 
   const convexRemoveFile = useConvexMutation(api.memberLicences.removeFile)
   const removeFile = useMutation({
+    networkMode: 'always',
     mutationFn: async (fileId: string) => {
       if (isOffline()) {
         throw new Error('offline')
@@ -145,7 +155,7 @@ export function LicenceFiles({
     upload.reset()
     removeFile.reset()
     setLeftOut(0)
-    setUnconfirmedShown(false)
+    setMissingNoticed(true)
     picker.current?.click()
   }
 
@@ -254,11 +264,9 @@ export function LicenceFiles({
           </div>
         )}
 
-        {(actionError || leftOut > 0 || unconfirmedShown) && (
+        {(actionError || leftOut > 0 || missing > 0) && (
           <div className="flex flex-col gap-2 px-3.5 py-3">
-            {unconfirmedShown && (
-              <FormAlert>{unconfirmedFilesWords(unconfirmed)}</FormAlert>
-            )}
+            {missing > 0 && <FormAlert>{missingFilesWords(missing)}</FormAlert>}
             {actionError && (
               <FormAlert
                 error={actionError.error}
@@ -300,7 +308,7 @@ export function LicenceFiles({
         onConfirm={() => {
           if (confirming) removeFile.mutate(confirming._id)
           setConfirming(null)
-          setUnconfirmedShown(false)
+          setMissingNoticed(true)
         }}
         returnFocus={(removed) => {
           const file = confirmed.current

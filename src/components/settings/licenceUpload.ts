@@ -130,6 +130,44 @@ async function uploadWithin(
  */
 export const UPLOAD_FRESH_MS = CLAIM_WINDOW_MS - 2 * 60 * 1000
 
+/** What reached storage for a file, by the Blob that was sent, and when by
+ * this phone's clock. */
+export type LicenceUploadMemo = WeakMap<Blob, { storageId: string; at: number }>
+
+/** Rounds of "send whatever has aged" before giving up on freshness: the
+ * second catches a photo that aged while a big PDF was still going up. Past
+ * that, one file on its own is outlasting the window, and sending the others
+ * again cannot fix it (`productSave.ts` stops at two for the same reason). */
+const UPLOAD_ROUNDS = 2
+
+/**
+ * Sends to storage every file not already there and fresh, recording each in
+ * `memo` as it lands — so an Add that fails part way, tried again, sends
+ * only what is missing or has aged. Rejects with the first upload that
+ * fails; what went up before it stays in `memo` for the next try.
+ *
+ * `upload` is told which of how many it is sending, for the row to say.
+ */
+export async function uploadStagedFiles<TFile extends { blob: Blob }>(
+  files: ReadonlyArray<TFile>,
+  memo: LicenceUploadMemo,
+  upload: (file: TFile, n: number, of: number) => Promise<string>,
+  now: () => number = Date.now,
+): Promise<void> {
+  const fresh = (file: TFile) => {
+    const known = memo.get(file.blob)
+    return known !== undefined && now() - known.at < UPLOAD_FRESH_MS
+  }
+  for (let round = 0; round < UPLOAD_ROUNDS; round++) {
+    const due = files.filter((file) => !fresh(file))
+    if (due.length === 0) return
+    for (const [i, file] of due.entries()) {
+      const storageId = await upload(file, i + 1, due.length)
+      memo.set(file.blob, { storageId, at: now() })
+    }
+  }
+}
+
 /** A picked file as it will be sent: checked, and a photo made smaller. */
 export type PreparedLicenceFile = {
   blob: Blob
