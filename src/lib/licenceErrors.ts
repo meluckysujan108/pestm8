@@ -90,6 +90,18 @@ export function licenceErrorCopy(action: LicenceAction): ErrorCopy {
 }
 
 /**
+ * Said on a licence's page when Add new made it but `count` of its files did
+ * not confirm in time (a signal that dropped just then). They may yet land —
+ * a Convex mutation queued on a dropped socket goes when it comes back — so
+ * this says what to do if they do not, not that they failed.
+ */
+export function unconfirmedFilesWords(count: number): string {
+  return count === 1
+    ? 'Added, but 1 file wasn’t confirmed yet. If it isn’t listed here in a minute, add it again.'
+    : `Added, but ${count} files weren’t confirmed yet. If they aren’t listed here in a minute, add them again.`
+}
+
+/**
  * An error in the shape the server's refusals take (`data` is the code), for
  * a check the page makes before sending, so FormAlert words it the same.
  */

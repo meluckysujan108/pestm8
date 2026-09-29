@@ -1,7 +1,11 @@
 import { describe, expect, test } from 'vitest'
 import { ConvexError } from 'convex/values'
 import { describeError } from '#/components/forms/describeError'
-import { licenceErrorCopy, licenceRefusal } from './licenceErrors'
+import {
+  licenceErrorCopy,
+  licenceRefusal,
+  unconfirmedFilesWords,
+} from './licenceErrors'
 import { SWITCH_ENDED } from './productErrors'
 import type { LicenceAction } from './licenceErrors'
 
@@ -86,5 +90,16 @@ describe('licenceErrorCopy', () => {
     const copy = licenceErrorCopy('upload')
     expect(describeError(new Error('offline'), copy)).toBe(copy.offline)
     expect(describeError(new Error('Timed out'), copy)).toBe(copy.offline)
+  })
+})
+
+describe('files Add new made but could not confirm', () => {
+  test('say so, and what to do if they do not turn up', () => {
+    expect(unconfirmedFilesWords(1)).toBe(
+      'Added, but 1 file wasn’t confirmed yet. If it isn’t listed here in a minute, add it again.',
+    )
+    expect(unconfirmedFilesWords(3)).toBe(
+      'Added, but 3 files weren’t confirmed yet. If they aren’t listed here in a minute, add them again.',
+    )
   })
 })

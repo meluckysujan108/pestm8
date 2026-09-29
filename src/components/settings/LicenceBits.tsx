@@ -1,4 +1,4 @@
-import { FileText, IdCard, ImageIcon } from 'lucide-react'
+import { FileText, IdCard, ImageIcon, LoaderCircle } from 'lucide-react'
 import { expiryBadgeText, expiryOf } from './licenceExpiry'
 import { IconTile, RowBadge } from './ui'
 import { useLicenceThumbnail } from './useMyLicences'
@@ -7,7 +7,7 @@ import type { LicenceFileView } from './licenceSource'
 
 /**
  * The small pieces every licence list draws the same way: the expiry badge,
- * the tile a row leads with, a file's tile.
+ * the tile a row leads with, a file's tile, an upload's spinner.
  */
 
 /** Amber "45 days" from sixty days out, red "Expired" after; nothing else. */
@@ -93,6 +93,22 @@ export function FileThumb({
       ) : (
         <ImageIcon aria-hidden size={22} strokeWidth={1.7} />
       )}
+    </span>
+  )
+}
+
+/** An upload in flight, in the icon tile's place. */
+export function UploadSpinner() {
+  return (
+    <span
+      aria-hidden
+      className="flex size-[30px] shrink-0 items-center justify-center"
+    >
+      <LoaderCircle
+        size={20}
+        strokeWidth={1.7}
+        className="animate-spin text-muted"
+      />
     </span>
   )
 }

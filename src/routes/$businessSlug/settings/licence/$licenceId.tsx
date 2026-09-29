@@ -10,6 +10,7 @@ import { useConvexMutation } from '@convex-dev/react-query'
 import { z } from 'zod'
 import { api } from '../../../../../convex/_generated/api'
 import {
+  MAX_LICENCE_FILES,
   checkExpiresOn,
   cleanLicenceName,
   cleanLicenceNumber,
@@ -53,9 +54,16 @@ export const Route = createFileRoute(
   '/$businessSlug/settings/licence/$licenceId',
 )({
   validateSearch: z.object({
-    // Set by Add new, so the page says what comes next. Lenient: a
-    // mangled value is no hint, not an error page.
-    added: z.boolean().optional().catch(undefined),
+    // Set by Add new when it made the licence but some of its files did not
+    // confirm in time, so the page says so. Lenient: a mangled value is no
+    // notice, not an error page.
+    unconfirmed: z
+      .number()
+      .int()
+      .min(1)
+      .max(MAX_LICENCE_FILES)
+      .optional()
+      .catch(undefined),
   }),
   // Warmed, never waited on past LOADER_WAIT_MS: with no signal a Convex
   // query never answers, and this page falls back to the copy kept on the
@@ -84,7 +92,7 @@ export const Route = createFileRoute(
 function LicencePage() {
   const { business, membership } = Route.useRouteContext()
   const { licenceId } = Route.useParams()
-  const { added } = Route.useSearch()
+  const { unconfirmed } = Route.useSearch()
   const { live, shown, nothing } = useMyLicences(business._id, membership._id)
 
   // Deleting it from here: the list answers without it a moment before the
@@ -104,7 +112,7 @@ function LicencePage() {
           membershipId={membership._id}
           licence={licence}
           fromPhone={shown.fromPhone}
-          justAdded={added === true}
+          unconfirmed={unconfirmed}
           onLeaving={setLeaving}
         />
       </LicenceFrame>
@@ -157,7 +165,7 @@ function LicenceLoaded({
   membershipId,
   licence,
   fromPhone,
-  justAdded,
+  unconfirmed,
   onLeaving,
 }: {
   businessId: Id<'businesses'>
@@ -165,7 +173,7 @@ function LicenceLoaded({
   membershipId: Id<'memberships'>
   licence: WalletLicence
   fromPhone: boolean
-  justAdded: boolean
+  unconfirmed?: number
   /** On its way back to the list, having been deleted — or not, after all. */
   onLeaving: (leaving: boolean) => void
 }) {
@@ -306,7 +314,7 @@ function LicenceLoaded({
         licence={licence}
         readOnly={readOnly}
         fromPhone={fromPhone}
-        justAdded={justAdded}
+        unconfirmed={unconfirmed}
       />
 
       {!readOnly && (

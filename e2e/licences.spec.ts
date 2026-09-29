@@ -154,7 +154,7 @@ async function addFile(
   await (await chooser).setFiles(file)
 }
 
-test('a technician adds a licence by name, and the list and the hub say it runs out soon', async ({
+test('a technician adds a licence with its photo in one go, lands back on the list, and the hub says it runs out soon', async ({
   page,
 }) => {
   const s = await setupBusinessWithSub('licences-add')
@@ -178,42 +178,68 @@ test('a technician adds a licence by name, and the list and the hub say it runs 
     page.getByRole('heading', { name: 'Add new', level: 1 }),
   ).toBeVisible()
 
+  // A file that is not a PDF, PNG or JPG is turned away as it is picked.
+  await addFile(page, {
+    name: 'Licence.docx',
+    mimeType:
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    buffer: Buffer.from('not a licence'),
+  })
+  await expect(
+    page.getByText('That file isn’t a PDF, PNG or JPG. Choose one of those.'),
+  ).toBeVisible()
+
+  // The card's photo, and a PDF picked by mistake and taken off again.
+  // Picked, not sent: nothing exists until Add.
+  await addFile(page, {
+    name: 'Card front.png',
+    mimeType: 'image/png',
+    buffer: solidPng(900, 560),
+  })
+  await addFile(page, {
+    name: 'Wrong one.pdf',
+    mimeType: 'application/pdf',
+    buffer: samplePdf({ pages: 1 }),
+  })
+  await expect(page.getByText(/^Card front\.(jpg|png)$/)).toBeVisible()
+  await expect(page.getByText('Wrong one.pdf')).toBeVisible()
+  await page.getByRole('button', { name: 'Remove Wrong one.pdf' }).click()
+  await expect(page.getByText('Wrong one.pdf')).toHaveCount(0)
+  expect(
+    (await listOf(s.sub, s.businessId, s.subMembershipId)).licences,
+  ).toEqual([])
+
   await page.getByLabel('Name', { exact: true }).fill('Pest management licence')
   await page.getByLabel('Number (optional)').fill('PMT-4471')
   const expiresOn = perthDay(30)
   await page.getByLabel('Expires (optional)').fill(expiresOn)
   await page.getByRole('button', { name: 'Add', exact: true }).click()
 
-  // Onto the licence's own page, which says what comes next.
-  await expect(page).toHaveURL(
-    new RegExp(`/${s.slug}/settings/licence/[^/?]+\\?added=true$`),
-    { timeout: SAVE_TIMEOUT },
-  )
-  await expect(
-    page.getByRole('heading', { name: 'Pest management licence', level: 1 }),
-  ).toBeVisible()
-  await expect(
-    page.getByText('Added. Now add a photo or PDF of it.'),
-  ).toBeVisible()
+  // Straight back to the list — no second page to finish it on — with its
+  // number and expiry, and amber at thirty days out.
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/settings/licence$`), {
+    timeout: SAVE_TIMEOUT,
+  })
+  const row = page.getByRole('link', { name: /^Pest management licence/ })
+  await expect(row).toBeVisible()
+  await expect(row).toContainText('PMT-4471 · Expires')
+  await expect(row).toContainText('30 days')
 
+  // Made with its photo, and only that.
   const { licences } = await listOf(s.sub, s.businessId, s.subMembershipId)
   expect(licences).toEqual([
     expect.objectContaining({
       name: 'Pest management licence',
       number: 'PMT-4471',
       expiresOn,
-      files: [],
+      files: [
+        expect.objectContaining({
+          kind: 'image',
+          fileName: expect.stringMatching(/^Card front\.(jpg|png)$/),
+        }),
+      ],
     }),
   ])
-
-  // The list: its number and expiry, and amber at thirty days out.
-  await page
-    .getByRole('link', { name: 'Licences & insurance', exact: true })
-    .click()
-  const row = page.getByRole('link', { name: /^Pest management licence/ })
-  await expect(row).toBeVisible()
-  await expect(row).toContainText('PMT-4471 · Expires')
-  await expect(row).toContainText('30 days')
 
   // And the hub's row says so — the report number is set, so it is the
   // expiry that shows, not "Missing". The number itself stays off the row:
