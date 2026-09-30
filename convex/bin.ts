@@ -9,7 +9,7 @@ import { writeAttribution } from './lib/capabilities'
 import { heldAnywhere } from './lib/fileClaims'
 import { mayEditJob } from './lib/jobAccess'
 import { purgeNote } from './notes'
-import { purgeReport } from './reports'
+import { purgeReport, restoredDraftPatch } from './reports'
 import { intervalOf } from './lib/recurrence'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -29,9 +29,10 @@ import type { WriteEnvelope } from './lib/actor'
  * - a Recurring Job takes its visits, and what is about them;
  * - a job takes its notes and draft reports.
  *
- * A finalised report is never taken. It is a record the business is required
- * to keep (reports.ts), so it stays in Reports, printing what it froze at
- * finalise, whatever happens to the property it is about.
+ * A finalised report is never taken. It is a record the business may be
+ * required to keep, so it stays in Reports, printing what it froze at
+ * finalise, whatever happens to the property it is about. Only the owner
+ * deleting the report itself takes one away (reports.softDelete).
  *
  * Anything already in the bin stays in its own group: deleting a client whose
  * property was deleted last week leaves that property's entry as it was, so
@@ -441,15 +442,16 @@ export const restore = mutation({
       .query('clientContacts')
       .withIndex('by_binEntryId', (q) => q.eq('binEntryId', entryId))
       .collect()
-    for (const rows of [
-      properties,
-      recurrences,
-      jobs,
-      notes,
-      drafts,
-      contacts,
-    ]) {
+    for (const rows of [properties, recurrences, jobs, notes, contacts]) {
       for (const row of rows) await ctx.db.patch(row._id, back)
+    }
+    // A correction whose report the owner deleted while it was in here goes
+    // to that report in Recently Deleted instead (reports.ts).
+    for (const draft of drafts) {
+      await ctx.db.patch(
+        draft._id,
+        (await restoredDraftPatch(ctx, draft)) ?? back,
+      )
     }
     // A client archived before the bin existed comes back un-archived: the
     // archive had no way back, and the bin is that way now.

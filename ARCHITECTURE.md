@@ -151,6 +151,15 @@ report number), with a Recently Deleted segment for drafts. The report page's
 Email tab is now the send sheet plus a delivery history, and its Logs tab an
 activity timeline with actor names.
 
+*Amended (30 Sept 2026):* **a finalised report can be deleted, by the owner
+only.** Clients asked to remove test reports, duplicates and reports locked
+against the wrong client, and the product owner agreed. It goes to Recently
+Deleted for 30 days like a draft, with every version of its number and a
+correction still being drafted (`reports.deletedWith`), and a report's own page
+ends with "Delete report" for the owner. Technicians still cannot: keeping
+records is the business's duty. `docs/reports/compliance.md` (Retention) has
+the terms.
+
 **Cross-cutting:** preview-as banner (sticky, dark, top), toast (bottom centre)
 
 ## 2.3 Interaction patterns worth naming

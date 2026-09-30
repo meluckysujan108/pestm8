@@ -302,6 +302,9 @@ export const list = query({
               // Deleted on its own. A draft in the Recycle bin with its
               // client, site or job waits there with it (convex/bin.ts).
               q.eq(q.field('binEntryId'), undefined),
+              // One row per deleted document: the versions that went with a
+              // finalised report are its row, not rows of their own.
+              q.eq(q.field('deletedWith'), undefined),
             )
           : q.eq(q.field('deletedAt'), undefined),
       )
@@ -355,6 +358,9 @@ export const search = query({
               // Deleted on its own. A draft in the Recycle bin with its
               // client, site or job waits there with it (convex/bin.ts).
               q.eq(q.field('binEntryId'), undefined),
+              // One row per deleted document: the versions that went with a
+              // finalised report are its row, not rows of their own.
+              q.eq(q.field('deletedWith'), undefined),
             )
           : q.eq(q.field('deletedAt'), undefined),
       )
@@ -428,6 +434,8 @@ export async function decorate(ctx: QueryCtx, rows: Array<Doc<'reports'>>) {
         clientName: frozen?.client?.name ?? (await clientNameOf(ctx, property)),
         suburb: frozen?.property?.suburb ?? property?.suburb ?? '',
         templateName,
+        // A delete takes an open correction with it, and its confirm says so.
+        correcting: await correctionGoesWith(ctx, r),
       }
     }),
   )
@@ -492,7 +500,9 @@ export const counts = query({
     for (const r of rows) {
       if (!reportReadable(listScope, actor.real._id, r)) continue
       if (r.deletedAt !== undefined) {
-        if (r.binEntryId === undefined) counted.trash += 1
+        if (r.binEntryId === undefined && r.deletedWith === undefined) {
+          counted.trash += 1
+        }
         continue
       }
       counted.all += 1
@@ -578,6 +588,11 @@ export function summarise(r: Doc<'reports'>) {
     finalisedAt: r.finalisedAt,
     emailedAt: r.emailedAt,
     createdAt: r.createdAt,
+    // Which document this is, for a confirm that has to name it, and whether
+    // it is one of several versions of its number (a delete takes them all).
+    reportNumber: r.reportNumber,
+    version: r.version,
+    replaced: r.supersededByReportId !== undefined,
   }
 }
 
@@ -683,6 +698,9 @@ export const get = query({
         (report.authorMembershipId === env.actor.acting._id ||
           hasCapability(env, 'business.manage')),
       openAmendmentId: openAmendment?._id ?? null,
+      // Deleting it takes a correction being drafted with it — of this
+      // version or any other of its number — and the confirm says so.
+      correcting: await correctionGoesWith(ctx, report),
       // The caller's own membership — `reportPdf`/`email` actions need this
       // to attribute an audit-log entry, and cannot resolve an actor
       // themselves (actions have no `ctx.db`).
@@ -2278,7 +2296,15 @@ export async function finaliseReport(
     // could have been corrected by someone else.
     if (report.supersedesReportId) {
       const original = await ctx.db.get(report.supersedesReportId)
-      if (!original || original.businessId !== businessId) {
+      // Deleted takes its open correction with it (`softDelete`), and a
+      // correction deleted on its own cannot come back to one that is gone
+      // (`restore`). Checked here too: issuing it would supersede a document
+      // nobody can open.
+      if (
+        !original ||
+        original.businessId !== businessId ||
+        original.deletedAt !== undefined
+      ) {
         throw new ConvexError('NOT_FOUND')
       }
       if (
@@ -2428,25 +2454,26 @@ async function queueFormDeliveries(
 /**
  * The correction of `original` that has been started and not yet issued.
  *
- * Read from the property's newest reports rather than an index of its own: a
- * correction is started after the document it corrects, so it sits at the top
- * of that property's history unless dozens of reports have been written there
- * since — and a bounded read that could in principle miss one costs a second
- * open correction, which the finalise-time supersede check still refuses.
+ * By its own index. It used to be read from the property's forty newest
+ * reports, on the grounds that missing one only cost a second open
+ * correction, which finalise refuses. Deleting a finalised report changed the
+ * cost: it takes its open correction with it (`familyOf`), and one missed at
+ * a busy site would be left a correction of a report that is not there.
  */
 async function openAmendmentOf(
   ctx: QueryCtx,
   original: Doc<'reports'>,
 ): Promise<Doc<'reports'> | null> {
-  const recent = await ctx.db
+  const corrections = await ctx.db
     .query('reports')
-    .withIndex('by_property', (q) => q.eq('propertyId', original.propertyId))
-    .order('desc')
-    .take(LAST_VISIT_SCAN)
+    .withIndex('by_supersedesReportId', (q) =>
+      q.eq('supersedesReportId', original._id),
+    )
+    .take(MAX_FAMILY)
   return (
-    recent.find(
+    corrections.find(
       (row) =>
-        row.supersedesReportId === original._id &&
+        row.businessId === original.businessId &&
         row.status === 'draft' &&
         row.deletedAt === undefined,
     ) ?? null
@@ -2617,24 +2644,53 @@ export async function amendReport(
 }
 
 /**
- * Deleting a draft, and only a draft.
+ * Deleting a report, into Recently Deleted.
  *
- * A finalised report is a record the business is required to keep — WA's
- * pesticide regulations say three years, ten where a termite certificate is
- * involved — so there is deliberately no way to delete one, from here or
- * anywhere. What lands in Recently Deleted is work in progress: a report
- * started on the wrong property, a duplicate, a test.
+ * A draft is work in progress — a report started on the wrong property, a
+ * duplicate, a test — and whoever may edit it may delete it.
  *
- * Soft, because the photos attached to a draft are evidence somebody stood
- * somewhere and took them. Thirty days, then the nightly purge.
+ * A finalised report is a signed record, and until 30 Sept 2026 nothing could
+ * delete one: WA's pesticide regulations want treatment records kept, and the
+ * app held that line for the business. Clients asked for a way out — the test
+ * report, the duplicate, the one locked against the wrong client — and the
+ * product owner agreed. So the owner may, working as himself
+ * (`business.manage`), and nobody else: keeping records is the business's
+ * duty, so throwing one away is its owner's decision, not a technician's. The
+ * confirm says it may be a record to keep, and points a report that is only
+ * wrong at a correction instead.
+ *
+ * A finalised report takes its whole number with it: every version, and a
+ * correction still being drafted (`familyOf`). The client holds one document
+ * under that number, and deleting half of it would leave the other half
+ * saying it was replaced by a report that is not there. What was emailed
+ * stays in the client's inbox; an email still waiting to go is stopped.
+ *
+ * Soft either way, because the photos attached to a report are evidence
+ * somebody stood somewhere and took them. Thirty days, then the nightly purge.
  */
 export const softDelete = mutation({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const { env, report } = await requireDeletable(ctx, businessId, reportId)
     if (report.deletedAt !== undefined) return
-    await ctx.db.patch(reportId, { deletedAt: Date.now(), updatedAt: Date.now() })
-    await recordRetirement(ctx, env, report, 'report.delete')
+    const now = Date.now()
+    await ctx.db.patch(report._id, { deletedAt: now, updatedAt: now })
+    if (report.status !== 'finalised') {
+      await recordRetirement(ctx, env, report, 'report.delete')
+      return
+    }
+
+    const family = await familyOf(ctx, report)
+    // Refused rather than half-taken: a family this big is a broken chain,
+    // and deleting part of a number is the state this exists to avoid.
+    if (family.length >= MAX_FAMILY) throw new ConvexError('TOO_MANY_VERSIONS')
+    for (const member of family) {
+      await ctx.db.patch(member._id, { deletedAt: now, deletedWith: report._id })
+    }
+    for (const row of [report, ...family]) {
+      await stopQueuedDeliveries(ctx, row)
+    }
+    await recordSignedRetirement(ctx, env, report, family, 'report.delete', now)
   },
 })
 
@@ -2643,31 +2699,81 @@ export const restore = mutation({
   handler: async (ctx, { businessId, reportId }) => {
     const { env, report } = await requireDeletable(ctx, businessId, reportId)
     if (report.deletedAt === undefined) return
-    await ctx.db.patch(reportId, { deletedAt: undefined, updatedAt: Date.now() })
-    await recordRetirement(ctx, env, report, 'report.restore')
+
+    // A correction deleted on its own comes back only to a document that is
+    // still current, and only while nobody has started another correction of
+    // it: otherwise one number would have two corrections, or a correction of
+    // a report that is not there.
+    if (report.status === 'draft' && report.supersedesReportId !== undefined) {
+      const original = await ctx.db.get(report.supersedesReportId)
+      if (!original || original.deletedAt !== undefined) {
+        throw new ConvexError('ORIGINAL_DELETED')
+      }
+      if (original.supersededByReportId !== undefined) {
+        throw new ConvexError('ALREADY_SUPERSEDED')
+      }
+      if (await openAmendmentOf(ctx, original)) {
+        throw new ConvexError('AMENDMENT_IN_PROGRESS')
+      }
+    }
+
+    const now = Date.now()
+    await ctx.db.patch(report._id, { deletedAt: undefined, updatedAt: now })
+    if (report.status !== 'finalised') {
+      await recordRetirement(ctx, env, report, 'report.restore')
+      return
+    }
+
+    const family = await takenWith(ctx, report)
+    for (const member of family) {
+      await ctx.db.patch(member._id, { deletedAt: undefined, deletedWith: undefined })
+    }
+    await recordSignedRetirement(ctx, env, report, family, 'report.restore', now)
   },
 })
 
 /**
- * Gone for good, with its photos and its signatures. Only from Recently
- * Deleted — the thirty-day safety net is not optional.
+ * Gone for good, with its photos' rows and, for a finalised report, every
+ * version of its number, their PDFs and the record of every email that
+ * carried one. Only from Recently Deleted — the thirty-day safety net is not
+ * optional.
  */
 export const remove = mutation({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const { env, report } = await requireDeletable(ctx, businessId, reportId)
     if (report.deletedAt === undefined) throw new ConvexError('NOT_IN_TRASH')
+    if (report.status !== 'finalised') {
+      await purgeReport(ctx, report)
+      // Kept after the report is gone: it is the only trace, for the account
+      // it was in, that someone else emptied it from their bin.
+      await recordRetirement(ctx, env, report, 'report.purge')
+      return
+    }
+
+    const family = await takenWith(ctx, report)
+    for (const member of family) await purgeReport(ctx, member)
     await purgeReport(ctx, report)
-    // Kept after the report is gone: it is the only trace, for the account it
-    // was in, that someone else emptied it from their bin.
-    await recordRetirement(ctx, env, report, 'report.purge')
+    // Kept after the report is gone: who threw a signed record away, and
+    // when, is the one thing about it the business can still be asked.
+    await recordSignedRetirement(ctx, env, report, family, 'report.purge', Date.now())
   },
 })
 
 /**
- * Who may retire a draft: whoever may edit it (`canEditReport`) — the account
- * it was written in, or the owner working as himself, who has to be able to
- * clear a subcontractor's abandoned draft off the list.
+ * Who may retire a report, and which report a tap on one really means.
+ *
+ * A draft: whoever may edit it (`canEditReport`) — the account it was
+ * written in, or the owner working as himself, who has to be able to clear a
+ * subcontractor's abandoned draft off the list.
+ *
+ * A finalised report: the owner working as himself, and nobody else
+ * (`business.manage`, which a switch never carries). A signed record is the
+ * business's to keep or to throw away, and its author signing it is not the
+ * business deciding to lose it.
+ *
+ * A version that went with another (`deletedWith`) is acted on through the
+ * report that took it, so restoring or deleting any of them does all of them.
  *
  * Not `requireEditableReport` itself, which refuses a draft already in the
  * bin — and restoring one from there is exactly this gate's job. Through the
@@ -2681,16 +2787,126 @@ async function requireDeletable(
   reportId: Id<'reports'>,
 ): Promise<{ env: WriteEnvelope; report: Doc<'reports'> }> {
   const env = await requireWriteActor(ctx, businessId)
-  const report = await ctx.db.get(reportId)
+  const found = await ctx.db.get(reportId)
+  if (!found || found.businessId !== businessId) throw new ConvexError('NOT_FOUND')
+  const report =
+    found.deletedWith !== undefined ? await ctx.db.get(found.deletedWith) : found
   if (!report || report.businessId !== businessId) throw new ConvexError('NOT_FOUND')
-  if (report.status === 'finalised') throw new ConvexError('REPORT_FINALISED')
-  if (!canEditReport(env.actor, reportFactsFrom(report))) {
+  if (report.status === 'finalised') {
+    if (!hasCapability(env, 'business.manage')) throw new ConvexError('NO_ACCESS')
+  } else if (!canEditReport(env.actor, reportFactsFrom(report))) {
     throw new ConvexError('NO_ACCESS')
   }
   // In the Recycle bin with its client, site or job: restored or wiped with
   // them, from the bin, never on its own (convex/bin.ts).
   if (report.binEntryId !== undefined) throw new ConvexError('IN_RECYCLE_BIN')
   return { env, report }
+}
+
+/** More versions of one number than anyone reissues, so a broken chain of
+ * links cannot walk forever. */
+const MAX_FAMILY = 50
+
+/**
+ * Everything else under this finalised report's number, still in the list:
+ * the versions it replaced, the versions that replaced it, and every
+ * correction of any of them that is still a draft.
+ *
+ * Walked by the links rather than by the number, because a report finalised
+ * before numbers existed has none and can still have been corrected. Every
+ * version's corrections, not only the current one's: a correction binned with
+ * its job and restored after a later one was issued is a draft correction of
+ * a replaced version, and one left behind would outlive the document it
+ * corrects.
+ */
+async function familyOf(
+  ctx: QueryCtx,
+  report: Doc<'reports'>,
+): Promise<Array<Doc<'reports'>>> {
+  const versions: Array<Doc<'reports'>> = [report]
+  const seen = new Set<Id<'reports'>>([report._id])
+  const take = async (id: Id<'reports'> | undefined) => {
+    if (id === undefined || seen.has(id)) return null
+    seen.add(id)
+    const row = await ctx.db.get(id)
+    if (!row || row.businessId !== report.businessId) return null
+    versions.push(row)
+    return row
+  }
+  for (let row = await take(report.supersedesReportId); row; ) {
+    row = await take(row.supersedesReportId)
+  }
+  for (let row = await take(report.supersededByReportId); row; ) {
+    row = await take(row.supersededByReportId)
+  }
+
+  const family = versions.filter(
+    (row) => row._id !== report._id && row.deletedAt === undefined,
+  )
+  for (const version of versions) {
+    const corrections = await ctx.db
+      .query('reports')
+      .withIndex('by_supersedesReportId', (q) =>
+        q.eq('supersedesReportId', version._id),
+      )
+      .take(MAX_FAMILY)
+    for (const row of corrections) {
+      if (
+        !seen.has(row._id) &&
+        row.businessId === report.businessId &&
+        row.status === 'draft' &&
+        row.deletedAt === undefined
+      ) {
+        seen.add(row._id)
+        family.push(row)
+      }
+    }
+  }
+  return family
+}
+
+/**
+ * Whether deleting this finalised report takes a correction being drafted
+ * with it — or, once deleted, took one. For the confirm, which says so.
+ */
+async function correctionGoesWith(ctx: QueryCtx, report: Doc<'reports'>) {
+  if (report.status !== 'finalised') return false
+  const members =
+    report.deletedAt === undefined
+      ? await familyOf(ctx, report)
+      : await takenWith(ctx, report)
+  return members.some((row) => row.status === 'draft')
+}
+
+/** The versions that went into Recently Deleted with this one. */
+async function takenWith(ctx: QueryCtx, report: Doc<'reports'>) {
+  return ctx.db
+    .query('reports')
+    .withIndex('by_deletedWith', (q) => q.eq('deletedWith', report._id))
+    .take(MAX_FAMILY)
+}
+
+/**
+ * A deleted report's email that has not gone yet does not go.
+ *
+ * `email.deliver` would find the report gone and leave the row queued for
+ * good, and a restored report would then say it was still on its way.
+ * Settled as not sent instead, with why, so its Email tab tells the truth if
+ * it comes back. One already accepted is left alone: it went.
+ */
+async function stopQueuedDeliveries(ctx: MutationCtx, report: Doc<'reports'>) {
+  const rows = await ctx.db
+    .query('reportDeliveries')
+    .withIndex('by_report', (q) => q.eq('reportId', report._id))
+    .collect()
+  for (const row of rows) {
+    if (row.status !== 'queued') continue
+    await ctx.db.patch(row._id, {
+      status: 'failed',
+      error:
+        'Not sent: the report was deleted before it went. If it is restored, send it again from its Email tab.',
+    })
+  }
 }
 
 /** A draft binned, restored or purged inside someone else's account, on that
@@ -2707,6 +2923,45 @@ async function recordRetirement(
     entityType: 'reports',
     entityId: report._id,
   })
+}
+
+/**
+ * A signed record deleted, restored or deleted for good: always written down,
+ * on every version it took with it, whoever did it. A draft's history only
+ * records someone working in another's account (`recordRetirement`); a
+ * finalised report's is the trace that it existed at all.
+ */
+async function recordSignedRetirement(
+  ctx: MutationCtx,
+  env: WriteEnvelope,
+  report: Doc<'reports'>,
+  family: Array<Doc<'reports'>>,
+  action: 'report.delete' | 'report.restore' | 'report.purge',
+  at: number,
+) {
+  const by = writeAttribution(env.actor)
+  const meta = {
+    reportNumber: report.reportNumber,
+    versions: 1 + family.filter((row) => row.status === 'finalised').length,
+  }
+  await recordAudit(ctx, by, {
+    businessId: report.businessId,
+    action,
+    entityType: 'reports',
+    entityId: report._id,
+    meta,
+    at,
+  })
+  for (const member of family) {
+    await recordAudit(ctx, by, {
+      businessId: report.businessId,
+      action,
+      entityType: 'reports',
+      entityId: member._id,
+      meta: { ...meta, with: report._id },
+      at,
+    })
+  }
 }
 
 /**
@@ -2735,7 +2990,10 @@ async function recordRetirement(
  * piece of work; until then, nothing is deleted on a guess.
  *
  * The preview is the exception because the server made it, for this report
- * alone, and nothing else is ever pointed at it.
+ * alone, and nothing else is ever pointed at it. So are a finalised report's
+ * PDFs (`setPdf` stores each one the render drew of it), and with them go the
+ * rows recording every email that attached one: their addresses are the
+ * client's, and the report they describe is gone.
  */
 export async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
   const photos = await ctx.db
@@ -2755,6 +3013,24 @@ export async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
 
   if (report.previewStorageId) await ctx.storage.delete(report.previewStorageId)
 
+  const deliveries = await ctx.db
+    .query('reportDeliveries')
+    .withIndex('by_report', (q) => q.eq('reportId', report._id))
+    .collect()
+  for (const delivery of deliveries) await ctx.db.delete(delivery._id)
+
+  const pdfs = await ctx.db
+    .query('reportPdfs')
+    .withIndex('by_report', (q) => q.eq('reportId', report._id))
+    .collect()
+  const files = new Set(pdfs.map((pdf) => pdf.storageId))
+  // A report drawn before every file had a row still points at its one.
+  if (report.pdfStorageId) files.add(report.pdfStorageId)
+  for (const pdf of pdfs) await ctx.db.delete(pdf._id)
+  for (const file of files) {
+    if (await ctx.db.system.get('_storage', file)) await ctx.storage.delete(file)
+  }
+
   await ctx.db.delete(report._id)
 }
 
@@ -2773,10 +3049,16 @@ export const purgeExpired = internalMutation({
       .filter((q) => q.eq(q.field('binEntryId'), undefined))
       .take(PURGE_BATCH)
     for (const report of batch) {
-      // A report that was finalised while in the trash is a record now, and
-      // records are not purged. Restoring it to the list is the honest move.
-      if (report.status === 'finalised') {
-        await ctx.db.patch(report._id, { deletedAt: undefined })
+      // A finalised report goes too, when the owner deleted it: `softDelete`
+      // writes that down on every version it takes, and they share its
+      // `deletedAt`, so they come due on the same night. One in the trash
+      // with no such record got there some other way, and a record is never
+      // purged on a guess — it goes back to the list, as it always did.
+      if (report.status === 'finalised' && !(await deletedOnPurpose(ctx, report))) {
+        await ctx.db.patch(report._id, {
+          deletedAt: undefined,
+          deletedWith: undefined,
+        })
         continue
       }
       await purgeReport(ctx, report)
@@ -2789,10 +3071,53 @@ export const purgeExpired = internalMutation({
 
 const PURGE_BATCH = 25
 
+/** Whether the last word on this report's history is the owner deleting it. */
+async function deletedOnPurpose(ctx: QueryCtx, report: Doc<'reports'>) {
+  const history = ctx.db
+    .query('auditLog')
+    .withIndex('by_entity', (q) =>
+      q.eq('entityType', 'reports').eq('entityId', report._id),
+    )
+    .order('desc')
+  for await (const row of history) {
+    if (row.action === 'report.delete') return true
+    if (row.action === 'report.restore') return false
+  }
+  return false
+}
+
+/**
+ * Where a draft coming back from the Recycle bin goes when it is a correction
+ * of a report the owner has deleted in the meantime: into Recently Deleted
+ * with that report, so it comes back — or goes for good — with the document
+ * it corrects, never into the list as a correction of one that is not there.
+ * Null for every other draft, which simply comes back (convex/bin.ts).
+ */
+export async function restoredDraftPatch(
+  ctx: QueryCtx,
+  draft: Doc<'reports'>,
+): Promise<Partial<Doc<'reports'>> | null> {
+  if (draft.supersedesReportId === undefined) return null
+  const original = await ctx.db.get(draft.supersedesReportId)
+  if (original && original.deletedAt === undefined) return null
+  const root = original && (await ctx.db.get(original.deletedWith ?? original._id))
+  if (!root || root.deletedAt === undefined) {
+    // Deleted for good: it waits in Recently Deleted on its own, where it
+    // cannot be restored (ORIGINAL_DELETED), until its own time is up.
+    return { binEntryId: undefined }
+  }
+  return {
+    binEntryId: undefined,
+    deletedAt: root.deletedAt,
+    deletedWith: root._id,
+  }
+}
+
 /**
  * The version of the painter. Bumping it makes every report re-render on its
  * next open, which is how a fix to the document reaches files already drawn.
- * A superseded file is kept, never deleted: it is what someone was sent.
+ * A superseded file is kept, never deleted: it is what someone was sent. Only
+ * deleting the report itself for good takes its files (`purgeReport`).
  *
  * Not bumped when the logo's boxes grew (Sept 2026, pdf/layout.tsx and
  * pdf/CoverPage.tsx): a redraw moves a page's content under the markup drawn

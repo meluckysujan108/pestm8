@@ -131,13 +131,17 @@ const ALL_CAPS = {
   'accounts.switch': false,
 }
 
-export const state = { actingAs: false }
+/** `actingAs`: working in Kevin's account. `technician`: signed in as a
+ * subcontractor, with no owner's capabilities. */
+export const state = { actingAs: false, technician: false }
 
 function accessMe() {
   return {
     membershipId: 'm_owner',
-    role: 'owner',
-    caps: ALL_CAPS,
+    role: state.technician ? 'subcontractor' : 'owner',
+    caps: state.technician
+      ? { ...ALL_CAPS, 'business.manage': false, 'team.manage': false }
+      : ALL_CAPS,
     actingAs: state.actingAs
       ? { membershipId: 'm_kev', name: 'Kevin Doyle' }
       : null,
@@ -604,6 +608,12 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'weather:forDays': () => [],
   'notes:unreadMentionCount': () => 2,
   'bin:list': () => ({ entries: BIN_ENTRIES, capped: false }),
+  'reports:list': (args: { filter: string }) => ({
+    page: args.filter === 'trash' ? REPORTS_DELETED : REPORTS,
+    isDone: true,
+    continueCursor: '',
+  }),
+  'reports:staleDrafts': () => ({ count: 0, oldest: null }),
 }
 
 export function resolveFixture(fn: string, args: unknown): unknown {
@@ -680,4 +690,78 @@ export const BIN_ENTRIES = [
     archivedAt: Date.now() - 17 * 24 * HOUR,
     counts: { properties: 1, jobs: 9, recurrences: 0, notes: 1, drafts: 0 },
   },
+]
+
+function reportRow(
+  id: string,
+  row: {
+    status: 'draft' | 'finalised'
+    templateName: string
+    legalBasis: string
+    clientName: string
+    suburb: string
+    reportNumber?: number
+    version?: number
+    replaced?: boolean
+    emailedAt?: number
+  },
+) {
+  return {
+    _id: id,
+    template: 'serviceReport',
+    propertyId: 'p1',
+    createdAt: Date.now() - 3 * 24 * HOUR,
+    finalisedAt: row.status === 'finalised' ? Date.now() - 2 * HOUR : undefined,
+    ...row,
+  }
+}
+
+/** What `reports.list` answers: a draft, a signed report sent to the client,
+ * and a number issued twice — as the Reports list shows them. */
+const REPORTS = [
+  reportRow('r_draft', {
+    status: 'draft',
+    templateName: 'Service Report',
+    legalBasis: 'APVMA',
+    clientName: 'Lena Brooks',
+    suburb: 'Nedlands',
+  }),
+  reportRow('r_sent', {
+    status: 'finalised',
+    templateName: 'Service Report',
+    legalBasis: 'APVMA',
+    clientName: 'J. Nguyen',
+    suburb: 'Bayswater',
+    reportNumber: 12,
+    emailedAt: Date.now() - HOUR,
+  }),
+  reportRow('r_v2', {
+    status: 'finalised',
+    templateName: 'Timber Pest Inspection Report',
+    legalBasis: 'AS 4349.3-2010',
+    clientName: 'Subi Café Group',
+    suburb: 'Subiaco',
+    reportNumber: 4,
+    version: 2,
+  }),
+]
+
+/** Deleted: one signed report (with its versions) and one draft. */
+const REPORTS_DELETED = [
+  reportRow('r_gone', {
+    status: 'finalised',
+    templateName: 'Service Report',
+    legalBasis: 'APVMA',
+    clientName: 'R. Patel',
+    suburb: 'Maylands',
+    reportNumber: 9,
+    version: 3,
+  }),
+  reportRow('r_gone_draft', {
+    status: 'draft',
+    templateName: 'Service Report',
+    legalBasis: 'APVMA',
+    clientName: 'Lena Brooks',
+    suburb: 'Nedlands',
+  }),
 ]
