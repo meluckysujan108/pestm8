@@ -3,7 +3,8 @@
 import { ConvexError, v } from 'convex/values'
 import { action } from './_generated/server'
 import { api, internal } from './_generated/api'
-import { renderIfNeeded, streamToBuffer } from './reportPipeline'
+import { renderIfNeeded } from './reportPipeline'
+import { streamToBuffer } from './lib/drawReportPdf'
 
 /**
  * Renders a finalised report to PDF, or hands back the one already rendered.

@@ -703,3 +703,34 @@ sends there again, and a later push of this schema is refused with
 Before deploying anything that assumes this, check with a read-only count:
 
     npx convex run --inline-query 'let n = 0; for await (const r of ctx.db.query("reportDeliveries")) if (r.status === "pendingApproval") n++; return n'
+
+## The lighter email copy (30 Sept 2026)
+
+A report whose PDF is over `EMAIL_BUDGET_BYTES` (6 MiB) is emailed as a copy
+with smaller photos (`convex/emailCopy.ts`; "Sending it" in `README.md`). It
+is expand only: there is nothing to migrate and nothing to contract.
+
+- `reportPdfs` gains `variant` (`'email'` or absent), `sourceStorageId` and
+  `photoEdge`. All three are optional, and absent on every row written
+  before, which is what a report's own PDF looks like — so no backfill.
+- `deliveries.currentPdfId` is gone. It answered with the newest
+  `reportPdfs` row, which is no longer necessarily the report's PDF; a send
+  now records the file it attached (`emailCopies.rowFor`, or the copy's row).
+  Nothing in `src/` called it.
+- `deliveries.known` gains `largeForEmail` and `forReport` gains
+  `lighterCopy`. The previous frontend ignores both.
+- No function's arguments changed, so either deploy may go first. Backend
+  first all the same, as ever.
+
+The report that prompted it (53 photos, 33.7 MiB, finalised 30 Sept) was never
+emailed: both attempts failed before Resend. Once this is live, pressing Send
+on its Email tab makes its copy (about 5.7 MiB at 1000 px) and sends it. See
+what it will be first, without sending or storing anything:
+
+    CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex run emailCopy:dryRun '{"reportId": "kx7bcraw6pht4spmve182m0r4s8fdhmj"}'
+
+**Rolling back.** Once a copy exists, a backend from before this release is
+refused on push: the copy's row carries fields its schema does not declare
+("Object contains extra field"). Roll forward, or roll back with the three
+fields still declared in `reportPdfs`. Do not delete the copies to make room:
+each is the file a client was sent, and a delivery names it.

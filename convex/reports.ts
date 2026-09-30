@@ -2991,9 +2991,10 @@ async function recordSignedRetirement(
  *
  * The preview is the exception because the server made it, for this report
  * alone, and nothing else is ever pointed at it. So are a finalised report's
- * PDFs (`setPdf` stores each one the render drew of it), and with them go the
- * rows recording every email that attached one: their addresses are the
- * client's, and the report they describe is gone.
+ * PDFs (`setPdf` stores each one the render drew of it, and
+ * `emailCopies.record` the lighter copy of one too big to email), and with
+ * them go the rows recording every email that attached one: their addresses
+ * are the client's, and the report they describe is gone.
  */
 export async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
   const photos = await ctx.db

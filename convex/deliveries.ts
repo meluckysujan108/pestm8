@@ -16,6 +16,7 @@ import {
 } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { emailConfigured } from './lib/emailConfig'
+import { EMAIL_BUDGET_BYTES } from './lib/emailFit'
 import { isValidEmail } from './lib/email'
 import { addressedTo } from './lib/reportEmail'
 import { assertWithinSendLimit } from './lib/sendLimit'
@@ -27,6 +28,7 @@ import {
   normaliseAddresses,
 } from './lib/recipients'
 import { blindCopy } from '../src/lib/reportTemplates/delivery'
+import { printedGalleryKeys, sectionsOf } from '../src/lib/reportTemplates'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import type { Doc, Id } from './_generated/dataModel'
@@ -142,18 +144,6 @@ export const forSending = internalQuery({
   },
 })
 
-/** The newest `reportPdfs` row, so a delivery records the file it attached. */
-export const currentPdfId = internalQuery({
-  args: { reportId: v.id('reports') },
-  handler: async (ctx, { reportId }) => {
-    const rows = await ctx.db
-      .query('reportPdfs')
-      .withIndex('by_report', (q) => q.eq('reportId', reportId))
-      .collect()
-    return rows.sort((a, b) => b.createdAt - a.createdAt)[0]?._id ?? null
-  },
-})
-
 /**
  * Deliveries waiting to be sent for a report that has just been rendered.
  * Scheduled sends go through here so the pipeline does not have to remember
@@ -196,29 +186,35 @@ async function subjectFor(
   ctx: QueryCtx | MutationCtx,
   report: Doc<'reports'>,
 ): Promise<string> {
+  const property = await ctx.db.get(report.propertyId)
+  const business = await ctx.db.get(report.businessId)
+  return documentIdentity({
+    template: await templateOf(ctx, report),
+    property,
+    businessName: business?.name ?? '',
+    finalisedAt: report.finalisedAt,
+  }).title
+}
+
+/**
+ * The form a report is on: its FROZEN wording once finalised, else the form
+ * as it stands. Only a custom report finalised before snapshots existed has
+ * no frozen wording, and reads as its form.
+ */
+async function templateOf(ctx: QueryCtx | MutationCtx, report: Doc<'reports'>) {
   const snapshot = report.templateSnapshotId
     ? await ctx.db.get(report.templateSnapshotId)
     : null
-  const property = await ctx.db.get(report.propertyId)
-  const business = await ctx.db.get(report.businessId)
-  // The frozen wording names a finalised document. Only a custom report
-  // finalised before snapshots existed has none, and is named for its form.
   const live =
     !snapshot && report.template === 'custom' && report.customTemplateId
       ? await ctx.db.get(report.customTemplateId)
       : null
-  const template = resolveReportTemplate({
+  return resolveReportTemplate({
     template: report.template,
     templateVersion: report.templateVersion,
     customTemplate: live,
     templateSnapshot: snapshot,
   })
-  return documentIdentity({
-    template,
-    property,
-    businessName: business?.name ?? '',
-    finalisedAt: report.finalisedAt,
-  }).title
 }
 
 /**
@@ -275,7 +271,12 @@ export const known = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const env = await requireActor(ctx, businessId)
-    const none = { addresses: [], copy: null, emailReady: false }
+    const none = {
+      addresses: [],
+      copy: null,
+      emailReady: false,
+      largeForEmail: false,
+    }
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return none
     if (!reportReadable(env.scope, env.actor.real._id, report)) return none
@@ -287,9 +288,59 @@ export const known = query({
       copy: businessCopyAddress(business),
       /** Whether this deployment can send at all (`lib/emailConfig`). */
       emailReady: emailConfigured(),
+      /**
+       * Whether an email of it goes as the lighter copy, with smaller photos
+       * (convex/emailCopy.ts) — so the sheets can say so before it is sent.
+       */
+      largeForEmail: await largeForEmail(ctx, report),
     }
   },
 })
+
+/** A guard on how many of a report's photos are weighed; a big job has fifty. */
+const PHOTO_ROWS = 1000
+
+/**
+ * Whether this report is more than an email carries.
+ *
+ * Once it has a PDF, that file's size says. Before — on the sheet that locks
+ * it — the photos it will print do: a report's PDF is its photos and a few
+ * pages besides (33.5 of 33.7 MiB on 30 Sept 2026). Only the sets that print
+ * count (`printedGalleryKeys`, as the painter decides): photos in a set whose
+ * question was answered No add nothing to the PDF.
+ */
+async function largeForEmail(
+  ctx: QueryCtx,
+  report: Doc<'reports'>,
+): Promise<boolean> {
+  if (report.pdfStorageId) {
+    const file = await ctx.db.system.get('_storage', report.pdfStorageId)
+    if (file) return file.size > EMAIL_BUDGET_BYTES
+  }
+  const printed = printedGalleryKeys(
+    sectionsOf(await templateOf(ctx, report)),
+    (report.data ?? {}) as Record<string, unknown>,
+  )
+  // Its size as recorded at upload, where it was; the file's own, where not.
+  const sizeOf = async (storageId: Id<'_storage'>, recorded?: number) =>
+    recorded ?? (await ctx.db.system.get('_storage', storageId))?.size ?? 0
+
+  let total = 0
+  for (const storageId of Object.values(report.photoSlots ?? {})) {
+    total += await sizeOf(storageId)
+    if (total > EMAIL_BUDGET_BYTES) return true
+  }
+  const photos = await ctx.db
+    .query('reportPhotos')
+    .withIndex('by_report_field', (q) => q.eq('reportId', report._id))
+    .take(PHOTO_ROWS)
+  for (const photo of photos) {
+    if (!printed.has(photo.fieldKey)) continue
+    total += await sizeOf(photo.storageId, photo.bytes)
+    if (total > EMAIL_BUDGET_BYTES) return true
+  }
+  return false
+}
 
 /**
  * What the provider told us later.
@@ -426,10 +477,17 @@ export const forReport = query({
       ctx,
       rows.sort((a, b) => b.createdAt - a.createdAt),
     )
-    return described.map((row) => ({
-      ...row,
-      waitingForEmailSetup: row.status === 'queued' && !canSend,
-    }))
+    return Promise.all(
+      described.map(async (row) => ({
+        ...row,
+        waitingForEmailSetup: row.status === 'queued' && !canSend,
+        // It went as the lighter copy, with smaller photos, because the
+        // report's own PDF was more than an email carries (convex/emailCopy.ts).
+        lighterCopy: row.pdfId
+          ? (await ctx.db.get(row.pdfId))?.variant === 'email'
+          : false,
+      })),
+    )
   },
 })
 

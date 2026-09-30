@@ -266,6 +266,10 @@ const PLAN = {
   },
   'lock-new': { before: async (p) => p.waitForTimeout(700) },
   'lock-noemail': { before: async (p) => p.waitForTimeout(700) },
+  // More photos than an email carries: said before the lock sends it.
+  'lock-big': { before: async (p) => p.waitForTimeout(700) },
+  'send-big': { before: async (p) => p.waitForTimeout(700) },
+  'history-big': { full: true },
   delivered: {},
   'report-settings': { full: true },
   // Whole page: the Letterhead card sits below the Business one.

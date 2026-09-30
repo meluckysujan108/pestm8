@@ -73,7 +73,10 @@ senders on prod (`rare-retriever-156`):
   (`convex/email.ts`); replies go to the business's own address. Every report
   email also carries a **bcc** to the business's own copy address (Settings →
   Reports → Business copy, else its business email). For Pest M8 Pest Control
-  that is info@pestm8.com.au.
+  that is info@pestm8.com.au. A report whose PDF is over 6 MiB is attached as
+  a lighter copy with smaller photos (`convex/emailCopy.ts`, since 30 Sept
+  2026); `npx convex run emailCopy:dryRun '{"reportId": "…"}'` shows what a
+  report's copy would be without sending anything.
 - `RESEND_ACCOUNT_FROM_EMAIL=noreply@pestm8.com.au` — account email: the
   "Forgot password?" link and "your password was changed"
   (`convex/accountEmails.ts`). Replies aren't read, and the email says so.
