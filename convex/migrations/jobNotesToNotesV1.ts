@@ -29,10 +29,11 @@ import type { MutationCtx } from '../_generated/server'
  *      older app, and keeps it as a note in Notes instead
  *      (`notes.insertJobNoteOnce`). Count again (3) once that backend is
  *      live, not before — an older app could write one until the moment it
- *      is — and if any is left, run this again (2). Then, still to do: drop
- *      `jobs.notes` from the schema, and this file, once every deployment
- *      counts none. Until then a deployment holding one (a test backend)
- *      runs this to clear it.
+ *      is — and if any is left, run this again (2). Done on production
+ *      30 Sept 2026 (PR #101): 0 of 1049 jobs after it went live. Then,
+ *      still to do: drop `jobs.notes` from the schema, and this file, once
+ *      every deployment counts none. Until then a deployment holding one (a
+ *      test backend) runs this to clear it.
  *
  * The note is the owner's: who typed a plain note was never recorded, and
  * the owner may edit or delete any note.
