@@ -579,7 +579,7 @@ Never on one tap.
   - "Delete" is for records (a note, a product, a draft).
   - "Remove" is for attachments and memberships (a photo, a file, a contact, a team member).
   - "Archive" is for what can come back into use (templates).
-- **Recovery** is a place, not a toast: the Recycle bin (Settings → Recycle bin, 30 days: clients, properties, jobs and recurring services, with everything that went with them), Recently Deleted (report drafts and notes, 30 days), Archived, "Offer again". A delete's confirm says where it can be got back from.
+- **Recovery** is a place, not a toast: the Recycle bin (Settings → Recycle bin, 30 days: clients, properties, jobs and recurring services, with everything that went with them), Recently Deleted (reports and notes, 30 days), Archived, "Offer again". A delete's confirm says where it can be got back from.
 
 ### Hold to act
 
@@ -834,6 +834,7 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **The report builder** opens on an overview and fills one section at a time, with the section in the URL. A list of more than 12 options opens a picker sheet.
 - **Report emails need no owner's approval.** Anyone who may send a report may send it anywhere that can receive email. An address not on the client's record is pointed out, never held: "Not on the client’s record" in the Send sheet, "check it’s right" on the lock sheet, and "Wasn’t on the client’s record" in the report's history. Every email is in the report's Email tab, and every outcome in its Logs.
 - **No email asks for a reply.** The report email says the PDF is attached and stops. Account email says replies aren't read, and gives no address to ask instead. Never add "Reply to this email if…", "Need help? Email…" or "Get in touch": each question it invites is work for the business.
+- **Only the owner deletes a finalised report,** and it waits in Deleted for 30 days like a draft. Every version of its number goes with it, the confirm says anything already emailed stays sent, and it points a report that is only wrong at "Issue a correction" instead. _Amended 30 Sept 2026:_ a finalised report could not be deleted at all.
 - **Finalising** is a read-back sheet, not a hold. Its button is never greyed for an incomplete report, because pressing it is how you find out what is missing.
 - **Dates** come from the business's day key, not the device's clock, and cards never say "Today" or "Tomorrow".
 - **Hidden prices** show "—".

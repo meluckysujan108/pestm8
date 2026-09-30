@@ -6,7 +6,7 @@ import {
   useRouter,
 } from '@tanstack/react-router'
 import { z } from 'zod'
-import { restartingReports } from '#/lib/restartingReports'
+import { leavingReports } from '#/lib/leavingReports'
 import { useSuspenseQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { api } from '../../../../convex/_generated/api'
@@ -15,7 +15,10 @@ import {
   LicenceNotice,
   licenceFixFor,
 } from '#/components/reports/LicenceNotice'
-import { useAccess } from '#/lib/access'
+import { useAccess, useCan } from '#/lib/access'
+import { useHydrated } from '#/lib/useHydrated'
+import { DeleteButton } from '#/components/primitives/DeleteButton'
+import { DeleteReport } from '#/components/reports/DeleteReport'
 import { ReportDocument } from '#/components/reports/ReportDocument'
 import {
   AmendButton,
@@ -141,6 +144,10 @@ function ReportPage() {
   const navigate = useNavigate()
   const pdfEntry = usePdfEntry(view === 'pdf')
   const access = useAccess()
+  // A signed record is the owner's to throw away, and nobody else's
+  // (`reports.softDelete`).
+  const ownsRecords = useCan('business.manage')
+  const hydrated = useHydrated()
 
   const { data: report } = useSuspenseQuery(
     convexQuery(api.reports.get, {
@@ -151,7 +158,7 @@ function ReportPage() {
 
   // Mid-"Start again": the old draft is gone and the new one is a navigation
   // away. Render nothing rather than flash Not Found.
-  if (!report && restartingReports.has(reportId)) return null
+  if (!report && leavingReports.has(reportId)) return null
   if (!report) throw notFound()
 
   // One route, two faces: a draft is a form, a finalised report is a document.
@@ -229,6 +236,51 @@ function ReportPage() {
               />
             </div>
           )
+        )}
+        {/* Last, and apart from the correction above it: a report that is
+            only wrong is corrected, and the confirm says so. */}
+        {ownsRecords && (
+          <div className="px-4 pb-8">
+            <DeleteReport
+              businessId={business._id}
+              reportId={report._id}
+              report={{
+                status: report.status,
+                templateName: template.name,
+                // As the document prints them: frozen at finalise.
+                clientName:
+                  report.property?.client?.name ??
+                  report.contextSnapshot?.client?.name ??
+                  '',
+                suburb:
+                  report.property?.suburb ??
+                  report.contextSnapshot?.property?.suburb ??
+                  '',
+                reportNumber: report.reportNumber,
+                version: report.version,
+                replaced: report.supersededByReportId !== undefined,
+                correcting: report.correcting,
+              }}
+              leavesPage
+              onDeleted={() =>
+                void navigate({
+                  to: '/$businessSlug/reports',
+                  params: { businessSlug: business.slug },
+                  // Back must not return to a report that is not there.
+                  replace: true,
+                })
+              }
+              trigger={(open) => (
+                <DeleteButton
+                  className="mt-2"
+                  disabled={!hydrated}
+                  onClick={open}
+                >
+                  Delete report
+                </DeleteButton>
+              )}
+            />
+          </div>
         )}
       </ReportActionBar>
     )

@@ -1125,16 +1125,27 @@ export default defineSchema({
      */
     contextSnapshot: v.optional(reportContextSnapshot),
     /**
-     * Soft-deleted: hidden from every list and unopenable, never destroyed.
-     * Brought forward from the planned Recently Deleted feature so "start
-     * again" on a superseded draft can retire the old one without deleting
-     * the evidence photos attached to it.
+     * Soft-deleted: hidden from every list and unopenable, in Recently
+     * Deleted until it is restored or the nightly purge takes it. Brought
+     * forward from the planned Recently Deleted feature so "start again" on a
+     * superseded draft can retire the old one without deleting the evidence
+     * photos attached to it. A finalised report can be here too, put there by
+     * the owner (`reports.softDelete`, since 30 Sept 2026).
      */
     deletedAt: v.optional(v.number()),
     /** The Recycle bin delete that took this draft with it — a client,
      * property or job it belongs to (`binFields`). Absent when it was
      * deleted on its own, so restoring that client leaves it where it is. */
     binEntryId: v.optional(v.id('binEntries')),
+    /**
+     * The finalised report whose delete took this one with it: the other
+     * versions of its number, and a correction of it still being drafted
+     * (`reports.softDelete`). One report number is one document to the client
+     * who holds it, so its versions go into Recently Deleted together, come
+     * back together and are deleted for good together. Absent on the report
+     * that was deleted, and on everything deleted on its own.
+     */
+    deletedWith: v.optional(v.id('reports')),
     /**
      * Last touched — an answer typed, a photo added, a lock closed.
      *
@@ -1174,6 +1185,10 @@ export default defineSchema({
     // The nightly purge's range scan; undefined sorts below every number.
     .index('by_deletedAt', ['deletedAt'])
     .index('by_binEntryId', ['binEntryId'])
+    .index('by_deletedWith', ['deletedWith'])
+    // "is a correction of this one under way?" — asked of every finalised
+    // row a list draws, and by a delete that takes the correction with it.
+    .index('by_supersedesReportId', ['supersedesReportId'])
     .searchIndex('search', {
       searchField: 'searchText',
       filterFields: ['businessId'],
@@ -1784,7 +1799,9 @@ export default defineSchema({
    * who was emailed a report in August must still be able to be shown the file
    * they were actually sent, whatever the renderer does afterwards — and once
    * deliveries record which row they attached (Phase 5), "which file did they
-   * receive?" has an answer instead of an assumption.
+   * receive?" has an answer instead of an assumption. The rows and their
+   * files go only when the report itself is deleted for good
+   * (`reports.purgeReport`).
    *
    * Two kinds of row. The report's own PDF, which `reports.pdfStorageId`
    * points at (the newest of them). And, since 30 Sept 2026, the lighter copy

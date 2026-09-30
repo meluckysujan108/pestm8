@@ -22,7 +22,8 @@
  * the nightly run does not book a second one in its place, and a client
  * number stays taken while its client is in the bin, so restoring it cannot
  * collide. A finalised report is never binned at all — it is a record the
- * business must keep (reports.ts) — so it keeps pointing at a binned property,
+ * business may have to keep, and only the owner deleting it on its own takes
+ * it away (reports.softDelete) — so it keeps pointing at a binned property,
  * and prints what it froze at finalise.
  */
 

@@ -111,7 +111,10 @@ export const settle = internalMutation({
       ...(pdfId ? { pdfId } : {}),
       ...(providerMessageId ? { providerMessageId } : {}),
       ...(error ? { error: error.slice(0, 500) } : {}),
-      ...(status === 'sent' ? { sentAt: Date.now() } : {}),
+      // Accepted clears an earlier word to the contrary: a report deleted
+      // while its email was already on the way marks the row not sent
+      // (reports.softDelete), and then it went.
+      ...(status === 'sent' ? { sentAt: Date.now(), error: undefined } : {}),
     })
 
     if (status === 'sent') {

@@ -242,6 +242,35 @@ while one is open (`AMENDMENT_IN_PROGRESS`); the page links to the open one
 instead of offering the button. Finalising re-checks both, so two corrections
 can never both supersede the same document.
 
+## Deleting one
+
+A correction keeps the record and fixes it; deleting throws the record away,
+so it is the owner's call and nobody else's (`reports.softDelete`,
+`business.manage`). It is for the report that should never have existed: a
+test, a duplicate, one locked against the wrong client. The confirm points a
+report that is only wrong at a correction instead.
+
+- **One number, one document.** Deleting any version of a report deletes every
+  version of its number, and a correction still being drafted. The others are
+  marked `deletedWith` the one deleted, so Recently Deleted shows one row, and
+  Restore or Delete now on it does all of them.
+- **Thirty days in Recently Deleted,** then the nightly purge. Deleting for
+  good takes the rows, the PDFs the server drew and the email history — never
+  a photo's or signature's file, for the reason under
+  [Deleting a report](migrations.md#deleting-a-report).
+- **What was sent stays sent.** An email still queued is marked not sent
+  instead of going to the client after the report has been deleted.
+- **Written down** on every version — deleted, restored, Delete now — and
+  those rows outlive the report. The nightly purge takes a finalised report
+  only when the last word on its history is that delete.
+- **Every open correction goes too,** of any version: one left behind would
+  outlive the document it corrects. For the same reason a correction restored
+  from the Recycle bin after its report was deleted goes to that report in
+  Recently Deleted, and one whose report has since been replaced or deleted
+  cannot be restored on its own.
+
+Draft deletion is unchanged: whoever may edit a draft may delete it.
+
 ## Drawing the PDF
 
 `reportPipeline.renderIfNeeded()` is the single path, and every caller goes

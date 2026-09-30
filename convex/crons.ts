@@ -26,9 +26,10 @@ crons.cron(
 )
 
 /**
- * The same thirty days for a retired report DRAFT. A finalised report is
- * never deleted and never purged — the business is required to keep it — so
- * this only ever reaches work in progress.
+ * The same thirty days for a report in Recently Deleted: a draft, or — since
+ * 30 Sept 2026 — a finalised report the owner deleted, with every version of
+ * its number (reports.softDelete). Named for drafts because that was all it
+ * reached when it was written.
  *
  * Twenty minutes after the notes purge, so two self-rescheduling batch jobs
  * are not competing for the same scheduler slot.
