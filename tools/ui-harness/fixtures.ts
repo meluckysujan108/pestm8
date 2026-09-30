@@ -580,6 +580,16 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   ],
   'clients:jobHistory': () => [],
   'clients:reports': () => [],
+  'clients:summary': () => ({
+    properties: [
+      { _id: 'p1', addressLine: '220 Hay St', suburb: 'Subiaco' },
+      { _id: 'p2', addressLine: '9 Rokeby Rd', suburb: 'Subiaco' },
+    ],
+    series: [],
+    visits: [],
+    capped: false,
+  }),
+  'clients:visitReports': () => ({ reports: [], capped: false }),
   'notes:listForClient': () => [],
   'notes:listForProperty': () => ({ site: [], visits: [] }),
   'notes:listForJob': () => [],

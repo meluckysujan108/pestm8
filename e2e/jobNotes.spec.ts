@@ -44,7 +44,17 @@ test('a note written on a visit is in Notes, on the job and on its client', asyn
     page.getByRole('button', { name: /J\. Nguyen/ }).first(),
     () => expect(client).toBeVisible({ timeout: 2_000 }),
   )
+  // Under Notes → From visits.
+  await client.getByRole('tab', { name: 'Notes' }).click()
+  await expect(
+    client.getByRole('heading', { name: 'From visits · 1' }),
+  ).toBeVisible()
   const row = client.getByRole('button', { name: /Bring the long ladder/ })
   await expect(row).toBeVisible()
   await expect(row).toContainText(/Job #\d+ · Termite Inspection/)
+  // Opened, it leads to the job it was written on.
+  await row.click()
+  await expect(
+    client.getByRole('link', { name: /^Open job #\d+$/ }),
+  ).toBeVisible()
 })

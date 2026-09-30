@@ -57,6 +57,7 @@ import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/p
 import { FIELD } from '#/components/forms/FormField'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { DeleteButton } from '#/components/primitives/DeleteButton'
+import { DetailRow, DetailRows } from '#/components/primitives/DetailRow'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { LoadFailed } from '#/components/primitives/EmptyState'
@@ -579,7 +580,7 @@ function JobDetailBody({
           {/* The job's own facts, one row each. Price, the work order and
               "One-off" used to take a card apiece. */}
           <Section label="Details" flush>
-            <dl className="divide-y divide-hairline">
+            <DetailRows>
               <DetailRow label="Price" value={formatJobMoney(job)} />
               {/* The client's reference, read out at a site's sign-in desk
                   and needed on the invoice. A business client without one
@@ -619,7 +620,7 @@ function JobDetailBody({
                 dayKey={dayKeyInZone(job.scheduledAt, timezone)}
                 todayKey={dayKeyInZone(Date.now(), timezone)}
               />
-            </dl>
+            </DetailRows>
           </Section>
 
           <PropertyHistory
@@ -1413,36 +1414,6 @@ function RepeatsRow({
         </>
       }
     />
-  )
-}
-
-/**
- * One of a card's facts: its name on the left, its value on the right, and
- * anything more about it (a warning, an action) under both. A row of a
- * description list, so each value is read with its name.
- */
-function DetailRow({
-  label,
-  value,
-  sub,
-  below,
-}: {
-  label: string
-  value: React.ReactNode
-  sub?: string | false | undefined
-  below?: React.ReactNode
-}) {
-  return (
-    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 px-3.5 py-2.5">
-      <dt className="text-body text-ink-2">{label}</dt>
-      <dd className="min-w-0 text-right">
-        <span className="block break-words text-body font-semibold text-ink">
-          {value}
-        </span>
-        {sub && <span className="block text-caption text-muted">{sub}</span>}
-      </dd>
-      {below && <dd className="col-span-2 mt-1.5">{below}</dd>}
-    </div>
   )
 }
 

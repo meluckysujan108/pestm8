@@ -144,3 +144,37 @@ export function reportsByVisit<TReport extends { jobId?: string }>(
   }
   return { byVisit, unlinked }
 }
+
+/**
+ * The visits a report started from Reports can be for: today's, soonest
+ * first, then the most recent that happened or were never closed. Not a
+ * cancelled visit, and not a projection from before today nobody booked;
+ * nothing to come after today, whose report is not due yet.
+ */
+export function visitChoices<T extends Visit>(
+  visits: ReadonlyArray<T>,
+  {
+    startOfToday,
+    startOfTomorrow,
+    earlier = 8,
+  }: { startOfToday: number; startOfTomorrow: number; earlier?: number },
+): { today: Array<T>; past: Array<T> } {
+  const today = visits
+    .filter(
+      (v) =>
+        v.scheduledAt >= startOfToday &&
+        v.scheduledAt < startOfTomorrow &&
+        v.status !== 'cancelled',
+    )
+    .sort((a, b) => a.scheduledAt - b.scheduledAt)
+  const past = visits
+    .filter(
+      (v) =>
+        v.scheduledAt < startOfToday &&
+        v.status !== 'cancelled' &&
+        v.status !== 'recurring',
+    )
+    .sort((a, b) => b.scheduledAt - a.scheduledAt)
+    .slice(0, earlier)
+  return { today, past }
+}

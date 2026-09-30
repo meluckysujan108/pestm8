@@ -133,11 +133,14 @@ test('a contact being typed keeps the client’s Edit away, so it cannot be thro
   await expect(
     sheet.getByRole('button', { name: 'Edit client details' }),
   ).toBeVisible()
+  await sheet.getByRole('tab', { name: 'Details' }).click()
   await sheet.getByRole('button', { name: 'Add contact' }).click()
   await sheet.getByPlaceholder('Name').fill('Jan Morris')
   await expect(
     sheet.getByRole('button', { name: 'Edit client details' }),
   ).toHaveCount(0)
+  // Nor can another tab take the half-typed contact away.
+  await expect(sheet.getByRole('tab', { name: 'Jobs' })).toBeDisabled()
   await sheet.getByRole('button', { name: 'Cancel' }).click()
   await expect(
     sheet.getByRole('button', { name: 'Edit client details' }),
