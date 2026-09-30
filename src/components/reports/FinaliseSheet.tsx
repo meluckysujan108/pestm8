@@ -313,7 +313,7 @@ function LockEmailNote({
   data: Record<string, unknown>
   clientEmail?: string
   /** `deliveries.known`, or undefined while it is being asked. */
-  known?: SendingKnown & { emailReady: boolean }
+  known?: SendingKnown & { emailReady: boolean; largeForEmail?: boolean }
   failed: boolean
   onRetry: () => void
   onAnswer: (key: string, value: unknown) => void
@@ -372,6 +372,7 @@ function LockEmailNote({
             {lockEmailSentences(plan, known.emailReady !== false, {
               clientToggle: toggle,
               clientHasEmail: Boolean(clientEmail?.trim()),
+              largeForEmail: known.largeForEmail === true,
             }).map((sentence, index) => (
               <SentenceText key={index} sentence={sentence} lead={index > 0} />
             ))}

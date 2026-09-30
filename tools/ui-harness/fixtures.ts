@@ -256,12 +256,14 @@ const CLIENT = {
 }
 
 /** What `deliveries.known` says about Terence's business, whose copy inbox
- * is info@. `r_nomail` is a deployment with no email set up. */
+ * is info@. `r_nomail` is a deployment with no email set up; `r_big` a
+ * report with more photos than an email carries (convex/emailCopy.ts). */
 function deliveriesKnown(args: { reportId: string }) {
   return {
     addresses: ['jane@gmail.com', 'info@pestm8.com.au'],
     copy: 'info@pestm8.com.au',
     emailReady: args.reportId !== 'r_nomail',
+    largeForEmail: args.reportId === 'r_big',
   }
 }
 
@@ -376,6 +378,17 @@ function deliveryRows(args: { reportId: string }) {
       },
     ],
     r_setup: [{ ...base, status: 'queued', waitingForEmailSetup: true }],
+    // A 53-photo job: its own PDF was more than an email carries, so the
+    // copy with smaller photos went.
+    r_big: [
+      {
+        ...base,
+        _id: 'd_big',
+        status: 'sent',
+        sentAt: at + 60_000,
+        lighterCopy: true,
+      },
+    ],
   }
   return rows[args.reportId] ?? []
 }
@@ -386,6 +399,23 @@ function auditEntries(args: { entityId: string }) {
   const at = perthToday(14, 38)
   const kevin = { actorName: 'Kevin Doyle', actorColour: '#FF3B30' }
   const terence = { actorName: 'Terence Walsh', actorColour: '#0A84FF' }
+  if (args.entityId === 'r_big') {
+    return [
+      {
+        _id: 'b1',
+        action: 'report.email.sent',
+        at: at + 60_000,
+        ...terence,
+        meta: {
+          to: ['jane@gmail.com'],
+          bcc: ['info@pestm8.com.au'],
+          trigger: 'finalise',
+          lighterCopy: true,
+          photoEdge: 1000,
+        },
+      },
+    ]
+  }
   if (args.entityId === 'r_logs_legacy') {
     return [
       {

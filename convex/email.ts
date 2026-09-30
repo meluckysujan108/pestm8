@@ -4,7 +4,9 @@ import { ConvexError, v } from 'convex/values'
 import { action, internalAction } from './_generated/server'
 import { api, internal } from './_generated/api'
 import { renderIfNeeded } from './reportPipeline'
+import { emailAttachment } from './emailCopy'
 import { emailConfigured } from './lib/emailConfig'
+import { EMAIL_BUDGET_BYTES } from './lib/emailFit'
 import { fitEmailLogo } from './lib/businessLogo'
 import { imageSize } from './lib/imageSize'
 import {
@@ -14,6 +16,7 @@ import {
   reportEmailText,
 } from './lib/reportEmail'
 import type { EmailLogo } from './lib/reportEmail'
+import type { Attachment } from './emailCopy'
 import type { ActionCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 
@@ -33,6 +36,11 @@ import type { Doc, Id } from './_generated/dataModel'
  *
  * Every send goes through a `reportDeliveries` row, written before the
  * provider is called. See `convex/deliveries.ts` for why.
+ *
+ * A report whose PDF is more than an email can carry (`EMAIL_BUDGET_BYTES`,
+ * 6 MiB) goes as its lighter copy: the same document with smaller photos,
+ * made once and kept (`convex/emailCopy.ts`). Until 30 Sept 2026 it did not
+ * go at all.
  */
 
 /**
@@ -83,6 +91,12 @@ export const deliver = internalAction({
     try {
       const storageId = await renderIfNeeded(ctx, reportId)
       if (!storageId) throw new ConvexError('PDF_UNAVAILABLE')
+      // The report's own PDF, or — when that is more than an email carries —
+      // its lighter copy, with the same pages and smaller photos
+      // (convex/emailCopy.ts). Always a stored file, never one drawn for
+      // this send: a retry must send the same bytes under the same
+      // idempotency key, or Resend refuses it as a different email.
+      const attachment = await emailAttachment(ctx, reportId, storageId)
 
       const report = await ctx.runQuery(internal.reports.getForRender, { reportId })
       if (!report) throw new ConvexError('NOT_FOUND')
@@ -110,7 +124,7 @@ export const deliver = internalAction({
         finalisedAt: report.finalisedAt,
       })
 
-      const url = await ctx.storage.getUrl(storageId)
+      const url = await ctx.storage.getUrl(attachment.storageId)
       if (!url) throw new ConvexError('PDF_UNAVAILABLE')
       // Checked, because an unchecked fetch base64-encodes whatever came back
       // — a storage error page attaches perfectly happily, and the client
@@ -118,7 +132,9 @@ export const deliver = internalAction({
       const fetched = await fetch(url)
       if (!fetched.ok) throw new ConvexError('PDF_UNAVAILABLE')
       const pdf = Buffer.from(await fetched.arrayBuffer())
-      if (pdf.length > MAX_ATTACHMENT_BYTES) {
+      // The size was decided before the download; this is the last door, so
+      // a file that is somehow bigger than its record says cannot go.
+      if (pdf.length > EMAIL_BUDGET_BYTES) {
         throw new ConvexError('PDF_TOO_LARGE')
       }
 
@@ -176,14 +192,11 @@ export const deliver = internalAction({
         const reply = (await response.text()).slice(0, 500)
         console.error('email.deliver: refused', deliveryId, response.status, reply)
         const detail = refusalWords(response.status)
-        const pdfId = await ctx.runQuery(internal.deliveries.currentPdfId, {
-          reportId,
-        })
         await ctx.runMutation(internal.deliveries.settle, {
           deliveryId,
           status: 'failed',
           error: detail,
-          ...(pdfId ? { pdfId } : {}),
+          ...(attachment.pdfId ? { pdfId: attachment.pdfId } : {}),
         })
         await audit(ctx, businessId, reportId, delivery, {
           action: 'report.email.failed',
@@ -194,7 +207,11 @@ export const deliver = internalAction({
 
       // Resend has it: the email is out. `recordSent` never throws, so
       // nothing past this point can mark it failed.
-      await recordSent(ctx, { deliveryId, delivery, businessId, reportId }, response)
+      await recordSent(
+        ctx,
+        { deliveryId, delivery, businessId, reportId, attachment },
+        response,
+      )
       return { ok: true }
     } catch (error) {
       // Only ever before Resend took it, so nothing went out.
@@ -280,37 +297,41 @@ async function recordSent(
     delivery,
     businessId,
     reportId,
+    attachment,
   }: {
     deliveryId: Id<'reportDeliveries'>
     delivery: Doc<'reportDeliveries'>
     businessId: Id<'businesses'>
     reportId: Id<'reports'>
+    attachment: Attachment
   },
   response: Response,
 ): Promise<void> {
   try {
     // An unreadable reply is still an accepted one: only the id is lost.
     const body = (await response.json().catch(() => ({}))) as { id?: string }
-    const pdfId = await ctx.runQuery(internal.deliveries.currentPdfId, {
-      reportId,
-    })
     await ctx.runMutation(internal.deliveries.settle, {
       deliveryId,
       status: 'sent',
-      ...(pdfId ? { pdfId } : {}),
+      ...(attachment.pdfId ? { pdfId: attachment.pdfId } : {}),
       ...(body.id ? { providerMessageId: body.id } : {}),
     })
     await audit(ctx, businessId, reportId, delivery, {
       action: 'report.email.sent',
-      meta: { ...addressedTo(delivery), subject: delivery.subject },
+      meta: {
+        ...addressedTo(delivery),
+        subject: delivery.subject,
+        // Said only when it happened, so a line for an ordinary send reads
+        // exactly as it always has.
+        ...(attachment.lighter
+          ? { lighterCopy: true, photoEdge: attachment.lighter.photoEdge }
+          : {}),
+      },
     })
   } catch (error) {
     console.error('email.deliver: sent, but not recorded', deliveryId, error)
   }
 }
-
-/** Resend's own ceiling is 40 MB for the whole message; this is the safe half. */
-const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
 
 /**
  * The logos an email heads with, sized (`businesses.emailLetterhead`).
@@ -452,8 +473,10 @@ const FAILURE_WORDS = new Map<unknown, string>([
     'Not sent: the PDF could not be prepared to attach. Open the PDF tab, then send it again.',
   ],
   [
+    // Said only once a lighter copy was tried and could not be made to fit
+    // (convex/emailCopy.ts), so "smaller photos" is not left to try.
     'PDF_TOO_LARGE',
-    'Not sent: the PDF is too large to email. Share it from the PDF tab instead.',
+    'Not sent: the report is too large to email, even with its photos made smaller. Share it from the PDF tab instead.',
   ],
   [
     'NOT_FOUND',

@@ -1088,9 +1088,9 @@ export default defineSchema({
      */
     finalisedByMembershipId: v.optional(v.id('memberships')),
     /**
-     * The current rendered file, denormalised from the newest `reportPdfs`
-     * row so a download is one read. The rows are the record; this is the
-     * pointer.
+     * The current rendered file, denormalised from the newest of this
+     * report's own `reportPdfs` rows — never an email's lighter copy — so a
+     * download is one read. The rows are the record; this is the pointer.
      */
     pdfStorageId: v.optional(v.id('_storage')),
     /**
@@ -1849,7 +1849,12 @@ export default defineSchema({
    * files go only when the report itself is deleted for good
    * (`reports.purgeReport`).
    *
-   * `reports.pdfStorageId` is the denormalised pointer at the newest row.
+   * Two kinds of row. The report's own PDF, which `reports.pdfStorageId`
+   * points at (the newest of them). And, since 30 Sept 2026, the lighter copy
+   * of one that was too big to email (`variant: 'email'`, convex/emailCopy.ts):
+   * the same document with smaller photos, made for the email alone. Nothing
+   * points at a copy but the deliveries that attached it, so "the newest row"
+   * is no longer "the report's PDF" — read the pointer for that.
    */
   reportPdfs: defineTable({
     businessId: v.id('businesses'),
@@ -1863,6 +1868,19 @@ export default defineSchema({
     version: v.number(),
     bytes: v.number(),
     createdAt: v.number(),
+    /**
+     * Set on the lighter copy made for an email, and only there: absent is
+     * the report's own PDF, as every row written before 30 Sept 2026 is.
+     */
+    variant: v.optional(v.literal('email')),
+    /**
+     * The report's own PDF this copy was made from. A copy is only ever
+     * reused for that exact file: a re-render (a new painter version) makes
+     * a new original, and a copy of the old one would not match it.
+     */
+    sourceStorageId: v.optional(v.id('_storage')),
+    /** The longest side its photos were made to, in pixels. */
+    photoEdge: v.optional(v.number()),
   }).index('by_report', ['reportId']),
 
   /**

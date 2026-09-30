@@ -27,6 +27,8 @@
     "@convex-dev/better-auth": "^0.12.5",
     "@convex-dev/prosemirror-sync": "^0.2.6",
     "@convex-dev/react-query": "0.1.0",
+    "@jsquash/jpeg": "1.6.0",
+    "@jsquash/resize": "2.1.1",
     "@react-pdf/renderer": "4.6.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",

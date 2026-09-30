@@ -32,6 +32,7 @@ import { FormAlert } from '#/components/forms/FormAlert'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 import { TickBox } from './TickBox'
+import { LARGE_FOR_EMAIL } from './lockEmail'
 import { useHydrated } from '#/lib/useHydrated'
 import { isOffline } from '#/lib/online'
 
@@ -72,8 +73,10 @@ export const SEND_ERROR: Record<string, string> = {
     'This report isn’t finalised yet. Finalise it, then send it.',
   PDF_UNAVAILABLE:
     'Could not prepare the PDF to attach. Try again in a moment.',
+  // Only once a copy with smaller photos was tried and still did not fit
+  // (convex/emailCopy.ts).
   PDF_TOO_LARGE:
-    'The PDF is too large to email. Share it from the PDF tab instead.',
+    'The report is too large to email, even with its photos made smaller. Share it from the PDF tab instead.',
   // The history is behind this sheet, not below it.
   EMAIL_SEND_FAILED:
     'The email failed to send. Close this to see why in the history, then try again.',
@@ -556,6 +559,24 @@ export function SendSheet({
         </p>
       )}
 
+      {/* Said before Send: the client's photos will be smaller than the
+          ones on this phone, and the first send of a big report makes its
+          copy, which takes longer than an ordinary send. Not where email
+          isn't set up: nothing would go, smaller or not. */}
+      {known?.largeForEmail === true &&
+        known.emailReady &&
+        chosen.length > 0 && (
+          <p className="mt-2 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
+            <Info
+              size={13}
+              strokeWidth={2}
+              aria-hidden
+              className="mt-0.5 shrink-0"
+            />
+            <span>{LARGE_FOR_EMAIL} Sending it can take up to a minute.</span>
+          </p>
+        )}
+
       {/* The whole tap refused, with no signal: nothing went to anyone. */}
       <FormAlert
         error={send.isError ? send.error : null}
@@ -693,6 +714,14 @@ export function DeliveryHistory({
               Copy to {copiesOf(row).join(', ')}
             </p>
           )}
+          {/* What went, once it went: the report's own PDF was more than an
+              email carries, so its copy with smaller photos did. */}
+          {(row.status === 'sent' || row.status === 'bounced') &&
+            row.lighterCopy && (
+              <p className="text-caption text-muted">
+                Photos made smaller to fit an email
+              </p>
+            )}
           {/* Nothing waited on it; this is what an owner reads to see a
               report went somewhere new. As it was when it was sent. */}
           {row.newAddresses && row.newAddresses.length > 0 && (
@@ -876,8 +905,15 @@ export function LatestDelivery({
   )
 }
 
-/** How long a delivery may sit queued before it is plainly not on its way. */
-const STUCK_AFTER_MS = 2 * 60_000
+/**
+ * How long a delivery may sit queued before it is plainly not on its way.
+ *
+ * Five minutes, not two, since a report too big to email has its PDF drawn
+ * and then a copy with smaller photos made before it goes (convex/emailCopy.ts)
+ * — a minute or so for a big job, which two minutes cut close to calling
+ * stuck while it was still on its way.
+ */
+const STUCK_AFTER_MS = 5 * 60_000
 
 /** Rows opened this close together are one send: one lock, or one tap. */
 const BATCH_MS = 60_000

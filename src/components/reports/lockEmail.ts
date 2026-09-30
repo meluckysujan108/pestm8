@@ -121,6 +121,14 @@ export function lockEmail(
 export type Sentence = Array<string | { address: string }>
 
 /**
+ * A report whose photos are more than an email carries goes as a copy with
+ * smaller photos (convex/emailCopy.ts). The same words on the sheet that
+ * locks it and the one that sends it.
+ */
+export const LARGE_FOR_EMAIL =
+  'It’s too big to email as it is, so the email carries a copy with smaller photos. The report keeps them full size.'
+
+/**
  * What the sheet says, in the order it says it. Pure, so every case can be
  * read in a test rather than found on a phone.
  *
@@ -134,7 +142,16 @@ export function lockEmailSentences(
   {
     clientToggle,
     clientHasEmail,
-  }: { clientToggle: ClientToggle | null; clientHasEmail: boolean },
+    largeForEmail = false,
+  }: {
+    clientToggle: ClientToggle | null
+    clientHasEmail: boolean
+    /**
+     * Its photos come to more than an email carries, so the email goes as a
+     * copy with smaller photos (convex/emailCopy.ts; `deliveries.known`).
+     */
+    largeForEmail?: boolean
+  },
 ): Array<Sentence> {
   const later = 'You can send it from the report once it’s locked.'
 
@@ -184,6 +201,12 @@ export function lockEmailSentences(
     )
   }
   if (plan.copy) out.push(['A copy goes to ', { address: plan.copy }, '.'])
+  // Said before the lock, because the lock is what sends it: a technician
+  // who took fifty photos should not find out afterwards that the client's
+  // are smaller than theirs.
+  if (largeForEmail && plan.sending.length > 0) {
+    out.push([LARGE_FOR_EMAIL])
+  }
   if (out.length > 0) return out
 
   if (clientToggle) return [['Not emailed. ' + later]]
