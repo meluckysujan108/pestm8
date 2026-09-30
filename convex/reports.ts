@@ -20,6 +20,7 @@ import { unbinned } from './lib/bin'
 import { freezeTemplate } from './lib/templateSnapshot'
 import type { CustomSource } from './lib/templateSnapshot'
 import { seedFromContext } from '../src/lib/reportTemplates/seed'
+import { loadJobTypes } from './lib/jobTypeList'
 import { validateReport } from '../src/lib/reportTemplates/validate'
 import { dayKeyOf, timeKeyOf, todayKeyInZone } from './lib/dates'
 import { suburbKeyOf, withinForecastWindow } from './lib/forecastWindow'
@@ -1490,6 +1491,7 @@ async function seedNewReport(
       startedTime: usableJob?.startedAt ? timeKeyOf(usableJob.startedAt, timezone) : undefined,
       scheduledTime: usableJob ? timeKeyOf(usableJob.scheduledAt, timezone) : undefined,
       jobType: usableJob?.jobType,
+      jobTypes: usableJob ? await loadJobTypes(ctx, args.businessId) : undefined,
       clientEmail: client?.email ?? null,
       jobAssigneeMembershipId: usableJob?.assignedMembershipId,
       authorMembershipId: args.authorMembershipId,
@@ -2991,9 +2993,10 @@ async function recordSignedRetirement(
  *
  * The preview is the exception because the server made it, for this report
  * alone, and nothing else is ever pointed at it. So are a finalised report's
- * PDFs (`setPdf` stores each one the render drew of it), and with them go the
- * rows recording every email that attached one: their addresses are the
- * client's, and the report they describe is gone.
+ * PDFs (`setPdf` stores each one the render drew of it, and
+ * `emailCopies.record` the lighter copy of one too big to email), and with
+ * them go the rows recording every email that attached one: their addresses
+ * are the client's, and the report they describe is gone.
  */
 export async function purgeReport(ctx: MutationCtx, report: Doc<'reports'>) {
   const photos = await ctx.db

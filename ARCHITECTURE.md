@@ -169,6 +169,7 @@ the terms.
 - **Suburb on list rows, full address in detail/report** — deliberate: schedule scanning wants suburb, legal documents require full street address. The job card follows it too. *History:* a list/board split once had the board card print the full street address; the variants went in Phase 2, and in Phase 4 the card went back to the suburb alone, as the day table's row showed it (the table itself was retired later). Its Map button carries the street address to the maps app, so the address no longer has to be read off the card to be used. The job detail sheet and the report still print it in full.
 - **Locked boilerplate blocks** — report disclaimers render in a grey inset card, visibly non-editable.
 - **A delivery is a record, not an event** — every attempt to send a report is a `reportDeliveries` row, written before the provider is called and naming the `reportPdfs` row it attached, so "which file did the client receive?" has an answer after the renderer has moved on. `sent` means the provider accepted it; the Resend webhook moves a row to `bounced` later, and the report's Sent bucket with it.
+- **A report too big to email goes as a lighter copy** *(30 Sept 2026)* — a report's PDF is its photos, and one of 53 came to 33.7 MiB, which no email carries. Over 6 MiB, the email attaches a copy of the same document with every photo but the cover re-encoded as little smaller as fits (`convex/emailCopy.ts`, `lib/emailFit.ts`), made in WebAssembly (mozjpeg) rather than with a native library, checked to hold every picture the original holds, kept as its own `reportPdfs` row (`variant: 'email'`) that the report's pointer never moves to, and named by the delivery that attached it. The report in the app keeps every pixel. The email does not mention it — a line inviting "can I have the full size?" is work for the business — but the Email tab and Logs do. And photos are saved lighter in the first place: `src/lib/images/jpegQuality.ts` finds the canvas setting for libjpeg's 85 on each device, where an iPhone had been saving at about 94.
 - **Who a report may be sent to** — a technician may send to addresses already on the client record; anywhere else is `pendingApproval` until an owner says yes, unless the business turns the restriction off. The held row IS the request, so approving is a decision about something real. Twenty sends an hour per member, counted from the delivery rows rather than a separate token bucket. *Amended (29 Sept 2026):* there is no approval step. No screen ever called `deliveries.approve`, so a held send waited forever while the Send sheet promised it would go, and the product owner chose records over a gate: anyone who may send a report may send it to any address that can receive email. Each delivery records who asked, from whose account, and which of its addresses were not on the client record (`newAddresses`); the Send and lock sheets point a new address out before it goes; and the report's Email and Logs tabs, and the business's blind copy of every report email, are how an owner sees what went where. The Settings switch that skipped the approval is gone, and a one-off migration (`heldDeliveriesV1`, since deleted) marked what was still held as not sent. The hourly limit now holds on a lock's email as well as the Send button, and counts addresses as well as emails (twenty emails, fifty addresses): without approval, it is what stops a loop of locks mailing whoever it likes from the shared sending domain.
 - **The letterhead's logo is a set of files, not one** *(29 Sept 2026)* — picking a logo in Settings stores the logo itself (a PNG whenever it has any transparency, trimmed to its artwork, up to 1600px) and its copy on a white card for email, drawn in the browser from the same pick (`src/lib/images/prepareLogo.ts`) and put on together by `businesses.setLogo`, which claims each file the way products claim theirs. An optional second pair is the logo with light lettering, which a report email swaps in for dark mode where the mail app allows it. Until then every logo was re-saved as a JPEG, which turned a transparent one into a black box, and printed in boxes that left a wide lockup about 3mm tall (`docs/reports/README.md`, "The logo").
 - **Suggested answers** — an answer the app worked out (the forecast, the booked start time) is marked "Suggested" and blocks finalising until the technician confirms it, which pressing Next on that section does. Facts read off a record are never marked: a technician confirming what their own client record says is a tax on being helpful.
@@ -314,6 +315,30 @@ recurrences: {
   jobType, price, anchorDate, active
 }
 .index("by_business", ["businessId"])
+
+jobTypes: {                             // Settings → Job types (convex/jobTypes.ts)
+  businessId, name, key,                // key = lower-cased name, unique per business
+  report: "serviceReport" | "timberPestInspection" | "termiteManagementCert" | "none",
+  formerNames,                          // names before a rename or merge (≤ 10)
+  archivedAt?,                          // deleted: not offered, "Offer again" restores
+  createdAt
+}
+.index("by_business_key", ["businessId", "key"])
+// *Amended (30 Sept 2026):* the services New Job offers are the business's
+// own list, not a constant in the app. A business with no rows is offered
+// the built-in nine (DEFAULT_JOB_TYPES); its first change writes them. Only
+// the owner changes it (business.manage). A job's `jobType` label is unchanged
+// in shape: it is read against the list — the list's spelling, a renamed
+// service's new name (`formerNames`), and each service's report, which the
+// report suggestions and the report-before-complete policy now take from the
+// list (falling back to the old table for a service the list does not have).
+// Deleting stops a service being offered and rewrites nothing. A rename, a
+// merge (a rename onto a name the list has) and a swap of a typed-in service
+// rewrite the label on every job and series, finished ones included, in
+// scheduled batches (`jobTypes.rewriteLabels`) that read the live list, so a
+// second rename mid-way still ends on the newest name. Finalised reports keep
+// their own words. A service typed into New Job is still allowed, for that
+// job only; the owner sees it under "Typed into jobs" to swap or add.
 
 // *Amended (reports Phases 1-6).* The row below is the v1 design; the live
 // shape is convex/schema.ts. What was added, and why, in one line each:

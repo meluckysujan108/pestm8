@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, RotateCcw, Trash2, X } from 'lucide-react'
 import { drawStroke, positionOf } from '#/lib/canvasStrokes'
+import { uploadCanvasQuality } from '#/lib/images/jpegQuality'
 import type { Point } from '#/lib/canvasStrokes'
 
 /**
@@ -124,8 +125,11 @@ export function AnnotationEditor({
     setSaving(true)
     setFailed(false)
     try {
+      // The quality every photo is saved at (`jpegQuality.ts`). A fixed 0.9
+      // came out at about 95 on an iPhone, heavier than the photo it marks up.
+      const quality = await uploadCanvasQuality()
       const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, 'image/jpeg', 0.9),
+        canvas.toBlob(resolve, 'image/jpeg', quality),
       )
       if (!blob) throw new Error('could not read the annotation')
       await onSave(blob)

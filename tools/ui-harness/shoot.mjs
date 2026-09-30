@@ -8,6 +8,63 @@ fs.mkdirSync(outDir, { recursive: true })
 
 // name -> { path?, before?: async (page) => void, full?: bool }
 const PLAN = {
+  // Settings → Job types: the list, then what was typed into jobs.
+  jobtypes: { full: true, before: async (p) => p.waitForTimeout(500) },
+  // A service opened and renamed: the sheet says what the rename touches.
+  'jobtypes-edit': {
+    spec: 'jobtypes',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p
+        .getByRole('button', { name: /^General Pest Control Pest/ })
+        .click()
+      await p.waitForTimeout(600)
+      await p.getByLabel('Name').fill('General Pest Treatment')
+      await p.waitForTimeout(200)
+    },
+  },
+  'jobtypes-new': {
+    spec: 'jobtypes',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: 'Add a job type' }).click()
+      await p.waitForTimeout(600)
+      await p.getByLabel('Name').fill('Termite Barrier Top-Up')
+      await p.waitForTimeout(200)
+    },
+  },
+  'jobtypes-delete': {
+    spec: 'jobtypes',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: /^Cockroaches/ }).click()
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: 'Delete job type' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'jobtypes-merge': {
+    spec: 'jobtypes',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: /^Spiders/ }).click()
+      await p.waitForTimeout(600)
+      await p.getByLabel('Name').fill('ants')
+      await p.getByRole('button', { name: 'Save' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'jobtypes-typed': {
+    spec: 'jobtypes',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: /^Gpc & Tpi/ }).click()
+      await p.waitForTimeout(600)
+      await p.getByRole('checkbox', { name: 'General Pest Control' }).click()
+      await p.getByRole('checkbox', { name: 'Termite Inspection' }).click()
+      await p.waitForTimeout(200)
+    },
+  },
   dock: { path: '/demo/job' },
   'dock-more': {
     spec: 'dock',
@@ -274,6 +331,10 @@ const PLAN = {
   },
   'lock-new': { before: async (p) => p.waitForTimeout(700) },
   'lock-noemail': { before: async (p) => p.waitForTimeout(700) },
+  // More photos than an email carries: said before the lock sends it.
+  'lock-big': { before: async (p) => p.waitForTimeout(700) },
+  'send-big': { before: async (p) => p.waitForTimeout(700) },
+  'history-big': { full: true },
   delivered: {},
   'report-settings': { full: true },
   // Whole page: the Letterhead card sits below the Business one.

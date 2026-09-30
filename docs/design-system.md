@@ -613,6 +613,7 @@ Call, Text, Email and Map are holds (`HoldButton`), so a pocket or a brushing th
 - **Something the app worked out** (the forecast, the start time) is marked "Suggested" until it is confirmed. A fact read off a record is not marked.
 - **Locking is two acts.** "Finalise & lock" opens a read-back sheet first.
 - **Locking emails it,** so the read-back sheet says who to and where the business's copy goes, and the finished report says whether it went (`LatestDelivery`, above its tabs).
+- **A report too big to email** goes as a copy with smaller photos. The lock and Send sheets say so before (`LARGE_FOR_EMAIL` in `lockEmail.ts`), and the Email tab and Logs after ("Photos made smaller to fit an email"). The email itself does not, so it invites no "can I have the full size?".
 - **Locked boilerplate** sits in a grey inset (`bg-surface-2`) with a `Lock` glyph.
 
 ---
@@ -850,6 +851,7 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **The Recurring Job page is by service:** one card per running service (whose, where, how often, who does it, when next or next due, how many ahead, how many to book), services with visits to book first, each opening to its visits; a visit opens its job on the page. "By date" keeps the list of visits. A service with nothing in the next six months still has its card. _Amended 30 Sept 2026:_ it was a card per visit, 127 cards for three services.
 - **A report started from Reports asks which visit it is for,** today's first, then the most recent that happened; "Not for a visit" is always there. Its date, technician and weather come from the visit, and a report's visit can't be changed afterwards.
 - **A job can be for several services** ("General Pest Control, Termite Inspection, Rodents"). New Job starts with none ticked and asks, as it does for the client: with picking now adding rather than replacing, a default would be booked alongside whatever was picked.
+- **Job types are the owner's own list** (Settings → Job types), A–Z in New Job's picker, each with the report it produces. Deleting one only stops it being offered: every job keeps it, and "Offer again" brings it back. A rename changes it on every job and repeating service, finished ones included, and says so before it is saved; renaming onto a name the list has is a merge, asked first. A service typed into New Job is used on that job only ("Use … on this job only") and waits under "Typed into jobs" for the owner to swap or add. _Amended 30 Sept 2026:_ the list was nine names fixed in the app.
 - **PDFs** open in the in-app viewer, never in Safari and never as a forced download.
 - **A report email heads with the business's logo as it is now;** the attached PDF keeps the logo its report was locked with. Account emails carry PestM8's own mark, never a business's: a login can belong to more than one.
 - **When behaviour departs from `ARCHITECTURE.md`,** amend it there with a dated _Amended_ note.

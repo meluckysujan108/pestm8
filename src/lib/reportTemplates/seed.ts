@@ -1,5 +1,6 @@
 import { fieldsOf } from './index'
 import { treatmentsForJobType } from './suggest'
+import type { JobTypeList } from './suggest'
 import { weatherAnswerFrom } from './weatherAnswer'
 import type { DayForecast } from './weatherAnswer'
 import type { CellDef, FieldDef, ReportTemplate } from './types'
@@ -41,6 +42,11 @@ export type SeedFacts = {
   scheduledTime?: string
   /** The job's type, in the schedule's vocabulary. */
   jobType?: string
+  /**
+   * The business's own list of job types, so a service renamed in Settings
+   * still ticks the treatment of the name it had (`treatmentsForJobType`).
+   */
+  jobTypes?: JobTypeList
   /** The client's email, when one is on file. Decides the send-a-copy toggle. */
   clientEmail?: string | null
   /** The membership the job is assigned to, for a `member` field. */
@@ -140,7 +146,7 @@ export function seedFromContext(
     }
 
     if (field.kind === 'repeater') {
-      const row = seedTreatmentRow(field, facts.jobType)
+      const row = seedTreatmentRow(field, facts.jobType, facts.jobTypes)
       if (row) data[field.key] = [row]
       continue
     }
@@ -161,8 +167,9 @@ export function seedFromContext(
 function seedTreatmentRow(
   field: Extract<FieldDef, { kind: 'repeater' }>,
   jobType: string | undefined,
+  jobTypes: JobTypeList | undefined,
 ): Record<string, unknown> | null {
-  const wanted = treatmentsForJobType(jobType)
+  const wanted = treatmentsForJobType(jobType, jobTypes)
   if (wanted.length === 0) return null
   const column = field.columns.find(
     (cell) => 'optionsFrom' in cell && cell.optionsFrom === 'treatments',

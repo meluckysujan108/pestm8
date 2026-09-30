@@ -12,6 +12,7 @@ import { SwitchBanner } from '#/components/shell/SwitchBanner'
 import { AccessProvider } from '#/lib/access'
 import { signedInToken, signedOutAfterAll } from '#/lib/rootState'
 import { isMfaEnrolmentError } from '#/lib/twoStep'
+import { rq } from '#/lib/routeQueries'
 
 export const Route = createFileRoute('/$businessSlug')({
   beforeLoad: async ({ context, params, location }) => {
@@ -72,6 +73,14 @@ export const Route = createFileRoute('/$businessSlug')({
     // The business list is the sidebar switcher's; unwarmed, it suspended the
     // layout, and a streamed page's first paint was a placeholder with no
     // shell around it.
+    // The job types, which New Job, the job sheet and the report buttons all
+    // read (Settings → Job types): asked for now, not waited on, so they are
+    // here before any of them opens. In the browser only, like every warm
+    // that no page's first paint depends on.
+    if (typeof window !== 'undefined') {
+      void context.queryClient.prefetchQuery(rq.jobTypes(business._id))
+    }
+
     await Promise.all([
       context.queryClient.ensureQueryData(
         convexQuery(api.access.me, { businessId: business._id }),

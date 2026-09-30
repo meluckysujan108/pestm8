@@ -13,6 +13,7 @@ import { useBusinessDay } from '#/lib/useBusinessDay'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
+import { JobTypesSection } from '#/components/settings/JobTypesSection'
 import { ReportSettingsForm } from '#/components/settings/ReportSettingsForm'
 import { BusinessSection } from '#/components/settings/BusinessSection'
 import { LicenceFields } from '#/components/settings/LicenceFields'
@@ -747,6 +748,18 @@ function LockNoEmail() {
   )
 }
 
+/** A report with more photos than an email carries: the sheet says the email
+ * goes as a copy with smaller photos before the lock sends it. */
+function LockBig() {
+  return (
+    <LockSheet
+      reportId="r_big"
+      answers={{ sendCopy: true }}
+      clientEmail="jane@gmail.com"
+    />
+  )
+}
+
 /** The line above a finished report's tabs, in each state it can be in. */
 function Delivered() {
   return (
@@ -811,19 +824,40 @@ function Legacy() {
   )
 }
 
-function Send() {
+function Send({ reportId = 'r_lock' }: { reportId?: string }) {
   return (
     <Phone>
       <SendSheet
         open
         onClose={() => {}}
         businessId={bizId}
-        reportId={'r_lock' as never}
+        reportId={reportId as never}
         template={SERVICE}
         data={{ sendCopy: true }}
         clientEmail="jane@gmail.com"
         subject="Service Report — 30 Sloan Drive, Leda — 29 Sept 2026"
       />
+    </Phone>
+  )
+}
+
+/** The same sheet for a 53-photo job: the email goes as a copy with smaller
+ * photos, and the sheet says so before Send. */
+function SendBig() {
+  return <Send reportId="r_big" />
+}
+
+/** That job afterwards, in both tabs: the copy with smaller photos is what
+ * went. */
+function HistoryBig() {
+  return (
+    <Phone>
+      <Header kicker="Service Report" title="53 photos" />
+      <div className="px-4 pb-2 pt-5">
+        <h2 className="section-label mb-2">Delivery history</h2>
+        <DeliveryHistory businessId={bizId} reportId={'r_big' as never} />
+      </div>
+      <LogsPanel businessId={bizId} reportId={'r_big' as never} />
     </Phone>
   )
 }
@@ -889,6 +923,28 @@ function ReportPreviewSpecimen() {
           focus={null}
         />
       </div>
+    </Phone>
+  )
+}
+
+/** Settings → Job types, with the real client's services and typed-in ones. */
+function JobTypes() {
+  return (
+    <Phone>
+      <header className="chrome-blur sticky top-0 z-30 border-b border-hairline px-4 pb-3 pt-3">
+        <BackLink
+          to="/$businessSlug/settings"
+          params={{ businessSlug: 'demo' }}
+        >
+          Settings
+        </BackLink>
+        <h1 className="truncate text-page-title text-ink">Job types</h1>
+      </header>
+      <AccessProvider businessId={bizId}>
+        <SettingsBody>
+          <JobTypesSection businessId={bizId} />
+        </SettingsBody>
+      </AccessProvider>
     </Phone>
   )
 }
@@ -1092,6 +1148,7 @@ function InstallLinkSpecimen() {
 }
 
 export const SPECIMENS: Partial<Record<string, ComponentType>> = {
+  jobtypes: JobTypes,
   install: Install,
   'install-settings': InstallSettingsPage,
   'install-card': InstallCardSpecimen,
@@ -1128,11 +1185,14 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   lock: Lock,
   'lock-new': LockNewAddress,
   'lock-noemail': LockNoEmail,
+  'lock-big': LockBig,
   delivered: Delivered,
   history: History,
+  'history-big': HistoryBig,
   logs: Logs,
   legacy: Legacy,
   send: Send,
+  'send-big': SendBig,
   'form-settings': FormSettings,
   reports: reportsList('all'),
   'reports-deleted': reportsList('trash'),

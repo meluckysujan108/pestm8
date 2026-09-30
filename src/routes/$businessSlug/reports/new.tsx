@@ -12,6 +12,7 @@ import {
 } from '#/components/primitives/EmptyState'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
 import { suggestReports } from '#/lib/reportTemplates/suggest'
+import { useJobTypes } from '#/lib/useJobTypes'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import { useHydrated } from '#/lib/useHydrated'
@@ -140,8 +141,14 @@ function NewReportPage() {
   // A job for several services suggests a form for each (a general pest
   // service with a termite inspection: a Service Report and a Timber Pest
   // Inspection), first service first, each saying which services it is for.
+  const jobTypes = useJobTypes(business._id)
   const visitType = job?.jobType ?? chosenVisit?.jobType
-  const suggestions = visitType ? suggestReports(visitType) : []
+  // Only from the business's own list (Settings → Job types): the built-in
+  // nine standing in for it could put the wrong form first.
+  const suggestions =
+    visitType && jobTypes.loaded
+      ? suggestReports(visitType, jobTypes.entries)
+      : []
   const suggestionFor = (templateId: string) =>
     suggestions.find((suggestion) => suggestion.templateId === templateId)
   const templates = [

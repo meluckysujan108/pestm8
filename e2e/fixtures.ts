@@ -338,10 +338,10 @@ export async function chooseJobTypes(
     const row = picker.getByRole('checkbox', { name: type, exact: true })
     if ((await row.count()) === 0) {
       await picker
-        .getByRole('textbox', { name: 'Search or add a job type' })
+        .getByRole('textbox', { name: 'Search or type a job type' })
         .fill(type)
       await picker
-        .getByRole('button', { name: `Add “${type}” as a new job type` })
+        .getByRole('button', { name: `Use “${type}” on this job only` })
         .click()
     } else {
       await row.click()

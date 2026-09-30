@@ -919,6 +919,52 @@ export default defineSchema({
     .index('by_property', ['propertyId'])
     .index('by_binEntryId', ['binEntryId']),
 
+  /**
+   * A business's own list of job types — the services New Job offers
+   * (Settings → Job types). One row per service. A business with no rows is
+   * offered the built-in nine (`DEFAULT_JOB_TYPES` in lib/jobTypes.ts); the
+   * first change it makes writes those nine here, so its list is then wholly
+   * its own.
+   *
+   * A job still stores its services as one label (`jobs.jobType`); this is
+   * what the label is read against: the spelling that is the business's own,
+   * which form a service produces, and what a renamed one used to be called.
+   */
+  jobTypes: defineTable({
+    businessId: v.id('businesses'),
+    name: v.string(),
+    /** `jobTypeKey(name)`: how two names are found to be the same service. */
+    key: v.string(),
+    /** The form a job of this type suggests, and the report policy asks for. */
+    report: v.union(
+      v.literal('serviceReport'),
+      v.literal('timberPestInspection'),
+      v.literal('termiteManagementCert'),
+      v.literal('none'),
+    ),
+    /**
+     * Names it had before a rename or a merge, newest last, at most
+     * MAX_FORMER_NAMES. A label still carrying one — a phone on last week's
+     * build, a job the rename has not reached yet — is read, and saved, as
+     * this one.
+     */
+    formerNames: v.array(v.string()),
+    /** Deleted: no longer offered, and back with "Offer again". */
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index('by_business_key', ['businessId', 'key']),
+
+  /**
+   * A rewrite of job labels still under way (`jobTypes.rewriteLabels`): one
+   * row per rename, merge or swap, deleted when its last batch lands. While
+   * one is, a service's old name cannot be handed to another service — the
+   * jobs not yet reached still carry it, and would go to the wrong one.
+   */
+  jobTypeRewrites: defineTable({
+    businessId: v.id('businesses'),
+    startedAt: v.number(),
+  }).index('by_business', ['businessId']),
+
   reports: defineTable({
     businessId: v.id('businesses'),
     jobId: v.optional(v.id('jobs')),
@@ -1042,9 +1088,9 @@ export default defineSchema({
      */
     finalisedByMembershipId: v.optional(v.id('memberships')),
     /**
-     * The current rendered file, denormalised from the newest `reportPdfs`
-     * row so a download is one read. The rows are the record; this is the
-     * pointer.
+     * The current rendered file, denormalised from the newest of this
+     * report's own `reportPdfs` rows — never an email's lighter copy — so a
+     * download is one read. The rows are the record; this is the pointer.
      */
     pdfStorageId: v.optional(v.id('_storage')),
     /**
@@ -1803,7 +1849,12 @@ export default defineSchema({
    * files go only when the report itself is deleted for good
    * (`reports.purgeReport`).
    *
-   * `reports.pdfStorageId` is the denormalised pointer at the newest row.
+   * Two kinds of row. The report's own PDF, which `reports.pdfStorageId`
+   * points at (the newest of them). And, since 30 Sept 2026, the lighter copy
+   * of one that was too big to email (`variant: 'email'`, convex/emailCopy.ts):
+   * the same document with smaller photos, made for the email alone. Nothing
+   * points at a copy but the deliveries that attached it, so "the newest row"
+   * is no longer "the report's PDF" — read the pointer for that.
    */
   reportPdfs: defineTable({
     businessId: v.id('businesses'),
@@ -1817,6 +1868,19 @@ export default defineSchema({
     version: v.number(),
     bytes: v.number(),
     createdAt: v.number(),
+    /**
+     * Set on the lighter copy made for an email, and only there: absent is
+     * the report's own PDF, as every row written before 30 Sept 2026 is.
+     */
+    variant: v.optional(v.literal('email')),
+    /**
+     * The report's own PDF this copy was made from. A copy is only ever
+     * reused for that exact file: a re-render (a new painter version) makes
+     * a new original, and a copy of the old one would not match it.
+     */
+    sourceStorageId: v.optional(v.id('_storage')),
+    /** The longest side its photos were made to, in pixels. */
+    photoEdge: v.optional(v.number()),
   }).index('by_report', ['reportId']),
 
   /**

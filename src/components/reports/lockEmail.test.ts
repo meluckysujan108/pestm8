@@ -223,3 +223,30 @@ describe('what locking will email', () => {
     ])
   })
 })
+
+describe('a report with more photos than an email carries', () => {
+  const sayLarge = (data: Record<string, unknown>) =>
+    lockEmailSentences(
+      lockEmail(template, data, 'jane@gmail.com', known),
+      true,
+      {
+        clientToggle: clientToggleOf(template, data, 'jane@gmail.com'),
+        clientHasEmail: true,
+        largeForEmail: true,
+      },
+    )
+      .map(sentenceText)
+      .join(' ')
+
+  test('says, before the lock sends it, that the email carries smaller photos', () => {
+    expect(sayLarge({ sendCopy: true })).toBe(
+      'Once it’s locked, it’s emailed to jane@gmail.com. A copy goes to info@pestm8.com.au. It’s too big to email as it is, so the email carries a copy with smaller photos. The report keeps them full size.',
+    )
+  })
+
+  test('says nothing about it when nothing is emailed', () => {
+    expect(sayLarge({ sendCopy: false })).toBe(
+      'Not emailed. You can send it from the report once it’s locked.',
+    )
+  })
+})

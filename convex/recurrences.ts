@@ -20,6 +20,7 @@ import {
 import { redactJob } from './lib/prices'
 import { normaliseWorkOrder } from './lib/workOrder'
 import { normaliseJobNotes } from './lib/jobNotes'
+import { canonicalLabelFor } from './lib/jobTypeList'
 import {
   HORIZON_DAYS,
   assertInterval,
@@ -287,7 +288,8 @@ export const create = mutation({
       assignedMembershipId: args.assignedMembershipId,
       intervalCount: args.intervalCount,
       intervalUnit: args.intervalUnit,
-      jobType: args.jobType,
+      // In the business's own words, as jobs.create saves a job's.
+      jobType: await canonicalLabelFor(ctx, args.businessId, args.jobType),
       price: args.price,
       anchorDate: args.anchorDate,
       active: true,

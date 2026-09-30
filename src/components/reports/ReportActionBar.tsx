@@ -396,6 +396,8 @@ function LogRow({
     /** On a provider event: a bounce, or the recipient marking it spam. */
     event?: 'bounced' | 'complained'
     detail?: string
+    /** It went as the copy with smaller photos (convex/emailCopy.ts). */
+    lighterCopy?: boolean
   }
   const to = Array.isArray(meta.to) ? meta.to.join(', ') : meta.to
   // The business's blind copy, and a visible cc on a row from before copies
@@ -447,6 +449,13 @@ function LogRow({
         {entry.action === 'report.email.pending_approval' && (
           <p className="text-caption text-ink-2">
             Approval isn’t needed any more. The Email tab shows whether it went.
+          </p>
+        )}
+        {/* As the Email tab says it: the report was more than an email
+            carries, so its copy with smaller photos is what went. */}
+        {entry.action === 'report.email.sent' && meta.lighterCopy && (
+          <p className="text-caption text-muted">
+            Photos made smaller to fit an email
           </p>
         )}
         {meta.detail && (

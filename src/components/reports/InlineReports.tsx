@@ -5,6 +5,7 @@ import { Plus } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
 import { suggestTemplates } from '#/lib/reportTemplates/suggest'
+import { useJobTypes } from '#/lib/useJobTypes'
 import { useHydrated } from '#/lib/useHydrated'
 import type { ReactNode } from 'react'
 import type { TemplateId } from '#/lib/reportTemplates'
@@ -13,7 +14,7 @@ import {
   NEUTRAL_BUTTON_COMPACT,
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
-import { RowPending } from '#/components/shell/Pending'
+import { Bone, RowPending } from '#/components/shell/Pending'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 import { ReportLine } from './ReportRows'
 import type { InlineReport } from './ReportRows'
@@ -135,9 +136,16 @@ export function StartReportButtons({
       }),
   })
 
-  const suggested = suggestTemplates(jobType).flatMap(
+  const jobTypes = useJobTypes(businessId)
+  const suggested = suggestTemplates(jobType, jobTypes.entries).flatMap(
     (id) => CREATABLE_TEMPLATES.find((template) => template.id === id) ?? [],
   )
+
+  // Which form a service produces is the business's to say (Settings → Job
+  // types), so nothing is offered on the built-in list's guess: a button
+  // that turned into another under the thumb could start the wrong form.
+  // The layout warms the list, so this is rarely seen.
+  if (!jobTypes.loaded) return <Bone className="h-11 w-full rounded-xl" />
 
   if (suggested.length === 0) {
     return (
