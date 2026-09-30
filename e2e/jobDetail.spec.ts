@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  chooseStatus,
   clickUntil,
   expectRejected,
   inviteAndJoin,
@@ -337,7 +338,7 @@ test('a job can be marked completed, cancelled, and reopened as booked', async (
   )
 })
 
-test('cancelling a job from the status menu asks for confirmation first, with a friendly and accurate message', async ({
+test('cancelling a job from its status pill asks for confirmation first, with a friendly and accurate message', async ({
   page,
 }) => {
   const s = await setupBusinessWithSub('jobstatus-ui')
@@ -352,8 +353,7 @@ test('cancelling a job from the status menu asks for confirmation first, with a 
     expect(detail).toBeVisible({ timeout: 2_000 }),
   )
 
-  await detail.getByRole('button', { name: 'Change job status' }).click()
-  await page.getByRole('menuitem', { name: 'Cancelled' }).click()
+  await chooseStatus(page, 'Cancelled')
 
   // The confirmation is specific to this job, not a generic warning, and
   // honest that nothing is actually deleted.
@@ -370,8 +370,7 @@ test('cancelling a job from the status menu asks for confirmation first, with a 
   await expect(detail.getByText('Pending')).toBeVisible()
 
   // Confirming actually cancels it.
-  await detail.getByRole('button', { name: 'Change job status' }).click()
-  await page.getByRole('menuitem', { name: 'Cancelled' }).click()
+  await chooseStatus(page, 'Cancelled')
   await page
     .getByRole('alertdialog')
     .getByRole('button', { name: 'Cancel job' })

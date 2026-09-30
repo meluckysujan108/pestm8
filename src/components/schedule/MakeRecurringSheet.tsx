@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
-import { Sheet } from '#/components/primitives/Sheet'
+import { Sheet, SheetLock } from '#/components/primitives/Sheet'
 import {
   DEFAULT_INTERVAL,
   RecurrenceFields,
@@ -56,6 +56,11 @@ export function MakeRecurringSheet({
       title="Make recurring"
       description="This job becomes the first visit. Future visits are booked automatically."
     >
+      {/* A changed interval asks before a close throws it away. */}
+      <SheetLock
+        changed={JSON.stringify(interval) !== JSON.stringify(DEFAULT_INTERVAL)}
+        whileUnchanged={false}
+      />
       <form
         className="px-4 pb-4 pt-1"
         onSubmit={(e) => {

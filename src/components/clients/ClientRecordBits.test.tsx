@@ -35,9 +35,11 @@ describe('the client card', () => {
     expect(html).toContain('+1')
   })
 
-  it('says nothing of an active client’s status, or of no number or tags', () => {
+  it('shows an active client’s status too, and nothing for no number or tags', () => {
+    // The status is always seen, as a job's is: a client saved before
+    // statuses existed is Active.
     const html = card({ _id: 'c1', name: 'Alan Vilay', kind: 'person' })
-    expect(html).not.toContain('Active')
+    expect(html).toContain('Active')
     expect(html).not.toContain('#')
   })
 })

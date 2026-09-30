@@ -7,8 +7,9 @@ import { assignClientNumber } from '../lib/clientRecord'
  * One-off: a number for every client made before clients had one.
  *
  * Expand only — `clientNumber` is optional, so the deploy that adds it needs
- * no loosening, and nothing is contracted afterwards. Each client gets one
- * more than the highest its business has used, oldest client first.
+ * no loosening, and nothing is contracted afterwards. Each client gets the
+ * next number from its business's running count (`assignClientNumber`, which
+ * starts the count one past the highest number in use), oldest client first.
  *
  * Run it AFTER importing a client list that carries its own numbers, so the
  * imported clients keep theirs and the older PestM8 clients follow on from

@@ -1,24 +1,25 @@
-import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { flushSync } from 'react-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
-import { DropdownMenu } from 'radix-ui'
 import {
-  Camera,
-  Check,
-  ChevronDown,
-  Pencil,
-  Plus,
-  Repeat,
-  Trash2,
-} from 'lucide-react'
+  SHEET_BODY,
+  SHEET_BODY_ABOVE_FOOTER,
+  SHEET_FOOTER,
+  SheetShell,
+  useSheetLock,
+} from '#/components/primitives/Sheet'
+import { Camera, Pencil, Plus, Repeat, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { Combobox } from '#/components/primitives/Combobox'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
 import { StatusPill } from '#/components/primitives/StatusPill'
+import {
+  StatusPicker,
+  StatusPillButton,
+} from '#/components/primitives/StatusPicker'
 import { JOB_STATUS } from '#/lib/statusColours'
 import { Segmented } from '#/components/primitives/Segmented'
 import {
@@ -208,6 +209,8 @@ function JobDetailBody({
   // A note half-written in the Notes section. The job's Edit hides meanwhile:
   // it swaps that section out for the edit form, and took the note with it.
   const [writingNote, setWritingNote] = useState(false)
+  const [statusOpen, setStatusOpen] = useState(false)
+  const statusButton = useRef<HTMLButtonElement>(null)
   const hydrated = useHydrated()
 
   // The notes and reports sections render only once `job` has arrived. Asking
@@ -218,7 +221,7 @@ function JobDetailBody({
   }, [])
 
   // None of these close the sheet on success — a status change from the
-  // dropdown is a quick in-place toggle now, not a "finish and leave"
+  // status sheet is a quick in-place toggle, not a "finish and leave"
   // commitment the way the old dedicated buttons were.
   const convexComplete = useConvexMutation(api.jobs.complete)
   const complete = useMutation({
@@ -271,6 +274,7 @@ function JobDetailBody({
     // A refusal belongs to the choice that caused it, not the next one.
     complete.reset()
     setStatus.reset()
+    cancel.reset()
     if (next === 'cancelled') {
       // Cancelling is the one destructive-feeling choice here — the only
       // one that gets a confirmation, not the others.
@@ -300,6 +304,32 @@ function JobDetailBody({
   const client = job?.property?.client
   const captionOffice =
     siteContact !== null && Boolean(client?.phone || client?.email)
+
+  if (job && editing) {
+    // Edit mode is the form and nothing else, its Save and Cancel pinned
+    // below it, and the sheet locked against a swipe (useSheetLock).
+    return (
+      <JobEditForm
+        businessId={businessId}
+        timezone={timezone}
+        job={job}
+        canReassign={canReassign}
+        onDone={() => setEditing(false)}
+        header={
+          <>
+            <p className="section-label mb-0.5 mr-10">
+              {job.jobNumber !== undefined
+                ? `Editing job #${job.jobNumber}`
+                : 'Editing job'}
+            </p>
+            <Drawer.Title className="mr-10 text-sheet-title text-ink">
+              {job.jobType}
+            </Drawer.Title>
+          </>
+        }
+      />
+    )
+  }
 
   return (
     <>
@@ -331,15 +361,6 @@ function JobDetailBody({
             {job.jobType}
           </Drawer.Title>
 
-          {editing ? (
-            <JobEditForm
-              businessId={businessId}
-              timezone={timezone}
-              job={job}
-              canReassign={canReassign}
-              onDone={() => setEditing(false)}
-            />
-          ) : (
             <>
               <div className="mt-2 flex items-center gap-2">
                 {/* Read access can be granted without edit rights, so the menu
@@ -347,38 +368,13 @@ function JobDetailBody({
                     job keeps its menu: moving it back out is how its details
                     reopen for editing. */}
                 {job.canEdit ? (
-                  <DropdownMenu.Root>
-                    <DropdownMenu.Trigger asChild>
-                      <button
-                        type="button"
-                        aria-label="Change job status"
-                        className="flex items-center gap-1 rounded-full transition active:scale-[.97]"
-                      >
-                        <StatusPill status={job.status} />
-                        <ChevronDown size={14} strokeWidth={2.2} className="text-muted" />
-                      </button>
-                    </DropdownMenu.Trigger>
-                    <DropdownMenu.Portal>
-                      <DropdownMenu.Content
-                        align="start"
-                        sideOffset={6}
-                        className="z-50 w-48 rounded-2xl border border-hairline bg-surface p-1.5 shadow-elevation"
-                      >
-                        {STATUS_MENU.map((option) => (
-                          <DropdownMenu.Item
-                            key={option}
-                            onSelect={() => selectStatus(option)}
-                            className="flex cursor-pointer items-center justify-between gap-2 rounded-xl px-2.5 py-2 text-body text-ink outline-none transition data-[highlighted]:bg-surface-2"
-                          >
-                            {JOB_STATUS[option].label}
-                            {job.status === option && (
-                              <Check size={15} strokeWidth={2.2} className="text-blue" />
-                            )}
-                          </DropdownMenu.Item>
-                        ))}
-                      </DropdownMenu.Content>
-                    </DropdownMenu.Portal>
-                  </DropdownMenu.Root>
+                  <StatusPillButton
+                    pill={<StatusPill status={job.status} />}
+                    ariaLabel="Change job status"
+                    disabled={!hydrated}
+                    buttonRef={statusButton}
+                    onClick={() => setStatusOpen(true)}
+                  />
                 ) : (
                   <StatusPill status={job.status} />
                 )}
@@ -423,11 +419,28 @@ function JobDetailBody({
                     'Could not change this job’s status. Check your signal and try again.',
                 }}
               />
+              <FormAlert
+                className="mt-2"
+                error={cancel.isError ? cancel.error : null}
+                copy={{
+                  default:
+                    'Could not cancel this job. Check your signal and try again.',
+                }}
+              />
 
               <Section label="Property">
-                <p className="text-row-title text-ink">
-                  {job.property?.client?.name}
-                </p>
+                <div className="flex items-baseline justify-between gap-2">
+                  <p className="min-w-0 text-row-title text-ink">
+                    {job.property?.client?.name}
+                  </p>
+                  {/* The number the office files them under, as on the
+                      client's own sheet. */}
+                  {job.property?.client?.clientNumber !== undefined && (
+                    <span className="shrink-0 text-caption tabular-nums text-muted">
+                      Client #{job.property.client.clientNumber}
+                    </span>
+                  )}
+                </div>
                 {/* Full street address here — the list rows show suburb only. */}
                 <p className="text-body text-ink-2">{job.property?.addressLine}</p>
                 <p className="text-body text-muted">
@@ -514,7 +527,6 @@ function JobDetailBody({
                 onWritingChange={setWritingNote}
               />
             </>
-          )}
 
           {/* Weather for this property on this day, not the day in general —
               two jobs on the same day can be in different suburbs. */}
@@ -688,6 +700,28 @@ function JobDetailBody({
             }
           />
 
+          <StatusPicker
+            open={statusOpen}
+            onClose={() => setStatusOpen(false)}
+            title="Job status"
+            description={
+              job.jobNumber !== undefined
+                ? `Job #${job.jobNumber} · ${job.jobType}`
+                : job.jobType
+            }
+            choices={STATUS_MENU.map((option) => ({
+              value: option,
+              pill: <StatusPill status={option} />,
+              meaning: JOB_STATUS[option].meaning,
+            }))}
+            value={job.status}
+            onChoose={(next) => {
+              setStatusOpen(false)
+              selectStatus(next)
+            }}
+            returnFocusRef={statusButton}
+          />
+
           <ConfirmDialog
             open={confirmCancelOpen}
             onOpenChange={setConfirmCancelOpen}
@@ -704,6 +738,9 @@ function JobDetailBody({
             confirm="Cancel job"
             pending={cancel.isPending}
             pendingLabel="Cancelling…"
+            // Back to the pill it was chosen from, which the status sheet
+            // has closed away from under the dialog.
+            returnFocus={() => statusButton.current}
             onConfirm={() => cancel.mutate({ businessId, jobId: job._id })}
           />
 
@@ -782,9 +819,12 @@ function JobEditForm({
   job,
   canReassign,
   onDone,
+  header,
 }: {
   businessId: Id<'businesses'>
   timezone: string
+  /** The sheet's own heading, drawn above the fields. */
+  header: React.ReactNode
   job: {
     _id: Id<'jobs'>
     propertyId: Id<'properties'>
@@ -808,9 +848,10 @@ function JobEditForm({
   )
 
   const [propertyId, setPropertyId] = useState<string>(job.propertyId)
+  const [openedAt] = useState(() => Date.now())
   const propertyOptionList = useMemo(
-    () => propertyOptions(properties ?? []),
-    [properties],
+    () => propertyOptions(properties ?? [], { timezone, now: openedAt }),
+    [properties, timezone, openedAt],
   )
   // One service or several (lib/jobTypes.ts); a job saved before there
   // could be several reads back as its one.
@@ -843,6 +884,30 @@ function JobEditForm({
   const intervalIncomplete = repeats && recurrence === null
 
   const hydrated = useHydrated()
+  const formId = useId()
+
+  // What the form opened with, to tell whether anything has changed since:
+  // the sheet asks before a close throws a change away (useSheetLock).
+  const [opened] = useState(() => ({
+    propertyId: job.propertyId,
+    jobType: joinJobTypes(canonicalJobTypes(splitJobTypes(job.jobType))),
+    date: dayKeyOf(job.scheduledAt, timezone),
+    time: timeKeyOf(job.scheduledAt, timezone),
+    duration: String(job.durationMinutes),
+    price: String(job.price / 100),
+    assignee: job.assignedMembershipId,
+  }))
+  const changed =
+    propertyId !== opened.propertyId ||
+    joinJobTypes(jobTypes) !== opened.jobType ||
+    date !== opened.date ||
+    time !== opened.time ||
+    duration !== opened.duration ||
+    (!job.pricesHidden && price !== opened.price) ||
+    assignee !== opened.assignee ||
+    workOrder.trim() !== openedWorkOrder ||
+    repeats
+  useSheetLock(changed)
 
   const convexUpdate = useConvexMutation(api.jobs.update)
   const convexConvert = useConvexMutation(api.recurrences.convertJobToRecurring)
@@ -882,8 +947,12 @@ function JobEditForm({
   })
 
   return (
+    <>
+    <div className={`${SHEET_BODY_ABOVE_FOOTER} pt-3`}>
+    {header}
     <form
-      className="mt-3 flex flex-col gap-3"
+      id={formId}
+      className="mt-3 flex flex-col gap-3 pb-2"
       onSubmit={(e) => {
         e.preventDefault()
         if (intervalIncomplete) return
@@ -1061,8 +1130,8 @@ function JobEditForm({
                 : 'Repeating'}
             </p>
             <p className="mt-1.5 text-caption text-muted">
-              To change how often this repeats, use "Stop repeating" above and
-              set up a new series.
+              To change how often this repeats, save or cancel this, use “Stop
+              repeating” on the job, and set up a new series.
             </p>
           </>
         ) : (
@@ -1091,6 +1160,13 @@ function JobEditForm({
         )}
       </EditFieldGroup>
 
+    </form>
+    </div>
+
+    {/* Pinned below the fields, so Save is always in reach — with the
+        keyboard up, a long form's end is a long way down — and a failed
+        save says why just above it, where it is seen. */}
+    <div className={`${SHEET_FOOTER} flex flex-col gap-2`}>
       {save.isError && (
         <FormAlert>
           {save.error.message === REPEAT_STEP_FAILED
@@ -1098,24 +1174,28 @@ function JobEditForm({
             : 'Could not save these changes.'}
         </FormAlert>
       )}
-
       <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onDone}
-          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-        >
-          Cancel
-        </button>
-        <button
-          type="submit"
-          disabled={save.isPending || !hydrated || intervalIncomplete}
-          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-        >
-          {save.isPending ? 'Saving…' : 'Save'}
-        </button>
+      <button
+        type="button"
+        // Not while it saves: the form would close and the save land
+        // anyway, a cancel that did not cancel.
+        disabled={save.isPending}
+        onClick={onDone}
+        className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
+      >
+        Cancel
+      </button>
+      <button
+        type="submit"
+        form={formId}
+        disabled={save.isPending || !hydrated || intervalIncomplete}
+        className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
+      >
+        {save.isPending ? 'Saving…' : 'Save'}
+      </button>
       </div>
-    </form>
+    </div>
+    </>
   )
 }
 
@@ -1588,6 +1668,12 @@ function JobNotes({
   const input = useRef<HTMLTextAreaElement>(null)
   const opener = useRef<HTMLButtonElement>(null)
   const hydrated = useHydrated()
+
+  // Written in place, so the sheet is locked while it is open, and asks
+  // before a close throws away what has been typed.
+  useSheetLock(editing && draft.trim() !== opened.trim(), {
+    whileUnchanged: editing,
+  })
 
   useEffect(() => {
     onWritingChange(editing)

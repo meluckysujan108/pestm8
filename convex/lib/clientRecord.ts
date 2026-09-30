@@ -115,21 +115,17 @@ export async function clientWithNumber(
 }
 
 /**
- * The number a new client gets: the one asked for when it is free (an
- * import keeping the numbers its old system gave), otherwise one more than
- * the highest this business has used. Read from the index inside the
- * inserting mutation, so two clients made at once can't both get it — the
- * second transaction sees the first's and retries.
+ * Where the business's running count stands: its stored `nextClientNumber`,
+ * or — for a business that has not numbered a client since the count began —
+ * one past the highest number in use. Binned clients are in the index, so a
+ * client waiting in the Recycle bin still holds its number.
  */
-export async function assignClientNumber(
+async function countFrom(
   ctx: MutationCtx,
   businessId: Id<'businesses'>,
-  wanted?: number,
 ): Promise<number> {
-  if (wanted !== undefined && isClientNumber(wanted)) {
-    const holder = await clientWithNumber(ctx, businessId, wanted)
-    if (!holder) return wanted
-  }
+  const business = await ctx.db.get(businessId)
+  if (business?.nextClientNumber !== undefined) return business.nextClientNumber
   const highest = await ctx.db
     .query('clients')
     .withIndex('by_business_and_clientNumber', (q) =>
@@ -138,4 +134,72 @@ export async function assignClientNumber(
     .order('desc')
     .first()
   return (highest?.clientNumber ?? 0) + 1
+}
+
+/**
+ * Moves the count past a number that has just been taken — handed out, kept
+ * from an import, or set by hand — so it is never handed out again. Never
+ * moves it back.
+ */
+export async function claimClientNumber(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  taken: number,
+): Promise<void> {
+  const next = await countFrom(ctx, businessId)
+  await ctx.db.patch(businessId, {
+    nextClientNumber: Math.max(next, taken + 1),
+  })
+}
+
+/**
+ * The number a new client gets: the one asked for when it is free (an import
+ * keeping the numbers its old system gave), otherwise the next from the
+ * business's running count (`businesses.nextClientNumber`), stepping over
+ * any number already held. Counted, not read off the highest in use: a client
+ * wiped from the Recycle bin, or taken back by an import's Undo, used to give
+ * its number to the next new client.
+ *
+ * Read and written inside the inserting mutation, so two clients made at once
+ * can't both get one number: the second transaction sees the first's write
+ * and retries.
+ */
+export async function assignClientNumber(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  wanted?: number,
+): Promise<number> {
+  if (wanted !== undefined && isClientNumber(wanted)) {
+    const holder = await clientWithNumber(ctx, businessId, wanted)
+    if (!holder) {
+      await claimClientNumber(ctx, businessId, wanted)
+      return wanted
+    }
+  }
+  let number = await countFrom(ctx, businessId)
+  // A number set by hand or kept from an import can sit ahead of the count.
+  while (await clientWithNumber(ctx, businessId, number)) number++
+  await ctx.db.patch(businessId, { nextClientNumber: number + 1 })
+  return number
+}
+
+// ---------------------------------------------------------------- booking
+
+/**
+ * A lead becomes a client when work is booked for them: the client at this
+ * property, if a lead, is made active. Called by the mutations that book —
+ * `jobs.create`, `recurrences.create`, `recurrences.convertJobToRecurring`
+ * and a job moved to another property in `jobs.update` — and never by the
+ * recurrence engine, whose projected visits nobody has booked. An inactive
+ * client is left inactive: that is a choice someone made.
+ */
+export async function activateLeadAt(
+  ctx: MutationCtx,
+  propertyId: Id<'properties'>,
+): Promise<void> {
+  const property = await ctx.db.get(propertyId)
+  if (!property) return
+  const client = await ctx.db.get(property.clientId)
+  if (client?.status !== 'lead') return
+  await ctx.db.patch(client._id, { status: 'active', updatedAt: Date.now() })
 }

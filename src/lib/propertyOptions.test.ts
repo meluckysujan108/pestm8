@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { clientOptions, propertyOptions } from './propertyOptions'
 import type { PickableClientSite, PickableProperty } from './propertyOptions'
-import { filterByWords, pickOnEnter } from './searchMatch'
+import { filterByWords, pickOnEnter, startsFirst } from './searchMatch'
 
 function property(
   id: string,
@@ -283,5 +283,125 @@ describe('the client picker for a new site (Prompt 6.3)', () => {
     expect(clientOptions(many)[0].label).toBe(
       'Mahal Mart — Kewdale, Belmont +2',
     )
+  })
+})
+
+describe('“Added recently”, then everyone A–Z', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  // Tue 29 Sept 2026, 10:00 in Perth.
+  const NOW = Date.parse('2026-09-29T10:00:00+08:00')
+  const recent = { timezone: 'Australia/Perth', now: NOW }
+  const added = (p: PickableProperty, daysAgo: number, importId?: string) => ({
+    ...p,
+    createdAt: NOW - daysAgo * DAY,
+    ...(importId !== undefined && { importId }),
+  })
+
+  test('puts the newest sites added by hand first, with the day, and the rest A–Z under their own heading', () => {
+    const options = propertyOptions(
+      [added(NGUYEN, 400), added(ROBERTS, 1), added(CAFE, 3), ARCHIVED],
+      recent,
+    )
+    expect(options.map((o) => [o.value, o.group, o.detail])).toEqual([
+      ['p-roberts', 'Added recently', 'Added Mon 28 Sept'],
+      ['p-cafe', 'Added recently', 'Added Sat 26 Sept'],
+      ['p-nguyen', 'Everyone, A–Z', undefined],
+      ['p-archived', 'Everyone, A–Z', undefined],
+    ])
+    // Each once: a recent site is not listed again in A–Z.
+    expect(new Set(options.map((o) => o.value)).size).toBe(4)
+  })
+
+  test('leaves imported sites, archived clients and anything older than 90 days in A–Z', () => {
+    const options = propertyOptions(
+      [
+        added(NGUYEN, 2, 'import-1'),
+        added({ ...ROBERTS, client: { name: 'M. Roberts', archivedAt: 1 } }, 2),
+        added(CAFE, 91),
+        // Kept by an import's Undo: `importId` cleared, where it came from
+        // not.
+        {
+          ...added(ARCHIVED, 1),
+          client: { name: 'A. Archer' },
+          importedFrom: 'import-2',
+        },
+      ],
+      recent,
+    )
+    // Nothing recent at all: no headings, just the list as it always was.
+    expect(options.map((o) => o.group)).toEqual([
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ])
+  })
+
+  test('keeps at most eight in the section, newest first', () => {
+    const many = Array.from({ length: 10 }, (_, i) =>
+      added(
+        property(`p-${i}`, { name: `Client ${i}` }, `${i} Hay St`, 'Perth'),
+        i,
+      ),
+    )
+    const options = propertyOptions(many, recent)
+    expect(
+      options.filter((o) => o.group === 'Added recently').map((o) => o.value),
+    ).toEqual(['p-0', 'p-1', 'p-2', 'p-3', 'p-4', 'p-5', 'p-6', 'p-7'])
+    expect(options.slice(8).map((o) => o.value)).toEqual(['p-8', 'p-9'])
+  })
+
+  test('works the same for the "new site for" client picker, by when the client was added', () => {
+    const sites: Array<PickableClientSite> = [
+      {
+        clientId: 'c-old',
+        addressLine: '1 A St',
+        suburb: 'Perth',
+        client: { name: 'Aaron', createdAt: NOW - 200 * DAY },
+      },
+      {
+        clientId: 'c-new',
+        addressLine: '2 B St',
+        suburb: 'Perth',
+        client: { name: 'Zara', createdAt: NOW - DAY },
+      },
+      {
+        clientId: 'c-imp',
+        addressLine: '3 C St',
+        suburb: 'Perth',
+        client: { name: 'Bea', createdAt: NOW - DAY, importId: 'i' },
+      },
+    ]
+    expect(clientOptions(sites, recent).map((o) => [o.value, o.group])).toEqual(
+      [
+        ['c-new', 'Added recently'],
+        ['c-old', 'Everyone, A–Z'],
+        ['c-imp', 'Everyone, A–Z'],
+      ],
+    )
+  })
+})
+
+describe('what was typed, best match first', () => {
+  test('labels that start with the text come first, the rest keep their order', () => {
+    const rows = [
+      { value: 'a', label: 'Josh Harbour — 12 Harvey St, Perth' },
+      { value: 'b', label: 'Harbourside Strata — 1 Riverside Dr, East Perth' },
+      { value: 'c', label: 'Ann Lee — 4 Harbour Rd, Hillarys' },
+    ]
+    expect(
+      startsFirst(filterByWords(rows, 'harb'), 'harb').map((r) => r.value),
+    ).toEqual(['b', 'a', 'c'])
+    expect(startsFirst(rows, '').map((r) => r.value)).toEqual(['a', 'b', 'c'])
+    // Punctuation and case are ignored, as the search itself ignores them.
+    expect(
+      startsFirst(
+        [
+          { value: 'x', label: 'Zed' },
+          { value: 'n', label: 'J. Nguyen — Bayswater' },
+        ],
+        'j nguyen',
+      ).map((r) => r.value),
+    ).toEqual(['n', 'x'])
   })
 })

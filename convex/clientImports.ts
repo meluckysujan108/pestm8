@@ -289,6 +289,7 @@ async function importClient(
       // a form, and nobody did — the offline check on the page only warns.
       createdAt: now,
       importId: run._id,
+      importedFrom: run._id,
     })
     if (site.note) {
       await pinSiteNote(ctx, run, { propertyId, clientId }, site, now)
@@ -407,6 +408,7 @@ async function insertClient(
     createdAt: now,
     updatedAt: now,
     importId: run._id,
+    importedFrom: run._id,
   })
   // As `properties.create` makes one: a business's contact person is its
   // primary contact, not a second, competing field. `checkImportClient` has

@@ -36,6 +36,29 @@ export function filterByWords<T extends Searchable>(
   return options.filter((o) => matchesAllWords(o.searchText ?? o.label, query))
 }
 
+const collapse = (text: string) => text.replace(/\s+/g, ' ').trim()
+
+/**
+ * The matches with the ones whose label STARTS with what was typed first,
+ * each group keeping the order it came in. Typing "ha" puts Harbourside
+ * Strata above "Josh Ha…" and "12 Harvey St": the name someone is typing
+ * is usually the name they want.
+ */
+export function startsFirst<T extends Searchable>(
+  rows: ReadonlyArray<T>,
+  query: string,
+): Array<T> {
+  const typed = collapse(normaliseForSearch(query))
+  if (!typed) return [...rows]
+  const starts: Array<T> = []
+  const rest: Array<T> = []
+  for (const row of rows) {
+    const label = collapse(normaliseForSearch(row.label))
+    ;(label.startsWith(typed) ? starts : rest).push(row)
+  }
+  return [...starts, ...rest]
+}
+
 /**
  * What Enter in a picker's search box chooses, or null to choose nothing.
  *

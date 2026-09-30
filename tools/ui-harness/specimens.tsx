@@ -53,7 +53,14 @@ import {
   SettingsRow,
   RowBadge,
 } from '#/components/settings/ui'
-import { KeyRound, Palette, ShieldCheck, User, Users } from 'lucide-react'
+import {
+  KeyRound,
+  Palette,
+  Repeat,
+  ShieldCheck,
+  User,
+  Users,
+} from 'lucide-react'
 import type { StatusFilter } from '#/lib/scheduleFilters'
 import type {
   KindFilter,
@@ -76,6 +83,12 @@ import {
   resolveFixture,
   state,
 } from './fixtures'
+import {
+  BUSY_CLIENT_ID,
+  BUSY_JOB_ID,
+  BUSY_PROJECTED,
+  BUSY_SERIES,
+} from './busyFixtures'
 
 const bizId = BIZ as never
 
@@ -187,6 +200,59 @@ function Client() {
         clientId="c1"
         onClose={() => {}}
       />
+    </Phone>
+  )
+}
+
+/** The busy commercial client (busyFixtures.ts). */
+function ClientBusy() {
+  return (
+    <Phone>
+      <Header title="Clients" />
+      <ClientSheet
+        businessId={bizId}
+        timezone={TZ}
+        businessSlug="demo"
+        businessState="WA"
+        canManageClients
+        clientId={BUSY_CLIENT_ID}
+        onClose={() => {}}
+      />
+    </Phone>
+  )
+}
+
+const JobDetailBusy = jobDetail(BUSY_JOB_ID)
+
+/** The Recurring Job view's markup over the busy client's projections. */
+function RecurringBusy() {
+  return (
+    <Phone>
+      <Header kicker="Job" title="Recurring Job" />
+      <section className="px-4 pt-3 pb-6">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-hairline bg-surface px-4 py-3 shadow-elevation">
+          <span className="flex items-center gap-2">
+            <Repeat size={18} strokeWidth={1.7} className="text-ink-2" />
+            <span className="text-row-title tabular-nums text-ink">
+              {BUSY_SERIES.length} Recurring Jobs
+            </span>
+          </span>
+          <span className="text-caption tabular-nums text-muted">
+            {BUSY_PROJECTED.length} visits booked in the next 6 months
+          </span>
+        </div>
+        <div className="flex flex-col gap-2.5">
+          {BUSY_PROJECTED.map((job) => (
+            <JobCard
+              key={job._id}
+              job={job as never}
+              timezone={TZ}
+              hideActions
+              onOpen={() => {}}
+            />
+          ))}
+        </div>
+      </section>
     </Phone>
   )
 }
@@ -957,6 +1023,9 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'jobdetail-services': JobDetailServices,
   'jobdetail-loading': JobDetailLoading,
   client: Client,
+  clientbusy: ClientBusy,
+  jobdetailbusy: JobDetailBusy,
+  recurringbusy: RecurringBusy,
   sign: Sign,
   sheet: SheetPrimitive,
   warnings: Acting,

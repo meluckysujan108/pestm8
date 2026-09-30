@@ -289,6 +289,36 @@ export async function chooseProperty(
 }
 
 /**
+ * Changes a status from its pill, as a person does: the pill opens the status
+ * sheet, and a tap on a status chooses it. Waits for that sheet to go, so a
+ * later `getByRole('dialog')` means the job's or client's sheet again.
+ * `which` is the pill's own name: "Change job status", "Change client status".
+ */
+export async function chooseStatus(
+  page: Page,
+  status: string,
+  which: 'job' | 'client' = 'job',
+) {
+  await page
+    .getByRole('button', { name: `Change ${which} status` })
+    .first()
+    .click()
+  const title = which === 'job' ? 'Job status' : 'Client status'
+  await page
+    .getByRole('dialog', { name: title })
+    .getByRole('button', { name: new RegExp(`^${status}\\b`) })
+    .click()
+  // Gone from the page, not just hidden: a confirm opened by the choice
+  // (Cancelled) hides the sheet from the accessibility tree while it slides
+  // away, and a role query would call it gone too soon.
+  await expect(
+    page.locator('[role="dialog"]').filter({
+      has: page.locator('h2', { hasText: new RegExp(`^${title}$`) }),
+    }),
+  ).toHaveCount(0)
+}
+
+/**
  * Sets an open New Job sheet's (or job edit form's) services to exactly these,
  * in this order. A job can be for several, and New Job starts on General Pest
  * Control, so whatever is ticked is unticked first. A service the list does

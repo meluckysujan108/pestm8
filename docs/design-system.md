@@ -119,7 +119,7 @@ A job card can carry all four at once, so each keeps its own **form** as well as
 | Signal              | Form                                                                       | Where it is decided                                                                                       |
 | ------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
 | Person (technician) | A solid dot or rail with no text, in their colour (set in Settings → Team) | `convex/lib/colours.ts`. Drawn with `style={{ backgroundColor }}`, the one place a colour comes from data |
-| Status              | A bordered, tinted **pill that always says its word**                      | `src/lib/statusColours.ts` → `StatusPill`, `TONE_PILL`, `REPORT_PILL`                                     |
+| Status              | A bordered, tinted **pill that always says its word**                      | `src/lib/statusColours.ts` → `StatusPill`, `TONE_PILL`, `REPORT_PILL`, `CLIENT_STATUS`                    |
 | Overdue             | Ink on the surface, with **no hue**                                        | `OVERDUE_CHIP` (`--overdue`/`--overdue-ink`)                                                              |
 | Warning             | Amber text in a pale amber box with a border                               | `FormAlert`, `FieldMessage tone="warning"`                                                                |
 
@@ -136,6 +136,7 @@ The status ramps are each a `-bg` / `-line` / `-ink` triple, in both themes:
 
 - `statusColours.test.ts` checks that every `-ink` clears 7:1 on its `-bg` (grey 6:1) and every `-line` clears 3:1 on the card.
 - A draft report stays amber; finalised is green and sent is blue.
+- A client's status is a pill too, always shown, Active included (`CLIENT_STATUS`, drawn by `ClientStatusPill`): Active green, Lead blue, Inactive grey.
 - A new status goes in `statusColours.ts`, never as a pill written out in a component.
 
 A **pill** is `rounded-full px-2.5 py-0.5 text-[12px] font-semibold` plus one colour class from `statusColours.ts` (`TONE_PILL`, `REPORT_PILL`, `OVERDUE_CHIP`). A **count badge** is `rounded-full px-1.5 text-[11px] font-bold`.
@@ -416,22 +417,24 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 
 ### 4.3 Choosing: `primitives/`
 
-| Export           | Use for                                                                                                                                                                                  |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `Segmented`      | Two to four options, all visible. `kind="tabs"` switches what shows below (Day/Week/Month); `kind="choice"` answers a form question (Residential/Commercial). Never a dropdown for these |
-| `Combobox`       | A searchable choice from a long list (a property, a job's services), picked in a sheet of its own. `allowCustom` adds what was typed; `multiple` ticks several                           |
-| `FilterDropdown` | A compact single-select filter chip in a header row (status, staff)                                                                                                                      |
-| `SearchBox`      | A search field whose typing is instant and whose query follows after a pause                                                                                                             |
+| Export           | Use for                                                                                                                                                                                                                                                                                                                                                           |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Segmented`      | Two to four options, all visible. `kind="tabs"` switches what shows below (Day/Week/Month); `kind="choice"` answers a form question (Residential/Commercial). Never a dropdown for these                                                                                                                                                                          |
+| `Combobox`       | A searchable choice from a long list (a property, a job's services), picked in a sheet of its own. `allowCustom` adds what was typed; `multiple` ticks several. An option's `group` heads it while nothing is typed ("Added recently", then "Everyone, A–Z"); its `detail` is a quieter second line. Typed, it is one list, labels that start with the text first |
+| `FilterDropdown` | A compact single-select filter chip in a header row (status, staff)                                                                                                                                                                                                                                                                                               |
+| `SearchBox`      | A search field whose typing is instant and whose query follows after a pause                                                                                                                                                                                                                                                                                      |
 
 ### 4.4 Sheets and dialogs
 
-| Export                                         | Use for                                                                                                                      |
-| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `Sheet`                                        | A bottom sheet with a title, an optional description, a scrolling body and an optional `footer` for its buttons. The default |
-| `SheetShell`                                   | Just the sheet's frame, for a sheet with its own header. Pair it with `SHEET_BODY` and `Drawer.Title`                        |
-| `SHEET_BODY`                                   | The class for a custom sheet's scrolling body. Use it rather than writing its padding out                                    |
-| `SheetCloseButton`                             | The ✕ (`SheetShell` already renders one)                                                                                     |
-| `ConfirmDialog` (`settings/ConfirmDialog.tsx`) | Asking before anything is taken away. The only alert dialog in the app                                                       |
+| Export                                         | Use for                                                                                                                                                                                                                                                 |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Sheet`                                        | A bottom sheet with a title, an optional description, a scrolling body and an optional `footer` for its buttons. The default                                                                                                                            |
+| `SheetShell`                                   | Just the sheet's frame, for a sheet with its own header. Pair it with `SHEET_BODY` and `Drawer.Title`                                                                                                                                                   |
+| `SHEET_BODY`                                   | The class for a custom sheet's scrolling body. Use it rather than writing its padding out                                                                                                                                                               |
+| `SHEET_BODY_ABOVE_FOOTER` / `SHEET_FOOTER`     | A custom sheet's scrolling body with a footer pinned below it: an edit form's Cancel and Save (`form=` names the form)                                                                                                                                  |
+| `useSheetLock` / `SheetLock`                   | A form in a sheet: locks the sheet against a swipe or a tap outside while it is open, and asks "Discard your changes?" before ✕, Escape or Back throw a change away. `SheetLock` is the same as an element, for a sheet whose form state lives above it |
+| `SheetCloseButton`                             | The ✕ (`SheetShell` already renders one)                                                                                                                                                                                                                |
+| `ConfirmDialog` (`settings/ConfirmDialog.tsx`) | Asking before anything is taken away. The only alert dialog in the app                                                                                                                                                                                  |
 
 **Rules:**
 
@@ -441,6 +444,8 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 - **Never anchor a popover to a field inside a sheet.** The sheet locks scrolling to itself, so a portalled list cannot be scrolled with a finger, and the keyboard covers it. Choose in a sheet of its own (`Combobox`).
 - `AlertDialog` appears only in `ConfirmDialog.tsx` **(lint)**, and never `window.confirm` **(lint)**.
 - A sheet closes three ways, all equivalent: dragged down, tapped outside, or ✕. A sheet that is only a list or a read-out ends with a "Done".
+- **A sheet being edited does not swipe away.** An edit mode, or a form with something typed in, calls `useSheetLock`: the grab handle goes, a swipe and a tap outside do nothing, and ✕, Escape and the phone's Back ask "Discard your changes?" (Keep editing / Discard) when something has changed, or just close when nothing has. Back is caught only as Back, so the sheet's own close and a save's navigation go through. Notes that save as they are typed need no lock.
+- **An edit mode is the form and nothing else:** the rest of the sheet steps aside, and Cancel and Save are pinned below the fields (`SHEET_FOOTER`), within reach with the keyboard up.
 - **`ConfirmDialog` wording:**
   - The title is the question, naming the thing: "Archive Jane Smith?", "Cancel this job?".
   - The body says what will happen and whether it can be undone.
@@ -453,13 +458,15 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 
 ### 4.5 Status and display
 
-| Export           | Use for                                                                                                                    |
-| ---------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `StatusPill`     | A job's status. `jobStatusLabel` gives the word without the pill                                                           |
-| `BarMeter`       | Five ticks showing a value's intensity beside its number (wind, rain)                                                      |
-| `HoldButton`     | Hold to act: a touch fills the button and it acts when lifted. For anything that leaves the app or reaches a client        |
-| `ContactButtons` | Call, Text, Email and Map as holds, full-width in the sheets and compact on the job card. Always this, never a `tel:` link |
-| `MapHoldButton`  | The job card's corner Map, as a hold                                                                                       |
+| Export             | Use for                                                                                                                                                                           |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `StatusPill`       | A job's status. `jobStatusLabel` gives the word without the pill                                                                                                                  |
+| `StatusPillButton` | A status pill that can be changed: the pill and a chevron, one 44px button, which opens a `StatusPicker`                                                                          |
+| `StatusPicker`     | Choosing a status, a job's or a client's, in a sheet of its own: each as its pill with what it means, the current one ticked. A tap chooses and saves; Cancelled still asks first |
+| `BarMeter`         | Five ticks showing a value's intensity beside its number (wind, rain)                                                                                                             |
+| `HoldButton`       | Hold to act: a touch fills the button and it acts when lifted. For anything that leaves the app or reaches a client                                                               |
+| `ContactButtons`   | Call, Text, Email and Map as holds, full-width in the sheets and compact on the job card. Always this, never a `tel:` link                                                        |
+| `MapHoldButton`    | The job card's corner Map, as a hold                                                                                                                                              |
 
 ### 4.6 Empty, loading, failed
 
@@ -554,7 +561,7 @@ The server can't know which phone this is, so anything decided by the device (th
 3. **Failures are amber, not red.** A save that failed is a `FormAlert` just above the button, worded by `describeError`, with nothing typed lost. One control's failed action (an upload, a toggle) is an amber line beside it: `role="alert" text-caption text-amber-ink`. Red is for a field that can't be accepted, not for a request that didn't go through.
 4. **Where a Save goes:**
    - Settings: a sticky `SaveBar`.
-   - Sheets: a footer, or a Cancel and Save pair for editing in place.
+   - Sheets: a footer, or a Cancel and Save pair for editing in place. A whole-record edit mode pins its pair below the fields (`SHEET_FOOTER`) and locks the sheet (`useSheetLock`).
    - The report builder and the template editor save automatically (`useAutosave`) and show the state in their own bar.
    - A switch or a colour saves the moment it changes.
 5. **No toasts.** The app has none. Say it where the eye already is: the button, the row, the sheet closing. A copy button says "Copied" with a tick for two seconds.
@@ -621,7 +628,7 @@ This isn't a pass at the end. Each point below is how the shared pieces already 
 
 - Keyboard focus shows a blue ring: `focus-visible:ring-2 focus-visible:ring-blue` on buttons, `focus:ring-2 focus:ring-blue` on fields.
 - Never use `outline-none` without a replacement.
-- Escape closes what it opened, and focus returns to what opened it.
+- Escape closes what it opened, and focus returns to what opened it. A sheet with unsaved changes asks first.
 
 **Every control has a name.**
 
@@ -829,6 +836,9 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **Dates** come from the business's day key, not the device's clock, and cards never say "Today" or "Tomorrow".
 - **Hidden prices** show "—".
 - **New Job opens with nothing chosen:** it asks rather than guesses.
+- **Pickers open on "Added recently"** (the newest clients added by hand, up to eight, from the last 90 days, each with its day), then everyone A–Z. Imported clients go straight into the A–Z list. The Clients page lists newest first, with A–Z a tap away.
+- **Client numbers are given automatically** from a running count, so none is ever given out twice. Only the owner changes one, to match another system; everyone else sees it read-only.
+- **A status is changed by tapping its pill,** for a job and for a client alike (`StatusPicker`), and a choice saves at once. A lead becomes Active when their first job is booked; Inactive is only ever chosen, and offers to stop the client's recurring services.
 - **Notes are personal by default,** and each one says who can see it.
 - **A job's own note** is plain text on the job (the Notes section of its sheet, and New Job), read by whoever can see the job — and it says so under the box. It is not a note in Notes, and a series does not copy it.
 - **A job can be for several services** ("General Pest Control, Termite Inspection, Rodents"). New Job starts with none ticked and asks, as it does for the client: with picking now adding rather than replacing, a default would be booked alongside whatever was picked.

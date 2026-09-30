@@ -4,7 +4,11 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { flushSync } from 'react-dom'
 import { Drawer } from 'vaul'
-import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
+import {
+  SHEET_BODY,
+  SheetShell,
+  useSheetLock,
+} from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import {
   DEFAULT_INTERVAL,
@@ -74,6 +78,17 @@ const BOOKING_ERROR_COPY: ErrorCopy = {
     'Could not book this job: that person is no longer on the team. Choose someone else under Assigned to.',
   NOTES_TOO_LONG: `Could not book this job: the note is longer than ${MAX_JOB_NOTES_LENGTH} characters. Shorten it and try again.`,
   default: 'Could not book this job. Check your signal and try again.',
+}
+
+/**
+ * Whether anything was typed into a new client's or site's fields, by value.
+ * `addressCheck` is left out: the address fields set it themselves as they
+ * mount, and opening the New client tab is not typing in it.
+ */
+function typedIn<T extends { addressCheck: unknown }>(now: T, opened: T) {
+  const typed = (value: T) =>
+    JSON.stringify({ ...value, addressCheck: undefined })
+  return typed(now) !== typed(opened)
 }
 
 export function NewJobSheet({
@@ -192,6 +207,26 @@ function NewJobForm({
   // rather than appearing and reflowing the form under the person's thumb.
   const [repeats, setRepeats] = useState(false)
   const [interval, setInterval] = useState(DEFAULT_INTERVAL)
+
+  // Anything filled in locks the sheet against a swipe, and ✕ asks before
+  // throwing it away (useSheetLock). An untouched New Job still swipes shut.
+  const [assigneeChosen, setAssigneeChosen] = useState(false)
+  const [openedClient] = useState(newClient)
+  const [openedSite] = useState(newSite)
+  const changed =
+    propertyId !== '' ||
+    typedIn(newClient, openedClient) ||
+    siteClientId !== '' ||
+    typedIn(newSite, openedSite) ||
+    assigneeChosen ||
+    jobTypes.length > 0 ||
+    notes.trim() !== '' ||
+    time !== '09:00' ||
+    price !== '' ||
+    duration !== '60' ||
+    workOrder.trim() !== '' ||
+    repeats
+  useSheetLock(changed, { whileUnchanged: false })
   /**
    * Null while "Recurring Job" is chosen but the interval does not describe
    * one — an emptied count field, say, which native validation lets through
@@ -209,17 +244,20 @@ function NewJobForm({
   // the business's oldest property on open, so a job booked in a hurry went
   // to whoever happened to be first in the list — and nothing on the form
   // said so.
+  // New clients first ("Added recently"), then everyone A–Z. `now` is held
+  // for the form's life, so the section does not reshuffle while it is open.
+  const [openedAt] = useState(() => Date.now())
   const propertyOptionList = useMemo(
-    () => propertyOptions(properties),
-    [properties],
+    () => propertyOptions(properties, { timezone, now: openedAt }),
+    [properties, timezone, openedAt],
   )
   const [propertyMissing, setPropertyMissing] = useState(false)
 
   // One per client, from the sites already loaded — archived clients
   // included, and each saying where its sites are (see `clientOptions`).
   const clientOptionList = useMemo(
-    () => clientOptions(properties),
-    [properties],
+    () => clientOptions(properties, { timezone, now: openedAt }),
+    [properties, timezone, openedAt],
   )
   const siteClient = properties.find((p) => p.clientId === siteClientId)?.client
   const [clientMissing, setClientMissing] = useState(false)
@@ -640,7 +678,10 @@ function NewJobForm({
           {assignees.length > 1 ? (
             <select
               value={assignee}
-              onChange={(e) => setAssignee(e.target.value)}
+              onChange={(e) => {
+                setAssignee(e.target.value)
+                setAssigneeChosen(true)
+              }}
               className={`${FIELD} w-full`}
             >
               {assignees.map((m) => (

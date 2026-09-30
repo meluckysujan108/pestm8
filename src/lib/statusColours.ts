@@ -1,4 +1,5 @@
 import type { JobStatus } from '../../convex/lib/jobStatus'
+import type { ClientStatus } from '../../convex/lib/clientRecord'
 
 /**
  * A job status's colour and label, defined once (Phase 4.3).
@@ -18,13 +19,64 @@ import type { JobStatus } from '../../convex/lib/jobStatus'
 export type StatusTone = 'orange' | 'red' | 'yellow' | 'green' | 'blue' | 'grey'
 
 export const JOB_STATUS = {
-  recurring: { label: 'Recurring', tone: 'orange' },
-  pending: { label: 'Pending', tone: 'red' },
-  booked: { label: 'Booked', tone: 'yellow' },
-  completed: { label: 'Completed', tone: 'green' },
-  invoiced: { label: 'Invoiced', tone: 'blue' },
-  cancelled: { label: 'Cancelled', tone: 'grey' },
-} as const satisfies Record<JobStatus, { label: string; tone: StatusTone }>
+  recurring: {
+    label: 'Recurring',
+    tone: 'orange',
+    meaning: 'Booked ahead by its series, not yet confirmed.',
+  },
+  pending: {
+    label: 'Pending',
+    tone: 'red',
+    meaning: 'Not confirmed with the client yet.',
+  },
+  booked: {
+    label: 'Booked',
+    tone: 'yellow',
+    meaning: 'Confirmed: someone is going.',
+  },
+  completed: { label: 'Completed', tone: 'green', meaning: 'Done on site.' },
+  invoiced: {
+    label: 'Invoiced',
+    tone: 'blue',
+    meaning: 'Billed. Its details lock until it is moved back.',
+  },
+  cancelled: {
+    label: 'Cancelled',
+    tone: 'grey',
+    meaning: 'Won’t happen. Stays on the schedule, marked cancelled.',
+  },
+} as const satisfies Record<
+  JobStatus,
+  { label: string; tone: StatusTone; meaning: string }
+>
+
+/**
+ * A client's status, in the same pill as a job's: always shown, Active
+ * included, so it can be seen and changed at a glance. Lead takes blue, a
+ * status's hue with its word, not a link's; Inactive the grey of a cancelled
+ * job. `meaning` is the line the status sheet shows beside each.
+ */
+export const CLIENT_STATUS = {
+  active: {
+    label: 'Active',
+    tone: 'green',
+    meaning: 'A current client: booked work or a service contract.',
+  },
+  lead: {
+    label: 'Lead',
+    tone: 'blue',
+    meaning:
+      'Asked about work, nothing booked yet. Turns Active when their first job is booked.',
+  },
+  inactive: {
+    label: 'Inactive',
+    tone: 'grey',
+    meaning: 'No longer serviced. Still found in search and in New Job.',
+  },
+} as const satisfies Record<
+  ClientStatus,
+  { label: string; tone: StatusTone; meaning: string }
+>
 
 /**
  * Written out in full: Tailwind finds class names by reading the source, so a

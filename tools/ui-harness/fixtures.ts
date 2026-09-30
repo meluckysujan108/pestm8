@@ -1,5 +1,7 @@
 /* Sample data for the harness, keyed by Convex function name ("module:fn"). */
 
+import { BUSY_SITES_FOR_LIST, resolveBusy } from './busyFixtures'
+
 export const TZ = 'Australia/Perth'
 export const BIZ = 'biz_demo'
 
@@ -217,14 +219,21 @@ function propertiesList() {
       phone: row.clientPhone,
     },
   }))
-  const more = MORE_SITES.map(([name, addressLine, suburb, postcode], i) => ({
-    _id: `p_more${i}`,
-    addressLine,
-    suburb,
-    postcode,
-    client: { name, kind: 'person' },
-  }))
-  return [...jobSites, ...more]
+  // Two of them added by hand this week, the rest long ago: the picker opens
+  // on "Added recently", then everyone A–Z.
+  const DAY = 24 * 60 * 60 * 1000
+  const more = MORE_SITES.map(([name, addressLine, suburb, postcode], i) => {
+    const createdAt = Date.now() - (i >= 10 ? (12 - i) * DAY : 400 * DAY)
+    return {
+      _id: `p_more${i}`,
+      addressLine,
+      suburb,
+      postcode,
+      createdAt,
+      client: { name, kind: 'person', createdAt },
+    }
+  })
+  return [...jobSites, ...more, ...BUSY_SITES_FOR_LIST()]
 }
 
 const CLIENT = {
@@ -586,6 +595,8 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
 }
 
 export function resolveFixture(fn: string, args: unknown): unknown {
+  const busy = resolveBusy(fn, args)
+  if (busy !== undefined) return busy
   const f = FIXTURES[fn]
   return f ? f(args) : undefined
 }

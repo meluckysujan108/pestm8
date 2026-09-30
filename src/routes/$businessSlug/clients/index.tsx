@@ -15,6 +15,7 @@ import { NewPropertySheet } from '#/components/clients/NewPropertySheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { ClientCard } from '#/components/clients/ClientCard'
 import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
+import { Segmented } from '#/components/primitives/Segmented'
 import { useHydrated } from '#/lib/useHydrated'
 import { matchesClientSearch, useClientFilters } from '#/lib/clientFilters'
 import { useCan } from '#/lib/access'
@@ -28,6 +29,9 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
   // cards. The stale key stays in the address bar until the first search.
   validateSearch: z.object({
     q: z.string().optional(),
+    // Newest first unless A–Z is chosen. Absent is the default, so a plain
+    // link to Clients stays plain; a stale or mistyped value falls back to it.
+    sort: z.enum(['newest', 'az']).optional().catch(undefined),
   }),
   // Both lists together, before the page renders: read in order, the
   // properties were not asked for until the clients had come back.
@@ -39,7 +43,8 @@ export const Route = createFileRoute('/$businessSlug/clients/')({
 function ClientsPage() {
   const { business } = Route.useRouteContext()
   const canManageClients = useCan('clients.manage')
-  const { q } = Route.useSearch()
+  const canRenumber = useCan('business.manage')
+  const { q, sort = 'newest' } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const [newOpen, setNewOpen] = useState(false)
   const [openId, setOpenId] = useState<string | null>(null)
@@ -61,7 +66,14 @@ function ClientsPage() {
       propertiesByClient.set(property.clientId, list)
     }
 
-    const withProperties = clients.map((client) => ({
+    // Newest first: a client just added is usually the one about to be
+    // booked. The list arrives oldest first.
+    const sorted = [...clients].sort((a, b) =>
+      sort === 'az'
+        ? a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+        : b.createdAt - a.createdAt || b._creationTime - a._creationTime,
+    )
+    const withProperties = sorted.map((client) => ({
       client,
       properties: propertiesByClient.get(client._id) ?? [],
     }))
@@ -69,7 +81,7 @@ function ClientsPage() {
     const term = q ?? ''
     if (term.trim() === '') return withProperties
     return withProperties.filter((row) => matchesClientSearch(row, term))
-  }, [clients, properties, q])
+  }, [clients, properties, q, sort])
 
   const {
     kind,
@@ -132,10 +144,36 @@ function ClientsPage() {
         <SearchBox
           value={q ?? ''}
           onChange={(term) =>
-            navigate({ search: { q: term || undefined }, replace: true })
+            // Only what this page keeps: the search and the sort. Anything
+            // else an old link carried (a retired `?view=`) is dropped.
+            navigate({
+              search: (prev) => ({ q: term || undefined, sort: prev.sort }),
+              replace: true,
+            })
           }
           label="Search by name or address"
           placeholder="Search by name, address or #number"
+        />
+      </div>
+
+      <div className="px-4 pt-3">
+        <Segmented
+          label="Sort clients"
+          value={sort}
+          onChange={(next) =>
+            navigate({
+              search: (prev) => ({
+                q: prev.q,
+                sort: next === 'newest' ? undefined : next,
+              }),
+              replace: true,
+            })
+          }
+          disabled={!hydrated}
+          options={[
+            { value: 'newest', label: 'Newest first' },
+            { value: 'az', label: 'A–Z' },
+          ]}
         />
       </div>
 
@@ -164,7 +202,10 @@ function ClientsPage() {
               clearLabel={q ? 'Clear search' : 'Clear filters'}
               onClear={() => {
                 clearFilters()
-                void navigate({ search: { q: undefined }, replace: true })
+                void navigate({
+                  search: (prev) => ({ q: undefined, sort: prev.sort }),
+                  replace: true,
+                })
               }}
             />
           ) : (
@@ -220,6 +261,7 @@ function ClientsPage() {
         businessSlug={business.slug}
         businessState={business.state}
         canManageClients={canManageClients}
+        canRenumber={canRenumber}
         clientId={openId}
         onClose={() => setOpenId(null)}
       />
