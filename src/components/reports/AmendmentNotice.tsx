@@ -5,12 +5,9 @@ import { useState } from 'react'
 import { ConvexError } from 'convex/values'
 import { FilePenLine, History } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { Sheet } from '#/components/primitives/Sheet'
+import { Sheet, SheetLock } from '#/components/primitives/Sheet'
 import type { Id } from '../../../convex/_generated/dataModel'
-import {
-  PRIMARY_BUTTON_COMPACT,
-  SECONDARY_BUTTON_COMPACT,
-} from '#/components/primitives/buttons'
+import { PRIMARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { FIELD_SURFACE } from '#/components/forms/FormField'
 
 /**
@@ -29,6 +26,7 @@ export function AmendmentNotice({
   reason,
   reportNumber,
   version,
+  className = 'px-4 pt-4',
 }: {
   businessSlug: string
   supersededBy?: Id<'reports'>
@@ -36,6 +34,7 @@ export function AmendmentNotice({
   reason?: string
   reportNumber?: number
   version?: number
+  className?: string
 }) {
   const navigate = useNavigate()
   if (!supersededBy && !supersedes) return null
@@ -43,7 +42,7 @@ export function AmendmentNotice({
   const numbered = numberedAs(reportNumber)
 
   return (
-    <div className="px-4 pt-4">
+    <div className={`flex flex-col gap-2 ${className}`}>
       {supersededBy && (
         <ReplacedNotice
           businessSlug={businessSlug}
@@ -53,7 +52,7 @@ export function AmendmentNotice({
       )}
 
       {supersedes && (
-        <div className="mt-2 flex items-start gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5">
+        <div className="flex items-start gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5">
           <FilePenLine
             size={16}
             strokeWidth={2}
@@ -89,8 +88,9 @@ function numberedAs(reportNumber: number | undefined): string {
 
 /**
  * The replaced end of the pair: this document is no longer the current one,
- * and the way to the one that is. On the form and on the PDF tab alike, so
- * nobody reads, shares or marks up the old document without being told.
+ * and the way to the one that is. At the top of its page, and in the viewer's
+ * badge, so nobody reads, shares or marks up the old document without being
+ * told.
  */
 export function ReplacedNotice({
   businessSlug,
@@ -173,22 +173,26 @@ export function CorrectionUnderWay({
 }
 
 /**
- * Starting a correction.
+ * Starting a correction: the sheet the finished report's "Issue a correction"
+ * opens.
  *
  * The reason is required rather than optional: a client holding two documents
  * with the same number is owed the difference between them, and "amended" on
  * its own is not it.
  */
-export function AmendButton({
+export function AmendSheet({
+  open,
+  onClose,
   businessId,
   businessSlug,
   reportId,
 }: {
+  open: boolean
+  onClose: () => void
   businessId: Id<'businesses'>
   businessSlug: string
   reportId: Id<'reports'>
 }) {
-  const [open, setOpen] = useState(false)
   const [reason, setReason] = useState('')
   const navigate = useNavigate()
 
@@ -196,7 +200,7 @@ export function AmendButton({
   const amend = useMutation({
     mutationFn: () => convexAmend({ businessId, reportId, reason }),
     onSuccess: (newId: Id<'reports'>) => {
-      setOpen(false)
+      onClose()
       void navigate({
         to: '/$businessSlug/reports/$reportId',
         params: { businessSlug, reportId: newId },
@@ -205,55 +209,46 @@ export function AmendButton({
   })
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className={`${SECONDARY_BUTTON_COMPACT} flex items-center justify-center gap-2 px-4`}
-      >
-        <FilePenLine size={16} strokeWidth={2} />
-        Issue a correction
-      </button>
+    <Sheet
+      open={open}
+      onClose={onClose}
+      title="Issue a correction"
+      description="This document stays as it is. A new one is issued at the next version of the same number."
+      footer={
+        <button
+          type="button"
+          disabled={reason.trim() === '' || amend.isPending}
+          onClick={() => amend.mutate()}
+          className={`${PRIMARY_BUTTON_COMPACT} w-full`}
+        >
+          {amend.isPending ? 'Starting…' : 'Start the correction'}
+        </button>
+      }
+    >
+      {/* Something typed is not thrown away by a stray swipe. */}
+      <SheetLock changed={reason.trim() !== ''} whileUnchanged={false} />
+      <label className="flex flex-col gap-1.5">
+        <span className="section-label">What was wrong?</span>
+        <textarea
+          value={reason}
+          onChange={(event) => setReason(event.target.value)}
+          rows={3}
+          placeholder="Wrong product recorded against the second treatment"
+          aria-label="What was wrong?"
+          className={`${FIELD_SURFACE} w-full p-3`}
+        />
+      </label>
+      <p className="mt-2 text-caption text-muted">
+        This prints on the corrected document. The client may be holding the old
+        one, so it should say what changed.
+      </p>
 
-      <Sheet
-        open={open}
-        onClose={() => setOpen(false)}
-        title="Issue a correction"
-        description="This document stays as it is. A new one is issued at the next version of the same number."
-        footer={
-          <button
-            type="button"
-            disabled={reason.trim() === '' || amend.isPending}
-            onClick={() => amend.mutate()}
-            className={`${PRIMARY_BUTTON_COMPACT} w-full`}
-          >
-            {amend.isPending ? 'Starting…' : 'Start the correction'}
-          </button>
-        }
-      >
-        <label className="flex flex-col gap-1.5">
-          <span className="section-label">What was wrong?</span>
-          <textarea
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            rows={3}
-            placeholder="Wrong product recorded against the second treatment"
-            aria-label="What was wrong?"
-            className={`${FIELD_SURFACE} w-full p-3`}
-          />
-        </label>
-        <p className="mt-2 text-caption text-muted">
-          This prints on the corrected document. The client may be holding the
-          old one, so it should say what changed.
+      {amend.isError && (
+        <p role="alert" className="mt-3 text-caption text-amber-ink">
+          {amendError(amend.error)}
         </p>
-
-        {amend.isError && (
-          <p role="alert" className="mt-3 text-caption text-amber-ink">
-            {amendError(amend.error)}
-          </p>
-        )}
-      </Sheet>
-    </>
+      )}
+    </Sheet>
   )
 }
 
@@ -270,6 +265,6 @@ function amendError(error: unknown): string {
     case 'NO_ACCESS':
       return 'Only the person who signed this document, or the owner, can correct it.'
     default:
-      return 'Could not start a correction.'
+      return 'Could not start a correction. Check your signal and try again.'
   }
 }

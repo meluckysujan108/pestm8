@@ -151,6 +151,23 @@ report number), with a Recently Deleted segment for drafts. The report page's
 Email tab is now the send sheet plus a delivery history, and its Logs tab an
 activity timeline with actor names.
 
+*Amended (30 Sept 2026):* **a finalised report is one page, not four tabs.**
+The owner found the finished report "outdated or weird", not part of the app,
+and it was: no header, a segmented control over Form, PDF, Email and Logs (a
+document, a card with one button, an action and a record), the Email and Logs
+tabs listing the same sends twice, and Issue a correction and Delete under the
+whole document on the Form tab. It is now built like a job's sheet
+(`src/components/reports/FinishedReport.tsx`): a `PageHeader` with "‹ Reports"
+and a "⋯" for the rare acts; the number, address, status pill, client and
+day; a drawn likeness of the PDF that opens the viewer, with Send this report
+and Share beside it; Answers, the recorded form, a tap away and in the app's
+theme; then Email (each send and how it went, with Send again), Details and
+Activity (one line per event). The viewer gained Send (it closes itself and
+opens the sheet), a tappable "Replaced" badge and a direct Save in place of a
+one-item menu. Stored failure words that pointed at the tabs ("Open the PDF
+tab") are reworded where they are shown (`reports/deliveryWords.ts`), so old
+rows read right without a backend change.
+
 *Amended (30 Sept 2026):* **a finalised report can be deleted, by the owner
 only.** Clients asked to remove test reports, duplicates and reports locked
 against the wrong client, and the product owner agreed. It goes to Recently

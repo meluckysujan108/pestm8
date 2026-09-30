@@ -23,17 +23,14 @@ import type { LicenceDraft } from '#/components/settings/LicenceFields'
 import { SignSheet } from '#/components/reports/fields/SignSheet'
 import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
 import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
-import {
-  DeliveryHistory,
-  LatestDelivery,
-  SendSheet,
-} from '#/components/reports/SendSheet'
-import { LogsPanel } from '#/components/reports/ReportActionBar'
+import { SendSheet } from '#/components/reports/SendSheet'
+import { FinishedReport } from '#/components/reports/FinishedReport'
+import type {
+  FinishedHeader,
+  FinishedView,
+} from '#/components/reports/FinishedReport'
 import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
 import type { Segment } from '#/components/reports/ReportsLibrary'
-import { DeleteReport } from '#/components/reports/DeleteReport'
-import { AmendButton } from '#/components/reports/AmendmentNotice'
-import { DeleteButton } from '#/components/primitives/DeleteButton'
 import { getTemplate } from '#/lib/reportTemplates'
 import { Sheet } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
@@ -88,6 +85,7 @@ import {
   MEMBERS,
   SAMPLE_LOGO,
   TZ,
+  finishedReport,
   resolveFixture,
   state,
 } from './fixtures'
@@ -561,41 +559,50 @@ function reportsList(segment: Segment, technician = false) {
   }
 }
 
-/** The foot of a finalised report's page, for the owner: a correction, then
- * Delete report. Version 2 of #4, with a second correction being drafted. */
-function ReportFoot() {
+/** A finalised report's header, as `PageHeader` draws it (which needs the
+ * sidebar's provider): the way back, the title, and the "⋯". */
+function FinishedHeaderMock({ title, back, action }: FinishedHeader) {
   return (
-    <Phone>
-      <Header kicker="Reports" title="Timber Pest Inspection" />
-      <div className="px-4 pb-6 pt-2">
-        <AmendButton
+    <header className="chrome-bar sticky top-0 z-30 flex items-end justify-between gap-3 border-b border-hairline px-4 pb-3 pt-3">
+      <div className="min-w-0 flex-1">
+        {back}
+        <h1 className="truncate text-page-title text-ink">{title}</h1>
+      </div>
+      {action && (
+        <div className="flex shrink-0 items-center gap-2">{action}</div>
+      )}
+    </header>
+  )
+}
+
+/**
+ * A finished report's page, as the owner sees it. `id` picks its sends and
+ * activity from the fixtures; `report` changes what the report itself says.
+ */
+function finished(
+  id: string,
+  report: Record<string, unknown> = {},
+  view?: FinishedView,
+) {
+  return function Finished() {
+    const [open, setOpen] = useState<FinishedView | undefined>(view)
+    return (
+      <Phone>
+        <FinishedReport
           businessId={bizId}
           businessSlug="demo"
-          reportId={'r_v2' as never}
+          report={finishedReport(id, report) as never}
+          ownsRecords
+          hydrated
+          view={open}
+          onView={setOpen}
+          onCloseView={() => setOpen(undefined)}
+          onDeleted={() => {}}
+          renderHeader={(header) => <FinishedHeaderMock {...header} />}
         />
-      </div>
-      <div className="px-4 pb-8">
-        <DeleteReport
-          businessId={bizId}
-          reportId={'r_v2' as never}
-          report={{
-            status: 'finalised',
-            templateName: 'Timber Pest Inspection Report',
-            clientName: 'Subi Café Group',
-            suburb: 'Subiaco',
-            reportNumber: 4,
-            version: 2,
-            correcting: true,
-          }}
-          trigger={(open) => (
-            <DeleteButton className="mt-2" onClick={open}>
-              Delete report
-            </DeleteButton>
-          )}
-        />
-      </div>
-    </Phone>
-  )
+      </Phone>
+    )
+  }
 }
 
 function Guide() {
@@ -760,70 +767,6 @@ function LockBig() {
   )
 }
 
-/** The line above a finished report's tabs, in each state it can be in. */
-function Delivered() {
-  return (
-    <Phone>
-      <Header kicker="Service Report" title="30 Sloan Drive" />
-      {[
-        'r_sending',
-        'r_sent',
-        'r_stuck',
-        'r_new',
-        'r_failed',
-        'r_refused',
-        'r_setup',
-      ].map((id) => (
-        <LatestDelivery
-          key={id}
-          businessId={bizId}
-          reportId={id as never}
-          onOpen={() => {}}
-        />
-      ))}
-    </Phone>
-  )
-}
-
-/** The Email tab's history: who sent each email, from whose account, where
- * the copy went, and which addresses were new to the client. */
-function History() {
-  return (
-    <Phone>
-      <Header kicker="Service Report" title="Email" />
-      <div className="px-4 pb-8 pt-5">
-        <h2 className="section-label mb-2">Delivery history</h2>
-        <DeliveryHistory businessId={bizId} reportId={'r_history' as never} />
-      </div>
-    </Phone>
-  )
-}
-
-/** The Logs tab: the same sends, as the report's activity. */
-function Logs() {
-  return (
-    <Phone>
-      <Header kicker="Service Report" title="Logs" />
-      <LogsPanel businessId={bizId} reportId={'r_logs' as never} />
-    </Phone>
-  )
-}
-
-/** A report from before approval was retired (29 Sept 2026), in both tabs:
- * what its rows and Logs lines still say. */
-function Legacy() {
-  return (
-    <Phone>
-      <Header kicker="Service Report" title="Before 29 Sept" />
-      <div className="px-4 pb-2 pt-5">
-        <h2 className="section-label mb-2">Delivery history</h2>
-        <DeliveryHistory businessId={bizId} reportId={'r_legacy' as never} />
-      </div>
-      <LogsPanel businessId={bizId} reportId={'r_logs_legacy' as never} />
-    </Phone>
-  )
-}
-
 function Send({ reportId = 'r_lock' }: { reportId?: string }) {
   return (
     <Phone>
@@ -845,21 +788,6 @@ function Send({ reportId = 'r_lock' }: { reportId?: string }) {
  * photos, and the sheet says so before Send. */
 function SendBig() {
   return <Send reportId="r_big" />
-}
-
-/** That job afterwards, in both tabs: the copy with smaller photos is what
- * went. */
-function HistoryBig() {
-  return (
-    <Phone>
-      <Header kicker="Service Report" title="53 photos" />
-      <div className="px-4 pb-2 pt-5">
-        <h2 className="section-label mb-2">Delivery history</h2>
-        <DeliveryHistory businessId={bizId} reportId={'r_big' as never} />
-      </div>
-      <LogsPanel businessId={bizId} reportId={'r_big' as never} />
-    </Phone>
-  )
 }
 
 /** A form's own settings: only the technician's pad can be required. */
@@ -1186,16 +1114,24 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'lock-new': LockNewAddress,
   'lock-noemail': LockNoEmail,
   'lock-big': LockBig,
-  delivered: Delivered,
-  history: History,
-  'history-big': HistoryBig,
-  logs: Logs,
-  legacy: Legacy,
+  finished: finished('r_history', { emailedAt: 1 }),
+  'finished-sending': finished('r_sending'),
+  'finished-noemail': finished('r_none', { pdfUrl: null }),
+  'finished-legacy': finished('r_legacy', { emailedAt: 1 }),
+  'finished-big': finished('r_big', { emailedAt: 1 }),
+  'finished-replaced': finished('r_sent', {
+    emailedAt: 1,
+    version: 2,
+    supersededByReportId: 'r_v3',
+    supersedesReportId: 'r_v1',
+    amendmentReason: 'Wrong product recorded against the second treatment',
+    canAmend: false,
+  }),
+  'finished-answers': finished('r_history', { emailedAt: 1 }, 'answers'),
   send: Send,
   'send-big': SendBig,
   'form-settings': FormSettings,
   reports: reportsList('all'),
   'reports-deleted': reportsList('trash'),
   'reports-deleted-tech': reportsList('trash', true),
-  'report-foot': ReportFoot,
 }

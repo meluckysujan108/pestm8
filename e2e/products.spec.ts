@@ -393,7 +393,7 @@ test.describe('adding and reading a product', () => {
         .locator('[data-search-hit="current"]')
         .first(),
     ).toBeVisible()
-    await viewer.getByRole('button', { name: 'Done searching' }).click()
+    await viewer.getByRole('button', { name: 'Cancel search' }).click()
     await expect(search).toHaveCount(0)
 
     // Done closes the viewer, back onto the product it was opened from.
@@ -776,7 +776,7 @@ test('screenshots of Products on a phone', async ({ page }, testInfo) => {
     viewer.locator('[data-search-hit="current"]').first(),
   ).toBeVisible()
   await shot('06-search.png')
-  await viewer.getByRole('button', { name: 'Done searching' }).click()
+  await viewer.getByRole('button', { name: 'Cancel search' }).click()
 
   await viewer.getByRole('button', { name: 'Pages', exact: true }).click()
   const grid = viewer.getByRole('list', { name: 'Pages' })

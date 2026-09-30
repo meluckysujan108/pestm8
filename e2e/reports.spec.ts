@@ -23,8 +23,11 @@ import {
   versionOf,
 } from './fixtures/reportPayloads'
 import {
+  LOCKED,
+  closeAnswers,
   downloadFromViewer,
   drawOnPage,
+  openAnswers,
   openReportPdf,
   reportViewer,
 } from './fixtures/reportViewer'
@@ -206,7 +209,12 @@ test.describe('report document', () => {
     await signInViaUi(page, email)
     await page.goto(`/${slug}/reports/${reportId}`)
 
-    await expect(page.getByText('Finalised and locked')).toBeVisible()
+    await expect(page.getByText(LOCKED)).toBeVisible()
+    // Full street address, as every legal document requires — at the top of
+    // the finished report's page, as well as in the document.
+    await expect(page.getByText('12 Wattle Street').first()).toBeVisible()
+
+    await openAnswers(page)
     // Stored as the words the AS 3660.2 form uses, and printed exactly — exact
     // matching, because Playwright's default is a case-insensitive substring
     // and a re-cased answer would otherwise pass.
@@ -220,13 +228,11 @@ test.describe('report document', () => {
     ).toBeVisible()
     // The durable notice was app-invented; the verbatim certificate has none.
     await expect(page.getByText('DO NOT REMOVE THIS NOTICE')).toHaveCount(0)
-    // Full street address, as every legal document requires.
-    await expect(page.getByText('12 Wattle Street').first()).toBeVisible()
+    await closeAnswers(page)
 
     // §6.5 counts a report as delivered only if it leaves the app, so the
     // export is asserted as a real file rather than an enabled button. It
-    // leaves from the app's viewer: the action bar's "PDF" tab, View PDF,
-    // then Save in the viewer's More menu.
+    // leaves from the app's viewer: View PDF, then Save in its top bar.
     const viewer = await openReportPdf(page)
     const download = await downloadFromViewer(page, viewer)
 
@@ -266,9 +272,9 @@ test.describe('report document', () => {
     await page.goto(`/${slug}/reports/${reportId}`)
 
     // A PDF of a draft would circulate as though it were the finished record.
-    // A draft is a form: no action bar, so no PDF tab and no way to the viewer.
+    // A draft is a form: no finished page, so no View PDF and no way to the
+    // viewer.
     await expect(page.getByRole('button', { name: 'Finalise & lock' })).toBeVisible()
-    await expect(page.getByRole('tab', { name: 'PDF' })).toHaveCount(0)
     await expect(page.getByRole('button', { name: 'View PDF' })).toHaveCount(0)
 
     // Nor does the address open one: `?view=pdf` belongs to a finalised
@@ -733,6 +739,6 @@ test('a report that used no rodenticide says nothing about one', async ({ page }
 
   await signInViaUi(page, s.owner.email)
   await page.goto(`/${s.slug}/reports/${reportId}`)
-  await expect(page.getByRole('tab', { name: 'PDF' })).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'View PDF' })).toBeEnabled()
   await expect(page.getByText(/APVMA label instructions/)).toHaveCount(0)
 })

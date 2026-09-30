@@ -72,6 +72,12 @@ export type ViewerActions = {
   /** The menu's words for `replace`. "Replace PDF…" unless the picker
    * takes more than a PDF — a licence can be replaced with a photo. */
   replaceLabel?: string
+  /**
+   * Emails the document from the app — a finished report's Send sheet. The
+   * viewer hands over to it: sheets sit below the viewer, so the opener closes
+   * the viewer and opens its sheet on the page behind.
+   */
+  send?: () => void
   /** A copy kept on this phone, for sites with no signal. */
   keep?: {
     kept: boolean
@@ -210,10 +216,15 @@ export type DocumentViewerProps = {
   /** A markup layer over the pages; absent means no pen and no marks. */
   markup?: ViewerMarkup
   /**
-   * A short, non-interactive label kept on screen under the top bar, e.g.
-   * "Draft — not the finished document" or "Replaced by version 2".
+   * A short label kept on screen under the top bar, e.g. "Draft — not the
+   * finished document" or "Replaced by version 2".
    */
   badge?: string
+  /**
+   * Makes the badge a button — "Replaced by version 2" opens the version that
+   * replaced it. The badge is only words without it.
+   */
+  onBadge?: () => void
   /**
    * Remember and restore where the reader was, per `source.key` (default
    * true). Off for a one-off document such as a draft preview, whose key

@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import { flushSync } from 'react-dom'
+import { ChevronRight } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { handOver } from './handOver'
@@ -24,9 +25,11 @@ import { useTextSearch } from './useTextSearch'
 import {
   BottomBar,
   MoreMenu,
+  SaveButton,
   Toolbar,
   TopBar,
   hasMoreMenu,
+  onlySave,
 } from './ViewerChrome'
 import { keyCommand } from './viewerKeys'
 import { ErrorState, LoadingState, PasswordState } from './ViewerStates'
@@ -68,6 +71,7 @@ export function DocumentViewer({
   onClose,
   markup,
   badge,
+  onBadge,
   rememberPosition = true,
   pager,
 }: DocumentViewerProps) {
@@ -614,9 +618,19 @@ export function DocumentViewer({
             title={title}
             pages={pages}
             onDone={onClose}
+            // One Done at a time: while the pen is out, the palette's own
+            // Done puts it away, and the top bar's (which closes the whole
+            // viewer) steps aside rather than sit beside it.
+            doneHidden={marking}
             pager={pager}
             menu={
-              hasMoreMenu(actions) ? (
+              onlySave(actions) ? (
+                <SaveButton
+                  label={actions.saveLabel ?? 'Download'}
+                  disabled={!file}
+                  onSave={save}
+                />
+              ) : hasMoreMenu(actions) ? (
                 <MoreMenu actions={actions} canSave={!!file} onSave={save} />
               ) : null
             }
@@ -625,16 +639,37 @@ export function DocumentViewer({
           {/* What this document is, kept in view: "Draft — not the finished
               document". Read once as the viewer opens (it describes the
               dialog), and not again every time the bars come and go. */}
-          {badge && !gridOpen && (
-            <p
-              id={badgeId}
-              aria-live="off"
-              className="chrome-blur pointer-events-none absolute left-1/2 z-10 max-w-[calc(100%-1.5rem)] -translate-x-1/2 truncate rounded-full px-2.5 py-1 text-caption font-semibold text-ink shadow-elevation transition-[top] duration-300"
-              style={{ top: pillTop(showBars, topBarHeight, 0) }}
-            >
-              {badge}
-            </p>
-          )}
+          {badge &&
+            !gridOpen &&
+            (onBadge ? (
+              // "Replaced by version 2" is a way to the version that is
+              // current, not only a warning about this one.
+              <button
+                type="button"
+                id={badgeId}
+                onClick={onBadge}
+                className="chrome-blur absolute left-1/2 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1 rounded-full px-3 py-1 text-caption font-semibold text-ink shadow-elevation outline-none transition-[top] duration-300 active:scale-[.95] focus-visible:ring-2 focus-visible:ring-blue"
+                style={{ top: pillTop(showBars, topBarHeight, 0) }}
+              >
+                <span className="truncate">{badge}</span>
+                <span className="shrink-0 text-blue">· Open it</span>
+                <ChevronRight
+                  aria-hidden
+                  size={13}
+                  strokeWidth={2.2}
+                  className="shrink-0 text-blue"
+                />
+              </button>
+            ) : (
+              <p
+                id={badgeId}
+                aria-live="off"
+                className="chrome-blur pointer-events-none absolute left-1/2 z-10 max-w-[calc(100%-1.5rem)] -translate-x-1/2 truncate rounded-full px-2.5 py-1 text-caption font-semibold text-ink shadow-elevation transition-[top] duration-300"
+                style={{ top: pillTop(showBars, topBarHeight, 0) }}
+              >
+                {badge}
+              </p>
+            ))}
 
           {noText && (
             <p
@@ -687,6 +722,7 @@ export function DocumentViewer({
                 searchOpen={searchOpen}
                 gridOpen={gridOpen}
                 onShare={share}
+                onSend={actions.send}
                 onSearch={openSearch}
                 onPages={() => {
                   setBarsVisible(true)

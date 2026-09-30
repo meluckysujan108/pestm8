@@ -11,6 +11,7 @@ import {
 } from './fixtures'
 import { builderReady, createReport, finaliseReport, sectionUrl } from './fixtures/reportPayloads'
 import { solidPng } from './fixtures/png'
+import { LOCKED, openAnswers } from './fixtures/reportViewer'
 
 /** Smallest valid PNG — enough to exercise compress → upload → attach. */
 const PNG = Buffer.from(
@@ -161,7 +162,8 @@ test('photos in a gallery field can be uploaded, captioned, reordered and remove
   // --- survives onto the finalised document, evidence intact ---
   await finaliseReport(owner.client, { businessId }, reportId, 'serviceReport')
   await page.reload()
-  await expect(page.getByText('Finalised and locked')).toBeVisible()
+  await expect(page.getByText(LOCKED)).toBeVisible()
+  await openAnswers(page)
   await expect(
     page.getByRole('img', { name: 'Front garden bed' }),
   ).toBeVisible()

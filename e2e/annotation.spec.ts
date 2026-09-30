@@ -10,6 +10,7 @@ import {
 } from './fixtures'
 import { builderReady, createReport, finaliseReport, sectionUrl } from './fixtures/reportPayloads'
 import { solidPng } from './fixtures/png'
+import { LOCKED, openAnswers } from './fixtures/reportViewer'
 
 const PNG_200 = solidPng(200, 200)
 
@@ -96,7 +97,8 @@ test('a gallery photo can be annotated, and the annotated version survives final
 
   await finaliseReport(owner.client, { businessId }, reportId, 'serviceReport')
   await page.reload()
-  await expect(page.getByText('Finalised and locked')).toBeVisible()
+  await expect(page.getByText(LOCKED)).toBeVisible()
+  await openAnswers(page)
   // The finalised document's `ReportGallery` labels an uncaptioned photo by
   // its field, not positionally like the builder's `GalleryTile` does.
   const photoFinal = await page.getByRole('img', { name: 'Report Photos', exact: true }).getAttribute('src')

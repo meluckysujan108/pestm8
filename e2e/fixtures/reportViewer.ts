@@ -2,10 +2,13 @@ import { expect } from '@playwright/test'
 import type { Download, Locator, Page } from '@playwright/test'
 
 /**
- * A finalised report's PDF as a person reaches it: the action bar's PDF tab,
- * then View PDF, which opens the app's own full-screen viewer. The tab used to
- * hold a small viewer of its own and a Download PDF button; both are gone.
+ * A finalised report as a person reaches it: one page, whose View PDF opens
+ * the app's own full-screen viewer and whose Answers opens the form as it was
+ * recorded. It was four tabs until 30 Sept 2026 (Form, PDF, Email, Logs).
  */
+
+/** Said on a finalised report's page (its Details), and only there. */
+export const LOCKED = 'Locked: it can’t be edited'
 
 /** DRAFT across every page, in the viewer's top bar — a preview, not the record. */
 export const DRAFT_BADGE = 'Draft — not the finished document'
@@ -33,14 +36,11 @@ export async function expectDocumentOpen(viewer: Locator): Promise<void> {
 }
 
 /**
- * PDF tab, then View PDF, and wait for the document to open. Both stay
- * disabled until the page hydrates — a click on server-rendered markup before
- * then is swallowed — so each is waited on first.
+ * View PDF, and wait for the document to open. It stays disabled until the
+ * page hydrates — a click on server-rendered markup before then is swallowed
+ * — so it is waited on first.
  */
 export async function openReportPdf(page: Page): Promise<Locator> {
-  const tab = page.getByRole('tab', { name: 'PDF' })
-  await expect(tab).toBeEnabled()
-  await tab.click()
   const view = page.getByRole('button', { name: 'View PDF' })
   await expect(view).toBeEnabled()
   await view.click()
@@ -50,19 +50,37 @@ export async function openReportPdf(page: Page): Promise<Locator> {
 }
 
 /**
- * Save from the viewer's More menu, as a desktop does it: a download. "Save
- * to Files" is the same item where an Apple phone takes files through the
- * share sheet; the report specs run on desktop Chromium, which has none.
+ * The finalised report's Answers — the form as it was recorded, photos and
+ * all — from its page, and back. Disabled until the page hydrates, so waited
+ * on first.
+ */
+export async function openAnswers(page: Page): Promise<void> {
+  const answers = page.getByRole('button', { name: /^Answers/ })
+  await expect(answers).toBeEnabled()
+  await answers.click()
+  await expect(
+    page.getByRole('heading', { level: 1, name: 'Answers' }),
+  ).toBeVisible()
+}
+
+export async function closeAnswers(page: Page): Promise<void> {
+  await page.getByRole('link', { name: 'Report', exact: true }).click()
+  await expect(page.getByRole('button', { name: /^Answers/ })).toBeVisible()
+}
+
+/**
+ * Save from the viewer's top bar, as a desktop does it: a download. "Save to
+ * Files" is the same button where an Apple phone takes files through the
+ * share sheet; the report specs run on desktop Chromium, which has none. It
+ * was the only item of a More menu until 30 Sept 2026.
  */
 export async function downloadFromViewer(
   page: Page,
   viewer: Locator,
 ): Promise<Download> {
-  await viewer.getByRole('button', { name: 'More' }).click()
   const downloaded = page.waitForEvent('download')
-  await page
-    .getByRole('menu')
-    .getByRole('menuitem', { name: /^(Download|Save to Files)$/ })
+  await viewer
+    .getByRole('button', { name: /^(Download|Save to Files)$/ })
     .click()
   return downloaded
 }

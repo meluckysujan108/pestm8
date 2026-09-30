@@ -273,7 +273,8 @@ function deliveriesKnown(args: { reportId: string }) {
   }
 }
 
-/** One delivery per report id, one per state `LatestDelivery` can show. */
+/** One delivery per report id, one per state a finished report's Email list
+ * can show. */
 function deliveryRows(args: { reportId: string }) {
   const at = perthToday(14, 38)
   const base = {
@@ -399,7 +400,7 @@ function deliveryRows(args: { reportId: string }) {
   return rows[args.reportId] ?? []
 }
 
-/** A finished report's Logs: who did what, and every email's addresses.
+/** A finished report's Activity: who did what, and every email's addresses.
  * `r_logs_legacy` is a report from before approval was retired. */
 function auditEntries(args: { entityId: string }) {
   const at = perthToday(14, 38)
@@ -422,7 +423,19 @@ function auditEntries(args: { entityId: string }) {
       },
     ]
   }
-  if (args.entityId === 'r_logs_legacy') {
+  // Just locked, or never emailed: only the lock is on record.
+  if (args.entityId === 'r_sending' || args.entityId === 'r_none') {
+    return [
+      {
+        _id: 'f1',
+        action: 'report.finalise',
+        at: Date.now() - 20_000,
+        ...kevin,
+        meta: {},
+      },
+    ]
+  }
+  if (args.entityId === 'r_logs_legacy' || args.entityId === 'r_legacy') {
     return [
       {
         _id: 'l4',
@@ -503,6 +516,82 @@ function auditEntries(args: { entityId: string }) {
     },
     { _id: 'a1', action: 'report.finalise', at, ...kevin, meta: {} },
   ]
+}
+
+/**
+ * A finalised Pest Service Report as `reports.get` returns it — #12, Kevin's,
+ * for Jane Nguyen at 30 Sloan Drive — with `overrides` for the state a
+ * specimen shows (sent, replaced, no PDF yet). Its sends and activity come
+ * from the fixtures above, by `id`.
+ */
+export function finishedReport(
+  id: string,
+  overrides: Record<string, unknown> = {},
+) {
+  const at = perthToday(14, 38)
+  return {
+    _id: id,
+    _creationTime: at - 3_600_000,
+    businessId: BIZ,
+    template: 'serviceReport',
+    templateVersion: undefined,
+    customTemplate: null,
+    templateSnapshot: null,
+    legalBasis: 'APVMA · AEPMA',
+    status: 'finalised',
+    finalisedAt: at,
+    reportNumber: 12,
+    version: 1,
+    jobId: 'j1',
+    businessName: 'Coastal Pest Control',
+    business: {
+      logoUrl: SAMPLE_LOGO,
+      phone: '08 9381 2200',
+      email: 'info@pestm8.com.au',
+    },
+    property: {
+      client: { name: 'Jane Nguyen' },
+      addressLine: '30 Sloan Drive',
+      suburb: 'Leda',
+      state: 'WA',
+      postcode: '6170',
+    },
+    author: { name: 'Kevin Doyle', licenceNumber: 'PMT 4471' },
+    context: {
+      client: {
+        name: 'Jane Nguyen',
+        email: 'jane@gmail.com',
+        phone: '0412 345 678',
+      },
+      technician: { name: 'Kevin Doyle', licence: 'PMT 4471' },
+      job: { number: '1042' },
+    },
+    contextSnapshot: {
+      client: { name: 'Jane Nguyen' },
+      property: { suburb: 'Leda' },
+    },
+    // Any URL: "Ready" is all the page reads from it until the viewer opens.
+    pdfUrl: 'https://example.invalid/report.pdf',
+    data: {
+      serviceDate: '2026-09-30',
+      startTime: '09:30',
+      finishTime: '10:15',
+      sendCopy: true,
+      spillKit: true,
+      msds: true,
+      ppe: true,
+      chemicalsSecured: true,
+      firstAid: true,
+      signage: true,
+      safeToStart: true,
+      comments:
+        'Treated the perimeter and the garage. German cockroach activity under the kitchen sink — gel baits placed.',
+    },
+    canEdit: false,
+    canAmend: true,
+    correcting: false,
+    ...overrides,
+  }
 }
 
 /**
@@ -665,6 +754,9 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'jobs:photos': () => [],
   'properties:jobHistory': () => [],
   'reports:listByProperty': () => [],
+  // A finished report's photos: none on the sample.
+  'reports:galleryPhotos': () => [],
+  'reports:photoUrls': () => ({}),
   'properties:list': propertiesList,
   'memberships:listForBusiness': () =>
     MEMBERS.map((m) => ({ ...m, displayName: m.name, status: 'active' })),

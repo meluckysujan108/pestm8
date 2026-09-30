@@ -17,17 +17,13 @@ import {
 } from '#/components/reports/LicenceNotice'
 import { useAccess, useCan } from '#/lib/access'
 import { useHydrated } from '#/lib/useHydrated'
-import { DeleteButton } from '#/components/primitives/DeleteButton'
-import { DeleteReport } from '#/components/reports/DeleteReport'
 import { ReportDocument } from '#/components/reports/ReportDocument'
-import {
-  AmendButton,
-  CorrectionUnderWay,
-  AmendmentNotice,
-} from '#/components/reports/AmendmentNotice'
-import { documentIdentity } from '#/lib/reportTemplates/documentModel'
-import { ReportActionBar } from '#/components/reports/ReportActionBar'
+import { AmendmentNotice } from '#/components/reports/AmendmentNotice'
+import { FinishedReport } from '#/components/reports/FinishedReport'
+import { PageHeader } from '#/components/shell/PageHeader'
+import { BackLink } from '#/components/settings/ui'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
+import type { FinishedView } from '#/components/reports/FinishedReport'
 import type { HistoryState } from '@tanstack/react-router'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
@@ -40,12 +36,13 @@ export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
   validateSearch: z.object({
     s: z.string().optional(),
     /**
-     * The finalised report's PDF, open full-screen. In the URL for the same
-     * reason as `s`: the back gesture closes the viewer rather than leaving
-     * the report, and a refresh comes back to the document. Lenient, so a
-     * stale or mistyped link opens the report rather than an error page.
+     * What is open over a finalised report: its PDF, full-screen, or its
+     * Answers. In the URL for the same reason as `s`: the back gesture closes
+     * it rather than leaving the report, and a refresh comes back to it.
+     * Lenient, so a stale or mistyped link opens the report rather than an
+     * error page.
      */
-    view: z.literal('pdf').optional().catch(undefined),
+    view: z.enum(['pdf', 'answers']).optional().catch(undefined),
   }),
   // Without a loader the page suspends while it renders, and on an in-app
   // navigation that suspension blanks the whole app shell until the report
@@ -67,33 +64,33 @@ export const Route = createFileRoute('/$businessSlug/reports/$reportId')({
   component: ReportPage,
 })
 
-/** Marks a history entry as pushed by this page — see `usePdfEntry`. */
-const PUSHED_KEY = 'reportPdfPushed'
+/** Marks a history entry as pushed by this page — see `useViewEntry`. */
+const PUSHED_KEY = 'reportViewPushed'
 const pushedState = () => ({ [PUSHED_KEY]: true }) as HistoryState
 
 /**
- * Opening and closing the PDF viewer through the address bar, the way the
- * Products page opens its PDFs.
+ * Opening and closing the PDF viewer, or the Answers, through the address
+ * bar, the way the Products page opens its PDFs.
  *
- * Opening PUSHES `?view=pdf`, so the phone's back gesture closes the viewer
- * first. Closing from the app (Done) goes back the same way — but only
- * through an entry this page pushed, which it marks in the history state: a
- * link or a refresh that landed straight on the viewer has nothing of ours
+ * Opening PUSHES `?view=…`, so the phone's back gesture closes it first.
+ * Closing from the app (Done, or "‹ Report") goes back the same way — but
+ * only through an entry this page pushed, which it marks in the history
+ * state: a link or a refresh that landed straight on it has nothing of ours
  * behind it, and going back there would leave the report, or the app. That
  * one closes by replacing the entry instead.
  */
-function usePdfEntry(viewing: boolean) {
+function useViewEntry(current: FinishedView | undefined) {
   const navigate = useNavigate({ from: Route.fullPath })
   const router = useRouter()
 
   // A second tap before the first has landed (View PDF twice) must not push
   // twice, or Done would only go back to the viewer again. Forgotten once the
   // page shows the change — not when the history moves, which the push itself
-  // does, a render before `viewing` catches up.
+  // does, a render before `current` catches up.
   const opening = useRef(false)
   useEffect(() => {
     opening.current = false
-  }, [viewing])
+  }, [current])
 
   // Nor may a second close (Done and Escape together) go back twice, out of
   // the page altogether. Forgotten once the history moves: the browser's
@@ -108,14 +105,17 @@ function usePdfEntry(viewing: boolean) {
     [router],
   )
 
-  const open = useCallback(() => {
-    if (viewing || opening.current) return
-    opening.current = true
-    void navigate({
-      search: (prev) => ({ ...prev, view: 'pdf' as const }),
-      state: pushedState,
-    })
-  }, [navigate, viewing])
+  const open = useCallback(
+    (view: FinishedView) => {
+      if (current === view || opening.current) return
+      opening.current = true
+      void navigate({
+        search: (prev) => ({ ...prev, view }),
+        state: pushedState,
+      })
+    },
+    [navigate, current],
+  )
 
   const close = useCallback(() => {
     const { state, href } = router.history.location
@@ -142,7 +142,7 @@ function ReportPage() {
   const { reportId } = Route.useParams()
   const { s: section, view } = Route.useSearch()
   const navigate = useNavigate()
-  const pdfEntry = usePdfEntry(view === 'pdf')
+  const viewEntry = useViewEntry(view)
   const access = useAccess()
   // A signed record is the owner's to throw away, and nobody else's
   // (`reports.softDelete`).
@@ -165,129 +165,68 @@ function ReportPage() {
   // The status is the single source of that truth, so a locked report has no
   // editable rendering to fall back to.
   if (report.status === 'finalised') {
-    const template = resolveReportTemplate({
-      template: report.template,
-      templateVersion: report.templateVersion,
-      customTemplate: report.customTemplate,
-      // The finalised branch names the shared file and titles the viewer.
-      // Resolving from the live module here would give a client a file named
-      // after wording their document does not contain.
-      templateSnapshot: report.templateSnapshot,
-    })
-    const identity = documentIdentity({
-      template,
-      property: report.property,
-      businessName: report.businessName,
-      finalisedAt: report.finalisedAt,
-    })
     return (
-      <ReportActionBar
-        // A different report is a different PDF: its render, its tab and its
-        // failure words start afresh ("Open the current version" stays on
+      <FinishedReport
+        // A different report is a different PDF: its render, its sheets and
+        // its failure words start afresh ("Open the current version" stays on
         // this route and only changes the id).
         key={report._id}
         businessId={business._id}
         businessSlug={business.slug}
-        reportId={report._id}
-        pdfUrl={report.pdfUrl ?? null}
         report={report}
-        title={identity.title}
-        fileName={identity.fileName}
-        replaced={
-          report.supersededByReportId
-            ? {
-                supersededBy: report.supersededByReportId,
-                reportNumber: report.reportNumber,
-                version: report.version,
-              }
-            : undefined
+        ownsRecords={ownsRecords}
+        hydrated={hydrated}
+        view={view}
+        onView={viewEntry.open}
+        onCloseView={viewEntry.close}
+        onDeleted={() =>
+          void navigate({
+            to: '/$businessSlug/reports',
+            params: { businessSlug: business.slug },
+            // Back must not return to a report that is not there.
+            replace: true,
+          })
         }
-        viewing={view === 'pdf'}
-        onView={pdfEntry.open}
-        onCloseView={pdfEntry.close}
-      >
-        <AmendmentNotice
-          businessSlug={business.slug}
-          supersededBy={report.supersededByReportId}
-          supersedes={report.supersedesReportId}
-          reason={report.amendmentReason}
-          reportNumber={report.reportNumber}
-          version={report.version}
-        />
-        <ReportDocument report={report} businessId={business._id} />
-        {/* Offered only on the current version, to whoever signed it or the
-            owner, and only once: correcting a document that has already been
-            replaced — or that already has a correction under way — would fork
-            its number into two live documents, and the server refuses it. */}
-        {report.openAmendmentId ? (
-          <div className="px-4 pb-6 pt-2">
-            <CorrectionUnderWay
-              businessSlug={business.slug}
-              amendmentId={report.openAmendmentId}
-            />
-          </div>
-        ) : (
-          report.canAmend && (
-            <div className="px-4 pb-6 pt-2">
-              <AmendButton
-                businessId={business._id}
-                businessSlug={business.slug}
-                reportId={report._id}
-              />
-            </div>
-          )
+        renderHeader={(header) => (
+          <PageHeader
+            businessId={business._id}
+            businessSlug={business.slug}
+            title={header.title}
+            back={header.back}
+            action={header.action}
+          />
         )}
-        {/* Last, and apart from the correction above it: a report that is
-            only wrong is corrected, and the confirm says so. */}
-        {ownsRecords && (
-          <div className="px-4 pb-8">
-            <DeleteReport
-              businessId={business._id}
-              reportId={report._id}
-              report={{
-                status: report.status,
-                templateName: template.name,
-                // As the document prints them: frozen at finalise.
-                clientName:
-                  report.property?.client?.name ??
-                  report.contextSnapshot?.client?.name ??
-                  '',
-                suburb:
-                  report.property?.suburb ??
-                  report.contextSnapshot?.property?.suburb ??
-                  '',
-                reportNumber: report.reportNumber,
-                version: report.version,
-                replaced: report.supersededByReportId !== undefined,
-                correcting: report.correcting,
-              }}
-              leavesPage
-              onDeleted={() =>
-                void navigate({
-                  to: '/$businessSlug/reports',
-                  params: { businessSlug: business.slug },
-                  // Back must not return to a report that is not there.
-                  replace: true,
-                })
-              }
-              trigger={(open) => (
-                <DeleteButton
-                  className="mt-2"
-                  disabled={!hydrated}
-                  onClick={open}
-                >
-                  Delete report
-                </DeleteButton>
-              )}
-            />
-          </div>
-        )}
-      </ReportActionBar>
+      />
     )
   }
 
   if (!report.canEdit) {
-    return <ReportDocument report={report} businessId={business._id} />
+    // Someone else's draft, to read: the document as it stands, under the
+    // same header a finished report has.
+    return (
+      <>
+        <PageHeader
+          businessId={business._id}
+          businessSlug={business.slug}
+          title={
+            resolveReportTemplate({
+              template: report.template,
+              templateVersion: report.templateVersion,
+              customTemplate: report.customTemplate,
+            }).name
+          }
+          back={
+            <BackLink
+              to="/$businessSlug/reports"
+              params={{ businessSlug: business.slug }}
+            >
+              Reports
+            </BackLink>
+          }
+        />
+        <ReportDocument report={report} businessId={business._id} />
+      </>
+    )
   }
 
   const licenceFix = licenceFixFor({
