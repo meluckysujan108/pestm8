@@ -589,7 +589,6 @@ function JobDetailBody({
               propertyId={job.propertyId}
               addressLine={job.property?.addressLine ?? ''}
               canWriteVisitNote={job.canEdit}
-              plainNote={job.notes}
             />
           </Suspense>
 

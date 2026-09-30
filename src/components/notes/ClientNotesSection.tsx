@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Plus } from 'lucide-react'
@@ -7,7 +7,7 @@ import { InlineNote, useMentionRoster } from './InlineNotes'
 import { useHydrated } from '#/lib/useHydrated'
 import { RowPending } from '#/components/shell/Pending'
 import { LoadFailed } from '#/components/primitives/EmptyState'
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { DecoratedNote } from '../../../convex/notes'
 
@@ -41,6 +41,10 @@ export function ClientNotesSection({
   const [openId, setOpenId] = useState<Id<'notes'> | null>(null)
   // The note just made, whose first line takes the caret as it opens.
   const [createdId, setCreatedId] = useState<Id<'notes'> | null>(null)
+  // Notes made here, this time: closed with nothing in them, they are
+  // cleared away (InlineNote `discardIfEmpty`).
+  const [made, setMade] = useState<ReadonlySet<Id<'notes'>>>(new Set())
+  const aboutButton = useRef<HTMLButtonElement>(null)
   const members = useMentionRoster(businessId)
   const hydrated = useHydrated()
   const notesQuery = useQuery(
@@ -69,6 +73,7 @@ export function ClientNotesSection({
     onSuccess: (id, what) => {
       setCreatedId(what.kind === 'client' ? id : null)
       setOpenId(id)
+      setMade((ids) => new Set(ids).add(id))
     },
   })
 
@@ -83,6 +88,8 @@ export function ClientNotesSection({
       showJob={fromVisit}
       linkJob={fromVisit}
       autoFocus={createdId === note._id}
+      discardIfEmpty={made.has(note._id)}
+      deleteFocus={() => aboutButton.current}
       open={openId === note._id}
       onToggle={() => {
         setCreatedId(null)
@@ -202,6 +209,7 @@ export function ClientNotesSection({
         action={
           <AddButton
             label={`Add note about ${clientName}`}
+            buttonRef={aboutButton}
             disabled={busy}
             onClick={() => create.mutate({ kind: 'client' })}
           >
@@ -287,14 +295,17 @@ function AddButton({
   children,
   onClick,
   disabled,
+  buttonRef,
 }: {
   label: string
   children: ReactNode
   onClick: () => void
   disabled: boolean
+  buttonRef?: Ref<HTMLButtonElement>
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label={label}
       disabled={disabled}

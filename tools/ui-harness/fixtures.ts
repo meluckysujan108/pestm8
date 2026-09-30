@@ -37,7 +37,7 @@ export const JOBS = [
     jobNumber: 1041,
     // Several services on one visit (convex/lib/jobTypes.ts), and a note.
     jobType: 'General Pest Control, Termite Inspection, Rodents',
-    notes: 'Tenant home after 10 — ring first.\nDog in the back yard.',
+    notePreview: 'Tenant home after 10 — ring first. · Dog in the back yard.',
     price: 22000,
     scheduledAt: perthToday(8),
     durationMinutes: 60,
@@ -633,7 +633,33 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'clients:visitReports': () => ({ reports: [], capped: false }),
   'notes:listForClient': () => [],
   'notes:listForProperty': () => ({ site: [], visits: [] }),
-  'notes:listForJob': () => [],
+  // j1's note, as the card's preview says it: a note in Notes on the job.
+  'notes:listForJob': (args: { jobId?: string } | undefined) =>
+    args?.jobId === 'j1'
+      ? [
+          {
+            _id: 'n_j1',
+            kind: 'job',
+            title: 'Tenant home after 10 — ring first.',
+            preview: 'Dog in the back yard.',
+            jobId: 'j1',
+            job: null,
+            authorColour: '#0A84FF',
+            authorName: 'Terence Walsh',
+            editorName: 'Terence Walsh',
+            authorRole: 'owner',
+            createdAt: Date.now() - 3600_000,
+            updatedAt: Date.now() - 3600_000,
+            canEdit: true,
+            canDelete: true,
+            private: false,
+            mine: true,
+            clientName: 'Subi Café Group',
+            addressLine: '220 Hay St',
+            suburb: 'Subiaco',
+          },
+        ]
+      : [],
   'access:me': accessMe,
   'jobs:get': jobGet,
   'jobs:photos': () => [],

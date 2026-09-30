@@ -91,6 +91,37 @@ export function deriveNoteFields(doc: PmNode): DerivedNoteFields {
   }
 }
 
+/**
+ * Whether a document holds nothing at all: no text but spaces, no ticked
+ * box, and nothing that is not text (a tag, a line, a picture). Only the
+ * plain building blocks of an empty page are allowed, so a kind of node
+ * this does not know counts as something — a note it is unsure of is kept.
+ */
+export function isBlankDoc(doc: PmNode): boolean {
+  let blank = true
+  walk(doc, (node) => {
+    if (!BLANK_NODES.has(node.type)) blank = false
+    else if (node.type === 'text' && (node.text ?? '').trim() !== '') blank = false
+    else if (node.type === 'taskItem' && node.attrs?.checked === true) blank = false
+  })
+  return blank
+}
+
+const BLANK_NODES: ReadonlySet<string> = new Set([
+  'doc',
+  'heading',
+  'paragraph',
+  'text',
+  'hardBreak',
+  'bulletList',
+  'orderedList',
+  'listItem',
+  'taskList',
+  'taskItem',
+  'blockquote',
+  'codeBlock',
+])
+
 function collapse(s: string): string {
   return s.replace(/\s+/g, ' ').trim()
 }

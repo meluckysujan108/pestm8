@@ -18,12 +18,13 @@ import {
   requireReadableNote,
 } from './lib/noteAccess'
 import { NOTE_TEMPLATE_KEYS, NOTE_TEMPLATES } from './lib/noteTemplates'
-import { deriveNoteFields, docFromPlainText } from './lib/richText'
+import { deriveNoteFields, docFromPlainText, isBlankDoc } from './lib/richText'
 import { applyDerived, latestDoc, prosemirrorSync } from './notesSync'
 import { clientNameOf } from './properties'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Note, NoteViewer } from './lib/noteAccess'
+import type { PmNode } from './lib/richText'
 import { requireActor } from './lib/actor'
 import { heldAsLicence } from './lib/fileClaims'
 import { UNASSIGNED_COLOUR } from './lib/colours'
@@ -675,14 +676,13 @@ async function resolveLinks(
 
 /**
  * A note on a job, from plain text: the note typed while booking in New Job,
- * and the plain notes jobs carried before job notes were Notes
- * (migrations/jobNotesToNotesV1). Made as the job sheet's "+ Visit note"
- * makes one — shared, linked to the job and so to its site and client — so
+ * or sent by an app from before job notes were Notes (`jobs.update`). Made as
+ * the job sheet's "+ Visit note" makes one — shared, linked to the job and so to its site and client — so
  * it is on the job, on the client, in Notes → Jobs and found by search. Its
  * first line is its title.
  *
  * Not a mutation: the caller has already decided who may write it (booking
- * the job, or a migration).
+ * the job, an older app's `jobs.update`, or a migration).
  */
 export async function insertJobNote(
   ctx: MutationCtx,
@@ -717,6 +717,28 @@ export async function insertJobNote(
   })
   await prosemirrorSync.create(ctx, noteId, doc)
   return noteId
+}
+
+/**
+ * `insertJobNote`, unless the job already has a note saying exactly that —
+ * for an older app, which sends its whole note again with every change.
+ */
+export async function insertJobNoteOnce(
+  ctx: MutationCtx,
+  args: {
+    job: Doc<'jobs'>
+    authorMembershipId: Id<'memberships'>
+    text: string
+  },
+): Promise<Id<'notes'> | null> {
+  const { plainText } = deriveNoteFields(docFromPlainText(args.text))
+  const existing = await ctx.db
+    .query('notes')
+    .withIndex('by_job', (q) => q.eq('jobId', args.job._id))
+    .take(100)
+  if (existing.some((n) => n.deletedAt === undefined && n.plainText === plainText))
+    return null
+  return insertJobNote(ctx, args)
 }
 
 /**
@@ -990,6 +1012,50 @@ export const restore = mutation({
   handler: async (ctx, { businessId, noteId }) => {
     await requireDeletable(ctx, businessId, noteId)
     await ctx.db.patch(noteId, { deletedAt: undefined, updatedAt: Date.now() })
+  },
+})
+
+/**
+ * A note made and left empty, cleared away as it is closed: "+ Visit note"
+ * tapped and nothing typed. Gone for good rather than to Recently Deleted —
+ * there is nothing in it to want back — and only when that is certain: the
+ * caller wrote it, it has no photo, and its body as last saved holds nothing
+ * at all. Anything else is left alone, and says so (`false`); it is never an
+ * error, so a note that turns out to have something in it is simply kept.
+ *
+ * Decided from the body, not the row: the row's title and text only follow a
+ * saved copy of the body, and an edit — anyone's — reaches the server a
+ * moment before that copy does. So a note with an edit newer than its last
+ * saved copy is kept, whatever the row says.
+ */
+export const discardEmpty = mutation({
+  args: { businessId: v.id('businesses'), noteId: v.id('notes') },
+  handler: async (ctx, { businessId, noteId }) => {
+    const me = (await requireActor(ctx, businessId)).actor.real
+    const note = await ctx.db.get(noteId)
+    if (
+      !note ||
+      note.businessId !== businessId ||
+      note.deletedAt !== undefined ||
+      note.binEntryId !== undefined ||
+      note.authorMembershipId !== me._id ||
+      note.title.trim() !== '' ||
+      note.plainText.trim() !== ''
+    ) {
+      return false
+    }
+    const photo = await ctx.db
+      .query('noteAttachments')
+      .withIndex('by_note', (q) => q.eq('noteId', noteId))
+      .first()
+    if (photo) return false
+    const sync = components.prosemirrorSync.lib
+    const saved = await ctx.runQuery(sync.getSnapshot, { id: noteId })
+    const newest = await ctx.runQuery(sync.latestVersion, { id: noteId })
+    if (saved.content === null || newest !== saved.version) return false
+    if (!isBlankDoc(JSON.parse(saved.content) as PmNode)) return false
+    await purgeNote(ctx, note)
+    return true
   },
 })
 

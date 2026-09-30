@@ -57,9 +57,6 @@ export type JobRow = {
   /** How often the visit's series repeats, while it runs. Absent for a
    * one-off, a stopped series, and on a backend older than the indicator. */
   repeats?: Interval
-  /** The job's plain note, from before job notes were Notes. Read only
-   * where `notePreview` is absent (an older backend). */
-  notes?: string
   /** The job's note in Notes — pinned, else the one edited last — as its
    * title and first lines (`jobNotePreview`). */
   notePreview?: string
@@ -301,9 +298,9 @@ export function JobCard({
             )}
             {/* The start of the job's note, so "ring first" is seen on the
                 day's list and not only by whoever opens the job. */}
-            {(job.notePreview ?? job.notes) && (
+            {job.notePreview && (
               <Row label="Note" lines={2}>
-                {job.notePreview ?? job.notes}
+                {job.notePreview}
               </Row>
             )}
             {/* Everyone going, the lead first, each with their own dot. A

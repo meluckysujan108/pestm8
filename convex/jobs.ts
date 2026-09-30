@@ -22,7 +22,12 @@ import { isInScope, writeAttribution } from './lib/capabilities'
 import { jobsInScope, jobsNewestFirst } from './lib/jobScope'
 import { unbinned } from './lib/bin'
 import { activateLeadAt } from './lib/clientRecord'
-import { insertJobNote, jobNotePreview, relinkJobNotes } from './notes'
+import {
+  insertJobNote,
+  insertJobNoteOnce,
+  jobNotePreview,
+  relinkJobNotes,
+} from './notes'
 import { heldAnywhere } from './lib/fileClaims'
 import { CLAIM_WINDOW_MS } from './lib/products'
 import {
@@ -223,10 +228,8 @@ async function decorate(
               }
             }),
           ),
-          // The card's Note row: the job's note in Notes, or — until
-          // migrations/jobNotesToNotesV1 has run — the plain note it still
-          // carries.
-          notePreview: (await jobNotePreview(ctx, job._id)) ?? job.notes,
+          // The card's Note row: the job's newest note in Notes.
+          notePreview: await jobNotePreview(ctx, job._id),
         }
       }),
   )
@@ -902,7 +905,9 @@ export const update = mutation({
     assignedMembershipId: v.optional(v.id('memberships')),
     // A blank string clears it; leaving it out leaves it alone.
     workOrder: v.optional(v.string()),
-    // The same: '' clears the job's note, absent leaves it alone.
+    // Sent only by an app from before a job's notes were Notes (30 Sept
+    // 2026), whose job sheet kept the note as text on the job. That field is
+    // gone; what it sends becomes a note in Notes on the job (below).
     notes: v.optional(v.string()),
     // Everyone going beside the lead, as it should be afterwards — the whole
     // list, not a change to it. Absent leaves them alone.
@@ -1015,12 +1020,13 @@ export const update = mutation({
     if (patch.jobType !== undefined) {
       fields.jobType = await canonicalLabelFor(ctx, businessId, patch.jobType)
     }
-    // The same rule for the note.
-    if (patch.notes !== undefined) {
-      const notes = normaliseJobNotes(patch.notes)
-      if (notes === job.notes) delete fields.notes
-      else fields.notes = notes
-    }
+    // An older app's note is not a field of the job any more: it is kept as
+    // a note in Notes on the job, once the job's own changes are in — never
+    // refused, never lost on a phone still running that app. '' has nothing
+    // to clear, and the same words twice are one note.
+    const olderAppNote =
+      patch.notes === undefined ? undefined : normaliseJobNotes(patch.notes)
+    delete fields.notes
 
     /**
      * Someone who cannot see a price cannot change one — and this is the half
@@ -1059,6 +1065,16 @@ export const update = mutation({
           ...(peopleChanged ? ['alsoGoing'] : []),
         ],
       })
+    }
+    if (olderAppNote !== undefined) {
+      const updated = await ctx.db.get(jobId)
+      if (updated) {
+        await insertJobNoteOnce(ctx, {
+          job: updated,
+          authorMembershipId: env.actor.real._id,
+          text: olderAppNote,
+        })
+      }
     }
   },
 })
