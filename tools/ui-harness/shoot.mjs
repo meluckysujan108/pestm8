@@ -114,6 +114,14 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
+  // The Recurring Job page by service, the weekly service opened.
+  recurringservices: {
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: /General Pest Control/ }).click()
+      await p.waitForTimeout(300)
+    },
+  },
   // The busy client: a summary under the name, then Jobs, Notes, Details.
   clientbusy: { before: async (p) => p.waitForTimeout(1200) },
   'clientbusy-jobs': {

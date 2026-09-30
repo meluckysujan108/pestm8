@@ -193,7 +193,7 @@ test('a series: the Job tab lists the hand-booked visit, with its buttons and ho
 
   // At least one projection inside the horizon, and none of them can be
   // called about or driven to.
-  await page.goto(`/${s.slug}/job/recurring`)
+  await page.goto(`/${s.slug}/job/recurring?view=date`)
   await expect(
     page.getByRole('button', { name: /Rodent Baiting/ }).first(),
   ).toBeVisible()
@@ -257,7 +257,7 @@ test('a projection due today offers Call, Text and Email to book it, and no map'
   // The same visit on the Recurring Job view offers nothing at all. This is
   // the case that proves the view's own rule: on a future projection the
   // status alone would already offer nothing.
-  await page.goto(`/${s.slug}/job/recurring`)
+  await page.goto(`/${s.slug}/job/recurring?view=date`)
   await expect(
     page.getByRole('button', { name: /Cockroach Treatment/ }).first(),
   ).toBeVisible()
@@ -375,7 +375,7 @@ test('the Job tab and the Recurring view say each card’s date; the Schedule, w
   await clickUntil(card, () => expect(detail).toBeVisible({ timeout: 2_000 }))
   await expect(detail).toContainText(cardDate(at))
 
-  await page.goto(`/${s.slug}/job/recurring`)
+  await page.goto(`/${s.slug}/job/recurring?view=date`)
   const visit = page.getByRole('button', { name: /Rodent Baiting/ }).first()
   await expect(visit.getByText('Date', { exact: true })).toBeVisible()
 

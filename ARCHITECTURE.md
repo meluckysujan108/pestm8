@@ -543,6 +543,7 @@ src/components/
     JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx
     PropertyHistory.tsx           a job's History: past visits, each with its report
     VisitRow.tsx                  a visit in a list, with its report chips
+    RecurringServices.tsx         the Recurring Job page by service (recurrences.services)
     WeekGrid.tsx                  desktop-only
   dashboard/
     RevenueCard.tsx  MetricCard.tsx  PipelineCard.tsx  FollowUpTasks.tsx

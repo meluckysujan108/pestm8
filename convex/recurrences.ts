@@ -34,6 +34,7 @@ import {
   resolvePropertyId,
 } from './properties'
 import { intervalUnit } from './schema'
+import { jobsInScope } from './lib/jobScope'
 import type { WriteEnvelope } from './lib/actor'
 import type { Interval } from './lib/recurrence'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -79,6 +80,155 @@ export const listForBusiness = query({
         }
       }),
     )
+  },
+})
+
+const DAY_MS = 24 * 60 * 60 * 1000
+
+/** A visit not yet done or cancelled: one the page may still need to show. */
+const STILL_OPEN = new Set(['recurring', 'pending', 'booked'])
+
+/**
+ * The Recurring Job page by service: every running service the view shows
+ * (`listScope`, as `jobs.listRecurring` counts them), where and for whom,
+ * and its visits from as far back as the schedule carries an unbooked one
+ * to as far ahead as the engine books — each cut to what a row shows.
+ *
+ * Which visit is next, what is to book and when a service is next due are
+ * the page's to work out (src/lib/clientJobs.ts), against `startOfToday`
+ * where the business is: passed in, so nothing here reads the clock. A
+ * service with no visit in the window still has its row, and `lastTaken`
+ * for when it is next due.
+ */
+export const services = query({
+  args: { businessId: v.id('businesses'), startOfToday: v.number() },
+  handler: async (ctx, { businessId, startOfToday }) => {
+    const env = await requireActor(ctx, businessId)
+
+    const series = (
+      await ctx.db
+        .query('recurrences')
+        .withIndex('by_business_active', (q) =>
+          q.eq('businessId', businessId).eq('active', true),
+        )
+        .filter((q) => q.eq(q.field('deletedAt'), undefined))
+        .collect()
+    ).filter((r) => isInScope(env.listScope, r))
+    const ids = new Set<Id<'recurrences'>>(series.map((r) => r._id))
+
+    const inWindow = (
+      await jobsInScope(ctx, env.listScope, {
+        businessId,
+        from: startOfToday - HORIZON_DAYS * DAY_MS,
+        // A day's slack past the horizon: the engine books from its own
+        // "now", up to a day ahead of the caller's today.
+        to: startOfToday + (HORIZON_DAYS + 2) * DAY_MS,
+      })
+    ).filter((j) => j.recurrenceId !== undefined)
+    const visits = inWindow.filter((j) => ids.has(j.recurrenceId!))
+    // A recurring visit the view shows whose service it does not: one left
+    // to book when its service was stopped (stopping cancels only what is
+    // still to come), or one handed to this person out of someone else's
+    // service. The overdue badge counts these; the page must show them.
+    const loose = inWindow.filter(
+      (j) => !ids.has(j.recurrenceId!) && STILL_OPEN.has(j.status),
+    )
+
+    // A service with nothing live ahead in the window is next due after the
+    // latest occurrence it has used — by anyone's visit, in the Recycle bin
+    // or not — which the engine never books again. A visit booked further
+    // ahead than the window (a first yearly visit seven months out) is
+    // found the same way, and is its next.
+    const ahead = new Set(
+      visits
+        .filter(
+          (j) => j.scheduledAt >= startOfToday && STILL_OPEN.has(j.status),
+        )
+        .map((j) => j.recurrenceId),
+    )
+    const beyond: Array<Doc<'jobs'>> = []
+    const lastTaken = new Map(
+      await Promise.all(
+        series
+          .filter((r) => !ahead.has(r._id))
+          .map(async (r) => {
+            const recent = await ctx.db
+              .query('jobs')
+              .withIndex('by_recurrence', (q) => q.eq('recurrenceId', r._id))
+              .order('desc')
+              .take(20)
+            const seen = new Set(visits.map((j) => j._id))
+            beyond.push(
+              ...recent.filter(
+                (j) =>
+                  !seen.has(j._id) &&
+                  j.deletedAt === undefined &&
+                  j.scheduledAt >= startOfToday &&
+                  STILL_OPEN.has(j.status) &&
+                  isInScope(env.listScope, j),
+              ),
+            )
+            const taken = recent.map((j) => j.occurrenceAt ?? j.scheduledAt)
+            return [
+              r._id,
+              taken.length > 0 ? Math.max(...taken) : undefined,
+            ] as const
+          }),
+      ),
+    )
+    const compact = (j: Doc<'jobs'>) => ({
+      _id: j._id,
+      jobNumber: j.jobNumber,
+      scheduledAt: j.scheduledAt,
+      status: j.status,
+      jobType: j.jobType,
+      propertyId: j.propertyId,
+      recurrenceId: j.recurrenceId,
+      occurrenceAt: j.occurrenceAt,
+      assignedMembershipId: j.assignedMembershipId,
+    })
+
+    const properties = new Map<
+      Id<'properties'>,
+      Promise<{ clientName: string; addressLine: string; suburb: string }>
+    >()
+    const place = (propertyId: Id<'properties'>) => {
+      let found = properties.get(propertyId)
+      if (!found) {
+        found = ctx.db.get(propertyId).then(async (property) => ({
+          clientName: await clientNameOf(ctx, property),
+          addressLine: property?.addressLine ?? '',
+          suburb: property?.suburb ?? '',
+        }))
+        properties.set(propertyId, found)
+      }
+      return found
+    }
+
+    return {
+      services: await Promise.all(
+        series.map(async (r) => ({
+          _id: r._id,
+          jobType: r.jobType,
+          interval: intervalOf(r),
+          active: r.active,
+          propertyId: r.propertyId,
+          ...(await place(r.propertyId)),
+          assignedMembershipId: r.assignedMembershipId,
+          anchorDate: r.anchorDate,
+          lastTaken: lastTaken.get(r._id),
+        })),
+      ),
+      visits: [...visits, ...beyond].map(compact),
+      loose: await Promise.all(
+        loose.map(async (j) => ({
+          ...compact(j),
+          clientName: (await place(j.propertyId)).clientName,
+          suburb: (await place(j.propertyId)).suburb,
+        })),
+      ),
+      horizonDays: HORIZON_DAYS,
+    }
   },
 })
 

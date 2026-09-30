@@ -50,6 +50,8 @@ export const rq = {
   jobs: (businessId: B) => convexQuery(api.jobs.list, { businessId }),
   recurringJobs: (businessId: B) =>
     convexQuery(api.jobs.listRecurring, { businessId }),
+  recurringServices: (businessId: B, startOfToday: number) =>
+    convexQuery(api.recurrences.services, { businessId, startOfToday }),
   clients: (businessId: B) => convexQuery(api.clients.list, { businessId }),
   properties: (businessId: B) =>
     convexQuery(api.properties.list, { businessId }),
