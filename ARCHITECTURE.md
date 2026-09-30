@@ -316,6 +316,30 @@ recurrences: {
 }
 .index("by_business", ["businessId"])
 
+jobTypes: {                             // Settings → Job types (convex/jobTypes.ts)
+  businessId, name, key,                // key = lower-cased name, unique per business
+  report: "serviceReport" | "timberPestInspection" | "termiteManagementCert" | "none",
+  formerNames,                          // names before a rename or merge (≤ 10)
+  archivedAt?,                          // deleted: not offered, "Offer again" restores
+  createdAt
+}
+.index("by_business_key", ["businessId", "key"])
+// *Amended (30 Sept 2026):* the services New Job offers are the business's
+// own list, not a constant in the app. A business with no rows is offered
+// the built-in nine (DEFAULT_JOB_TYPES); its first change writes them. Only
+// the owner changes it (business.manage). A job's `jobType` label is unchanged
+// in shape: it is read against the list — the list's spelling, a renamed
+// service's new name (`formerNames`), and each service's report, which the
+// report suggestions and the report-before-complete policy now take from the
+// list (falling back to the old table for a service the list does not have).
+// Deleting stops a service being offered and rewrites nothing. A rename, a
+// merge (a rename onto a name the list has) and a swap of a typed-in service
+// rewrite the label on every job and series, finished ones included, in
+// scheduled batches (`jobTypes.rewriteLabels`) that read the live list, so a
+// second rename mid-way still ends on the newest name. Finalised reports keep
+// their own words. A service typed into New Job is still allowed, for that
+// job only; the owner sees it under "Typed into jobs" to swap or add.
+
 // *Amended (reports Phases 1-6).* The row below is the v1 design; the live
 // shape is convex/schema.ts. What was added, and why, in one line each:
 //   templateSnapshotId, templateVersion  what this report was SIGNED against

@@ -399,6 +399,19 @@ const clearReportSettings: Step = async (run) => {
         .query('reportSnippets')
         .withIndex('by_business_field', (q) => q.eq('businessId', businessId))
         .take(n),
+    )) &&
+    // Settings → Job types, and any rewrite of job labels it left running.
+    (await sweep(run, 'jobTypes', (n) =>
+      ctx.db
+        .query('jobTypes')
+        .withIndex('by_business_key', (q) => q.eq('businessId', businessId))
+        .take(n),
+    )) &&
+    (await sweep(run, 'jobTypeRewrites', (n) =>
+      ctx.db
+        .query('jobTypeRewrites')
+        .withIndex('by_business', (q) => q.eq('businessId', businessId))
+        .take(n),
     ))
   )
 }
@@ -975,6 +988,18 @@ export const status = internalQuery({
         await ctx.db
           .query('reportSnippets')
           .withIndex('by_business_field', (q) => q.eq('businessId', businessId))
+          .take(STATUS_CAP)
+      ).length,
+      jobTypes: (
+        await ctx.db
+          .query('jobTypes')
+          .withIndex('by_business_key', (q) => q.eq('businessId', businessId))
+          .take(STATUS_CAP)
+      ).length,
+      jobTypeRewrites: (
+        await ctx.db
+          .query('jobTypeRewrites')
+          .withIndex('by_business', (q) => q.eq('businessId', businessId))
           .take(STATUS_CAP)
       ).length,
       products: (

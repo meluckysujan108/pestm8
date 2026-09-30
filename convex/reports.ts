@@ -20,6 +20,7 @@ import { unbinned } from './lib/bin'
 import { freezeTemplate } from './lib/templateSnapshot'
 import type { CustomSource } from './lib/templateSnapshot'
 import { seedFromContext } from '../src/lib/reportTemplates/seed'
+import { loadJobTypes } from './lib/jobTypeList'
 import { validateReport } from '../src/lib/reportTemplates/validate'
 import { dayKeyOf, timeKeyOf, todayKeyInZone } from './lib/dates'
 import { suburbKeyOf, withinForecastWindow } from './lib/forecastWindow'
@@ -1490,6 +1491,7 @@ async function seedNewReport(
       startedTime: usableJob?.startedAt ? timeKeyOf(usableJob.startedAt, timezone) : undefined,
       scheduledTime: usableJob ? timeKeyOf(usableJob.scheduledAt, timezone) : undefined,
       jobType: usableJob?.jobType,
+      jobTypes: usableJob ? await loadJobTypes(ctx, args.businessId) : undefined,
       clientEmail: client?.email ?? null,
       jobAssigneeMembershipId: usableJob?.assignedMembershipId,
       authorMembershipId: args.authorMembershipId,

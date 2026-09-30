@@ -423,6 +423,13 @@ describe('removing a demo', () => {
       ],
     })
 
+    // An owner who has been into Settings → Job types.
+    await run.owner.as.mutation(api.jobTypes.create, {
+      businessId: base.businessId,
+      name: 'Possum Removal',
+      report: 'none',
+    })
+
     slug = await t.query(internal.demo.seed.slugOf, {
       businessId: base.businessId,
     })
@@ -472,6 +479,7 @@ describe('removing a demo', () => {
       'templateSettings',
       'optionSets',
       'reportSnippets',
+      'jobTypes',
       'noteMentions',
       'products',
       'clientImports',
@@ -554,6 +562,7 @@ describe('removing a demo', () => {
       'templateSettings',
       'optionSets',
       'reportSnippets',
+      'jobTypes',
       'products',
       'clientImports',
     ]) {

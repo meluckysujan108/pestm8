@@ -97,6 +97,11 @@ export const rq = {
    * templates.manage only. */
   answerLists: (businessId: B) =>
     convexQuery(api.optionSets.editable, { businessId }),
+  /** The business's job types, for New Job, the job sheet and reports. Anyone. */
+  jobTypes: (businessId: B) => convexQuery(api.jobTypes.list, { businessId }),
+  /** The job types as the owner edits them, with their counts — owner only. */
+  jobTypesManage: (businessId: B) =>
+    convexQuery(api.jobTypes.manage, { businessId }),
 }
 
 /** How many rows the paginated libraries ask for first. */

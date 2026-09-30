@@ -175,18 +175,6 @@ export const WEEKDAY_INITIALS = ['M', 'T', 'W', 'T', 'F', 'S', 'S']
 // `describeInterval`/`describeRepeat` in convex/lib/recurrence.ts render one,
 // and `RecurrenceFields` collects one.
 
-export const JOB_TYPES = [
-  'General Pest Control',
-  'Rodents',
-  'Termite Inspection',
-  'Termite Treatment',
-  'Ants',
-  'Cockroaches',
-  'Spiders',
-  'Bed Bugs',
-  'Wasps',
-] as const
-
 /**
  * A job's price, or an em dash when the server withheld it.
  *

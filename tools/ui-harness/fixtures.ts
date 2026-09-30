@@ -1,6 +1,7 @@
 /* Sample data for the harness, keyed by Convex function name ("module:fn"). */
 
 import { BUSY_SITES_FOR_LIST, resolveBusy } from './busyFixtures'
+import { JOB_TYPES_LIST, JOB_TYPES_MANAGE } from './jobTypeFixtures'
 
 export const TZ = 'Australia/Perth'
 export const BIZ = 'biz_demo'
@@ -644,6 +645,8 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
     continueCursor: '',
   }),
   'reports:staleDrafts': () => ({ count: 0, oldest: null }),
+  'jobTypes:manage': () => JOB_TYPES_MANAGE,
+  'jobTypes:list': () => JOB_TYPES_LIST,
 }
 
 export function resolveFixture(fn: string, args: unknown): unknown {

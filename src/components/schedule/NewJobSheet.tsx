@@ -18,6 +18,7 @@ import {
 import { Combobox } from '#/components/primitives/Combobox'
 import { Segmented } from '#/components/primitives/Segmented'
 import { JobTypePicker } from './JobTypePicker'
+import { useJobTypes } from '#/lib/useJobTypes'
 import {
   EMPTY_NEW_CLIENT,
   EMPTY_NEW_SITE,
@@ -176,6 +177,7 @@ function NewJobForm({
   const { data: members } = useSuspenseQuery(
     convexQuery(api.memberships.listForBusiness, { businessId }),
   )
+  const jobTypeList = useJobTypes(businessId).entries
 
   // A business with no properties yet has nothing to pick from, so it starts
   // straight in "new client" mode rather than hitting a dead end.
@@ -679,6 +681,7 @@ function NewJobForm({
 
         <Field label="Job type">
           <JobTypePicker
+            jobTypes={jobTypeList}
             value={jobTypes}
             onChange={(next) => {
               setJobTypes(next)

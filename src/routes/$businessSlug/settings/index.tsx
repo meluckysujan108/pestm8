@@ -16,6 +16,7 @@ import {
   ShieldCheck,
   SquarePlus,
   SunMoon,
+  Tags,
   Trash2,
   User,
   Users,
@@ -130,7 +131,8 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
         ...browserOnly(rq.memberLicences(business._id, membership._id)),
         ...(team ? [rq.team(business._id), rq.invitations(business._id)] : []),
         // The set-up guide's row, so it is there with the rest of the group
-        // rather than arriving under a thumb.
+        // rather than arriving under a thumb. (The job types' count comes
+        // from the list the layout already warmed.)
         ...(owner ? [rq.setupGuide(business._id)] : []),
         ...(switches ? [rq.switchTargets(business._id)] : []),
       ),
@@ -356,6 +358,12 @@ function SettingsHub() {
                 viewer={access}
               />
             )}
+            {canManageBusiness && (
+              <JobTypesRow
+                businessId={business._id}
+                businessSlug={businessSlug}
+              />
+            )}
             {showReportsRow && (
               <SettingsLinkRow
                 to="/$businessSlug/settings/reports"
@@ -524,6 +532,35 @@ function TeamRow({
           <RowBadge tone="grey">{invited} invited</RowBadge>
         ) : undefined
       }
+    />
+  )
+}
+
+/**
+ * Job types, with how many New Job offers. From the list itself, which the
+ * layout warms for everyone — not the page's own query, which reads every job
+ * to count them and has no place on a page opened this often. No badge: a
+ * service typed into a job is the owner's to tidy when they like, not
+ * something that needs doing. Read without suspending, like the Team row.
+ */
+function JobTypesRow({
+  businessId,
+  businessSlug,
+}: {
+  businessId: Id<'businesses'>
+  businessSlug: string
+}) {
+  const offered = useQuery(rq.jobTypes(businessId)).data?.filter(
+    (entry) => entry.offered,
+  ).length
+  return (
+    <SettingsLinkRow
+      to="/$businessSlug/settings/job-types"
+      params={{ businessSlug }}
+      icon={Tags}
+      tint="green"
+      title="Job types"
+      value={offered === undefined ? undefined : String(offered)}
     />
   )
 }

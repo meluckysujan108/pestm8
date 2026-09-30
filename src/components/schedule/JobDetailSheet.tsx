@@ -28,6 +28,7 @@ import {
   formatWhen,
 } from '#/lib/format'
 import { JobTypePicker, canonicalJobTypes } from './JobTypePicker'
+import { useJobTypes } from '#/lib/useJobTypes'
 import { WeatherGlyph } from './WeatherGlyph'
 import { WeatherCredit } from './WeatherCredit'
 import { isWet, isWindy, useWeather } from '#/lib/weather'
@@ -846,6 +847,7 @@ function JobEditForm({
     convexQuery(api.memberships.listForBusiness, { businessId }),
   )
 
+  const jobTypeList = useJobTypes(businessId).entries
   const [propertyId, setPropertyId] = useState<string>(job.propertyId)
   const [openedAt] = useState(() => Date.now())
   const propertyOptionList = useMemo(
@@ -855,7 +857,7 @@ function JobEditForm({
   // One service or several (lib/jobTypes.ts); a job saved before there
   // could be several reads back as its one.
   const [jobTypes, setJobTypes] = useState(() =>
-    canonicalJobTypes(splitJobTypes(job.jobType)),
+    canonicalJobTypes(splitJobTypes(job.jobType), jobTypeList),
   )
   const [jobTypeMissing, setJobTypeMissing] = useState(false)
   const jobTypeTrigger = useRef<HTMLButtonElement>(null)
@@ -889,7 +891,9 @@ function JobEditForm({
   // the sheet asks before a close throws a change away (useSheetLock).
   const [opened] = useState(() => ({
     propertyId: job.propertyId,
-    jobType: joinJobTypes(canonicalJobTypes(splitJobTypes(job.jobType))),
+    jobType: joinJobTypes(
+      canonicalJobTypes(splitJobTypes(job.jobType), jobTypeList),
+    ),
     date: dayKeyOf(job.scheduledAt, timezone),
     time: timeKeyOf(job.scheduledAt, timezone),
     duration: String(job.durationMinutes),
@@ -1011,6 +1015,7 @@ function JobEditForm({
       <div className="flex flex-col gap-1.5">
         <EditField label="Job type">
           <JobTypePicker
+            jobTypes={jobTypeList}
             value={jobTypes}
             onChange={(next) => {
               setJobTypes(next)
