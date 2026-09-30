@@ -835,14 +835,12 @@ export default defineSchema({
      */
     workOrder: v.optional(v.string()),
     /**
-     * The job's own note — "tenant home after 10, ring first", "bring the
-     * long ladder" — typed when it is booked or on the job sheet. Plain text
-     * (`lib/jobNotes.ts`), read by whoever can see the job and changed by
-     * whoever can edit it, invoiced or not: it is not on the invoice.
-     *
-     * Not a Notes library note. Those are a personal notebook and a site's
-     * standing knowledge ("Before you arrive"); this is about this one visit,
-     * so a series does not copy it onto its other visits.
+     * Unused since 30 Sept 2026: a job's notes are notes in Notes, linked to
+     * it (notes.insertJobNote). For a day before that a job carried a
+     * plain-text note of its own here. Nothing reads or writes it any more;
+     * migrations/jobNotesToNotesV1 moved every one on production. It stays
+     * declared only so a deployment still holding such a job (a test
+     * backend) accepts a push; drop it once every deployment counts none.
      */
     notes: v.optional(v.string()),
     ...binFields,

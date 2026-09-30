@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { ChevronDown, Plus } from 'lucide-react'
@@ -7,7 +7,7 @@ import { InlineNote, useMentionRoster } from './InlineNotes'
 import { useHydrated } from '#/lib/useHydrated'
 import { RowPending } from '#/components/shell/Pending'
 import { LoadFailed } from '#/components/primitives/EmptyState'
-import type { ReactNode } from 'react'
+import type { ReactNode, Ref } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { DecoratedNote } from '../../../convex/notes'
 
@@ -32,7 +32,6 @@ export function JobNotesSection({
   propertyId,
   addressLine,
   canWriteVisitNote,
-  plainNote,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
@@ -43,15 +42,15 @@ export function JobNotesSection({
   /** Whoever may edit the job: a visit note is linked to it, and linking is
    * refused to anyone else (notes.create). A site note is anyone's. */
   canWriteVisitNote: boolean
-  /** The job's plain note, written by an app from before job notes were
-   * Notes and not yet moved (migrations/jobNotesToNotesV1): shown, read
-   * only, so it is not lost from sight meanwhile. */
-  plainNote?: string
 }) {
   const [openId, setOpenId] = useState<Id<'notes'> | null>(null)
   // The note just made, whose first line takes the caret as it opens.
   const [createdId, setCreatedId] = useState<Id<'notes'> | null>(null)
   const [showOthers, setShowOthers] = useState(false)
+  // Notes made here, this time: closed with nothing in them, they are
+  // cleared away (InlineNote `discardIfEmpty`).
+  const [made, setMade] = useState<ReadonlySet<Id<'notes'>>>(new Set())
+  const siteButton = useRef<HTMLButtonElement>(null)
   const members = useMentionRoster(businessId)
   const hydrated = useHydrated()
 
@@ -85,6 +84,7 @@ export function JobNotesSection({
     onSuccess: (id, link) => {
       setCreatedId(link === 'visit' ? id : null)
       setOpenId(id)
+      setMade((ids) => new Set(ids).add(id))
     },
   })
 
@@ -98,6 +98,8 @@ export function JobNotesSection({
       members={members}
       showJob={showJob}
       autoFocus={createdId === note._id}
+      discardIfEmpty={made.has(note._id)}
+      deleteFocus={() => siteButton.current}
       open={openId === note._id}
       onToggle={() => {
         // Opened again later, a note keeps the caret where the person puts it.
@@ -139,24 +141,14 @@ export function JobNotesSection({
             </Group>
 
             <Group label="This visit">
-              {plainNote && (
-                <div className="px-3.5 py-2.5">
-                  <p className="select-text whitespace-pre-wrap break-words text-body text-ink">
-                    {plainNote}
-                  </p>
-                  <p className="mt-0.5 text-caption text-muted">
-                    Written in an earlier version of PestM8.
-                  </p>
-                </div>
+              {thisVisit.length > 0 ? (
+                thisVisit.map((note) => row(note, false))
+              ) : (
+                <Empty>
+                  Anything about this visit — when the tenant is home, what to
+                  bring.
+                </Empty>
               )}
-              {thisVisit.length > 0
-                ? thisVisit.map((note) => row(note, false))
-                : !plainNote && (
-                    <Empty>
-                      Anything about this visit — when the tenant is home, what
-                      to bring.
-                    </Empty>
-                  )}
             </Group>
 
             {others.length > 0 && (
@@ -201,6 +193,7 @@ export function JobNotesSection({
           )}
           <AddButton
             label="Add a site note"
+            buttonRef={siteButton}
             disabled={!hydrated || create.isPending}
             onClick={() => create.mutate('site')}
           >
@@ -236,15 +229,18 @@ function AddButton({
   onClick,
   disabled,
   divider = false,
+  buttonRef,
 }: {
   label: string
   children: ReactNode
   onClick: () => void
   disabled: boolean
   divider?: boolean
+  buttonRef?: Ref<HTMLButtonElement>
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       aria-label={label}
       disabled={disabled}
