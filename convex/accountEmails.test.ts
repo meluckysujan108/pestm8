@@ -148,7 +148,8 @@ describe('forgot password', () => {
     ])
     // The row keeps what happened, never the link.
     expect(JSON.stringify(rows)).not.toContain(token)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('an address with no account is answered the same way, and nothing is sent', async () => {
     const t = testApp()

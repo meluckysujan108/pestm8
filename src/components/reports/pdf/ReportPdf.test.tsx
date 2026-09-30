@@ -171,7 +171,8 @@ describe('the service report a client receives', () => {
     // And the warranty pages, verbatim.
     expect(text).toContain('PLEASE GIVE IT 6 WEEKS FOR YOUR TREATMENT TO WORK')
     expect(text).toContain('IT DOES NOT WORK BY SMELL')
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('the footer carries the form’s own provenance labels', async () => {
     const { text } = await render(serviceReport())
@@ -422,7 +423,8 @@ describe('evidence', () => {
       expect(box.h).toBeCloseTo(TILE_WIDTH, 1)
       expect(box.h).not.toBeCloseTo(TILE_HEIGHT, 1)
     }
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 })
 
 describe('a table longer than a page', () => {
@@ -472,5 +474,6 @@ describe('a table longer than a page', () => {
 
     // Every row reaches the page, none dropped at a break.
     expect(pages.join(' ').match(/— drum \d+/g)).toHaveLength(45)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 })

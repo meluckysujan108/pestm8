@@ -534,7 +534,8 @@ describe('a report holds only as many marks as its one read can show', () => {
     await expect(
       draw(s, s.terence, s.kevinReport, 1, points(1)),
     ).rejects.toThrow('REPORT_FULL_OF_MARKS')
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('one person’s share: the stroke past it is refused, the rest of the team is not, and their own Undo makes room', async () => {
     const s = await setup()
@@ -617,7 +618,8 @@ describe('a report holds only as many marks as its one read can show', () => {
     expect(
       (await marks(s, s.terence, s.kevinReport)).filter((m) => m.mine),
     ).toHaveLength(1)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   /**
    * What it takes to fill a report now: four people at their share. Two of

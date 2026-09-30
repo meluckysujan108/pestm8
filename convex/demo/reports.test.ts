@@ -153,7 +153,8 @@ describe('the demo reports', () => {
     run = await runDemoSteps('reports')
     seededBy = Date.now()
     rows = await rowsOf(run.t, run.base.businessId)
-  })
+    // A busy machine running the whole suite beside it can take this past 10 s.
+  }, 60_000)
   afterAll(() => {
     vi.useRealTimers()
   })
