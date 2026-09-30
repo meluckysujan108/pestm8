@@ -1,8 +1,7 @@
 import { Link, useNavigate } from '@tanstack/react-router'
-import { REPORT_PILL } from '#/lib/statusColours'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
-import { Lock, Plus } from 'lucide-react'
+import { Plus } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { CREATABLE_TEMPLATES } from '#/lib/reportTemplates'
 import { suggestTemplates } from '#/lib/reportTemplates/suggest'
@@ -16,6 +15,10 @@ import {
 } from '#/components/primitives/buttons'
 import { RowPending } from '#/components/shell/Pending'
 import { LoadFailed } from '#/components/primitives/EmptyState'
+import { ReportLine } from './ReportRows'
+import type { InlineReport } from './ReportRows'
+
+export type { InlineReport } from './ReportRows'
 
 /**
  * Reports, shown inside a job sheet or a client sheet.
@@ -32,17 +35,6 @@ import { LoadFailed } from '#/components/primitives/EmptyState'
  * they are three: loading is not empty, and empty is not absent.
  */
 
-export type InlineReport = {
-  _id: Id<'reports'>
-  status: string
-  emailedAt?: number
-  finalisedAt?: number
-  createdAt: number
-  legalBasis: string
-  templateName: string
-  jobId?: Id<'jobs'>
-}
-
 export function InlineReportsSection({
   businessSlug,
   timezone,
@@ -52,6 +44,7 @@ export function InlineReportsSection({
   failed = false,
   onRetry,
   action,
+  footer,
 }: {
   businessSlug: string
   timezone: string
@@ -65,6 +58,8 @@ export function InlineReportsSection({
   onRetry?: () => void
   /** What to start one with, where the surface offers that. */
   action?: ReactNode
+  /** More of the same card below the action: a job's photos. */
+  footer?: ReactNode
 }) {
   return (
     <section className="mt-6">
@@ -93,61 +88,9 @@ export function InlineReportsSection({
         {action && (
           <div className="border-t border-hairline p-2.5">{action}</div>
         )}
+        {footer}
       </div>
     </section>
-  )
-}
-
-function ReportLine({
-  businessSlug,
-  report,
-  timezone,
-}: {
-  businessSlug: string
-  report: InlineReport
-  timezone: string
-}) {
-  const bucket =
-    report.status === 'draft'
-      ? 'draft'
-      : report.emailedAt
-        ? 'sent'
-        : 'finalised'
-
-  return (
-    <Link
-      to="/$businessSlug/reports/$reportId"
-      params={{ businessSlug, reportId: report._id }}
-      className="flex items-center justify-between gap-2 px-3.5 py-2.5"
-    >
-      <span className="min-w-0">
-        {/* The form's own name. The row used to lead with the legal basis,
-            so three different documents all read "APVMA · AEPMA". */}
-        <span className="block truncate text-body text-ink">
-          {report.templateName}
-        </span>
-        <span className="text-caption text-muted">
-          {new Intl.DateTimeFormat('en-AU', {
-            timeZone: timezone,
-            day: 'numeric',
-            month: 'short',
-            year: 'numeric',
-          }).format(new Date(report.finalisedAt ?? report.createdAt))}
-          {' · '}
-          {report.legalBasis}
-        </span>
-      </span>
-      <span
-        className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${REPORT_PILL[bucket]}`}
-      >
-        {bucket !== 'draft' && <Lock size={10} strokeWidth={2.4} />}
-        {bucket === 'sent'
-          ? 'Sent'
-          : bucket === 'finalised'
-            ? 'Finalised'
-            : 'Draft'}
-      </span>
-    </Link>
   )
 }
 
