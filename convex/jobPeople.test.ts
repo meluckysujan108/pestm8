@@ -442,6 +442,24 @@ describe('when Kevin leaves the team', () => {
     ])
   })
 
+  test('the owner is told how many jobs ahead he comes off, and only those', async () => {
+    const s = await setup()
+    await book(s, { alsoGoing: [s.kevinId], when: at(2) })
+    await book(s, { alsoGoing: [s.kevinId], when: at(3) })
+    // Neither of these is work he'd be missed from.
+    await book(s, { alsoGoing: [s.kevinId], when: at(-2) })
+    const called = await book(s, { alsoGoing: [s.kevinId], when: at(4) })
+    await s.t.run((ctx) => ctx.db.patch(called, { status: 'cancelled' }))
+
+    const preview = await s.owner.as.query(api.team.removalPreview, {
+      businessId: s.businessId,
+      membershipId: s.kevinId,
+    })
+    expect(preview.alsoGoingJobs).toBe(2)
+    // Nothing of his own ahead, so nobody is asked to take anything over.
+    expect(preview.futureJobs).toBe(0)
+  })
+
   test('a successor already also going on a job he led becomes its lead alone', async () => {
     const s = await setup()
     const jobId = await book(s, {

@@ -340,6 +340,11 @@ function JobBlock({
 }) {
   const projected = job.status === 'recurring'
   const people = everyoneOnJob(job)
+  // Two circles at most, so the client's name keeps its room: past two
+  // people, the lead's letter and how many more ("T +3"). Four letters left
+  // "Karrat…" of a name on a phone. The card on the day names them all.
+  const lettered = people.length > 2 ? people.slice(0, 1) : people
+  const more = people.length - lettered.length
   return (
     <button
       type="button"
@@ -362,13 +367,14 @@ function JobBlock({
           style={{ backgroundColor: job.assigneeColour }}
         />
       )}
-      {/* The lead's initial, and one for each person also going, overlapped:
-          the block keeps the lead's colour, the letters say who else. */}
+      {/* The lead's initial, and the other person's (or "+2" for more),
+          overlapped: the block keeps the lead's colour, the letters say who
+          else. */}
       {/* Always on a shared job: its block has the lead's colour alone, so
           only the letters say who else is going. */}
       {(initial || people.length > 1) && people.length > 0 && (
         <span aria-hidden className="mt-px flex shrink-0 -space-x-1.5">
-          {people.map((person, i) => (
+          {lettered.map((person, i) => (
             <span
               key={`${person.name}-${i}`}
               className="flex size-5 items-center justify-center rounded-full border-2 bg-surface text-[11px] font-bold text-ink"
@@ -377,6 +383,11 @@ function JobBlock({
               {person.name.trim().charAt(0).toUpperCase()}
             </span>
           ))}
+          {more > 0 && (
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-muted-2 bg-surface px-0.5 text-[10px] font-bold text-ink">
+              +{more}
+            </span>
+          )}
         </span>
       )}
       <span className="w-[4.5rem] shrink-0 pt-px font-mono text-caption tabular-nums text-ink-2">

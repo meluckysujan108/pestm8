@@ -57,6 +57,7 @@ import { joinJobTypes } from '../../../convex/lib/jobTypes'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD, FIELD_SURFACE } from '#/components/forms/FormField'
 import { Plus } from 'lucide-react'
+import { alsoGoingFullLabel } from '#/lib/jobPeople'
 import { MAX_ALSO_GOING } from '../../../convex/lib/jobPeople'
 import { useAccess } from '#/lib/access'
 
@@ -787,7 +788,10 @@ function NewJobForm({
                 <Combobox
                   multiple
                   value={alsoGoingNow}
-                  // Up to the server's limit: a sixth tick is not taken.
+                  // Up to the server's limit: a sixth tick is not taken, and
+                  // the sheet says why.
+                  max={MAX_ALSO_GOING}
+                  fullLabel={alsoGoingFullLabel(leadName, MAX_ALSO_GOING)}
                   onChange={(next) =>
                     setAlsoGoing(next.slice(0, MAX_ALSO_GOING))
                   }

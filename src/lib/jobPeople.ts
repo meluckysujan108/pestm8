@@ -31,3 +31,12 @@ export function namesOf(people: ReadonlyArray<{ name: string }>): string {
 export function firstName(name: string): string {
   return name.trim().split(/\s+/)[0] ?? name
 }
+
+/**
+ * What the "Also going" picker says once as many are ticked as a job can take
+ * (the edit form and New Job alike): why a tap on anyone else does nothing,
+ * and how to make room. `leadName` is "you" on the lead's own job.
+ */
+export function alsoGoingFullLabel(leadName: string, max: number): string {
+  return `That’s ${max}, the most who can go with ${leadName}. Untick someone to choose someone else.`
+}

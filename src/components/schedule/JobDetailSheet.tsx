@@ -62,6 +62,7 @@ import { DetailRow, DetailRows } from '#/components/primitives/DetailRow'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { LoadFailed } from '#/components/primitives/EmptyState'
+import { alsoGoingFullLabel } from '#/lib/jobPeople'
 import { MAX_ALSO_GOING } from '../../../convex/lib/jobPeople'
 import { useAccess } from '#/lib/access'
 
@@ -1202,6 +1203,8 @@ function JobEditForm({
                 value={alsoGoingNow}
                 // Up to the server's limit: a sixth tick is not taken, and the
                 // sheet says why.
+                max={MAX_ALSO_GOING}
+                fullLabel={alsoGoingFullLabel(leadName, MAX_ALSO_GOING)}
                 onChange={(next) => setAlsoGoing(next.slice(0, MAX_ALSO_GOING))}
                 options={alsoGoingOptions}
                 title="Also going"

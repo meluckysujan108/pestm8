@@ -71,6 +71,33 @@ async function futureJobsOf(
   )
 }
 
+/**
+ * Jobs ahead they are only also going on (lib/jobPeople.ts), still to be
+ * worked: what they come off when they leave. Nobody need take these over —
+ * each still has its lead — but the owner is told, so a job does not turn up
+ * a person short. Cancelled and finished ones are not counted.
+ */
+async function alsoGoingAheadOf(
+  ctx: QueryCtx | MutationCtx,
+  membershipId: Id<'memberships'>,
+  businessId: Id<'businesses'>,
+) {
+  const rows = await ctx.db
+    .query('jobPeople')
+    .withIndex('by_member_date', (q) =>
+      q.eq('membershipId', membershipId).gte('scheduledAt', Date.now()),
+    )
+    .collect()
+  const jobs = await Promise.all(
+    rows
+      .filter((row) => row.businessId === businessId)
+      .map((row) => ctx.db.get(row.jobId)),
+  )
+  return jobs.filter(
+    (job) => job !== null && FUTURE_JOB_STATUSES.has(job.status),
+  )
+}
+
 async function activeRecurrencesOf(
   ctx: QueryCtx | MutationCtx,
   membershipId: Id<'memberships'>,
@@ -123,10 +150,11 @@ export const removalPreview = query({
     }
 
     const user = await authComponent.getAnyUserById(ctx, target.userId)
-    const [futureJobs, recurrences, drafts] = await Promise.all([
+    const [futureJobs, recurrences, drafts, alsoGoing] = await Promise.all([
       futureJobsOf(ctx, membershipId, businessId),
       activeRecurrencesOf(ctx, membershipId, businessId),
       openDraftsOf(ctx, membershipId, businessId),
+      alsoGoingAheadOf(ctx, membershipId, businessId),
     ])
 
     return {
@@ -134,6 +162,7 @@ export const removalPreview = query({
       futureJobs: futureJobs.length,
       activeRecurrences: recurrences.length,
       openDrafts: drafts.length,
+      alsoGoingJobs: alsoGoing.length,
     }
   },
 })

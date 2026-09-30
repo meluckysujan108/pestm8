@@ -1,3 +1,4 @@
+import { Fragment } from 'react'
 import { CalendarClock, Repeat } from 'lucide-react'
 import { formatJobDate, formatJobMoney, formatTimeRange } from '#/lib/format'
 import { StatusPill } from '#/components/primitives/StatusPill'
@@ -311,19 +312,28 @@ export function JobCard({
                 label={people.length > 1 ? 'Technicians' : 'Technician'}
                 lines={people.length > 2 ? 2 : 1}
               >
-                {/* Inline, so the row's two-line clamp applies to them. */}
+                {/* Inline, so the row's two-line clamp applies to them. Each
+                    dot is kept with its name (a dot left at the end of a line
+                    reads as the wrong person's); a line breaks only at the
+                    space between two people. */}
                 {people.map((person, i) => (
-                  <span
-                    key={`${person.name}-${i}`}
-                    className={i > 0 ? 'ml-2.5' : undefined}
-                  >
+                  <Fragment key={`${person.name}-${i}`}>
+                    {i > 0 && ' '}
                     <span
-                      aria-hidden
-                      className="mr-1.5 inline-block size-2 rounded-full align-middle"
-                      style={{ backgroundColor: person.colour }}
-                    />
-                    {shortNames[i]}
-                  </span>
+                      className={
+                        i < people.length - 1
+                          ? 'mr-1.5 whitespace-nowrap'
+                          : 'whitespace-nowrap'
+                      }
+                    >
+                      <span
+                        aria-hidden
+                        className="mr-1.5 inline-block size-2 rounded-full align-middle"
+                        style={{ backgroundColor: person.colour }}
+                      />
+                      {shortNames[i]}
+                    </span>
+                  </Fragment>
                 ))}
               </Row>
             )}
