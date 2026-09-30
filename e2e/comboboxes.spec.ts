@@ -256,7 +256,7 @@ test('a job for several services, with a note, books as one job that says both',
   expect(jobs).toHaveLength(1)
   expect(jobs[0].jobType).toBe(services)
   // A note in Notes on the job, not a field of its own.
-  expect(jobs[0].notes).toBeUndefined()
+  expect(jobs[0]).not.toHaveProperty('notes')
   expect(jobs[0].notePreview).toBe('Tenant home after 10 — ring first.')
 
   // The card names every service, and carries the note.

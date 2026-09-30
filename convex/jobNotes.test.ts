@@ -117,10 +117,11 @@ async function notesOn(s: Setup, jobId: Id<'jobs'>) {
   }))
 }
 
-/** The plain note a job carried before job notes were Notes. */
+/** Anything left in the plain-text note field jobs carried for a day
+ * (29–30 Sept 2026), read past the schema that no longer has it. */
 async function plain(s: Setup, jobId: Id<'jobs'>) {
   const job = await s.t.run((ctx) => ctx.db.get(jobId))
-  return job!.notes
+  return (job as Record<string, unknown> | null)?.notes
 }
 
 async function visitsOf(s: Setup, recurrenceId: Id<'recurrences'>) {
@@ -275,10 +276,11 @@ describe('a job’s notes after the booking', () => {
   })
 })
 
-describe('an older app still changing a job’s plain note', () => {
-  // `jobs.update` keeps taking `notes` until the contract step, for a phone
-  // still running the app from before job notes were Notes.
-  test('sets, replaces and clears it; leaving it out leaves it alone', async () => {
+describe('an older app still sending a job’s note', () => {
+  // `jobs.update` still takes `notes`, from a phone running the app from
+  // before job notes were Notes: its job sheet kept the note as text on the
+  // job. That field is gone, so what it sends becomes a note in Notes.
+  test('keeps it as a note in Notes on the job, once, and never on the job', async () => {
     const s = await setup()
     const jobId = await book(s)
     const update = (patch: { notes?: string; durationMinutes?: number }) =>
@@ -289,41 +291,30 @@ describe('an older app still changing a job’s plain note', () => {
       })
 
     await update({ notes: 'Ring first.' })
-    expect(await plain(s, jobId)).toBe('Ring first.')
-
-    await update({ notes: ' Ring first. Bring the long ladder. ' })
-    expect(await plain(s, jobId)).toBe('Ring first. Bring the long ladder.')
-
+    expect(await notesOn(s, jobId)).toEqual([
+      expect.objectContaining({
+        title: 'Ring first.',
+        author: s.ownerMembershipId,
+        shared: true,
+      }),
+    ])
+    // The same words again — an older app sends the whole note with every
+    // change — are the same note.
+    await update({ notes: ' Ring first. ' })
+    // Other changes, and clearing it, add nothing.
     await update({ durationMinutes: 90 })
-    expect(await plain(s, jobId)).toBe('Ring first. Bring the long ladder.')
-
     await update({ notes: '' })
-    const cleared = await s.t.run((ctx) => ctx.db.get(jobId))
-    expect(cleared).not.toHaveProperty('notes')
+    expect(await notesOn(s, jobId)).toHaveLength(1)
+    // A changed note is kept too: nothing an older phone sends is lost.
+    await update({ notes: 'Ring first. Bring the long ladder.' })
+    expect((await notesOn(s, jobId)).map((n) => n.title).sort()).toEqual([
+      'Ring first.',
+      'Ring first. Bring the long ladder.',
+    ])
+    expect(await plain(s, jobId)).toBeUndefined()
   })
 
-  test('the card falls back to it until it is moved into Notes', async () => {
-    const s = await setup()
-    const jobId = await book(s)
-    await s.owner.as.mutation(api.jobs.update, {
-      businessId: s.businessId,
-      jobId,
-      notes: 'Paid cash on the day.',
-    })
-    const job = await s.t.run((ctx) => ctx.db.get(jobId))
-    const day = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Australia/Perth',
-    }).format(new Date(job!.scheduledAt))
-    const card = await s.owner.as.query(api.jobs.listDay, {
-      businessId: s.businessId,
-      dayKey: day,
-    })
-    expect(card.find((j) => j._id === jobId)?.notePreview).toBe(
-      'Paid cash on the day.',
-    )
-  })
-
-  test('stays open once the job is invoiced, while its billed details lock', async () => {
+  test('is taken on an invoiced job, while its billed details stay locked', async () => {
     const s = await setup()
     const jobId = await book(s)
     await s.owner.as.mutation(api.jobs.update, {
@@ -336,24 +327,19 @@ describe('an older app still changing a job’s plain note', () => {
       jobId,
       notes: 'Paid cash on the day.',
     })
-    expect(await plain(s, jobId)).toBe('Paid cash on the day.')
-    for (const detail of [
-      { price: 1 },
-      { jobType: 'Ants' },
-      { workOrder: 'WO-9' },
-      { scheduledAt: Date.now() + 2 * DAY },
-      { durationMinutes: 90 },
-    ]) {
-      await expect(
-        s.owner.as.mutation(api.jobs.update, {
-          businessId: s.businessId,
-          jobId,
-          notes: 'Changed with it.',
-          ...detail,
-        }),
-      ).rejects.toThrow(/JOB_INVOICED/)
-    }
-    expect(await plain(s, jobId)).toBe('Paid cash on the day.')
+    expect((await notesOn(s, jobId)).map((n) => n.title)).toEqual([
+      'Paid cash on the day.',
+    ])
+    await expect(
+      s.owner.as.mutation(api.jobs.update, {
+        businessId: s.businessId,
+        jobId,
+        notes: 'Changed with it.',
+        price: 1,
+      }),
+    ).rejects.toThrow(/JOB_INVOICED/)
+    // Refused whole: the note with it was not kept either.
+    expect(await notesOn(s, jobId)).toHaveLength(1)
   })
 
   test('someone who may not edit the job may not write on it', async () => {
@@ -368,7 +354,7 @@ describe('an older app still changing a job’s plain note', () => {
         notes: 'Not mine to say.',
       }),
     ).rejects.toThrow(/NO_ACCESS|NOT_FOUND/)
-    expect(await plain(s, jobId)).toBeUndefined()
+    expect(await notesOn(s, jobId)).toEqual([])
   })
 })
 

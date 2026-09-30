@@ -54,8 +54,16 @@ export const { getSnapshot, submitSnapshot, latestVersion, getSteps, submitSteps
     onSnapshot: async (ctx, id, snapshot, version) => {
       // A snapshot queued offline can arrive after a newer one has landed;
       // only the newest body may drive the row metadata and the mentions.
+      // An older one is refused outright rather than stored: it adds nothing
+      // (the newer one holds every edit up to it), and a note shared since
+      // had its older copies deleted so that what it said while personal
+      // cannot be read back (`notes.setVisibility`) — a phone that slept
+      // through the share would otherwise put one back.
       const latest = await ctx.runQuery(components.prosemirrorSync.lib.getSnapshot, { id })
-      if (latest.content !== null && latest.version >= version) return
+      if (latest.content !== null && latest.version > version) {
+        throw new ConvexError('SNAPSHOT_SUPERSEDED')
+      }
+      if (latest.content !== null && latest.version === version) return
       const note = await noteFromSyncId(ctx, id)
       const actor = await requireMembership(ctx, note.businessId)
       const doc = JSON.parse(snapshot) as PmNode

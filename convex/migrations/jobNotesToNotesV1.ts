@@ -24,8 +24,15 @@ import type { MutationCtx } from '../_generated/server'
  *          'return (await ctx.db.query("jobs").collect()).filter(j => j.notes !== undefined).length'
  *      An app from before job notes were Notes can still write one through
  *      `jobs.update` until the contract step; run this again just before it.
- *   4. Contract: drop `jobs.notes` from the schema and `notes` from
- *      `jobs.update`'s arguments.
+ *   4. Contract, in two steps. First (30 Sept 2026) a backend that neither
+ *      reads nor writes the field: `jobs.update` still takes `notes` from an
+ *      older app, and keeps it as a note in Notes instead
+ *      (`notes.insertJobNoteOnce`). Count again (3) once that backend is
+ *      live, not before — an older app could write one until the moment it
+ *      is — and if any is left, run this again (2). Then, still to do: drop
+ *      `jobs.notes` from the schema, and this file, once every deployment
+ *      counts none. Until then a deployment holding one (a test backend)
+ *      runs this to clear it.
  *
  * The note is the owner's: who typed a plain note was never recorded, and
  * the owner may edit or delete any note.
