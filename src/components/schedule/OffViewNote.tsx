@@ -18,14 +18,22 @@ import type { Role } from '../../../convex/lib/capabilities'
 export function OffViewNote({
   assignee,
   people,
+  alsoGoing = [],
 }: {
   assignee: string
   people: ReadonlyArray<{ _id: string; name: string; role: Role }>
+  /** Everyone going beside the lead: someone also going still sees it. */
+  alsoGoing?: ReadonlyArray<string>
 }) {
   const mode = useViewMode()
   const access = useAccess()
 
-  if (mode !== 'mine' || assignee === '' || assignee === access.membershipId) {
+  if (
+    mode !== 'mine' ||
+    assignee === '' ||
+    assignee === access.membershipId ||
+    alsoGoing.includes(access.membershipId)
+  ) {
     return null
   }
 

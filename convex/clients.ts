@@ -10,7 +10,13 @@ import {
   decorate as decorateReports,
   reportChips,
 } from './reports'
-import { isInScope, reportReadable } from './lib/capabilities'
+import { isInScope } from './lib/capabilities'
+import {
+  inScope,
+  reportReadableHere,
+  sharedJobIds,
+  sharedJobsInRange,
+} from './lib/jobPeople'
 import type { RowScope } from './lib/capabilities'
 import { clientKind, clientStatus } from './schema'
 import {
@@ -252,6 +258,8 @@ export const jobHistory = query({
       ),
     )
     const jobs = jobsByProperty.flat()
+    // The visits they were also going on count as theirs (lib/jobPeople.ts).
+    const shared = await sharedJobIds(ctx, scope)
 
     // Redacted like every other job read. These went out raw, so anyone who
     // could open a client could read what each of their own visits was
@@ -260,7 +268,7 @@ export const jobHistory = query({
     return redactJobs(
       caps,
       jobs
-        .filter((j) => isInScope(scope, j))
+        .filter((j) => inScope(scope, j, shared))
         .sort((a, b) => b.scheduledAt - a.scheduledAt),
     )
   },
@@ -293,14 +301,17 @@ export const reports = query({
       ),
     )
 
-    const visible = reportsByProperty
+    // The gate `reports.listByProperty` uses: theirs to read, or on a job
+    // they were on — as its lead or also going (lib/jobPeople.ts).
+    const shared = await sharedJobIds(ctx, scope)
+    const live = reportsByProperty
       .flat()
-      .filter(
-        (r) =>
-          r.businessId === businessId &&
-          r.deletedAt === undefined &&
-          reportReadable(scope, actor.real._id, r),
-      )
+      .filter((r) => r.businessId === businessId && r.deletedAt === undefined)
+    const readable = await Promise.all(
+      live.map((r) => reportReadableHere(ctx, scope, actor.real._id, r, shared)),
+    )
+    const visible = live
+      .filter((_, i) => readable[i])
       .sort((a, b) => (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt))
       // Bounded: this is a section inside a sheet. The library holds the rest.
       .slice(0, INLINE_LIMIT)
@@ -317,6 +328,9 @@ export const reports = query({
  * visits are made last, so a recurring client's next six months always fit.
  */
 export const SUMMARY_VISITS_PER_PROPERTY = 400
+
+/** Most shared visits read for one client's summary, across a team. */
+const SHARED_VISITS_READ = 300
 
 /** The same for a property's reports, newest first. */
 export const SUMMARY_REPORTS_PER_PROPERTY = 100
@@ -397,6 +411,23 @@ export const summary = query({
     const sites = await propertiesOf(ctx, businessId, clientId)
     const properties = sites.properties
     const assignees = scopeMembers(env.scope)
+    // The visits they are also going on (lib/jobPeople.ts), which the
+    // filter below, on who leads each visit, cannot find: read by person and
+    // added back in at each property.
+    const sharedJobs =
+      assignees === null
+        ? []
+        : await sharedJobsInRange(ctx, env.scope, {
+            businessId,
+            order: 'desc',
+            // Shared across a team, so a contractor with many on it does not
+            // read many times over (each is a document fetched).
+            limit: Math.max(
+              25,
+              Math.floor(SHARED_VISITS_READ / assignees.length),
+            ),
+          })
+    const shared = new Set(sharedJobs.map((job) => job._id))
 
     const perProperty = await Promise.all(
       properties.map(async (property) => {
@@ -424,10 +455,18 @@ export const summary = query({
             )
             .take(SUMMARY_VISITS_PER_PROPERTY + 1),
         ])
+        const here = sharedJobs.filter(
+          (job) =>
+            job.propertyId === property._id &&
+            !jobs.some((own) => own._id === job._id),
+        )
+        const all = [...jobs, ...here].sort(
+          (a, b) => b.scheduledAt - a.scheduledAt,
+        )
         return {
           series,
-          jobs: jobs.slice(0, SUMMARY_VISITS_PER_PROPERTY),
-          capped: jobs.length > SUMMARY_VISITS_PER_PROPERTY,
+          jobs: all.slice(0, SUMMARY_VISITS_PER_PROPERTY),
+          capped: all.length > SUMMARY_VISITS_PER_PROPERTY,
         }
       }),
     )
@@ -437,7 +476,9 @@ export const summary = query({
       .filter((r) => r.businessId === businessId && isInScope(env.scope, r))
     const visits = perProperty
       .flatMap((p) => p.jobs)
-      .filter((j) => j.businessId === businessId && isInScope(env.scope, j))
+      .filter(
+        (j) => j.businessId === businessId && inScope(env.scope, j, shared),
+      )
 
     // The latest occurrence each running service has used, whoever's visit
     // it is and whether it is in the Recycle bin: the engine books none of
@@ -539,13 +580,51 @@ export const visitReports = query({
       ),
     )
 
-    const readable = perProperty
-      .flatMap((rows) => rows.slice(0, SUMMARY_REPORTS_PER_PROPERTY))
-      .filter(
-        (r) =>
-          r.businessId === businessId &&
-          reportReadable(env.scope, env.actor.real._id, r),
+    // And the reports on visits they were also going on (lib/jobPeople.ts),
+    // whoever wrote them — which the author filter above cannot find.
+    const propertyIds = new Set(properties.map((p) => p._id))
+    const sharedHere =
+      scoped === null
+        ? []
+        : (
+            await sharedJobsInRange(ctx, env.scope, {
+              businessId,
+              order: 'desc',
+              limit: Math.max(25, Math.floor(SHARED_VISITS_READ / scoped.length)),
+            })
+          ).filter((job) => propertyIds.has(job.propertyId))
+    const sharedReports = (
+      await Promise.all(
+        sharedHere.map((job) =>
+          ctx.db
+            .query('reports')
+            .withIndex('by_job', (q) => q.eq('jobId', job._id))
+            .take(10),
+        ),
       )
+    )
+      .flat()
+      .filter((r) => r.deletedAt === undefined)
+
+    const byId = new Map(
+      [
+        ...perProperty.flatMap((rows) =>
+          rows.slice(0, SUMMARY_REPORTS_PER_PROPERTY),
+        ),
+        ...sharedReports,
+      ].map((r) => [r._id, r]),
+    )
+    const shared = new Set(sharedHere.map((job) => job._id))
+    const candidates = [...byId.values()].filter(
+      (r) => r.businessId === businessId,
+    )
+    const allowed = await Promise.all(
+      candidates.map((r) =>
+        reportReadableHere(ctx, env.scope, env.actor.real._id, r, shared),
+      ),
+    )
+    const readable = candidates
+      .filter((_, i) => allowed[i])
       .sort(
         (a, b) =>
           (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt),

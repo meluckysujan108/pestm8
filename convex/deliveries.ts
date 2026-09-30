@@ -9,11 +9,7 @@ import { requireMembership } from './lib/access'
 import { requireActor, requireWriteActor } from './lib/actor'
 import { forSelf, recordAudit } from './lib/audit'
 import type { AuditAttribution } from './lib/audit'
-import {
-  clientScope,
-  reportReadable,
-  writeAttribution,
-} from './lib/capabilities'
+import { clientScope, writeAttribution } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { emailConfigured } from './lib/emailConfig'
 import { EMAIL_BUDGET_BYTES } from './lib/emailFit'
@@ -33,6 +29,7 @@ import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
+import { reportReadableHere } from './lib/jobPeople'
 
 /**
  * Sending a report, as a record rather than an event.
@@ -279,7 +276,11 @@ export const known = query({
     }
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return none
-    if (!reportReadable(env.scope, env.actor.real._id, report)) return none
+    if (
+      !(await reportReadableHere(ctx, env.scope, env.actor.real._id, report))
+    ) {
+      return none
+    }
 
     const business = await ctx.db.get(businessId)
     return {
@@ -462,7 +463,11 @@ export const forReport = query({
     const env = await requireActor(ctx, businessId)
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return []
-    if (!reportReadable(env.scope, env.actor.real._id, report)) return []
+    if (
+      !(await reportReadableHere(ctx, env.scope, env.actor.real._id, report))
+    ) {
+      return []
+    }
 
     const rows = await ctx.db
       .query('reportDeliveries')
@@ -528,7 +533,7 @@ export const request = mutation({
     if (!report || report.businessId !== businessId)
       throw new ConvexError('NOT_FOUND')
     if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
-    if (!reportReadable(env.scope, env.actor.real._id, report))
+    if (!(await reportReadableHere(ctx, env.scope, env.actor.real._id, report)))
       throw new ConvexError('NO_ACCESS')
     if (report.status !== 'finalised')
       throw new ConvexError('REPORT_NOT_FINALISED')

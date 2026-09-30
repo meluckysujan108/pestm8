@@ -47,7 +47,7 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { IntervalUnit } from '../../../convex/lib/recurrence'
 import { useHydrated } from '#/lib/useHydrated'
 import { clientOptions, propertyOptions } from '#/lib/propertyOptions'
-import { personLabel, useAssigneeOptions } from '#/lib/assignees'
+import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
@@ -57,6 +57,8 @@ import { joinJobTypes } from '../../../convex/lib/jobTypes'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD, FIELD_SURFACE } from '#/components/forms/FormField'
 import { Plus } from 'lucide-react'
+import { MAX_ALSO_GOING } from '../../../convex/lib/jobPeople'
+import { useAccess } from '#/lib/access'
 
 /** 'site' is a new site for an existing client (Prompt 6.3). */
 type ClientMode = 'existing' | 'new' | 'site'
@@ -76,7 +78,8 @@ const BOOKING_ERROR_COPY: ErrorCopy = {
   NO_ACCESS:
     'Could not book this job: your access does not cover that calendar. Ask the business owner.',
   INVALID_ASSIGNEE:
-    'Could not book this job: that person is no longer on the team. Choose someone else under Assigned to.',
+    'Could not book this job: someone on it is no longer on the team. Choose someone else under Assigned to or Also going.',
+  TOO_MANY_PEOPLE: `Could not book this job: a job can have up to ${MAX_ALSO_GOING} people also going. Take someone off and try again.`,
   NOTES_TOO_LONG: `Could not book this job: the note is longer than ${MAX_JOB_NOTES_LENGTH} characters. Shorten it and try again.`,
   default: 'Could not book this job. Check your signal and try again.',
 }
@@ -238,6 +241,10 @@ function NewJobForm({
   // Anything filled in locks the sheet against a swipe, and ✕ asks before
   // throwing it away (useSheetLock). An untouched New Job still swipes shut.
   const [assigneeChosen, setAssigneeChosen] = useState(false)
+  // Everyone going beside the lead (a shared job): behind "Add someone else",
+  // so the form stays as short as it was for the usual one-person job.
+  const [addingPeople, setAddingPeople] = useState(false)
+  const [alsoGoing, setAlsoGoing] = useState<Array<string>>([])
   const [openedClient] = useState(newClient)
   const [openedSite] = useState(newSite)
   const changed =
@@ -247,6 +254,7 @@ function NewJobForm({
     siteClientId !== '' ||
     typedIn(newSite, openedSite) ||
     assigneeChosen ||
+    alsoGoing.length > 0 ||
     jobTypes.length > 0 ||
     notes.trim() !== '' ||
     time !== '09:00' ||
@@ -322,6 +330,27 @@ function NewJobForm({
   // while the sheet is open changes who may be booked, and a stale id would
   // be submitted as-is and refused.
   const { options: assignees, preferred } = useAssigneeOptions(members)
+  const access = useAccess()
+  // Who may go beside the lead: whoever this person may book, but the lead.
+  const alsoGoingOptions = assignees
+    .filter((m) => m._id !== assignee)
+    .map((m) => ({
+      value: m._id,
+      label: personLabel(m),
+      detail: roleLabel(m.role),
+    }))
+  // Everyone also going as it will be booked: never the lead, and only
+  // people still offered (someone removed from the team since drops out,
+  // rather than showing as an id nobody can untick). Derived, so changing
+  // the lead there and back loses nobody.
+  const alsoGoingNow = alsoGoing.filter(
+    (id) => id !== assignee && assignees.some((m) => m._id === id),
+  )
+  const leadName = (() => {
+    if (assignee === access.membershipId) return 'you'
+    const lead = assignees.find((m) => m._id === assignee)
+    return lead ? personLabel(lead) : 'the lead'
+  })()
   useEffect(() => {
     if (!assignees.some((m) => m._id === assignee)) setAssignee(preferred)
   }, [assignees, assignee, preferred])
@@ -359,6 +388,7 @@ function NewJobForm({
       durationMinutes: number
       workOrder: string | undefined
       notes: string | undefined
+      alsoGoing: Array<Id<'memberships'>> | undefined
       repeat: { count: number; unit: IntervalUnit } | null
       // Returns a job id or a recurrence id depending on the branch, and the
       // caller needs neither — void keeps them from being conflated.
@@ -437,6 +467,12 @@ function NewJobForm({
       scheduledAt,
       durationMinutes: Number(duration),
       workOrder: workOrder.trim() || undefined,
+      // Only for a one-off, and only when someone was added: a repeating
+      // service takes people visit by visit, for now.
+      alsoGoing:
+        !repeats && alsoGoingNow.length > 0
+          ? (alsoGoingNow as Array<Id<'memberships'>>)
+          : undefined,
       // Left out when blank, so a booking without one never depends on a
       // backend that knows the field.
       notes: notes.trim() || undefined,
@@ -726,8 +762,54 @@ function NewJobForm({
               Assigned to you
             </p>
           )}
-          <OffViewNote assignee={assignee} people={assignees} />
+          <OffViewNote
+            assignee={assignee}
+            people={assignees}
+            // A repeating service takes nobody else yet, so it goes on the
+            // lead's schedule alone.
+            alsoGoing={repeats ? [] : alsoGoingNow}
+          />
         </Field>
+
+        {/* A job two people work together. Not for a repeating service yet —
+            its people are added visit by visit, from each visit's page — but
+            the field stays where it is, saying so, rather than vanishing from
+            above the Repeat control as it is turned on. */}
+        {alsoGoingOptions.length > 0 &&
+          (addingPeople || alsoGoingNow.length > 0 ? (
+            <Field label="Also going">
+              {repeats ? (
+                <p className="flex min-h-12 w-full items-center rounded-xl bg-surface-3 px-3.5 py-2 text-body text-muted">
+                  For a repeating service, add people to each visit from its job
+                  page.
+                </p>
+              ) : (
+                <Combobox
+                  multiple
+                  value={alsoGoingNow}
+                  // Up to the server's limit: a sixth tick is not taken.
+                  onChange={(next) =>
+                    setAlsoGoing(next.slice(0, MAX_ALSO_GOING))
+                  }
+                  options={alsoGoingOptions}
+                  title="Also going"
+                  description={`Everyone working this job with ${leadName}, up to ${MAX_ALSO_GOING}. They see it on their schedule, and can do everything on it that ${leadName} can.`}
+                  placeholder="Search the team"
+                  emptyLabel="Nobody else"
+                  ariaLabel="Also going"
+                />
+              )}
+            </Field>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setAddingPeople(true)}
+              className="relative tap-target mt-3 inline-flex items-center gap-1 text-body font-semibold text-blue"
+            >
+              <Plus size={16} strokeWidth={2.2} />
+              Add someone else
+            </button>
+          ))}
 
         {pickDate && (
           <Field label="Date">

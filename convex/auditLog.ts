@@ -2,7 +2,7 @@ import { v } from 'convex/values'
 import { internalMutation, query } from './_generated/server'
 import { recordAudit } from './lib/audit'
 import { hasCapability, requireActor } from './lib/actor'
-import { isInScope, reportReadable } from './lib/capabilities'
+import { jobInScope, reportReadableHere } from './lib/jobPeople'
 import { memberName } from './lib/reportContext'
 import type { ActorEnvelope } from './lib/actor'
 import type { Id } from './_generated/dataModel'
@@ -74,12 +74,12 @@ async function canSeeEntityHistory(
       const report = await ctx.db.get(entityId as Id<'reports'>)
       if (!report || report.businessId !== businessId) return false
       if (report.deletedAt !== undefined) return false
-      return reportReadable(env.scope, env.actor.real._id, report)
+      return reportReadableHere(ctx, env.scope, env.actor.real._id, report)
     }
     case 'jobs': {
       const job = await ctx.db.get(entityId as Id<'jobs'>)
       if (!job || job.businessId !== businessId) return false
-      return isInScope(env.scope, job)
+      return jobInScope(ctx, env.scope, job)
     }
     // Team and invitation history is management information: the owner's,
     // and not while they are working inside somebody else's account —

@@ -9,6 +9,7 @@ import { requireActor } from './lib/actor'
 import { wireScope } from './lib/jobScope'
 import { hidePrices, redactTotal } from './lib/prices'
 import { UNASSIGNED_COLOUR } from './lib/colours'
+import { alsoGoingInWindow, everyoneOn } from './lib/jobPeople'
 
 /** Shifts a `"YYYY-MM"` key by `offset` months (either direction). */
 function monthKeyOffset(monthKey: string, offset: number): string {
@@ -58,6 +59,9 @@ export const overview = query({
     // cut. `statusBreakdown` below can therefore show every status except
     // cancelled.
     const jobs = await jobsInRange(ctx, env.listScope, businessId, from, to)
+    // Who was on each job beside its lead: a shared job is in each person's
+    // workload (lib/jobPeople.ts), and in the totals once.
+    const people = await alsoGoingInWindow(ctx, businessId, from, to)
 
     const revenueByMonth = new Map(monthKeys.map((k) => [k, 0]))
     const volumeByMonth = new Map(monthKeys.map((k) => [k, 0]))
@@ -82,10 +86,12 @@ export const overview = query({
       for (const service of services.length > 0 ? services : [job.jobType]) {
         typeCounts.set(service, (typeCounts.get(service) ?? 0) + 1)
       }
-      technicianCounts.set(
-        job.assignedMembershipId,
-        (technicianCounts.get(job.assignedMembershipId) ?? 0) + 1,
-      )
+      for (const membershipId of everyoneOn(job, people)) {
+        technicianCounts.set(
+          membershipId,
+          (technicianCounts.get(membershipId) ?? 0) + 1,
+        )
+      }
     }
 
     // `jobType` is free text (§ schema), so a business's accumulated

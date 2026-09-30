@@ -63,6 +63,7 @@ import {
   writeAttribution,
 } from './lib/capabilities'
 import type { RowScope } from './lib/capabilities'
+import { alsoGoingOf, reportReadableHere } from './lib/jobPeople'
 import { reportFactsFrom } from './lib/reportFacts'
 import { factsFromMembership } from './lib/membershipFacts'
 import type { TemplateId } from '../src/lib/reportTemplates'
@@ -186,17 +187,34 @@ export const listByProperty = query({
       // one tap away for the rest.
       .take(INLINE_LIMIT)
 
+    // Theirs to read, or on a job they were on — whoever wrote it: the job's
+    // reports are the record of a visit its people all made (lib/jobPeople.ts).
+    const live = reports.filter(
+      (r) => r.businessId === businessId && r.deletedAt === undefined,
+    )
+    const readable = await Promise.all(
+      live.map((r) => readableHere(ctx, scope, actor.real._id, r)),
+    )
     return decorate(
       ctx,
-      reports.filter(
-        (r) =>
-          r.businessId === businessId &&
-          r.deletedAt === undefined &&
-          reportReadable(scope, actor.real._id, r),
-      ),
+      live.filter((_, i) => readable[i]),
     )
   },
 })
+
+/**
+ * `reportReadable`, or a report on a job the reader is on — as its lead or
+ * also going — whoever wrote it. For opening one: the Reports library still
+ * lists by author.
+ */
+function readableHere(
+  ctx: QueryCtx,
+  scope: RowScope,
+  readerId: Id<'memberships'>,
+  report: Doc<'reports'>,
+): Promise<boolean> {
+  return reportReadableHere(ctx, scope, readerId, report)
+}
 
 /** As many as belong in a sheet section, and no more. */
 export const INLINE_LIMIT = 20
@@ -675,7 +693,9 @@ export const get = query({
 
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return null
-    if (!reportReadable(env.scope, env.actor.real._id, report)) return null
+    if (!(await readableHere(ctx, env.scope, env.actor.real._id, report))) {
+      return null
+    }
     // Soft-deleted: gone from every list, and not openable by a stale link.
     if (report.deletedAt !== undefined) return null
 
@@ -1170,7 +1190,7 @@ export const signatureUrls = query({
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}
     if (report.deletedAt !== undefined) return {}
-    if (!reportReadable(scope, actor.real._id, report)) return {}
+    if (!(await readableHere(ctx, scope, actor.real._id, report))) return {}
 
     return resolveSignatureUrls(ctx, report)
   },
@@ -1385,7 +1405,7 @@ export const galleryPhotos = query({
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return []
     if (report.deletedAt !== undefined) return []
-    if (!reportReadable(scope, actor.real._id, report)) return []
+    if (!(await readableHere(ctx, scope, actor.real._id, report))) return []
 
     const photos = await ctx.db
       .query('reportPhotos')
@@ -1422,7 +1442,7 @@ export const photoUrls = query({
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return {}
     if (report.deletedAt !== undefined) return {}
-    if (!reportReadable(scope, actor.real._id, report)) return {}
+    if (!(await readableHere(ctx, scope, actor.real._id, report))) return {}
 
     const entries = await Promise.all(
       Object.entries(report.photoSlots ?? {}).map(async ([slot, storageId]) => {
@@ -1493,7 +1513,17 @@ async function seedNewReport(
       jobType: usableJob?.jobType,
       jobTypes: usableJob ? await loadJobTypes(ctx, args.businessId) : undefined,
       clientEmail: client?.email ?? null,
-      jobAssigneeMembershipId: usableJob?.assignedMembershipId,
+      // Whoever is writing it, when they are on the job — Kevin writing up a
+      // visit he was also going on starts on his own name and licence, which
+      // is what finalising asks for. Otherwise the job's lead, as always.
+      jobAssigneeMembershipId: usableJob
+        ? args.authorMembershipId !== usableJob.assignedMembershipId &&
+          (await alsoGoingOf(ctx, usableJob._id)).includes(
+            args.authorMembershipId,
+          )
+          ? args.authorMembershipId
+          : usableJob.assignedMembershipId
+        : undefined,
       authorMembershipId: args.authorMembershipId,
       forecast,
     },

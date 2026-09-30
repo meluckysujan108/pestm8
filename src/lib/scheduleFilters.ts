@@ -63,29 +63,60 @@ export function computeStaffLoad(
     assignedMembershipId: string
     assigneeName?: string
     assigneeColour?: string
+    /** Everyone going beside the lead: a shared job is in each one's count. */
+    alsoGoing?: ReadonlyArray<{ _id: string; name: string; colour: string }>
     status?: JobStatus
   }>,
 ): Array<StaffLoad> {
   const byId = new Map<string, StaffLoad>()
-  for (const job of jobs) {
-    const counts = job.status !== 'recurring' ? 1 : 0
-    const row = byId.get(job.assignedMembershipId)
+  const add = (
+    membershipId: string,
+    name: string | undefined,
+    colour: string | undefined,
+    counts: number,
+  ) => {
+    const row = byId.get(membershipId)
     if (row) {
       row.count += counts
-      continue
+      return
     }
-    byId.set(job.assignedMembershipId, {
-      membershipId: job.assignedMembershipId,
-      name: job.assigneeName || 'Unassigned',
-      colour: job.assigneeColour ?? UNASSIGNED_COLOUR,
+    byId.set(membershipId, {
+      membershipId,
+      name: name || 'Unassigned',
+      colour: colour ?? UNASSIGNED_COLOUR,
       count: counts,
     })
+  }
+  for (const job of jobs) {
+    const counts = job.status !== 'recurring' ? 1 : 0
+    add(job.assignedMembershipId, job.assigneeName, job.assigneeColour, counts)
+    for (const person of job.alsoGoing ?? []) {
+      add(person._id, person.name, person.colour, counts)
+    }
   }
   return [...byId.values()].sort((a, b) => b.count - a.count)
 }
 
+/** Whether this person is on the job: its lead, or also going. */
+export function isOnJob(
+  job: {
+    assignedMembershipId: string
+    alsoGoing?: ReadonlyArray<{ _id: string }>
+  },
+  membershipId: string,
+): boolean {
+  return (
+    job.assignedMembershipId === membershipId ||
+    (job.alsoGoing ?? []).some((person) => person._id === membershipId)
+  )
+}
+
 export function useScheduleFilters<
-  T extends { status: JobStatus; assignedMembershipId: string },
+  T extends {
+    status: JobStatus
+    assignedMembershipId: string
+    alsoGoing?: ReadonlyArray<{ _id: string }>
+  },
 >(jobs: Array<T>, defaultStaffId: string = 'all', resetKey: string = '') {
   const [status, setStatus] = useState<StatusFilter>('all')
   // Defaults to the viewer's own jobs, not everyone's — "All staff" is a
@@ -125,7 +156,8 @@ export function useScheduleFilters<
   const filteredJobs = jobs.filter(
     (job) =>
       (status === 'all' || job.status === status) &&
-      (staffId === 'all' || job.assignedMembershipId === staffId),
+      // Kevin's filter keeps the jobs he is also going on.
+      (staffId === 'all' || isOnJob(job, staffId)),
   )
 
   return { status, setStatus, staffId, setStaffId, filteredJobs }

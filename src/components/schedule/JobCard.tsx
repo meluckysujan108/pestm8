@@ -19,6 +19,7 @@ import { WeatherStrip } from './WeatherStrip'
 import type { JobStatus } from '#/components/primitives/StatusPill'
 import type { WeatherCell } from '#/lib/weather'
 import type { Interval } from '../../../convex/lib/recurrence'
+import { everyoneOnJob, firstName, namesOf } from '#/lib/jobPeople'
 
 export type JobRow = {
   _id: string
@@ -49,6 +50,9 @@ export type JobRow = {
   assigneeColour: string
   assigneeName?: string
   assignedMembershipId: string
+  /** Everyone going beside the lead, each in their own colour (a shared
+   * job). Absent from a backend older than shared jobs. */
+  alsoGoing?: Array<{ _id: string; name: string; colour: string }>
   recurrenceId?: string
   /** How often the visit's series repeats, while it runs. Absent for a
    * one-off, a stopped series, and on a backend older than the indicator. */
@@ -152,6 +156,18 @@ export function JobCard({
    */
   const now = Date.now()
   const overdue = isOverdueProjection(job, timezone, now)
+  // The lead, then anyone also going (a shared job). A shared job names them
+  // even where the rail usually says it alone: the rail has only the lead's
+  // colour.
+  const people = everyoneOnJob(job)
+  const showPeople = !hideTechnician || people.length > 1
+  // First names on a shared job, where full ones do not fit — unless two
+  // share one, when only the full names tell them apart.
+  const firsts = people.map((person) => firstName(person.name))
+  const shortNames =
+    people.length > 1 && new Set(firsts).size === firsts.length
+      ? firsts
+      : people.map((person) => person.name)
 
   // The day the job is booked for, in the tenant's zone. Compared with the
   // page's own day as two keys — no clock — so the server render and the
@@ -277,8 +293,11 @@ export function JobCard({
             </Row>
             {/* Off the Schedule's cards, where the rail's colour says whose job
                 it is — which a screen reader cannot see, so it still says. */}
-            {job.assigneeName && hideTechnician && (
-              <span className="sr-only">Technician: {job.assigneeName}</span>
+            {people.length > 0 && !showPeople && (
+              <span className="sr-only">
+                {people.length > 1 ? 'Technicians' : 'Technician'}:{' '}
+                {namesOf(people)}
+              </span>
             )}
             {/* The start of the job's note, so "ring first" is seen on the
                 day's list and not only by whoever opens the job. */}
@@ -287,16 +306,28 @@ export function JobCard({
                 {job.notePreview ?? job.notes}
               </Row>
             )}
-            {job.assigneeName && !hideTechnician && (
-              <Row label="Technician">
-                <span className="inline-flex items-center gap-1.5">
+            {/* Everyone going, the lead first, each with their own dot. A
+                shared job names them by first name: three full names do not
+                fit beside the label. */}
+            {people.length > 0 && showPeople && (
+              <Row
+                label={people.length > 1 ? 'Technicians' : 'Technician'}
+                lines={people.length > 2 ? 2 : 1}
+              >
+                {/* Inline, so the row's two-line clamp applies to them. */}
+                {people.map((person, i) => (
                   <span
-                    aria-hidden
-                    className="size-2 shrink-0 rounded-full"
-                    style={{ backgroundColor: job.assigneeColour }}
-                  />
-                  {job.assigneeName}
-                </span>
+                    key={`${person.name}-${i}`}
+                    className={i > 0 ? 'ml-2.5' : undefined}
+                  >
+                    <span
+                      aria-hidden
+                      className="mr-1.5 inline-block size-2 rounded-full align-middle"
+                      style={{ backgroundColor: person.colour }}
+                    />
+                    {shortNames[i]}
+                  </span>
+                ))}
               </Row>
             )}
           </span>

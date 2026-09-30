@@ -35,7 +35,7 @@ import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
 import { propertyOptions } from '#/lib/propertyOptions'
 import { prepareUpload } from '#/lib/images/prepareUpload'
-import { personLabel, useAssigneeOptions } from '#/lib/assignees'
+import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { PropertyHistory } from './PropertyHistory'
 import { nextVisit } from '#/lib/jobHistory'
@@ -62,6 +62,8 @@ import { DetailRow, DetailRows } from '#/components/primitives/DetailRow'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { LoadFailed } from '#/components/primitives/EmptyState'
+import { MAX_ALSO_GOING } from '../../../convex/lib/jobPeople'
+import { useAccess } from '#/lib/access'
 
 /**
  * Loaded on demand, not with the schedule.
@@ -201,6 +203,18 @@ function JobDetailBody({
 }) {
   const jobQuery = useQuery(convexQuery(api.jobs.get, { businessId, jobId }))
   const job = jobQuery.data
+  // Everyone going beside the lead. Read as possibly absent: a backend older
+  // than shared jobs sends no such field.
+  const alsoGoingHere: ReadonlyArray<{
+    _id: Id<'memberships'>
+    colour: string
+  }> =
+    (
+      job as
+        | { alsoGoing?: Array<{ _id: Id<'memberships'>; colour: string }> }
+        | null
+        | undefined
+    )?.alsoGoing ?? []
   // Who is doing it, by name: the job carries the person's id and colour, and
   // the roster (read by every member, and open already on the Schedule) their
   // name.
@@ -408,12 +422,31 @@ function JobDetailBody({
                 className="size-2.5 shrink-0 rounded-full"
                 style={{ backgroundColor: job.assignee?.colour }}
               />
-              <span className="sr-only">Technician: </span>
+              <span className="sr-only">
+                {alsoGoingHere.length > 0 ? 'Technicians: ' : 'Technician: '}
+              </span>
               <TechnicianName
                 roster={rosterQuery.data}
                 membershipId={job.assignedMembershipId}
               />
             </span>
+            {/* Everyone also going, each with their own dot (a shared job). */}
+            {alsoGoingHere.map((person, i, all) => (
+              <span key={person._id} className="flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="size-2.5 shrink-0 rounded-full"
+                  style={{ backgroundColor: person.colour }}
+                />
+                <span className="sr-only">
+                  {i === all.length - 1 ? 'and ' : ', '}
+                </span>
+                <TechnicianName
+                  roster={rosterQuery.data}
+                  membershipId={person._id}
+                />
+              </span>
+            ))}
             {job.recurrence?.active && (
               <span className="flex items-center gap-1">
                 <Repeat
@@ -834,6 +867,8 @@ function JobEditForm({
     scheduledAt: number
     durationMinutes: number
     assignedMembershipId: Id<'memberships'>
+    /** Everyone going beside the lead. Absent from an older backend. */
+    alsoGoing?: Array<{ _id: Id<'memberships'> }>
     workOrder?: string
     recurrence: { _id: Id<'recurrences'>; interval: Interval; active: boolean } | null
   }
@@ -869,12 +904,76 @@ function JobEditForm({
   const [duration, setDuration] = useState(String(job.durationMinutes))
   const [price, setPrice] = useState(String(job.price / 100))
   const [assignee, setAssignee] = useState<string>(job.assignedMembershipId)
+  // Everyone going beside the lead (a shared job), as the form opened with
+  // them, and as they are now.
+  const [openedAlsoGoing] = useState<Array<string>>(() =>
+    (job.alsoGoing ?? []).map((person) => person._id),
+  )
+  const [alsoGoing, setAlsoGoing] = useState<Array<string>>(openedAlsoGoing)
   // What the form opened with, held still: `job` is live, and comparing
   // against it would send this form's stale value over a work order someone
   // else set while it was open.
   const [openedWorkOrder] = useState(job.workOrder ?? '')
   const [workOrder, setWorkOrder] = useState(openedWorkOrder)
   const { options: assignees } = useAssigneeOptions(members)
+  const access = useAccess()
+  // Who may go beside the lead: whoever this person may book, but not the
+  // lead — and whoever is on it already, bookable by them or not, so they
+  // can be taken off (the server asks only about someone added).
+  const alsoGoingOptions = useMemo(() => {
+    const bookable = assignees.filter((m) => m._id !== assignee)
+    // Whoever is on it now — also going, or leading it before this edit —
+    // bookable by this person or not, so they are named and can be taken off.
+    const already = [...openedAlsoGoing, job.assignedMembershipId as string]
+      .filter((id) => id !== assignee && !bookable.some((m) => m._id === id))
+      .map((id) => {
+        const member = members?.find((m) => m._id === id)
+        return member
+          ? {
+              value: id,
+              label: personLabel(member),
+              detail: roleLabel(member.role),
+            }
+          : { value: id, label: 'No longer on the team' }
+      })
+    return [
+      ...bookable.map((m) => ({
+        value: m._id,
+        label: personLabel(m),
+        detail: roleLabel(m.role),
+      })),
+      ...already,
+    ]
+  }, [assignees, assignee, openedAlsoGoing, members, job.assignedMembershipId])
+  // Everyone also going as it will be saved: never the lead. Derived rather
+  // than pruned when the lead changes, so changing it there and back loses
+  // nobody.
+  // Someone also going made lead: the lead they replace takes their place,
+  // as the server does, rather than leaving the job without a word.
+  const promoted =
+    assignee !== job.assignedMembershipId && openedAlsoGoing.includes(assignee)
+  const alsoGoingNow = [
+    ...new Set([
+      ...alsoGoing,
+      ...(promoted ? [job.assignedMembershipId as string] : []),
+    ]),
+  ].filter((id) => id !== assignee)
+  // Who may lead it: whoever this person may book, and whoever leads it now
+  // — a contractor also going on the owner's job may not book the owner, and
+  // without the owner in the list the select would show the contractor as
+  // its lead.
+  const leadOptions = useMemo(() => {
+    if (assignees.some((m) => m._id === job.assignedMembershipId)) {
+      return assignees
+    }
+    const current = members?.find((m) => m._id === job.assignedMembershipId)
+    return current ? [current, ...assignees] : assignees
+  }, [assignees, members, job.assignedMembershipId])
+  const leadName = (() => {
+    if (assignee === access.membershipId) return 'you'
+    const lead = members?.find((m) => m._id === assignee)
+    return lead ? personLabel(lead) : 'the lead'
+  })()
   const [repeats, setRepeats] = useState(false)
   const [interval, setInterval] = useState<IntervalDraft>(DEFAULT_INTERVAL)
   const hasActiveRecurrence = job.recurrence?.active ?? false
@@ -900,6 +999,9 @@ function JobEditForm({
     price: String(job.price / 100),
     assignee: job.assignedMembershipId,
   }))
+  const alsoGoingChanged =
+    alsoGoingNow.length !== openedAlsoGoing.length ||
+    alsoGoingNow.some((id) => !openedAlsoGoing.includes(id))
   const changed =
     propertyId !== opened.propertyId ||
     joinJobTypes(jobTypes) !== opened.jobType ||
@@ -908,6 +1010,7 @@ function JobEditForm({
     duration !== opened.duration ||
     (!job.pricesHidden && price !== opened.price) ||
     assignee !== opened.assignee ||
+    alsoGoingChanged ||
     workOrder.trim() !== openedWorkOrder ||
     repeats
   useSheetLock(changed)
@@ -925,6 +1028,7 @@ function JobEditForm({
       durationMinutes: number
       assignedMembershipId: Id<'memberships'>
       workOrder: string | undefined
+      alsoGoing: Array<Id<'memberships'>> | undefined
       repeat: Interval | null
     }) => {
       const { repeat: nextRepeat, ...patch } = args
@@ -983,6 +1087,16 @@ function JobEditForm({
             workOrder.trim() === openedWorkOrder
               ? undefined
               : workOrder.trim(),
+              // The whole list, and only when it changed: this form's additions
+              // and removals applied to the job as it is now, so someone another
+              // person added while this was open is not taken off by it.
+              alsoGoing: alsoGoingChanged
+                ? (withEdits(
+                    (job.alsoGoing ?? []).map((person) => person._id),
+                    openedAlsoGoing,
+                    alsoGoingNow,
+                  ).filter((id) => id !== assignee) as Array<Id<'memberships'>>)
+                : undefined,
           repeat: recurrence,
         })
       }}
@@ -1044,13 +1158,13 @@ function JobEditForm({
           own job, the owner working inside one's account — it reads as plain
           text instead of a control they'd be rejected for using. */}
       <EditField label="Assigned to">
-        {canReassign && assignees.length > 1 ? (
+            {canReassign && leadOptions.length > 1 ? (
           <select
             value={assignee}
             onChange={(e) => setAssignee(e.target.value)}
             className={`${FIELD} w-full`}
           >
-            {assignees.map((m) => (
+                {leadOptions.map((m) => (
               <option key={m._id} value={m._id}>
                 {personLabel(m)}
               </option>
@@ -1066,12 +1180,39 @@ function JobEditForm({
             })()}
           </p>
         )}
-        {/* Only once it is actually changing: an existing job that is
+            {/* Only once who is going is actually changing — the lead, or
+            someone (this person, say) taken off: an existing job that is
             already someone else's is not news. */}
-        {assignee !== job.assignedMembershipId && (
-          <OffViewNote assignee={assignee} people={assignees} />
+            {(assignee !== job.assignedMembershipId || alsoGoingChanged) && (
+              <OffViewNote
+                assignee={assignee}
+                people={leadOptions}
+                alsoGoing={alsoGoingNow}
+              />
         )}
       </EditField>
+
+          {/* Everyone going beside the lead: a job two people work together.
+          Offered only who this person may book, like "Assigned to" — and
+          whoever is already on it, so they can be taken off. Nothing to offer
+          (a subcontractor on their own job), no field. */}
+          {alsoGoingOptions.length > 0 && (
+            <EditField label="Also going">
+              <Combobox
+                multiple
+                value={alsoGoingNow}
+                // Up to the server's limit: a sixth tick is not taken, and the
+                // sheet says why.
+                onChange={(next) => setAlsoGoing(next.slice(0, MAX_ALSO_GOING))}
+                options={alsoGoingOptions}
+                title="Also going"
+                description={`Everyone working this job with ${leadName}, up to ${MAX_ALSO_GOING}. They see it on their schedule, and can do everything on it that ${leadName} can.`}
+                placeholder="Search the team"
+                emptyLabel="Nobody else"
+                ariaLabel="Also going"
+              />
+            </EditField>
+          )}
 
       {/* `[&>*]:min-w-0`: a cell never grows past its half of the row. iOS
           gives date and time inputs a width of their own, and without this
@@ -1171,13 +1312,15 @@ function JobEditForm({
         keyboard up, a long form's end is a long way down — and a failed
         save says why just above it, where it is seen. */}
     <div className={`${SHEET_FOOTER} flex flex-col gap-2`}>
-      {save.isError && (
-        <FormAlert>
-          {save.error.message === REPEAT_STEP_FAILED
-            ? 'Your changes were saved, but this job was not made recurring. Use “Make recurring” on the job to try again.'
-            : 'Could not save these changes.'}
-        </FormAlert>
-      )}
+        {save.isError &&
+          (save.error.message === REPEAT_STEP_FAILED ? (
+            <FormAlert>
+              Your changes were saved, but this job was not made recurring. Use
+              “Make recurring” on the job to try again.
+            </FormAlert>
+          ) : (
+            <FormAlert error={save.error} copy={EDIT_ERROR_COPY} />
+          ))}
       <div className="flex gap-2">
       <button
         type="button"
@@ -1695,6 +1838,30 @@ function Section({
 }
 
 /** Deleting a job or its series, refused — in words. */
+/** A failed edit, in words (`describeError`). */
+const EDIT_ERROR_COPY: ErrorCopy = {
+  TOO_MANY_PEOPLE: `Could not save: a job can have up to ${MAX_ALSO_GOING} people also going. Take someone off and try again.`,
+  INVALID_ASSIGNEE:
+    'Could not save: someone on this job is no longer on the team. Take them off and try again.',
+  NO_ACCESS:
+    'Could not save: your access does not cover someone you added. Ask the business owner.',
+  default: 'Could not save these changes. Check your signal and try again.',
+}
+
+/**
+ * `now`, with the additions and removals this form made (`opened` → `mine`)
+ * applied to it — so a change someone else saved meanwhile survives.
+ */
+function withEdits(
+  now: ReadonlyArray<string>,
+  opened: ReadonlyArray<string>,
+  mine: ReadonlyArray<string>,
+): Array<string> {
+  const added = mine.filter((id) => !opened.includes(id))
+  const removed = opened.filter((id) => !mine.includes(id))
+  return [...new Set([...now, ...added])].filter((id) => !removed.includes(id))
+}
+
 const DELETE_COPY: ErrorCopy = {
   offline:
     'Could not delete: this device is offline. Try again when you have signal.',

@@ -8,6 +8,29 @@ fs.mkdirSync(outDir, { recursive: true })
 
 // name -> { path?, before?: async (page) => void, full?: bool }
 const PLAN = {
+  // A shared job: the edit form's "Also going", and its picker.
+  'shared-edit': {
+    spec: 'jobdetail-services',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Edit job details' }).click()
+      await p.waitForTimeout(500)
+      await p
+        .getByRole('button', { name: 'Also going' })
+        .scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  'shared-picker': {
+    spec: 'jobdetail-services',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Edit job details' }).click()
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: 'Also going' }).click()
+      await p.waitForTimeout(700)
+    },
+  },
   // Settings → Job types: the list, then what was typed into jobs.
   jobtypes: { full: true, before: async (p) => p.waitForTimeout(500) },
   // A service opened and renamed: the sheet says what the rename touches.

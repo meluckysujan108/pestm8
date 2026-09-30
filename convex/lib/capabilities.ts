@@ -485,21 +485,28 @@ export function clientScope(caps: CapabilitySet): 'directory' | 'assigned' {
 
 export function canEditJob(
   actor: ReadActor,
-  job: { assignedMembershipId: Id<'memberships'> },
+  job: {
+    assignedMembershipId: Id<'memberships'>
+    /**
+     * The people also going on it (lib/jobPeople.ts), each of whom may do on
+     * it whatever its lead may — the owner's decision, 30 Sept 2026. Absent
+     * for a series, which has only its lead.
+     */
+    alsoGoing?: ReadonlyArray<Id<'memberships'>>
+  },
   team: ReadonlyArray<MembershipFacts> = [],
 ): boolean {
   const acting = actor.acting
   if (acting.role === 'owner') return true
-  if (job.assignedMembershipId === acting._id) return true
+  const onJob = [job.assignedMembershipId, ...(job.alsoGoing ?? [])]
+  if (onJob.includes(acting._id)) return true
   // Read reach has never implied write reach, and "can see everyone's
   // schedule" is explicitly read-only. Only a contractor's own team is theirs
   // to edit.
   return (
     acting.role === 'contractor' &&
     team.some(
-      (m) =>
-        m._id === job.assignedMembershipId &&
-        m.parentMembershipId === acting._id,
+      (m) => onJob.includes(m._id) && m.parentMembershipId === acting._id,
     )
   )
 }

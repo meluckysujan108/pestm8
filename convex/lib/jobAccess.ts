@@ -1,6 +1,7 @@
 import { ConvexError } from 'convex/values'
 import { requireAssignableMember } from './access'
 import { unbinned } from './bin'
+import { alsoGoingOf } from './jobPeople'
 import { requireWriteActor, teamOf } from './actor'
 import { canDispatchTo, canEditJob } from './capabilities'
 import { factsFromMembership } from './membershipFacts'
@@ -35,7 +36,10 @@ import type { MutationCtx } from '../_generated/server'
 export async function mayEditJob(
   ctx: Ctx,
   actor: ReadActor,
-  work: { assignedMembershipId: Id<'memberships'> },
+  work: {
+    assignedMembershipId: Id<'memberships'>
+    alsoGoing?: ReadonlyArray<Id<'memberships'>>
+  },
 ): Promise<boolean> {
   const acting = actor.acting
   const team =
@@ -43,6 +47,25 @@ export async function mayEditJob(
       ? await teamOf(ctx, acting.businessId, acting._id)
       : []
   return canEditJob(actor, work, team)
+}
+
+/**
+ * `mayEditJob` for a job, counting the people also going on it — read only
+ * when they could change the answer: not for the owner, nor the job's lead.
+ */
+export async function mayEditThisJob(
+  ctx: Ctx,
+  actor: ReadActor,
+  job: { _id: Id<'jobs'>; assignedMembershipId: Id<'memberships'> },
+): Promise<boolean> {
+  const acting = actor.acting
+  if (acting.role === 'owner' || job.assignedMembershipId === acting._id) {
+    return mayEditJob(ctx, actor, job)
+  }
+  return mayEditJob(ctx, actor, {
+    ...job,
+    alsoGoing: await alsoGoingOf(ctx, job._id),
+  })
 }
 
 /**
@@ -59,7 +82,7 @@ export async function requireEditableJob(
   // A job in the Recycle bin is not edited until it is restored (lib/bin.ts).
   const job = unbinned(await ctx.db.get(jobId))
   if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
-  if (!(await mayEditJob(ctx, env.actor, job))) {
+  if (!(await mayEditThisJob(ctx, env.actor, job))) {
     throw new ConvexError('NO_ACCESS')
   }
 
