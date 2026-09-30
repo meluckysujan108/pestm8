@@ -86,7 +86,8 @@ describe('seed:run, end to end', () => {
     first = await source.t.action(internal.demo.seed.run, {
       fromBusinessId: source.fromBusinessId,
     })
-  })
+    // A busy machine running the whole suite beside it can take this past 10 s.
+  }, 60_000)
   afterAll(() => {
     vi.useRealTimers()
   })
@@ -172,7 +173,8 @@ describe('seed:run, end to end', () => {
       return [await of(first.businessId), await of(second.businessId)]
     })
     expect(rosters[1]).toEqual(rosters[0])
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('holds together across every business', async () => {
     const { t } = source

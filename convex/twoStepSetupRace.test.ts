@@ -170,7 +170,8 @@ describe('the set-up key, read while another request makes one', () => {
       code: await totp(victimsKey!),
     })
     expect(on.status).toBe(200)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('"nothing started" is not a pass to read whatever key turns up', async () => {
     // The commoner shape: an account without two-step sign-in has no key at

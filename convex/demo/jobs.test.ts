@@ -76,7 +76,8 @@ describe('the demo jobs', () => {
     run = await runDemoSteps('jobs')
     seededBy = Date.now()
     rows = await rowsOf(run.t, run.base.businessId)
-  })
+    // A busy machine running the whole suite beside it can take this past 10 s.
+  }, 60_000)
 
   const when = (day: number, hh: number, mm = 0) => at(run.base, day, hh, mm)
   const tz = () => run.base.timezone

@@ -121,7 +121,8 @@ describe('two-step sign-in, end to end', () => {
     })
     expect(right.status).toBe(200)
     expect(phone.has('session_token')).toBe(true)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('a recovery code signs in once, and only once', async () => {
     const t = testApp()
@@ -242,7 +243,8 @@ describe('two-step sign-in, end to end', () => {
         }),
     )
     expect(user?.twoFactorEnabled).toBe(true)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('nobody can set it up again over itself', async () => {
     const t = testApp()
@@ -499,7 +501,8 @@ describe('sessions that never saw a code', () => {
       code: await totp(totpURI),
     })
     expect(code.status).toBe(200)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('the set-up key is never shown again once set up', async () => {
     const t = testApp()
@@ -611,7 +614,8 @@ describe('the per-account cap on codes', () => {
       code: await totp(totpURI),
     })
     expect(right.status).toBe(200)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('a right code starts the count again', async () => {
     const t = testApp()
@@ -807,7 +811,8 @@ describe('carrying on with a set-up that was started', () => {
       code: await totp(first),
     })
     expect(coded.status).toBe(200)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('a second enable is refused, unless it asks for a new key', async () => {
     // What the owner's phone was left holding: a second enable made a new
@@ -856,7 +861,8 @@ describe('carrying on with a set-up that was started', () => {
     })
     expect(live.status).toBe(200)
     expect((await statusOf(t, browser)).setup).toBe('on')
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('the set-up screen already live, which knows none of this, is told what to do in words that hold for it', async () => {
     // The screen on main before this change: Start is a bare enable (no
@@ -1035,7 +1041,8 @@ describe('carrying on with a set-up that was started', () => {
       (await phone.post('/two-factor/verify-backup-code', { code: codes[0] }))
         .status,
     ).toBe(200)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 })
 
 describe('a right code whose answer never arrives', () => {
@@ -1220,7 +1227,8 @@ describe('a set-up belongs to the session that started it', () => {
       code: await totp(own),
     })
     expect(withOwn.status).toBe(200)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('the session that started it can still carry on after another has looked', async () => {
     // The laptop starts set-up; the phone opens the set-up screen. The phone

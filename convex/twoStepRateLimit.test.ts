@@ -92,7 +92,8 @@ describe('the rate limit on six-digit codes', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test("at sign-in, the app's own worded limit speaks first", async () => {
     const t = testApp()

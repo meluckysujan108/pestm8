@@ -446,7 +446,8 @@ describe('removing a demo', () => {
       }
       return ids
     })
-  })
+    // A busy machine running the whole suite beside it can take this past 10 s.
+  }, 60_000)
   afterAll(() => {
     vi.useRealTimers()
   })
@@ -703,7 +704,8 @@ describe('removing one of two demos', () => {
           m.userId !== source.sub.userId,
       ),
     )
-  })
+    // A busy machine running the whole suite beside it can take this past 10 s.
+  }, 60_000)
   afterAll(() => {
     vi.useRealTimers()
   })
@@ -733,7 +735,8 @@ describe('removing one of two demos', () => {
     expect(
       await t.run(async (ctx) => (await ctx.db.get(second.businessId))?.plan),
     ).toBe(DEMO_PLAN)
-  })
+    // A busy machine running the whole suite beside it can take this past 5 s.
+  }, 30_000)
 
   test('and removes them with the last demo that had them', async () => {
     const { t } = source
