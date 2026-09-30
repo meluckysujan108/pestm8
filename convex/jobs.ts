@@ -15,6 +15,7 @@ import {
   withClient,
 } from './properties'
 import { suggestTemplates } from '../src/lib/reportTemplates/suggest'
+import { canonicalLabelFor, loadJobTypes } from './lib/jobTypeList'
 import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
@@ -746,6 +747,9 @@ export const create = mutation({
     const jobNumber = await allocateJobNumber(ctx, args.businessId)
     const jobId = await ctx.db.insert('jobs', {
       ...args,
+      // In the business's own words (lib/jobTypeList.ts): a renamed service
+      // sent under its old name is saved under its new one.
+      jobType: await canonicalLabelFor(ctx, args.businessId, args.jobType),
       price,
       propertyId,
       status: initialJobStatus('manual'),
@@ -883,6 +887,9 @@ export const update = mutation({
       if (workOrder === job.workOrder) delete fields.workOrder
       else fields.workOrder = workOrder
     }
+    if (patch.jobType !== undefined) {
+      fields.jobType = await canonicalLabelFor(ctx, businessId, patch.jobType)
+    }
     // The same rule for the note.
     if (patch.notes !== undefined) {
       const notes = normaliseJobNotes(patch.notes)
@@ -949,7 +956,10 @@ async function assertReportIssued(ctx: MutationCtx, job: Doc<'jobs'>) {
   // Any of the job's services with a form is enough: a general pest service
   // done alongside a quote visit still leaves a record behind. One finalised
   // report answers it, as it always has — not one per form.
-  if (suggestTemplates(job.jobType).length === 0) return
+  // Each service's form as the business's own list says (Settings → Job
+  // types), so a service it added is held up like the built-in ones are.
+  const jobTypes = await loadJobTypes(ctx, job.businessId)
+  if (suggestTemplates(job.jobType, jobTypes).length === 0) return
 
   const reports = await ctx.db
     .query('reports')

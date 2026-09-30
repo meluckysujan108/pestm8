@@ -919,6 +919,52 @@ export default defineSchema({
     .index('by_property', ['propertyId'])
     .index('by_binEntryId', ['binEntryId']),
 
+  /**
+   * A business's own list of job types — the services New Job offers
+   * (Settings → Job types). One row per service. A business with no rows is
+   * offered the built-in nine (`DEFAULT_JOB_TYPES` in lib/jobTypes.ts); the
+   * first change it makes writes those nine here, so its list is then wholly
+   * its own.
+   *
+   * A job still stores its services as one label (`jobs.jobType`); this is
+   * what the label is read against: the spelling that is the business's own,
+   * which form a service produces, and what a renamed one used to be called.
+   */
+  jobTypes: defineTable({
+    businessId: v.id('businesses'),
+    name: v.string(),
+    /** `jobTypeKey(name)`: how two names are found to be the same service. */
+    key: v.string(),
+    /** The form a job of this type suggests, and the report policy asks for. */
+    report: v.union(
+      v.literal('serviceReport'),
+      v.literal('timberPestInspection'),
+      v.literal('termiteManagementCert'),
+      v.literal('none'),
+    ),
+    /**
+     * Names it had before a rename or a merge, newest last, at most
+     * MAX_FORMER_NAMES. A label still carrying one — a phone on last week's
+     * build, a job the rename has not reached yet — is read, and saved, as
+     * this one.
+     */
+    formerNames: v.array(v.string()),
+    /** Deleted: no longer offered, and back with "Offer again". */
+    archivedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index('by_business_key', ['businessId', 'key']),
+
+  /**
+   * A rewrite of job labels still under way (`jobTypes.rewriteLabels`): one
+   * row per rename, merge or swap, deleted when its last batch lands. While
+   * one is, a service's old name cannot be handed to another service — the
+   * jobs not yet reached still carry it, and would go to the wrong one.
+   */
+  jobTypeRewrites: defineTable({
+    businessId: v.id('businesses'),
+    startedAt: v.number(),
+  }).index('by_business', ['businessId']),
+
   reports: defineTable({
     businessId: v.id('businesses'),
     jobId: v.optional(v.id('jobs')),

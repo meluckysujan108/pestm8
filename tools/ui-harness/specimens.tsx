@@ -11,6 +11,7 @@ import { JobCard } from '#/components/schedule/JobCard'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
+import { JobTypesSection } from '#/components/settings/JobTypesSection'
 import { ReportSettingsForm } from '#/components/settings/ReportSettingsForm'
 import { BusinessSection } from '#/components/settings/BusinessSection'
 import { LicenceFields } from '#/components/settings/LicenceFields'
@@ -870,6 +871,28 @@ function ReportPreviewSpecimen() {
   )
 }
 
+/** Settings → Job types, with the real client's services and typed-in ones. */
+function JobTypes() {
+  return (
+    <Phone>
+      <header className="chrome-blur sticky top-0 z-30 border-b border-hairline px-4 pb-3 pt-3">
+        <BackLink
+          to="/$businessSlug/settings"
+          params={{ businessSlug: 'demo' }}
+        >
+          Settings
+        </BackLink>
+        <h1 className="truncate text-page-title text-ink">Job types</h1>
+      </header>
+      <AccessProvider businessId={bizId}>
+        <SettingsBody>
+          <JobTypesSection businessId={bizId} />
+        </SettingsBody>
+      </AccessProvider>
+    </Phone>
+  )
+}
+
 function RecycleBin() {
   return (
     <Phone>
@@ -1069,6 +1092,7 @@ function InstallLinkSpecimen() {
 }
 
 export const SPECIMENS: Partial<Record<string, ComponentType>> = {
+  jobtypes: JobTypes,
   install: Install,
   'install-settings': InstallSettingsPage,
   'install-card': InstallCardSpecimen,

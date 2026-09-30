@@ -1,4 +1,5 @@
-import { splitJobTypes } from '../../../convex/lib/jobTypes'
+import { findJobType, splitJobTypes } from '../../../convex/lib/jobTypes'
+import type { JobTypeEntry } from '../../../convex/lib/jobTypes'
 import { CREATABLE_TEMPLATES } from './index'
 import type { TemplateId } from './types'
 
@@ -35,8 +36,34 @@ const TEMPLATE_BY_JOB_TYPE: Partial<Record<string, TemplateId>> = {
   'Termite Treatment': 'termiteManagementCert',
 }
 
-/** One service's form, or null when it has none. */
-function templateForService(service: string): TemplateId | null {
+/**
+ * A business's own list of job types (Settings → Job types), as far as the
+ * suggestions need it: each service's form, and the names it used to have.
+ * Left out, every service is read against the built-in table below.
+ */
+export type JobTypeList = ReadonlyArray<
+  Pick<JobTypeEntry, 'name' | 'report' | 'formerNames'>
+>
+
+/**
+ * One service's form, or null when it has none.
+ *
+ * The business's own list answers first — the owner chose each service's
+ * form there, "No report" included. A service the list does not have (typed
+ * into a job, or read with no list at hand) falls back to the table and the
+ * wording rules below, as every service always did.
+ */
+function templateForService(
+  service: string,
+  jobTypes?: JobTypeList,
+): TemplateId | null {
+  const entry = jobTypes ? findJobType(jobTypes, service) : undefined
+  if (entry) {
+    if (entry.report === 'none') return null
+    return CREATABLE_TEMPLATES.some((t) => t.id === entry.report)
+      ? entry.report
+      : null
+  }
   const direct = lookUp(TEMPLATE_BY_JOB_TYPE, service)
   // Never suggest a form that can no longer be started — a retired template
   // would send the technician into a picker that refuses them.
@@ -64,10 +91,11 @@ export type ReportSuggestion = {
  */
 export function suggestReports(
   jobType: string | undefined,
+  jobTypes?: JobTypeList,
 ): Array<ReportSuggestion> {
   const suggestions: Array<ReportSuggestion> = []
   for (const service of splitJobTypes(jobType)) {
-    const templateId = templateForService(service)
+    const templateId = templateForService(service, jobTypes)
     if (!templateId) continue
     const known = suggestions.find((s) => s.templateId === templateId)
     if (known) known.services.push(service)
@@ -79,15 +107,17 @@ export function suggestReports(
 /** The forms alone, in the same order. Empty when no service has a form. */
 export function suggestTemplates(
   jobType: string | undefined,
+  jobTypes?: JobTypeList,
 ): Array<TemplateId> {
-  return suggestReports(jobType).map((s) => s.templateId)
+  return suggestReports(jobType, jobTypes).map((s) => s.templateId)
 }
 
 /** The first of them: the form a job of one service produces. */
 export function suggestTemplate(
   jobType: string | undefined,
+  jobTypes?: JobTypeList,
 ): TemplateId | null {
-  return suggestTemplates(jobType)[0] ?? null
+  return suggestTemplates(jobType, jobTypes)[0] ?? null
 }
 
 /**
@@ -114,10 +144,19 @@ const TREATMENT_BY_JOB_TYPE: Partial<Record<string, string>> = {
  */
 export function treatmentsForJobType(
   jobType: string | undefined,
+  jobTypes?: JobTypeList,
 ): Array<string> {
   const treatments: Array<string> = []
   for (const service of splitJobTypes(jobType)) {
-    const treatment = lookUp(TREATMENT_BY_JOB_TYPE, service)
+    // A service renamed in Settings keeps the treatment of the name it had:
+    // "Rodent Baiting", once "Rodents", still ticks Rodents.
+    const entry = jobTypes ? findJobType(jobTypes, service) : undefined
+    const names = entry
+      ? [service, entry.name, ...entry.formerNames]
+      : [service]
+    const treatment = names
+      .map((name) => lookUp(TREATMENT_BY_JOB_TYPE, name))
+      .find((found) => found !== undefined)
     if (treatment && !treatments.includes(treatment)) treatments.push(treatment)
   }
   return treatments
@@ -126,8 +165,9 @@ export function treatmentsForJobType(
 /** The first of them: the treatment a job of one service records. */
 export function treatmentForJobType(
   jobType: string | undefined,
+  jobTypes?: JobTypeList,
 ): string | null {
-  return treatmentsForJobType(jobType)[0] ?? null
+  return treatmentsForJobType(jobType, jobTypes)[0] ?? null
 }
 
 /**
