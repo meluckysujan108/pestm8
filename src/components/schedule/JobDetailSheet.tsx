@@ -1,7 +1,6 @@
 import { Suspense, lazy, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import {
   SHEET_BODY,
@@ -37,10 +36,13 @@ import { propertyOptions } from '#/lib/propertyOptions'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
-import { RowPending, SheetPending } from '#/components/shell/Pending'
+import { PropertyHistory } from './PropertyHistory'
+import { nextVisit } from '#/lib/jobHistory'
+import { Bone, RowPending, SheetPending } from '#/components/shell/Pending'
 import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dates'
-import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
+import { describeInterval } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
+import type { Role } from '../../../convex/lib/capabilities'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
 import { joinJobTypes, splitJobTypes } from '../../../convex/lib/jobTypes'
 import { siteContactOf } from '../../../convex/lib/siteContact'
@@ -197,6 +199,12 @@ function JobDetailBody({
 }) {
   const jobQuery = useQuery(convexQuery(api.jobs.get, { businessId, jobId }))
   const job = jobQuery.data
+  // Who is doing it, by name: the job carries the person's id and colour, and
+  // the roster (read by every member, and open already on the Schedule) their
+  // name.
+  const rosterQuery = useQuery(
+    convexQuery(api.memberships.listForBusiness, { businessId }),
+  )
   const [confirmCancelOpen, setConfirmCancelOpen] = useState(false)
   const [confirmStopRepeatingOpen, setConfirmStopRepeatingOpen] = useState(false)
   const [makeRecurringOpen, setMakeRecurringOpen] = useState(false)
@@ -355,249 +363,203 @@ function JobDetailBody({
             {job.jobType}
           </Drawer.Title>
 
-            <>
-              <div className="mt-2 flex items-center gap-2">
-                {/* Read access can be granted without edit rights, so the menu
-                    is driven by the server's canEdit, not by role. An invoiced
-                    job keeps its menu: moving it back out is how its details
-                    reopen for editing. */}
-                {job.canEdit ? (
-                  <StatusPillButton
-                    pill={<StatusPill status={job.status} />}
-                    ariaLabel="Change job status"
-                    disabled={!hydrated}
-                    buttonRef={statusButton}
-                    onClick={() => setStatusOpen(true)}
-                  />
-                ) : (
-                  <StatusPill status={job.status} />
-                )}
-                {/* Each part kept whole, so a narrow screen breaks the line
-                    at a "·" and never leaves "min" alone under the pill. */}
-                <span className="text-body text-muted">
-                  <span className="whitespace-nowrap">
-                    {formatJobDate(
-                      dayKeyOf(job.scheduledAt, timezone),
-                      dayKeyOf(Date.now(), timezone),
-                    )}
-                  </span>{' '}
-                  <span className="whitespace-nowrap">
-                    · {formatTime(job.scheduledAt, timezone)}
-                  </span>{' '}
-                  <span className="whitespace-nowrap">
-                    · {formatDuration(job.durationMinutes)}
-                  </span>
-                </span>
-              </div>
-
-              {/* The business asked to be stopped here. Said where the tap
-                  happened, and naming the way out — the report section is
-                  directly below. */}
-              <FormAlert
-                className="mt-2"
-                error={complete.isError ? complete.error : null}
-                copy={{
-                  REPORT_REQUIRED:
-                    'Finalise this job’s report first — your business asks for one before a job is marked complete.',
-                  default:
-                    'Could not mark this job complete. Check your signal and try again.',
-                }}
+          <div className="mt-2 flex items-center gap-2">
+            {/* Read access can be granted without edit rights, so the menu
+                is driven by the server's canEdit, not by role. An invoiced
+                job keeps its menu: moving it back out is how its details
+                reopen for editing. */}
+            {job.canEdit ? (
+              <StatusPillButton
+                pill={<StatusPill status={job.status} />}
+                ariaLabel="Change job status"
+                disabled={!hydrated}
+                buttonRef={statusButton}
+                onClick={() => setStatusOpen(true)}
               />
-              <FormAlert
-                className="mt-2"
-                error={setStatus.isError ? setStatus.error : null}
-                copy={{
-                  REPORT_REQUIRED:
-                    'Finalise this job’s report first — your business asks for one before a job is marked invoiced.',
-                  default:
-                    'Could not change this job’s status. Check your signal and try again.',
-                }}
-              />
-              <FormAlert
-                className="mt-2"
-                error={cancel.isError ? cancel.error : null}
-                copy={{
-                  default:
-                    'Could not cancel this job. Check your signal and try again.',
-                }}
-              />
-
-              <Section label="Property">
-                <div className="flex items-baseline justify-between gap-2">
-                  <p className="min-w-0 text-row-title text-ink">
-                    {job.property?.client?.name}
-                  </p>
-                  {/* The number the office files them under, as on the
-                      client's own sheet. */}
-                  {job.property?.client?.clientNumber !== undefined && (
-                    <span className="shrink-0 text-caption tabular-nums text-muted">
-                      Client #{job.property.client.clientNumber}
-                    </span>
-                  )}
-                </div>
-                {/* Full street address here — the list rows show suburb only. */}
-                <p className="text-body text-ink-2">{job.property?.addressLine}</p>
-                <p className="text-body text-muted">
-                  {job.property?.suburb} {job.property?.state}{' '}
-                  {job.property?.postcode}
-                </p>
-
-                {/* Whoever lets the technician in — the store manager, the
-                    caretaker. First, since it is who the job card's Call
-                    already rings (convex/lib/siteContact.ts); head office stays
-                    below it, not replaced by it. A name without a number is
-                    still shown: it is who to ask for at the door. */}
-                {siteContact && (
-                  <div className="mt-3 border-t border-hairline-2 pt-3">
-                    <h4 className="section-label mb-1">Site contact</h4>
-                    {siteContact.name && (
-                      <p className="text-body text-ink">{siteContact.name}</p>
-                    )}
-                    {siteContact.phone && (
-                      <>
-                        <p className="text-caption text-muted">
-                          {siteContact.phone}
-                        </p>
-                        <div className="mt-2">
-                          <ContactButtons
-                            name={siteContact.name ?? 'site contact'}
-                            phone={siteContact.phone}
-                            show={['call', 'text']}
-                          />
-                        </div>
-                      </>
-                    )}
-                  </div>
+            ) : (
+              <StatusPill status={job.status} />
+            )}
+            {/* Each part kept whole, so a narrow screen breaks the line
+                at a "·" and never leaves "min" alone under the pill. */}
+            <span className="text-body text-muted">
+              <span className="whitespace-nowrap">
+                {formatJobDate(
+                  dayKeyOf(job.scheduledAt, timezone),
+                  dayKeyOf(Date.now(), timezone),
                 )}
+              </span>{' '}
+              <span className="whitespace-nowrap">
+                · {formatTime(job.scheduledAt, timezone)}
+              </span>{' '}
+              <span className="whitespace-nowrap">
+                · {formatDuration(job.durationMinutes)}
+              </span>
+            </span>
+          </div>
 
-                {/* Quick-contact — hold to confirm on touch, since a phone in a
-                    pocket must never silently dial or text a client (§2.3). */}
-                {job.property?.client && (
-                  <div
-                    className={
-                      captionOffice
-                        ? 'mt-3 border-t border-hairline-2 pt-3'
-                        : 'mt-3'
-                    }
-                  >
-                    {captionOffice && (
-                      <h4 className="section-label mb-1">Head office</h4>
-                    )}
-                    <ContactButtons
-                      name={job.property.client.name}
-                      phone={job.property.client.phone}
-                      email={job.property.client.email}
-                    />
-                  </div>
-                )}
-              </Section>
-
-              {/* Every note, straight after where and who: what to know
-                  before going in, and this visit's own. Its own boundary,
-                  so the rest of the sheet draws while the editor's code
-                  arrives, and in the section's own loading state. */}
-              <Suspense fallback={<SectionLoading label="Notes" />}>
-                <JobNotesSection
-                  businessId={businessId}
-                  businessSlug={businessSlug}
-                  timezone={timezone}
-                  jobId={job._id}
-                  propertyId={job.propertyId}
-                  addressLine={job.property?.addressLine ?? ''}
-                  canWriteVisitNote={job.canEdit}
-                  plainNote={job.notes}
+          {/* Who is going, and that it repeats: read here, changed in Edit
+              and in Details. It used to show only inside the edit form. */}
+          <div className="mt-2 flex min-h-5 flex-wrap items-center gap-x-3 gap-y-1 text-caption text-ink-2">
+            <span className="flex items-center gap-1.5">
+              <span
+                aria-hidden
+                className="size-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: job.assignee?.colour }}
+              />
+              <span className="sr-only">Technician: </span>
+              <TechnicianName
+                roster={rosterQuery.data}
+                membershipId={job.assignedMembershipId}
+              />
+            </span>
+            {job.recurrence?.active && (
+              <span className="flex items-center gap-1">
+                <Repeat
+                  aria-hidden
+                  size={13}
+                  strokeWidth={2}
+                  className="text-muted"
                 />
-              </Suspense>
+                {describeInterval(job.recurrence.interval)}
+              </span>
+            )}
+          </div>
 
-              {/* The client's reference, read out at a site's sign-in desk
-                  and needed on the invoice. A business client without one is
-                  said so, so a missing PO is noticed before the job is
-                  invoiced rather than when the invoice bounces. */}
-              {(job.workOrder !== undefined ||
-                job.property?.client?.kind === 'business') && (
-                <Section label="Work order">
-                  {job.workOrder !== undefined ? (
-                    <p className="select-text text-row-title text-ink">
-                      {job.workOrder}
-                    </p>
-                  ) : (
-                    <p className="text-body text-muted">None recorded</p>
-                  )}
-                </Section>
-              )}
+          {/* Why it can't be changed, beside what can't be: the Edit above
+              is gone for both. These used to sit under everything else. */}
+          {!job.canEdit && (
+            <p className="mt-3 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-caption text-amber-ink">
+              This job is assigned to someone else, so it is read-only.
+            </p>
+          )}
+          {job.status === 'invoiced' && (
+            <p className="mt-3 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
+              This job has been invoiced, so its details are locked. Change
+              its status to edit them.
+            </p>
+          )}
 
-              <Section label="Price">
-                <p className="text-metric-sm text-ink">{formatJobMoney(job)}</p>
-              </Section>
-
-            </>
-
-          {/* Weather for this property on this day, not the day in general —
-              two jobs on the same day can be in different suburbs. */}
-          <JobWeather
-            businessId={businessId}
-            state={job.property?.state ?? ''}
-            suburb={job.property?.suburb ?? ''}
-            postcode={job.property?.postcode ?? ''}
-            dayKey={dayKeyInZone(job.scheduledAt, timezone)}
-            todayKey={dayKeyInZone(Date.now(), timezone)}
+          {/* The business asked to be stopped here. Said where the tap
+              happened, and naming the way out — the report section is
+              directly below. */}
+          <FormAlert
+            className="mt-2"
+            error={complete.isError ? complete.error : null}
+            copy={{
+              REPORT_REQUIRED:
+                'Finalise this job’s report first — your business asks for one before a job is marked complete.',
+              default:
+                'Could not mark this job complete. Check your signal and try again.',
+            }}
+          />
+          <FormAlert
+            className="mt-2"
+            error={setStatus.isError ? setStatus.error : null}
+            copy={{
+              REPORT_REQUIRED:
+                'Finalise this job’s report first — your business asks for one before a job is marked invoiced.',
+              default:
+                'Could not change this job’s status. Check your signal and try again.',
+            }}
+          />
+          <FormAlert
+            className="mt-2"
+            error={cancel.isError ? cancel.error : null}
+            copy={{
+              default:
+                'Could not cancel this job. Check your signal and try again.',
+            }}
           />
 
-          <Section label="Recurrence">
-            {job.recurrence?.active ? (
-              <>
-                <div className="flex items-center gap-2">
-                  <Repeat size={16} strokeWidth={2} className="text-ink-2" />
-                  <p className="text-body text-ink">
-                    {describeRepeat(job.recurrence.interval)}
-                  </p>
-                </div>
-                {/* Cancelling one visit is not the same as ending a contract,
-                    so the distinction is spelled out rather than implied. */}
-                <p className="mt-1 text-caption text-muted">
-                  Future visits are booked automatically. Cancelling this one
-                  leaves the rest in place.
-                </p>
-                {job.canEdit && job.status !== 'invoiced' && (
-                  <button
-                    type="button"
-                    disabled={!hydrated}
-                    onClick={() => setConfirmStopRepeatingOpen(true)}
-                    className="relative tap-target mt-3 text-caption font-semibold text-red disabled:opacity-50"
-                  >
-                    Stop repeating
-                  </button>
+          <Section label="Property">
+            <div className="flex items-baseline justify-between gap-2">
+              <p className="min-w-0 text-row-title text-ink">
+                {job.property?.client?.name}
+              </p>
+              {/* The number the office files them under, as on the
+                  client's own sheet. */}
+              {job.property?.client?.clientNumber !== undefined && (
+                <span className="shrink-0 text-caption tabular-nums text-muted">
+                  Client #{job.property.client.clientNumber}
+                </span>
+              )}
+            </div>
+            {/* Full street address here — the list rows show suburb only. */}
+            <p className="text-body text-ink-2">{job.property?.addressLine}</p>
+            <p className="text-body text-muted">
+              {job.property?.suburb} {job.property?.state}{' '}
+              {job.property?.postcode}
+            </p>
+
+            {/* Whoever lets the technician in — the store manager, the
+                caretaker. First, since it is who the job card's Call
+                already rings (convex/lib/siteContact.ts); head office stays
+                below it, not replaced by it. A name without a number is
+                still shown: it is who to ask for at the door. */}
+            {siteContact && (
+              <div className="mt-3 border-t border-hairline-2 pt-3">
+                <h4 className="section-label mb-1">Site contact</h4>
+                {siteContact.name && (
+                  <p className="text-body text-ink">{siteContact.name}</p>
                 )}
-              </>
-            ) : (
-              <>
-                <p className="text-body text-ink">One-off</p>
-                {/* The way an existing job becomes a Recurring Job. It lives
-                    here rather than only inside the edit form because making
-                    a job repeat is not editing its details — it is setting up
-                    a standing arrangement, and it asks its own question. */}
-                {job.canEdit && job.status !== 'invoiced' && (
-                  <button
-                    type="button"
-                    disabled={!hydrated}
-                    onClick={() => setMakeRecurringOpen(true)}
-                    className="relative tap-target mt-3 text-caption font-semibold text-blue disabled:opacity-50"
-                  >
-                    Make recurring
-                  </button>
+                {siteContact.phone && (
+                  <>
+                    <p className="text-caption text-muted">
+                      {siteContact.phone}
+                    </p>
+                    <div className="mt-2">
+                      <ContactButtons
+                        name={siteContact.name ?? 'site contact'}
+                        phone={siteContact.phone}
+                        show={['call', 'text']}
+                      />
+                    </div>
+                  </>
                 )}
-              </>
+              </div>
+            )}
+
+            {/* Quick-contact — hold to confirm on touch, since a phone in a
+                pocket must never silently dial or text a client (§2.3). */}
+            {job.property?.client && (
+              <div
+                className={
+                  captionOffice
+                    ? 'mt-3 border-t border-hairline-2 pt-3'
+                    : 'mt-3'
+                }
+              >
+                {captionOffice && (
+                  <h4 className="section-label mb-1">Head office</h4>
+                )}
+                <ContactButtons
+                  name={job.property.client.name}
+                  phone={job.property.client.phone}
+                  email={job.property.client.email}
+                />
+              </div>
             )}
           </Section>
 
-          <PropertyHistory
-            businessId={businessId}
-            businessSlug={businessSlug}
-            propertyId={job.propertyId}
-            timezone={timezone}
-            excludeJobId={job._id}
-          />
+          {/* Every note, straight after where and who: what to know
+              before going in, and this visit's own. Its own boundary,
+              so the rest of the sheet draws while the editor's code
+              arrives, and in the section's own loading state. */}
+          <Suspense fallback={<SectionLoading label="Notes" />}>
+            <JobNotesSection
+              businessId={businessId}
+              businessSlug={businessSlug}
+              timezone={timezone}
+              jobId={job._id}
+              propertyId={job.propertyId}
+              addressLine={job.property?.addressLine ?? ''}
+              canWriteVisitNote={job.canEdit}
+              plainNote={job.notes}
+            />
+          </Suspense>
 
+          {/* What this visit produces: its report, and the photos taken on
+              it, in one card. */}
           <JobReports
             businessId={businessId}
             businessSlug={businessSlug}
@@ -605,23 +567,69 @@ function JobDetailBody({
             jobId={job._id}
             jobType={job.jobType}
             timezone={timezone}
+            photos={
+              <JobPhotos
+                businessId={businessId}
+                jobId={job._id}
+                canEdit={job.canEdit}
+              />
+            }
           />
 
-          <JobPhotos businessId={businessId} jobId={job._id} canEdit={job.canEdit} />
+          {/* The job's own facts, one row each. Price, the work order and
+              "One-off" used to take a card apiece. */}
+          <Section label="Details" flush>
+            <dl className="divide-y divide-hairline">
+              <DetailRow label="Price" value={formatJobMoney(job)} />
+              {/* The client's reference, read out at a site's sign-in desk
+                  and needed on the invoice. A business client without one
+                  is said so, so a missing PO is noticed before the job is
+                  invoiced rather than when the invoice bounces. */}
+              {(job.workOrder !== undefined ||
+                job.property?.client?.kind === 'business') && (
+                <DetailRow
+                  label="Work order"
+                  value={
+                    job.workOrder !== undefined ? (
+                      <span className="select-text">{job.workOrder}</span>
+                    ) : (
+                      <span className="font-normal text-muted">
+                        None recorded
+                      </span>
+                    )
+                  }
+                />
+              )}
+              <RepeatsRow
+                businessId={businessId}
+                timezone={timezone}
+                job={job}
+                disabled={!hydrated}
+                onStop={() => setConfirmStopRepeatingOpen(true)}
+                onMake={() => setMakeRecurringOpen(true)}
+              />
+              {/* Weather for this property on this day, not the day in
+                  general — two jobs on the same day can be in different
+                  suburbs. */}
+              <WeatherRow
+                businessId={businessId}
+                state={job.property?.state ?? ''}
+                suburb={job.property?.suburb ?? ''}
+                postcode={job.property?.postcode ?? ''}
+                dayKey={dayKeyInZone(job.scheduledAt, timezone)}
+                todayKey={dayKeyInZone(Date.now(), timezone)}
+              />
+            </dl>
+          </Section>
 
-          {/* Read access can be granted without edit rights, so the status
-                  menu above is driven by the server's canEdit, not by role. */}
-          {!job.canEdit && (
-            <p className="mt-6 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5 text-caption text-amber-ink">
-              This job is assigned to someone else, so it is read-only.
-            </p>
-          )}
-          {job.status === 'invoiced' && (
-            <p className="mt-6 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-muted">
-              This job has been invoiced, so its details are locked. Change
-              its status to edit them.
-            </p>
-          )}
+          <PropertyHistory
+            businessId={businessId}
+            businessSlug={businessSlug}
+            timezone={timezone}
+            job={job}
+            addressLine={job.property?.addressLine ?? ''}
+            clientName={job.property?.client?.name ?? ''}
+          />
 
           {canDelete && job.canEdit && (
             <>
@@ -1241,7 +1249,7 @@ function dayKeyInZone(ts: number, timezone: string) {
   }).format(new Date(ts))
 }
 
-function JobWeather({
+function WeatherRow({
   businessId,
   state,
   suburb,
@@ -1268,9 +1276,9 @@ function JobWeather({
   const cell = weather.cell(suburb, postcode, dayKey)
 
   // Absent outside the forecast window, which is most of a year — showing an
-  // empty weather card for a job in March would read as "fine". A pending or
+  // empty weather row for a job in March would read as "fine". A pending or
   // failed lookup is likewise silent here: unlike the schedule card, this
-  // section has no fixed slot to hold open.
+  // row has no fixed slot to hold open.
   if (cell.status !== 'ready') return null
   const day = cell.weather
 
@@ -1278,112 +1286,185 @@ function JobWeather({
   const windy = isWindy(day)
 
   return (
-    <Section label="Weather">
-      <div className="flex items-center gap-2.5">
-        <WeatherGlyph weather={day} size={18} />
-        <p className="text-body text-ink">
-          {day.suburb}
-          {day.partial && ' · rest of today'}
-          {day.maxTempC !== undefined && ` · ${Math.round(day.maxTempC)}°`}
-          {day.minTempC !== undefined && ` / ${Math.round(day.minTempC)}°`}
-          {day.rainMm !== undefined && ` · ${day.rainMm.toFixed(1)} mm`}
-          {day.windKmh !== undefined && ` · ${Math.round(day.windKmh)} km/h`}
-        </p>
-      </div>
-
-      {/* What it means for this job, not just what the numbers are. */}
-      {wet && (
-        <p className="mt-1.5 text-caption text-amber-ink">
-          Rain forecast — an external treatment applied on this visit may wash
-          off.
-        </p>
-      )}
-      {!wet && windy && (
-        <p className="mt-1.5 text-caption text-amber-ink">
-          Windy — expect spray drift on exposed applications.
-        </p>
-      )}
-      <WeatherCredit className="mt-1.5" />
-    </Section>
+    <DetailRow
+      label="Weather"
+      value={
+        <span className="inline-flex items-center gap-1.5">
+          <WeatherGlyph weather={day} size={16} />
+          <span>
+            {day.suburb}
+            {day.partial && ' · rest of today'}
+            {day.maxTempC !== undefined && ` · ${Math.round(day.maxTempC)}°`}
+            {day.minTempC !== undefined && ` / ${Math.round(day.minTempC)}°`}
+            {day.rainMm !== undefined && ` · ${day.rainMm.toFixed(1)} mm`}
+            {day.windKmh !== undefined && ` · ${Math.round(day.windKmh)} km/h`}
+          </span>
+        </span>
+      }
+      below={
+        <>
+          {/* What it means for this job, not just what the numbers are. */}
+          {wet && (
+            <p className="text-caption text-amber-ink">
+              Rain forecast — an external treatment applied on this visit may
+              wash off.
+            </p>
+          )}
+          {!wet && windy && (
+            <p className="text-caption text-amber-ink">
+              Windy — expect spray drift on exposed applications.
+            </p>
+          )}
+          <WeatherCredit className="mt-0.5" />
+        </>
+      }
+    />
   )
 }
 
 /**
- * Other visits at this property, most recent first — the "history" a
- * recurring service accumulates, but shown for any property (a one-off
- * client with a prior unrelated job benefits from this too, matching how
- * `ClientSheet.tsx`'s own property view already shows job history
- * unconditionally).
+ * How often the job comes round, and when next: the series' next visit still
+ * to come. Stopping it, or making a one-off repeat, starts here too — setting
+ * up a standing arrangement is not editing the job's details, and it asks
+ * its own question.
  */
-function PropertyHistory({
+function RepeatsRow({
   businessId,
-  businessSlug,
-  propertyId,
   timezone,
-  excludeJobId,
+  job,
+  disabled,
+  onStop,
+  onMake,
 }: {
   businessId: Id<'businesses'>
-  businessSlug: string
-  propertyId: Id<'properties'>
   timezone: string
-  excludeJobId: Id<'jobs'>
+  job: {
+    _id: Id<'jobs'>
+    propertyId: Id<'properties'>
+    scheduledAt: number
+    status: string
+    jobType: string
+    recurrenceId?: Id<'recurrences'>
+    canEdit: boolean
+    recurrence: { interval: Interval; active: boolean } | null
+  }
+  disabled: boolean
+  onStop: () => void
+  onMake: () => void
 }) {
-  const { data } = useQuery(
-    convexQuery(api.properties.jobHistory, { businessId, propertyId }),
+  // The same visits the History section reads, so one subscription.
+  const { data: visits } = useQuery(
+    convexQuery(api.properties.jobHistory, {
+      businessId,
+      propertyId: job.propertyId,
+    }),
   )
-  const visits = (data ?? []).filter((j) => j._id !== excludeJobId).slice(0, 5)
-  if (visits.length === 0) return null
+  const [now] = useState(() => Date.now())
+  const changeable = job.canEdit && job.status !== 'invoiced'
 
+  if (!job.recurrence?.active) {
+    return (
+      <DetailRow
+        label="Repeats"
+        value="One-off"
+        below={
+          changeable && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onMake}
+              className="relative tap-target text-caption font-semibold text-blue disabled:opacity-50"
+            >
+              Make recurring
+            </button>
+          )
+        }
+      />
+    )
+  }
+
+  const next = visits && nextVisit(job, visits, now)
   return (
-    <Section label="Other visits at this property">
-      <div className="flex flex-col divide-y divide-hairline">
-        {visits.map((visit) => (
-          <Link
-            key={visit._id}
-            to="/$businessSlug/schedule"
-            params={{ businessSlug }}
-            search={{ date: dayKeyOf(visit.scheduledAt, timezone), jobId: visit._id }}
-            className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
-          >
-            <span className="min-w-0">
-              <span className="block truncate text-body text-ink">
-                {visit.jobType}
-              </span>
-              <span className="text-caption text-muted">
-                {new Intl.DateTimeFormat('en-AU', {
-                  timeZone: timezone,
-                  day: 'numeric',
-                  month: 'short',
-                  year: 'numeric',
-                }).format(new Date(visit.scheduledAt))}
-              </span>
-            </span>
-            <StatusPill status={visit.status} />
-          </Link>
-        ))}
-      </div>
-    </Section>
+    <DetailRow
+      label="Repeats"
+      value={describeInterval(job.recurrence.interval)}
+      sub={
+        next &&
+        `Next ${formatJobDate(dayKeyOf(next.scheduledAt, timezone), dayKeyOf(now, timezone))}`
+      }
+      below={
+        <>
+          {/* Cancelling one visit is not the same as ending a contract, so
+              the distinction is spelled out rather than implied. */}
+          <p className="text-caption text-ink-2">
+            Future visits are booked automatically. Cancelling this one leaves
+            the rest in place.
+          </p>
+          {changeable && (
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={onStop}
+              className="relative tap-target mt-2 text-caption font-semibold text-red disabled:opacity-50"
+            >
+              Stop repeating
+            </button>
+          )}
+        </>
+      }
+    />
   )
 }
 
-/** Reports finalised or drafted for this property — `reports.listByProperty`
- * existed unused before this; a job's history is incomplete without the
- * compliance documents it produced. */
 /**
- * Reports for this job's property, split into what this job's own report(s)
- * are versus other history at the same address — and a way to start one
- * without leaving the sheet, since the property and (via `jobId`) the job
- * itself are both already known here. `reports.create` and
- * `reports.listByProperty` already carry `jobId` end to end; this is the
- * first UI that actually uses it.
+ * One of a card's facts: its name on the left, its value on the right, and
+ * anything more about it (a warning, an action) under both. A row of a
+ * description list, so each value is read with its name.
  */
+function DetailRow({
+  label,
+  value,
+  sub,
+  below,
+}: {
+  label: string
+  value: React.ReactNode
+  sub?: string | false | undefined
+  below?: React.ReactNode
+}) {
+  return (
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 px-3.5 py-2.5">
+      <dt className="text-body text-ink-2">{label}</dt>
+      <dd className="min-w-0 text-right">
+        <span className="block break-words text-body font-semibold text-ink">
+          {value}
+        </span>
+        {sub && <span className="block text-caption text-muted">{sub}</span>}
+      </dd>
+      {below && <dd className="col-span-2 mt-1.5">{below}</dd>}
+    </div>
+  )
+}
+
+/** The assignee's name from the roster: a placeholder until it arrives, and
+ * said plainly for someone since removed from the team. */
+function TechnicianName({
+  roster,
+  membershipId,
+}: {
+  roster: ReadonlyArray<{ _id: Id<'memberships'>; name: string; role: Role }> | undefined
+  membershipId: Id<'memberships'>
+}) {
+  if (roster === undefined) return <Bone className="h-3.5 w-24" />
+  const person = roster.find((m) => m._id === membershipId)
+  return <span>{person ? personLabel(person) : 'No longer on the team'}</span>
+}
+
 /**
- * What this visit produced, and what else exists at the address.
- *
- * Two sections rather than one list: the report for THIS job is the thing a
- * technician is looking for, and the property's history is context. Both are
- * drawn by the shared `InlineReportsSection`, which the client sheet uses too
- * — this used to be a second, quietly diverging copy of the same row.
+ * What this visit produced: its report, a way to start one, and its photos,
+ * in one card. Drawn by the shared `InlineReportsSection`, which the client
+ * sheet uses too. The address's other reports are in its history now, each
+ * under the visit it came from (`PropertyHistory`).
  */
 function JobReports({
   businessId,
@@ -1392,6 +1473,7 @@ function JobReports({
   jobId,
   jobType,
   timezone,
+  photos,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
@@ -1399,26 +1481,25 @@ function JobReports({
   jobId: Id<'jobs'>
   jobType: string
   timezone: string
+  photos: React.ReactNode
 }) {
   const reportsQuery = useQuery(
     convexQuery(api.reports.listByProperty, { businessId, propertyId }),
   )
-  const data = reportsQuery.data
 
   // `undefined` while the query is out, so the section shows its loading
   // row rather than "no reports for this visit yet" about reports it has not
   // looked for.
-  const forThisJob = data?.filter((r) => r.jobId === jobId)
-  const elsewhere = data?.filter((r) => r.jobId !== jobId)
+  const forThisJob = reportsQuery.data?.filter((r) => r.jobId === jobId)
 
   // The boundary sits inside, not around this component, so the query above
-  // is already out while the sections' code loads.
+  // is already out while the section's code loads.
   return (
-    <Suspense fallback={<SectionLoading label="Reports for this visit" />}>
+    <Suspense fallback={<SectionLoading label={REPORT_AND_PHOTOS} />}>
       <InlineReportsSection
         businessSlug={businessSlug}
         timezone={timezone}
-        label="Reports for this visit"
+        label={REPORT_AND_PHOTOS}
         reports={forThisJob}
         failed={reportsQuery.isError}
         onRetry={() => void reportsQuery.refetch()}
@@ -1432,22 +1513,13 @@ function JobReports({
             jobType={jobType}
           />
         }
+        footer={photos}
       />
-
-      {elsewhere && elsewhere.length > 0 && (
-        <InlineReportsSection
-          businessSlug={businessSlug}
-          timezone={timezone}
-          label="Other reports at this property"
-          reports={elsewhere}
-          failed={reportsQuery.isError}
-          onRetry={() => void reportsQuery.refetch()}
-          empty=""
-        />
-      )}
     </Suspense>
   )
 }
+
+const REPORT_AND_PHOTOS = 'Report & photos'
 
 /**
  * A notes or reports section while its code is still on the way: the heading
@@ -1469,7 +1541,8 @@ type JobPhoto = { _id: Id<'jobPhotos'>; caption?: string; order: number; url: st
 
 /** Quick site reference photos — deliberately simpler than a report's
  * gallery (no cover flag, no annotation): this is "here's what I found",
- * not evidence for a compliance document. */
+ * not evidence for a compliance document. The foot of the Report & photos
+ * card; nothing at all for someone who can't add one when there are none. */
 function JobPhotos({
   businessId,
   jobId,
@@ -1533,7 +1606,7 @@ function JobPhotos({
   if (!canEdit && photos.length === 0) return null
 
   return (
-    <Section label="Photos">
+    <div className="border-t border-hairline p-2.5">
       {photos.length > 0 && (
         <div className="mb-3 grid grid-cols-3 gap-2">
           {photos.map((photo, index) => (
@@ -1619,21 +1692,26 @@ function JobPhotos({
           />
         </>
       )}
-    </Section>
+    </div>
   )
 }
 
 function Section({
   label,
   children,
+  flush = false,
 }: {
   label: string
   children: React.ReactNode
+  /** Rows that run to the card's edges, each padding itself. */
+  flush?: boolean
 }) {
   return (
     <section className="mt-6">
       <h3 className="section-label mb-2">{label}</h3>
-      <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
+      <div
+        className={`overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation ${flush ? '' : 'p-3.5'}`}
+      >
         {children}
       </div>
     </section>

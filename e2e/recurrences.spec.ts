@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import type { Locator } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
@@ -21,6 +22,16 @@ function perthDayKey(ts: number) {
     month: '2-digit',
     day: '2-digit',
   }).format(new Date(ts))
+}
+
+/** The job sheet's "Repeats" row, in its Details card. */
+function repeatsRow(detail: Locator) {
+  return detail.locator('dl > div').filter({
+    has: detail
+      .page()
+      .getByRole('term')
+      .filter({ hasText: /^Repeats$/ }),
+  })
 }
 
 async function setup(label: string) {
@@ -386,7 +397,9 @@ test('booking a repeating job from the schedule shows it as recurring', async ({
   await expect(card).toBeVisible()
   await card.click()
 
-  await expect(page.getByText('Repeats every 3 months')).toBeVisible()
+  await expect(repeatsRow(page.getByRole('dialog'))).toContainText(
+    'Every 3 months',
+  )
 })
 
 test('a custom interval the old fixed list could not express', async ({
@@ -433,7 +446,9 @@ test('a custom interval the old fixed list could not express', async ({
   const card = page.getByRole('button', { name: /Rodents/ })
   await expect(card).toBeVisible()
   await card.click()
-  await expect(page.getByText('Repeats every 2 weeks')).toBeVisible()
+  await expect(repeatsRow(page.getByRole('dialog'))).toContainText(
+    'Every 2 weeks',
+  )
 
   // And the Recurring Job view counts the ARRANGEMENT, not the thirteen
   // visits a fortnightly series projects inside the horizon.
@@ -492,7 +507,8 @@ test('editing a one-off job into a recurring one, then stopping it, from its own
   await detail.getByLabel('Repeat unit').selectOption('month')
   await detail.getByRole('button', { name: 'Save' }).click()
 
-  await expect(detail.getByText('Repeats every month')).toBeVisible()
+  // Said in the header, and in the Details card's Repeats row.
+  await expect(repeatsRow(detail)).toContainText('Every month')
 
   // Stop repeating — confirm via the dialog, scoped by its distinct role so
   // it doesn't collide with the trigger button of the same name underneath.
@@ -568,7 +584,9 @@ test('"Make recurring" on a one-off job, from the job detail sheet', async ({
   await recurrenceSetup.getByLabel('Repeat unit').selectOption('year')
   await recurrenceSetup.getByRole('button', { name: 'Make recurring' }).click()
 
-  await expect(page.getByText('Repeats every 15 years')).toBeVisible()
+  await expect(repeatsRow(page.getByRole('dialog').first())).toContainText(
+    'Every 15 years',
+  )
 
   await page.goto(`/${slug}/job/recurring`)
   await expect(page.getByText('1 Recurring Job', { exact: true })).toBeVisible()
