@@ -358,63 +358,6 @@ describe('an older app still sending a job’s note', () => {
   })
 })
 
-describe('moving plain notes into Notes (migrations/jobNotesToNotesV1)', () => {
-  test('each becomes a note in Notes on its job, the owner’s, and leaves the job', async () => {
-    const s = await setup()
-    const withNote = await book(s)
-    const without = await book(s)
-    await s.t.run((ctx) =>
-      ctx.db.patch(withNote, { notes: 'Tenant home after 10.\nRing first.' }),
-    )
-
-    await s.t.mutation(internal.migrations.jobNotesToNotesV1.backfillAll, {
-      cursor: null,
-    })
-    // Running it again moves nothing twice.
-    await s.t.mutation(internal.migrations.jobNotesToNotesV1.backfillAll, {
-      cursor: null,
-    })
-
-    expect(await notesOn(s, withNote)).toEqual([
-      expect.objectContaining({
-        title: 'Tenant home after 10.',
-        preview: 'Ring first.',
-        author: s.ownerMembershipId,
-        shared: true,
-      }),
-    ])
-    expect(await plain(s, withNote)).toBeUndefined()
-    expect(await notesOn(s, without)).toEqual([])
-  })
-
-  test('a job in the Recycle bin keeps its note in the bin with it', async () => {
-    const s = await setup()
-    const jobId = await book(s)
-    await s.t.run((ctx) => ctx.db.patch(jobId, { notes: 'Dog in the yard.' }))
-    await s.owner.as.mutation(api.bin.deleteJob, {
-      businessId: s.businessId,
-      jobId,
-    })
-    const binned = await s.t.run((ctx) => ctx.db.get(jobId))
-    expect(binned?.binEntryId).toBeDefined()
-
-    await s.t.mutation(internal.migrations.jobNotesToNotesV1.backfillAll, {
-      cursor: null,
-    })
-    const note = await s.t.run((ctx) =>
-      ctx.db
-        .query('notes')
-        .withIndex('by_job', (q) => q.eq('jobId', jobId))
-        .unique(),
-    )
-    expect(note).toMatchObject({
-      title: 'Dog in the yard.',
-      deletedAt: binned!.deletedAt,
-      binEntryId: binned!.binEntryId,
-    })
-  })
-})
-
 describe('a Recurring Job booked with a note', () => {
   function series(s: Setup, anchorDate: number, notes?: string) {
     return s.owner.as.mutation(api.recurrences.create, {

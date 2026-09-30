@@ -834,15 +834,6 @@ export default defineSchema({
      * invoiced, since the invoice already carries it.
      */
     workOrder: v.optional(v.string()),
-    /**
-     * Unused since 30 Sept 2026: a job's notes are notes in Notes, linked to
-     * it (notes.insertJobNote). For a day before that a job carried a
-     * plain-text note of its own here. Nothing reads or writes it any more;
-     * migrations/jobNotesToNotesV1 moved every one on production. It stays
-     * declared only so a deployment still holding such a job (a test
-     * backend) accepts a push; drop it once every deployment counts none.
-     */
-    notes: v.optional(v.string()),
     ...binFields,
   })
     .index('by_business_date', ['businessId', 'scheduledAt'])
