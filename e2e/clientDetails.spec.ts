@@ -99,8 +99,14 @@ test('a business client has an ABN and a contact person; a person client is neve
   // card behind it.
   const detail = page.getByRole('dialog')
   await clickUntil(card, () => expect(detail).toBeVisible({ timeout: 2_000 }))
-  await expect(detail.getByText('Contact person: Jan Morris')).toBeVisible()
-  await expect(detail.getByText('ABN 51 824 753 556')).toBeVisible()
+  // In Details, one row each (30 Sept 2026).
+  await detail.getByRole('tab', { name: 'Details' }).click()
+  const row = (name: string) =>
+    detail.locator('dl > div').filter({
+      has: page.getByRole('term').filter({ hasText: new RegExp(`^${name}$`) }),
+    })
+  await expect(row('Contact person')).toContainText('Jan Morris')
+  await expect(row('ABN')).toContainText('51 824 753 556')
 
   // Stored as its digits, the contact person as the primary contact.
   const clients = await owner.client.query(api.clients.list, { businessId })

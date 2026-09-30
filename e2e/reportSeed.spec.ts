@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { api, setupBusinessWithSub } from './fixtures'
+import { api, expectRejected, setupBusinessWithSub } from './fixtures'
 import { createReport } from './fixtures/reportPayloads'
 
 /**
@@ -103,7 +103,7 @@ test.describe('a report started from a job', () => {
     )
   })
 
-  test('seeds nothing from a job at a different address', async () => {
+  test('refuses a job at a different address, so nothing is taken from it', async () => {
     const s = await setupBusinessWithSub('report-seed-mismatch')
 
     const elsewhere = await s.owner.client.mutation(api.properties.create, {
@@ -124,19 +124,17 @@ test.describe('a report started from a job', () => {
       durationMinutes: 30,
     })
 
-    const reportId = await createReport(
-      s.owner.client,
-      { businessId: s.businessId, propertyId: s.propertyId, jobId },
-      'serviceReport',
+    // A report's visit is a visit to its address (30 Sept 2026). It used to
+    // be stored anyway, only seeding nothing from it — filed under one
+    // address and counted as a visit to another.
+    await expectRejected(
+      () =>
+        createReport(
+          s.owner.client,
+          { businessId: s.businessId, propertyId: s.propertyId, jobId },
+          'serviceReport',
+        ),
+      'NOT_FOUND',
     )
-    const report = await s.owner.client.query(api.reports.get, {
-      businessId: s.businessId,
-      reportId,
-    })
-    const data = report!.data as Record<string, unknown>
-    // The report still opens, and the date still defaults — but nothing is
-    // taken from a job about somewhere else.
-    expect(data.technician).toBeUndefined()
-    expect(data.treatments).toBeUndefined()
   })
 })

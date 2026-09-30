@@ -114,10 +114,49 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
+  // The busy client: a summary under the name, then Jobs, Notes, Details.
+  clientbusy: { before: async (p) => p.waitForTimeout(1200) },
+  'clientbusy-jobs': {
+    spec: 'clientbusy',
+    before: async (p) => {
+      await p.waitForTimeout(1200)
+      await p.getByRole('button', { name: /^General Pest Control/ }).click()
+      await p.waitForTimeout(300)
+      await p
+        .getByRole('heading', { name: /^Recurring services/ })
+        .scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  'clientbusy-notes': {
+    spec: 'clientbusy',
+    before: async (p) => {
+      await p.waitForTimeout(1200)
+      await p.getByRole('tab', { name: 'Notes' }).click()
+      await p.waitForTimeout(400)
+      await p
+        .getByRole('heading', { name: 'Before you arrive' })
+        .scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  'clientbusy-details': {
+    spec: 'clientbusy',
+    before: async (p) => {
+      await p.waitForTimeout(1200)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.waitForTimeout(400)
+      await p
+        .getByRole('heading', { name: 'Details', exact: true })
+        .scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
   'client-property-edit': {
     spec: 'client',
     before: async (p) => {
       await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
       await p.getByRole('button', { name: 'Edit 9 Rokeby Rd' }).click()
       await p.waitForTimeout(400)
       await p
@@ -130,6 +169,7 @@ const PLAN = {
     spec: 'client',
     before: async (p) => {
       await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
       await p.getByRole('button', { name: 'Remove Tom Hale' }).click()
       await p.waitForTimeout(500)
     },
@@ -138,6 +178,7 @@ const PLAN = {
     spec: 'client',
     before: async (p) => {
       await p.waitForTimeout(900)
+      await p.getByRole('tab', { name: 'Details' }).click()
       await p.getByRole('button', { name: 'Delete client' }).click()
       await p.waitForTimeout(500)
     },

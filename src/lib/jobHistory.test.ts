@@ -5,6 +5,7 @@ import {
   pastVisits,
   reportsByVisit,
   sameService,
+  visitChoices,
 } from './jobHistory'
 
 const DAY = 86_400_000
@@ -216,5 +217,32 @@ describe('reportsByVisit', () => {
     expect(byVisit.get('gpc')?.map((r) => r._id)).toEqual(['r1', 'r2'])
     expect(byVisit.get('next')?.map((r) => r._id)).toEqual(['r5'])
     expect(unlinked.map((r) => r._id)).toEqual(['r3', 'r4'])
+  })
+})
+
+describe('visitChoices', () => {
+  it('offers today’s visits, then the most recent before them, never a cancelled or unbooked one', () => {
+    const TOMORROW = TODAY + DAY
+    const visits = [
+      visit('later', 0.3, 'booked'),
+      visit('morning', -0.2, 'completed'),
+      visit('todayProjection', 0.1, 'recurring', 'Bait', 'rec_bait'),
+      visit('todayCancelled', 0.2, 'cancelled'),
+      visit('yesterday', -1, 'completed'),
+      visit('neverClosed', -3, 'booked'),
+      visit('unbooked', -2, 'recurring', 'Bait', 'rec_bait'),
+      visit('cancelled', -4, 'cancelled'),
+      visit('nextWeek', 7, 'booked'),
+    ]
+    const { today, past } = visitChoices(visits, {
+      startOfToday: TODAY,
+      startOfTomorrow: TOMORROW,
+    })
+    expect(today.map((v) => v._id)).toEqual([
+      'morning',
+      'todayProjection',
+      'later',
+    ])
+    expect(past.map((v) => v._id)).toEqual(['yesterday', 'neverClosed'])
   })
 })

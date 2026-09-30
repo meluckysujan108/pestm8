@@ -99,6 +99,8 @@ export function NewJobSheet({
   onClose,
   assignTo,
   onBooked,
+  forProperty,
+  pickDate = false,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
@@ -110,6 +112,11 @@ export function NewJobSheet({
   assignTo?: Id<'memberships'>
   /** Once the job is booked — before the sheet closes. */
   onBooked?: () => void
+  /** Booked from a client's sheet: their site starts chosen. */
+  forProperty?: Id<'properties'>
+  /** Opened away from the Schedule, where no day is selected: the day is a
+   * field of the form, starting on `dayKey`. */
+  pickDate?: boolean
 }) {
   return (
     <SheetShell open={open} onClose={onClose}>
@@ -135,6 +142,8 @@ export function NewJobSheet({
             onClose={onClose}
             assignTo={assignTo}
             onBooked={onBooked}
+            forProperty={forProperty}
+            pickDate={pickDate}
           />
         </Suspense>
       )}
@@ -149,6 +158,8 @@ function NewJobForm({
   onClose,
   assignTo,
   onBooked,
+  forProperty,
+  pickDate,
 }: {
   businessId: Id<'businesses'>
   dayKey: string
@@ -156,6 +167,8 @@ function NewJobForm({
   onClose: () => void
   assignTo?: Id<'memberships'>
   onBooked?: () => void
+  forProperty?: Id<'properties'>
+  pickDate: boolean
 }) {
   const { data: properties } = useSuspenseQuery(
     convexQuery(api.properties.list, { businessId }),
@@ -169,7 +182,19 @@ function NewJobForm({
   const [mode, setMode] = useState<ClientMode>(
     properties.length > 0 ? 'existing' : 'new',
   )
-  const [propertyId, setPropertyId] = useState('')
+  // Chosen already when booked from a client's sheet: that is the client.
+  // Anywhere else nothing is, until the person chooses.
+  const [openedProperty] = useState<string>(() =>
+    forProperty && properties.some((p) => p._id === forProperty)
+      ? forProperty
+      : '',
+  )
+  const [propertyId, setPropertyId] = useState(openedProperty)
+  // A day of its own only where the form asks for one; the Schedule's New
+  // Job books on the day the Schedule is showing, as it always has.
+  const [openedDay] = useState(dayKey)
+  const [pickedDay, setDay] = useState(dayKey)
+  const day = pickDate ? pickedDay : dayKey
   const businessState = useRouteContext({
     from: '/$businessSlug',
     select: (context) => context.business.state,
@@ -214,7 +239,8 @@ function NewJobForm({
   const [openedClient] = useState(newClient)
   const [openedSite] = useState(newSite)
   const changed =
-    propertyId !== '' ||
+    propertyId !== openedProperty ||
+    (pickDate && pickedDay !== openedDay) ||
     typedIn(newClient, openedClient) ||
     siteClientId !== '' ||
     typedIn(newSite, openedSite) ||
@@ -388,7 +414,7 @@ function NewJobForm({
     // tenant's own timezone — not the viewer's browser zone, which may
     // differ (a technician travelling, or simply a differently-configured
     // device) and would otherwise silently book the wrong instant.
-    const scheduledAt = zonedDateTimeToUtc(dayKey, hh, mm, timezone)
+    const scheduledAt = zonedDateTimeToUtc(day, hh, mm, timezone)
     return {
       businessId,
       property:
@@ -699,6 +725,18 @@ function NewJobForm({
           )}
           <OffViewNote assignee={assignee} people={assignees} />
         </Field>
+
+        {pickDate && (
+          <Field label="Date">
+            <input
+              type="date"
+              required
+              value={pickedDay}
+              onChange={(e) => setDay(e.target.value)}
+              className={`${FIELD} w-full`}
+            />
+          </Field>
+        )}
 
         {/* A cell never grows past its half of the row (see styles.css on
             date and time inputs). */}
