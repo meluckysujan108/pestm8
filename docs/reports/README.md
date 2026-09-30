@@ -255,6 +255,10 @@ email send.
 - Every rendered file becomes a `reportPdfs` row with the renderer and template
   version that drew it. Superseded files are kept: a client emailed a report in
   August must still be shown the file they were actually sent.
+- The drawing itself is `lib/drawReportPdf.tsx`, shared with the lighter copy
+  a report too big to email is sent as (see "Sending it"). That copy is a
+  `reportPdfs` row too, `variant: 'email'`, which the report's pointer never
+  moves to — so the newest row is not necessarily the report's PDF.
 - `RENDER_VERSION` in `convex/reports.ts` is the painter's version. Bumping it
   re-renders every report on its next open, which is how a fix to the document
   reaches files already drawn.
@@ -437,6 +441,51 @@ client receive on 28 August?" answerable once the renderer has moved on.
   `POST /resend/webhook` moves a row to `bounced` when it did not land, and
   clears the report's `emailedAt` if no other delivery of it survived — a
   report the client never received is not a sent one.
+- **A report too big to email goes as a lighter copy** (since 30 Sept 2026).
+  A report's PDF is its photos — react-pdf copies each JPEG in unchanged —
+  and a 53-photo job came to 33.7 MiB, which no email carries (Resend stops
+  at 40 MB after base64; many mail servers at about 10 MB). So when a
+  report's own PDF is over `EMAIL_BUDGET_BYTES` (6 MiB, about 8.6 MB on the
+  wire), the email attaches a copy of it instead: the same pages, drawn by
+  the same `lib/drawReportPdf.tsx` from the same record, with every photo but
+  the cover re-encoded smaller.
+  - **How small** (`lib/emailFit.ts`). The lightest touch that fits: from
+    every pixel at quality 85 down to 600 px on the long edge (about 200 dpi
+    as printed), chosen from a sample of eight photos encoded once at a
+    reference size — at a fixed quality a JPEG's size follows its pixel
+    count — then one pass over them all. The 30 Sept report goes at 1000 px,
+    330 dpi, 5.7 MiB. A report that does not fit even at the floor (about
+    150 photos) fails as before, "too large to email, even with its photos
+    made smaller".
+  - **How** (`lib/emailCopyBuild.ts`, `lib/imageCodecs/`). mozjpeg and a
+    Lanczos resampler in WebAssembly, embedded in the bundle
+    (`scripts/embed-image-codecs.mjs`) — not sharp, a native binary reported
+    to fail to load on Convex's runtime. A photo is turned upright by its EXIF
+    first (react-pdf honours that flag), never enlarged, and sent as it came
+    if it cannot be read or would not shrink by a tenth. The copy's layout is
+    the original's, from the recorded photo sizes.
+  - **Checked before it goes.** react-pdf skips an image it cannot read
+    without a word, so the copy must hold as many images as the original
+    (`/Subtype /Image` counted in both, less photos that came out
+    identical), or it is not used. A copy that takes longer than about four
+    minutes is abandoned the same way.
+  - **Made once, kept** (`convex/emailCopy.ts`, `convex/emailCopies.ts`). A
+    `reportPdfs` row with `variant: 'email'`, its `sourceStorageId` (the
+    original it was made from) and `photoEdge`. `reports.pdfStorageId` never
+    moves to it: the PDF tab shows every pixel. Made at lock for every
+    report over budget, so a later Send is instant; otherwise by the first
+    send. Always attached from storage, never drawn for a send, so a retried
+    send is the same payload under its idempotency key. A re-render (a new
+    painter version) makes a new original, and the next send a new copy.
+  - **Said before and after.** The lock sheet and the Send sheet say the
+    email carries smaller photos (`deliveries.known.largeForEmail`); the
+    Email tab ("Photos made smaller to fit an email") and the Logs line
+    (`lighterCopy`, `photoEdge`) say so after. The email itself does not: a
+    line inviting "can I have the full size?" is work for the business.
+  - **Checking a deployment.** Two internal actions, both read-only.
+    `emailCopy:engineCheck` runs the codecs on a picture made on the spot.
+    `emailCopy:dryRun`, given a `reportId`, reports what that report's copy
+    would be — tier, size, timings, images — and stores nothing.
 
 ### Configuring it
 

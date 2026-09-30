@@ -16,6 +16,7 @@ import {
 } from './lib/capabilities'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { emailConfigured } from './lib/emailConfig'
+import { EMAIL_BUDGET_BYTES } from './lib/emailFit'
 import { isValidEmail } from './lib/email'
 import { addressedTo } from './lib/reportEmail'
 import { assertWithinSendLimit } from './lib/sendLimit'
@@ -136,18 +137,6 @@ export const forSending = internalQuery({
       // sender checks again, so no future path can email a draft.
       finalised: report.status === 'finalised',
     }
-  },
-})
-
-/** The newest `reportPdfs` row, so a delivery records the file it attached. */
-export const currentPdfId = internalQuery({
-  args: { reportId: v.id('reports') },
-  handler: async (ctx, { reportId }) => {
-    const rows = await ctx.db
-      .query('reportPdfs')
-      .withIndex('by_report', (q) => q.eq('reportId', reportId))
-      .collect()
-    return rows.sort((a, b) => b.createdAt - a.createdAt)[0]?._id ?? null
   },
 })
 
@@ -272,7 +261,12 @@ export const known = query({
   args: { businessId: v.id('businesses'), reportId: v.id('reports') },
   handler: async (ctx, { businessId, reportId }) => {
     const env = await requireActor(ctx, businessId)
-    const none = { addresses: [], copy: null, emailReady: false }
+    const none = {
+      addresses: [],
+      copy: null,
+      emailReady: false,
+      largeForEmail: false,
+    }
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return none
     if (!reportReadable(env.scope, env.actor.real._id, report)) return none
@@ -284,9 +278,47 @@ export const known = query({
       copy: businessCopyAddress(business),
       /** Whether this deployment can send at all (`lib/emailConfig`). */
       emailReady: emailConfigured(),
+      /**
+       * Whether an email of it goes as the lighter copy, with smaller photos
+       * (convex/emailCopy.ts) — so the sheets can say so before it is sent.
+       */
+      largeForEmail: await largeForEmail(ctx, report),
     }
   },
 })
+
+/**
+ * Whether this report is more than an email carries.
+ *
+ * Once it has a PDF, that file's size says. Before — on the sheet that locks
+ * it — its photos do: a report's PDF is its photos and a few pages besides
+ * (33.5 of 33.7 MiB on 30 Sept 2026).
+ */
+async function largeForEmail(
+  ctx: QueryCtx,
+  report: Doc<'reports'>,
+): Promise<boolean> {
+  if (report.pdfStorageId) {
+    const file = await ctx.db.system.get('_storage', report.pdfStorageId)
+    if (file) return file.size > EMAIL_BUDGET_BYTES
+  }
+  let total = 0
+  const photoFiles = [
+    ...Object.values(report.photoSlots ?? {}),
+    ...(
+      await ctx.db
+        .query('reportPhotos')
+        .withIndex('by_report_field', (q) => q.eq('reportId', report._id))
+        .collect()
+    ).map((photo) => photo.storageId),
+  ]
+  for (const storageId of photoFiles) {
+    const file = await ctx.db.system.get('_storage', storageId)
+    total += file?.size ?? 0
+    if (total > EMAIL_BUDGET_BYTES) return true
+  }
+  return false
+}
 
 /**
  * What the provider told us later.
@@ -423,10 +455,17 @@ export const forReport = query({
       ctx,
       rows.sort((a, b) => b.createdAt - a.createdAt),
     )
-    return described.map((row) => ({
-      ...row,
-      waitingForEmailSetup: row.status === 'queued' && !canSend,
-    }))
+    return Promise.all(
+      described.map(async (row) => ({
+        ...row,
+        waitingForEmailSetup: row.status === 'queued' && !canSend,
+        // It went as the lighter copy, with smaller photos, because the
+        // report's own PDF was more than an email carries (convex/emailCopy.ts).
+        lighterCopy: row.pdfId
+          ? (await ctx.db.get(row.pdfId))?.variant === 'email'
+          : false,
+      })),
+    )
   },
 })
 

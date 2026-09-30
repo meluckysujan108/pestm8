@@ -4,6 +4,8 @@ import { v } from 'convex/values'
 import { internalAction } from './_generated/server'
 import { internal } from './_generated/api'
 import { emailConfigured } from './lib/emailConfig'
+import { drawReportPdf } from './lib/drawReportPdf'
+import { emailAttachment } from './emailCopy'
 import type { ActionCtx } from './_generated/server'
 import type { Id } from './_generated/dataModel'
 
@@ -20,15 +22,6 @@ import type { Id } from './_generated/dataModel'
  * So the render is claimed, done once, and scheduled the moment the report
  * locks. By the time anyone taps Download, the file is already there.
  */
-
-/** `toBuffer()` resolves to a Node `ReadableStream`, not a `Buffer`. */
-export async function streamToBuffer(
-  stream: NodeJS.ReadableStream,
-): Promise<Buffer> {
-  const chunks: Array<Buffer> = []
-  for await (const chunk of stream) chunks.push(chunk as Buffer)
-  return Buffer.concat(chunks)
-}
 
 /**
  * Renders one report and records the file, or gives up quietly if someone
@@ -67,42 +60,7 @@ export async function renderIfNeeded(
       reportId,
     })
 
-    const { pdf } = await import('@react-pdf/renderer')
-    const { ReportPdf } =
-      await import('../src/components/reports/pdf/ReportPdf')
-
-    const stream = await pdf(
-      <ReportPdf
-        report={{
-          template: report.template,
-          customTemplate: report.customTemplate,
-          // This only ever runs on a finalised report, so it is the surface
-          // that most needs the frozen wording rather than today's.
-          templateSnapshot: report.templateSnapshot,
-          templateVersion: report.templateVersion,
-          context: report.context,
-          legalBasis: report.legalBasis,
-          finalised: true,
-          finalisedAt: report.finalisedAt,
-          reportNumber: report.reportNumber,
-          // Amendments, not resubmissions: a finalised report is never
-          // rewritten, so the version is the issue of this number — 2 for the
-          // first correction. It is the one line on paper that tells a
-          // correction from the document it replaced.
-          version: report.version ?? 1,
-          submittedBy: report.author?.name,
-          data: (report.data ?? {}) as Record<string, unknown>,
-          businessName: report.businessName,
-          business: report.business,
-          property: report.property,
-          licenceNumber: report.author?.licenceNumber,
-          photos: photos.slots,
-          galleryPhotos: photos.gallery,
-        }}
-      />,
-    ).toBuffer()
-
-    const buffer = await streamToBuffer(stream)
+    const buffer = await drawReportPdf(report, photos)
     const storageId = await ctx.storage.store(
       new Blob([new Uint8Array(buffer)], { type: 'application/pdf' }),
     )
@@ -151,8 +109,9 @@ async function waitForRender(
 export const afterFinalise = internalAction({
   args: { reportId: v.id('reports') },
   handler: async (ctx, { reportId }) => {
+    let storageId: Id<'_storage'> | null
     try {
-      await renderIfNeeded(ctx, reportId)
+      storageId = await renderIfNeeded(ctx, reportId)
     } catch (error) {
       console.error('afterFinalise render failed', reportId, error)
       // Without a file there is nothing to attach, and a delivery that goes
@@ -165,6 +124,19 @@ export const afterFinalise = internalAction({
     // queued and the history says why; scheduling sends that can only throw
     // would put an error in the logs for every report finalised meanwhile.
     if (!emailConfigured()) return
+
+    // A report too big to email gets its lighter copy now, once — whether or
+    // not the form asked for an email. The sends below then find it waiting
+    // rather than each making their own, and a Send pressed later goes at
+    // once instead of after a minute's work in a driveway. A copy that cannot
+    // be made is not this function's failure: the send that needs it says so.
+    if (storageId) {
+      try {
+        await emailAttachment(ctx, reportId, storageId)
+      } catch (error) {
+        console.error('afterFinalise email copy failed', reportId, error)
+      }
+    }
 
     // Whatever the form asked for at finalise. Each is its own scheduled
     // action: one recipient's provider failure must not stop the next.
