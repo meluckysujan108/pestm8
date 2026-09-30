@@ -20,8 +20,11 @@ import { FormAlert } from '#/components/forms/FormAlert'
 import { describeError } from '#/components/forms/describeError'
 import { isOffline } from '#/lib/online'
 import { useHydrated } from '#/lib/useHydrated'
+import { useCan } from '#/lib/access'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
+import { DeleteReport } from './DeleteReport'
+import { purgeWords, restoreFailed } from './deleteWords'
 
 /**
  * Every report this business has made, a page at a time.
@@ -54,6 +57,10 @@ type Row = {
   clientName: string
   suburb: string
   templateName: string
+  reportNumber?: number
+  version?: number
+  replaced?: boolean
+  correcting?: boolean
 }
 
 /** The warmed first page has to ask for the same number of rows, or the list
@@ -298,7 +305,7 @@ function emptyTitle(segment: Segment): string {
 
 function emptyBody(segment: Segment): string {
   if (segment === 'trash') {
-    return 'Deleted drafts wait here for 30 days. Finalised reports are never deleted.'
+    return 'Deleted reports wait here for 30 days, then they’re gone.'
   }
   if (segment === 'sent')
     return 'Reports you have emailed to a client show up here.'
@@ -319,6 +326,11 @@ function ReportRow({
   row: Row
   inTrash: boolean
 }) {
+  // A finalised report is a signed record, and only the owner working as
+  // himself may throw one away (`reports.softDelete`). A draft is whoever
+  // may edit it — which the server decides, as it always has.
+  const ownsRecords = useCan('business.manage')
+  const deletable = row.status === 'draft' || ownsRecords
   const bucket =
     row.status === 'draft' ? 'draft' : row.emailedAt ? 'sent' : 'finalised'
 
@@ -351,7 +363,14 @@ function ReportRow({
     return (
       <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
         {body}
-        <TrashActions businessId={businessId} row={row} />
+        {deletable ? (
+          <TrashActions businessId={businessId} row={row} />
+        ) : (
+          <p className="mt-3 text-caption text-muted">
+            Only the business owner can restore a finalised report, or delete it
+            for good.
+          </p>
+        )}
       </div>
     )
   }
@@ -365,16 +384,12 @@ function ReportRow({
       >
         {body}
       </Link>
-      {/* Drafts only. A finalised report is a record the business is required
-          to keep, so there is deliberately no way to delete one. */}
-      {row.status === 'draft' && (
-        <DeleteDraft businessId={businessId} row={row} />
-      )}
+      {deletable && <DeleteRow businessId={businessId} row={row} />}
     </div>
   )
 }
 
-function DeleteDraft({
+function DeleteRow({
   businessId,
   row,
 }: {
@@ -382,54 +397,30 @@ function DeleteDraft({
   row: Row
 }) {
   const hydrated = useHydrated()
-  const [confirming, setConfirming] = useState(false)
-  const convexDelete = useConvexMutation(api.reports.softDelete)
-  const remove = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      reportId: Id<'reports'>
-    }) => convexDelete(args),
-    onSuccess: () => setConfirming(false),
-  })
-
+  const number = row.reportNumber !== undefined ? ` #${row.reportNumber}` : ''
   return (
-    <>
-      <button
-        type="button"
-        aria-label={`Delete the ${row.templateName} draft for ${row.clientName}`}
-        disabled={!hydrated}
-        onClick={() => {
-          remove.reset()
-          setConfirming(true)
-        }}
-        // Bottom right, beside the status pill rather than over the standard
-        // the report was written to: at the top it sat on "AS 4349.3-2010".
-        className="tap-target absolute bottom-2 right-2 flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
-      >
-        <Trash2 size={16} strokeWidth={2} />
-      </button>
-
-      <ConfirmDialog
-        open={confirming}
-        onOpenChange={setConfirming}
-        title="Delete this draft?"
-        body={`${row.templateName} for ${row.clientName}${row.suburb ? `, ${row.suburb}` : ''}. It waits in Deleted for 30 days, with its photos, then it is gone.`}
-        confirm="Delete draft"
-        cancel="Keep draft"
-        closeOnConfirm={false}
-        pending={remove.isPending}
-        pendingLabel="Deleting…"
-        error={
-          remove.isError
-            ? describeError(remove.error, {
-                default:
-                  'Could not delete the draft. Check your signal and try again.',
-              })
-            : null
-        }
-        onConfirm={() => remove.mutate({ businessId, reportId: row._id })}
-      />
-    </>
+    <DeleteReport
+      businessId={businessId}
+      reportId={row._id}
+      report={row}
+      trigger={(open) => (
+        <button
+          type="button"
+          aria-label={
+            row.status === 'draft'
+              ? `Delete the ${row.templateName} draft for ${row.clientName}`
+              : `Delete report${number}, the ${row.templateName} for ${row.clientName}`
+          }
+          disabled={!hydrated}
+          onClick={open}
+          // Bottom right, beside the status pill rather than over the standard
+          // the report was written to: at the top it sat on "AS 4349.3-2010".
+          className="tap-target absolute bottom-2 right-2 flex size-9 items-center justify-center rounded-full text-muted transition active:scale-[.95] disabled:opacity-50"
+        >
+          <Trash2 size={16} strokeWidth={2} />
+        </button>
+      )}
+    />
   )
 }
 
@@ -442,6 +433,7 @@ function TrashActions({
 }) {
   const hydrated = useHydrated()
   const [confirming, setConfirming] = useState(false)
+  const purge = purgeWords(row)
   const convexRestore = useConvexMutation(api.reports.restore)
   const convexRemove = useConvexMutation(api.reports.remove)
   const restore = useMutation({
@@ -494,31 +486,21 @@ function TrashActions({
       <FormAlert
         className="mt-2"
         error={restore.isError ? restore.error : null}
-        copy={{
-          default:
-            'Could not restore the draft. Check your signal and try again.',
-        }}
+        copy={restoreFailed(row)}
       />
 
       <ConfirmDialog
         open={confirming}
         onOpenChange={setConfirming}
-        title="Delete this draft for good?"
-        body="The draft and its photos are gone, and it can’t be undone. Those photos are evidence that somebody stood somewhere and took them."
-        confirm="Delete for good"
-        cancel="Keep it"
+        title={purge.title}
+        body={purge.body}
+        confirm={purge.confirm}
+        cancel={purge.cancel}
         closeOnConfirm={false}
         pending={forever.isPending}
         pendingLabel="Deleting…"
         error={
-          forever.isError
-            ? describeError(forever.error, {
-                offline:
-                  'Could not delete the draft: this device is offline. Try again when you have signal.',
-                default:
-                  'Could not delete the draft. Check your signal and try again.',
-              })
-            : null
+          forever.isError ? describeError(forever.error, purge.failed) : null
         }
         onConfirm={() => forever.mutate({ businessId, reportId: row._id })}
       />
