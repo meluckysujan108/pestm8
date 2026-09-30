@@ -64,7 +64,7 @@ export function RecycleBinList({
           <>
             Each is deleted for good 30 days after it was deleted. Restoring
             brings back everything that was deleted with it. Finalised reports
-            are never deleted, and stay in Reports.
+            are not deleted with them, and stay in Reports.
             {data.capped && ' Showing the most recent 200.'}
           </>
         }

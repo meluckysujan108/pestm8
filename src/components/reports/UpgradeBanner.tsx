@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { RefreshCw } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { restartingReports } from '#/lib/restartingReports'
+import { leavingReports } from '#/lib/leavingReports'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 
@@ -55,13 +55,13 @@ export function UpgradeBanner({
         // changes; nothing to navigate to.
         await switchVersion({ businessId, reportId })
       } else {
-        restartingReports.add(reportId)
+        leavingReports.add(reportId)
         try {
           onRestarted(await restart({ businessId, reportId, suggestions: true }))
         } finally {
           // Cleared once the page has moved on; a failed restart leaves the
           // draft exactly where it was.
-          setTimeout(() => restartingReports.delete(reportId), 5000)
+          setTimeout(() => leavingReports.delete(reportId), 5000)
         }
       }
       setOpen(false)

@@ -28,12 +28,34 @@ record of each treatment. The Service Report carries every element:
 | Technician's name and licence              | `technician` (a `member` field) prints `Name (Licence N)`                                                     |
 
 **Retention.** The regulation wants records kept, and termite work kept
-longer. Finalised reports are never deleted, in two places rather than one:
-`requireDeletable` throws `REPORT_FINALISED` before a delete starts, and the
-nightly `purgeExpired` _restores_ a report that was finalised while sitting in
-Recently Deleted rather than purging it on schedule. A stale-draft nudge
-(`reports.staleDrafts`) surfaces work that was started and never issued,
-because an unfinished draft is not a record.
+longer. Keeping them is the business's duty, not the app's, and the app
+leaves the decision with the one person who answers for it:
+
+- **Only the owner can delete a finalised report** (`business.manage`, which
+  a switch into someone else's account never carries). A technician cannot,
+  not even one they signed. `requireDeletable` refuses anyone else with
+  `NO_ACCESS`.
+- **It is never gone on one tap.** It waits in Recently Deleted for thirty
+  days, restorable, before the nightly `purgeExpired` deletes it for good.
+- **The confirm says so.** "A signed report can be a record the law requires
+  you to keep — if it only has a mistake, issue a correction instead." A
+  correction (`reports.amend`) is the way to fix a record while keeping it.
+- **It is written down.** Deleting, restoring and Delete now each leave an
+  `auditLog` row on every version, naming who and when; the rows outlive the
+  report. The nightly purge takes a finalised report only when the last word
+  on its history is the owner's delete, and puts back one that reached
+  Recently Deleted any other way, as it always did.
+- **Deleting a client, site or job never takes one** (`convex/bin.ts`): a
+  record goes only when the owner deletes that report itself.
+
+_Amended 30 Sept 2026._ Until then a finalised report could not be deleted at
+all: `requireDeletable` threw `REPORT_FINALISED`, and the nightly purge
+restored a finalised report it found in Recently Deleted. Clients asked for a
+way to remove test reports, duplicates and reports locked against the wrong
+client, and the product owner chose to allow it on the terms above.
+
+A stale-draft nudge (`reports.staleDrafts`) surfaces work that was started and
+never issued, because an unfinished draft is not a record.
 
 **Flag-only — not built, deliberately.** Three things the regulation mentions
 that the source form does not ask for, and which are therefore _not_ added:
@@ -122,10 +144,11 @@ against. A licence-expiry warning is listed as an option and is not built.
 
 ## Where each of these is asserted
 
-| Claim                                                           | Test                                                                                                                                           |
-| --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| The Service Report carries every reg 77 element                 | `src/lib/reportTemplates/fidelity.test.ts` (the strings)                                                                                       |
-| A finalised report cannot be deleted                            | `e2e/reportsList.spec.ts` (`REPORT_FINALISED`), and `e2e/{photos,gallery,annotation}.spec.ts` for its attachments                              |
-| A saved signature is owner-only                                 | `e2e/signature.spec.ts`                                                                                                                        |
-| The SGAR nudge fires only for an SGAR product via bait stations | `src/lib/reportTemplates/sgar.test.ts`, `e2e/reports.spec.ts`                                                                                  |
-| The verbatim Certificate prints no durable notice               | `e2e/reports.spec.ts`, `e2e/reportSnapshot.spec.ts`. Nothing yet tests the `features: ['durableNotice']` path, because no template declares it |
+| Claim                                                                              | Test                                                                                                                                           |
+| ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| The Service Report carries every reg 77 element                                    | `src/lib/reportTemplates/fidelity.test.ts` (the strings)                                                                                       |
+| Only the owner can delete a finalised report, and only into Recently Deleted first | `convex/reportDelete.test.ts`, `e2e/reportsList.spec.ts` (`NO_ACCESS`)                                                                         |
+| A finalised report's attachments cannot be changed                                 | `e2e/{photos,gallery,annotation}.spec.ts` (`REPORT_FINALISED`)                                                                                 |
+| A saved signature is owner-only                                                    | `e2e/signature.spec.ts`                                                                                                                        |
+| The SGAR nudge fires only for an SGAR product via bait stations                    | `src/lib/reportTemplates/sgar.test.ts`, `e2e/reports.spec.ts`                                                                                  |
+| The verbatim Certificate prints no durable notice                                  | `e2e/reports.spec.ts`, `e2e/reportSnapshot.spec.ts`. Nothing yet tests the `features: ['durableNotice']` path, because no template declares it |

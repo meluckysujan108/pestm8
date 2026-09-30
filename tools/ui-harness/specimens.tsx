@@ -26,6 +26,11 @@ import {
   SendSheet,
 } from '#/components/reports/SendSheet'
 import { LogsPanel } from '#/components/reports/ReportActionBar'
+import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
+import type { Segment } from '#/components/reports/ReportsLibrary'
+import { DeleteReport } from '#/components/reports/DeleteReport'
+import { AmendButton } from '#/components/reports/AmendmentNotice'
+import { DeleteButton } from '#/components/primitives/DeleteButton'
 import { getTemplate } from '#/lib/reportTemplates'
 import { Sheet } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
@@ -508,6 +513,65 @@ function Empty() {
 function Acting() {
   state.actingAs = true
   return <Warnings />
+}
+
+/** The Reports list, as the owner sees it: a bin on every report. */
+function reportsList(segment: Segment, technician = false) {
+  return function ReportsList() {
+    state.technician = technician
+    return (
+      <Phone>
+        <AccessProvider businessId={bizId}>
+          <Header title="Reports" />
+          <ReportsLibrary
+            businessId={bizId}
+            businessSlug="demo"
+            segment={segment}
+            query=""
+            onSegment={() => {}}
+            onQuery={() => {}}
+          />
+        </AccessProvider>
+      </Phone>
+    )
+  }
+}
+
+/** The foot of a finalised report's page, for the owner: a correction, then
+ * Delete report. Version 2 of #4, with a second correction being drafted. */
+function ReportFoot() {
+  return (
+    <Phone>
+      <Header kicker="Reports" title="Timber Pest Inspection" />
+      <div className="px-4 pb-6 pt-2">
+        <AmendButton
+          businessId={bizId}
+          businessSlug="demo"
+          reportId={'r_v2' as never}
+        />
+      </div>
+      <div className="px-4 pb-8">
+        <DeleteReport
+          businessId={bizId}
+          reportId={'r_v2' as never}
+          report={{
+            status: 'finalised',
+            templateName: 'Timber Pest Inspection Report',
+            clientName: 'Subi Café Group',
+            suburb: 'Subiaco',
+            reportNumber: 4,
+            version: 2,
+            correcting: true,
+          }}
+          trigger={(open) => (
+            <DeleteButton className="mt-2" onClick={open}>
+              Delete report
+            </DeleteButton>
+          )}
+        />
+      </div>
+    </Phone>
+  )
 }
 
 function Guide() {
@@ -1046,4 +1110,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   legacy: Legacy,
   send: Send,
   'form-settings': FormSettings,
+  reports: reportsList('all'),
+  'reports-deleted': reportsList('trash'),
+  'reports-deleted-tech': reportsList('trash', true),
+  'report-foot': ReportFoot,
 }

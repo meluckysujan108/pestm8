@@ -153,11 +153,11 @@ test('the reports list buckets by status and searches across client, suburb, and
 })
 
 test.describe('retiring a draft', () => {
-  test('a draft goes to Deleted and comes back, and a finalised report cannot', async () => {
+  test('a draft goes to Deleted and comes back; a finalised report only by the owner', async () => {
     const s = await setupBusinessWithSub('list-delete')
     const draftId = await createReport(s.owner.client, s, 'serviceReport')
-    const lockedId = await createReport(s.owner.client, s, 'serviceReport')
-    await finaliseReport(s.owner.client, s, lockedId, 'serviceReport')
+    const lockedId = await createReport(s.sub.client, s, 'serviceReport')
+    await finaliseReport(s.sub.client, s, lockedId, 'serviceReport')
 
     await s.owner.client.mutation(api.reports.softDelete, {
       businessId: s.businessId,
@@ -191,17 +191,37 @@ test.describe('retiring a draft', () => {
     })
     expect(back.page.map((r) => r._id)).toContain(draftId)
 
-    // A finalised report is a record the business is required to keep — WA's
-    // pesticide regulations say three years, ten with a termite certificate —
-    // so there is deliberately no way to delete one.
+    // A finalised report is a signed record the business may be required to
+    // keep, so throwing one away is the owner's decision (reports.softDelete)
+    // — not even the technician who signed it may.
     await expectRejected(
       () =>
-        s.owner.client.mutation(api.reports.softDelete, {
+        s.sub.client.mutation(api.reports.softDelete, {
           businessId: s.businessId,
           reportId: lockedId,
         }),
-      'REPORT_FINALISED',
+      'NO_ACCESS',
     )
+    await s.owner.client.mutation(api.reports.softDelete, {
+      businessId: s.businessId,
+      reportId: lockedId,
+    })
+    const deleted = await s.owner.client.query(api.reports.list, {
+      businessId: s.businessId,
+      filter: 'trash',
+      paginationOpts: { numItems: 25, cursor: null },
+    })
+    expect(deleted.page.map((r) => r._id)).toContain(lockedId)
+    await s.owner.client.mutation(api.reports.restore, {
+      businessId: s.businessId,
+      reportId: lockedId,
+    })
+    const finalised = await s.owner.client.query(api.reports.list, {
+      businessId: s.businessId,
+      filter: 'finalised',
+      paginationOpts: { numItems: 25, cursor: null },
+    })
+    expect(finalised.page.map((r) => r._id)).toContain(lockedId)
   })
 
   test('an owner can clear a subcontractor’s abandoned draft; a stranger cannot', async () => {

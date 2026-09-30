@@ -362,21 +362,35 @@ the day the migration ran.
 
 ### Deleting a report
 
-Only a draft can be deleted, and only into Recently Deleted. A finalised
-report is a record the business is required to keep — three years under WA's
-pesticide regulations, ten where a termite certificate is involved — so
-`softDelete` refuses one outright, and the nightly purge restores rather than
-destroys anything that was finalised while sitting in the trash. The purge
-cron (`0 19 * * *` for notes, `20 19 * * *` for reports) deletes a draft's
-rows and its server-rendered preview, and **no other stored file**. A draft's
+A report is deleted into Recently Deleted, and the nightly purge deletes it for
+good thirty days later. A draft is deleted by whoever may edit it. A finalised
+report is deleted by the owner only, and takes its whole number with it: every
+version, and a correction still being drafted. The versions carry
+`deletedWith` (the report that was deleted), so Recently Deleted shows one row
+per document, and restoring or deleting any of them does all of them. An email
+still queued when it is deleted is marked not sent.
+
+_Amended 30 Sept 2026._ Until then only a draft could be deleted. A finalised
+report was a record the business might be required to keep — three years under
+WA's pesticide regulations, ten where a termite certificate is involved — so
+`softDelete` refused one outright, and the nightly purge restored rather than
+destroyed anything finalised in the trash. The owner now decides (see
+`compliance.md`, Retention). Nothing on prod needed migrating: it held no
+finalised report with `deletedAt` set when this shipped, which is what the new
+purge would otherwise have deleted on its first night. `deletedWith` and its
+index are additive.
+
+The purge cron (`0 19 * * *` for notes, `20 19 * * *` for reports) deletes a
+report's rows (its photo rows, marks, deliveries and PDF rows), its
+server-rendered preview and PDFs, and **no other stored file**. A report's
 photo and signature ids arrive from the client, and the same blob can sit
 under other reports — an amendment's photos share the original's files, and a
 technician's saved signature is one blob reused on every report they sign — in
 places that are not indexed by storage id. A reference check over
 `reportPhotos.by_storage` alone therefore proved nothing, and an earlier purge
 that trusted it could delete the signature from finalised certificates.
-Orphaned draft files cost kilobytes; reclaiming them needs a sweep that checks
-every reference, which is not built.
+Orphaned photo and signature files cost kilobytes; reclaiming them needs a
+sweep that checks every reference, which is not built.
 
 ## The v2 templates changed after v2 shipped, and were not bumped to v3
 

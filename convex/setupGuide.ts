@@ -66,6 +66,8 @@ export const progress = query({
       .withIndex('by_business_status_template', (q) =>
         q.eq('businessId', businessId).eq('status', 'finalised'),
       )
+      // One the owner has deleted is not a step done.
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
       .first()
 
     const items: Array<{ key: SetupGuideItem; done: boolean }> = [

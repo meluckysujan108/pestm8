@@ -254,6 +254,35 @@ const PLAN = {
   'install-card': {},
   'install-sheet': { before: async (p) => p.waitForTimeout(600) },
   'install-link': {},
+  reports: { before: async (p) => p.waitForTimeout(600) },
+  // A signed report's bin: the owner's, with what goes and what stays sent.
+  'reports-delete-confirm': {
+    spec: 'reports',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: /^Delete report #4/ }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'reports-deleted': { before: async (p) => p.waitForTimeout(600) },
+  'reports-deleted-purge': {
+    spec: 'reports-deleted',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: 'Delete now' }).first().click()
+      await p.waitForTimeout(500)
+    },
+  },
+  // A technician: their deleted draft is theirs, a signed report the owner's.
+  'reports-deleted-tech': { before: async (p) => p.waitForTimeout(600) },
+  'report-foot': {},
+  'report-foot-confirm': {
+    spec: 'report-foot',
+    before: async (p) => {
+      await p.getByRole('button', { name: 'Delete report' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
   'send-off': {
     spec: 'send',
     before: async (p) => {
