@@ -442,6 +442,44 @@ export async function decorate(ctx: QueryCtx, rows: Array<Doc<'reports'>>) {
 }
 
 /**
+ * Report rows as chips under their visits: what `summarise` keeps, the form's
+ * name as `decorate` gives it, and whether a later amendment among `rows`
+ * has replaced it.
+ * Leaner than `decorate` — no property or client read per row — for a caller
+ * that already knows whose reports these are (the client sheet).
+ */
+export async function reportChips(
+  ctx: QueryCtx,
+  rows: Array<Doc<'reports'>>,
+) {
+  const snapshotIds = [
+    ...new Set(
+      rows
+        .filter((r) => r.status === 'finalised' && r.templateSnapshotId)
+        .map((r) => r.templateSnapshotId!),
+    ),
+  ]
+  const snapshotNames = new Map(
+    (await Promise.all(snapshotIds.map((id) => ctx.db.get(id))))
+      .filter((row) => row !== null)
+      .map((row) => [row._id, row.name] as const),
+  )
+  // Replaced only by an amendment in the same list: one the caller may not
+  // read, or one since deleted, leaves the original the report they have.
+  const listed = new Set<Id<'reports'>>(rows.map((r) => r._id))
+  return Promise.all(
+    rows.map(async (r) => ({
+      ...summarise(r),
+      templateName: (await templateDisplay(ctx, r, snapshotNames))
+        .templateName,
+      superseded:
+        r.supersededByReportId !== undefined &&
+        listed.has(r.supersededByReportId),
+    })),
+  )
+}
+
+/**
  * How many of each there are, for the rail.
  *
  * Counted rather than paginated, because a badge that says "12" has to have
@@ -1656,9 +1694,16 @@ export const create = mutation({
     // report" — by the business's complete-only-when-reported policy among
     // others — so it has to be one of this business's jobs, not an id from
     // somewhere else.
+    // And a visit to the property the report is for: a job moved to
+    // another site since a picker listed it would otherwise be filed under
+    // one address and seeded, dated and counted as a visit to another.
     if (args.jobId) {
       const job = unbinned(await ctx.db.get(args.jobId))
-      if (!job || job.businessId !== args.businessId) {
+      if (
+        !job ||
+        job.businessId !== args.businessId ||
+        job.propertyId !== args.propertyId
+      ) {
         throw new ConvexError('NOT_FOUND')
       }
     }

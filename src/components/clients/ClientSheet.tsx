@@ -1,7 +1,6 @@
-import { useEffect, useId, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useId, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
-import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
 import {
   SHEET_BODY,
@@ -18,9 +17,11 @@ import { CLIENT_STATUS } from '#/lib/statusColours'
 import { Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
-  InlineReportsSection,
-  SeeAllReports,
-} from '#/components/reports/InlineReports'
+  ALL_SITES,
+  ClientAtAGlance,
+  ClientJobsTab,
+} from '#/components/clients/ClientJobsTab'
+import { DetailRow, DetailRows } from '#/components/primitives/DetailRow'
 import { ClientNotesSection } from '#/components/notes/ClientNotesSection'
 import { AbnInput } from '#/components/clients/AbnInput'
 import { EmailInput } from '#/components/forms/EmailInput'
@@ -39,10 +40,9 @@ import {
   addressCheckToSend,
 } from '#/components/forms/VerifiedAddressFields'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
-import { StatusPill } from '#/components/primitives/StatusPill'
 import { Segmented } from '#/components/primitives/Segmented'
 import { loadLocalities } from '#/lib/addressVerify'
-import { formatJobMoney } from '#/lib/format'
+import { todayKey } from '#/lib/format'
 import { useHydrated } from '#/lib/useHydrated'
 import { SheetPending } from '#/components/shell/Pending'
 import { abnDigits, formatAbn } from '../../../convex/lib/abn'
@@ -50,7 +50,6 @@ import {
   isNameCorrection,
   sameName,
 } from '../../../convex/lib/contactNames'
-import { dayKeyOf } from '../../../convex/lib/dates'
 import { siteContactOf } from '../../../convex/lib/siteContact'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { AddressCheck } from '#/components/forms/VerifiedAddressFields'
@@ -75,6 +74,25 @@ import { LoadFailed } from '#/components/primitives/EmptyState'
 import { KIND_CHOICES, KIND_LABELS } from '#/lib/clientFilters'
 
 type ClientKind = 'person' | 'business'
+
+type ClientTab = 'jobs' | 'notes' | 'details'
+
+const TAB_LABELS: Record<ClientTab, string> = {
+  jobs: 'Jobs',
+  notes: 'Notes',
+  details: 'Details',
+}
+
+/**
+ * Loaded when "Book a job" is pressed, as the job sheet loads Make recurring:
+ * New Job brings its pickers, the interval model and the save checks, which
+ * a client sheet opened to read never needs.
+ */
+const NewJobSheet = lazy(() =>
+  import('#/components/schedule/NewJobSheet').then((m) => ({
+    default: m.NewJobSheet,
+  })),
+)
 
 /** What a failed archive, remove or make-primary says: these are not saves,
  * so describeError's "Could not save" words would name the wrong thing. */
@@ -177,6 +195,15 @@ function ClientBody({
   const [contactFormOpen, setContactFormOpen] = useState(false)
   const [propertyFormOpen, setPropertyFormOpen] = useState(false)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
+  // Which part of the client is shown. Kept here, above the edit form, so
+  // Edit → Save comes back to the same tab.
+  const [tab, setTab] = useState<ClientTab>('jobs')
+  // The Jobs tab's site, kept across tabs, and where "Book a job" starts.
+  const [site, setSite] = useState<string>(ALL_SITES)
+  const [bookOpen, setBookOpen] = useState(false)
+  const { data: properties } = useQuery(
+    convexQuery(api.properties.listByClient, { businessId, clientId }),
+  )
   const hydrated = useHydrated()
 
   const convexDelete = useConvexMutation(api.bin.deleteClient)
@@ -261,11 +288,21 @@ function ClientBody({
     )
   }
 
+  // A contact or site half-typed in Details holds the tabs still: leaving
+  // would unmount the form and lose it without a word.
+  const formOpen = contactFormOpen || propertyFormOpen
+  // Their site is chosen for New Job only when which one is plain: their
+  // only one, or the one the Jobs tab is showing. Otherwise New Job asks, as
+  // it always does — a hurried booking must not go to whichever came first.
+  const bookFor =
+    properties?.find((p) => p._id === site)?._id ??
+    (properties?.length === 1 ? properties[0]._id : undefined)
+
   return (
     <div className={`${SHEET_BODY} pt-3`}>
       <div className="flex items-center justify-between gap-2">
         <p className="section-label mb-0.5 tabular-nums">{kicker}</p>
-        {!contactFormOpen && !propertyFormOpen && (
+        {!formOpen && (
           <button
             type="button"
             aria-label="Edit client details"
@@ -281,103 +318,179 @@ function ClientBody({
         {client.name}
       </Drawer.Title>
 
-        <>
-          <ClientStatusRow
+      <ClientStatusRow
+        businessId={businessId}
+        clientId={clientId}
+        clientName={client.name}
+        status={client.status}
+        kindLabel={KIND_LABELS[client.kind]}
+      />
+      {client.tags && client.tags.length > 0 && (
+        <div className="mt-2">
+          <TagChips tags={client.tags} />
+        </div>
+      )}
+
+      <div className="mt-3">
+        <ContactButtons
+          name={client.name}
+          phone={client.phone}
+          email={client.email}
+        />
+      </div>
+
+      <ClientAtAGlance
+        businessId={businessId}
+        clientId={clientId}
+        timezone={timezone}
+      />
+
+      {/* Booked from here, over this sheet — no trip to the Schedule and
+          back. A client with no property yet has nowhere to book to: Details
+          adds one. Held while a contact or site is half-typed, as Edit is:
+          a booking switches to Jobs, which would take it away. */}
+      {properties && properties.length > 0 && (
+        <button
+          type="button"
+          disabled={!hydrated || formOpen}
+          onClick={() => setBookOpen(true)}
+          className={`${SECONDARY_BUTTON_COMPACT} mt-3 flex w-full items-center justify-center gap-2`}
+        >
+          <Plus size={16} strokeWidth={2.2} />
+          Book a job for this client
+        </button>
+      )}
+
+      <div className="mt-5">
+        <Segmented
+          label="Client"
+          value={tab}
+          onChange={setTab}
+          disabled={!hydrated || formOpen}
+          options={[
+            { value: 'jobs', label: 'Jobs' },
+            { value: 'notes', label: 'Notes' },
+            { value: 'details', label: 'Details' },
+          ]}
+        />
+      </div>
+
+      <div role="tabpanel" aria-label={TAB_LABELS[tab]}>
+        {tab === 'jobs' && (
+          <ClientJobsTab
             businessId={businessId}
+            businessSlug={businessSlug}
+            timezone={timezone}
             clientId={clientId}
             clientName={client.name}
-            status={client.status}
-            kindLabel={KIND_LABELS[client.kind]}
+            site={site}
+            onSite={setSite}
           />
-          {client.tags && client.tags.length > 0 && (
-            <div className="mt-2">
-              <TagChips tags={client.tags} />
-            </div>
-          )}
-          {client.kind === 'business' && client.abn && (
-            <p className="text-caption tabular-nums text-muted">
-              ABN {formatAbn(client.abn)}
-            </p>
-          )}
-          {client.kind === 'business' && contactPerson && (
-            <p className="text-caption text-muted">
-              Contact person: {contactPerson}
-            </p>
-          )}
+        )}
 
-          <div className="mt-3">
-            <ContactButtons name={client.name} phone={client.phone} email={client.email} />
-          </div>
+        {tab === 'notes' && (
+          <ClientNotesSection
+            businessId={businessId}
+            businessSlug={businessSlug}
+            timezone={timezone}
+            clientId={clientId}
+            clientName={client.name}
+          />
+        )}
 
-          {client.kind === 'business' && (client.addressLine || client.suburb) && (
-            <div className="mt-3">
-              <p className="section-label mb-1">Company address</p>
-              <p className="text-body text-ink-2">{client.addressLine}</p>
-              <p className="text-caption text-muted">
-                {client.suburb} {client.state} {client.postcode}
-              </p>
-            </div>
-          )}
-        </>
+        {tab === 'details' && (
+          <>
+            <Section label="Details" card>
+              <DetailRows>
+                <DetailRow
+                  label="Client number"
+                  value={
+                    client.clientNumber !== undefined
+                      ? clientNumberLabel(client.clientNumber)
+                      : 'None'
+                  }
+                  sub="Given automatically"
+                />
+                {client.kind === 'business' && client.abn && (
+                  <DetailRow
+                    label="ABN"
+                    value={
+                      <span className="select-text tabular-nums">
+                        {formatAbn(client.abn)}
+                      </span>
+                    }
+                  />
+                )}
+                {client.kind === 'business' && contactPerson && (
+                  <DetailRow label="Contact person" value={contactPerson} />
+                )}
+                {client.phone && (
+                  <DetailRow
+                    label="Phone"
+                    value={<span className="select-text">{client.phone}</span>}
+                  />
+                )}
+                {client.email && (
+                  <DetailRow
+                    label="Email"
+                    value={<span className="select-text">{client.email}</span>}
+                  />
+                )}
+                {client.kind === 'business' &&
+                  (client.addressLine || client.suburb) && (
+                    <DetailRow
+                      label="Company address"
+                      value={client.addressLine || client.suburb}
+                      sub={
+                        client.addressLine
+                          ? `${client.suburb ?? ''} ${client.state ?? ''} ${client.postcode ?? ''}`.trim()
+                          : undefined
+                      }
+                    />
+                  )}
+              </DetailRows>
+            </Section>
 
-      {/* A business needs named people because "ACME Pest Control" can't
-          answer a phone; a person client already is their own one contact. */}
-      {client.kind === 'business' && (
-        <ClientContacts
-          businessId={businessId}
-          businessState={businessState}
-          clientId={clientId}
-          canRemove={canManageClients}
-          onFormOpenChange={setContactFormOpen}
-        />
-      )}
+            {/* A business needs named people because "ACME Pest Control"
+                can't answer a phone; a person client already is their own
+                one contact. */}
+            {client.kind === 'business' && (
+              <ClientContacts
+                businessId={businessId}
+                businessState={businessState}
+                clientId={clientId}
+                canRemove={canManageClients}
+                onFormOpenChange={setContactFormOpen}
+              />
+            )}
 
-      <ClientProperties
-        businessId={businessId}
-        businessState={businessState}
-        clientId={clientId}
-        clientKind={client.kind}
-        canDelete={canManageClients}
-        onFormOpenChange={setPropertyFormOpen}
-      />
+            <ClientProperties
+              businessId={businessId}
+              businessState={businessState}
+              clientId={clientId}
+              clientKind={client.kind}
+              canDelete={canManageClients}
+              onFormOpenChange={setPropertyFormOpen}
+            />
 
-      <ClientNotesSection
-        businessId={businessId}
-        businessSlug={businessSlug}
-        timezone={timezone}
-        clientId={clientId}
-        clientName={client.name}
-      />
-
-      <ClientJobHistory
-        businessId={businessId}
-        businessSlug={businessSlug}
-        clientId={clientId}
-        timezone={timezone}
-      />
-
-      <ClientReports
-        businessId={businessId}
-        businessSlug={businessSlug}
-        clientId={clientId}
-        clientName={client.name}
-        timezone={timezone}
-      />
-
-      {canManageClients && (
-        <DeleteButton
-          disabled={!hydrated}
-          onClick={() => setConfirmDeleteOpen(true)}
-        >
-          Delete client
-        </DeleteButton>
-      )}
-      {/* Here, not in the dialog: the dialog closes as Delete is pressed. */}
-      <FormAlert
-        className="mt-2"
-        error={remove.isError ? remove.error : null}
-        copy={deleteCopy('this client')}
-      />
+            {canManageClients && (
+              <DeleteButton
+                disabled={!hydrated}
+                onClick={() => setConfirmDeleteOpen(true)}
+              >
+                Delete client
+              </DeleteButton>
+            )}
+            {/* Here, not in the dialog: the dialog closes as Delete is
+                pressed. */}
+            <FormAlert
+              className="mt-2"
+              error={remove.isError ? remove.error : null}
+              copy={deleteCopy('this client')}
+            />
+          </>
+        )}
+      </div>
 
       <ConfirmDialog
         open={confirmDeleteOpen}
@@ -397,6 +510,23 @@ function ClientBody({
         pendingLabel="Deleting…"
         onConfirm={() => remove.mutate({ businessId, clientId })}
       />
+
+      {/* Loaded when asked for: New Job brings the pickers and the
+          interval model, which a client sheet opened to read never needs. */}
+      <Suspense fallback={null}>
+        {bookOpen && (
+          <NewJobSheet
+            open
+            businessId={businessId}
+            dayKey={todayKey(timezone)}
+            timezone={timezone}
+            onClose={() => setBookOpen(false)}
+            forProperty={bookFor}
+            pickDate
+            onBooked={() => setTab('jobs')}
+          />
+        )}
+      </Suspense>
     </div>
   )
 }
@@ -1838,111 +1968,6 @@ function NewPropertyForClientForm({
   )
 }
 
-/** Job history aggregated across every property this client owns — not just
- * one, unlike the old per-property view. */
-function ClientJobHistory({
-  businessId,
-  businessSlug,
-  clientId,
-  timezone,
-}: {
-  businessId: Id<'businesses'>
-  businessSlug: string
-  clientId: Id<'clients'>
-  timezone: string
-}) {
-  const { data: jobs } = useQuery(
-    convexQuery(api.clients.jobHistory, { businessId, clientId }),
-  )
-
-  return (
-    <Section label="Job history">
-      {!jobs || jobs.length === 0 ? (
-        <p className="rounded-2xl border border-hairline bg-surface px-3.5 py-6 text-center text-body text-muted shadow-elevation">
-          No visits recorded yet.
-        </p>
-      ) : (
-        <div className="flex flex-col divide-y divide-hairline">
-          {jobs.map((job) => (
-            <Link
-              key={job._id}
-              to="/$businessSlug/schedule"
-              params={{ businessSlug }}
-              search={{ date: dayKeyOf(job.scheduledAt, timezone), jobId: job._id }}
-              className="flex items-center justify-between gap-2 py-2 first:pt-0 last:pb-0"
-            >
-              <span className="min-w-0">
-                <span className="block truncate text-body text-ink">
-                  {job.jobType}
-                </span>
-                <span className="text-caption text-muted">
-                  {new Intl.DateTimeFormat('en-AU', {
-                    timeZone: timezone,
-                    day: 'numeric',
-                    month: 'short',
-                    year: 'numeric',
-                  }).format(new Date(job.scheduledAt))}
-                </span>
-              </span>
-              <span className="flex shrink-0 items-center gap-2">
-                <span className="text-body text-ink">{formatJobMoney(job)}</span>
-                <StatusPill status={job.status} />
-              </span>
-            </Link>
-          ))}
-        </div>
-      )}
-    </Section>
-  )
-}
-
-/** Reports aggregated across every property this client owns. */
-/**
- * Everything this client has ever been sent, newest first.
- *
- * It used to return `null` when there were none — so a client with no reports
- * got no heading, no sentence and no hint that reports are a thing that
- * happens. Now it says so, and says where they come from.
- */
-function ClientReports({
-  businessId,
-  businessSlug,
-  clientId,
-  clientName,
-  timezone,
-}: {
-  businessId: Id<'businesses'>
-  businessSlug: string
-  clientId: Id<'clients'>
-  clientName: string
-  timezone: string
-}) {
-  const reportsQuery = useQuery(
-    convexQuery(api.clients.reports, { businessId, clientId }),
-  )
-  const reports = reportsQuery.data
-
-  return (
-    <InlineReportsSection
-      businessSlug={businessSlug}
-      timezone={timezone}
-      label="Reports"
-      reports={reports}
-      failed={reportsQuery.isError}
-      onRetry={() => void reportsQuery.refetch()}
-      empty="No reports yet. They are created from a job at one of their properties."
-      // Bounded to the newest twenty, so a long-standing client's sheet does
-      // not become their whole history.
-      action={
-        reports && reports.length > 0 ? (
-          <SeeAllReports businessSlug={businessSlug} term={clientName} />
-        ) : undefined
-      }
-    />
-  )
-}
-
-/** Words for the refusals only this form meets. */
 const CLIENT_RECORD_COPY: ErrorCopy = {
   NO_ACCESS:
     'Could not save: only the business owner can change a client number.',
@@ -1957,14 +1982,23 @@ const CLIENT_RECORD_COPY: ErrorCopy = {
 function Section({
   label,
   children,
+  card = false,
 }: {
   label: string
   children: React.ReactNode
+  /** In a card of its own: rows that each pad themselves (`DetailRows`). */
+  card?: boolean
 }) {
   return (
     <section className="mt-6">
       <h3 className="section-label mb-2">{label}</h3>
-      {children}
+      {card ? (
+        <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
+          {children}
+        </div>
+      ) : (
+        children
+      )}
     </section>
   )
 }

@@ -79,10 +79,11 @@ export function JobNotesSection({
             title: addressLine,
             propertyId,
           }),
-    // Opened as it is made, the caret on its first line, so the first thing
-    // typed is its title.
-    onSuccess: (id) => {
-      setCreatedId(id)
+    // Opened as it is made. A visit note starts empty, so the caret goes
+    // to its first line and the first thing typed is its title; a site
+    // note starts headed by the address, which a keystroke would run into.
+    onSuccess: (id, link) => {
+      setCreatedId(link === 'visit' ? id : null)
       setOpenId(id)
     },
   })
