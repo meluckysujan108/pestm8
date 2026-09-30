@@ -301,12 +301,11 @@ jobs: {
 // series puts it on its first visit only — holding it as
 // `recurrences.firstVisitNotes` (+ `firstVisitNotesBy`) until one is booked,
 // when the series starts in the past with no visit inside the horizon.
-// `notes?` on the job is the plain note it briefly carried (29 Sept):
-// `migrations/jobNotesToNotesV1` moved each into Notes (production: done, 30
-// Sept), and nothing reads or writes it now. `jobs.update` keeps its `notes`
-// argument for older apps and keeps what they send as a note in Notes
-// (`notes.insertJobNoteOnce`). The field stays declared until every
-// deployment counts none, then goes with the migration.
+// For a day (29 Sept) a job carried a plain-text `notes` of its own;
+// `migrations/jobNotesToNotesV1` moved each into Notes, and the field and
+// the migration were dropped on 30 Sept once prod, dev and e2e all counted
+// none. `jobs.update` keeps its `notes` argument for older apps and keeps
+// what they send as a note in Notes (`notes.insertJobNoteOnce`).
 .index("by_business_date", ["businessId", "scheduledAt"])
 .index("by_assignee_date", ["assignedMembershipId", "scheduledAt"])
 .index("by_property", ["propertyId"])
