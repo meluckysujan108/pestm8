@@ -11,9 +11,9 @@ import type { Id } from '../../../convex/_generated/dataModel'
 
 /**
  * One render per report at a time, for everyone on the page who asks — the
- * PDF tab as it opens, the viewer as it loads (`createInFlight` has why).
+ * page as it opens, the viewer as it loads, Share (`createInFlight` has why).
  * Module-wide rather than per component, so a viewer opened straight from a
- * link, before the tab has ever mounted, still shares with the tab after.
+ * link, before the page's card has ever mounted, still shares with it after.
  */
 const generating = createInFlight<string>()
 

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../convex/_generated/api'
@@ -74,9 +74,10 @@ export function DeleteReport({
     },
   })
 
-  // A confirm asked for again after a failure starts without the failure.
+  // A confirm asked for again after a failure starts without the failure —
+  // before paint, so not even a frame of the old one shows.
   const { reset } = remove
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (confirming) reset()
   }, [confirming, reset])
 

@@ -313,9 +313,9 @@ function deliveryRows(args: { reportId: string }) {
           'Not sent: the PDF could not be prepared to attach. Open the PDF tab, then send it again.',
       },
     ],
-    // The Email tab's history — the same sends as the Logs specimen: the
-    // form's own as Kevin locked it, one to someone new made by Terence in
-    // Kevin's account, then Kevin's own to a typo that failed.
+    // A finished report's Email list: the form's own as Kevin locked it, one
+    // to someone new made by Terence in Kevin's account, then Kevin's own to
+    // a typo that failed.
     r_history: [
       {
         ...base,
@@ -400,8 +400,9 @@ function deliveryRows(args: { reportId: string }) {
   return rows[args.reportId] ?? []
 }
 
-/** A finished report's Activity: who did what, and every email's addresses.
- * `r_logs_legacy` is a report from before approval was retired. */
+/** A report's audit rows: who did what, and every email's addresses (which
+ * the page's Activity leaves to its Email list). `r_logs_legacy` and
+ * `r_legacy` are from before approval was retired. */
 function auditEntries(args: { entityId: string }) {
   const at = perthToday(14, 38)
   const kevin = { actorName: 'Kevin Doyle', actorColour: '#FF3B30' }

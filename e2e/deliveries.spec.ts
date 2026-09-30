@@ -17,7 +17,7 @@ import { createReport, finaliseReport } from './fixtures/reportPayloads'
  * email: since 29 Sept 2026 nothing waits for an owner's approval, which no
  * screen could ever give. Instead every send is a record — who asked, and
  * which of its addresses were not on the client's record — that the owner
- * reads in the report's Email and Logs tabs, and the Send sheet marks a new
+ * reads in the finished report's Email list, and the Send sheet marks a new
  * address before Send, because a report emailed to a typo is simply gone.
  *
  * No `RESEND_API_KEY` is configured on this deployment (that is the business's
@@ -84,7 +84,7 @@ test('an address on nobody’s record goes too, and the record says it was new',
   // Nothing waits for an owner.
   expect(status).toBe('queued')
 
-  // What the owner reads in the report's Email tab: who sent it, and that the
+  // What the owner reads in the report's Email list: who sent it, and that the
   // address was new to this client.
   const history = await s.owner.client.query(api.deliveries.forReport, {
     businessId: s.businessId,
@@ -388,8 +388,9 @@ test.describe('the send sheet', () => {
 
     // Queued rather than sent: no Resend key on this deployment. The record
     // exists either way, which is the point of writing it before the call.
-    await expect(page.getByText(/client@example\.com/)).toBeVisible()
-    await expect(page.getByText(/asked for by the form/)).toBeVisible()
+    const email = page.getByRole('region', { name: 'Email' })
+    await expect(email.getByText(/client@example\.com/)).toBeVisible()
+    await expect(email.getByText(/as it was finalised/)).toBeVisible()
   })
 
   test('the report’s Email list says which addresses weren’t on the client’s record', async ({
@@ -405,11 +406,12 @@ test.describe('the send sheet', () => {
     // What an owner reads afterwards, with nothing to approve.
     await signInViaUi(page, s.owner.email)
     await page.goto(`/${s.slug}/reports/${s.reportId}`)
-    await expect(
-      page.getByText(
-        'Wasn’t on the client’s record: someone@elsewhere.example',
-      ),
-    ).toBeVisible()
+    // Said under the address itself, rather than the address again.
+    const row = page
+      .getByRole('region', { name: 'Email' })
+      .getByRole('listitem')
+      .filter({ hasText: 'someone@elsewhere.example' })
+    await expect(row).toContainText('Wasn’t on the client’s record')
     await expect(page.getByText(/approv/i)).toHaveCount(0)
   })
 
@@ -441,7 +443,7 @@ test.describe('the send sheet', () => {
         'Email isn’t set up for this business yet. Share the PDF instead.',
       ),
     ).toBeVisible()
-    await expect(email.getByText(/asked for by the form/)).toBeVisible()
+    await expect(email.getByText(/as it was finalised/)).toBeVisible()
   })
 
   test('says what happened to each recipient, not one verdict for all', async ({

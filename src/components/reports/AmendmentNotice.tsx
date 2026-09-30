@@ -1,7 +1,7 @@
 import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useNavigate } from '@tanstack/react-router'
-import { useState } from 'react'
+import { useLayoutEffect, useState } from 'react'
 import { ConvexError } from 'convex/values'
 import { FilePenLine, History } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
@@ -58,8 +58,8 @@ export function AmendmentNotice({
             strokeWidth={2}
             className="mt-0.5 shrink-0 text-blue"
           />
-          <p className="min-w-0 flex-1 text-caption text-muted">
-            <span className="text-ink">
+          <p className="min-w-0 flex-1 text-caption text-ink-2">
+            <span className="font-semibold text-ink">
               Version {version ?? 2} of {numbered}.
             </span>{' '}
             {reason ? `Reissued because: ${reason}` : 'Reissued.'}{' '}
@@ -71,7 +71,7 @@ export function AmendmentNotice({
                   params: { businessSlug, reportId: supersedes },
                 })
               }
-              className="font-semibold text-blue underline"
+              className="relative tap-target font-semibold text-blue underline"
             >
               See what it replaced
             </button>
@@ -121,7 +121,7 @@ export function ReplacedNotice({
               params: { businessSlug, reportId: supersededBy },
             })
           }
-          className="font-semibold underline"
+          className="relative tap-target font-semibold underline"
         >
           Open the current version
         </button>
@@ -152,9 +152,11 @@ export function CorrectionUnderWay({
         strokeWidth={2}
         className="mt-0.5 shrink-0 text-blue"
       />
-      <p className="min-w-0 flex-1 text-caption text-muted">
-        <span className="text-ink">A correction is under way.</span> This
-        document stays current until it is issued.{' '}
+      <p className="min-w-0 flex-1 text-caption text-ink-2">
+        <span className="font-semibold text-ink">
+          A correction is under way.
+        </span>{' '}
+        This document stays current until it is issued.{' '}
         <button
           type="button"
           onClick={() =>
@@ -163,7 +165,7 @@ export function CorrectionUnderWay({
               params: { businessSlug, reportId: amendmentId },
             })
           }
-          className="font-semibold text-blue underline"
+          className="relative tap-target font-semibold text-blue underline"
         >
           Open the correction
         </button>
@@ -205,6 +207,15 @@ export function AmendSheet({
         to: '/$businessSlug/reports/$reportId',
         params: { businessSlug, reportId: newId },
       })
+
+      // Each opening starts empty: a reason thrown away with "Discard" must not
+      // be waiting the next time, nor the last try's failure.
+      const { reset } = amend
+      useLayoutEffect(() => {
+        if (!open) return
+        setReason('')
+        reset()
+      }, [open, reset])
     },
   })
 

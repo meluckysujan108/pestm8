@@ -1,8 +1,9 @@
 import { CalendarClock } from 'lucide-react'
 import { Link } from '@tanstack/react-router'
 import { sgarFollowUp } from '#/lib/reportTemplates/sgar'
+import { formatDayLabel } from '#/lib/format'
 import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
-import { dateTimeFormat, dayKeyOf } from '../../../convex/lib/dates'
+import { dayKeyOf } from '../../../convex/lib/dates'
 import type { ReportTemplate } from '#/lib/reportTemplates'
 
 /**
@@ -33,11 +34,7 @@ export function SgarNotice({
   const due = sgarFollowUp(template, data, finalisedAt)
   if (!due) return null
 
-  const day = dateTimeFormat('en-AU', {
-    day: 'numeric',
-    month: 'long',
-    timeZone: timezone,
-  }).format(new Date(due.dueBy))
+  const dueDay = dayKeyOf(due.dueBy, timezone)
 
   return (
     <div className="flex items-start gap-2.5 rounded-xl border border-amber-line bg-amber-bg px-3 py-2.5">
@@ -51,13 +48,13 @@ export function SgarNotice({
           {/* A suspension with replacement label instructions — never a "ban",
               never "new legislation". */}
           This treatment used an SGAR. APVMA label instructions require an
-          evaluation within 35 days, so by {day}
+          evaluation within 35 days, so by {formatDayLabel(dueDay)}
           {due.daysRemaining < 0 ? ' — which has passed' : ''}.
         </p>
         <Link
           to="/$businessSlug/schedule"
           params={{ businessSlug }}
-          search={{ date: dayKeyOf(due.dueBy, timezone) }}
+          search={{ date: dueDay }}
           className="relative tap-target mt-1 inline-block text-caption font-semibold text-amber-ink underline"
         >
           Open that week

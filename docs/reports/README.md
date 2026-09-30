@@ -274,8 +274,8 @@ Draft deletion is unchanged: whoever may edit a draft may delete it.
 ## Drawing the PDF
 
 `reportPipeline.renderIfNeeded()` is the single path, and every caller goes
-through it: the pipeline scheduled at finalise, the PDF tab, a download, an
-email send.
+through it: the pipeline scheduled at finalise, the finished report's page
+as it opens, the viewer, a download, an email send.
 
 - `internal.reports.claimPdf` takes the job, or reports that the file is
   already current, or that someone else holds it. A caller who arrives while a

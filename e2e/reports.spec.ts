@@ -742,3 +742,48 @@ test('a report that used no rodenticide says nothing about one', async ({ page }
   await expect(page.getByRole('button', { name: 'View PDF' })).toBeEnabled()
   await expect(page.getByText(/APVMA label instructions/)).toHaveCount(0)
 })
+
+test('a finished report opens its PDF and its answers over the page, and Back closes them', async ({
+  page,
+}) => {
+  const s = await setupBusinessWithSub('finished-page')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+  const reportUrl = new RegExp(`/reports/${reportId}$`)
+
+  await signInViaUi(page, s.owner.email)
+  await page.goto(`/${s.slug}/reports`)
+  await page.goto(`/${s.slug}/reports/${reportId}`)
+  await expect(page.getByText(LOCKED)).toBeVisible()
+
+  // The PDF opens over the page, and the phone's Back closes it rather than
+  // leaving the report.
+  const viewer = await openReportPdf(page)
+  await expect(page).toHaveURL(/\?view=pdf$/)
+  await page.goBack()
+  await expect(viewer).toHaveCount(0)
+  await expect(page).toHaveURL(reportUrl)
+
+  // Send from inside the viewer: it steps aside for the Send sheet, which a
+  // sheet could not do over it.
+  const again = await openReportPdf(page)
+  await again.getByRole('button', { name: 'Send this report' }).click()
+  await expect(again).toHaveCount(0)
+  const sheet = page.getByRole('dialog', { name: 'Send this report' })
+  await expect(sheet).toBeVisible()
+  await expect(page).toHaveURL(reportUrl)
+  await page.keyboard.press('Escape')
+  await expect(sheet).toHaveCount(0)
+
+  // The answers, and back — by the header's link, then by the phone's Back,
+  // neither leaving a spare entry behind.
+  await openAnswers(page)
+  await expect(page).toHaveURL(/\?view=answers$/)
+  await closeAnswers(page)
+  await expect(page).toHaveURL(reportUrl)
+  await openAnswers(page)
+  await page.goBack()
+  await expect(page).toHaveURL(reportUrl)
+  await page.goBack()
+  await expect(page).toHaveURL(new RegExp(`/${s.slug}/reports$`))
+})

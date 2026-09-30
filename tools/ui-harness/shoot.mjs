@@ -387,6 +387,11 @@ const PLAN = {
     full: true,
     before: async (p) => p.waitForTimeout(600),
   },
+  // A replaced version's answers still say it was replaced.
+  'finished-answers-replaced': {
+    before: async (p) => p.waitForTimeout(600),
+  },
+  emails: { full: true, before: async (p) => p.waitForTimeout(600) },
   // "Send again" on the failed send: the sheet opens with it ticked.
   'finished-again': {
     spec: 'finished',

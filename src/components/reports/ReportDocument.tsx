@@ -186,20 +186,13 @@ export function ReportDocument({
         />
       )}
 
-      {model.headings.length > 0 ? (
-        <>
-          {/* The form's own header lines stand in for the app's picker name,
-              which would otherwise print the title twice. */}
-          <h1 className="sr-only">{template.name}</h1>
-          {model.headings.map((line) => (
-            <p key={line} className="mt-1 text-row-title text-ink">
-              {line}
-            </p>
-          ))}
-        </>
-      ) : (
-        <h1 className="mt-1 text-page-title text-ink">{template.name}</h1>
-      )}
+      {/* The form's own header lines, as they print. The page's header is
+          its <h1> and already names the form. */}
+      {model.headings.map((line) => (
+        <p key={line} className="mt-1 text-row-title text-ink">
+          {line}
+        </p>
+      ))}
       {model.standardsLine && (
         <p className="mt-1 text-caption text-muted">{model.standardsLine}</p>
       )}

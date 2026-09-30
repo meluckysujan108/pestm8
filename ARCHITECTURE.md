@@ -162,7 +162,8 @@ and a "⋯" for the rare acts; the number, address, status pill, client and
 day; a drawn likeness of the PDF that opens the viewer, with Send this report
 and Share beside it; Answers, the recorded form, a tap away and in the app's
 theme; then Email (each send and how it went, with Send again), Details and
-Activity (one line per event). The viewer gained Send (it closes itself and
+Activity (the report's own history; its emails are only under Email). The
+header's title is the report's number, the one a client quotes. The viewer gained Send (it closes itself and
 opens the sheet), a tappable "Replaced" badge and a direct Save in place of a
 one-item menu. Stored failure words that pointed at the tabs ("Open the PDF
 tab") are reworded where they are shown (`reports/deliveryWords.ts`), so old
@@ -629,10 +630,12 @@ src/components/
     ReportDocument.tsx            on-screen rendered document
     pdf/                          ONE painter (ReportPdf) + CoverPage, layout,
                                   tables, theme, RichTextPdf (server-side only)
-    ReportPdfCard.tsx  ReportPdfViewer.tsx  DraftPreviewViewer.tsx
-                                  the PDF tab, and a report (with the team's
-                                  marks) or a draft's preview in the in-app
-                                  viewer (components/pdf, via pdf/host)
+    FinishedReport.tsx            a finalised report's page: ReportCover (the
+                                  PDF and Answers), ReportEmails, ReportActivity
+    ReportPdfViewer.tsx  DraftPreviewViewer.tsx
+                                  a report (with the team's marks) or a
+                                  draft's preview in the in-app viewer
+                                  (components/pdf, via pdf/host)
   notes/
     NotesLibrary.tsx  NotesRail.tsx  NoteList.tsx  NoteEditor.tsx
     NoteEditorHeader.tsx  JobNotesSection.tsx (a job's one Notes card)

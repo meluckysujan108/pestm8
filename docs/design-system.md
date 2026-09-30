@@ -613,7 +613,14 @@ Call, Text, Email and Map are holds (`HoldButton`), so a pocket or a brushing th
 - **Something the app worked out** (the forecast, the start time) is marked "Suggested" until it is confirmed. A fact read off a record is not marked.
 - **Locking is two acts.** "Finalise & lock" opens a read-back sheet first.
 - **Locking emails it,** so the read-back sheet says who to and where the business's copy goes, and the finished report says whether it went (its Email list, `ReportEmails`, on the page Finalise lands on).
-- **A finished report is one page** (`reports/FinishedReport.tsx`), built like a job's sheet: the way back to Reports and a "⋯" for the rare acts (Issue a correction; Delete report, for the owner) in the header, then what it is (number, address, its Finalised or Sent pill, client and day), any notice (replaced, being corrected, a follow-up due), the document (`ReportCover`: a drawn likeness of the PDF that opens it, with Send this report and Share beside it), Answers a tap away, then Email, Details and Activity. No tabs: they held a document, an action and a record, and a segmented control is for views of one thing.
+- **A finished report is one page** (`reports/FinishedReport.tsx`), built like a job's sheet:
+  - the header: "Report #12" (the number a client quotes), "‹ Reports", and a "⋯" for the rare acts (Issue a correction; Delete report, for the owner);
+  - what it is: the form, the address, its Finalised or Sent pill (`ReportStatusPill size="page"`), client and day; then any notice (replaced, being corrected, a follow-up due);
+  - Document (`ReportCover`): one card with View PDF (a drawn likeness of its first page, never a download) and Answers, then Send this report and Share under it;
+  - Email (`ReportEmails`: each send, how it went, Send again on one that did not go, the business's copy said once), Details, and Activity (`ReportActivity`: the report's own history; its emails are only under Email).
+
+  No tabs: they held a document, an action and a record, and a segmented control is for views of one thing. A report a correction has replaced still offers Send, but grey: the current version is the one to send.
+
 - **Share on the page** hands the PDF to the share sheet in one tap (`useReportHandOver`), or counts it down ("Preparing… 40%") and asks for "Tap to share" when the download outlived the tap, as the Products page does. Where the browser can't share files it is a download.
 - **A report too big to email** goes as a copy with smaller photos. The lock and Send sheets say so before (`LARGE_FOR_EMAIL` in `lockEmail.ts`), and the report's Email list after ("Photos made smaller to fit an email"). The email itself does not, so it invites no "can I have the full size?".
 - **Locked boilerplate** sits in a grey inset (`bg-surface-2`) with a `Lock` glyph.
@@ -771,6 +778,7 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 | Done, selected                    | `Check`                                                                           |
 | Finalised, locked                 | `Lock` (only this: a locked report, locked boilerplate, a password PDF)           |
 | Undo, restore, try again          | `RotateCcw`                                                                       |
+| A correction of a report          | `FilePenLine`                                                                     |
 | Replace, regenerate, reload       | `RefreshCw`                                                                       |
 | Recurring                         | `Repeat` (ink, not blue)                                                          |
 | Photo                             | `Camera` (take), `ImageIcon` (library)                                            |

@@ -64,6 +64,15 @@ export type ViewerActions = {
    */
   saveLabel?: string
   /**
+   * Save as its own button in the top bar rather than in the More menu. For
+   * a caller whose menu would only ever hold Save (a finished report), where
+   * a menu of one is a tap to find a tap. Asked for rather than inferred:
+   * Products' menu gains and loses Replace and Keep as the phone goes
+   * offline or its kept list loads, and the button must not change shape
+   * under a thumb.
+   */
+  saveInBar?: boolean
+  /**
    * Offered only to the product's creator and the owner. Opens the file
    * picker; once the new file is saved, `source.key` changes and the viewer
    * reloads on its own.
@@ -73,11 +82,12 @@ export type ViewerActions = {
    * takes more than a PDF — a licence can be replaced with a photo. */
   replaceLabel?: string
   /**
-   * Emails the document from the app — a finished report's Send sheet. The
-   * viewer hands over to it: sheets sit below the viewer, so the opener closes
-   * the viewer and opens its sheet on the page behind.
+   * Sends the document from the app, in the caller's words ("Send this
+   * report"). The viewer hands over: sheets sit below it, so `run` closes the
+   * viewer and opens the caller's sheet on the page behind, and the viewer
+   * does not put focus back on the page as it goes.
    */
-  send?: () => void
+  send?: { label: string; run: () => void }
   /** A copy kept on this phone, for sites with no signal. */
   keep?: {
     kept: boolean

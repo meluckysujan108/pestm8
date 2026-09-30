@@ -63,7 +63,9 @@ export function ReportPdfViewer({
       share: support.files ? (file) => sharePdf(file, { title }) : undefined,
       save: savePdf,
       saveLabel: support.saveLabel,
-      send: onSend,
+      // Save is all its menu would ever hold.
+      saveInBar: true,
+      send: onSend && { label: 'Send this report', run: onSend },
     }),
     [support, title, onSend],
   )

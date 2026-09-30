@@ -14,8 +14,9 @@ import { describedBy, fieldMessageId } from '#/components/forms/FormField'
 import { domainsWithoutMail, noMailMessage } from './fields/staticBlocks'
 import { deliveryRecipients } from '#/lib/reportTemplates/delivery'
 import type { ReportTemplate } from '#/lib/reportTemplates'
+import type { RefObject } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FormAlert } from '#/components/forms/FormAlert'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import { TickBox } from './TickBox'
@@ -173,6 +174,7 @@ export function SendSheet({
   clientEmail,
   subject,
   chosen: chosenAtOpen = NONE,
+  returnFocusRef,
 }: {
   open: boolean
   onClose: () => void
@@ -189,6 +191,9 @@ export function SendSheet({
    * send that failed brings its addresses back ticked.
    */
   chosen?: ReadonlyArray<string>
+  /** Where focus goes as it closes, when what opened it has gone (the
+   * viewer's Send). */
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   const { data: known } = useQuery(
     convexQuery(api.deliveries.known, { businessId, reportId }),
@@ -232,12 +237,18 @@ export function SendSheet({
   const draftRef = useRef<HTMLInputElement>(null)
   const draftId = useId()
 
+  // Opened for particular addresses ("Send again" on one that failed): those
+  // are chosen and nothing else is — the form's own recipients already have
+  // their copy, and a second one to the client is a decision, not a default.
+  const [onlyChosen, setOnlyChosen] = useState(false)
+
   const recipients: Array<Recipient> = [
     ...suggested.map((entry) => ({
       ...entry,
       // One that can never arrive cannot be chosen at all.
       chosen:
-        entry.problem === null && (overrides[entry.address] ?? entry.chosen),
+        entry.problem === null &&
+        (overrides[entry.address] ?? (onlyChosen ? false : entry.chosen)),
     })),
     ...added.map((address) => ({
       address,
@@ -263,12 +274,19 @@ export function SendSheet({
   // for then. Done as it opens rather than by a new sheet each time, which
   // would lose the sheet's slide down as it closes. Before paint, so the
   // last opening's ticks never show.
+  //
+  // Except while a send is still going (a big report takes up to a minute):
+  // reopened then, the sheet must still say "Sending…" with Send held, or a
+  // second tap would email everyone again while the first is on its way.
   const { reset: resetSend } = send
+  const sending = useRef(false)
+  sending.current = send.isPending
   useLayoutEffect(() => {
-    if (!open) return
+    if (!open || sending.current) return
     setOverrides(
       Object.fromEntries(chosenAtOpen.map((address) => [address, true])),
     )
+    setOnlyChosen(chosenAtOpen.length > 0)
     setAdded([])
     setDraft('')
     setAdding(false)
@@ -365,17 +383,21 @@ export function SendSheet({
       onClose={onClose}
       title="Send this report"
       description={subject}
+      returnFocusRef={returnFocusRef}
       footer={
+        // Red: this is the tap that emails someone (design system §4.1).
         <button
           type="button"
           disabled={chosen.length === 0 || send.isPending || !settled}
           onClick={() => send.mutate(chosen.map((entry) => entry.address))}
-          className={`${NEUTRAL_BUTTON} flex w-full items-center justify-center gap-2`}
+          className={`${PRIMARY_BUTTON} flex w-full items-center justify-center gap-2`}
         >
           <Send size={16} strokeWidth={2} />
           {send.isPending
             ? 'Sending…'
-            : `Send to ${chosen.length === 1 ? '1 person' : `${chosen.length} people`}`}
+            : chosen.length === 0
+              ? 'Choose who to send to'
+              : `Send to ${chosen.length === 1 ? '1 person' : `${chosen.length} people`}`}
         </button>
       }
     >

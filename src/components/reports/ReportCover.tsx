@@ -18,11 +18,13 @@ import {
 } from '#/components/primitives/buttons'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { useReportHandOver } from './useReportHandOver'
+import type { Ref } from 'react'
 import type { ReportPdf, ReportPdfStatus } from './useReportPdf'
 
 /**
- * The finished report's document, at the top of its page: a likeness of the
- * PDF's first page that opens the real one, and the two things done with a
+ * The finished report's document, near the top of its page: one card with
+ * the PDF (a likeness of its first page, which opens the real one) and the
+ * Answers (the form as recorded), and under it the two things done with a
  * finished report most — send it, and hand it to another app.
  *
  * The likeness is drawn, not rendered from the file. A report's PDF can be
@@ -44,8 +46,11 @@ export function ReportCover({
   title,
   fileName,
   hydrated,
+  replaced,
   onView,
+  onAnswers,
   onSend,
+  sendRef,
 }: {
   logoUrl?: string | null
   pdf: ReportPdf
@@ -53,8 +58,13 @@ export function ReportCover({
   title: string
   fileName: string
   hydrated: boolean
+  /** A later version is the current one: sending this is not the default. */
+  replaced: boolean
   onView: () => void
+  onAnswers: () => void
   onSend: () => void
+  /** The Send button, for the sheet to give focus back to. */
+  sendRef?: Ref<HTMLButtonElement>
 }) {
   const { status, ensure } = pdf
   const failed = status.phase === 'failed'
@@ -78,30 +88,100 @@ export function ReportCover({
   }, [hydrated])
 
   return (
-    <section aria-label="PDF" className="flex flex-col gap-2.5">
-      <button
-        type="button"
-        // The finalised report is server-rendered: a tap before hydration
-        // would land on a button with no handler.
-        disabled={!hydrated}
-        onClick={onView}
-        className="flex w-full items-center gap-3.5 rounded-2xl border border-hairline bg-surface p-3 text-left shadow-elevation transition active:scale-[.99] focus-visible:ring-2 focus-visible:ring-blue outline-none"
-      >
-        <PageLikeness logoUrl={logoUrl} />
-        <span className="min-w-0 flex-1">
-          <span className="block text-row-title text-ink">View PDF</span>
-          <StatusLine status={status} />
-        </span>
-        <ChevronRight
-          aria-hidden
-          size={18}
-          strokeWidth={2}
-          className="shrink-0 text-muted-2"
-        />
-      </button>
+    <section aria-labelledby="report-document">
+      <h2 id="report-document" className="section-label mb-2">
+        Document
+      </h2>
+      <div className="divide-y divide-hairline rounded-2xl border border-hairline bg-surface shadow-elevation">
+        <button
+          type="button"
+          // The finalised report is server-rendered: a tap before hydration
+          // would land on a button with no handler.
+          disabled={!hydrated}
+          onClick={onView}
+          className="flex w-full items-center gap-3.5 rounded-t-2xl px-3.5 py-3 text-left outline-none transition active:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue"
+        >
+          <PageLikeness logoUrl={logoUrl} />
+          <span className="min-w-0 flex-1">
+            <span className="block text-body font-semibold text-ink">
+              View PDF
+            </span>
+            <StatusLine status={status} />
+          </span>
+          <ChevronRight
+            aria-hidden
+            size={18}
+            strokeWidth={2}
+            className="shrink-0 text-muted-2"
+          />
+        </button>
+        <button
+          type="button"
+          disabled={!hydrated}
+          onClick={onAnswers}
+          className="flex min-h-[52px] w-full items-center gap-3 rounded-b-2xl px-3.5 py-2.5 text-left outline-none transition active:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue"
+        >
+          <span className="min-w-0 flex-1">
+            <span className="block text-body font-semibold text-ink">
+              Answers
+            </span>
+            <span className="block text-caption text-grey-ink">
+              The form as recorded, without the PDF
+            </span>
+          </span>
+          <ChevronRight
+            aria-hidden
+            size={18}
+            strokeWidth={2}
+            className="shrink-0 text-muted-2"
+          />
+        </button>
+      </div>
+      {/* Said once, apart from the button: a status inside a button is read
+          as part of its name, not announced when it changes. */}
+      <p aria-live="polite" className="sr-only">
+        {ready ? 'PDF ready' : failed ? 'Could not prepare the PDF' : ''}
+      </p>
 
+      <div className="mt-2.5 flex gap-2">
+        <button
+          ref={sendRef}
+          type="button"
+          disabled={!hydrated}
+          onClick={onSend}
+          className={`${replaced ? LINK_BUTTON_COMPACT : NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2 px-3`}
+        >
+          <Send size={16} strokeWidth={2} />
+          Send this report
+        </button>
+        <button
+          type="button"
+          disabled={!hydrated}
+          onClick={handOver.run}
+          aria-busy={handOver.preparing || undefined}
+          className={`${LINK_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2 px-3`}
+        >
+          {/* What this phone does with it is known only once hydrated; until
+              then the button keeps its place and says nothing, rather than
+              "Download" on the iPhone that will say "Share". */}
+          <span
+            className={`flex items-center gap-2 ${hydrated ? '' : 'invisible'}`}
+          >
+            {purpose === 'share' ? (
+              <Share size={16} strokeWidth={2} />
+            ) : (
+              <Download size={16} strokeWidth={2} />
+            )}
+            {handOver.label(purpose === 'share' ? 'Share' : support.saveLabel)}
+          </span>
+        </button>
+      </div>
+
+      {/* Below the buttons, not above them: this can arrive a few seconds
+          after the page opens, and must not push down what a thumb is
+          already reaching for. */}
       {failed && (
-        <div className="flex flex-col gap-2">
+        <div className="mt-2.5 flex flex-col gap-2">
           <FormAlert>{status.problem}</FormAlert>
           <button
             type="button"
@@ -114,34 +194,8 @@ export function ReportCover({
           </button>
         </div>
       )}
-
-      <div className="flex gap-2">
-        <button
-          type="button"
-          disabled={!hydrated}
-          onClick={onSend}
-          className={`${NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2 px-3`}
-        >
-          <Send size={16} strokeWidth={2} />
-          Send this report
-        </button>
-        <button
-          type="button"
-          disabled={!hydrated}
-          onClick={handOver.run}
-          aria-busy={handOver.preparing || undefined}
-          className={`${LINK_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2 px-3`}
-        >
-          {purpose === 'share' ? (
-            <Share size={16} strokeWidth={2} />
-          ) : (
-            <Download size={16} strokeWidth={2} />
-          )}
-          {handOver.label(purpose === 'share' ? 'Share' : support.saveLabel)}
-        </button>
-      </div>
       {handOver.problem && (
-        <p role="alert" className="text-caption text-amber-ink">
+        <p role="alert" className="mt-2 text-caption text-amber-ink">
           {handOver.problem}
         </p>
       )}
@@ -158,9 +212,9 @@ function PageLikeness({ logoUrl }: { logoUrl?: string | null }) {
     <span
       aria-hidden
       data-theme="light"
-      className="flex aspect-[210/297] w-14 shrink-0 flex-col overflow-hidden rounded-sm border border-hairline bg-paper p-1.5 shadow-paper"
+      className="flex aspect-[210/297] w-12 shrink-0 flex-col overflow-hidden rounded-sm border border-hairline bg-paper p-1.5 shadow-paper"
     >
-      <span className="flex h-3 items-center">
+      <span className="flex h-2.5 items-center">
         {logoUrl ? (
           <img
             src={logoUrl}
@@ -168,7 +222,7 @@ function PageLikeness({ logoUrl }: { logoUrl?: string | null }) {
             className="max-h-full max-w-[60%] object-contain object-left"
           />
         ) : (
-          <span className="h-2 w-5 rounded-[2px] bg-surface-3" />
+          <span className="h-1.5 w-4 rounded-[2px] bg-surface-3" />
         )}
       </span>
       <span className="mt-1.5 h-1.5 w-full bg-red-fill" />
@@ -177,7 +231,6 @@ function PageLikeness({ logoUrl }: { logoUrl?: string | null }) {
         <span className="h-0.5 w-4/5 rounded-full bg-surface-3" />
         <span className="h-0.5 w-full rounded-full bg-surface-3" />
         <span className="h-0.5 w-3/5 rounded-full bg-surface-3" />
-        <span className="h-0.5 w-full rounded-full bg-surface-3" />
       </span>
     </span>
   )
@@ -186,7 +239,6 @@ function PageLikeness({ logoUrl }: { logoUrl?: string | null }) {
 function StatusLine({ status }: { status: ReportPdfStatus }) {
   return (
     <span
-      role="status"
       className={`mt-0.5 flex items-center gap-1.5 text-caption ${status.phase === 'failed' ? 'text-amber-ink' : 'text-grey-ink'}`}
     >
       {status.phase === 'ready' ? (
@@ -217,7 +269,7 @@ function StatusLine({ status }: { status: ReportPdfStatus }) {
             strokeWidth={2}
             className="shrink-0"
           />
-          Could not prepare the PDF
+          Not ready
         </>
       )}
     </span>

@@ -9,13 +9,13 @@ import {
 } from '#/lib/pdfFiles'
 import { recallPdf, rememberPdf } from '#/lib/pdfMemory'
 import { isGestureExpired, preparingLabel } from '#/lib/shareGesture'
-import { phoneIsOffline, reportPdfProblem } from './reportPdfModel'
 import type { LoadProgress } from '#/components/pdf/types'
 import type { ReportPdf } from './useReportPdf'
 
 /**
  * Share (or, where the phone has no share sheet for files, Download) from the
- * finished report's own page — one tap, rather than PDF tab, View PDF, Share.
+ * finished report's own page — one tap, where it was three (the PDF tab,
+ * View PDF, then Share in the viewer).
  *
  * The same rule as the Products page (`products/usePdfActions.ts` has the
  * detail): Safari opens the share sheet only inside the tap that asked, so
@@ -129,21 +129,31 @@ export function useReportHandOver({
     setPrep({ phase: 'preparing', progress: null })
     now.pdf
       .ensure()
-      .then(async (url) => {
-        const blob =
-          recallPdf(url) ??
-          (await fetchWithProgress(
-            url,
-            (progress) => {
-              if (!stopped()) setPrep({ phase: 'preparing', progress })
-            },
-            controller.signal,
-          ))
-        rememberPdf(url, blob)
-        if (stopped()) return
-        abort.current = null
-        deliver(blob, false)
-      })
+      .then(
+        async (url) => {
+          const blob =
+            recallPdf(url) ??
+            (await fetchWithProgress(
+              url,
+              (progress) => {
+                if (!stopped()) setPrep({ phase: 'preparing', progress })
+              },
+              controller.signal,
+            ))
+          rememberPdf(url, blob)
+          if (stopped()) return
+          abort.current = null
+          deliver(blob, false)
+        },
+        () => {
+          // The PDF could not be prepared at all: the card already says so,
+          // with its own Try again, and a second "could not" here would
+          // outlive that one's success.
+          if (stopped()) return
+          abort.current = null
+          setPrep(IDLE)
+        },
+      )
       .catch((error: unknown) => {
         if (stopped() || isAbortError(error)) return
         abort.current = null
@@ -152,7 +162,7 @@ export function useReportHandOver({
           problem:
             error instanceof FileTransferError
               ? error.message
-              : reportPdfProblem(error, phoneIsOffline()),
+              : 'Could not download the PDF. Check your signal and try again.',
         })
       })
   }, [deliver])

@@ -25,6 +25,7 @@ import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
 import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
 import { SendSheet } from '#/components/reports/SendSheet'
 import { FinishedReport } from '#/components/reports/FinishedReport'
+import { ReportEmails } from '#/components/reports/ReportEmails'
 import type {
   FinishedHeader,
   FinishedView,
@@ -575,6 +576,35 @@ function FinishedHeaderMock({ title, back, action }: FinishedHeader) {
   )
 }
 
+/** A finished report's Email list, in each state a send can be in: on its
+ * way, sent, to someone new, stuck, failed, refused before approval was
+ * retired, and with email not set up. */
+function EmailStates() {
+  return (
+    <Phone>
+      <div className="flex flex-col gap-4 px-4 py-4">
+        {[
+          'r_sending',
+          'r_sent',
+          'r_new',
+          'r_stuck',
+          'r_failed',
+          'r_refused',
+          'r_setup',
+        ].map((id) => (
+          <ReportEmails
+            key={id}
+            businessId={bizId}
+            reportId={id as never}
+            hydrated
+            onSendAgain={() => {}}
+          />
+        ))}
+      </div>
+    </Phone>
+  )
+}
+
 /**
  * A finished report's page, as the owner sees it. `id` picks its sends and
  * activity from the fixtures; `report` changes what the report itself says.
@@ -1116,6 +1146,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'lock-big': LockBig,
   finished: finished('r_history', { emailedAt: 1 }),
   'finished-sending': finished('r_sending'),
+  // Never emailed, and its PDF could not be drawn (the harness's action stub
+  // answers null): the card's failed state.
   'finished-noemail': finished('r_none', { pdfUrl: null }),
   'finished-legacy': finished('r_legacy', { emailedAt: 1 }),
   'finished-big': finished('r_big', { emailedAt: 1 }),
@@ -1128,6 +1160,19 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
     canAmend: false,
   }),
   'finished-answers': finished('r_history', { emailedAt: 1 }, 'answers'),
+  'finished-answers-replaced': finished(
+    'r_sent',
+    {
+      emailedAt: 1,
+      version: 2,
+      supersededByReportId: 'r_v3',
+      supersedesReportId: 'r_v1',
+      amendmentReason: 'Wrong product recorded against the second treatment',
+      canAmend: false,
+    },
+    'answers',
+  ),
+  emails: EmailStates,
   send: Send,
   'send-big': SendBig,
   'form-settings': FormSettings,

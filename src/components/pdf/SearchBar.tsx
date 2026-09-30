@@ -127,7 +127,7 @@ export function SearchBar({
         // Cancel, as iOS closes a search: a second "Done" beside the top
         // bar's, which closes the whole viewer, read as the same button.
         aria-label="Cancel search"
-        className="h-11 shrink-0 rounded-lg px-2.5 text-[17px] text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue"
+        className="h-11 shrink-0 rounded-lg px-2.5 text-[17px] font-semibold text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue"
       >
         Cancel
       </button>

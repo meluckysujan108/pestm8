@@ -197,8 +197,8 @@ export function Toolbar({
   searchOpen: boolean
   gridOpen: boolean
   onShare: () => void
-  /** Emails it from the app (`ViewerActions.send`); absent draws no Send. */
-  onSend?: () => void
+  /** Sends it from the app (`ViewerActions.send`); absent draws no Send. */
+  onSend?: { label: string; run: () => void }
   onSearch: () => void
   onPages: () => void
   searchButtonRef: Ref<HTMLButtonElement>
@@ -230,7 +230,7 @@ export function Toolbar({
         </ToolbarButton>
       )}
       {onSend && (
-        <ToolbarButton label="Send this report" onClick={onSend}>
+        <ToolbarButton label={onSend.label} onClick={onSend.run}>
           <Send size={21} strokeWidth={1.7} />
         </ToolbarButton>
       )}
@@ -305,15 +305,12 @@ export function hasMoreMenu(actions: ViewerActions): boolean {
   return !!actions.save || !!actions.replace || !!actions.keep
 }
 
-/**
- * Whether Save is all the menu would hold — a finished report's viewer. A
- * menu of one is a tap to find a tap, so Save is its own button instead.
- */
-export function onlySave(actions: ViewerActions): boolean {
-  return !!actions.save && !actions.replace && !actions.keep
+/** Whether Save is its own button in the top bar (`saveInBar`). */
+export function saveInBar(actions: ViewerActions): boolean {
+  return !!actions.save && actions.saveInBar === true
 }
 
-/** The top bar's Save, when it is the only thing the More menu would hold. */
+/** The top bar's Save, for a caller that asked for it there. */
 export function SaveButton({
   label,
   disabled,

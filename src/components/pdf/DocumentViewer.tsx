@@ -29,7 +29,7 @@ import {
   Toolbar,
   TopBar,
   hasMoreMenu,
-  onlySave,
+  saveInBar,
 } from './ViewerChrome'
 import { keyCommand } from './viewerKeys'
 import { ErrorState, LoadingState, PasswordState } from './ViewerStates'
@@ -122,6 +122,8 @@ export function DocumentViewer({
 
   const ready = doc !== null
   const badgeId = useId()
+  /** Send was pressed: the caller's sheet takes over from here. */
+  const handingOver = useRef(false)
 
   const keyboard = useKeyboardInset()
   // The bar already reserves the home-indicator strip, which the keyboard
@@ -503,6 +505,7 @@ export function DocumentViewer({
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
+            if (handingOver.current) return
             if (returnFocus instanceof HTMLElement && returnFocus.isConnected) {
               returnFocus.focus()
             }
@@ -624,7 +627,7 @@ export function DocumentViewer({
             doneHidden={marking}
             pager={pager}
             menu={
-              onlySave(actions) ? (
+              saveInBar(actions) ? (
                 <SaveButton
                   label={actions.saveLabel ?? 'Download'}
                   disabled={!file}
@@ -641,18 +644,21 @@ export function DocumentViewer({
               dialog), and not again every time the bars come and go. */}
           {badge &&
             !gridOpen &&
-            (onBadge ? (
+            // A button only when it leads somewhere, and not while the pen
+            // is out: a stroke that starts on it would leave the document.
+            (onBadge && !marking ? (
               // "Replaced by version 2" is a way to the version that is
               // current, not only a warning about this one.
               <button
                 type="button"
-                id={badgeId}
                 onClick={onBadge}
-                className="chrome-blur absolute left-1/2 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1 rounded-full px-3 py-1 text-caption font-semibold text-ink shadow-elevation outline-none transition-[top] duration-300 active:scale-[.95] focus-visible:ring-2 focus-visible:ring-blue"
+                aria-label={`${badge}. Open the current version`}
+                className="chrome-blur tap-target absolute left-1/2 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1 rounded-full py-1 pl-3 pr-2 text-caption font-semibold text-ink shadow-elevation outline-none transition-[top] duration-300 active:scale-[.95] focus-visible:ring-2 focus-visible:ring-blue"
                 style={{ top: pillTop(showBars, topBarHeight, 0) }}
               >
-                <span className="truncate">{badge}</span>
-                <span className="shrink-0 text-blue">· Open it</span>
+                <span id={badgeId} className="truncate">
+                  {badge}
+                </span>
                 <ChevronRight
                   aria-hidden
                   size={13}
@@ -722,7 +728,17 @@ export function DocumentViewer({
                 searchOpen={searchOpen}
                 gridOpen={gridOpen}
                 onShare={share}
-                onSend={actions.send}
+                onSend={
+                  actions.send && {
+                    label: actions.send.label,
+                    run: () => {
+                      // The page's sheet takes focus as it opens; putting it
+                      // back on the page behind first would only scroll it.
+                      handingOver.current = true
+                      actions.send?.run()
+                    },
+                  }
+                }
                 onSearch={openSearch}
                 onPages={() => {
                   setBarsVisible(true)

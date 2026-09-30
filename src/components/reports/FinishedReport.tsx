@@ -1,13 +1,12 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { DropdownMenu } from 'radix-ui'
-import { ChevronRight, Ellipsis, FilePenLine, Lock, Trash2 } from 'lucide-react'
+import { Ellipsis, FilePenLine, Trash2 } from 'lucide-react'
 import { DetailRow, DetailRows } from '#/components/primitives/DetailRow'
 import { BackLink } from '#/components/settings/ui'
 import { formatJobDate, formatWhen, todayKey } from '#/lib/format'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import { documentIdentity } from '#/lib/reportTemplates/documentModel'
-import { REPORT_PILL } from '#/lib/statusColours'
 import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
 import { dayKeyOf } from '../../../convex/lib/dates'
 import {
@@ -21,6 +20,7 @@ import { ReportCover } from './ReportCover'
 import { ReportDocument } from './ReportDocument'
 import { ReportEmails } from './ReportEmails'
 import { ReportPdfViewer } from './ReportPdfViewer'
+import { ReportStatusPill } from './ReportRows'
 import { SendSheet } from './SendSheet'
 import { SgarNotice } from './SgarNotice'
 import { replacedBadge } from './reportPdfModel'
@@ -99,6 +99,7 @@ export function FinishedReport({
   }>({ open: false, chosen: [] })
   const [amending, setAmending] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const sendRef = useRef<HTMLButtonElement>(null)
 
   const template = resolveReportTemplate({
     template: report.template,
@@ -146,6 +147,29 @@ export function FinishedReport({
       />
     ) : undefined
 
+  // What anyone reading it must know first: it has been replaced, it
+  // replaces another, or a correction is under way — on the page and on its
+  // Answers alike, so nobody reads the old document without being told.
+  const amendments = (
+    <>
+      <AmendmentNotice
+        businessSlug={businessSlug}
+        supersededBy={report.supersededByReportId}
+        supersedes={report.supersedesReportId}
+        reason={report.amendmentReason}
+        reportNumber={report.reportNumber}
+        version={report.version}
+        className=""
+      />
+      {report.openAmendmentId && (
+        <CorrectionUnderWay
+          businessSlug={businessSlug}
+          amendmentId={report.openAmendmentId}
+        />
+      )}
+    </>
+  )
+
   if (view === 'answers') {
     return (
       <>
@@ -170,15 +194,20 @@ export function FinishedReport({
             </BackLink>
           ),
         })}
-        <p className="px-4 pt-3 text-caption text-grey-ink">
-          {template.name}
-          {suburb ? ` · ${suburb}` : ''} · as recorded when it was finalised
-        </p>
-        <ReportDocument
-          report={report}
-          businessId={businessId}
-          variant="answers"
-        />
+        <div className="lg:mx-auto lg:max-w-[720px]">
+          <p className="px-4 pt-4 text-caption text-grey-ink">
+            {template.name}
+            {suburb ? ` · ${suburb}` : ''} · as recorded when it was finalised
+          </p>
+          <div className="flex flex-col gap-2 px-4 pt-3 empty:hidden">
+            {amendments}
+          </div>
+          <ReportDocument
+            report={report}
+            businessId={businessId}
+            variant="answers"
+          />
+        </div>
       </>
     )
   }
@@ -190,14 +219,19 @@ export function FinishedReport({
           todayKey(timezone),
         )
       : null
-  const sent = report.emailedAt !== undefined
   const technician = report.context.technician?.name ?? report.author?.name
   const jobNumber = report.context.job?.number
 
   return (
     <>
       {renderHeader({
-        title: template.name,
+        // The number a client quotes over the phone, and short enough never
+        // to be cut off beside the header's buttons; the form's name is the
+        // first line under it.
+        title:
+          report.reportNumber !== undefined
+            ? `Report #${report.reportNumber}`
+            : template.name,
         back: (
           <BackLink to="/$businessSlug/reports" params={{ businessSlug }}>
             Reports
@@ -206,14 +240,12 @@ export function FinishedReport({
         action: menu,
       })}
 
-      <div className="px-4 pb-8 pt-3 lg:mx-auto lg:max-w-[1040px]">
-        {/* What it is, as a job's sheet opens: number, the place, the
+      <div className="px-4 pb-6 pt-4 lg:mx-auto lg:max-w-[1040px]">
+        {/* What it is, as a job's sheet opens: the form, the place, the
             status as its pill, and for whom and when. */}
         <div>
           <p className="text-caption text-grey-ink">
-            {report.reportNumber !== undefined
-              ? `Report #${report.reportNumber}`
-              : 'Report'}
+            {template.name}
             {(report.version ?? 1) > 1 ? ` · Version ${report.version}` : ''}
           </p>
           <p className="mt-0.5 break-words text-row-title text-ink">
@@ -222,37 +254,17 @@ export function FinishedReport({
               : suburb || template.name}
           </p>
           <div className="mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span
-              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-[12px] font-semibold ${sent ? REPORT_PILL.sent : REPORT_PILL.finalised}`}
-            >
-              <Lock aria-hidden size={11} strokeWidth={2.4} />
-              {sent ? 'Sent' : 'Finalised'}
-            </span>
+            <ReportStatusPill report={report} size="page" />
             <span className="min-w-0 text-caption text-grey-ink">
               {[clientName, finalisedDay].filter(Boolean).join(' · ')}
             </span>
           </div>
         </div>
 
-        {/* What anyone reading it must know first: it has been replaced, it
-            replaces another, a correction is under way, or a rodent
-            treatment is due to be gone back to. */}
+        {/* Then anything to know first, a rodent treatment due to be gone
+            back to included. */}
         <div className="mt-3 flex flex-col gap-2 empty:hidden">
-          <AmendmentNotice
-            businessSlug={businessSlug}
-            supersededBy={report.supersededByReportId}
-            supersedes={report.supersedesReportId}
-            reason={report.amendmentReason}
-            reportNumber={report.reportNumber}
-            version={report.version}
-            className=""
-          />
-          {report.openAmendmentId && (
-            <CorrectionUnderWay
-              businessSlug={businessSlug}
-              amendmentId={report.openAmendmentId}
-            />
-          )}
+          {amendments}
           <SgarNotice
             businessSlug={businessSlug}
             template={template}
@@ -262,38 +274,18 @@ export function FinishedReport({
         </div>
 
         <div className="mt-4 flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start">
-          <div className="flex flex-col gap-3">
-            <ReportCover
-              logoUrl={report.business?.logoUrl}
-              pdf={pdf}
-              title={identity.title}
-              fileName={identity.fileName}
-              hydrated={hydrated}
-              onView={() => onView('pdf')}
-              onSend={() => openSend()}
-            />
-            <button
-              type="button"
-              disabled={!hydrated}
-              onClick={() => onView('answers')}
-              className="flex w-full items-center gap-3 rounded-2xl border border-hairline bg-surface px-3.5 py-3 text-left shadow-elevation outline-none transition active:scale-[.99] focus-visible:ring-2 focus-visible:ring-blue"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block text-body font-semibold text-ink">
-                  Answers
-                </span>
-                <span className="block text-caption text-grey-ink">
-                  Read the form without opening the PDF
-                </span>
-              </span>
-              <ChevronRight
-                aria-hidden
-                size={18}
-                strokeWidth={2}
-                className="shrink-0 text-muted-2"
-              />
-            </button>
-          </div>
+          <ReportCover
+            logoUrl={report.business?.logoUrl}
+            pdf={pdf}
+            title={identity.title}
+            fileName={identity.fileName}
+            hydrated={hydrated}
+            replaced={replaced}
+            onView={() => onView('pdf')}
+            onAnswers={() => onView('answers')}
+            onSend={() => openSend()}
+            sendRef={sendRef}
+          />
 
           <div className="flex flex-col gap-6">
             <ReportEmails
@@ -307,7 +299,7 @@ export function FinishedReport({
               <h2 id="report-details" className="section-label mb-2">
                 Details
               </h2>
-              <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
+              <div className="rounded-2xl border border-hairline bg-surface shadow-elevation">
                 <DetailRows>
                   {technician && (
                     <DetailRow label="Technician" value={technician} />
@@ -354,6 +346,9 @@ export function FinishedReport({
         clientEmail={report.context.client?.email}
         subject={identity.title}
         chosen={sending.chosen}
+        // Back to the page's Send, which is always there: the viewer's, which
+        // may have opened it, is gone.
+        returnFocusRef={sendRef}
       />
 
       {canCorrect && (
@@ -487,7 +482,7 @@ function MenuItem({
   return (
     <DropdownMenu.Item
       onSelect={onSelect}
-      className={`flex min-h-11 cursor-default items-center gap-2.5 rounded-xl px-2.5 text-body font-semibold outline-none data-[highlighted]:bg-surface-2 ${
+      className={`flex min-h-11 cursor-default items-center gap-2.5 rounded-lg px-2.5 text-body font-semibold outline-none data-[highlighted]:bg-surface-2 ${
         destructive ? 'text-red' : 'text-ink'
       }`}
     >
