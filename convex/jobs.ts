@@ -20,6 +20,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import { jobsInScope, jobsNewestFirst } from './lib/jobScope'
 import { unbinned } from './lib/bin'
+import { activateLeadAt } from './lib/clientRecord'
 import { heldAnywhere } from './lib/fileClaims'
 import { CLAIM_WINDOW_MS } from './lib/products'
 import {
@@ -734,6 +735,8 @@ export const create = mutation({
       newProperty,
       newClient,
     })
+    // Booked work makes a lead a client (lib/clientRecord.ts).
+    await activateLeadAt(ctx, propertyId)
 
     const jobNumber = await allocateJobNumber(ctx, args.businessId)
     const jobId = await ctx.db.insert('jobs', {
@@ -839,6 +842,10 @@ export const update = mutation({
       const property = unbinned(await ctx.db.get(patch.propertyId))
       if (!property || property.businessId !== businessId) {
         throw new ConvexError('NOT_FOUND')
+      }
+      // Work moved onto a lead's property is work booked for them.
+      if (patch.propertyId !== job.propertyId) {
+        await activateLeadAt(ctx, patch.propertyId)
       }
     }
 

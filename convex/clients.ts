@@ -9,6 +9,7 @@ import { INLINE_LIMIT, decorate as decorateReports } from './reports'
 import { isInScope, reportReadable } from './lib/capabilities'
 import { clientKind, clientStatus } from './schema'
 import {
+  claimClientNumber,
   clientWithNumber,
   isClientNumber,
   normaliseTags,
@@ -97,7 +98,9 @@ export const update = mutation({
     status: v.optional(clientStatus),
     tags: v.optional(v.array(v.string())),
     // Unique within the business: another client's is refused
-    // (CLIENT_NUMBER_TAKEN) rather than silently swapped.
+    // (CLIENT_NUMBER_TAKEN) rather than silently swapped. The owner's alone
+    // to change (NO_ACCESS otherwise): numbers are given automatically, and
+    // changed by hand only to match an old system.
     clientNumber: v.optional(v.number()),
   },
   handler: async (
@@ -164,6 +167,9 @@ export const update = mutation({
       }
     }
     if (clientNumber !== undefined && clientNumber !== client.clientNumber) {
+      // The owner, as themselves: switched into someone else's account,
+      // `business.manage` is off, as it is for every admin change.
+      requireCapability(await requireActor(ctx, businessId), 'business.manage')
       if (!isClientNumber(clientNumber)) {
         throw new ConvexError('INVALID_CLIENT_NUMBER')
       }
@@ -172,6 +178,8 @@ export const update = mutation({
         throw new ConvexError('CLIENT_NUMBER_TAKEN')
       }
       record.clientNumber = clientNumber
+      // Past the count, so it is not handed to the next new client too.
+      await claimClientNumber(ctx, businessId, clientNumber)
     }
     if (Object.keys(fields).length > 0 || Object.keys(record).length > 0) {
       await ctx.db.patch(clientId, {

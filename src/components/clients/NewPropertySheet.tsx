@@ -3,7 +3,11 @@ import { useMutation } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { useRouteContext } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
+import {
+  SHEET_BODY,
+  SheetLock,
+  SheetShell,
+} from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
 import {
@@ -59,10 +63,12 @@ export function NewPropertySheet({
   // above the button, and a second press saves it as it is.
   const saveWarnings = useSaveWarnings()
 
-  // Warnings about a draft the person walked away from are not news when the
-  // sheet opens again; the next press checks afresh.
+  // Closed with nothing typed, or with what was typed discarded (the sheet
+  // asks first: SheetLock below). Either way it opens empty next time, and
+  // warnings about a draft walked away from are not news then.
   function close() {
     saveWarnings.reset()
+    setValue(empty)
     onClose()
   }
 
@@ -78,6 +84,11 @@ export function NewPropertySheet({
 
   return (
     <SheetShell open={open} onClose={close}>
+      {/* Anything typed locks the sheet against a swipe, and ✕ asks. */}
+      <SheetLock
+        changed={JSON.stringify(value) !== JSON.stringify(empty)}
+        whileUnchanged={false}
+      />
       <SaveWarningsProvider value={saveWarnings}>
         <form
           className={`${SHEET_BODY} pt-3`}

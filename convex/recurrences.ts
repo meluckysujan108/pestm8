@@ -4,6 +4,7 @@ import { allocateJobNumber } from './jobs'
 import { isBinned, unbinned } from './lib/bin'
 import { requireActor, requireWriteActor } from './lib/actor'
 import { recordOnBehalf } from './lib/audit'
+import { activateLeadAt } from './lib/clientRecord'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import {
   mayEditJob,
@@ -34,7 +35,7 @@ import {
 import { intervalUnit } from './schema'
 import type { WriteEnvelope } from './lib/actor'
 import type { Interval } from './lib/recurrence'
-import type { MutationCtx } from './_generated/server'
+import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { Doc, Id } from './_generated/dataModel'
 
 /**
@@ -125,6 +126,9 @@ export const create = mutation({
       newProperty,
       newClient,
     })
+    // A standing arrangement is booked work: a lead becomes a client
+    // (lib/clientRecord.ts), even when its first visit is in the past.
+    await activateLeadAt(ctx, propertyId)
 
     const recurrenceId = await ctx.db.insert('recurrences', {
       businessId: args.businessId,
@@ -237,26 +241,120 @@ export const setActive = mutation({
     }
     await requireEditableSeries(ctx, env, recurrence)
 
-    await ctx.db.patch(recurrenceId, { active })
-    await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.setActive', {
-      active,
-    })
+    if (active) {
+      await ctx.db.patch(recurrenceId, { active })
+      await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.setActive', {
+        active,
+      })
+    } else {
+      await stopSeries(ctx, env, recurrence)
+    }
+  },
+})
 
-    // Stopping a recurrence removes work not yet started; anything in
-    // progress, completed or invoiced is history and stays untouched.
-    if (!active) {
-      const jobs = await ctx.db
-        .query('jobs')
-        .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrenceId))
-        .collect()
+/**
+ * Stops a series: no more visits are booked, and its visits still to come
+ * that nobody has started are cancelled — they stay on the schedule, marked
+ * cancelled. Anything in progress, completed or invoiced is history and stays
+ * as it is, and so does a visit already due that nobody actioned.
+ */
+async function stopSeries(
+  ctx: MutationCtx,
+  env: WriteEnvelope,
+  recurrence: Doc<'recurrences'>,
+) {
+  await ctx.db.patch(recurrence._id, { active: false })
+  await recordSeriesWrite(ctx, env, recurrence._id, 'recurrence.setActive', {
+    active: false,
+  })
+  const jobs = await ctx.db
+    .query('jobs')
+    .withIndex('by_recurrence', (q) => q.eq('recurrenceId', recurrence._id))
+    .collect()
+  const now = Date.now()
+  for (const job of jobs) {
+    if (NOT_STARTED_STATUSES.has(job.status) && job.scheduledAt > now) {
+      await setJobStatus(ctx, job, 'cancelled')
+    }
+  }
+}
 
-      const now = Date.now()
-      for (const job of jobs) {
-        if (NOT_STARTED_STATUSES.has(job.status) && job.scheduledAt > now) {
-          await setJobStatus(ctx, job, 'cancelled')
-        }
+/** A client's series still running, at every one of their properties. */
+async function runningSeriesOf(
+  ctx: QueryCtx,
+  businessId: Id<'businesses'>,
+  clientId: Id<'clients'>,
+): Promise<Array<Doc<'recurrences'>>> {
+  const properties = await ctx.db
+    .query('properties')
+    .withIndex('by_client', (q) => q.eq('clientId', clientId))
+    .collect()
+  const series = await Promise.all(
+    properties
+      .filter((p) => p.businessId === businessId && !isBinned(p))
+      .map((p) =>
+        ctx.db
+          .query('recurrences')
+          .withIndex('by_property', (q) => q.eq('propertyId', p._id))
+          .collect(),
+      ),
+  )
+  return series.flat().filter((r) => r.active && !isBinned(r))
+}
+
+/**
+ * How many of a client's recurring services are still running, and how many
+ * of those the caller may stop — asked when a client is marked Inactive, so
+ * the sheet can offer to stop them (`stopForClient`). Only series the caller
+ * can see are counted.
+ */
+export const runningForClient = query({
+  args: { businessId: v.id('businesses'), clientId: v.id('clients') },
+  handler: async (ctx, { businessId, clientId }) => {
+    const env = await requireActor(ctx, businessId)
+    const visible = (await runningSeriesOf(ctx, businessId, clientId)).filter(
+      (r) => isInScope(env.scope, r),
+    )
+    const stoppable = await Promise.all(
+      visible.map((r) => mayEditJob(ctx, env.actor, r)),
+    )
+    return {
+      running: visible.length,
+      stoppable: stoppable.filter(Boolean).length,
+    }
+  },
+})
+
+/**
+ * Stops every recurring service of a client that the caller may stop, as
+ * "Stop repeating" does for one (`stopSeries`). Offered when a client is
+ * marked Inactive. A series the caller can see but may not edit is left
+ * running and counted, so the sheet can say so.
+ */
+export const stopForClient = mutation({
+  args: { businessId: v.id('businesses'), clientId: v.id('clients') },
+  handler: async (ctx, { businessId, clientId }) => {
+    const env = await requireWriteActor(ctx, businessId)
+    const client = unbinned(await ctx.db.get(clientId))
+    if (!client || client.businessId !== businessId) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    let stopped = 0
+    let skipped = 0
+    // Only what the caller can see: a series outside their schedule is not
+    // theirs to stop, nor to learn of from the count.
+    const visible = (await runningSeriesOf(ctx, businessId, clientId)).filter(
+      (r) => isInScope(env.scope, r),
+    )
+    for (const recurrence of visible) {
+      if (await mayEditJob(ctx, env.actor, recurrence)) {
+        await stopSeries(ctx, env, recurrence)
+        stopped++
+      } else {
+        skipped++
       }
     }
+    return { stopped, skipped }
   },
 })
 
@@ -446,6 +544,7 @@ export const convertJobToRecurring = mutation({
     // booking onto its assignee nightly for as long as it runs, so turning a
     // job into one must ask whether that person can still be booked.
     await requireBookable(ctx, env, businessId, job.assignedMembershipId)
+    await activateLeadAt(ctx, job.propertyId)
 
     const recurrenceId = await ctx.db.insert('recurrences', {
       businessId,

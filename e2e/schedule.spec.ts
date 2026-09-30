@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test'
 import {
   FIXTURE_PASSWORD,
   api,
+  chooseStatus,
   chooseJobTypes,
   chooseProperty,
   clickUntil,
@@ -91,9 +92,8 @@ test('an owner can add a property, book a job, and complete it', async ({
   // row — the hold-to-confirm behaviour itself is unchanged (§2.3).
   await expect(detail.getByRole('button', { name: /^Call /i })).toBeVisible()
 
-  // Status is changed from a menu on the pill itself, not a dedicated button.
-  await detail.getByRole('button', { name: 'Change job status' }).click()
-  await page.getByRole('menuitem', { name: 'Completed' }).click()
+  // Status is changed from the pill itself, not a dedicated button.
+  await chooseStatus(page, 'Completed')
 
   await expect(detail.getByText('Completed')).toBeVisible()
 

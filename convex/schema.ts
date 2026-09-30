@@ -347,6 +347,15 @@ export default defineSchema({
     // mutation is race-safe under Convex's transactional guarantees.
     nextJobNumber: v.optional(v.number()),
     /**
+     * The next client number `assignClientNumber` hands out
+     * (convex/lib/clientRecord.ts). A running count, so a number is never
+     * given out twice: counting from the highest number in use gave a client
+     * wiped from the Recycle bin's number to the next new client. Absent on a
+     * business that has not numbered a client since it arrived; it then
+     * starts one past the highest number in use.
+     */
+    nextClientNumber: v.optional(v.number()),
+    /**
      * The next value `reports.finalise` will stamp as a report's
      * `reportNumber` — the number the finished document prints beside
      * "Submission ID:", and the one a client quotes on the phone.
@@ -646,6 +655,10 @@ export default defineSchema({
     /** Brought in by a client import (convex/clientImports.ts) — what its
      * Undo may take back, and nothing else. */
     importId: v.optional(v.id('clientImports')),
+    /** The import it came from, kept for good: Undo clears `importId` on
+     * what it keeps, but a site brought in by a list is still not one
+     * "added recently" by hand (src/lib/propertyOptions.ts). */
+    importedFrom: v.optional(v.id('clientImports')),
     ...binFields,
   })
     .index('by_business', ['businessId'])
@@ -690,11 +703,15 @@ export default defineSchema({
     updatedAt: v.number(),
     /** Brought in by a client import — see `properties.importId`. */
     importId: v.optional(v.id('clientImports')),
+    /** As `properties.importedFrom`: never cleared. */
+    importedFrom: v.optional(v.id('clientImports')),
     /**
      * The business's own number for the client ("#1916"), unique within the
      * business: kept from the old system on import, otherwise the next one
-     * (convex/lib/clientRecord.ts `assignClientNumber`). Optional: clients
-     * made before numbering have none until `migrations/clientNumbersV1`.
+     * from `businesses.nextClientNumber` (convex/lib/clientRecord.ts
+     * `assignClientNumber`). Only the owner changes one by hand. Optional:
+     * clients made before numbering have none until
+     * `migrations/clientNumbersV1`.
      */
     clientNumber: v.optional(v.number()),
     /** Active, a lead not yet booked, or no longer serviced. Absent is

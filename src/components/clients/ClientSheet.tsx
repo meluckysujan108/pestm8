@@ -3,7 +3,18 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
 import { Drawer } from 'vaul'
-import { SHEET_BODY, SheetShell } from '#/components/primitives/Sheet'
+import {
+  SHEET_BODY,
+  SHEET_BODY_ABOVE_FOOTER,
+  SHEET_FOOTER,
+  SheetShell,
+  useSheetLock,
+} from '#/components/primitives/Sheet'
+import {
+  StatusPicker,
+  StatusPillButton,
+} from '#/components/primitives/StatusPicker'
+import { CLIENT_STATUS } from '#/lib/statusColours'
 import { Pencil, Plus, Star, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import {
@@ -55,7 +66,10 @@ import {
   clientNumberLabel,
   tagsInUse,
 } from '#/components/clients/ClientRecordBits'
-import { clientNumberFromText } from '../../../convex/lib/clientRecord'
+import {
+  CLIENT_STATUSES,
+  clientNumberFromText,
+} from '../../../convex/lib/clientRecord'
 import type { ClientStatus } from '../../../convex/lib/clientRecord'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 import { KIND_CHOICES, KIND_LABELS } from '#/lib/clientFilters'
@@ -87,6 +101,7 @@ export function ClientSheet({
   businessSlug,
   businessState,
   canManageClients,
+  canRenumber = false,
   clientId,
   onClose,
 }: {
@@ -97,6 +112,9 @@ export function ClientSheet({
   businessState: string
   /** `clients.manage`: the owner and contractors. Offers Delete. */
   canManageClients: boolean
+  /** `business.manage`: the owner. Client numbers are given automatically;
+   * only the owner changes one, to match an old system. */
+  canRenumber?: boolean
   clientId: string | null
   onClose: () => void
 }) {
@@ -110,6 +128,7 @@ export function ClientSheet({
           businessSlug={businessSlug}
           businessState={businessState}
           canManageClients={canManageClients}
+          canRenumber={canRenumber}
           clientId={clientId as Id<'clients'>}
           onClose={onClose}
         />
@@ -124,6 +143,7 @@ function ClientBody({
   businessSlug,
   businessState,
   canManageClients,
+  canRenumber,
   clientId,
   onClose,
 }: {
@@ -133,6 +153,7 @@ function ClientBody({
   businessState: string
   /** `clients.manage`: the owner and contractors. Offers Delete. */
   canManageClients: boolean
+  canRenumber: boolean
   clientId: Id<'clients'>
   onClose: () => void
 }) {
@@ -150,6 +171,11 @@ function ClientBody({
   )
   const contactPerson = contacts?.find((c) => c.isPrimary)?.name
   const [editing, setEditing] = useState(false)
+  // A contact or site being added or edited below. The client's Edit hides
+  // meanwhile: it swaps the whole sheet for the edit form, and would take
+  // the half-typed contact or address with it.
+  const [contactFormOpen, setContactFormOpen] = useState(false)
+  const [propertyFormOpen, setPropertyFormOpen] = useState(false)
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const hydrated = useHydrated()
 
@@ -202,13 +228,44 @@ function ClientBody({
     )
   }
 
+  // A client's number heads their sheet, as a job's does: "CLIENT #1916".
+  const kicker =
+    client.clientNumber !== undefined
+      ? `Client ${clientNumberLabel(client.clientNumber)}`
+      : 'Client'
+
+  if (editing) {
+    // Edit mode is the form and nothing else, its Save and Cancel pinned
+    // below it, and the sheet locked against a swipe (useSheetLock).
+    return (
+      <ClientEditForm
+        businessId={businessId}
+        businessState={businessState}
+        client={client}
+        contactPerson={contactPerson ?? ''}
+        canRenumber={canRenumber}
+        onDone={() => setEditing(false)}
+        header={
+          <>
+            <p className="section-label mb-0.5 mr-10 tabular-nums">
+              {client.clientNumber !== undefined
+                ? `Editing client ${clientNumberLabel(client.clientNumber)}`
+                : 'Editing client'}
+            </p>
+            <Drawer.Title className="mr-10 text-sheet-title text-ink">
+              {client.name}
+            </Drawer.Title>
+          </>
+        }
+      />
+    )
+  }
+
   return (
     <div className={`${SHEET_BODY} pt-3`}>
       <div className="flex items-center justify-between gap-2">
-        <Drawer.Title className="text-sheet-title text-ink">
-          {client.name}
-        </Drawer.Title>
-        {!editing && (
+        <p className="section-label mb-0.5 tabular-nums">{kicker}</p>
+        {!contactFormOpen && !propertyFormOpen && (
           <button
             type="button"
             aria-label="Edit client details"
@@ -220,26 +277,18 @@ function ClientBody({
           </button>
         )}
       </div>
+      <Drawer.Title className="text-sheet-title text-ink">
+        {client.name}
+      </Drawer.Title>
 
-      {editing ? (
-        <ClientEditForm
-          businessId={businessId}
-          businessState={businessState}
-          client={client}
-          contactPerson={contactPerson ?? ''}
-          onDone={() => setEditing(false)}
-        />
-      ) : (
         <>
-          <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 text-caption text-muted">
-            {client.clientNumber !== undefined && (
-              <span className="tabular-nums">
-                {clientNumberLabel(client.clientNumber)} ·
-              </span>
-            )}
-            {KIND_LABELS[client.kind]}
-            <ClientStatusPill status={client.status} />
-          </p>
+          <ClientStatusRow
+            businessId={businessId}
+            clientId={clientId}
+            clientName={client.name}
+            status={client.status}
+            kindLabel={KIND_LABELS[client.kind]}
+          />
           {client.tags && client.tags.length > 0 && (
             <div className="mt-2">
               <TagChips tags={client.tags} />
@@ -270,7 +319,6 @@ function ClientBody({
             </div>
           )}
         </>
-      )}
 
       {/* A business needs named people because "ACME Pest Control" can't
           answer a phone; a person client already is their own one contact. */}
@@ -280,6 +328,7 @@ function ClientBody({
           businessState={businessState}
           clientId={clientId}
           canRemove={canManageClients}
+          onFormOpenChange={setContactFormOpen}
         />
       )}
 
@@ -289,6 +338,7 @@ function ClientBody({
         clientId={clientId}
         clientKind={client.kind}
         canDelete={canManageClients}
+        onFormOpenChange={setPropertyFormOpen}
       />
 
       <ClientNotesSection
@@ -351,13 +401,164 @@ function ClientBody({
   )
 }
 
+/**
+ * The client's status as a pill that can be tapped, as a job's is: it opens
+ * the status sheet, and a choice is saved at once. A client made Inactive
+ * whose recurring services are still running is told so, with a way to stop
+ * them — two separate acts, the second asked about first.
+ */
+function ClientStatusRow({
+  businessId,
+  clientId,
+  clientName,
+  status,
+  kindLabel,
+}: {
+  businessId: Id<'businesses'>
+  clientId: Id<'clients'>
+  clientName: string
+  status?: ClientStatus
+  kindLabel: string
+}) {
+  const current = status ?? 'active'
+  const [open, setOpen] = useState(false)
+  const [confirmStop, setConfirmStop] = useState(false)
+  const pillButton = useRef<HTMLButtonElement>(null)
+  const hydrated = useHydrated()
+
+  const convexUpdate = useConvexMutation(api.clients.update)
+  const save = useMutation({
+    mutationFn: (next: ClientStatus) =>
+      convexUpdate({ businessId, clientId, status: next }),
+  })
+
+  // Asked only of an Inactive client: what is still running for them.
+  const running = useQuery(
+    convexQuery(
+      api.recurrences.runningForClient,
+      current === 'inactive' ? { businessId, clientId } : 'skip',
+    ),
+  ).data
+  const convexStop = useConvexMutation(api.recurrences.stopForClient)
+  const stop = useMutation({
+    mutationFn: () => convexStop({ businessId, clientId }),
+    onSuccess: () => setConfirmStop(false),
+  })
+  const services = (n: number) =>
+    n === 1 ? '1 recurring service' : `${n} recurring services`
+
+  return (
+    <>
+      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1">
+        <StatusPillButton
+          pill={<ClientStatusPill status={status} />}
+          ariaLabel="Change client status"
+          // Not disabled while a choice saves: the status sheet hands focus
+          // back to it as it closes, and a disabled button cannot take it.
+          disabled={!hydrated}
+          buttonRef={pillButton}
+          onClick={() => {
+            // A second open would reset the save still running, and its
+            // error would never show.
+            if (save.isPending) return
+            save.reset()
+            setOpen(true)
+          }}
+        />
+        <span className="text-body text-muted">{kindLabel}</span>
+      </div>
+      <FormAlert
+        className="mt-2"
+        error={save.isError ? save.error : null}
+        copy={actionCopy('change their status')}
+      />
+
+      {current === 'inactive' && running && running.running > 0 && (
+        <div className="mt-2 rounded-xl bg-surface-2 px-3 py-2.5">
+          <p className="text-caption text-ink-2">
+            {services(running.running)} still{' '}
+            {running.running === 1 ? 'runs' : 'run'} for {clientName}, booking
+            visits.
+          </p>
+          {running.stoppable > 0 && (
+            <button
+              type="button"
+              disabled={!hydrated}
+              onClick={() => {
+                stop.reset()
+                setConfirmStop(true)
+              }}
+              className="relative tap-target mt-1 text-caption font-semibold text-red disabled:opacity-50"
+            >
+              {running.stoppable === running.running
+                ? 'Stop them'
+                : `Stop the ${running.stoppable} you can`}
+            </button>
+          )}
+        </div>
+      )}
+      {current === 'inactive' && stop.data && stop.data.skipped > 0 && (
+        <p role="status" className="mt-2 text-caption text-ink-2">
+          {services(stop.data.skipped)} left running: stopping{' '}
+          {stop.data.skipped === 1 ? 'it is' : 'them is'} up to whoever does
+          that work.
+        </p>
+      )}
+
+      <StatusPicker
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Client status"
+        description={clientName}
+        choices={CLIENT_STATUSES.map((value) => ({
+          value,
+          pill: <ClientStatusPill status={value} />,
+          meaning: CLIENT_STATUS[value].meaning,
+        }))}
+        value={current}
+        onChoose={(next) => {
+          setOpen(false)
+          if (next === current) return
+          stop.reset()
+          save.mutate(next)
+        }}
+        returnFocusRef={pillButton}
+      />
+
+      <ConfirmDialog
+        open={confirmStop}
+        onOpenChange={setConfirmStop}
+        title={`Stop ${clientName}’s recurring services?`}
+        body="No more visits are booked, and the ones still to come are cancelled. They stay on the schedule marked cancelled; past and completed visits are not touched."
+        cancel="Keep them running"
+        confirm="Stop services"
+        pending={stop.isPending}
+        pendingLabel="Stopping…"
+        closeOnConfirm={false}
+        error={
+          stop.isError
+            ? 'Could not stop them. Check your signal and try again.'
+            : null
+        }
+        onConfirm={() => stop.mutate()}
+      />
+    </>
+  )
+}
+
 function ClientEditForm({
   businessId,
   businessState,
   client,
   contactPerson: prefilledContactPerson,
+  canRenumber,
   onDone,
+  header,
 }: {
+  /** The owner, who alone may change the client number. */
+  canRenumber: boolean
+  /** The sheet's own heading, drawn above the fields. */
+  header: React.ReactNode
   businessId: Id<'businesses'>
   /** Where the business works: suggestions lean there, an address elsewhere
    * is pointed out, and a number missing its area code gets this state's. */
@@ -400,7 +601,6 @@ function ClientEditForm({
   // after the form opened, the field starts blank, and comparing with the
   // live name would read that as clearing it and take the star off.
   const [contactPersonBefore] = useState(prefilledContactPerson)
-  const [status, setStatus] = useState<ClientStatus>(client.status ?? 'active')
   const [numberText, setNumberText] = useState(
     client.clientNumber === undefined ? '' : String(client.clientNumber),
   )
@@ -446,7 +646,6 @@ function ClientEditForm({
       postcode?: string
       abn?: string
       contactPerson?: string
-      status?: ClientStatus
       tags?: Array<string>
       clientNumber?: number
     }) => convexUpdate(args),
@@ -469,9 +668,10 @@ function ClientEditForm({
       // writes nothing.
       ...edited('phone', phone, client.phone),
       ...edited('email', email, client.email),
-      ...(status !== (client.status ?? 'active') && { status }),
       ...(tags.join('\n') !== (client.tags ?? []).join('\n') && { tags }),
-      ...(wantedNumber !== null &&
+      // The owner's alone to change (clients.update refuses anyone else).
+      ...(canRenumber &&
+        wantedNumber !== null &&
         wantedNumber !== client.clientNumber && {
           clientNumber: wantedNumber,
         }),
@@ -504,11 +704,33 @@ function ClientEditForm({
   const emailId = `${id}-email`
   const abnId = `${id}-abn`
   const addressHeadingId = `${id}-address-heading`
+  const formId = `${id}-form`
+
+  // Anything changed? The sheet then asks before a close throws it away; it
+  // is locked against a swipe while the form is open either way.
+  const pending = args()
+  const [openedNumber] = useState(numberText)
+  // Judged by what the person changed, not by what a save would write: a
+  // lone saved state ("ACT" with no street) is mended by any save, and
+  // opening the form must not count as changing it.
+  const hasChanges =
+    kind !== client.kind ||
+    name.trim() !== client.name.trim() ||
+    numberText !== openedNumber ||
+    (kind === 'business' && changed(address.state, savedAddress.state)) ||
+    Object.keys(pending).some(
+      (key) =>
+        !['businessId', 'clientId', 'kind', 'name', 'state'].includes(key),
+    )
+  useSheetLock(hasChanges)
 
   return (
     <SaveWarningsProvider value={warnings}>
+      <div className={`${SHEET_BODY_ABOVE_FOOTER} pt-3`}>
+      {header}
       <form
-        className="mt-3 flex flex-col gap-3"
+        id={formId}
+        className="mt-3 flex flex-col gap-3 pb-2"
         onSubmit={(e) => {
           if (numberProblem) {
             e.preventDefault()
@@ -531,31 +753,36 @@ function ClientEditForm({
         >
           <TextInput value={name} onChange={setName} required />
         </WrappedField>
-        <WrappedField label="Status">
-          <Segmented
-            kind="choice"
-            label="Status"
-            value={status}
-            onChange={setStatus}
-            options={[
-              { value: 'active', label: 'Active' },
-              { value: 'lead', label: 'Lead' },
-              { value: 'inactive', label: 'Inactive' },
-            ]}
-          />
-        </WrappedField>
-        <WrappedField label="Client number">
-          <TextInput
-            value={numberText}
-            onChange={setNumberText}
-            inputMode="numeric"
-            placeholder="Given when saved"
-          />
-        </WrappedField>
-        {numberProblem && (
-          <FieldMessage tone="error" className="-mt-1.5">
-            {numberProblem}
-          </FieldMessage>
+        {/* Given automatically. Only the owner changes one, to match the
+            number an old system gave the client; everyone else sees it. */}
+        {canRenumber ? (
+          <>
+            <WrappedField label="Client number">
+              <TextInput
+                value={numberText}
+                onChange={setNumberText}
+                inputMode="numeric"
+              />
+            </WrappedField>
+            {numberProblem ? (
+              <FieldMessage tone="error" className="-mt-1.5">
+                {numberProblem}
+              </FieldMessage>
+            ) : (
+              <p className="-mt-1.5 text-caption text-muted">
+                Given automatically. Change it only to match another system.
+              </p>
+            )}
+          </>
+        ) : (
+          client.clientNumber !== undefined && (
+            <div className="flex flex-col gap-1.5">
+              <span className="section-label">Client number</span>
+              <p className="flex h-11 items-center rounded-xl bg-surface-3 px-3.5 text-[16px] tabular-nums text-ink">
+                {clientNumberLabel(client.clientNumber)}
+              </p>
+            </div>
+          )
         )}
         <div className="flex flex-col gap-1.5">
           <span className="section-label">Tags (optional)</span>
@@ -649,29 +876,36 @@ function ClientEditForm({
             />
           </div>
         )}
+        <SaveWarningsPanel />
+      </form>
+      </div>
+
+      {/* Pinned below the fields, so Save is in reach with the keyboard up,
+          and a failed save says why just above it, where it is seen. */}
+      <div className={`${SHEET_FOOTER} flex flex-col gap-2`}>
         <FormAlert
           error={save.isError ? save.error : null}
           copy={CLIENT_RECORD_COPY}
         />
-        <SaveWarningsPanel />
-
         <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={onDone}
-            className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-          >
-            Cancel
-          </button>
-          <button
-            type="submit"
-            disabled={save.isPending || !hydrated}
-            className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-          >
-            {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
-          </button>
+        <button
+          type="button"
+          disabled={save.isPending}
+          onClick={onDone}
+          className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
+        >
+          Cancel
+        </button>
+        <button
+          type="submit"
+          form={formId}
+          disabled={save.isPending || !hydrated}
+          className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
+        >
+          {save.isPending ? 'Saving…' : warnings.saveLabel('Save')}
+        </button>
         </div>
-      </form>
+      </div>
     </SaveWarningsProvider>
   )
 }
@@ -684,12 +918,15 @@ function ClientContacts({
   businessState,
   clientId,
   canRemove,
+  onFormOpenChange,
 }: {
   businessId: Id<'businesses'>
   businessState: string
   clientId: Id<'clients'>
   /** `clients.manage`: removing a contact puts it in the Recycle bin. */
   canRemove: boolean
+  /** Told when a contact is being added or edited, and when not. */
+  onFormOpenChange: (open: boolean) => void
 }) {
   const { data: contacts } = useQuery(
     convexQuery(api.clientContacts.list, { businessId, clientId }),
@@ -699,6 +936,11 @@ function ClientContacts({
   // that opened the dialog, go with it.
   const addButton = useRef<HTMLButtonElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const formOpen = adding || editingId !== null
+  useEffect(() => {
+    onFormOpenChange(formOpen)
+  }, [formOpen, onFormOpenChange])
+  useEffect(() => () => onFormOpenChange(false), [onFormOpenChange])
   // Every removal asks first: a contact goes to the Recycle bin with their
   // number and email, and the confirm says where to get them back. The
   // primary contact's also says they are the client's contact person.
@@ -925,6 +1167,8 @@ function NewContactForm({
   const hydrated = useHydrated()
   const id = useId()
   const warnings = useSaveWarnings()
+  // Open, it locks the sheet; typed in, a close asks first.
+  useSheetLock([name, role, phone, email].some((field) => field.trim() !== ''))
 
   const convexCreate = useConvexMutation(api.clientContacts.create)
   const create = useMutation({
@@ -1023,6 +1267,12 @@ function ContactEditForm({
   const hydrated = useHydrated()
   const id = useId()
   const warnings = useSaveWarnings()
+  useSheetLock(
+    changed(name, contact.name) ||
+      changed(role, contact.role) ||
+      changed(phone, contact.phone) ||
+      changed(email, contact.email),
+  )
 
   const convexUpdate = useConvexMutation(api.clientContacts.update)
   const save = useMutation({
@@ -1108,18 +1358,26 @@ function ClientProperties({
   clientId,
   clientKind,
   canDelete,
+  onFormOpenChange,
 }: {
   businessId: Id<'businesses'>
   businessState: string
   clientId: Id<'clients'>
   clientKind: ClientKind
   canDelete: boolean
+  /** Told when a site is being added or edited, and when not. */
+  onFormOpenChange: (open: boolean) => void
 }) {
   const { data: properties } = useQuery(
     convexQuery(api.properties.listByClient, { businessId, clientId }),
   )
   const [editingId, setEditingId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
+  const formOpen = adding || editingId !== null
+  useEffect(() => {
+    onFormOpenChange(formOpen)
+  }, [formOpen, onFormOpenChange])
+  useEffect(() => () => onFormOpenChange(false), [onFormOpenChange])
 
   return (
     <Section label="Properties">
@@ -1348,6 +1606,11 @@ function PropertyEditForm({
   const [addressCheck, setAddressCheck] = useState<AddressCheck>('typed')
   const hydrated = useHydrated()
   const warnings = useSaveWarnings()
+  useSheetLock(
+    (Object.keys(saved) as Array<keyof PropertyFieldsValue>).some((key) =>
+      changed(value[key], saved[key]),
+    ),
+  )
 
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const convexDelete = useConvexMutation(api.bin.deleteProperty)
@@ -1499,6 +1762,12 @@ function NewPropertyForClientForm({
   const [addressCheck, setAddressCheck] = useState<AddressCheck>('typed')
   const hydrated = useHydrated()
   const warnings = useSaveWarnings()
+  const [opened] = useState(value)
+  useSheetLock(
+    (Object.keys(opened) as Array<keyof PropertyFieldsValue>).some((key) =>
+      changed(value[key], opened[key]),
+    ),
+  )
 
   const convexCreate = useConvexMutation(api.properties.createForClient)
   const create = useMutation({
@@ -1675,6 +1944,8 @@ function ClientReports({
 
 /** Words for the refusals only this form meets. */
 const CLIENT_RECORD_COPY: ErrorCopy = {
+  NO_ACCESS:
+    'Could not save: only the business owner can change a client number.',
   CLIENT_NUMBER_TAKEN:
     'Could not save: another client already has that number. Choose another.',
   INVALID_CLIENT_NUMBER:

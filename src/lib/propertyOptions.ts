@@ -1,5 +1,66 @@
 import { siteContactOf } from '../../convex/lib/siteContact'
+import { dayKeyOf } from '../../convex/lib/dates'
+import { formatJobDate } from '#/lib/format'
 import type { ComboboxOption } from '#/components/primitives/Combobox'
+
+/**
+ * "Added recently" at the top of a client or property picker: the newest
+ * clients added by hand, up to eight, from the last 90 days, each with the
+ * day it was added — then everyone, A–Z.
+ *
+ * A short fixed section above a list that stays alphabetical, rather than the
+ * whole list newest first: a new client is usually booked soon after they
+ * are added, and everyone else is still where their name puts them.
+ * Imported clients go straight into the A–Z list: an import adds hundreds in
+ * one minute, and would otherwise fill the section.
+ */
+export type RecentOptions = {
+  /** The business's time zone, for the day each was added. */
+  timezone: string
+  /** Now, from the page: what "the last 90 days" counts back from. */
+  now: number
+}
+
+export const RECENT_LIMIT = 8
+const RECENT_WINDOW_MS = 90 * 24 * 60 * 60 * 1000
+export const RECENT_GROUP = 'Added recently'
+export const EVERYONE_GROUP = 'Everyone, A–Z'
+
+function addedLabel(createdAt: number, recent: RecentOptions): string {
+  return `Added ${formatJobDate(
+    dayKeyOf(createdAt, recent.timezone),
+    dayKeyOf(recent.now, recent.timezone),
+  )}`
+}
+
+/**
+ * The newest `RECENT_LIMIT` of `items` added by hand in the window, newest
+ * first, as a set of keys — or none when `recent` is not given.
+ */
+function newest<T>(
+  items: ReadonlyArray<T>,
+  recent: RecentOptions | undefined,
+  facts: (item: T) => {
+    key: string
+    createdAt?: number
+    imported: boolean
+    archived: boolean
+  },
+): Array<{ key: string; createdAt: number }> {
+  if (!recent) return []
+  const since = recent.now - RECENT_WINDOW_MS
+  return items
+    .map(facts)
+    .filter(
+      (f): f is typeof f & { createdAt: number } =>
+        f.createdAt !== undefined &&
+        f.createdAt >= since &&
+        !f.imported &&
+        !f.archived,
+    )
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .slice(0, RECENT_LIMIT)
+}
 
 /** The fields of a `properties.list` row the picker needs. */
 export type PickableProperty = {
@@ -7,6 +68,12 @@ export type PickableProperty = {
   addressLine: string
   suburb: string
   postcode: string
+  /** When the site was added, and whether by an import — for "Added
+   * recently". Absent on rows from a backend older than the section. */
+  createdAt?: number
+  importId?: string
+  /** The import it came from, kept after an Undo clears `importId`. */
+  importedFrom?: string
   /** The site's own contact (Prompt 6.3), counted only for a business client
    * — the same rule as the job card's Call. */
   siteContactName?: string
@@ -38,48 +105,76 @@ export type PickableProperty = {
  */
 export function propertyOptions(
   properties: ReadonlyArray<PickableProperty>,
+  recent?: RecentOptions,
 ): Array<ComboboxOption> {
-  return [...properties]
-    .sort((a, b) => {
-      const archived =
-        Number(Boolean(a.client?.archivedAt)) -
-        Number(Boolean(b.client?.archivedAt))
-      if (archived !== 0) return archived
-      return (
-        clientName(a).localeCompare(clientName(b), undefined, {
-          sensitivity: 'base',
-        }) ||
-        a.addressLine.localeCompare(b.addressLine, undefined, {
-          sensitivity: 'base',
-          numeric: true,
-        })
-      )
-    })
-    .map((p) => {
-      const name = p.client?.archivedAt
-        ? `${clientName(p)} (archived)`
-        : clientName(p)
-      // A person client's leftover site contact is hidden everywhere else, so
-      // it must not be what makes their house turn up here.
-      const site = siteContactOf({
-        clientKind: p.client?.kind,
-        siteContactName: p.siteContactName,
-        siteContactPhone: p.siteContactPhone,
+  const top = newest(properties, recent, (p) => ({
+    key: p._id,
+    createdAt: p.createdAt,
+    imported: p.importId !== undefined || p.importedFrom !== undefined,
+    archived: Boolean(p.client?.archivedAt),
+  }))
+  const topAt = new Map(top.map((t) => [t.key, t.createdAt]))
+  const option = (p: PickableProperty): ComboboxOption => {
+    const base = propertyOption(p)
+    const addedAt = topAt.get(p._id)
+    if (top.length === 0) return base
+    return addedAt === undefined
+      ? { ...base, group: EVERYONE_GROUP }
+      : { ...base, group: RECENT_GROUP, detail: addedLabel(addedAt, recent!) }
+  }
+  const byId = new Map(properties.map((p) => [p._id, p]))
+  return [
+    ...top.map((t) => option(byId.get(t.key)!)),
+    ...alphabetical(properties.filter((p) => !topAt.has(p._id))).map(option),
+  ]
+}
+
+/** Archived clients last, then by client name and street. */
+function alphabetical(
+  properties: ReadonlyArray<PickableProperty>,
+): Array<PickableProperty> {
+  return [...properties].sort((a, b) => {
+    const archived =
+      Number(Boolean(a.client?.archivedAt)) -
+      Number(Boolean(b.client?.archivedAt))
+    if (archived !== 0) return archived
+    return (
+      clientName(a).localeCompare(clientName(b), undefined, {
+        sensitivity: 'base',
+      }) ||
+      a.addressLine.localeCompare(b.addressLine, undefined, {
+        sensitivity: 'base',
+        numeric: true,
       })
-      return {
-        value: p._id,
-        label: `${name} — ${p.addressLine}, ${p.suburb}`,
-        searchText: [
-          clientName(p),
-          p.addressLine,
-          p.suburb,
-          p.postcode,
-          phoneForms(p.client?.phone),
-          site?.name ?? '',
-          phoneForms(site?.phone),
-        ].join(' '),
-      }
-    })
+    )
+  })
+}
+
+/** One site as a picker row. */
+function propertyOption(p: PickableProperty): ComboboxOption {
+  const name = p.client?.archivedAt
+    ? `${clientName(p)} (archived)`
+    : clientName(p)
+  // A person client's leftover site contact is hidden everywhere else, so
+  // it must not be what makes their house turn up here.
+  const site = siteContactOf({
+    clientKind: p.client?.kind,
+    siteContactName: p.siteContactName,
+    siteContactPhone: p.siteContactPhone,
+  })
+  return {
+    value: p._id,
+    label: `${name} — ${p.addressLine}, ${p.suburb}`,
+    searchText: [
+      clientName(p),
+      p.addressLine,
+      p.suburb,
+      p.postcode,
+      phoneForms(p.client?.phone),
+      site?.name ?? '',
+      phoneForms(site?.phone),
+    ].join(' '),
+  }
 }
 
 /**
@@ -108,6 +203,10 @@ export type PickableClientSite = {
     phone?: string
     kind?: 'person' | 'business'
     archivedAt?: number
+    /** For "Added recently", as `PickableProperty`'s. */
+    createdAt?: number
+    importId?: string
+    importedFrom?: string
   } | null
 }
 
@@ -128,6 +227,7 @@ export type PickableClientSite = {
  */
 export function clientOptions(
   properties: ReadonlyArray<PickableClientSite>,
+  recent?: RecentOptions,
 ): Array<ComboboxOption> {
   const byClient = new Map<
     string,
@@ -142,7 +242,26 @@ export function clientOptions(
     if (entry) entry.sites.push(p)
     else byClient.set(p.clientId, { client: p.client, sites: [p] })
   }
-  return [...byClient.entries()]
+  const top = newest(
+    [...byClient.entries()],
+    recent,
+    ([clientId, { client }]) => ({
+      key: clientId,
+      createdAt: client.createdAt,
+      imported:
+        client.importId !== undefined || client.importedFrom !== undefined,
+      archived: Boolean(client.archivedAt),
+    }),
+  )
+  const topAt = new Map(top.map((t) => [t.key, t.createdAt]))
+  const grouped = (option: ComboboxOption): ComboboxOption => {
+    if (top.length === 0) return option
+    const addedAt = topAt.get(option.value)
+    return addedAt === undefined
+      ? { ...option, group: EVERYONE_GROUP }
+      : { ...option, group: RECENT_GROUP, detail: addedLabel(addedAt, recent!) }
+  }
+  const options = [...byClient.entries()]
     .sort(([, a], [, b]) => {
       const archived =
         Number(Boolean(a.client.archivedAt)) -
@@ -176,4 +295,8 @@ export function clientOptions(
         ].join(' '),
       }
     })
+    .map(grouped)
+  // The newest first, in their own order; everyone else stays A–Z.
+  const first = top.flatMap((t) => options.find((o) => o.value === t.key) ?? [])
+  return [...first, ...options.filter((o) => !topAt.has(o.value))]
 }

@@ -1,7 +1,7 @@
 import { useCallback, useId, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import { Check, ChevronsUpDown, Plus, Search, X } from 'lucide-react'
-import { filterByWords, pickOnEnter } from '#/lib/searchMatch'
+import { filterByWords, pickOnEnter, startsFirst } from '#/lib/searchMatch'
 import { NEUTRAL_BUTTON_COMPACT } from './buttons'
 import { Sheet } from './Sheet'
 
@@ -11,6 +11,13 @@ export type ComboboxOption = {
   /** What the search matches against, when it should be more than the
    * label — a phone number or postcode nobody wants to read in the list. */
   searchText?: string
+  /** A second, quieter line under the label in the list ("Added Tue 29
+   * Sept"). Never on the closed field, and never matched or picked by. */
+  detail?: string
+  /** The heading this option is listed under while nothing is typed
+   * ("Added recently"). Options come grouped, in the order given; once
+   * something is typed the list is one list, best match first. */
+  group?: string
 }
 
 /**
@@ -139,7 +146,18 @@ export function Combobox({
     ...unlisted.map((value) => ({ value, label: value })),
   ]
   const filtered = filterByWords(rows, query)
-  const shown = filtered.slice(0, MAX_ROWS)
+  // Typed: one list, names starting with the text first (searchMatch.ts).
+  // Not typed: the caller's order, under its headings.
+  const searching = query.trim() !== ''
+  const ordered = searching ? startsFirst(filtered, query) : filtered
+  const shown = ordered.slice(0, MAX_ROWS)
+  const sections: Array<{ group?: string; rows: Array<ComboboxOption> }> = []
+  for (const row of shown) {
+    const group = searching ? undefined : row.group
+    const last = sections.at(-1)
+    if (last && last.group === group) last.rows.push(row)
+    else sections.push({ group, rows: [row] })
+  }
 
   const trimmedQuery = query.trim()
   const hasExactMatch = rows.some(
@@ -302,38 +320,57 @@ export function Combobox({
           )}
         </div>
 
-        <ul className="flex flex-col gap-1.5">
-          {shown.map((o) => {
-            const on = chosen.includes(o.value)
-            return (
-              <li key={o.value}>
-                <button
-                  type="button"
-                  // Ticked or not, for a checklist; for one choice, which one
-                  // it is now.
-                  role={choice.multiple ? 'checkbox' : undefined}
-                  aria-checked={choice.multiple ? on : undefined}
-                  aria-current={!choice.multiple && on ? 'true' : undefined}
-                  onClick={() => pick(o.value)}
-                  className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition active:scale-[.99] ${
-                    on ? 'border-blue bg-blue/8' : 'border-hairline bg-surface'
-                  }`}
-                >
-                  <span className="min-w-0 flex-1 break-words text-body text-ink">
-                    {o.label}
-                  </span>
-                  {on && (
-                    <Check
-                      size={17}
-                      strokeWidth={2.2}
-                      className="shrink-0 text-blue"
-                    />
-                  )}
-                </button>
-              </li>
-            )
-          })}
-        </ul>
+        {sections.map((section, index) => (
+          <section
+            key={section.group ?? `rows-${index}`}
+            className={index > 0 ? 'mt-4' : undefined}
+          >
+            {section.group && (
+              <h3 className="section-label mb-1.5">{section.group}</h3>
+            )}
+            <ul className="flex flex-col gap-1.5">
+              {section.rows.map((o) => {
+                const on = chosen.includes(o.value)
+                return (
+                  <li key={o.value}>
+                    <button
+                      type="button"
+                      // Ticked or not, for a checklist; for one choice, which
+                      // one it is now.
+                      role={choice.multiple ? 'checkbox' : undefined}
+                      aria-checked={choice.multiple ? on : undefined}
+                      aria-current={!choice.multiple && on ? 'true' : undefined}
+                      onClick={() => pick(o.value)}
+                      className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition active:scale-[.99] ${
+                        on
+                          ? 'border-blue bg-blue/8'
+                          : 'border-hairline bg-surface'
+                      }`}
+                    >
+                      <span className="min-w-0 flex-1">
+                        <span className="block break-words text-body text-ink">
+                          {o.label}
+                        </span>
+                        {o.detail && (
+                          <span className="block text-caption text-muted">
+                            {o.detail}
+                          </span>
+                        )}
+                      </span>
+                      {on && (
+                        <Check
+                          size={17}
+                          strokeWidth={2.2}
+                          className="shrink-0 text-blue"
+                        />
+                      )}
+                    </button>
+                  </li>
+                )
+              })}
+            </ul>
+          </section>
+        ))}
 
         {filtered.length > shown.length && (
           <p className="px-1 py-2 text-caption text-muted">

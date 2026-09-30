@@ -208,3 +208,27 @@ describe('the old styles are gone', () => {
     expect(code).not.toContain('amber')
   })
 })
+
+describe('client statuses', () => {
+  test('every status a client can have has a pill and a meaning, in its own hue', async () => {
+    const { CLIENT_STATUSES } = await import('../../convex/lib/clientRecord')
+    const { CLIENT_STATUS } = await import('./statusColours')
+    expect(Object.keys(CLIENT_STATUS).sort()).toEqual(
+      [...CLIENT_STATUSES].sort(),
+    )
+    expect(
+      Object.fromEntries(
+        Object.entries(CLIENT_STATUS).map(([k, v]) => [k, v.tone]),
+      ),
+    ).toEqual({ active: 'green', lead: 'blue', inactive: 'grey' })
+    for (const status of Object.values(CLIENT_STATUS)) {
+      expect(status.meaning.length).toBeGreaterThan(10)
+    }
+  })
+
+  test('every job status says what it means, for the status sheet', () => {
+    for (const status of Object.values(JOB_STATUS)) {
+      expect(status.meaning).toMatch(/\.$/)
+    }
+  })
+})

@@ -4,30 +4,28 @@ import { FIELD_COMPACT } from '#/components/forms/FormField'
 import {
   MAX_TAGS,
   MAX_TAG_LENGTH,
-  STATUS_LABELS,
   tagsFromText,
 } from '../../../convex/lib/clientRecord'
+import { CLIENT_STATUS, TONE_PILL } from '#/lib/statusColours'
 import type { ClientStatus } from '../../../convex/lib/clientRecord'
 
 /**
  * A client's number, status and tags as the Clients page and sheet show
- * them. Active is the usual case, so it says nothing; a lead or an inactive
- * client says so.
+ * them.
  */
 
-const STATUS_STYLE: Record<ClientStatus, string> = {
-  active: 'bg-surface-2 text-ink-2',
-  lead: 'bg-blue/12 text-blue',
-  inactive: 'bg-surface-2 text-muted',
-}
-
+/**
+ * A client's status as a pill that always says its word — Active included,
+ * so the status is seen, the way a job's is. A client saved before statuses
+ * existed has none, and is Active.
+ */
 export function ClientStatusPill({ status }: { status?: ClientStatus }) {
-  if (!status || status === 'active') return null
+  const { label, tone } = CLIENT_STATUS[status ?? 'active']
   return (
     <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-semibold ${STATUS_STYLE[status]}`}
+      className={`inline-flex items-center rounded-full px-2.5 py-[3px] text-[12px] font-semibold ${TONE_PILL[tone]}`}
     >
-      {STATUS_LABELS[status]}
+      {label}
     </span>
   )
 }

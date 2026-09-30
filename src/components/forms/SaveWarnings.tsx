@@ -299,7 +299,15 @@ export function SaveWarningsPanel({
                   // are.
                   if (heading.current) heading.current.focus()
                   else
-                    form?.querySelector<HTMLElement>('[type="submit"]')?.focus()
+                    // `elements` holds a Save pinned outside the form too
+                    // (a sheet's footer, joined by `form=`).
+                    Array.from(form?.elements ?? [])
+                      .find(
+                        (el): el is HTMLButtonElement =>
+                          el instanceof HTMLButtonElement &&
+                          el.type === 'submit',
+                      )
+                      ?.focus()
                 }}
                 className="inline-flex min-h-11 items-center font-semibold text-blue-ink underline underline-offset-2"
               >
