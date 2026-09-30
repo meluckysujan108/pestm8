@@ -20,6 +20,7 @@ export function VisitRow({
   reports,
   headedBy = 'service',
   site,
+  onOpen,
 }: {
   businessSlug: string
   timezone: string
@@ -34,50 +35,68 @@ export function VisitRow({
   headedBy?: 'service' | 'day'
   /** Which of the client's sites, where they have more than one. */
   site?: string
+  /** Opens the visit where the list is (a page with its own job sheet),
+   * rather than on the Schedule. */
+  onOpen?: (id: string) => void
 }) {
   const dayKey = dayKeyOf(visit.scheduledAt, timezone)
   const day = formatJobDate(dayKey, todayKey(timezone))
   const time = formatTime(visit.scheduledAt, timezone)
+  const content = (
+    <>
+      <span className="min-w-0">
+        <span className="flex items-center gap-1.5 text-body text-ink">
+          <span className="truncate">
+            {headedBy === 'day' ? day : visit.jobType}
+          </span>
+          {headedBy === 'service' && visit.recurrenceId !== undefined && (
+            <>
+              <Repeat
+                aria-hidden
+                size={13}
+                strokeWidth={2}
+                className="shrink-0 text-muted"
+              />
+              <span className="sr-only">, recurring</span>
+            </>
+          )}
+        </span>
+        <span className="block truncate text-caption text-muted">
+          {headedBy === 'day' ? time : `${day} · ${time}`}
+          {site && ` · ${site}`}
+        </span>
+      </span>
+      <span className="flex shrink-0 items-center gap-1">
+        <StatusPill status={visit.status} />
+        <ChevronRight
+          aria-hidden
+          size={16}
+          strokeWidth={2.2}
+          className="text-muted-2"
+        />
+      </span>
+    </>
+  )
   return (
     <div className="px-3.5 py-2">
-      <Link
-        to="/$businessSlug/schedule"
-        params={{ businessSlug }}
-        search={{ date: dayKey, jobId: visit._id }}
-        className="flex min-h-11 items-center justify-between gap-2"
-      >
-        <span className="min-w-0">
-          <span className="flex items-center gap-1.5 text-body text-ink">
-            <span className="truncate">
-              {headedBy === 'day' ? day : visit.jobType}
-            </span>
-            {headedBy === 'service' && visit.recurrenceId !== undefined && (
-              <>
-                <Repeat
-                  aria-hidden
-                  size={13}
-                  strokeWidth={2}
-                  className="shrink-0 text-muted"
-                />
-                <span className="sr-only">, recurring</span>
-              </>
-            )}
-          </span>
-          <span className="block truncate text-caption text-muted">
-            {headedBy === 'day' ? time : `${day} · ${time}`}
-            {site && ` · ${site}`}
-          </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1">
-          <StatusPill status={visit.status} />
-          <ChevronRight
-            aria-hidden
-            size={16}
-            strokeWidth={2.2}
-            className="text-muted-2"
-          />
-        </span>
-      </Link>
+      {onOpen ? (
+        <button
+          type="button"
+          onClick={() => onOpen(visit._id)}
+          className="flex min-h-11 w-full items-center justify-between gap-2 text-left"
+        >
+          {content}
+        </button>
+      ) : (
+        <Link
+          to="/$businessSlug/schedule"
+          params={{ businessSlug }}
+          search={{ date: dayKey, jobId: visit._id }}
+          className="flex min-h-11 items-center justify-between gap-2"
+        >
+          {content}
+        </Link>
+      )}
       {reports.length > 0 && (
         <div className="mb-0.5 mt-1 flex flex-col gap-1.5">
           {reports.map((report) => (

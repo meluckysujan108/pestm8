@@ -487,3 +487,24 @@ function busySummary() {
     capped: false,
   }
 }
+
+/** `recurrences.services` for the busy business: its running services, each
+ * at the busy client's site, and their visits. */
+export function busyServices() {
+  const summary = busySummary()
+  return {
+    services: summary.series.map((series) => {
+      const site = SITES.find((p) => p._id === series.propertyId)
+      return {
+        ...series,
+        clientName: BUSY_CLIENT.name,
+        addressLine: site?.addressLine ?? '',
+        suburb: site?.suburb ?? '',
+        lastTaken: undefined,
+      }
+    }),
+    visits: summary.visits,
+    loose: [],
+    horizonDays: 180,
+  }
+}

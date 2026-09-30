@@ -8,6 +8,8 @@ import { ReportPreview } from '#/components/onboarding/ReportPreview'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { EmailInput } from '#/components/forms/EmailInput'
 import { JobCard } from '#/components/schedule/JobCard'
+import { RecurringServices } from '#/components/schedule/RecurringServices'
+import { useBusinessDay } from '#/lib/useBusinessDay'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
@@ -94,6 +96,7 @@ import {
   BUSY_JOB_ID,
   BUSY_PROJECTED,
   BUSY_SERIES,
+  busyServices,
 } from './busyFixtures'
 
 const bizId = BIZ as never
@@ -231,6 +234,26 @@ function ClientBusy() {
 const JobDetailBusy = jobDetail(BUSY_JOB_ID)
 
 /** The Recurring Job view's markup over the busy client's projections. */
+/** The Recurring Job page by service: one card per service, the weekly one
+ * opened. */
+function RecurringServicesBusy() {
+  const day = useBusinessDay(TZ)
+  return (
+    <Phone>
+      <Header kicker="Job" title="Recurring Job" />
+      <section className="px-4 pt-3 pb-6">
+        <RecurringServices
+          data={busyServices() as never}
+          day={day}
+          roster={MEMBERS as never}
+          businessSlug="demo"
+          onOpenJob={() => {}}
+        />
+      </section>
+    </Phone>
+  )
+}
+
 function RecurringBusy() {
   return (
     <Phone>
@@ -1147,6 +1170,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   clientbusy: ClientBusy,
   jobdetailbusy: JobDetailBusy,
   recurringbusy: RecurringBusy,
+  recurringservices: RecurringServicesBusy,
   sign: Sign,
   sheet: SheetPrimitive,
   warnings: Acting,
