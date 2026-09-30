@@ -21,10 +21,18 @@
  *   GPS tag a phone camera writes into every shot. A client's report should
  *   not carry the technician's coordinates as a hidden payload.
  *
+ * - Saves no heavier than libjpeg's 85 on any phone, found per device by
+ *   `jpegQuality.ts`. Until 30 Sept 2026 the canvas was simply told 0.82,
+ *   which an iPhone's encoder turns into about 94 — twice the bytes, and a
+ *   53-photo report that was too big to email. Where 0.82 already meant 82
+ *   (Chrome, Android), it still does.
+ *
  * Not for a logo. Everything here comes out a JPEG, which has no
  * transparency — a see-through logo came out a black box until Sept 2026.
  * A logo goes through `prepareLogo.ts`.
  */
+
+import { uploadCanvasQuality } from './jpegQuality'
 
 export type PreparedImage = {
   blob: Blob
@@ -39,7 +47,12 @@ export type PreparedImage = {
 export type PrepareOptions = {
   /** Longest edge to keep. Anything larger is scaled down to it. */
   maxEdge?: number
-  /** JPEG quality. 0.82 is where these photos stop getting visibly better. */
+  /**
+   * The canvas's JPEG setting, 0–1. Left out, it is whatever makes this
+   * device save at libjpeg's 85, or 0.82 where that is lighter
+   * (`jpegQuality.ts`): about where these photos stop getting visibly
+   * better, on paper and on a phone screen.
+   */
   quality?: number
 }
 
@@ -47,12 +60,14 @@ export type PrepareOptions = {
  * 1600px on the long edge.
  *
  * A4 at 300dpi is about 2480px wide, but a report photo is printed at most
- * half a page and usually a third, so 1600 is already more than the page can
- * show. It also keeps a 12-photo report inside a few megabytes, which matters
- * on a phone tethered to a van.
+ * half a page and usually a third — a portrait photo prints about 3 inches
+ * tall, so 1600px is over 500dpi, already more than the page can show. The
+ * pixels are kept for zooming in on the phone; the quality setting is what
+ * keeps them light (a typical photo from the 30 Sept report: 280 KB at 85,
+ * against 617 KB at an iPhone's old 94), which matters on a phone tethered
+ * to a van.
  */
 const DEFAULT_MAX_EDGE = 1600
-const DEFAULT_QUALITY = 0.82
 
 /**
  * The size to encode at: the same shape, no larger than `maxEdge` on its long
@@ -78,7 +93,10 @@ export async function prepareUpload(
   options: PrepareOptions = {},
 ): Promise<PreparedImage> {
   const maxEdge = options.maxEdge ?? DEFAULT_MAX_EDGE
-  const quality = options.quality ?? DEFAULT_QUALITY
+  // Asked before the `try`, and it never rejects: a failure in there uploads
+  // the original as it came, location tag and all, so working out a setting
+  // must never be what sends a photo down that path.
+  const quality = options.quality ?? (await uploadCanvasQuality())
 
   try {
     const bitmap = await createImageBitmap(file, {
