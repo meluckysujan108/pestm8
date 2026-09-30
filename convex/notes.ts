@@ -5,7 +5,7 @@ import { internalMutation, mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import { unbinned } from './lib/bin'
 import { requireMembership } from './lib/access'
-import { isInScope } from './lib/capabilities'
+import { jobInScope } from './lib/jobPeople'
 import { jobsInScope } from './lib/jobScope'
 import {
   canDeleteNote,
@@ -653,8 +653,11 @@ async function resolveLinks(
     // (lib/bin.ts): it reads as gone until it is restored.
     const job = unbinned(await ctx.db.get(args.jobId))
     if (!job || job.businessId !== businessId) throw new ConvexError('NOT_FOUND')
-    // Linking is a write: judged as the real caller, not the viewed-as one.
-    if (!isInScope(viewer.ownRows, job)) throw new ConvexError('NOT_FOUND')
+    // Linking is a write: judged as the real caller, not the viewed-as one —
+    // on the job as its lead or as one of the people also going.
+    if (!(await jobInScope(ctx, viewer.ownRows, job))) {
+      throw new ConvexError('NOT_FOUND')
+    }
     const property = await ctx.db.get(job.propertyId)
     return { jobId: job._id, propertyId: job.propertyId, clientId: property?.clientId }
   }

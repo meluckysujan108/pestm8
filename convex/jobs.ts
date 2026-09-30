@@ -51,6 +51,15 @@ import {
   requireEditableJob,
 } from './lib/jobAccess'
 import { UNASSIGNED_COLOUR } from './lib/colours'
+import {
+  alsoGoingInWindow,
+  alsoGoingOf,
+  everyoneOn,
+  jobInScope,
+  setAlsoGoing,
+  syncAlsoGoingDate,
+  tidyAlsoGoing,
+} from './lib/jobPeople'
 import { normaliseWorkOrder } from './lib/workOrder'
 import { normaliseJobNotes } from './lib/jobNotes'
 
@@ -145,6 +154,20 @@ async function decorate(
     return pending
   }
 
+  // Everyone also going on these jobs (lib/jobPeople.ts), in one range read
+  // over their dates rather than one read per job: a list of a thousand
+  // projected visits must not spend a thousand of its reads finding nobody.
+  const dates = jobs.map((job) => job.scheduledAt)
+  const people =
+    jobs.length === 0
+      ? new Map<Id<'jobs'>, Array<Id<'memberships'>>>()
+      : await alsoGoingInWindow(
+          ctx,
+          jobs[0].businessId,
+          Math.min(...dates),
+          Math.max(...dates) + 1,
+        )
+
   return Promise.all(
     jobs
       .sort((a, b) => a.scheduledAt - b.scheduledAt)
@@ -191,6 +214,20 @@ async function decorate(
           assigneeName: assignee
             ? await nameOf(job.assignedMembershipId, assignee.userId)
             : '',
+          // Everyone also going beside the lead (lib/jobPeople.ts), each with
+          // their own colour and name for the card's Technicians row. Beside
+          // `assignee*`, never folded into it: an older build reads those as
+          // the job's one person.
+          alsoGoing: await Promise.all(
+            (people.get(job._id) ?? []).map(async (membershipId) => {
+              const member = await ctx.db.get(membershipId)
+              return {
+                _id: membershipId,
+                colour: member?.colour ?? UNASSIGNED_COLOUR,
+                name: member ? await nameOf(membershipId, member.userId) : '',
+              }
+            }),
+          ),
           // The card's Note row: the job's newest note in Notes.
           notePreview: await jobNotePreview(ctx, job._id),
         }
@@ -229,6 +266,8 @@ async function overdueRecurring(
     businessId,
     from: startOfToday - OVERDUE_LOOKBACK_DAYS * DAY_MS,
     to: startOfToday,
+    // Projections only: nobody is also going on one until it is booked.
+    withShared: false,
   })
   return jobs.filter((j) => j.status === 'recurring')
 }
@@ -414,6 +453,8 @@ export const listRecurring = query({
         // One day's slack past the horizon: the cron projects from its own
         // "now", which is up to a day ahead of this query's.
         to: now + (HORIZON_DAYS + 1) * DAY_MS,
+        // Projections only (below): nobody is also going on one.
+        withShared: false,
       })
     ).filter((j) => j.status === 'recurring')
 
@@ -482,6 +523,8 @@ export const listWeek = query({
     const to = startOfDayInZone(addDaysToKey(startKey, 7), tz)
 
     const rows = await jobsInScope(ctx, listScope, { businessId, from, to })
+    // Each person on a job gets their dot, the people also going too.
+    const people = await alsoGoingInWindow(ctx, businessId, from, to)
     const byDay = new Map<string, Array<Doc<'jobs'>>>()
     for (const job of rows) {
       const key = dayKeyOf(job.scheduledAt, tz)
@@ -513,8 +556,10 @@ export const listWeek = query({
 
       const dayColours: Array<string> = []
       for (const job of counted) {
-        const colour = await colourOf(job.assignedMembershipId)
-        if (!dayColours.includes(colour)) dayColours.push(colour)
+        for (const membershipId of everyoneOn(job, people)) {
+          const colour = await colourOf(membershipId)
+          if (!dayColours.includes(colour)) dayColours.push(colour)
+        }
       }
 
       days.push({
@@ -554,6 +599,7 @@ export const listMonth = query({
     const to = startOfDayInZone(nextMonth, business.timezone)
 
     const jobs = await jobsInRange(ctx, env.listScope, businessId, from, to)
+    const people = await alsoGoingInWindow(ctx, businessId, from, to)
 
     const byDay = new Map<
       string,
@@ -562,7 +608,6 @@ export const listMonth = query({
 
     for (const job of jobs.sort((a, b) => a.scheduledAt - b.scheduledAt)) {
       const dayKey = dayKeyOf(job.scheduledAt, business.timezone)
-      const assignee = await ctx.db.get(job.assignedMembershipId)
       const property = await ctx.db.get(job.propertyId)
 
       const entry = byDay.get(dayKey) ?? {
@@ -572,7 +617,10 @@ export const listMonth = query({
         postcode: property?.postcode ?? '',
       }
       entry.count += 1
-      entry.colours.add(assignee?.colour ?? UNASSIGNED_COLOUR)
+      for (const membershipId of everyoneOn(job, people)) {
+        const member = await ctx.db.get(membershipId)
+        entry.colours.add(member?.colour ?? UNASSIGNED_COLOUR)
+      }
       byDay.set(dayKey, entry)
     }
 
@@ -610,13 +658,16 @@ export const monthTeamLoad = query({
     const to = startOfDayInZone(nextMonth, business.timezone)
 
     const jobs = await jobsInRange(ctx, env.listScope, businessId, from, to)
+    const people = await alsoGoingInWindow(ctx, businessId, from, to)
 
+    // A shared job counts for each person on it: Kevin's month shows the
+    // school job he worked. So the rows can add up to more than the month's
+    // jobs, which are counted once, elsewhere.
     const counts = new Map<Id<'memberships'>, number>()
     for (const job of jobs) {
-      counts.set(
-        job.assignedMembershipId,
-        (counts.get(job.assignedMembershipId) ?? 0) + 1,
-      )
+      for (const membershipId of everyoneOn(job, people)) {
+        counts.set(membershipId, (counts.get(membershipId) ?? 0) + 1)
+      }
     }
 
     const rows = await Promise.all(
@@ -652,7 +703,8 @@ export const get = query({
     const job = unbinned(await ctx.db.get(jobId))
     if (!job || job.businessId !== businessId) return null
 
-    if (!isInScope(env.scope, job)) {
+    // Its lead, or one of the people also going on it (lib/jobPeople.ts).
+    if (!(await jobInScope(ctx, env.scope, job))) {
       // Null rather than an error: a subcontractor must not be able to tell a
       // colleague's job apart from one that does not exist.
       return null
@@ -661,6 +713,19 @@ export const get = query({
     const rawProperty = await ctx.db.get(job.propertyId)
     const property = rawProperty && (await withClient(ctx, rawProperty))
     const assignee = await ctx.db.get(job.assignedMembershipId)
+    const alsoGoing = await alsoGoingOf(ctx, job._id)
+    const people = await Promise.all(
+      alsoGoing.map(async (membershipId) => {
+        const member = await ctx.db.get(membershipId)
+        return (
+          member && {
+            _id: member._id,
+            colour: member.colour,
+            role: member.role,
+          }
+        )
+      }),
+    )
     const recurrence = job.recurrenceId
       ? await ctx.db.get(job.recurrenceId)
       : null
@@ -683,10 +748,12 @@ export const get = query({
         colour: assignee.colour,
         role: assignee.role,
       },
+      // The people also going, beside the lead, in the order added.
+      alsoGoing: people.filter((p) => p !== null),
       // Granted read access never implies write access (§4.4). The same
       // question `requireEditableJob` asks, so the button is never an
-      // invitation to a refusal.
-      canEdit: await mayEditJob(ctx, env.actor, job),
+      // invitation to a refusal — everyone on the job may edit it.
+      canEdit: await mayEditJob(ctx, env.actor, { ...job, alsoGoing }),
     }
   },
 })
@@ -711,6 +778,10 @@ export const create = mutation({
     // A note typed while booking: it becomes a note in Notes, on this job
     // (`insertJobNote`). Sent only when one was typed.
     notes: v.optional(v.string()),
+    // Everyone going beside the lead (lib/jobPeople.ts). Sent only when
+    // someone was added: an older backend refuses an argument it does not
+    // know.
+    alsoGoing: v.optional(v.array(v.id('memberships'))),
   },
   handler: async (
     ctx,
@@ -720,6 +791,7 @@ export const create = mutation({
       newProperty,
       workOrder: rawWorkOrder,
       notes: rawNotes,
+      alsoGoing: rawAlsoGoing,
       ...args
     },
   ) => {
@@ -734,6 +806,15 @@ export const create = mutation({
     // `bookable` flag is the same function, so a picker cannot offer a
     // refused option.
     await requireBookable(ctx, env, args.businessId, args.assignedMembershipId)
+    // Everyone else on it by the same rule: whoever may be booked onto work
+    // by this writer may be put on it beside the lead, and nobody else.
+    const alsoGoing = tidyAlsoGoing(
+      args.assignedMembershipId,
+      rawAlsoGoing ?? [],
+    )
+    for (const membershipId of alsoGoing) {
+      await requireBookable(ctx, env, args.businessId, membershipId)
+    }
 
     // A price from someone who cannot see prices is a placeholder, not a
     // figure. Stored as nothing rather than as whatever the form defaulted to.
@@ -760,6 +841,10 @@ export const create = mutation({
       jobNumber,
       ...(workOrder !== undefined && { workOrder }),
     })
+    if (alsoGoing.length > 0) {
+      const job = await ctx.db.get(jobId)
+      if (job) await setAlsoGoing(ctx, job, alsoGoing, env.actor.real._id)
+    }
     if (notes !== undefined) {
       const job = await ctx.db.get(jobId)
       // By the person booking, as themselves: switched into someone else's
@@ -778,7 +863,11 @@ export const create = mutation({
       action: 'job.create',
       entityType: 'jobs',
       entityId: jobId,
-      meta: { jobNumber, assignedMembershipId: args.assignedMembershipId },
+      meta: {
+        jobNumber,
+        assignedMembershipId: args.assignedMembershipId,
+        ...(alsoGoing.length > 0 && { alsoGoing }),
+      },
     })
     return jobId
   },
@@ -820,6 +909,9 @@ export const update = mutation({
     // 2026), whose job sheet kept the note as text on the job. That field is
     // gone; what it sends becomes a note in Notes on the job (below).
     notes: v.optional(v.string()),
+    // Everyone going beside the lead, as it should be afterwards — the whole
+    // list, not a change to it. Absent leaves them alone.
+    alsoGoing: v.optional(v.array(v.id('memberships'))),
     // Deliberately not `jobStatus`: 'recurring' is system-only
     // (lib/jobStatus.ts), refused here at the door so a client that sends it
     // fails argument validation before any handler code runs.
@@ -828,8 +920,30 @@ export const update = mutation({
     // job — the owner's decision, 2026-09-22.
     status: v.optional(settableJobStatus),
   },
-  handler: async (ctx, { businessId, jobId, ...patch }) => {
+  handler: async (
+    ctx,
+    { businessId, jobId, alsoGoing: rawAlsoGoing, ...patch },
+  ) => {
     const { env, job } = await requireEditableJob(ctx, businessId, jobId)
+
+    // Who is going afterwards: the list as sent, or as it is — without the
+    // lead either way, so someone made lead is no longer also going. And when
+    // someone also going is made lead, the lead they replace takes their
+    // place rather than leaving the job without a word.
+    const lead = patch.assignedMembershipId ?? job.assignedMembershipId
+    const currentAlsoGoing = await alsoGoingOf(ctx, job._id)
+    const promoted =
+      lead !== job.assignedMembershipId && currentAlsoGoing.includes(lead)
+    const alsoGoing = tidyAlsoGoing(
+      lead,
+      rawAlsoGoing ??
+        (promoted
+          ? [...currentAlsoGoing, job.assignedMembershipId]
+          : currentAlsoGoing),
+    )
+    const peopleChanged =
+      alsoGoing.length !== currentAlsoGoing.length ||
+      alsoGoing.some((id) => !currentAlsoGoing.includes(id))
 
     // Moving a job onto someone is booking it onto them, and asks the same
     // question `create` does. A subcontractor's only admissible target is
@@ -856,8 +970,19 @@ export const update = mutation({
       ([field, value]) =>
         field !== 'status' && field !== 'notes' && value !== undefined,
     )
-    if (job.status === 'invoiced' && touchesDetails) {
+    // Who went is a detail of the invoice like who led it.
+    if (job.status === 'invoiced' && (touchesDetails || peopleChanged)) {
       throw new ConvexError('JOB_INVOICED')
+    }
+    // Only those added are asked about: whoever is already on it — the lead
+    // stepping aside included — stays, whoever may book them or not.
+    for (const membershipId of alsoGoing) {
+      if (
+        !currentAlsoGoing.includes(membershipId) &&
+        membershipId !== job.assignedMembershipId
+      ) {
+        await requireBookable(ctx, env, businessId, membershipId)
+      }
     }
 
     // Same tenant check `create` already performs — a job can be corrected
@@ -924,8 +1049,21 @@ export const update = mutation({
 
     if (Object.keys(fields).length > 0) {
       await ctx.db.patch(jobId, fields)
+    }
+    // The people rows carry the job's date, for their schedules' index.
+    if (fields.scheduledAt !== undefined) {
+      await syncAlsoGoingDate(ctx, jobId, fields.scheduledAt as number)
+    }
+    if (peopleChanged) {
+      const moved = await ctx.db.get(jobId)
+      if (moved) await setAlsoGoing(ctx, moved, alsoGoing, env.actor.real._id)
+    }
+    if (Object.keys(fields).length > 0 || peopleChanged) {
       await recordJobWrite(ctx, env, job, 'job.update', {
-        fields: Object.keys(fields),
+        fields: [
+          ...Object.keys(fields),
+          ...(peopleChanged ? ['alsoGoing'] : []),
+        ],
       })
     }
     if (olderAppNote !== undefined) {
@@ -1092,7 +1230,7 @@ export const photos = query({
 
     const job = unbinned(await ctx.db.get(jobId))
     if (!job || job.businessId !== businessId) return []
-    if (!isInScope(scope, job)) return []
+    if (!(await jobInScope(ctx, scope, job))) return []
 
     const rows = await ctx.db
       .query('jobPhotos')

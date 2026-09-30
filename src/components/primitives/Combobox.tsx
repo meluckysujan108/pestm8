@@ -38,6 +38,11 @@ type Choice =
       multiple: true
       value: ReadonlyArray<string>
       onChange: (value: Array<string>) => void
+      /** The most that may be ticked. Once that many are, the rest of the
+       * list is greyed and `fullLabel` says why, rather than a tap doing
+       * nothing. */
+      max?: number
+      fullLabel?: string
     }
 
 /**
@@ -129,6 +134,9 @@ export function Combobox({
   const labelOf = (value: string) =>
     options.find((o) => o.value === value)?.label ?? value
   const currentLabel = chosen.map(labelOf).join(', ')
+  // As many ticked as may be: only an unticking is taken now.
+  const full =
+    choice.multiple && choice.max !== undefined && chosen.length >= choice.max
 
   // What is chosen now comes from the caller, which may have tidied what was
   // typed (a job type with a comma in it is two); what was chosen and then
@@ -190,7 +198,7 @@ export function Combobox({
       return
     }
     if (!choice.value.includes(value)) {
-      choice.onChange([...choice.value, value])
+      if (!full) choice.onChange([...choice.value, value])
       return
     }
     // Unticked, a value the list does not offer stays in it as a row, where
@@ -207,7 +215,9 @@ export function Combobox({
       pick(value)
       return
     }
-    if (!choice.value.includes(value)) choice.onChange([...choice.value, value])
+    if (!choice.value.includes(value) && !full) {
+      choice.onChange([...choice.value, value])
+    }
     search('')
   }
 
@@ -320,6 +330,18 @@ export function Combobox({
           )}
         </div>
 
+        {/* Always in the page, so a screen reader hears it when it fills. */}
+        {choice.multiple && choice.max !== undefined && (
+          <p
+            role="status"
+            className={`px-1 text-caption text-ink-2 ${full ? 'pb-2' : ''}`}
+          >
+            {full
+              ? (choice.fullLabel ?? `That’s ${choice.max}, the most.`)
+              : ''}
+          </p>
+        )}
+
         {sections.map((section, index) => (
           <section
             key={section.group ?? `rows-${index}`}
@@ -331,6 +353,9 @@ export function Combobox({
             <ul className="flex flex-col gap-1.5">
               {section.rows.map((o) => {
                 const on = chosen.includes(o.value)
+                // Full: a row not ticked can't be, and looks it. Still
+                // focusable and read out, so the reason can be found.
+                const blocked = full && !on
                 return (
                   <li key={o.value}>
                     <button
@@ -340,8 +365,11 @@ export function Combobox({
                       role={choice.multiple ? 'checkbox' : undefined}
                       aria-checked={choice.multiple ? on : undefined}
                       aria-current={!choice.multiple && on ? 'true' : undefined}
+                      aria-disabled={blocked || undefined}
                       onClick={() => pick(o.value)}
-                      className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition active:scale-[.99] ${
+                      className={`flex min-h-12 w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition ${
+                        blocked ? 'opacity-45' : 'active:scale-[.99]'
+                      } ${
                         on
                           ? 'border-blue bg-blue/8'
                           : 'border-hairline bg-surface'

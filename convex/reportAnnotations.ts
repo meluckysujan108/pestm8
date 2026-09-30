@@ -1,6 +1,6 @@
 import { ConvexError, v } from 'convex/values'
 import { mutation, query } from './_generated/server'
-import { reportReadable } from './lib/capabilities'
+import { reportReadableHere } from './lib/jobPeople'
 import { normaliseColour } from './lib/colours'
 import {
   MAX_POINTS_PER_AUTHOR,
@@ -39,7 +39,11 @@ async function requireVisibleReport(
     throw new ConvexError('NOT_FOUND')
   }
   if (report.deletedAt !== undefined) throw new ConvexError('NOT_FOUND')
-  if (!reportReadable(env.realScope, env.actor.real._id, report)) {
+  // Anyone who may read it may mark it up: marks are each author's own layer
+  // — on a shared job, the lead's report is Kevin's to read (lib/jobPeople.ts).
+  if (
+    !(await reportReadableHere(ctx, env.realScope, env.actor.real._id, report))
+  ) {
     throw new ConvexError('NO_ACCESS')
   }
   return { membership, report }

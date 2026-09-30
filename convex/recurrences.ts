@@ -124,6 +124,8 @@ export const services = query({
         // A day's slack past the horizon: the engine books from its own
         // "now", up to a day ahead of the caller's today.
         to: startOfToday + (HORIZON_DAYS + 2) * DAY_MS,
+        // A series' own visits: a series has only its lead, for now.
+        withShared: false,
       })
     ).filter((j) => j.recurrenceId !== undefined)
     const visits = inWindow.filter((j) => ids.has(j.recurrenceId!))

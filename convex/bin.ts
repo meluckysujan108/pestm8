@@ -7,13 +7,14 @@ import { recordAudit } from './lib/audit'
 import { isBinned, unbinned } from './lib/bin'
 import { writeAttribution } from './lib/capabilities'
 import { heldAnywhere } from './lib/fileClaims'
-import { mayEditJob } from './lib/jobAccess'
+import { mayEditJob, mayEditThisJob } from './lib/jobAccess'
 import { purgeNote } from './notes'
 import { purgeReport, restoredDraftPatch } from './reports'
 import { intervalOf } from './lib/recurrence'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { WriteEnvelope } from './lib/actor'
+import { dropAlsoGoing } from './lib/jobPeople'
 
 /**
  * The Recycle bin: deleting a client, property, job or Recurring Job, and
@@ -335,8 +336,9 @@ export const deleteJob = mutation({
     const job = unbinned(await ctx.db.get(jobId))
     if (!job || job.businessId !== businessId)
       throw new ConvexError('NOT_FOUND')
-    // A contractor deletes their own team's work, as they edit it.
-    if (!(await mayEditJob(ctx, env.actor, job))) {
+    // A contractor deletes their own team's work, as they edit it — the
+    // work they, or their team, are also going on included.
+    if (!(await mayEditThisJob(ctx, env.actor, job))) {
       throw new ConvexError('NO_ACCESS')
     }
     return putInBin(ctx, businessId, { kind: 'job', id: jobId }, { env })
@@ -774,6 +776,7 @@ export const wipeStep = internalMutation({
           await ctx.db.delete(photo._id)
           await dropJobPhotoFile(ctx, photo)
         }
+        await dropAlsoGoing(ctx, job._id)
         await ctx.db.delete(job._id)
       }
       return again()

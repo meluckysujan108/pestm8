@@ -22,6 +22,7 @@ import { NOT_STARTED_STATUSES } from './lib/jobStatus'
 import type { JobStatus } from './lib/jobStatus'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
+import { alsoGoingOf, setAlsoGoing } from './lib/jobPeople'
 import {
   hasCapability,
   requireActor,
@@ -67,6 +68,33 @@ async function futureJobsOf(
   return jobs.filter(
     (job) =>
       job.businessId === businessId && FUTURE_JOB_STATUSES.has(job.status),
+  )
+}
+
+/**
+ * Jobs ahead they are only also going on (lib/jobPeople.ts), still to be
+ * worked: what they come off when they leave. Nobody need take these over —
+ * each still has its lead — but the owner is told, so a job does not turn up
+ * a person short. Cancelled and finished ones are not counted.
+ */
+async function alsoGoingAheadOf(
+  ctx: QueryCtx | MutationCtx,
+  membershipId: Id<'memberships'>,
+  businessId: Id<'businesses'>,
+) {
+  const rows = await ctx.db
+    .query('jobPeople')
+    .withIndex('by_member_date', (q) =>
+      q.eq('membershipId', membershipId).gte('scheduledAt', Date.now()),
+    )
+    .collect()
+  const jobs = await Promise.all(
+    rows
+      .filter((row) => row.businessId === businessId)
+      .map((row) => ctx.db.get(row.jobId)),
+  )
+  return jobs.filter(
+    (job) => job !== null && FUTURE_JOB_STATUSES.has(job.status),
   )
 }
 
@@ -122,10 +150,11 @@ export const removalPreview = query({
     }
 
     const user = await authComponent.getAnyUserById(ctx, target.userId)
-    const [futureJobs, recurrences, drafts] = await Promise.all([
+    const [futureJobs, recurrences, drafts, alsoGoing] = await Promise.all([
       futureJobsOf(ctx, membershipId, businessId),
       activeRecurrencesOf(ctx, membershipId, businessId),
       openDraftsOf(ctx, membershipId, businessId),
+      alsoGoingAheadOf(ctx, membershipId, businessId),
     ])
 
     return {
@@ -133,6 +162,7 @@ export const removalPreview = query({
       futureJobs: futureJobs.length,
       activeRecurrences: recurrences.length,
       openDrafts: drafts.length,
+      alsoGoingJobs: alsoGoing.length,
     }
   },
 })
@@ -182,12 +212,35 @@ async function offboard(
 
     for (const job of futureJobs) {
       await ctx.db.patch(job._id, { assignedMembershipId: successor._id })
+      // Leading it now, the successor is no longer also going on it.
+      const others = await alsoGoingOf(ctx, job._id)
+      if (others.includes(successor._id)) {
+        await setAlsoGoing(
+          ctx,
+          { ...job, assignedMembershipId: successor._id },
+          others.filter((id) => id !== successor._id),
+          actor._id,
+        )
+      }
     }
     for (const recurrence of recurrences) {
       await ctx.db.patch(recurrence._id, {
         assignedMembershipId: successor._id,
       })
     }
+  }
+
+  // Work they were only also going on (lib/jobPeople.ts) needs nobody new:
+  // its lead is still going. They come off it from here on; the visits they
+  // went on stay theirs, as the record of who was there.
+  const stillAhead = await ctx.db
+    .query('jobPeople')
+    .withIndex('by_member_date', (q) =>
+      q.eq('membershipId', target._id).gte('scheduledAt', now),
+    )
+    .collect()
+  for (const row of stillAhead) {
+    if (row.businessId === businessId) await ctx.db.delete(row._id)
   }
 
   // A half-written Treatment Record is a record the business is required to

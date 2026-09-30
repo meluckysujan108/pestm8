@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { computeStaffLoad } from './scheduleFilters'
+import { computeStaffLoad, isOnJob } from './scheduleFilters'
 import type { JobStatus } from '../../convex/lib/jobStatus'
 
 const job = (who: string, status: JobStatus) => ({
@@ -30,5 +30,27 @@ describe('the staff filter’s per-person count', () => {
       job('Priya', 'recurring'),
     ])
     expect(load.find((s) => s.name === 'Priya')).toMatchObject({ count: 0 })
+  })
+})
+
+describe('a job for more than one person', () => {
+  const shared = {
+    ...job('Terence', 'booked'),
+    alsoGoing: [{ _id: 'Kevin', name: 'Kevin', colour: '#0F766E' }],
+  }
+
+  test('counts for each person on it', () => {
+    const load = computeStaffLoad([shared, job('Kevin', 'booked')])
+    expect(load).toEqual([
+      expect.objectContaining({ membershipId: 'Kevin', count: 2 }),
+      expect.objectContaining({ membershipId: 'Terence', count: 1 }),
+    ])
+  })
+
+  test('is on the list of each person on it, and no one else', () => {
+    expect(isOnJob(shared, 'Terence')).toBe(true)
+    expect(isOnJob(shared, 'Kevin')).toBe(true)
+    expect(isOnJob(shared, 'Sam')).toBe(false)
+    expect(isOnJob(job('Sam', 'booked'), 'Sam')).toBe(true)
   })
 })

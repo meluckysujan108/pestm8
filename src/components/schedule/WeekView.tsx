@@ -18,6 +18,7 @@ import type { DayPhase } from '#/lib/weekView'
 import type { DayLoad } from './WeekStrip'
 import type { JobRow } from './JobCard'
 import type { Id } from '../../../convex/_generated/dataModel'
+import { everyoneOnJob, namesOf } from '#/lib/jobPeople'
 
 /**
  * The Schedule's Week View (Phase 4.4): the strip's seven days, each with its
@@ -338,6 +339,12 @@ function JobBlock({
   initial?: boolean
 }) {
   const projected = job.status === 'recurring'
+  const people = everyoneOnJob(job)
+  // Two circles at most, so the client's name keeps its room: past two
+  // people, the lead's letter and how many more ("T +3"). Four letters left
+  // "Karrat…" of a name on a phone. The card on the day names them all.
+  const lettered = people.length > 2 ? people.slice(0, 1) : people
+  const more = people.length - lettered.length
   return (
     <button
       type="button"
@@ -360,13 +367,27 @@ function JobBlock({
           style={{ backgroundColor: job.assigneeColour }}
         />
       )}
-      {initial && job.assigneeName && (
-        <span
-          aria-hidden
-          className="mt-px flex size-5 shrink-0 items-center justify-center rounded-full border-2 bg-surface text-[11px] font-bold text-ink"
-          style={{ borderColor: job.assigneeColour }}
-        >
-          {job.assigneeName.trim().charAt(0).toUpperCase()}
+      {/* The lead's initial, and the other person's (or "+2" for more),
+          overlapped: the block keeps the lead's colour, the letters say who
+          else. */}
+      {/* Always on a shared job: its block has the lead's colour alone, so
+          only the letters say who else is going. */}
+      {(initial || people.length > 1) && people.length > 0 && (
+        <span aria-hidden className="mt-px flex shrink-0 -space-x-1.5">
+          {lettered.map((person, i) => (
+            <span
+              key={`${person.name}-${i}`}
+              className="flex size-5 items-center justify-center rounded-full border-2 bg-surface text-[11px] font-bold text-ink"
+              style={{ borderColor: person.colour }}
+            >
+              {person.name.trim().charAt(0).toUpperCase()}
+            </span>
+          ))}
+          {more > 0 && (
+            <span className="flex h-5 min-w-5 items-center justify-center rounded-full border-2 border-muted-2 bg-surface px-0.5 text-[10px] font-bold text-ink">
+              +{more}
+            </span>
+          )}
         </span>
       )}
       <span className="w-[4.5rem] shrink-0 pt-px font-mono text-caption tabular-nums text-ink-2">
@@ -379,8 +400,11 @@ function JobBlock({
         <span className="block truncate text-caption text-ink-2">
           {job.jobType} · {job.suburb}
         </span>
-        {job.assigneeName && (
-          <span className="sr-only">, technician {job.assigneeName}</span>
+        {people.length > 0 && (
+          <span className="sr-only">
+            , {people.length > 1 ? 'technicians' : 'technician'}{' '}
+            {namesOf(people)}
+          </span>
         )}
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1">

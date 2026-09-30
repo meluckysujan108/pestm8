@@ -1,5 +1,6 @@
 import { isBinned } from './bin'
 import { isInScope } from './capabilities'
+import { sharedJobsInRange, sharedJobsNewest } from './jobPeople'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { QueryCtx } from '../_generated/server'
 import type { RowScope } from './capabilities'
@@ -35,9 +36,15 @@ export async function jobsInScope(
     order?: 'asc' | 'desc'
     /** Newest or oldest `limit` within the range, by `scheduledAt`. */
     limit?: number
+    /**
+     * Leave out the jobs they are only also going on — for a caller that
+     * wants projected visits alone, which nobody is ever also going on until
+     * they are booked, so reading shared jobs would only cost it reads.
+     */
+    withShared?: boolean
   },
 ): Promise<Array<Doc<'jobs'>>> {
-  const { businessId, from, to, order = 'asc', limit } = opts
+  const { businessId, from, to, order = 'asc', limit, withShared = true } = opts
 
   if (scope.kind === 'business') {
     const q = ctx.db
@@ -57,6 +64,12 @@ export async function jobsInScope(
 
   const ids =
     scope.kind === 'own' ? [scope.membershipId] : [...scope.membershipIds]
+
+  // The jobs they are also going on (lib/jobPeople.ts), read the same way —
+  // by person and date — beside the ones they lead.
+  const shared = withShared
+    ? sharedJobsInRange(ctx, scope, { businessId, from, to, order, limit })
+    : Promise.resolve([])
 
   const perMember = await Promise.all(
     ids.map((membershipId) => {
@@ -78,15 +91,18 @@ export async function jobsInScope(
     }),
   )
 
-  if (ids.length === 1) return perMember[0] ?? []
+  const sharedJobs = await shared
+  if (ids.length === 1 && sharedJobs.length === 0) return perMember[0] ?? []
 
   // Each scan comes back ordered; merging several does not, and the business
   // branch above is ordered. Callers rendering a day or a month would otherwise
-  // get a different order depending on who is asking.
+  // get a different order depending on who is asking. Each job once: a job
+  // two of a team are on, or one someone leads and another is also going on,
+  // would otherwise be listed — and counted, and summed — twice.
   const sign = order === 'asc' ? 1 : -1
-  const jobs = perMember
-    .flat()
-    .sort((a, b) => sign * (a.scheduledAt - b.scheduledAt))
+  const jobs = uniqueJobs([...perMember.flat(), ...sharedJobs]).sort(
+    (a, b) => sign * (a.scheduledAt - b.scheduledAt),
+  )
   return limit === undefined ? jobs : jobs.slice(0, limit)
 }
 
@@ -151,11 +167,32 @@ export async function jobsNewestFirst(
     ),
   )
 
+  // And the jobs they are also going on, newest added first: bounded, and a
+  // handful beside the ones they lead.
+  const shared = await sharedJobsNewest(ctx, scope, {
+    businessId,
+    limit,
+    statuses,
+  })
+
   // The index is per assignee, not per business: someone who works for two
   // businesses must not see the other one's jobs in this business's list.
   return newestFirst(
-    perScan.flat().filter((job) => job.businessId === businessId),
+    uniqueJobs([
+      ...perScan.flat().filter((job) => job.businessId === businessId),
+      ...shared,
+    ]),
   )
+}
+
+/** Each job once, whichever read found it first. */
+function uniqueJobs(jobs: Array<Doc<'jobs'>>): Array<Doc<'jobs'>> {
+  const seen = new Set<Id<'jobs'>>()
+  return jobs.filter((job) => {
+    if (seen.has(job._id)) return false
+    seen.add(job._id)
+    return true
+  })
 }
 
 /**

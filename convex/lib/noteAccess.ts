@@ -1,6 +1,6 @@
 import { ConvexError } from 'convex/values'
 import { requireActor } from './actor'
-import { isInScope } from './capabilities'
+import { jobInScope } from './jobPeople'
 import type { MembershipFacts, RowScope } from './capabilities'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { Ctx } from './access'
@@ -105,7 +105,8 @@ export async function canReadNote(
   if (mine) return true
 
   const job = note.jobId ? await ctx.db.get(note.jobId) : null
-  if (job && isInScope(viewer.readRows, job)) return true
+  // Everyone on the job reads its notes, the people also going too.
+  if (job && (await jobInScope(ctx, viewer.readRows, job))) return true
 
   return isMentioned(ctx, note._id, viewer.real._id)
 }

@@ -858,6 +858,31 @@ export default defineSchema({
     .index('by_recurrence', ['recurrenceId'])
     .index('by_binEntryId', ['binEntryId']),
 
+  /**
+   * The people "also going" on a job, beside its lead (`jobs.assignedMembershipId`):
+   * a job two people work together — the owner and a subcontractor at a school.
+   * One row per extra person (lib/jobPeople.ts).
+   *
+   * A row rather than a list on the job, because a list cannot be indexed: a
+   * subcontractor's schedule is read by an index on who the work is for, and a
+   * person held only in a list on the job would never find it. `scheduledAt`
+   * is the job's, copied, so their schedule reads a day or a month of these the
+   * way it reads their own jobs; `syncAlsoGoingDate` keeps it in step.
+   */
+  jobPeople: defineTable({
+    businessId: v.id('businesses'),
+    jobId: v.id('jobs'),
+    membershipId: v.id('memberships'),
+    scheduledAt: v.number(),
+    addedBy: v.id('memberships'),
+    addedAt: v.number(),
+  })
+    .index('by_job', ['jobId'])
+    // Newest added first, for the Job tab, which lists newest booked first.
+    .index('by_member', ['membershipId'])
+    .index('by_member_date', ['membershipId', 'scheduledAt'])
+    .index('by_business_date', ['businessId', 'scheduledAt']),
+
   // A Recurring Job: the standing arrangement, of which each `jobs` row
   // carrying this row's id is one visit.
   recurrences: defineTable({

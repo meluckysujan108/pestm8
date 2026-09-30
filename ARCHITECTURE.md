@@ -318,6 +318,27 @@ recurrences: {
 }
 .index("by_business", ["businessId"])
 
+jobPeople: {                            // "Also going" beside a job's lead (lib/jobPeople.ts)
+  businessId, jobId, membershipId,
+  scheduledAt,                          // the job's, copied: indexed by person and date
+  addedBy, addedAt
+}
+.index("by_job", ["jobId"])
+.index("by_member_date", ["membershipId", "scheduledAt"])
+.index("by_business_date", ["businessId", "scheduledAt"])
+// *Amended (30 Sept 2026):* a job can be for more than one person.
+// `jobs.assignedMembershipId` stays the lead ("Assigned to") — colour, a
+// report's first technician, who inherits it when someone leaves — and each
+// other person is a `jobPeople` row, because a list on the job could not be
+// indexed and a subcontractor's schedule is read by an index on who the work
+// is for. Every scope check on a job counts them (`jobInScope`, `inScope` with
+// `sharedJobIds`, `jobsInScope` reading their rows by date), everyone on a job
+// may edit it (`canEditJob`), everyone on it reads its reports, and a shared
+// job counts once per person in per-person numbers and once in totals.
+// Removing someone takes them off jobs ahead they were only also going on.
+// Repeating services still have one person each; their visits take people one
+// at a time until the series step.
+
 jobTypes: {                             // Settings → Job types (convex/jobTypes.ts)
   businessId, name, key,                // key = lower-cased name, unique per business
   report: "serviceReport" | "timberPestInspection" | "termiteManagementCert" | "none",

@@ -5,7 +5,7 @@ import { normaliseAbn } from './lib/abn'
 import { normaliseEmail } from './lib/email'
 import { normalisePhone } from './lib/phone'
 import type { Infer } from 'convex/values'
-import { isInScope } from './lib/capabilities'
+import { inScope, sharedJobIds } from './lib/jobPeople'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { redactJobs } from './lib/prices'
 import { addressCheck, clientKind, clientStatus } from './schema'
@@ -450,10 +450,13 @@ export const jobHistory = query({
       .order('desc')
       .collect()
 
+    // Theirs, and the visits they were also going on (lib/jobPeople.ts).
+    const shared = await sharedJobIds(ctx, scope)
+
     // Redacted like every other job read — see `clients.jobHistory`.
     return redactJobs(
       caps,
-      jobs.filter((j) => isInScope(scope, j)),
+      jobs.filter((j) => inScope(scope, j, shared)),
     )
   },
 })

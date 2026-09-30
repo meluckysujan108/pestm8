@@ -71,6 +71,7 @@ import type * as lib_inviteOnly from "../lib/inviteOnly.js";
 import type * as lib_inviteTokens from "../lib/inviteTokens.js";
 import type * as lib_jobAccess from "../lib/jobAccess.js";
 import type * as lib_jobNotes from "../lib/jobNotes.js";
+import type * as lib_jobPeople from "../lib/jobPeople.js";
 import type * as lib_jobScope from "../lib/jobScope.js";
 import type * as lib_jobStatus from "../lib/jobStatus.js";
 import type * as lib_jobTypeList from "../lib/jobTypeList.js";
@@ -208,6 +209,7 @@ declare const fullApi: ApiFromModules<{
   "lib/inviteTokens": typeof lib_inviteTokens;
   "lib/jobAccess": typeof lib_jobAccess;
   "lib/jobNotes": typeof lib_jobNotes;
+  "lib/jobPeople": typeof lib_jobPeople;
   "lib/jobScope": typeof lib_jobScope;
   "lib/jobStatus": typeof lib_jobStatus;
   "lib/jobTypeList": typeof lib_jobTypeList;

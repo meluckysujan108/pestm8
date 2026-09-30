@@ -459,6 +459,14 @@ const clearJobs: Step = (run) =>
           },
         )
         if (!photos || run.left <= 0) return false
+        // Its people also going (lib/jobPeople.ts), before the job itself.
+        const people = await sweep(run, 'jobPeople', (n) =>
+          run.ctx.db
+            .query('jobPeople')
+            .withIndex('by_job', (q) => q.eq('jobId', job._id))
+            .take(n),
+        )
+        if (!people || run.left <= 0) return false
         return dropRow(run, 'jobs', job._id)
       },
     },

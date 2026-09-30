@@ -882,10 +882,21 @@ function listNames(people: Array<Member>): string {
 
 function describeWork(
   preview:
-    | { futureJobs: number; activeRecurrences: number; openDrafts: number }
+    | {
+        futureJobs: number
+        activeRecurrences: number
+        openDrafts: number
+        alsoGoingJobs: number
+      }
     | undefined,
 ) {
   if (!preview) return 'They lose access straight away.'
+  // Jobs they only go along on need nobody new, but a job shouldn't turn up
+  // a person short without the owner knowing.
+  const offShared =
+    preview.alsoGoingJobs > 0
+      ? ` They come off ${preview.alsoGoingJobs} job${preview.alsoGoingJobs === 1 ? '' : 's'} ahead they were also going on.`
+      : ''
   const parts: Array<string> = []
   if (preview.futureJobs > 0) {
     parts.push(
@@ -902,8 +913,8 @@ function describeWork(
       `${preview.openDrafts} unfinished report${preview.openDrafts === 1 ? '' : 's'}, which move${preview.openDrafts === 1 ? 's' : ''} to you`,
     )
   }
-  if (parts.length === 0) return 'They lose access straight away.'
-  return `They have ${parts.join(' and ')}. They lose access straight away.`
+  if (parts.length === 0) return `They lose access straight away.${offShared}`
+  return `They have ${parts.join(' and ')}. They lose access straight away.${offShared}`
 }
 
 function removeError(error: unknown) {

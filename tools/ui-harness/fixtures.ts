@@ -53,6 +53,8 @@ export const JOBS = [
     assigneeColour: '#0A84FF',
     assigneeName: 'Terence Walsh',
     assignedMembershipId: 'm_owner',
+    // A shared job: Kevin is also going (convex/lib/jobPeople.ts).
+    alsoGoing: [{ _id: 'm_kev', name: 'Kevin Doyle', colour: '#FF3B30' }],
   },
   {
     _id: 'j2',
@@ -189,6 +191,10 @@ function jobGet(args: { jobId: string }) {
       colour: row.assigneeColour,
       role: 'owner',
     },
+    alsoGoing: (
+      (row as { alsoGoing?: Array<{ _id: string; colour: string }> })
+        .alsoGoing ?? []
+    ).map((p) => ({ _id: p._id, colour: p.colour, role: 'subcontractor' })),
     canEdit: true,
   }
 }
