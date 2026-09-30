@@ -1031,7 +1031,7 @@ test.describe('the one question the phone answers better', () => {
 })
 
 test.describe('reports where the work is', () => {
-  test('a job sheet separates this visit from the property’s history', async ({
+  test('a job sheet separates this visit’s report from the property’s history', async ({
     page,
   }) => {
     const { email, owner, businessId, slug, reportId } =
@@ -1056,14 +1056,18 @@ test.describe('reports where the work is', () => {
     // rest is context. Retrying the tap: the schedule is server-rendered, and
     // one that lands before hydration opens nothing.
     const thisVisit = sheet.getByRole('heading', {
-      name: 'Reports for this visit',
+      name: 'Report & photos',
     })
     await clickUntil(
       page.getByRole('button', { name: /General Pest Control/ }).first(),
       () => expect(thisVisit).toBeVisible({ timeout: 3_000 }),
     )
+    // The one from no visit is in the property's history, with the others.
     await expect(
-      sheet.getByRole('heading', { name: 'Other reports at this property' }),
+      sheet.getByRole('heading', { name: 'History at this property' }),
+    ).toBeVisible()
+    await expect(
+      sheet.getByRole('heading', { name: 'Other reports here' }),
     ).toBeVisible()
 
     // Named for the form, not for the standard it was written to — three

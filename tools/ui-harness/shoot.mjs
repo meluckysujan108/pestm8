@@ -27,7 +27,7 @@ const PLAN = {
     before: async (p) => {
       await p.waitForTimeout(900)
       await p
-        .getByRole('heading', { name: 'Reports for this visit' })
+        .getByRole('heading', { name: 'Report & photos' })
         .scrollIntoViewIfNeeded()
       await p.waitForTimeout(300)
     },
@@ -41,6 +41,27 @@ const PLAN = {
         .getByRole('heading', { name: 'Notes', exact: true })
         .scrollIntoViewIfNeeded()
       await p.waitForTimeout(300)
+    },
+  },
+  // Details in rows, then the property's history: past visits only, each
+  // with its report, the last one for this service first.
+  'jobdetail-history': {
+    spec: 'jobdetailbusy',
+    before: async (p) => {
+      await p.waitForTimeout(1200)
+      await p
+        .getByRole('heading', { name: 'Details', exact: true })
+        .scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  // Every earlier visit, by year, from "See all".
+  'jobdetail-history-all': {
+    spec: 'jobdetailbusy',
+    before: async (p) => {
+      await p.waitForTimeout(1200)
+      await p.getByRole('button', { name: /^See all/ }).click()
+      await p.waitForTimeout(700)
     },
   },
   // The edit form, and its pickers — each a sheet of its own over it.

@@ -586,6 +586,7 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'clients:reports': () => [],
   'notes:listForClient': () => [],
   'notes:listForProperty': () => ({ site: [], visits: [] }),
+  'notes:listForJob': () => [],
   'access:me': accessMe,
   'jobs:get': jobGet,
   'jobs:photos': () => [],

@@ -106,9 +106,12 @@ test('a job shows the forecast for its own property and day', async ({
   // the runner sits behind Australia/Perth — so bare `/schedule` made this test
   // fail every evening rather than on any real defect.
   await page.goto(`/${s.slug}/schedule?date=${perthDayKey(base.getTime())}`)
+  // A tap before hydration opens nothing (e2e/fixtures `clickUntil`).
+  await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
   await page.getByRole('button', { name: /Termite Inspection/ }).click()
 
   const sheet = page.getByRole('dialog')
+  // A row of the job's Details now, named on the left.
   await expect(sheet.getByText('Weather', { exact: true })).toBeVisible()
   // Named for the property's suburb, since two jobs on one day can sit in
   // different places.

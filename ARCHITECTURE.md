@@ -541,6 +541,7 @@ src/components/
     WeekView.tsx                  the Week View's own job blocks, not JobCard — check card rules here too
     WeatherStrip.tsx              per-card forecast: values, never advice
     JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx
+    PropertyHistory.tsx           a job's History: past visits, each with its report
     WeekGrid.tsx                  desktop-only
   dashboard/
     RevenueCard.tsx  MetricCard.tsx  PipelineCard.tsx  FollowUpTasks.tsx
@@ -554,6 +555,7 @@ src/components/
     fields/                       registry + one control per kind, PickerSheet,
                                   RowSheet, SignSheet, PhrasesSheet, RepeaterGrid
     FinaliseSheet.tsx  SendSheet.tsx  InlineReports.tsx  ReportsLibrary.tsx
+    ReportRows.tsx                a report as a row, or a chip under its visit
     BoilerplateBlock.tsx          locked disclaimer
     DurableNoticePreview.tsx      an optional extra behind `features`
     ReportDocument.tsx            on-screen rendered document

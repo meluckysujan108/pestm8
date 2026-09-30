@@ -21,14 +21,13 @@ function perthToday() {
   }).format(new Date())
 }
 
-/** The job sheet's "Work order" section: its heading and what sits under it. */
+/** The job sheet's "Work order" row, in its Details card: name and value. */
 function workOrderSection(detail: Locator) {
-  // The inner locator is matched inside each section, so it starts from the
-  // page, not from `detail` (which would never be inside a section).
-  return detail.locator('section').filter({
+  return detail.locator('dl > div').filter({
     has: detail
       .page()
-      .getByRole('heading', { name: 'Work order', exact: true }),
+      .getByRole('term')
+      .filter({ hasText: /^Work order$/ }),
   })
 }
 
@@ -210,7 +209,7 @@ test('anyone else’s job can still carry one, a tap away', async ({ page }) => 
     ['J. Nguyen', 'REA-2231'],
   ])
 
-  // A person client with none shows no section at all.
+  // A person client with none shows no row at all.
   await s.owner.client.mutation(api.jobs.update, {
     businessId: s.businessId,
     jobId: jobs[0]._id,
@@ -219,7 +218,10 @@ test('anyone else’s job can still carry one, a tap away', async ({ page }) => 
   await page.getByRole('button', { name: /General Pest Control/ }).click()
   const detail = page.getByRole('dialog')
   await expect(
-    detail.getByRole('heading', { name: 'Price', exact: true }),
+    detail.getByRole('heading', { name: 'Details', exact: true }),
+  ).toBeVisible()
+  await expect(
+    detail.getByRole('term').filter({ hasText: 'Price' }),
   ).toBeVisible()
   await expect(workOrderSection(detail)).toHaveCount(0)
 })
