@@ -18,7 +18,7 @@ import {
   requireReadableNote,
 } from './lib/noteAccess'
 import { NOTE_TEMPLATE_KEYS, NOTE_TEMPLATES } from './lib/noteTemplates'
-import { deriveNoteFields } from './lib/richText'
+import { deriveNoteFields, docFromPlainText } from './lib/richText'
 import { applyDerived, latestDoc, prosemirrorSync } from './notesSync'
 import { clientNameOf } from './properties'
 import type { Doc, Id } from './_generated/dataModel'
@@ -668,6 +668,105 @@ async function resolveLinks(
     return { clientId: client._id }
   }
   return {}
+}
+
+/**
+ * A note on a job, from plain text: the note typed while booking in New Job,
+ * and the plain notes jobs carried before job notes were Notes
+ * (migrations/jobNotesToNotesV1). Made as the job sheet's "+ Visit note"
+ * makes one — shared, linked to the job and so to its site and client — so
+ * it is on the job, on the client, in Notes → Jobs and found by search. Its
+ * first line is its title.
+ *
+ * Not a mutation: the caller has already decided who may write it (booking
+ * the job, or a migration).
+ */
+export async function insertJobNote(
+  ctx: MutationCtx,
+  {
+    job,
+    authorMembershipId,
+    text,
+  }: {
+    job: Doc<'jobs'>
+    authorMembershipId: Id<'memberships'>
+    text: string
+  },
+): Promise<Id<'notes'>> {
+  const property = await ctx.db.get(job.propertyId)
+  const doc = docFromPlainText(text)
+  const derived = deriveNoteFields(doc)
+  const now = Date.now()
+  const noteId = await ctx.db.insert('notes', {
+    businessId: job.businessId,
+    authorMembershipId,
+    lastEditedByMembershipId: authorMembershipId,
+    jobId: job._id,
+    propertyId: job.propertyId,
+    ...(property && { clientId: property.clientId }),
+    title: derived.title,
+    preview: derived.preview,
+    plainText: derived.plainText,
+    checklistTotal: derived.checklistTotal || undefined,
+    checklistDone: derived.checklistTotal ? derived.checklistDone : undefined,
+    createdAt: now,
+    updatedAt: now,
+  })
+  await prosemirrorSync.create(ctx, noteId, doc)
+  return noteId
+}
+
+/**
+ * A job moved to another site takes its notes with it: each is linked to the
+ * new site and its client, as `resolveLinks` links a note made on the job.
+ * Notes in the Recycle bin too, so one restored comes back where its job is.
+ * The text is untouched, so `updatedAt` is too.
+ */
+export async function relinkJobNotes(
+  ctx: MutationCtx,
+  jobId: Id<'jobs'>,
+  property: Doc<'properties'>,
+): Promise<void> {
+  const notes = await ctx.db
+    .query('notes')
+    .withIndex('by_job', (q) => q.eq('jobId', jobId))
+    .collect()
+  for (const note of notes) {
+    if (note.businessId !== property.businessId) continue
+    await ctx.db.patch(note._id, {
+      propertyId: property._id,
+      clientId: property.clientId,
+    })
+  }
+}
+
+/**
+ * What a job card's Note row says: the job's note — its pinned one, else the
+ * one edited last — as its title and first lines. Job notes are read by
+ * whoever can see the job, and a personal note is never linked to one, so a
+ * list already scoped to its jobs may show this as it stands.
+ */
+export async function jobNotePreview(
+  ctx: QueryCtx,
+  jobId: Id<'jobs'>,
+): Promise<string | undefined> {
+  const notes = await ctx.db
+    .query('notes')
+    .withIndex('by_job', (q) => q.eq('jobId', jobId))
+    .order('desc')
+    .take(20)
+  // A note begun and left empty ("+ Visit note", nothing typed) says
+  // nothing, and must not hide one that does.
+  const top = byPinnedThenEdited(
+    notes.filter(
+      (n) =>
+        n.deletedAt === undefined &&
+        !isPrivate(n) &&
+        (n.title.trim() !== '' || n.preview.trim() !== ''),
+    ),
+  ).at(0)
+  if (!top) return undefined
+  return [top.title, top.preview].filter(Boolean).join(' · ') || undefined
 }
 
 export const create = mutation({

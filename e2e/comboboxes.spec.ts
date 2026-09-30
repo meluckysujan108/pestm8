@@ -244,7 +244,7 @@ test('a job for several services, with a note, books as one job that says both',
   await expect(sheet.getByText('Choose at least one job type.')).toHaveCount(0)
 
   await sheet
-    .getByLabel('Notes (optional)')
+    .getByLabel('Note for this visit (optional)')
     .fill('Tenant home after 10 — ring first.')
   await sheet.getByRole('button', { name: 'Book job' }).click()
   await expect(sheet).toBeHidden()
@@ -255,24 +255,21 @@ test('a job for several services, with a note, books as one job that says both',
   })
   expect(jobs).toHaveLength(1)
   expect(jobs[0].jobType).toBe(services)
-  expect(jobs[0].notes).toBe('Tenant home after 10 — ring first.')
+  // A note in Notes on the job, not a field of its own.
+  expect(jobs[0].notes).toBeUndefined()
+  expect(jobs[0].notePreview).toBe('Tenant home after 10 — ring first.')
 
   // The card names every service, and carries the note.
   const card = page.getByRole('button', { name: new RegExp(services) })
   await expect(card).toContainText('Tenant home after 10 — ring first.')
 
-  // On the job, the note is changed in place, without the edit form.
+  // On the job, it is this visit's note, in the one Notes card.
   await card.click()
   const detail = page.getByRole('dialog')
-  await detail.getByRole('button', { name: 'Edit note' }).click()
-  await detail
-    .getByLabel('Note for this job')
-    .fill('Tenant home after 11 — ring first.')
-  await detail.getByRole('button', { name: 'Save', exact: true }).click()
+  await expect(detail.getByRole('heading', { name: 'This visit', exact: true })).toBeVisible()
   await expect(
-    detail.getByText('Tenant home after 11 — ring first.'),
+    detail.getByRole('button', { name: /Tenant home after 10 — ring first\./ }),
   ).toBeVisible()
-  await expect(detail.getByLabel('Note for this job')).toHaveCount(0)
 
   // Both forms the job produces are a tap away.
   await expect(

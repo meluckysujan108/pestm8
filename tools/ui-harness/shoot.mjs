@@ -32,12 +32,14 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
-  'jobdetail-note-editor': {
-    spec: 'jobdetail',
+  // The one Notes card: the site's notes, then this visit's.
+  'jobdetail-notes': {
+    spec: 'jobdetailbusy',
     before: async (p) => {
-      await p.waitForTimeout(900)
-      await p.getByRole('button', { name: 'Add a note' }).click()
-      await p.keyboard.type('Ring the site manager on arrival.')
+      await p.waitForTimeout(1200)
+      await p
+        .getByRole('heading', { name: 'Notes', exact: true })
+        .scrollIntoViewIfNeeded()
       await p.waitForTimeout(300)
     },
   },

@@ -21,6 +21,7 @@ import { isInScope, writeAttribution } from './lib/capabilities'
 import { jobsInScope, jobsNewestFirst } from './lib/jobScope'
 import { unbinned } from './lib/bin'
 import { activateLeadAt } from './lib/clientRecord'
+import { insertJobNote, jobNotePreview, relinkJobNotes } from './notes'
 import { heldAnywhere } from './lib/fileClaims'
 import { CLAIM_WINDOW_MS } from './lib/products'
 import {
@@ -184,6 +185,10 @@ async function decorate(
           assigneeName: assignee
             ? await nameOf(job.assignedMembershipId, assignee.userId)
             : '',
+          // The card's Note row: the job's note in Notes, or — until
+          // migrations/jobNotesToNotesV1 has run — the plain note it still
+          // carries.
+          notePreview: (await jobNotePreview(ctx, job._id)) ?? job.notes,
         }
       }),
   )
@@ -699,8 +704,8 @@ export const create = mutation({
     scheduledAt: v.number(),
     durationMinutes: v.number(),
     workOrder: v.optional(v.string()),
-    // The job's own note (lib/jobNotes.ts). Sent only when one was typed, so
-    // booking never depends on a backend that knows the field.
+    // A note typed while booking: it becomes a note in Notes, on this job
+    // (`insertJobNote`). Sent only when one was typed.
     notes: v.optional(v.string()),
   },
   handler: async (
@@ -747,8 +752,19 @@ export const create = mutation({
       createdAt: Date.now(),
       jobNumber,
       ...(workOrder !== undefined && { workOrder }),
-      ...(notes !== undefined && { notes }),
     })
+    if (notes !== undefined) {
+      const job = await ctx.db.get(jobId)
+      // By the person booking, as themselves: switched into someone else's
+      // account, a note is still the real person's own (notes.create).
+      if (job) {
+        await insertJobNote(ctx, {
+          job,
+          authorMembershipId: env.actor.real._id,
+          text: notes,
+        })
+      }
+    }
 
     await recordOnBehalf(ctx, writeAttribution(env.actor), {
       businessId: args.businessId,
@@ -843,9 +859,13 @@ export const update = mutation({
       if (!property || property.businessId !== businessId) {
         throw new ConvexError('NOT_FOUND')
       }
-      // Work moved onto a lead's property is work booked for them.
       if (patch.propertyId !== job.propertyId) {
+        // Work moved onto a lead's property is work booked for them.
         await activateLeadAt(ctx, patch.propertyId)
+        // The job's notes go with it: a note on a job is linked to its site
+        // and client too (notes.resolveLinks), which is what puts it on the
+        // job's sheet, the client's, and in the Recycle bin with either.
+        await relinkJobNotes(ctx, job._id, property)
       }
     }
 

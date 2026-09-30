@@ -194,7 +194,7 @@ test('sharing a personal note hands it to the team', async ({ page }) => {
   ).toBeVisible()
 })
 
-test('a job’s sheet keeps its site notes and no longer has visit notes', async ({
+test('a job’s sheet has one Notes card: the site’s notes, then this visit’s', async ({
   page,
 }) => {
   const s = await setupBusinessWithSub('personal-jobsheet')
@@ -203,10 +203,22 @@ test('a job’s sheet keeps its site notes and no longer has visit notes', async
   await page.goto(`/${s.slug}/schedule?jobId=${s.ownerJobId}`)
   const sheet = page.getByRole('dialog')
   await expect(
-    sheet.getByRole('heading', { name: 'Before you arrive' }),
+    sheet.getByRole('heading', { name: 'Notes', exact: true }),
   ).toBeVisible()
-  await expect(sheet.getByRole('button', { name: 'Site note' })).toBeVisible()
   await expect(
-    sheet.getByRole('heading', { name: 'Notes for this visit' }),
-  ).toHaveCount(0)
+    sheet.getByRole('heading', {
+      name: 'Before you arrive · every visit here',
+    }),
+  ).toBeVisible()
+  await expect(
+    sheet.getByRole('heading', { name: 'This visit', exact: true }),
+  ).toBeVisible()
+  await expect(
+    sheet.getByRole('button', {
+      name: 'Add a site note',
+    }),
+  ).toBeVisible()
+  await expect(
+    sheet.getByRole('button', { name: 'Add a visit note' }),
+  ).toBeVisible()
 })

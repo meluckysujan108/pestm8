@@ -906,6 +906,8 @@ export default defineSchema({
      * first visit, and a series holds none (`recurrences.create`).
      */
     firstVisitNotes: v.optional(v.string()),
+    /** Who typed `firstVisitNotes`: the note it becomes is theirs. */
+    firstVisitNotesBy: v.optional(v.id('memberships')),
     ...binFields,
   })
     .index('by_business', ['businessId'])

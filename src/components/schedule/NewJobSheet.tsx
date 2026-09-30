@@ -759,7 +759,7 @@ function NewJobForm({
           />
         </Field>
 
-        <Field label="Notes (optional)">
+        <Field label="Note for this visit (optional)">
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
@@ -771,16 +771,18 @@ function NewJobForm({
             className={`${FIELD_SURFACE} w-full py-3 leading-relaxed`}
           />
         </Field>
-        {/* Outside the <label>, so it is not read as part of its name. Who
-            reads it, as the job sheet says: prices can be hidden from a
-            technician, a note cannot. A series copies no note, so a
-            repeating booking's is the first visit's. */}
+        {/* Outside the <label>, so it is not read as part of its name. It
+            becomes a note in Notes on the job (`insertJobNote`), read by
+            whoever can see the job. A series copies no note, so a repeating
+            booking's is the first visit's; what every visit needs is a site
+            note, which each visit shows. */}
         <p
           id="new-job-notes-hint"
           className="mt-1.5 text-caption text-grey-ink"
         >
-          Everyone who can see this job can read it.
-          {repeats && ' It goes on the first visit only.'}
+          It goes in Notes, on this visit, for everyone who can see the job.
+          {repeats &&
+            ' On a repeating job it is the first visit’s; for every visit, add a site note.'}
         </p>
 
         <FormAlert
