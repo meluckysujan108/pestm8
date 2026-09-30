@@ -125,26 +125,29 @@ export const afterFinalise = internalAction({
     // would put an error in the logs for every report finalised meanwhile.
     if (!emailConfigured()) return
 
-    // A report too big to email gets its lighter copy now, once — whether or
-    // not the form asked for an email. The sends below then find it waiting
-    // rather than each making their own, and a Send pressed later goes at
-    // once instead of after a minute's work in a driveway. A copy that cannot
-    // be made is not this function's failure: the send that needs it says so.
-    if (storageId) {
-      try {
-        await emailAttachment(ctx, reportId, storageId)
-      } catch (error) {
-        console.error('afterFinalise email copy failed', reportId, error)
-      }
-    }
-
     // Whatever the form asked for at finalise. Each is its own scheduled
     // action: one recipient's provider failure must not stop the next.
+    // Scheduled before anything else here, so no later work — making a big
+    // report's copy, below — can leave the form's email waiting forever.
     const queued = await ctx.runQuery(internal.deliveries.readyForReport, {
       reportId,
     })
     for (const deliveryId of queued) {
       await ctx.scheduler.runAfter(0, internal.email.deliver, { deliveryId })
+    }
+
+    // A report too big to email gets its lighter copy made now when nothing
+    // is on its way to anyone, so a Send pressed later goes at once instead
+    // of after a minute's work in a driveway. When a send is on its way, that
+    // send makes it (`email.deliver`); making it here too would be the same
+    // work twice. A copy that cannot be made is not this function's failure:
+    // the send that needs it says so.
+    if (storageId && queued.length === 0) {
+      try {
+        await emailAttachment(ctx, reportId, storageId)
+      } catch (error) {
+        console.error('afterFinalise email copy failed', reportId, error)
+      }
     }
   },
 })

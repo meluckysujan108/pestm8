@@ -28,6 +28,7 @@ import {
   normaliseAddresses,
 } from './lib/recipients'
 import { blindCopy } from '../src/lib/reportTemplates/delivery'
+import { printedGalleryKeys, sectionsOf } from '../src/lib/reportTemplates'
 import { resolveReportTemplate } from '../src/lib/reportTemplates/resolve'
 import { documentIdentity } from '../src/lib/reportTemplates/documentModel'
 import type { Doc, Id } from './_generated/dataModel'
@@ -182,29 +183,35 @@ async function subjectFor(
   ctx: QueryCtx | MutationCtx,
   report: Doc<'reports'>,
 ): Promise<string> {
+  const property = await ctx.db.get(report.propertyId)
+  const business = await ctx.db.get(report.businessId)
+  return documentIdentity({
+    template: await templateOf(ctx, report),
+    property,
+    businessName: business?.name ?? '',
+    finalisedAt: report.finalisedAt,
+  }).title
+}
+
+/**
+ * The form a report is on: its FROZEN wording once finalised, else the form
+ * as it stands. Only a custom report finalised before snapshots existed has
+ * no frozen wording, and reads as its form.
+ */
+async function templateOf(ctx: QueryCtx | MutationCtx, report: Doc<'reports'>) {
   const snapshot = report.templateSnapshotId
     ? await ctx.db.get(report.templateSnapshotId)
     : null
-  const property = await ctx.db.get(report.propertyId)
-  const business = await ctx.db.get(report.businessId)
-  // The frozen wording names a finalised document. Only a custom report
-  // finalised before snapshots existed has none, and is named for its form.
   const live =
     !snapshot && report.template === 'custom' && report.customTemplateId
       ? await ctx.db.get(report.customTemplateId)
       : null
-  const template = resolveReportTemplate({
+  return resolveReportTemplate({
     template: report.template,
     templateVersion: report.templateVersion,
     customTemplate: live,
     templateSnapshot: snapshot,
   })
-  return documentIdentity({
-    template,
-    property,
-    businessName: business?.name ?? '',
-    finalisedAt: report.finalisedAt,
-  }).title
 }
 
 /**
@@ -287,12 +294,17 @@ export const known = query({
   },
 })
 
+/** A guard on how many of a report's photos are weighed; a big job has fifty. */
+const PHOTO_ROWS = 1000
+
 /**
  * Whether this report is more than an email carries.
  *
  * Once it has a PDF, that file's size says. Before — on the sheet that locks
- * it — its photos do: a report's PDF is its photos and a few pages besides
- * (33.5 of 33.7 MiB on 30 Sept 2026).
+ * it — the photos it will print do: a report's PDF is its photos and a few
+ * pages besides (33.5 of 33.7 MiB on 30 Sept 2026). Only the sets that print
+ * count (`printedGalleryKeys`, as the painter decides): photos in a set whose
+ * question was answered No add nothing to the PDF.
  */
 async function largeForEmail(
   ctx: QueryCtx,
@@ -302,19 +314,26 @@ async function largeForEmail(
     const file = await ctx.db.system.get('_storage', report.pdfStorageId)
     if (file) return file.size > EMAIL_BUDGET_BYTES
   }
+  const printed = printedGalleryKeys(
+    sectionsOf(await templateOf(ctx, report)),
+    (report.data ?? {}) as Record<string, unknown>,
+  )
+  // Its size as recorded at upload, where it was; the file's own, where not.
+  const sizeOf = async (storageId: Id<'_storage'>, recorded?: number) =>
+    recorded ?? (await ctx.db.system.get('_storage', storageId))?.size ?? 0
+
   let total = 0
-  const photoFiles = [
-    ...Object.values(report.photoSlots ?? {}),
-    ...(
-      await ctx.db
-        .query('reportPhotos')
-        .withIndex('by_report_field', (q) => q.eq('reportId', report._id))
-        .collect()
-    ).map((photo) => photo.storageId),
-  ]
-  for (const storageId of photoFiles) {
-    const file = await ctx.db.system.get('_storage', storageId)
-    total += file?.size ?? 0
+  for (const storageId of Object.values(report.photoSlots ?? {})) {
+    total += await sizeOf(storageId)
+    if (total > EMAIL_BUDGET_BYTES) return true
+  }
+  const photos = await ctx.db
+    .query('reportPhotos')
+    .withIndex('by_report_field', (q) => q.eq('reportId', report._id))
+    .take(PHOTO_ROWS)
+  for (const photo of photos) {
+    if (!printed.has(photo.fieldKey)) continue
+    total += await sizeOf(photo.storageId, photo.bytes)
     if (total > EMAIL_BUDGET_BYTES) return true
   }
   return false

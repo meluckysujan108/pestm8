@@ -380,7 +380,7 @@ describe('the sheets are told before anything is sent', () => {
     expect(await large(big)).toBe(true)
   })
 
-  test('by its photos, before there is a PDF', async () => {
+  test('by the photos it will print, before there is a PDF', async () => {
     const s = await setup()
     await s.t.run(async (ctx) => {
       for (let order = 0; order < 4; order++) {
@@ -396,6 +396,35 @@ describe('the sheets are told before anything is sent', () => {
           createdAt: Date.now(),
         } satisfies Omit<Doc<'reportPhotos'>, '_id' | '_creationTime'>)
       }
+    })
+    const answer = (addPhotos: boolean) =>
+      s.t.run((ctx) => ctx.db.patch(s.reportId, { data: { addPhotos } }))
+
+    // "Add photos to the report?" Yes: 8 MB of them will print.
+    await answer(true)
+    expect(await large(s)).toBe(true)
+    // No: they stay in the report's table, and print nowhere.
+    await answer(false)
+    expect(await large(s)).toBe(false)
+  })
+
+  test('by the size each photo was recorded at, where it was', async () => {
+    const s = await setup()
+    await s.t.run(async (ctx) => {
+      await ctx.db.patch(s.reportId, { data: { addPhotos: true } })
+      // A small file recorded, at upload, as the big photo it was.
+      const storageId = await ctx.storage.store(
+        new Blob([new Uint8Array(10)], { type: 'image/jpeg' }),
+      )
+      await ctx.db.insert('reportPhotos', {
+        reportId: s.reportId,
+        fieldKey: 'photos',
+        storageId,
+        order: 0,
+        isCover: false,
+        bytes: TOO_BIG,
+        createdAt: Date.now(),
+      })
     })
     expect(await large(s)).toBe(true)
   })

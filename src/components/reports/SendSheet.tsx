@@ -561,18 +561,21 @@ export function SendSheet({
 
       {/* Said before Send: the client's photos will be smaller than the
           ones on this phone, and the first send of a big report makes its
-          copy, which takes longer than an ordinary send. */}
-      {known?.largeForEmail === true && chosen.length > 0 && (
-        <p className="mt-2 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
-          <Info
-            size={13}
-            strokeWidth={2}
-            aria-hidden
-            className="mt-0.5 shrink-0"
-          />
-          <span>{LARGE_FOR_EMAIL} Sending it can take up to a minute.</span>
-        </p>
-      )}
+          copy, which takes longer than an ordinary send. Not where email
+          isn't set up: nothing would go, smaller or not. */}
+      {known?.largeForEmail === true &&
+        known.emailReady &&
+        chosen.length > 0 && (
+          <p className="mt-2 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
+            <Info
+              size={13}
+              strokeWidth={2}
+              aria-hidden
+              className="mt-0.5 shrink-0"
+            />
+            <span>{LARGE_FOR_EMAIL} Sending it can take up to a minute.</span>
+          </p>
+        )}
 
       {/* The whole tap refused, with no signal: nothing went to anyone. */}
       <FormAlert

@@ -168,6 +168,9 @@ function inputFor({ photos, original }: Report): CopyInput {
     photos,
     canonicalBytes: original.length,
     coverKeys: new Set(['coverPhoto']),
+    // Both of the service report's photo fields print here: "Add photos?"
+    // is Yes.
+    printedKeys: new Set(['coverPhoto', 'photos']),
   }
 }
 
@@ -310,5 +313,34 @@ describe('the lighter copy of a report too big to email', () => {
       { budget: report.original.length - 1 },
     )
     expect(made.ok).toBe(false)
+  }, 120_000)
+
+  test('leaves alone a photo set that does not print', async () => {
+    // Photos kept against a question answered No: in the report's table,
+    // in neither PDF. They are not fetched, made or counted.
+    const report = await reportOf(2)
+    const unprinted = row('durableNoticePhoto', 0, urlFor('p5'))
+    const asked: Array<string> = []
+    const made = await makeEmailCopy(
+      {
+        ...inputFor(report),
+        photos: {
+          ...report.photos,
+          gallery: [...report.photos.gallery, unprinted],
+        },
+      },
+      depsFor(report, {
+        fetchBytes: (url) => {
+          asked.push(url)
+          return fetchBytes(url)
+        },
+      }),
+      { budget: report.original.length - 1 },
+    )
+    if (!made.ok) throw new Error(made.reason)
+    expect(asked).not.toContain(urlFor('p5'))
+    expect(made.stats.photoBytesBefore).toBe(
+      files.get(urlFor('p0'))!.length + files.get(urlFor('p1'))!.length,
+    )
   }, 120_000)
 })

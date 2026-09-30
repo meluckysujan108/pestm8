@@ -67,9 +67,10 @@ export async function buildEmailCopy(
 
   const { resolveReportTemplate } =
     await import('../../src/lib/reportTemplates/resolve')
-  const { coverFieldKeys } = await import('../../src/lib/reportTemplates/cover')
-  // The wording the report was signed on names its cover field, as it did
-  // when the original was drawn.
+  const { coverFieldKeys, printedGalleryKeys, sectionsOf } =
+    await import('../../src/lib/reportTemplates')
+  // The wording the report was signed on names its cover field and says which
+  // photo sets print, as it did when the original was drawn.
   const template = resolveReportTemplate({
     template: report.template,
     customTemplate: report.customTemplate,
@@ -83,6 +84,10 @@ export async function buildEmailCopy(
       photos,
       canonicalBytes,
       coverKeys: coverFieldKeys(template),
+      printedKeys: printedGalleryKeys(
+        sectionsOf(template),
+        (report.data ?? {}) as Record<string, unknown>,
+      ),
     },
     {
       fetchBytes,
@@ -104,6 +109,12 @@ export type CopyInput = {
   canonicalBytes: number
   /** Photo fields that are the front page: drawn full-bleed, never reduced. */
   coverKeys: Set<string>
+  /**
+   * Photo fields that print (`printedGalleryKeys`, as the painter decides).
+   * A set whose question was answered No is not in the original, so it is
+   * neither fetched nor counted against the budget.
+   */
+  printedKeys: Set<string>
 }
 
 export type CopyDeps = {
@@ -185,10 +196,11 @@ export async function makeEmailCopy(
 
   // Every picture the report prints, once each. A file used twice is fetched
   // and made once, as the original embedded it once; one that is the cover
-  // anywhere stays full size everywhere.
+  // anywhere stays full size everywhere. A photo in a set that does not print
+  // is left alone: the painter draws nothing of it, here or in the original.
   const covers = new Map<string, boolean>()
   for (const photo of input.photos.gallery) {
-    if (!photo.url) continue
+    if (!photo.url || !input.printedKeys.has(photo.fieldKey)) continue
     const cover = input.coverKeys.has(photo.fieldKey)
     covers.set(photo.url, (covers.get(photo.url) ?? false) || cover)
   }
@@ -271,6 +283,9 @@ export async function makeEmailCopy(
     const atReferenceTier =
       tier.edge === REFERENCE_TIER.edge &&
       tier.quality === REFERENCE_TIER.quality
+    // The floor has nowhere lower to go, so it is finished and weighed rather
+    // than given up on a projection: a report that fits there must be sent.
+    const atFloor = tierIndex === PHOTO_TIERS.length - 1
     stats.tier = tier
     stats.passes++
 
@@ -300,7 +315,8 @@ export async function makeEmailCopy(
       const projected = total * (allShrinkableBytes / doneOriginal)
       if (
         total > photoBudget ||
-        (outputs.size >= PROJECT_AFTER &&
+        (!atFloor &&
+          outputs.size >= PROJECT_AFTER &&
           projected > photoBudget * PROJECT_SLACK)
       ) {
         over = true
@@ -393,9 +409,10 @@ export async function makeEmailCopy(
 
 /**
  * One photo at one tier: upright, scaled down to the tier's edge (never up),
- * and re-encoded. Null when it cannot be read, in which case it goes as it
- * came — a photo is evidence, and one that cannot be made smaller is still
- * sent rather than dropped.
+ * and re-encoded. Null when it cannot be read or made, in which case it goes
+ * as it came — a photo is evidence, and one that cannot be made smaller is
+ * still sent rather than dropped. If none can be made, the copy does not fit
+ * and the send says the report is too large, which is what it is.
  */
 async function shrinkOne(
   original: Uint8Array,
@@ -407,10 +424,17 @@ async function shrinkOne(
   } catch {
     return null
   }
-  const size = fitWithin(pixels.width, pixels.height, tier.edge)
-  const scaled = await resizeRgba(pixels, size.width, size.height)
-  const bytes = await encodeJpeg(scaled, tier.quality)
-  return { bytes, width: pixels.width, height: pixels.height }
+  try {
+    const size = fitWithin(pixels.width, pixels.height, tier.edge)
+    const scaled = await resizeRgba(pixels, size.width, size.height)
+    const bytes = await encodeJpeg(scaled, tier.quality)
+    return { bytes, width: pixels.width, height: pixels.height }
+  } catch (error) {
+    // Unlike a photo that will not decode, this is the codec's fault, and
+    // worth someone's attention.
+    console.warn('emailCopy: a photo could not be re-encoded', message(error))
+    return null
+  }
 }
 
 function kindOf(bytes: Uint8Array): Kind {

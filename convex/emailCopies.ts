@@ -1,6 +1,7 @@
 import { v } from 'convex/values'
 import { internalMutation, internalQuery } from './_generated/server'
 import { RENDER_VERSION } from './reports'
+import { EMAIL_BUDGET_BYTES } from './lib/emailFit'
 import type { Doc, Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
 
@@ -27,21 +28,39 @@ function asCopy(row: Doc<'reportPdfs'>): EmailCopyRow {
   }
 }
 
+/**
+ * How many of a report's files are looked through, newest first. A report
+ * has one per render and a copy per render too big to email — a handful —
+ * so this is a guard, not a limit anyone will meet.
+ */
+const PDF_ROWS = 200
+
+/** A report's files, newest first. */
+function pdfRowsOf(ctx: QueryCtx, reportId: Id<'reports'>) {
+  return ctx.db
+    .query('reportPdfs')
+    .withIndex('by_report', (q) => q.eq('reportId', reportId))
+    .order('desc')
+    .take(PDF_ROWS)
+}
+
+/**
+ * The copy of this original that can still go. One made before the budget
+ * was lowered, and now over it, is passed over rather than attached and
+ * refused on every send forever; a new one is made beside it, and it stays,
+ * as every file someone may have been sent does.
+ */
 async function copyOf(
   ctx: QueryCtx,
   reportId: Id<'reports'>,
   sourceStorageId: Id<'_storage'>,
 ): Promise<Doc<'reportPdfs'> | null> {
-  // A handful of rows per report: one per render, and a copy per render
-  // that was too big to email.
-  const rows = await ctx.db
-    .query('reportPdfs')
-    .withIndex('by_report', (q) => q.eq('reportId', reportId))
-    .collect()
   return (
-    rows.find(
+    (await pdfRowsOf(ctx, reportId)).find(
       (row) =>
-        row.variant === 'email' && row.sourceStorageId === sourceStorageId,
+        row.variant === 'email' &&
+        row.sourceStorageId === sourceStorageId &&
+        row.bytes <= EMAIL_BUDGET_BYTES,
     ) ?? null
   )
 }
@@ -66,12 +85,8 @@ export const rowFor = internalQuery({
     ctx,
     { reportId, storageId },
   ): Promise<Id<'reportPdfs'> | null> => {
-    const rows = await ctx.db
-      .query('reportPdfs')
-      .withIndex('by_report', (q) => q.eq('reportId', reportId))
-      .collect()
     return (
-      rows.find(
+      (await pdfRowsOf(ctx, reportId)).find(
         (row) => row.storageId === storageId && row.variant === undefined,
       )?._id ?? null
     )
