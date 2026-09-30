@@ -5,8 +5,13 @@ import { normaliseAbn } from './lib/abn'
 import { normaliseEmail } from './lib/email'
 import { normalisePhone } from './lib/phone'
 import { edited, setContactPerson } from './clientContacts'
-import { INLINE_LIMIT, decorate as decorateReports } from './reports'
+import {
+  INLINE_LIMIT,
+  decorate as decorateReports,
+  reportChips,
+} from './reports'
 import { isInScope, reportReadable } from './lib/capabilities'
+import type { RowScope } from './lib/capabilities'
 import { clientKind, clientStatus } from './schema'
 import {
   claimClientNumber,
@@ -17,6 +22,8 @@ import {
 import type { Doc, Id } from './_generated/dataModel'
 import type { QueryCtx } from './_generated/server'
 import { requireActor, requireCapability } from './lib/actor'
+import type { ActorEnvelope } from './lib/actor'
+import { intervalOf } from './lib/recurrence'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { redactJobs } from './lib/prices'
 import { unbinned } from './lib/bin'
@@ -301,5 +308,254 @@ export const reports = query({
     // The same decoration the library gives a row, so a report is named the
     // same thing wherever it is listed.
     return decorateReports(ctx, visible)
+  },
+})
+
+/**
+ * The most of a property's visits the client sheet reads: the newest made
+ * first, so what drops off a very long history is its oldest end. Projected
+ * visits are made last, so a recurring client's next six months always fit.
+ */
+export const SUMMARY_VISITS_PER_PROPERTY = 400
+
+/** The same for a property's reports, newest first. */
+export const SUMMARY_REPORTS_PER_PROPERTY = 100
+
+/** Past this, a client's properties are not all summarised (none has come close). */
+const SUMMARY_PROPERTIES = 50
+
+/**
+ * The client, if the caller may see them: null otherwise, as `get` answers,
+ * so one they may not see is indistinguishable from one that is not there.
+ */
+async function visibleClient(
+  ctx: QueryCtx,
+  env: ActorEnvelope,
+  businessId: Id<'businesses'>,
+  clientId: Id<'clients'>,
+) {
+  const client = unbinned(await ctx.db.get(clientId))
+  if (!client || client.businessId !== businessId) return null
+  const visible = await visibleClientIds(ctx, env)
+  return inClientScope(visible, client._id) ? client : null
+}
+
+/**
+ * The client's properties, oldest first — the newest `SUMMARY_PROPERTIES` of
+ * them when there are more, and `capped` to say so.
+ */
+async function propertiesOf(
+  ctx: QueryCtx,
+  businessId: Id<'businesses'>,
+  clientId: Id<'clients'>,
+) {
+  const newest = await ctx.db
+    .query('properties')
+    .withIndex('by_client', (q) => q.eq('clientId', clientId))
+    .order('desc')
+    .filter((q) => q.eq(q.field('deletedAt'), undefined))
+    .take(SUMMARY_PROPERTIES + 1)
+  return {
+    properties: newest
+      .slice(0, SUMMARY_PROPERTIES)
+      .filter((p) => p.businessId === businessId)
+      .reverse(),
+    capped: newest.length > SUMMARY_PROPERTIES,
+  }
+}
+
+/**
+ * Whose rows a scope admits — null for the whole business — so a read can
+ * keep to them before it is cut short: otherwise the rows of people the
+ * caller may not see would fill the window, and "there are more" would count
+ * them.
+ */
+function scopeMembers(scope: RowScope): ReadonlyArray<Id<'memberships'>> | null {
+  if (scope.kind === 'business') return null
+  return scope.kind === 'own' ? [scope.membershipId] : scope.membershipIds
+}
+
+/**
+ * A client's work, for the Jobs tab of their sheet: their properties, the
+ * recurring services at them, and every visit, each cut to what a row shows.
+ *
+ * Raw rather than worked out: which visit is next, what is overdue, what
+ * counts as done are the sheet's to decide (src/lib/clientJobs.ts), against
+ * the day it is where the business is. So nothing here reads the clock, and
+ * the answer only changes when a visit does. No price leaves: the sheet
+ * shows none, so there is nothing to redact.
+ *
+ * Scoped as every job read is: a subcontractor sees their own visits and
+ * services, and counts made from what they see — nor learns of the rest
+ * from the numbers.
+ */
+export const summary = query({
+  args: { businessId: v.id('businesses'), clientId: v.id('clients') },
+  handler: async (ctx, { businessId, clientId }) => {
+    const env = await requireActor(ctx, businessId)
+    if (!(await visibleClient(ctx, env, businessId, clientId))) return null
+    const sites = await propertiesOf(ctx, businessId, clientId)
+    const properties = sites.properties
+    const assignees = scopeMembers(env.scope)
+
+    const perProperty = await Promise.all(
+      properties.map(async (property) => {
+        const [series, jobs] = await Promise.all([
+          ctx.db
+            .query('recurrences')
+            .withIndex('by_property', (q) => q.eq('propertyId', property._id))
+            .filter((q) => q.eq(q.field('deletedAt'), undefined))
+            .take(SUMMARY_PROPERTIES),
+          ctx.db
+            .query('jobs')
+            .withIndex('by_property', (q) => q.eq('propertyId', property._id))
+            .order('desc')
+            .filter((q) =>
+              q.and(
+                q.eq(q.field('deletedAt'), undefined),
+                assignees === null
+                  ? true
+                  : q.or(
+                      ...assignees.map((id) =>
+                        q.eq(q.field('assignedMembershipId'), id),
+                      ),
+                    ),
+              ),
+            )
+            .take(SUMMARY_VISITS_PER_PROPERTY + 1),
+        ])
+        return {
+          series,
+          jobs: jobs.slice(0, SUMMARY_VISITS_PER_PROPERTY),
+          capped: jobs.length > SUMMARY_VISITS_PER_PROPERTY,
+        }
+      }),
+    )
+
+    const series = perProperty
+      .flatMap((p) => p.series)
+      .filter((r) => r.businessId === businessId && isInScope(env.scope, r))
+    const visits = perProperty
+      .flatMap((p) => p.jobs)
+      .filter((j) => j.businessId === businessId && isInScope(env.scope, j))
+
+    // The latest occurrence each running service has used, whoever's visit
+    // it is and whether it is in the Recycle bin: the engine books none of
+    // them again (recurrences.materialiseOne), so when one is next due is
+    // counted from here — a yearly service done early is not due again on
+    // its old date. The newest made are the latest projected.
+    const lastTaken = new Map(
+      await Promise.all(
+        series
+          .filter((r) => r.active)
+          .map(async (r) => {
+            const recent = await ctx.db
+              .query('jobs')
+              .withIndex('by_recurrence', (q) => q.eq('recurrenceId', r._id))
+              .order('desc')
+              .take(20)
+            const taken = recent.map((j) => j.occurrenceAt ?? j.scheduledAt)
+            return [r._id, taken.length > 0 ? Math.max(...taken) : undefined] as const
+          }),
+      ),
+    )
+
+    return {
+      properties: properties.map((p) => ({
+        _id: p._id,
+        addressLine: p.addressLine,
+        suburb: p.suburb,
+      })),
+      series: series.map((r) => ({
+        _id: r._id,
+        jobType: r.jobType,
+        interval: intervalOf(r),
+        active: r.active,
+        propertyId: r.propertyId,
+        assignedMembershipId: r.assignedMembershipId,
+        anchorDate: r.anchorDate,
+        lastTaken: lastTaken.get(r._id),
+      })),
+      visits: visits.map((j) => ({
+        _id: j._id,
+        jobNumber: j.jobNumber,
+        scheduledAt: j.scheduledAt,
+        status: j.status,
+        jobType: j.jobType,
+        propertyId: j.propertyId,
+        recurrenceId: j.recurrenceId,
+        occurrenceAt: j.occurrenceAt,
+        assignedMembershipId: j.assignedMembershipId,
+      })),
+      // Some property's history was longer than was read: the sheet says
+      // its oldest visits are not all shown.
+      capped: perProperty.some((p) => p.capped),
+      // More properties than were read: the sheet says so.
+      sitesCapped: sites.capped,
+    }
+  },
+})
+
+/**
+ * A client's reports, to sit under the visits they came from on the Jobs tab
+ * — kept apart from `summary` because a draft being written saves every few
+ * seconds, and each save would otherwise send every visit again.
+ *
+ * Through the same `reportReadable` gate as every report list, newest first.
+ * Bounded per property; `capped` says when some were left out, and the
+ * sheet points to Reports for them.
+ */
+export const visitReports = query({
+  args: { businessId: v.id('businesses'), clientId: v.id('clients') },
+  handler: async (ctx, { businessId, clientId }) => {
+    const env = await requireActor(ctx, businessId)
+    if (!(await visibleClient(ctx, env, businessId, clientId))) return null
+    const { properties } = await propertiesOf(ctx, businessId, clientId)
+    // Authors whose reports the caller may read (reportReadable): their
+    // scope's, and their own.
+    const scoped = scopeMembers(env.scope)
+    const authors =
+      scoped === null ? null : [...new Set([...scoped, env.actor.real._id])]
+
+    const perProperty = await Promise.all(
+      properties.map((property) =>
+        ctx.db
+          .query('reports')
+          .withIndex('by_property', (q) => q.eq('propertyId', property._id))
+          .order('desc')
+          .filter((q) =>
+            q.and(
+              q.eq(q.field('deletedAt'), undefined),
+              authors === null
+                ? true
+                : q.or(
+                    ...authors.map((id) =>
+                      q.eq(q.field('authorMembershipId'), id),
+                    ),
+                  ),
+            ),
+          )
+          .take(SUMMARY_REPORTS_PER_PROPERTY + 1),
+      ),
+    )
+
+    const readable = perProperty
+      .flatMap((rows) => rows.slice(0, SUMMARY_REPORTS_PER_PROPERTY))
+      .filter(
+        (r) =>
+          r.businessId === businessId &&
+          reportReadable(env.scope, env.actor.real._id, r),
+      )
+      .sort(
+        (a, b) =>
+          (b.finalisedAt ?? b.createdAt) - (a.finalisedAt ?? a.createdAt),
+      )
+
+    return {
+      reports: await reportChips(ctx, readable),
+      capped: perProperty.some(
+        (rows) => rows.length > SUMMARY_REPORTS_PER_PROPERTY,
+      ),
+    }
   },
 })

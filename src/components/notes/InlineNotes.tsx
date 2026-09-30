@@ -1,7 +1,14 @@
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
-import { ArrowUpRight, ChevronDown, ListChecks, Pin, Plus } from 'lucide-react'
+import {
+  ArrowUpRight,
+  ChevronDown,
+  ChevronRight,
+  ListChecks,
+  Pin,
+  Plus,
+} from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { editedLabel } from '#/lib/noteDates'
 import { formatJobDate, todayKey } from '#/lib/format'
@@ -114,6 +121,7 @@ export function InlineNote({
   onToggle,
   showJob = true,
   autoFocus = false,
+  linkJob = false,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
@@ -126,6 +134,8 @@ export function InlineNote({
   /** Just made by a tap on "+ … note": the caret goes to its first line,
    * the title, ready to type. */
   autoFocus?: boolean
+  /** Away from its job (a client's sheet): open, it offers the job itself. */
+  linkJob?: boolean
 }) {
   return (
     <div className="border-b border-hairline-2 last:border-b-0">
@@ -204,6 +214,27 @@ export function InlineNote({
               </Link>
             }
           />
+          {linkJob && note.jobId && note.job && (
+            <Link
+              to="/$businessSlug/schedule"
+              params={{ businessSlug }}
+              search={{
+                date: dayKeyOf(note.job.scheduledAt, timezone),
+                jobId: note.jobId,
+              }}
+              className="mt-1 flex min-h-11 items-center justify-between gap-2 rounded-lg px-1 text-body font-semibold text-blue"
+            >
+              {note.job.jobNumber !== undefined
+                ? `Open job #${note.job.jobNumber}`
+                : 'Open the job'}
+              <ChevronRight
+                aria-hidden
+                size={16}
+                strokeWidth={2.2}
+                className="text-muted-2"
+              />
+            </Link>
+          )}
         </div>
       )}
     </div>

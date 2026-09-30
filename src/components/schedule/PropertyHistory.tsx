@@ -2,16 +2,16 @@ import { useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
-import { ChevronRight, Repeat } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { dayKeyOf, startOfDayInZone } from '../../../convex/lib/dates'
 import { Sheet } from '#/components/primitives/Sheet'
-import { StatusPill } from '#/components/primitives/StatusPill'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 import { NEUTRAL_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { RowPending } from '#/components/shell/Pending'
-import { ReportChip, ReportLine } from '#/components/reports/ReportRows'
-import { formatJobDate, formatTime, todayKey } from '#/lib/format'
+import { ReportLine } from '#/components/reports/ReportRows'
+import { todayKey } from '#/lib/format'
+import { VisitRow } from './VisitRow'
 import { useHydrated } from '#/lib/useHydrated'
 import { historyCard, pastVisits, reportsByVisit } from '#/lib/jobHistory'
 import type { ReactNode } from 'react'
@@ -304,71 +304,6 @@ function AllHistory({
         >
           See all in Reports
         </Link>
-      )}
-    </div>
-  )
-}
-
-function VisitRow({
-  businessSlug,
-  timezone,
-  visit,
-  reports,
-}: {
-  businessSlug: string
-  timezone: string
-  visit: Visit
-  reports: ReadonlyArray<InlineReport>
-}) {
-  const dayKey = dayKeyOf(visit.scheduledAt, timezone)
-  return (
-    <div className="px-3.5 py-2">
-      <Link
-        to="/$businessSlug/schedule"
-        params={{ businessSlug }}
-        search={{ date: dayKey, jobId: visit._id }}
-        className="flex min-h-11 items-center justify-between gap-2"
-      >
-        <span className="min-w-0">
-          <span className="flex items-center gap-1.5 text-body text-ink">
-            <span className="truncate">{visit.jobType}</span>
-            {visit.recurrenceId !== undefined && (
-              <>
-                <Repeat
-                  aria-hidden
-                  size={13}
-                  strokeWidth={2}
-                  className="shrink-0 text-muted"
-                />
-                <span className="sr-only">, recurring</span>
-              </>
-            )}
-          </span>
-          <span className="block truncate text-caption text-muted">
-            {formatJobDate(dayKey, todayKey(timezone))} ·{' '}
-            {formatTime(visit.scheduledAt, timezone)}
-          </span>
-        </span>
-        <span className="flex shrink-0 items-center gap-1">
-          <StatusPill status={visit.status} />
-          <ChevronRight
-            aria-hidden
-            size={16}
-            strokeWidth={2.2}
-            className="text-muted-2"
-          />
-        </span>
-      </Link>
-      {reports.length > 0 && (
-        <div className="mb-0.5 mt-1 flex flex-col gap-1.5">
-          {reports.map((report) => (
-            <ReportChip
-              key={report._id}
-              businessSlug={businessSlug}
-              report={report}
-            />
-          ))}
-        </div>
       )}
     </div>
   )

@@ -566,11 +566,13 @@ src/components/
     WeatherStrip.tsx              per-card forecast: values, never advice
     JobDetailSheet.tsx  LayersPanel.tsx  WeatherBanner.tsx
     PropertyHistory.tsx           a job's History: past visits, each with its report
+    VisitRow.tsx                  a visit in a list, with its report chips
     WeekGrid.tsx                  desktop-only
   dashboard/
     RevenueCard.tsx  MetricCard.tsx  PipelineCard.tsx  FollowUpTasks.tsx
   clients/
     ClientRow.tsx  ClientSheet.tsx  PropertyHistory.tsx
+    ClientJobsTab.tsx             a client's Jobs tab and the at-a-glance strip (clients.summary)
   invoicing/
     InvoiceCard.tsx  XeroRouteRow.tsx  ScopeNotice.tsx
   reports/

@@ -294,7 +294,12 @@ const SITE_NOTE = note(
   '1 Riverside Dr — site access',
   'Gate code 4412 · keys at concierge · bait stations B1–B14 in the car park',
   12,
-  { pinnedAt: Date.now() - 12 * DAY, checklistTotal: 2, checklistDone: 1 },
+  {
+    pinnedAt: Date.now() - 12 * DAY,
+    checklistTotal: 2,
+    checklistDone: 1,
+    propertyId: SITE_A,
+  },
 )
 const CLIENT_NOTE = note(
   'n_client',
@@ -310,7 +315,7 @@ const VISIT_NOTES = [
     'Kitchen closes at 2',
     'Treat the café kitchen after 2 pm only',
     3,
-    { jobId: NEXT_GPC._id },
+    { jobId: NEXT_GPC._id, job: jobLink(NEXT_GPC), propertyId: SITE_A },
   ),
   note(
     'n_visit2',
@@ -392,6 +397,15 @@ export function resolveBusy(fn: string, args: any): unknown {
   switch (fn) {
     case 'clients:get':
       return clientId === BUSY_CLIENT_ID ? BUSY_CLIENT : undefined
+    case 'clients:summary':
+      return clientId === BUSY_CLIENT_ID ? busySummary() : undefined
+    case 'clients:visitReports':
+      return clientId === BUSY_CLIENT_ID
+        ? {
+            reports: BUSY_REPORTS.map((r) => ({ ...r, superseded: false })),
+            capped: false,
+          }
+        : undefined
     case 'clientContacts:list':
       return clientId === BUSY_CLIENT_ID
         ? [
@@ -440,5 +454,36 @@ export function resolveBusy(fn: string, args: any): unknown {
       return jobId === NEXT_GPC._id ? [VISIT_NOTES[0]] : undefined
     default:
       return undefined
+  }
+}
+
+/** `clients.summary` for the busy client: its sites, services and visits. */
+function busySummary() {
+  return {
+    properties: SITES.map((site) => ({
+      _id: site._id,
+      addressLine: site.addressLine,
+      suburb: site.suburb,
+    })),
+    series: BUSY_SERIES.map((series) => ({
+      _id: series._id,
+      jobType: series.jobType,
+      interval: series.interval,
+      active: true,
+      propertyId: series.site,
+      assignedMembershipId: series.who,
+      anchorDate: perthDay(series.start, series.h, series.m),
+    })),
+    visits: BUSY_JOBS.map((job) => ({
+      _id: job._id,
+      jobNumber: job.jobNumber,
+      scheduledAt: job.scheduledAt,
+      status: job.status,
+      jobType: job.jobType,
+      propertyId: job.propertyId,
+      recurrenceId: job.recurrenceId,
+      assignedMembershipId: job.assignedMembershipId,
+    })),
+    capped: false,
   }
 }

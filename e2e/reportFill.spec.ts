@@ -1106,13 +1106,13 @@ test.describe('reports where the work is', () => {
     // Retried for the same reason: at phone width the list is on screen well
     // before its tap handlers are.
     await clickUntil(page.getByText('J. Nguyen').first(), () =>
-      expect(sheet.getByRole('heading', { name: 'Reports' })).toBeVisible({
+      expect(sheet.getByRole('tab', { name: 'Jobs' })).toBeVisible({
         timeout: 3_000,
       }),
     )
-    // The section used to render nothing at all when empty, so a client with
-    // no reports had no heading and no hint that reports exist.
-    await expect(sheet.getByText(/No reports yet/)).toBeVisible()
+    // A client with no reports used to get no heading and no hint that
+    // reports exist. The count under their name says so now (30 Sept 2026).
+    await expect(sheet.getByText('0 reports', { exact: true })).toBeVisible()
   })
 })
 
