@@ -1,5 +1,4 @@
 import { Suspense, lazy, useEffect, useId, useMemo, useRef, useState } from 'react'
-import { flushSync } from 'react-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Link } from '@tanstack/react-router'
@@ -11,7 +10,7 @@ import {
   SheetShell,
   useSheetLock,
 } from '#/components/primitives/Sheet'
-import { Camera, Pencil, Plus, Repeat, Trash2 } from 'lucide-react'
+import { Camera, Pencil, Repeat, Trash2 } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { Combobox } from '#/components/primitives/Combobox'
 import { ContactButtons } from '#/components/primitives/ContactButtons'
@@ -43,7 +42,6 @@ import { dayKeyOf, timeKeyOf, zonedDateTimeToUtc } from '../../../convex/lib/dat
 import { describeInterval, describeRepeat } from '../../../convex/lib/recurrence'
 import type { Interval } from '../../../convex/lib/recurrence'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
-import { MAX_JOB_NOTES_LENGTH } from '../../../convex/lib/jobNotes'
 import { joinJobTypes, splitJobTypes } from '../../../convex/lib/jobTypes'
 import { siteContactOf } from '../../../convex/lib/siteContact'
 import {
@@ -54,7 +52,7 @@ import {
 import type { IntervalDraft } from './RecurrenceFields'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { PRIMARY_BUTTON_COMPACT, SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
-import { FIELD, FIELD_SURFACE } from '#/components/forms/FormField'
+import { FIELD } from '#/components/forms/FormField'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { DeleteButton } from '#/components/primitives/DeleteButton'
 import type { ErrorCopy } from '#/components/forms/describeError'
@@ -206,9 +204,6 @@ function JobDetailBody({
     null,
   )
   const [editing, setEditing] = useState(false)
-  // A note half-written in the Notes section. The job's Edit hides meanwhile:
-  // it swaps that section out for the edit form, and took the note with it.
-  const [writingNote, setWritingNote] = useState(false)
   const [statusOpen, setStatusOpen] = useState(false)
   const statusButton = useRef<HTMLButtonElement>(null)
   const hydrated = useHydrated()
@@ -344,8 +339,7 @@ function JobDetailBody({
             )}
             {job.canEdit &&
               job.status !== 'invoiced' &&
-              !editing &&
-              !writingNote && (
+              !editing && (
               <button
                 type="button"
                 aria-label="Edit job details"
@@ -498,6 +492,23 @@ function JobDetailBody({
                 )}
               </Section>
 
+              {/* Every note, straight after where and who: what to know
+                  before going in, and this visit's own. Its own boundary,
+                  so the rest of the sheet draws while the editor's code
+                  arrives, and in the section's own loading state. */}
+              <Suspense fallback={<SectionLoading label="Notes" />}>
+                <JobNotesSection
+                  businessId={businessId}
+                  businessSlug={businessSlug}
+                  timezone={timezone}
+                  jobId={job._id}
+                  propertyId={job.propertyId}
+                  addressLine={job.property?.addressLine ?? ''}
+                  canWriteVisitNote={job.canEdit}
+                  plainNote={job.notes}
+                />
+              </Suspense>
+
               {/* The client's reference, read out at a site's sign-in desk
                   and needed on the invoice. A business client without one is
                   said so, so a missing PO is noticed before the job is
@@ -519,13 +530,6 @@ function JobDetailBody({
                 <p className="text-metric-sm text-ink">{formatJobMoney(job)}</p>
               </Section>
 
-              <JobNotes
-                businessId={businessId}
-                jobId={job._id}
-                notes={job.notes}
-                canEdit={job.canEdit}
-                onWritingChange={setWritingNote}
-              />
             </>
 
           {/* Weather for this property on this day, not the day in general —
@@ -602,20 +606,6 @@ function JobDetailBody({
             jobType={job.jobType}
             timezone={timezone}
           />
-
-          {/* Its own boundary, so the rest of the sheet draws while the
-              editor's code arrives, and in the sections' own loading state. */}
-          <Suspense
-            fallback={<SectionLoading label="Before you arrive" />}
-          >
-            <JobNotesSection
-              businessId={businessId}
-              businessSlug={businessSlug}
-              timezone={timezone}
-              propertyId={job.propertyId}
-              addressLine={job.property?.addressLine ?? ''}
-            />
-          </Suspense>
 
           <JobPhotos businessId={businessId} jobId={job._id} canEdit={job.canEdit} />
 
@@ -1631,208 +1621,6 @@ function JobPhotos({
       )}
     </Section>
   )
-}
-
-/**
- * The job's own note — "tenant home after 10, ring first", "bring the long
- * ladder" — asked for by the business on 29 Sept 2026, for when they "must
- * add a note". Written in place with its own Save, so adding one is not
- * editing the job.
- *
- * Not a Notes library note: those are a personal notebook, and a site's
- * standing knowledge is "Before you arrive" further down. This is about this
- * visit, is read by whoever can see the job, and stays open on an invoiced
- * job, since the invoice does not carry it (jobs.update).
- */
-function JobNotes({
-  businessId,
-  jobId,
-  notes,
-  canEdit,
-  onWritingChange,
-}: {
-  businessId: Id<'businesses'>
-  jobId: Id<'jobs'>
-  notes: string | undefined
-  canEdit: boolean
-  /** Told when the editor opens and shuts, so the sheet can keep its Edit
-   * from taking the section away with a note half-written. */
-  onWritingChange: (writing: boolean) => void
-}) {
-  const [editing, setEditing] = useState(false)
-  const [draft, setDraft] = useState('')
-  // The note as it was when the editor opened. `notes` is live, so a change
-  // someone else makes meanwhile shows up here, and is said before Save
-  // replaces it.
-  const [opened, setOpened] = useState('')
-  const input = useRef<HTMLTextAreaElement>(null)
-  const opener = useRef<HTMLButtonElement>(null)
-  const hydrated = useHydrated()
-
-  // Written in place, so the sheet is locked while it is open, and asks
-  // before a close throws away what has been typed.
-  useSheetLock(editing && draft.trim() !== opened.trim(), {
-    whileUnchanged: editing,
-  })
-
-  useEffect(() => {
-    onWritingChange(editing)
-  }, [editing, onWritingChange])
-  useEffect(() => () => onWritingChange(false), [onWritingChange])
-
-  /** Back to reading, with focus on the button that opened the editor. */
-  function finish() {
-    flushSync(() => setEditing(false))
-    opener.current?.focus()
-  }
-
-  const convexUpdate = useConvexMutation(api.jobs.update)
-  const save = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      jobId: Id<'jobs'>
-      notes: string
-    }) => convexUpdate(args),
-    onSuccess: finish,
-  })
-
-  // Nothing to show someone who may not write one.
-  if (!notes && !canEdit) return null
-
-  function start() {
-    save.reset()
-    // Rendered now, and focused while the tap is still being handled: iOS
-    // raises the keyboard only for a focus the tap itself makes.
-    flushSync(() => {
-      setDraft(notes ?? '')
-      setOpened(notes ?? '')
-      setEditing(true)
-    })
-    const box = input.current
-    if (!box) return
-    box.focus()
-    // At the end, where "and bring the ladder" is added; a browser puts it
-    // at the start.
-    box.setSelectionRange(box.value.length, box.value.length)
-  }
-
-  const written = draft.trim()
-  // Someone else's change, not this save's own arriving back.
-  const changedMeanwhile =
-    (notes ?? '') !== opened && (notes ?? '') !== written
-
-  return (
-    <Section label="Notes">
-      {editing ? (
-        <form
-          onSubmit={(e) => {
-            e.preventDefault()
-            // Nothing changed here: nothing is sent, so opening and saving a
-            // note cannot put back one someone else has changed since.
-            if (written === opened) {
-              finish()
-              return
-            }
-            // '' takes the note off.
-            save.mutate({ businessId, jobId, notes: written })
-          }}
-        >
-          <textarea
-            ref={input}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            maxLength={MAX_JOB_NOTES_LENGTH}
-            rows={4}
-            autoCapitalize="sentences"
-            aria-label="Note for this job"
-            aria-describedby="job-notes-who"
-            placeholder="e.g. Tenant home after 10 — ring first"
-            className={`${FIELD_SURFACE} w-full py-3 leading-relaxed`}
-          />
-          <p id="job-notes-who" className="mt-1.5 text-caption text-grey-ink">
-            Everyone who can see this job can read it.
-          </p>
-          {changedMeanwhile && (
-            <p role="alert" className="mt-1.5 text-caption text-amber-ink">
-              Someone changed this note while you were writing. Saving
-              replaces their version — Cancel to read it first.
-            </p>
-          )}
-          <FormAlert
-            className="mt-2"
-            error={save.isError ? save.error : null}
-            copy={NOTES_COPY}
-          />
-          <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              // Not while it saves: the editor would close and the save land
-              // anyway, a cancel that did not cancel.
-              disabled={save.isPending}
-              onClick={() => {
-                save.reset()
-                finish()
-              }}
-              className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={save.isPending || !hydrated}
-              className={`${PRIMARY_BUTTON_COMPACT} flex-1`}
-            >
-              {save.isPending ? 'Saving…' : 'Save'}
-            </button>
-          </div>
-        </form>
-      ) : notes ? (
-        <>
-          <p className="select-text whitespace-pre-wrap break-words text-body text-ink">
-            {notes}
-          </p>
-          {canEdit && (
-            <button
-              ref={opener}
-              type="button"
-              disabled={!hydrated}
-              onClick={start}
-              className="relative tap-target mt-3 inline-flex items-center gap-1 text-caption font-semibold text-blue disabled:opacity-50"
-            >
-              <Pencil size={13} strokeWidth={2} />
-              Edit note
-            </button>
-          )}
-        </>
-      ) : (
-        <>
-          <p className="text-body text-muted">
-            Anything about this visit — when the tenant is home, what to bring.
-          </p>
-          <button
-            ref={opener}
-            type="button"
-            disabled={!hydrated}
-            onClick={start}
-            className="relative tap-target mt-3 inline-flex items-center gap-1 text-body font-semibold text-blue disabled:opacity-50"
-          >
-            <Plus size={16} strokeWidth={2.2} />
-            Add a note
-          </button>
-        </>
-      )}
-    </Section>
-  )
-}
-
-/** Saving a job's note, refused — in words. What was typed stays in the box. */
-const NOTES_COPY: ErrorCopy = {
-  NOTES_TOO_LONG: `Could not save the note: it is longer than ${MAX_JOB_NOTES_LENGTH} characters. Shorten it and try again.`,
-  NO_ACCESS:
-    'Could not save the note: your access does not cover this job. Ask the business owner.',
-  NOT_FOUND:
-    'Could not save the note: this job has changed since you opened it. Close it and look again.',
-  default: 'Could not save the note. Check your signal and try again.',
 }
 
 function Section({

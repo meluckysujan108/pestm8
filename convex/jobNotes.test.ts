@@ -7,9 +7,11 @@ import type { Id } from './_generated/dataModel'
 import type { TestActor, TestApp } from '../test/harness'
 
 /**
- * A job's own note, and a job for several services — the two things a
- * business asked for on 29 Sept 2026: "we do general pest with termites and
- * rodents", and somewhere small on the job to write "if I must add a note".
+ * A job's note, and a job for several services — the two things a business
+ * asked for on 29 Sept 2026: "we do general pest with termites and rodents",
+ * and somewhere on the job to write "if I must add a note". Since 30 Sept a
+ * job's note is a note in Notes (`insertJobNote`), in one place with the
+ * site's.
  */
 
 const DAY = 24 * 60 * 60 * 1000
@@ -97,7 +99,26 @@ function book(
   })
 }
 
-async function stored(s: Setup, jobId: Id<'jobs'>) {
+/** The job's notes in Notes, as their title and first lines. */
+async function notesOn(s: Setup, jobId: Id<'jobs'>) {
+  const notes = await s.t.run((ctx) =>
+    ctx.db
+      .query('notes')
+      .withIndex('by_job', (q) => q.eq('jobId', jobId))
+      .collect(),
+  )
+  return notes.map((n) => ({
+    title: n.title,
+    preview: n.preview,
+    author: n.authorMembershipId,
+    propertyId: n.propertyId,
+    clientId: n.clientId,
+    shared: n.visibility === undefined,
+  }))
+}
+
+/** The plain note a job carried before job notes were Notes. */
+async function plain(s: Setup, jobId: Id<'jobs'>) {
   const job = await s.t.run((ctx) => ctx.db.get(jobId))
   return job!.notes
 }
@@ -113,21 +134,35 @@ async function visitsOf(s: Setup, recurrenceId: Id<'recurrences'>) {
 }
 
 describe('booking a job with a note', () => {
-  test('keeps its lines, without the space around it', async () => {
+  test('makes it a note in Notes on the job, by whoever booked, first line its title', async () => {
     const s = await setup()
     const jobId = await book(s, {
       notes: '  Tenant home after 10.\r\nSide gate code 4411.  ',
     })
-    expect(await stored(s, jobId)).toBe(
-      'Tenant home after 10.\nSide gate code 4411.',
+    const clientId = await s.t.run(
+      async (ctx) => (await ctx.db.get(s.propertyId))!.clientId,
     )
+    expect(await notesOn(s, jobId)).toEqual([
+      {
+        title: 'Tenant home after 10.',
+        preview: 'Side gate code 4411.',
+        author: s.ownerMembershipId,
+        // Linked to the site and client too, so it is on the client's
+        // sheet and in Notes → Jobs.
+        propertyId: s.propertyId,
+        clientId,
+        shared: true,
+      },
+    ])
+    // Nothing is left on the job itself.
+    expect(await plain(s, jobId)).toBeUndefined()
   })
 
-  test('a blank one is no note at all, not an empty string', async () => {
+  test('a blank one is no note at all', async () => {
     const s = await setup()
-    expect(await stored(s, await book(s, { notes: ' \n ' }))).toBeUndefined()
-    expect(await stored(s, await book(s, { notes: '' }))).toBeUndefined()
-    expect(await stored(s, await book(s))).toBeUndefined()
+    for (const notes of [' \n ', '', undefined]) {
+      expect(await notesOn(s, await book(s, { notes }))).toEqual([])
+    }
   })
 
   test('one longer than a note is refused, and books nothing', async () => {
@@ -136,22 +171,113 @@ describe('booking a job with a note', () => {
     await expect(
       book(s, { notes: 'x'.repeat(MAX_JOB_NOTES_LENGTH + 1) }),
     ).rejects.toThrow(/NOTES_TOO_LONG/)
-    const jobs = await s.t.run((ctx) => ctx.db.query('jobs').collect())
+    const [jobs, notes] = await s.t.run(async (ctx) => [
+      await ctx.db.query('jobs').collect(),
+      await ctx.db.query('notes').collect(),
+    ])
     expect(jobs).toHaveLength(1)
+    expect(notes).toHaveLength(1)
   })
 
-  test('the technician the job is for reads it on the job', async () => {
+  test('the technician the job is for reads it on the job, and on its card', async () => {
     const s = await setup()
-    const jobId = await book(s, { notes: 'Dog in the back yard.' })
-    const job = await s.kevin.as.query(api.jobs.get, {
+    const jobId = await book(s, {
+      notes: 'Dog in the back yard.\nBring the ladder.',
+    })
+    const onJob = await s.kevin.as.query(api.notes.listForJob, {
       businessId: s.businessId,
       jobId,
     })
-    expect(job?.notes).toBe('Dog in the back yard.')
+    expect(onJob.map((n) => n.title)).toEqual(['Dog in the back yard.'])
+
+    const job = await s.t.run((ctx) => ctx.db.get(jobId))
+    const day = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Australia/Perth',
+    }).format(new Date(job!.scheduledAt))
+    const card = await s.kevin.as.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: day,
+    })
+    expect(card.find((j) => j._id === jobId)?.notePreview).toBe(
+      'Dog in the back yard. · Bring the ladder.',
+    )
   })
 })
 
-describe('changing a job’s note', () => {
+describe('a job’s notes after the booking', () => {
+  test('go with the job when it is moved to another site and client', async () => {
+    const s = await setup()
+    const jobId = await book(s, { notes: 'Tenant home after 10.' })
+    const other = await s.t.run(async (ctx) => {
+      const now = Date.now()
+      const clientId = await ctx.db.insert('clients', {
+        businessId: s.businessId,
+        kind: 'person',
+        name: 'Bob Oak',
+        createdAt: now,
+        updatedAt: now,
+      })
+      const propertyId = await ctx.db.insert('properties', {
+        businessId: s.businessId,
+        clientId,
+        addressLine: '3 Oak Street',
+        suburb: 'Bayswater',
+        state: 'WA',
+        postcode: '6053',
+        createdAt: now,
+      })
+      return { clientId, propertyId }
+    })
+    await s.owner.as.mutation(api.jobs.update, {
+      businessId: s.businessId,
+      jobId,
+      propertyId: other.propertyId,
+    })
+    expect(await notesOn(s, jobId)).toEqual([
+      expect.objectContaining({
+        propertyId: other.propertyId,
+        clientId: other.clientId,
+      }),
+    ])
+    const oldSite = await s.owner.as.query(api.notes.listForProperty, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    expect(oldSite.visits).toEqual([])
+    const newSite = await s.owner.as.query(api.notes.listForProperty, {
+      businessId: s.businessId,
+      propertyId: other.propertyId,
+    })
+    expect(newSite.visits.map((n) => n.title)).toEqual([
+      'Tenant home after 10.',
+    ])
+  })
+
+  test('an empty note begun on the job never hides the one that says something', async () => {
+    const s = await setup()
+    const jobId = await book(s, { notes: 'Ring first.' })
+    // "+ Visit note", then nothing typed.
+    await s.owner.as.mutation(api.notes.create, {
+      businessId: s.businessId,
+      template: 'blank',
+      title: '',
+      jobId,
+    })
+    const job = await s.t.run((ctx) => ctx.db.get(jobId))
+    const day = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Australia/Perth',
+    }).format(new Date(job!.scheduledAt))
+    const card = await s.owner.as.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: day,
+    })
+    expect(card.find((j) => j._id === jobId)?.notePreview).toBe('Ring first.')
+  })
+})
+
+describe('an older app still changing a job’s plain note', () => {
+  // `jobs.update` keeps taking `notes` until the contract step, for a phone
+  // still running the app from before job notes were Notes.
   test('sets, replaces and clears it; leaving it out leaves it alone', async () => {
     const s = await setup()
     const jobId = await book(s)
@@ -163,49 +289,54 @@ describe('changing a job’s note', () => {
       })
 
     await update({ notes: 'Ring first.' })
-    expect(await stored(s, jobId)).toBe('Ring first.')
+    expect(await plain(s, jobId)).toBe('Ring first.')
 
     await update({ notes: ' Ring first. Bring the long ladder. ' })
-    expect(await stored(s, jobId)).toBe('Ring first. Bring the long ladder.')
+    expect(await plain(s, jobId)).toBe('Ring first. Bring the long ladder.')
 
     await update({ durationMinutes: 90 })
-    expect(await stored(s, jobId)).toBe('Ring first. Bring the long ladder.')
+    expect(await plain(s, jobId)).toBe('Ring first. Bring the long ladder.')
 
     await update({ notes: '' })
     const cleared = await s.t.run((ctx) => ctx.db.get(jobId))
     expect(cleared).not.toHaveProperty('notes')
   })
 
-  test('the technician the job is for may write one', async () => {
+  test('the card falls back to it until it is moved into Notes', async () => {
     const s = await setup()
     const jobId = await book(s)
-    await s.kevin.as.mutation(api.jobs.update, {
-      businessId: s.businessId,
-      jobId,
-      notes: 'Client paid cash on the day.',
-    })
-    expect(await stored(s, jobId)).toBe('Client paid cash on the day.')
-  })
-
-  test('stays open once the job is invoiced, while its billed details lock', async () => {
-    const s = await setup()
-    const jobId = await book(s, { notes: 'Ring first.' })
-    await s.owner.as.mutation(api.jobs.update, {
-      businessId: s.businessId,
-      jobId,
-      status: 'invoiced',
-    })
-
-    // The invoice does not carry the note, so writing after it contradicts
-    // nothing.
     await s.owner.as.mutation(api.jobs.update, {
       businessId: s.businessId,
       jobId,
       notes: 'Paid cash on the day.',
     })
-    expect(await stored(s, jobId)).toBe('Paid cash on the day.')
+    const job = await s.t.run((ctx) => ctx.db.get(jobId))
+    const day = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Australia/Perth',
+    }).format(new Date(job!.scheduledAt))
+    const card = await s.owner.as.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: day,
+    })
+    expect(card.find((j) => j._id === jobId)?.notePreview).toBe(
+      'Paid cash on the day.',
+    )
+  })
 
-    // Anything the invoice does carry is still refused, note or no note.
+  test('stays open once the job is invoiced, while its billed details lock', async () => {
+    const s = await setup()
+    const jobId = await book(s)
+    await s.owner.as.mutation(api.jobs.update, {
+      businessId: s.businessId,
+      jobId,
+      status: 'invoiced',
+    })
+    await s.owner.as.mutation(api.jobs.update, {
+      businessId: s.businessId,
+      jobId,
+      notes: 'Paid cash on the day.',
+    })
+    expect(await plain(s, jobId)).toBe('Paid cash on the day.')
     for (const detail of [
       { price: 1 },
       { jobType: 'Ants' },
@@ -222,13 +353,12 @@ describe('changing a job’s note', () => {
         }),
       ).rejects.toThrow(/JOB_INVOICED/)
     }
-    expect(await stored(s, jobId)).toBe('Paid cash on the day.')
+    expect(await plain(s, jobId)).toBe('Paid cash on the day.')
   })
 
   test('someone who may not edit the job may not write on it', async () => {
     const s = await setup()
-    const jobId = await book(s, { notes: 'Ring first.' })
-    // Another subcontractor, whose job this is not.
+    const jobId = await book(s)
     const priya = await createActor(s.t, { email: 'priya@coastal.test' })
     await join(s.t, s.owner, priya, s.businessId)
     await expect(
@@ -238,20 +368,64 @@ describe('changing a job’s note', () => {
         notes: 'Not mine to say.',
       }),
     ).rejects.toThrow(/NO_ACCESS|NOT_FOUND/)
-    expect(await stored(s, jobId)).toBe('Ring first.')
+    expect(await plain(s, jobId)).toBeUndefined()
+  })
+})
+
+describe('moving plain notes into Notes (migrations/jobNotesToNotesV1)', () => {
+  test('each becomes a note in Notes on its job, the owner’s, and leaves the job', async () => {
+    const s = await setup()
+    const withNote = await book(s)
+    const without = await book(s)
+    await s.t.run((ctx) =>
+      ctx.db.patch(withNote, { notes: 'Tenant home after 10.\nRing first.' }),
+    )
+
+    await s.t.mutation(internal.migrations.jobNotesToNotesV1.backfillAll, {
+      cursor: null,
+    })
+    // Running it again moves nothing twice.
+    await s.t.mutation(internal.migrations.jobNotesToNotesV1.backfillAll, {
+      cursor: null,
+    })
+
+    expect(await notesOn(s, withNote)).toEqual([
+      expect.objectContaining({
+        title: 'Tenant home after 10.',
+        preview: 'Ring first.',
+        author: s.ownerMembershipId,
+        shared: true,
+      }),
+    ])
+    expect(await plain(s, withNote)).toBeUndefined()
+    expect(await notesOn(s, without)).toEqual([])
   })
 
-  test('an over-long one is refused here too', async () => {
+  test('a job in the Recycle bin keeps its note in the bin with it', async () => {
     const s = await setup()
-    const jobId = await book(s, { notes: 'Ring first.' })
-    await expect(
-      s.owner.as.mutation(api.jobs.update, {
-        businessId: s.businessId,
-        jobId,
-        notes: 'x'.repeat(MAX_JOB_NOTES_LENGTH + 1),
-      }),
-    ).rejects.toThrow(/NOTES_TOO_LONG/)
-    expect(await stored(s, jobId)).toBe('Ring first.')
+    const jobId = await book(s)
+    await s.t.run((ctx) => ctx.db.patch(jobId, { notes: 'Dog in the yard.' }))
+    await s.owner.as.mutation(api.bin.deleteJob, {
+      businessId: s.businessId,
+      jobId,
+    })
+    const binned = await s.t.run((ctx) => ctx.db.get(jobId))
+    expect(binned?.binEntryId).toBeDefined()
+
+    await s.t.mutation(internal.migrations.jobNotesToNotesV1.backfillAll, {
+      cursor: null,
+    })
+    const note = await s.t.run((ctx) =>
+      ctx.db
+        .query('notes')
+        .withIndex('by_job', (q) => q.eq('jobId', jobId))
+        .unique(),
+    )
+    expect(note).toMatchObject({
+      title: 'Dog in the yard.',
+      deletedAt: binned!.deletedAt,
+      binEntryId: binned!.binEntryId,
+    })
   })
 })
 
@@ -271,41 +445,44 @@ describe('a Recurring Job booked with a note', () => {
     })
   }
 
-  test('puts it on the first visit, the one booked by hand, and no other', async () => {
+  async function notedVisits(s: Setup, recurrenceId: Id<'recurrences'>) {
+    const visits = await visitsOf(s, recurrenceId)
+    const noted = []
+    for (const visit of visits) {
+      const notes = await notesOn(s, visit._id)
+      if (notes.length > 0) noted.push({ visit, notes })
+    }
+    return { visits, noted }
+  }
+
+  test('puts it in Notes on the first visit, the one booked by hand, and no other', async () => {
     const s = await setup()
-    const visits = await visitsOf(
+    const { visits, noted } = await notedVisits(
       s,
       await series(s, Date.now() + DAY, ' Key under the mat. '),
     )
     expect(visits.length).toBeGreaterThan(1)
     expect(visits[0].status).toBe('pending')
-    expect(visits[0].notes).toBe('Key under the mat.')
-    for (const visit of visits.slice(1)) {
-      expect(visit).not.toHaveProperty('notes')
-    }
+    expect(noted.map((n) => n.visit._id)).toEqual([visits[0]._id])
+    expect(noted[0].notes[0]).toMatchObject({
+      title: 'Key under the mat.',
+      author: s.ownerMembershipId,
+    })
+    for (const visit of visits) expect(visit).not.toHaveProperty('notes')
   })
 
   test('starting in the past, it goes on the first visit that is booked', async () => {
     const s = await setup()
-    // No visit is invented for a date already missed (isBackfill), so the
-    // first real visit is the first one projected.
-    const visits = await visitsOf(
+    const { visits, noted } = await notedVisits(
       s,
       await series(s, Date.now() - 40 * DAY, 'Key under the mat.'),
     )
     expect(visits.length).toBeGreaterThan(1)
-    expect(visits.filter((v) => v.notes !== undefined)).toEqual([
-      expect.objectContaining({
-        _id: visits[0]._id,
-        notes: 'Key under the mat.',
-      }),
-    ])
+    expect(noted.map((n) => n.visit._id)).toEqual([visits[0]._id])
   })
 
-  test('with no visit inside the horizon yet, it waits for the first one booked', async () => {
+  test('with no visit inside the horizon yet, it waits, then is the booker’s note on the first one booked', async () => {
     const s = await setup()
-    // A yearly inspection entered a month after the last one: its next visit
-    // is eleven months out, past the horizon, so nothing is booked yet.
     const recurrenceId = await s.owner.as.mutation(api.recurrences.create, {
       businessId: s.businessId,
       propertyId: s.propertyId,
@@ -320,10 +497,11 @@ describe('a Recurring Job booked with a note', () => {
     })
     expect(await visitsOf(s, recurrenceId)).toHaveLength(0)
     const waiting = await s.t.run((ctx) => ctx.db.get(recurrenceId))
-    expect(waiting?.firstVisitNotes).toBe('Key under the mat.')
+    expect(waiting).toMatchObject({
+      firstVisitNotes: 'Key under the mat.',
+      firstVisitNotesBy: s.ownerMembershipId,
+    })
 
-    // Months on, the nightly run books the visit — with the note — and a
-    // second run books nothing and copies it nowhere else.
     vi.useFakeTimers()
     try {
       vi.setSystemTime(Date.now() + 200 * DAY)
@@ -332,11 +510,18 @@ describe('a Recurring Job booked with a note', () => {
     } finally {
       vi.useRealTimers()
     }
-    const visits = await visitsOf(s, recurrenceId)
+    const { visits, noted } = await notedVisits(s, recurrenceId)
     expect(visits).toHaveLength(1)
-    expect(visits[0].notes).toBe('Key under the mat.')
+    expect(noted).toHaveLength(1)
+    expect(noted[0].notes).toEqual([
+      expect.objectContaining({
+        title: 'Key under the mat.',
+        author: s.ownerMembershipId,
+      }),
+    ])
     const after = await s.t.run((ctx) => ctx.db.get(recurrenceId))
     expect(after).not.toHaveProperty('firstVisitNotes')
+    expect(after).not.toHaveProperty('firstVisitNotesBy')
   })
 
   test('one too long is refused, and no series or visit is made', async () => {

@@ -1,69 +1,257 @@
 import { useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { ChevronDown, Plus } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
-import { InlineNotesSection, useMentionRoster } from './InlineNotes'
+import { InlineNote, useMentionRoster } from './InlineNotes'
+import { useHydrated } from '#/lib/useHydrated'
+import { RowPending } from '#/components/shell/Pending'
+import { LoadFailed } from '#/components/primitives/EmptyState'
+import type { ReactNode } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
+import type { DecoratedNote } from '../../../convex/notes'
 
 /**
- * What the team already knows about this site and client, read before
- * turning up ("Before you arrive").
+ * Every note a visit needs, in one card near the top of the job: what the
+ * team knows about the site and the client ("Before you arrive", pinned
+ * first), then this visit's own notes, then — a tap away — what was written
+ * on the site's other visits.
  *
- * The job sheet used to add "Notes for this visit" below it. The owner asked
- * for it gone (Phase 5.3): the Notes section is now mainly personal notes,
- * and site notes are what a job needs in front of it. Notes already attached
- * to a visit are kept — they are in Notes → Jobs, in search, and on the
- * client's sheet.
+ * All of them are notes in Notes, written in the same editor and shown on the
+ * client's sheet, in Notes → Jobs and in search. The job used to carry a
+ * plain-text note of its own beside this (29 Sept 2026), in another place
+ * and another box, found nowhere else; the business asked for one place
+ * (30 Sept 2026), and `insertJobNote` now turns a note typed in New Job into
+ * one of these.
  */
 export function JobNotesSection({
   businessId,
   businessSlug,
   timezone,
+  jobId,
   propertyId,
   addressLine,
+  canWriteVisitNote,
+  plainNote,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
   timezone: string
+  jobId: Id<'jobs'>
   propertyId: Id<'properties'>
   addressLine: string
+  /** Whoever may edit the job: a visit note is linked to it, and linking is
+   * refused to anyone else (notes.create). A site note is anyone's. */
+  canWriteVisitNote: boolean
+  /** The job's plain note, written by an app from before job notes were
+   * Notes and not yet moved (migrations/jobNotesToNotesV1): shown, read
+   * only, so it is not lost from sight meanwhile. */
+  plainNote?: string
 }) {
   const [openId, setOpenId] = useState<Id<'notes'> | null>(null)
+  // The note just made, whose first line takes the caret as it opens.
+  const [createdId, setCreatedId] = useState<Id<'notes'> | null>(null)
+  const [showOthers, setShowOthers] = useState(false)
   const members = useMentionRoster(businessId)
+  const hydrated = useHydrated()
 
-  const contextQuery = useQuery(
+  const siteQuery = useQuery(
     convexQuery(api.notes.listForProperty, { businessId, propertyId }),
   )
-  const context = contextQuery.data
+  // This visit's own, by the job itself: never cut off by the site's window
+  // of recent visit notes, and never lost to a site the job has moved from.
+  const jobQuery = useQuery(
+    convexQuery(api.notes.listForJob, { businessId, jobId }),
+  )
+  const standing = siteQuery.data?.site
+  const thisVisit = jobQuery.data
+  const others = siteQuery.data?.visits.filter((note) => note.jobId !== jobId)
+  const failed = siteQuery.isError || jobQuery.isError
 
   const convexCreate = useConvexMutation(api.notes.create)
   const create = useMutation({
-    mutationFn: () =>
-      convexCreate({
-        businessId,
-        template: 'siteAccess',
-        title: addressLine,
-        propertyId,
-      }),
-    onSuccess: (id) => setOpenId(id),
+    mutationFn: (link: 'visit' | 'site') =>
+      link === 'visit'
+        ? convexCreate({ businessId, template: 'blank', title: '', jobId })
+        : convexCreate({
+            businessId,
+            template: 'siteAccess',
+            title: addressLine,
+            propertyId,
+          }),
+    // Opened as it is made, the caret on its first line, so the first thing
+    // typed is its title.
+    onSuccess: (id) => {
+      setCreatedId(id)
+      setOpenId(id)
+    },
   })
 
-  return (
-    <InlineNotesSection
+  const row = (note: DecoratedNote, showJob: boolean) => (
+    <InlineNote
+      key={note._id}
       businessId={businessId}
       businessSlug={businessSlug}
       timezone={timezone}
-      label="Before you arrive"
-      notes={context?.site}
-      failed={contextQuery.isError}
-      onRetry={() => void contextQuery.refetch()}
+      note={note}
       members={members}
-      empty="Nothing on file for this site yet — gate code, dog, where the key lives."
-      addLabel="Site note"
-      adding={create.isPending}
-      onAdd={() => create.mutate()}
-      openId={openId}
-      onOpen={setOpenId}
+      showJob={showJob}
+      autoFocus={createdId === note._id}
+      open={openId === note._id}
+      onToggle={() => {
+        // Opened again later, a note keeps the caret where the person puts it.
+        setCreatedId(null)
+        setOpenId(openId === note._id ? null : note._id)
+      }}
     />
+  )
+
+  return (
+    <section className="mt-6">
+      <h3 className="section-label mb-2">Notes</h3>
+      <div className="overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
+        {(standing === undefined || thisVisit === undefined) && failed ? (
+          <div className="p-2">
+            <LoadFailed
+              what="the notes"
+              onRetry={() => {
+                void siteQuery.refetch()
+                void jobQuery.refetch()
+              }}
+            />
+          </div>
+        ) : standing === undefined ||
+          thisVisit === undefined ||
+          others === undefined ? (
+          <RowPending label="Loading notes" />
+        ) : (
+          <>
+            <Group label="Before you arrive · every visit here">
+              {standing.length > 0 ? (
+                standing.map((note) => row(note, true))
+              ) : (
+                <Empty>
+                  Nothing on file for this site yet — gate code, dog, where the
+                  key lives.
+                </Empty>
+              )}
+            </Group>
+
+            <Group label="This visit">
+              {plainNote && (
+                <div className="px-3.5 py-2.5">
+                  <p className="select-text whitespace-pre-wrap break-words text-body text-ink">
+                    {plainNote}
+                  </p>
+                  <p className="mt-0.5 text-caption text-muted">
+                    Written in an earlier version of PestM8.
+                  </p>
+                </div>
+              )}
+              {thisVisit.length > 0
+                ? thisVisit.map((note) => row(note, false))
+                : !plainNote && (
+                    <Empty>
+                      Anything about this visit — when the tenant is home, what
+                      to bring.
+                    </Empty>
+                  )}
+            </Group>
+
+            {others.length > 0 && (
+              <div className="border-t border-hairline-2">
+                {/* One button that stays, so focus has somewhere to be. */}
+                <button
+                  type="button"
+                  aria-expanded={showOthers}
+                  onClick={() => setShowOthers((shown) => !shown)}
+                  className="flex min-h-11 w-full items-center justify-between px-3.5 text-left text-body font-semibold text-blue"
+                >
+                  Other visits here · {others.length}
+                  <ChevronDown
+                    aria-hidden
+                    size={16}
+                    strokeWidth={2.2}
+                    className={`text-muted-2 transition-transform ${showOthers ? 'rotate-180' : ''}`}
+                  />
+                </button>
+                {showOthers && (
+                  <div className="divide-y divide-hairline-2 border-t border-hairline-2">
+                    {others.map((note) => row(note, true))}
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        <div
+          className={`grid border-t border-hairline ${canWriteVisitNote ? 'grid-cols-2' : 'grid-cols-1'}`}
+        >
+          {canWriteVisitNote && (
+            <AddButton
+              label="Add a visit note"
+              disabled={!hydrated || create.isPending}
+              onClick={() => create.mutate('visit')}
+              divider
+            >
+              Visit note
+            </AddButton>
+          )}
+          <AddButton
+            label="Add a site note"
+            disabled={!hydrated || create.isPending}
+            onClick={() => create.mutate('site')}
+          >
+            Site note
+          </AddButton>
+        </div>
+      </div>
+      {create.isError && (
+        <p role="alert" className="mt-2 text-caption text-amber-ink">
+          Could not add the note. Check your signal and try again.
+        </p>
+      )}
+    </section>
+  )
+}
+
+function Group({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="border-t border-hairline-2 first:border-t-0">
+      <h4 className="section-label px-3.5 pb-1 pt-3">{label}</h4>
+      <div className="divide-y divide-hairline-2">{children}</div>
+    </div>
+  )
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return <p className="px-3.5 pb-3 text-body text-muted">{children}</p>
+}
+
+function AddButton({
+  label,
+  children,
+  onClick,
+  disabled,
+  divider = false,
+}: {
+  label: string
+  children: ReactNode
+  onClick: () => void
+  disabled: boolean
+  divider?: boolean
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      onClick={onClick}
+      className={`flex min-h-11 items-center justify-center gap-1 text-body font-semibold text-blue disabled:opacity-50 ${divider ? 'border-r border-hairline' : ''}`}
+    >
+      <Plus aria-hidden size={16} strokeWidth={2.2} />
+      {children}
+    </button>
   )
 }

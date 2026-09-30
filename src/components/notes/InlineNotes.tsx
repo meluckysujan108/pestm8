@@ -4,6 +4,8 @@ import { Link } from '@tanstack/react-router'
 import { ArrowUpRight, ChevronDown, ListChecks, Pin, Plus } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { editedLabel } from '#/lib/noteDates'
+import { formatJobDate, todayKey } from '#/lib/format'
+import { dayKeyOf } from '../../../convex/lib/dates'
 import { useHydrated } from '#/lib/useHydrated'
 import { personLabel } from '#/lib/assignees'
 import { NoteEditor } from './NoteEditor'
@@ -97,7 +99,12 @@ export function InlineNotesSection({
   )
 }
 
-function InlineNote({
+/**
+ * One note as a row that opens in place into the synced editor. A note on a
+ * job says which visit it was written on, unless it is shown on that visit's
+ * own sheet (`showJob` false).
+ */
+export function InlineNote({
   businessId,
   businessSlug,
   timezone,
@@ -105,6 +112,8 @@ function InlineNote({
   members,
   open,
   onToggle,
+  showJob = true,
+  autoFocus = false,
 }: {
   businessId: Id<'businesses'>
   businessSlug: string
@@ -113,6 +122,10 @@ function InlineNote({
   members: Array<MentionItem>
   open: boolean
   onToggle: () => void
+  showJob?: boolean
+  /** Just made by a tap on "+ … note": the caret goes to its first line,
+   * the title, ready to type. */
+  autoFocus?: boolean
 }) {
   return (
     <div className="border-b border-hairline-2 last:border-b-0">
@@ -150,6 +163,16 @@ function InlineNote({
               </span>
             ) : null}
           </span>
+          {showJob && note.job && (
+            <span className="mt-0.5 block truncate text-caption text-ink-2">
+              {note.job.jobNumber !== undefined && `Job #${note.job.jobNumber} · `}
+              {note.job.jobType} ·{' '}
+              {formatJobDate(
+                dayKeyOf(note.job.scheduledAt, timezone),
+                todayKey(timezone),
+              )}
+            </span>
+          )}
         </span>
         <ChevronDown
           size={16}
@@ -165,6 +188,7 @@ function InlineNote({
             noteId={note._id}
             members={members}
             editable={note.canEdit}
+            autoFocus={autoFocus}
             inline
             trailingTools={
               <Link

@@ -5,6 +5,7 @@ import { isBinned, unbinned } from './lib/bin'
 import { requireActor, requireWriteActor } from './lib/actor'
 import { recordOnBehalf } from './lib/audit'
 import { activateLeadAt } from './lib/clientRecord'
+import { insertJobNote } from './notes'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import {
   mayEditJob,
@@ -177,8 +178,19 @@ export const create = mutation({
             : earliest,
         null,
       )
-      if (first) await ctx.db.patch(first._id, { notes })
-      else await ctx.db.patch(recurrenceId, { firstVisitNotes: notes })
+      // A note in Notes on that visit (`insertJobNote`), by whoever booked.
+      if (first) {
+        await insertJobNote(ctx, {
+          job: first,
+          authorMembershipId: env.actor.real._id,
+          text: notes,
+        })
+      } else {
+        await ctx.db.patch(recurrenceId, {
+          firstVisitNotes: notes,
+          firstVisitNotesBy: env.actor.real._id,
+        })
+      }
     }
     await recordSeriesWrite(ctx, env, recurrenceId, 'recurrence.create', {
       assignedMembershipId: args.assignedMembershipId,
@@ -374,10 +386,8 @@ export async function insertVisit(
   scheduledAt: number,
   durationMinutes: number,
   origin: 'manual' | 'recurrence',
-  /** The booking's note, for the first visit only (`firstVisitNotes`). */
-  notes?: string,
-): Promise<void> {
-  await ctx.db.insert('jobs', {
+): Promise<Id<'jobs'>> {
+  return ctx.db.insert('jobs', {
     // Which occurrence this is, kept even if the visit is later moved — see
     // the field's note in schema.ts.
     occurrenceAt: scheduledAt,
@@ -397,7 +407,6 @@ export async function insertVisit(
     ...(recurrence.workOrder !== undefined && {
       workOrder: recurrence.workOrder,
     }),
-    ...(notes !== undefined && { notes }),
   })
 }
 
@@ -461,16 +470,29 @@ export async function materialiseOne(
     // here. Skipping would insert the far end of the horizon and leave a hole.
     if (created >= MAX_VISITS_PER_RUN) break
 
-    await insertVisit(
+    const visitId = await insertVisit(
       ctx,
       recurrence,
       scheduledAt,
       durationMinutes,
       'recurrence',
-      waitingNotes,
     )
     if (waitingNotes !== undefined) {
-      await ctx.db.patch(recurrence._id, { firstVisitNotes: undefined })
+      const visit = await ctx.db.get(visitId)
+      if (visit) {
+        await insertJobNote(ctx, {
+          job: visit,
+          // A series set up before notes were Notes has no author on file;
+          // its note is then the assignee's, whose visit it is.
+          authorMembershipId:
+            recurrence.firstVisitNotesBy ?? recurrence.assignedMembershipId,
+          text: waitingNotes,
+        })
+      }
+      await ctx.db.patch(recurrence._id, {
+        firstVisitNotes: undefined,
+        firstVisitNotesBy: undefined,
+      })
       waitingNotes = undefined
     }
     created++

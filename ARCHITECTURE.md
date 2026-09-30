@@ -285,12 +285,15 @@ jobs: {
 // services one by one splits it: the reports a job suggests (one per form),
 // the treatments a service report starts on, the report-before-complete
 // policy (any service with a form), and analytics (a job counts under each).
-// Also `notes?`: the job's own plain-text note (≤1000 characters,
-// lib/jobNotes.ts), read by whoever can see the job, written from New Job or
-// the Notes section of its sheet, and open on an invoiced job. It is not a
-// Notes-library note, and a series puts a booking's note on its first visit
-// only — holding it as `recurrences.firstVisitNotes` until one is booked,
+// Amended 30 Sept 2026: a job's notes are Notes-library notes linked to the
+// job (`notes.insertJobNote`), shown with the site's in one card on the job.
+// A note typed in New Job (≤1000 characters, lib/jobNotes.ts) becomes one; a
+// series puts it on its first visit only — holding it as
+// `recurrences.firstVisitNotes` (+ `firstVisitNotesBy`) until one is booked,
 // when the series starts in the past with no visit inside the horizon.
+// `notes?` on the job is the plain note it briefly carried (29 Sept):
+// `migrations/jobNotesToNotesV1` moves each into Notes, and the field and
+// `jobs.update`'s `notes` argument go at the contract step.
 .index("by_business_date", ["businessId", "scheduledAt"])
 .index("by_assignee_date", ["assignedMembershipId", "scheduledAt"])
 .index("by_property", ["propertyId"])
@@ -553,7 +556,7 @@ src/components/
                                   viewer (components/pdf, via pdf/host)
   notes/
     NotesLibrary.tsx  NotesRail.tsx  NoteList.tsx  NoteEditor.tsx
-    NoteEditorHeader.tsx  JobNotesSection.tsx ("Before you arrive" only)
+    NoteEditorHeader.tsx  JobNotesSection.tsx (a job's one Notes card)
   settings/
     ui.tsx                        SettingsGroup, rows, FieldRow, SaveBar, DangerGroup
     MyDetails.tsx  MyLicence.tsx  LicenceDocument.tsx  ShowMyLicence.tsx

@@ -243,6 +243,20 @@ function buildReports() {
 
 export const BUSY_REPORTS = buildReports()
 
+// An earlier visit to the site, which a note from it names.
+const PAST_BAIT = BUSY_JOBS.find(
+  (j) => j.recurrenceId === 'rec_bait' && j.status === 'completed',
+)
+
+function jobLink(job: (typeof BUSY_JOBS)[number]) {
+  return {
+    jobNumber: job.jobNumber,
+    jobType: job.jobType,
+    scheduledAt: job.scheduledAt,
+    status: job.status,
+  }
+}
+
 function note(
   _id: string,
   kind: 'site' | 'client' | 'job',
@@ -303,7 +317,8 @@ const VISIT_NOTES = [
     'job',
     'Rat activity B7',
     'Heavy take on B7 and B9 — added two stations',
-    16,
+    4,
+    { jobId: PAST_BAIT?._id, job: PAST_BAIT && jobLink(PAST_BAIT) },
   ),
 ]
 
@@ -314,8 +329,6 @@ export function busyJobGet() {
     ...job,
     businessId: BIZ,
     workOrder: 'PO-4471',
-    // The plain-text note PR #91 added, beside "Before you arrive".
-    notes: 'Kitchen closes at 2 — treat after.',
     property: {
       ...site,
       client: {
