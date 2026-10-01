@@ -913,6 +913,81 @@ describe('sending a report', () => {
     expect([...shown.addresses].sort()).toEqual(expected)
   })
 
+  test('the Send sheet is told who the report is for, by name, as the record is now', async () => {
+    const s = await setup()
+    const reportId = await withReport(
+      s,
+      { name: 'Jane Nguyen', email: ' Jane@Gmail.com ' },
+      [
+        {
+          name: 'Bob Lee',
+          role: 'Strata manager',
+          email: 'bob@strata.test',
+          isPrimary: true,
+        },
+        // Nobody to send to without an address.
+        { name: 'Sam Tran', role: 'Tenant' },
+        // A contact in the Recycle bin gets no reports.
+        { name: 'Old Agent', email: 'agent@old.test', deletedAt: Date.now() },
+        // On file but undeliverable: listed, for the sheet to show its fix.
+        { name: 'Priya Shah', email: 'priya@gmail..com' },
+      ],
+    )
+
+    const shown = await s.owner.as.query(api.deliveries.known, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(shown.people).toEqual([
+      {
+        address: 'jane@gmail.com',
+        name: 'Jane Nguyen',
+        kind: 'client',
+        role: null,
+        primary: false,
+      },
+      {
+        address: 'bob@strata.test',
+        name: 'Bob Lee',
+        kind: 'contact',
+        role: 'Strata manager',
+        primary: true,
+      },
+      {
+        address: 'priya@gmail..com',
+        name: 'Priya Shah',
+        kind: 'contact',
+        role: null,
+        primary: false,
+      },
+    ])
+    expect(shown.client).toMatchObject({ name: 'Jane Nguyen', hasEmail: true })
+
+    // An address added to the record after the report was locked is offered:
+    // the record as it is now, not as the document printed it.
+    const clientId = shown.client!.clientId
+    await s.t.run((ctx) => ctx.db.patch(clientId, { email: 'jane@new.test' }))
+    const after = await s.owner.as.query(api.deliveries.known, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(after.people[0]).toMatchObject({
+      address: 'jane@new.test',
+      kind: 'client',
+    })
+  })
+
+  test('a client with no address is named, with nobody to offer', async () => {
+    const s = await setup()
+    const reportId = await withReport(s, { name: 'Jane Nguyen' })
+    const shown = await s.owner.as.query(api.deliveries.known, {
+      businessId: s.businessId,
+      reportId,
+    })
+    expect(shown.people).toEqual([])
+    expect(shown.client).toMatchObject({ name: 'Jane Nguyen', hasEmail: false })
+  })
+
   test('to an address that can never be delivered to is refused, not queued', async () => {
     const s = await setup()
     const reportId = await withReport(s, { email: 'accounts@cafe.test' })

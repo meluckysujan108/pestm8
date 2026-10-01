@@ -169,6 +169,17 @@ one-item menu. Stored failure words that pointed at the tabs ("Open the PDF
 tab") are reworded where they are shown (`reports/deliveryWords.ts`), so old
 rows read right without a backend change.
 
+*Amended (1 Oct 2026):* **Send names who it is for.** The sheet offered the
+client only when the form's "send a copy" was Yes, from the address the
+document printed; a technician asked for the report at the door typed an
+address the business already held. `deliveries.known` now also returns
+`people` (the client from their record as it is now, then their contacts,
+by name and role) and `client` (for "Save to the client's record"), both
+additive. The client and the form's recipients are chosen unless this report
+already reached them; contacts are a tap away. The page offers "Email Jane
+Nguyen" when nothing has gone, a send opens to the whole email, and Answers
+has a jump list.
+
 *Amended (30 Sept 2026):* **a finalised report can be deleted, by the owner
 only.** Clients asked to remove test reports, duplicates and reports locked
 against the wrong client, and the product owner agreed. It goes to Recently

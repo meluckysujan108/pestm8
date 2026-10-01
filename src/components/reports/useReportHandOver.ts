@@ -52,20 +52,23 @@ export function useReportHandOver({
   pdf,
   fileName,
   title,
+  text,
   purpose,
 }: {
   pdf: ReportPdf
   fileName: string
   title: string
+  /** Said with the file where the app takes words (Messages, WhatsApp). */
+  text?: string
   purpose: HandOverPurpose
 }) {
   const [prep, setPrep] = useState<Prep>(IDLE)
   const abort = useRef<AbortController | null>(null)
   // Read in handlers and in the download's callbacks, which outlive the
   // render that started them.
-  const latest = useRef({ pdf, fileName, title, purpose, prep })
+  const latest = useRef({ pdf, fileName, title, text, purpose, prep })
   useEffect(() => {
-    latest.current = { pdf, fileName, title, purpose, prep }
+    latest.current = { pdf, fileName, title, text, purpose, prep }
   })
 
   useEffect(
@@ -89,7 +92,7 @@ export function useReportHandOver({
     try {
       pending =
         now.purpose === 'share'
-          ? sharePdf(file, { title: now.title })
+          ? sharePdf(file, { title: now.title, text: now.text })
           : Promise.resolve(savePdf(file))
     } catch (error) {
       pending = Promise.reject(error)

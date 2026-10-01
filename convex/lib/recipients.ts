@@ -1,5 +1,5 @@
 import { isValidEmail } from './email'
-import type { Doc } from '../_generated/dataModel'
+import type { Doc, Id } from '../_generated/dataModel'
 import type { MutationCtx, QueryCtx } from '../_generated/server'
 
 /**
@@ -67,6 +67,79 @@ export async function knownRecipients(
       business?.reportCopyEmail,
     ].filter(deliverable),
   )
+}
+
+/** Someone a report could be sent to, as the client book names them. */
+export type RecipientPerson = {
+  address: string
+  name: string
+  /** The client themself, or one of their contacts. */
+  kind: 'client' | 'contact'
+  /** A contact's role as the client book has it ("Strata manager"). */
+  role: string | null
+  /** The client's primary contact (`clientContacts.isPrimary`). */
+  primary: boolean
+}
+
+/**
+ * Who a report is for, by name, for the Send sheet to offer: the client from
+ * their record as it is NOW — an address added after the report was locked
+ * included — and, where the caller may see the client book, the client's
+ * contacts with an address. Addresses as stored, normalised; one that could
+ * never be delivered to is still listed, for the sheet to show with its fix.
+ *
+ * `clientId` is there for "Save to the client's record", offered only when
+ * the record has no address yet and the caller may see the client book.
+ */
+export async function recipientPeople(
+  ctx: QueryCtx,
+  report: Doc<'reports'>,
+  { withContacts }: { withContacts: boolean },
+): Promise<{
+  client: { clientId: Id<'clients'>; name: string; hasEmail: boolean } | null
+  people: Array<RecipientPerson>
+}> {
+  const property = await ctx.db.get(report.propertyId)
+  const client = property ? await ctx.db.get(property.clientId) : null
+  // A client in the Recycle bin gets no reports (lib/bin.ts).
+  if (!client || client.deletedAt !== undefined) {
+    return { client: null, people: [] }
+  }
+  const people: Array<RecipientPerson> = []
+  const clientEmail = client.email?.trim()
+  if (clientEmail) {
+    people.push({
+      address: normaliseAddress(clientEmail),
+      name: client.name,
+      kind: 'client',
+      role: null,
+      primary: false,
+    })
+  }
+  if (withContacts) {
+    const contacts = await ctx.db
+      .query('clientContacts')
+      .withIndex('by_client', (q) => q.eq('clientId', client._id))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
+      .take(MAX_CONTACTS)
+    for (const contact of contacts) {
+      const email = contact.email?.trim()
+      if (!email) continue
+      people.push({
+        address: normaliseAddress(email),
+        name: contact.name,
+        kind: 'contact',
+        role: contact.role?.trim() || null,
+        primary: contact.isPrimary === true,
+      })
+    }
+  }
+  return {
+    client: withContacts
+      ? { clientId: client._id, name: client.name, hasEmail: !!clientEmail }
+      : null,
+    people,
+  }
 }
 
 /**

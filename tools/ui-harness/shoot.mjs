@@ -392,6 +392,26 @@ const PLAN = {
     before: async (p) => p.waitForTimeout(600),
   },
   emails: { full: true, before: async (p) => p.waitForTimeout(600) },
+  // Nobody on file: the field is there, and an address typed into it can be
+  // kept on the client's record.
+  'finished-notsent': { before: async (p) => p.waitForTimeout(600) },
+  'send-noclientmail': {
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByLabel('Email address').fill('jane.nguyen@outlook.com')
+      await p.getByRole('button', { name: 'Add', exact: true }).click()
+      await p.waitForTimeout(300)
+    },
+  },
+  // A send's whole story, from its row.
+  'finished-email-detail': {
+    spec: 'finished',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: /^acounts@ridgeline/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
   // "Send again" on the failed send: the sheet opens with it ticked.
   'finished-again': {
     spec: 'finished',

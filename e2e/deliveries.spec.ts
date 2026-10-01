@@ -364,6 +364,46 @@ test.describe('the send sheet', () => {
     await expect(sheet.getByText(/approv/i)).toHaveCount(0)
   })
 
+  test('offers the client from their record, in one tap, when the form asked for nobody', async ({
+    page,
+  }) => {
+    const s = await setupBusinessWithSub('send-sheet-client')
+    const property = await s.owner.client.query(api.properties.get, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    const reportId = await createReport(s.sub.client, s, 'serviceReport')
+    // Locked with "send a copy" answered No, and only then is the client's
+    // address put on their record — so the document never printed it.
+    await finaliseReport(s.sub.client, s, reportId, 'serviceReport', {
+      sendCopy: false,
+    })
+    await s.owner.client.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId: property!.clientId,
+      email: 'client@example.com',
+    })
+
+    await signInViaUi(page, s.sub.email)
+    await page.goto(`/${s.slug}/reports/${reportId}`)
+
+    // Nothing has gone, so the client is offered where the sends would be.
+    const email = page.getByRole('region', { name: 'Email' })
+    await expect(email.getByText('Not emailed yet')).toBeVisible()
+    const oneTap = email.getByRole('button', { name: /^Email J\. Nguyen/ })
+    await expect(oneTap).toContainText('client@example.com')
+    await oneTap.click()
+
+    // The sheet opens with the client chosen, named as the record names them.
+    const sheet = page.getByRole('dialog', { name: 'Send this report' })
+    const client = sheet.getByRole('button', { name: /client@example\.com/ })
+    await expect(client).toHaveAttribute('aria-pressed', 'true')
+    await expect(client).toContainText('J. Nguyen · Client')
+    await expect(
+      sheet.getByRole('button', { name: /Send to 1 person/ }),
+    ).toBeVisible()
+  })
+
   test('a delivery the form opened shows on the report without anyone sending', async ({
     page,
   }) => {
@@ -390,7 +430,12 @@ test.describe('the send sheet', () => {
     // exists either way, which is the point of writing it before the call.
     const email = page.getByRole('region', { name: 'Email' })
     await expect(email.getByText(/client@example\.com/)).toBeVisible()
-    await expect(email.getByText(/as it was finalised/)).toBeVisible()
+    // Why it went, in the email's own sheet: the form asked, at the lock.
+    await email.getByRole('button', { name: /client@example\.com/ }).click()
+    const sent = page.getByRole('dialog', { name: 'Email' })
+    await expect(
+      sent.getByText('Asked for by the form, as it was finalised'),
+    ).toBeVisible()
   })
 
   test('the report’s Email list says which addresses weren’t on the client’s record', async ({
@@ -443,7 +488,12 @@ test.describe('the send sheet', () => {
         'Email isn’t set up for this business yet. Share the PDF instead.',
       ),
     ).toBeVisible()
-    await expect(email.getByText(/as it was finalised/)).toBeVisible()
+    // Why it went, in the email's own sheet: the form asked, at the lock.
+    await email.getByRole('button', { name: /client@example\.com/ }).click()
+    const sent = page.getByRole('dialog', { name: 'Email' })
+    await expect(
+      sent.getByText('Asked for by the form, as it was finalised'),
+    ).toBeVisible()
   })
 
   test('says what happened to each recipient, not one verdict for all', async ({

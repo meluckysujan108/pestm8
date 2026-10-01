@@ -44,6 +44,7 @@ export function ReportCover({
   logoUrl,
   pdf,
   title,
+  shareText,
   fileName,
   hydrated,
   replaced,
@@ -56,6 +57,8 @@ export function ReportCover({
   pdf: ReportPdf
   /** The document's own title, for the share sheet. */
   title: string
+  /** The words that go with it into Messages or WhatsApp. */
+  shareText: string
   fileName: string
   hydrated: boolean
   /** A later version is the current one: sending this is not the default. */
@@ -73,7 +76,13 @@ export function ReportCover({
   // Where the phone's share sheet takes files, Share; elsewhere a download,
   // which is all a computer's browser can do with it.
   const purpose = support.files ? 'share' : 'save'
-  const handOver = useReportHandOver({ pdf, fileName, title, purpose })
+  const handOver = useReportHandOver({
+    pdf,
+    fileName,
+    title,
+    text: shareText,
+    purpose,
+  })
 
   // Asked for once per failure, never in a loop: after one the person
   // decides, with Try again (or View PDF, which tries again as it loads).
@@ -149,7 +158,7 @@ export function ReportCover({
           type="button"
           disabled={!hydrated}
           onClick={onSend}
-          className={`${replaced ? LINK_BUTTON_COMPACT : NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2 px-3`}
+          className={`${replaced ? LINK_BUTTON_COMPACT : NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2 whitespace-nowrap px-3`}
         >
           <Send size={16} strokeWidth={2} />
           Send this report

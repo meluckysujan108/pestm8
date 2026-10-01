@@ -1,6 +1,10 @@
 import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { convexQuery, useConvexAction } from '@convex-dev/react-query'
+import {
+  convexQuery,
+  useConvexAction,
+  useConvexMutation,
+} from '@convex-dev/react-query'
 import { CircleAlert, Info, Plus, Send } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
@@ -20,6 +24,8 @@ import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FormAlert } from '#/components/forms/FormAlert'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import { TickBox } from './TickBox'
+import { formatWhen } from '#/lib/format'
+import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
 import { LARGE_FOR_EMAIL } from './lockEmail'
 import { isOffline } from '#/lib/online'
 
@@ -48,6 +54,26 @@ type Recipient = {
   problem: string | null
   /** The address most likely meant, for the one-tap fix. */
   fix: string | null
+  /** Who it is, from the client book or the form: "Jane Nguyen · Client". */
+  who: string | null
+  /** When this report last went to them, if it has. */
+  sentAt: number | null
+}
+
+/** Someone the client book says a report could go to (`deliveries.known`). */
+export type Person = {
+  address: string
+  name: string
+  kind: 'client' | 'contact'
+  role: string | null
+  primary: boolean
+}
+
+/** An earlier send of this report, as far as choosing goes. */
+type Earlier = {
+  to: ReadonlyArray<string>
+  status: string
+  sentAt?: number
 }
 
 export const SEND_ERROR: Record<string, string> = {
@@ -130,36 +156,92 @@ export async function sendToEach(
 }
 
 /**
- * Who the form asked for, plus anyone this report has already gone to.
- * Chosen by default only where the form asked: a second copy to someone who
- * already has one is a decision, not a default.
+ * Who to offer, in the order they are likely to be wanted:
  *
- * An address that can never be delivered to is never chosen by default. One
- * saved before addresses were checked ("bob@gmail") still reaches here from
- * the client's record, and chosen it failed at the server with no reason
- * given. It shows as "Can’t be delivered", with the address most likely
- * meant one tap away.
+ *  1. whoever the form asked for ("send a copy to the client", "email this
+ *     report to");
+ *  2. the client, from their record as it is now;
+ *  3. the client's contacts — the strata manager, the agent — primary first;
+ *  4. anyone else this report has already gone to.
+ *
+ * The form's people and the client are chosen; the rest are a tap away. A
+ * technician asked for the report at the door should not have to type an
+ * address the business already holds — the sheet used to offer the client
+ * only when the form's own "send a copy" was Yes.
+ *
+ * Except anyone this report has already reached, who is listed with when and
+ * left unchosen: a second copy is a decision, not a default.
+ *
+ * An address that can never be delivered to is never chosen. One saved
+ * before addresses were checked ("bob@gmail") still reaches here from the
+ * client's record; it shows as "Can’t be delivered", with the address most
+ * likely meant one tap away.
  */
-export function suggestedRecipients(
-  asked: ReadonlyArray<string>,
-  before: ReadonlyArray<string>,
-  knownAddresses: ReadonlyArray<string>,
-): Array<Recipient> {
+export function suggestedRecipients({
+  asked,
+  people,
+  before,
+  knownAddresses,
+}: {
+  asked: ReadonlyArray<string>
+  people: ReadonlyArray<Person>
+  before: ReadonlyArray<Earlier>
+  knownAddresses: ReadonlyArray<string>
+}): Array<Recipient> {
+  const lastSent = new Map<string, number>()
+  for (const row of before) {
+    if (row.status !== 'sent') continue
+    for (const address of row.to) {
+      const at = row.sentAt ?? 0
+      lastSent.set(address, Math.max(lastSent.get(address) ?? 0, at))
+    }
+  }
+  const named = new Map<string, Person>()
+  for (const person of people) {
+    // The client before a contact who shares their address.
+    if (!named.has(person.address)) named.set(person.address, person)
+  }
+  const client = people.filter((person) => person.kind === 'client')
+  const contacts = people
+    .filter((person) => person.kind === 'contact')
+    .sort((a, b) => Number(b.primary) - Number(a.primary))
+
+  const order = [
+    ...asked,
+    ...client.map((person) => person.address),
+    ...contacts.map((person) => person.address),
+    ...before.flatMap((row) => row.to),
+  ]
   const seen = new Set<string>()
   const out: Array<Recipient> = []
-  for (const address of [...asked, ...before]) {
+  for (const address of order) {
     if (seen.has(address)) continue
     seen.add(address)
     const problem = emailProblem(address)
+    const person = named.get(address)
+    const wanted = asked.includes(address) || person?.kind === 'client'
+    const sentAt = lastSent.get(address) ?? null
     out.push({
       address,
-      chosen: problem === null && asked.includes(address),
+      chosen: problem === null && wanted && sentAt === null,
       known: knownAddresses.includes(address),
       problem,
       fix: problem === null ? null : emailTypoFix(address),
+      who: person
+        ? `${person.name} · ${personRole(person)}`
+        : asked.includes(address)
+          ? 'Asked for on the form'
+          : null,
+      sentAt,
     })
   }
   return out
+}
+
+/** "Client", a contact's own role, or what is known of it. */
+function personRole(person: Person): string {
+  if (person.kind === 'client') return 'Client'
+  return person.role ?? (person.primary ? 'Primary contact' : 'Contact')
 }
 
 const NONE: ReadonlyArray<string> = []
@@ -172,6 +254,7 @@ export function SendSheet({
   template,
   data,
   clientEmail,
+  clientName,
   subject,
   chosen: chosenAtOpen = NONE,
   returnFocusRef,
@@ -183,7 +266,11 @@ export function SendSheet({
   /** The wording this report was signed against. */
   template: ReportTemplate
   data: Record<string, unknown>
+  /** The client's address as the document printed it — used only by a
+   * backend from before the client book was read out (`known.people`). */
   clientEmail?: string
+  /** The client's name as the document printed it, for the same. */
+  clientName?: string
   /** What the email will say it is — the document's own name. */
   subject: string
   /**
@@ -195,6 +282,7 @@ export function SendSheet({
    * viewer's Send). */
   returnFocusRef?: RefObject<HTMLElement | null>
 }) {
+  const timezone = useBusinessTimezone()
   const { data: known } = useQuery(
     convexQuery(api.deliveries.known, { businessId, reportId }),
   )
@@ -212,15 +300,53 @@ export function SendSheet({
   // which every email of this report carries.
   const copy = known?.copy ?? null
 
-  const suggested = useMemo(
-    () =>
-      suggestedRecipients(
-        deliveryRecipients(template, data, { clientEmail }).to,
-        (history ?? []).flatMap((row) => row.to),
-        knownAddresses,
-      ),
-    [template, data, clientEmail, history, knownAddresses],
-  )
+  // The client book as it is now: the client, then their contacts. Before a
+  // backend that reads it out (1 Oct 2026), the address the document printed.
+  const people = useMemo((): ReadonlyArray<Person> => {
+    if (known === undefined) return []
+    const fromBook = (known as { people?: ReadonlyArray<Person> }).people
+    if (fromBook) return fromBook
+    return clientEmail
+      ? [
+          {
+            address: clientEmail.trim().toLowerCase(),
+            name: clientName ?? 'Client',
+            kind: 'client',
+            role: null,
+            primary: false,
+          },
+        ]
+      : []
+  }, [known, clientEmail, clientName])
+  // The client the record names, for "Save to the client's record" — only
+  // where the caller may see the client book, and only while it has no
+  // address of its own.
+  const recordClient =
+    (
+      known as
+        | {
+            client?: {
+              clientId: Id<'clients'>
+              name: string
+              hasEmail: boolean
+            } | null
+          }
+        | undefined
+    )?.client ?? null
+
+  const suggested = useMemo(() => {
+    // "Send a copy to the client" means the client as the record has them
+    // now, not an address the document printed that has since changed.
+    const live = people.find((person) => person.kind === 'client')?.address
+    return suggestedRecipients({
+      asked: deliveryRecipients(template, data, {
+        clientEmail: live ?? clientEmail,
+      }).to,
+      people,
+      before: history ?? [],
+      knownAddresses,
+    })
+  }, [template, data, clientEmail, people, history, knownAddresses])
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
   const [added, setAdded] = useState<Array<string>>([])
@@ -256,6 +382,8 @@ export function SendSheet({
       known: knownAddresses.includes(address),
       problem: null,
       fix: null,
+      who: null,
+      sentAt: null,
     })),
   ]
   const chosen = recipients.filter((entry) => entry.chosen)
@@ -264,10 +392,43 @@ export function SendSheet({
   const copied = (addresses: ReadonlyArray<string>) =>
     copy !== null && addresses.some((address) => address !== copy)
 
+  // A typed address saved to the client's record as well, when the record
+  // has none: off unless asked for. What became of it is said after Send.
+  const [saveToRecord, setSaveToRecord] = useState(false)
+  const [saved, setSaved] = useState<'saved' | 'failed' | null>(null)
+  const savable =
+    recordClient !== null && !recordClient.hasEmail
+      ? (added.at(0) ?? null)
+      : null
+
   const convexSend = useConvexAction(api.email.sendReportPdf)
+  const convexSaveEmail = useConvexMutation(api.clients.update)
   const send = useMutation({
-    mutationFn: (addresses: Array<string>) =>
-      sendToEach(addresses, (to) => convexSend({ businessId, reportId, to })),
+    mutationFn: async (addresses: Array<string>) => {
+      const outcomes = await sendToEach(addresses, (to) =>
+        convexSend({ businessId, reportId, to }),
+      )
+      // Only an address that took the email: one that failed may be a typo.
+      const keep =
+        saveToRecord && savable !== null && recordClient !== null
+          ? outcomes.find(
+              (outcome) => outcome.address === savable && outcome.code === null,
+            )
+          : undefined
+      if (keep && recordClient) {
+        try {
+          await convexSaveEmail({
+            businessId,
+            clientId: recordClient.clientId,
+            email: keep.address,
+          })
+          setSaved('saved')
+        } catch {
+          setSaved('failed')
+        }
+      }
+      return outcomes
+    },
   })
 
   // Each opening starts afresh: what was ticked, typed and sent last time was
@@ -287,6 +448,8 @@ export function SendSheet({
       Object.fromEntries(chosenAtOpen.map((address) => [address, true])),
     )
     setOnlyChosen(chosenAtOpen.length > 0)
+    setSaveToRecord(false)
+    setSaved(null)
     setAdded([])
     setDraft('')
     setAdding(false)
@@ -401,10 +564,9 @@ export function SendSheet({
         </button>
       }
     >
-      {recipients.length === 0 && !adding && (
-        <p className="text-body text-muted">
-          This form did not ask for a copy to go anywhere. Add an address below
-          and it will go there.
+      {settled && recipients.length === 0 && (
+        <p className="text-body text-ink-2">
+          {`No email on file for ${recordClient?.name ?? clientName ?? 'the client'}. Add an address and it goes there.`}
         </p>
       )}
 
@@ -442,11 +604,25 @@ export function SendSheet({
                   >
                     <TickBox on={entry.chosen} />
                     <span className="min-w-0 flex-1">
-                      {/* Whole, never cut off: the end of an address is
-                          where a typo in its domain would be. */}
-                      <span className="block break-words text-body text-ink">
+                      {/* Who, from the client book or the form, then the
+                          address whole, never cut off: the end of an address
+                          is where a typo in its domain would be. */}
+                      {entry.who && (
+                        <span className="block break-words text-body font-semibold text-ink">
+                          {entry.who}
+                        </span>
+                      )}
+                      <span
+                        className={`block break-words ${entry.who ? 'text-caption text-ink-2' : 'text-body text-ink'}`}
+                      >
                         {entry.address}
                       </span>
+                      {/* Why it is not chosen: it already has this report. */}
+                      {entry.sentAt !== null && (
+                        <span className="mt-0.5 block text-caption text-grey-ink">
+                          Sent {formatWhen(entry.sentAt, timezone)}
+                        </span>
+                      )}
                       {/* Said before Send, not after: an address the business
                           has never used is where a typo would be. It goes all
                           the same. Shown chosen or not, so the button's name
@@ -476,13 +652,16 @@ export function SendSheet({
         })}
       </ul>
 
-      {adding ? (
+      {/* Open by itself when there is nobody to offer — but without the
+          keyboard: focus stays put as a sheet opens (design system §4.4),
+          and rises only when "Send to someone else" asks for it. */}
+      {adding || (settled && recipients.length === 0) ? (
         <div className="mt-2">
           <div className="flex gap-2">
             <input
               ref={draftRef}
               id={draftId}
-              autoFocus
+              autoFocus={adding}
               type="email"
               inputMode="email"
               autoCapitalize="none"
@@ -576,6 +755,22 @@ export function SendSheet({
         </button>
       )}
 
+      {/* The address just typed, kept for next time — only for a client
+          with none on their record, and only if asked. */}
+      {savable && (
+        <button
+          type="button"
+          aria-pressed={saveToRecord}
+          onClick={() => setSaveToRecord((on) => !on)}
+          className="mt-2 flex w-full items-center gap-2.5 rounded-xl px-1 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-blue"
+        >
+          <TickBox on={saveToRecord} />
+          <span className="min-w-0 flex-1 break-words text-body text-ink">
+            Also save {savable} to {recordClient?.name}’s record
+          </span>
+        </button>
+      )}
+
       {copy && copied(chosen.map((entry) => entry.address)) && (
         <p className="mt-3 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
           <Send
@@ -626,6 +821,15 @@ export function SendSheet({
               {copied(sent.map((result) => result.address))
                 ? ` A copy went to ${copy}.`
                 : ''}
+              {saved === 'saved' && recordClient
+                ? ` Saved to ${recordClient.name}’s record.`
+                : ''}
+            </p>
+          )}
+          {saved === 'failed' && recordClient && (
+            <p role="alert" className="text-caption text-amber-ink">
+              Sent, but could not save the address to {recordClient.name}’s
+              record. Add it on their client page.
             </p>
           )}
           {failed.map((result) => (

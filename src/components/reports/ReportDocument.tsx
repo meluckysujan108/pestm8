@@ -163,6 +163,7 @@ export function ReportDocument({
               style={{ aspectRatio: '16 / 7' }}
             />
           )}
+          <JumpList sections={model.sections} />
           <Body model={model} />
         </article>
       </Variant.Provider>
@@ -286,9 +287,64 @@ function Body({ model }: { model: ReportModel }) {
   )
 }
 
-function Section({ section }: { section: DocSection }) {
+/** Where a section's heading is on the Answers page, for the jump list. */
+const sectionAnchor = (key: string) => `answers-${key}`
+
+/**
+ * The Answers page's sections, at its top, each a tap from where it is: a
+ * Timber inspection is a dozen sections and many screens, and someone after
+ * the product used should not scroll through the subfloor to find it. Not for
+ * a form of two sections, which needs no index.
+ */
+function JumpList({ sections }: { sections: ReadonlyArray<DocSection> }) {
+  const headed = sections.filter((section) => section.heading !== null)
+  if (headed.length < 3) return null
+
+  const jump = (key: string) => {
+    const target = document.getElementById(sectionAnchor(key))
+    if (!target) return
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    target.scrollIntoView({
+      behavior: still ? 'auto' : 'smooth',
+      block: 'start',
+    })
+    // Where a screen reader or keyboard carries on reading from.
+    target.focus({ preventScroll: true })
+  }
+
   return (
-    <section className="mt-6">
+    <nav aria-labelledby="answers-jump" className="mt-3">
+      <h2 id="answers-jump" className="section-label mb-2">
+        Jump to
+      </h2>
+      <ul className="flex flex-wrap gap-2">
+        {headed.map((section) => (
+          <li key={section.key}>
+            <button
+              type="button"
+              onClick={() => jump(section.key)}
+              className="relative tap-target rounded-full border border-hairline bg-surface px-3 py-1.5 text-caption font-semibold text-ink-2 outline-none transition active:scale-[.95] focus-visible:ring-2 focus-visible:ring-blue"
+            >
+              {section.number !== undefined ? `${section.number}. ` : ''}
+              {section.heading}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </nav>
+  )
+}
+
+function Section({ section }: { section: DocSection }) {
+  const answers = useContext(Variant) === 'answers'
+  return (
+    <section
+      // On the Answers page, somewhere the jump list can land — below the
+      // sticky header, not under it.
+      id={answers ? sectionAnchor(section.key) : undefined}
+      tabIndex={answers ? -1 : undefined}
+      className="mt-6 scroll-mt-32 outline-none"
+    >
       {/* The heading the client received. This is the finished document, not
           the form — the builder keeps showing the section's own title so a
           technician can find where they are. */}

@@ -27,6 +27,7 @@ export function ReportPdfViewer({
   businessId,
   reportId,
   title,
+  shareText,
   fileName,
   pdf,
   badge,
@@ -37,6 +38,8 @@ export function ReportPdfViewer({
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
   title: string
+  /** The words that go with the file into Messages or WhatsApp. */
+  shareText?: string
   fileName: string
   pdf: ReportPdf
   /** "Replaced by version 2", for a document a correction has replaced. */
@@ -60,14 +63,16 @@ export function ReportPdfViewer({
 
   const actions = useMemo(
     (): ViewerActions => ({
-      share: support.files ? (file) => sharePdf(file, { title }) : undefined,
+      share: support.files
+        ? (file) => sharePdf(file, { title, text: shareText })
+        : undefined,
       save: savePdf,
       saveLabel: support.saveLabel,
       // Save is all its menu would ever hold.
       saveInBar: true,
       send: onSend && { label: 'Send this report', run: onSend },
     }),
-    [support, title, onSend],
+    [support, title, shareText, onSend],
   )
 
   return (
