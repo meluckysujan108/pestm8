@@ -20,7 +20,7 @@ import { LicenceFields } from '#/components/settings/LicenceFields'
 import { StagedLicenceFiles } from '#/components/settings/StagedLicenceFiles'
 import type { StagedFiles } from '#/components/settings/StagedLicenceFiles'
 import type { LicenceDraft } from '#/components/settings/LicenceFields'
-import { SignSheet } from '#/components/reports/fields/SignSheet'
+import { ReportSigning } from '#/components/reports/fields/ReportSigning'
 import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
 import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
 import { SendSheet } from '#/components/reports/SendSheet'
@@ -286,16 +286,39 @@ function RecurringBusy() {
   )
 }
 
+/** The technician's own pad: turned on a phone held upright, with their
+ * saved signature one tap away. */
 function Sign() {
   return (
     <Phone>
-      <SignSheet
+      <ReportSigning
         open
         onClose={() => {}}
         businessId={bizId}
         reportId={'r1' as never}
         slot="technician"
-        label="Technician signature"
+        label="Technician's Signature"
+        ownSignature
+        onSigned={() => {}}
+      />
+    </Phone>
+  )
+}
+
+/** A client's pad, which asks their name: upright, where the keyboard fits,
+ * with the statement they are agreeing to above it. */
+function SignClient() {
+  return (
+    <Phone>
+      <ReportSigning
+        open
+        onClose={() => {}}
+        businessId={bizId}
+        reportId={'r1' as never}
+        slot="client"
+        label="Client Signature"
+        statement="The Client acknowledges receipt of this Certificate of Installation and agrees to maintain the property in accordance with the recommendations to preserve system effectiveness and warranty."
+        askName
         ownSignature={false}
         onSigned={() => {}}
       />
@@ -674,17 +697,6 @@ function Inputs() {
   const [email, setEmail] = useState('priya@subicafe.example')
   return (
     <Phone>
-      <SignSheet
-        open
-        onClose={() => {}}
-        businessId={bizId}
-        reportId={'r1' as never}
-        slot="client"
-        label="Client signature"
-        askName
-        ownSignature={false}
-        onSigned={() => {}}
-      />
       <div className="p-4">
         <SettingsGroup title="Business details">
           <FieldRow id="e" label="Email">
@@ -1159,6 +1171,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   recurringbusy: RecurringBusy,
   recurringservices: RecurringServicesBusy,
   sign: Sign,
+  'sign-client': SignClient,
   sheet: SheetPrimitive,
   warnings: Acting,
   filters: Filters,

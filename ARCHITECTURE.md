@@ -634,7 +634,7 @@ src/components/
     ReportBuilder.tsx             renders from template definition
     ReportOverview.tsx            the hub: sections, progress, last-visit offer
     fields/                       registry + one control per kind, PickerSheet,
-                                  RowSheet, SignSheet, PhrasesSheet, RepeaterGrid
+                                  RowSheet, ReportSigning, PhrasesSheet, RepeaterGrid
     FinaliseSheet.tsx  SendSheet.tsx  InlineReports.tsx  ReportsLibrary.tsx
     ReportRows.tsx                a report as a row, or a chip under its visit
     BoilerplateBlock.tsx          locked disclaimer
@@ -651,6 +651,10 @@ src/components/
   notes/
     NotesLibrary.tsx  NotesRail.tsx  NoteList.tsx  NoteEditor.tsx
     NoteEditorHeader.tsx  JobNotesSection.tsx (a job's one Notes card)
+  signature/
+    SigningScreen.tsx  SignaturePad.tsx
+                                  signing on a screen of its own; ink kept as
+                                  the pen's strokes (lib/signature/ink.ts)
   settings/
     ui.tsx                        SettingsGroup, rows, FieldRow, SaveBar, DangerGroup
     MyDetails.tsx  MyLicence.tsx  LicenceDocument.tsx  ShowMyLicence.tsx

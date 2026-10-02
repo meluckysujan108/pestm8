@@ -193,6 +193,8 @@ describe('the guide names every shared utility and component', () => {
     'shell/Pending.tsx',
     'settings/ConfirmDialog.tsx',
     'settings/ui.tsx',
+    'signature/SignaturePad.tsx',
+    'signature/SigningScreen.tsx',
   ]
 
   test('the list above is every primitive there is', () => {

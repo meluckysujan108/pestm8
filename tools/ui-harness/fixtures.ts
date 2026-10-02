@@ -794,6 +794,11 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'reports:listByProperty': () => [],
   // A finished report's photos: none on the sample.
   'reports:galleryPhotos': () => [],
+  // A saved signature, for the technician's own pad.
+  'reports:mySavedSignature': () => ({
+    storageId: 'st_saved_signature',
+    url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="90"><path d="M10 70 C 60 10, 90 10, 120 60 S 190 90, 230 30 S 280 40, 290 50" stroke="%231C1C1E" stroke-width="3" fill="none"/></svg>',
+  }),
   'reports:photoUrls': () => ({}),
   'properties:list': propertiesList,
   'memberships:listForBusiness': () =>

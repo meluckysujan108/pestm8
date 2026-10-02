@@ -250,7 +250,7 @@ The layers are fixed. Pick from these and never invent one: the drift test fails
 | `z-40`              | The mobile dock; a sheet's scrim; the note format bar                                                                         |
 | `z-50`              | Sheets, popovers, dropdown menus, comboboxes, tooltips, the photo annotator; the scrim of a sheet opened over another sheet   |
 | `z-[60]` / `z-[70]` | `ConfirmDialog`'s scrim / panel; `NavProgress` at 60                                                                          |
-| `z-[80]`            | Full-screen viewers (document, image)                                                                                         |
+| `z-[80]`            | Full-screen viewers (document, image) and the signing screen                                                                  |
 | `z-[90]`            | A viewer's own menus and status                                                                                               |
 
 The consequence: nothing inside a viewer (z-80) may open a `ConfirmDialog` (z-60), because it would open behind. The viewer asks in place instead (`pdf/clearConfirm.ts`: "Tap again to clear").
@@ -445,7 +445,7 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 - `AlertDialog` appears only in `ConfirmDialog.tsx` **(lint)**, and never `window.confirm` **(lint)**.
 - A sheet closes three ways, all equivalent: dragged down, tapped outside, or ✕. A sheet that is only a list or a read-out ends with a "Done".
 - **A sheet being edited does not swipe away.** An edit mode, or a form with something typed in, calls `useSheetLock`: the grab handle goes, a swipe and a tap outside do nothing, and ✕, Escape and the phone's Back ask "Discard your changes?" (Keep editing / Discard) when something has changed, or just close when nothing has. Back is caught only as Back, so the sheet's own close and a save's navigation go through. Notes that save as they are typed need no lock.
-- **The signing sheet is locked for as long as it is open** (`SheetLock`), and its canvas carries `data-vaul-no-drag`, so a stroke is never a drag. Nothing below the pad comes or goes as the first stroke lands: the sheet grows from the bottom, and the pad would jump under the pen.
+- **Signing is never in a sheet.** A sheet is something a downward swipe closes, and a signature's strokes go downward: signing has a full-screen layer of its own (`SigningScreen`, 4.10).
 - **An edit mode is the form and nothing else:** the rest of the sheet steps aside, and Cancel and Save are pinned below the fields (`SHEET_FOOTER`), within reach with the keyboard up.
 - **`ConfirmDialog` wording:**
   - The title is the question, naming the thing: "Archive Jane Smith?", "Cancel this job?".
@@ -532,6 +532,22 @@ Which steps a device is shown is decided in one place, `lib/installMethod.ts`, f
 | `InstallCard`, `InstallCardView`, `useInstallCardOffer` | The schedule's card for a phone using PestM8 in its browser; ✕ (or set-up having just shown the steps) puts it away for 30 days on that phone   |
 
 Never say "not installed": a browser can't tell whether a Home Screen copy exists. "Installed" is only for the installed app itself.
+
+### 4.10 Signing: `signature/`
+
+A signature is drawn on a screen of its own and kept as the pen's strokes (`lib/signature/ink.ts`), never as the screen's pixels.
+
+| Export          | Use for                                                                                                                                                                                                                                                                                               |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SigningScreen` | Signing anything: the title, the words being agreed to, the pad, Clear, Undo and Done, and a slot beside Done for what else the signer may choose. Full screen at `z-[80]`; on a phone held upright it is laid out a quarter turn round, so the signature gets the long side once the phone is turned |
+| `SignaturePad`  | The pad inside it: ink whose width follows the pen's speed, drawn at the screen's resolution, refitted as the pad changes shape, and saved (`toPng`) as a PNG cut to the ink, at least 1,200 pixels across                                                                                            |
+
+**Rules:**
+
+- **A screen asking the signer's name stays upright,** where the keyboard rises along the phone's own bottom edge.
+- **Nothing beside the pad comes or goes as the first stroke lands:** the slot beside Done is one size, whatever is in it, so the pad never moves under the pen.
+- **It asks before throwing a signature away,** on ✕, Escape and the phone's Back, in place ("Discard this signature?" / Keep signing / Discard): it sits above `ConfirmDialog`'s layer.
+- **The pad is `bg-paper`, and its ink is `--ink` (light) in both themes:** what is drawn there is printed on white.
 
 ---
 

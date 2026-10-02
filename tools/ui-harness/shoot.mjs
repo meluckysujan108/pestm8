@@ -7,6 +7,49 @@ const [outDir = 'tools/ui-harness/shots', ...only] = process.argv.slice(2)
 fs.mkdirSync(outDir, { recursive: true })
 
 // name -> { path?, before?: async (page) => void, full?: bool }
+/**
+ * A signature across the pad, as the person signing sees it. A pad turned for
+ * a phone held upright reads with the phone on its side, so "across" is down
+ * the screen there.
+ */
+async function signAcross(p) {
+  await p.waitForTimeout(600)
+  const canvas = p.locator('canvas').first()
+  const b = await canvas.boundingBox()
+  if (!b) return
+  const turned = await canvas.evaluate(
+    (c) => Math.abs(c.clientWidth - c.getBoundingClientRect().width) > 1,
+  )
+  // (u, v): across and down the pad as signed, 0 to 1.
+  const at = (u, v) =>
+    turned
+      ? { x: b.x + b.width * (1 - v), y: b.y + b.height * u }
+      : { x: b.x + b.width * u, y: b.y + b.height * v }
+  const strokes = [
+    (t) => [0.12 + t * 0.3, 0.62 - 0.32 * Math.sin(t * Math.PI)],
+    (t) => [
+      0.36 + t * 0.5,
+      0.6 - 0.18 * Math.sin(t * Math.PI * 3) * (1 - t * 0.4),
+    ],
+  ]
+  for (const stroke of strokes) {
+    const [u0, v0] = stroke(0)
+    let point = at(u0, v0)
+    await p.mouse.move(point.x, point.y)
+    await p.mouse.down()
+    // At a person's pace, about a pixel a millisecond: the pen's width
+    // follows its speed, and a robot's speed draws a hairline.
+    for (let i = 1; i <= 50; i++) {
+      const [u, v] = stroke(i / 50)
+      point = at(u, v)
+      await p.mouse.move(point.x, point.y)
+      await p.waitForTimeout(16)
+    }
+    await p.mouse.up()
+  }
+  await p.waitForTimeout(200)
+}
+
 const PLAN = {
   // A shared job: the edit form's "Also going", and its picker.
   'shared-edit': {
@@ -306,25 +349,16 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
-  sign: {
-    before: async (p) => {
-      await p.waitForTimeout(600)
-      const c = p.locator('canvas').first()
-      const b = await c.boundingBox()
-      if (!b) return
-      await p.mouse.move(b.x + 40, b.y + b.height * 0.6)
-      await p.mouse.down()
-      for (let i = 0; i <= 30; i++) {
-        const t = i / 30
-        await p.mouse.move(
-          b.x + 40 + t * (b.width - 80),
-          b.y + b.height * (0.6 - 0.25 * Math.sin(t * Math.PI * 3)),
-        )
-      }
-      await p.mouse.up()
-      await p.waitForTimeout(200)
-    },
+  sign: { before: async (p) => signAcross(p) },
+  // A client's pad: upright, asking their name.
+  'sign-client': { before: async (p) => signAcross(p) },
+  // A phone already on its side: laid out as it is, not turned.
+  'sign-landscape': {
+    spec: 'sign',
+    viewport: { width: 844, height: 390 },
+    before: async (p) => signAcross(p),
   },
+
   sheet: { before: async (p) => p.waitForTimeout(600) },
   warnings: {},
   filters: {},
@@ -513,6 +547,7 @@ for (const theme of ['light', 'dark']) {
     errors.length = 0
     const spec = plan.spec ?? name
     const url = `http://localhost:${process.env.PORT || 5200}/?s=${spec}&theme=${theme}${process.env.DEBUG ? '&debug=1' : ''}${plan.path ? `&path=${encodeURIComponent(plan.path)}` : ''}`
+    await page.setViewportSize(plan.viewport ?? { width: 390, height: 844 })
     await page.goto(url, { waitUntil: 'networkidle' })
     await page.waitForTimeout(400)
     if (plan.before) await plan.before(page)

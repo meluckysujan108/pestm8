@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 import type { Id } from '../convex/_generated/dataModel'
 import {
   FIXTURE_PASSWORD,
   api,
+  clickUntil,
   expectRejected,
   setupBusinessWithSub,
   signInViaUi,
@@ -86,10 +87,10 @@ test('signing commits once, and records what was signed', async ({ page }) => {
   await page.getByRole('button', { name: 'Installer Signature — sign' }).click()
 
   // The words being agreed to are on the screen doing the agreeing — the form
-  // prints them too, so this asks about the sheet specifically.
-  const sheet = page.getByRole('dialog')
+  // prints them too, so this asks about the signing screen specifically.
+  const screen = page.getByRole('dialog')
   await expect(
-    sheet.getByText(/I hereby certify that the subterranean termite/),
+    screen.getByText(/I hereby certify that the subterranean termite/),
   ).toBeVisible()
 
   // Several strokes, one signature.
@@ -308,71 +309,52 @@ test('the pad holds still while a signature is drawn', async ({ page }) => {
     .getByRole('button', { name: "Technician's Signature — sign" })
     .click()
 
-  const sheet = page.getByRole('dialog')
-  const pad = sheet.getByRole('img', {
+  const screen = page.getByRole('dialog')
+  const pad = screen.getByRole('img', {
     name: "Technician's Signature — sign here",
   })
-  const done = sheet.getByRole('button', { name: 'Done' })
-  // A sheet is dragged down by a press anywhere in it that is not marked
-  // otherwise, so a downward stroke on the pad pulled the sheet, the pad and
-  // the line being drawn down with it.
-  await expect(pad).toHaveAttribute('data-vaul-no-drag')
+  const done = screen.getByRole('button', { name: 'Done' })
+  await expect(done).toBeDisabled()
 
-  // Vaul will not start a drag while anything behind the press is scrolled,
-  // and reaching §4's pad scrolled the page. At the top, only the sheet's
-  // lock and the pad's marker stop it; left scrolled, this passes on a pad
-  // that still moves. Each guard is checked on its own as well: the marker
-  // above, the lock by the tap outside and the ✕ below.
-  await page.evaluate(() => window.scrollTo(0, 0))
-  expect(await page.evaluate(() => document.scrollingElement?.scrollTop)).toBe(
-    0,
-  )
-  // And it ignores a drag for the first half-second a sheet is open.
-  await page.waitForTimeout(700)
-
-  const sheetTop = (await sheet.boundingBox())!.y
+  const screenBox = (await screen.boundingBox())!
   const box = (await pad.boundingBox())!
+  // A long stroke straight down the phone: in a sheet, the drag that closed
+  // it. Measured with the pen still down, after two frames, so anything the
+  // first stroke shows or hides — the saved-signature button giving way to
+  // "Save this as my signature" — has been laid out.
   const x = box.x + box.width / 2
-  const y = box.y + 12
-  // 300px down, the length of a sheet-closing swipe, but kept on the screen:
-  // the sheet sits at the bottom of a phone-height page.
-  const bottom = page.viewportSize()!.height - 4
-  await page.mouse.move(x, y)
+  await page.mouse.move(x, box.y + 12)
   await page.mouse.down()
-  await page.mouse.move(x, Math.min(y + 300, bottom), { steps: 12 })
-  // Two frames, so anything the first stroke changed has been laid out.
+  await page.mouse.move(x, box.y + box.height - 12, { steps: 16 })
   await page.evaluate(
     () =>
       new Promise((resolve) =>
         requestAnimationFrame(() => requestAnimationFrame(resolve)),
       ),
   )
-
-  // Measured with the pen still down: the sheet has not moved, and nothing
-  // the first stroke shows or hides has moved the pad inside it.
-  expect(
-    Math.abs((await sheet.boundingBox())!.y - sheetTop),
-  ).toBeLessThanOrEqual(1)
-  expect(Math.abs((await pad.boundingBox())!.y - box.y)).toBeLessThanOrEqual(1)
+  const screenNow = (await screen.boundingBox())!
+  const padNow = (await pad.boundingBox())!
+  expect(Math.abs(screenNow.x - screenBox.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(screenNow.y - screenBox.y)).toBeLessThanOrEqual(1)
+  expect(Math.abs(padNow.x - box.x)).toBeLessThanOrEqual(1)
+  expect(Math.abs(padNow.y - box.y)).toBeLessThanOrEqual(1)
   await page.mouse.up()
-
-  await expect(sheet).toBeVisible()
   await expect(done).toBeEnabled()
 
-  // A signature is not thrown away by a tap beside the sheet…
-  await page.mouse.click(5, 5)
-  await expect(sheet).toHaveAttribute('data-state', 'open')
-  await expect(done).toBeEnabled()
-
-  // …and ✕ asks first. Keeping it keeps the ink, and Done still signs.
-  await sheet.getByRole('button', { name: 'Close' }).click()
+  // ✕ asks before a signature is thrown away, and keeping it keeps the ink.
   const discard = page
     .getByRole('alertdialog')
-    .filter({ hasText: 'Discard your changes?' })
+    .filter({ hasText: 'Discard this signature?' })
+  await screen.getByRole('button', { name: 'Close' }).click()
   await expect(discard).toBeVisible()
-  await discard.getByRole('button', { name: 'Keep editing' }).click()
+  await discard.getByRole('button', { name: 'Keep signing' }).click()
   await expect(discard).toHaveCount(0)
   await expect(done).toBeEnabled()
+  // So does Escape.
+  await page.keyboard.press('Escape')
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Keep signing' }).click()
+
   await done.click()
   await expect(
     page.getByRole('button', {
@@ -401,25 +383,26 @@ test('a pad opened again starts blank, sharp, and closes without asking', async 
     .getByRole('button', { name: "Technician's Signature — sign" })
     .click()
 
-  const sheet = page.getByRole('dialog')
-  const pad = sheet.getByRole('img', {
+  const screen = page.getByRole('dialog')
+  const pad = screen.getByRole('img', {
     name: "Technician's Signature — sign here",
   })
   // The pad's bitmap is the screen's own resolution, not a canvas's default
   // 300x150 stretched over the box: that put the ink beside the pen, soft,
-  // and nowhere at all past the bitmap's edge.
+  // and nowhere at all past the bitmap's edge. Measured on the pad's own box
+  // (`clientWidth`), which on a turned screen is not its box on the screen.
   const sized = () =>
-    pad.evaluate((canvas: HTMLCanvasElement) => {
-      const rect = canvas.getBoundingClientRect()
-      return (
-        canvas.width === Math.round(rect.width * window.devicePixelRatio) &&
-        canvas.height === Math.round(rect.height * window.devicePixelRatio)
-      )
-    })
+    pad.evaluate(
+      (canvas: HTMLCanvasElement) =>
+        canvas.width ===
+          Math.round(canvas.clientWidth * window.devicePixelRatio) &&
+        canvas.height ===
+          Math.round(canvas.clientHeight * window.devicePixelRatio),
+    )
   await expect.poll(sized).toBe(true)
 
   await draw(page, "Technician's Signature")
-  await sheet.getByRole('button', { name: 'Done' }).click()
+  await screen.getByRole('button', { name: 'Done' }).click()
   await expect(
     page.getByRole('button', {
       name: "Technician's Signature — signed, sign again",
@@ -432,11 +415,215 @@ test('a pad opened again starts blank, sharp, and closes without asking', async 
       name: "Technician's Signature — signed, sign again",
     })
     .click()
-  await expect(sheet.getByRole('button', { name: 'Done' })).toBeDisabled()
+  await expect(screen.getByRole('button', { name: 'Done' })).toBeDisabled()
   await expect.poll(sized).toBe(true)
-  await sheet.getByRole('button', { name: 'Close' }).click()
+  await screen.getByRole('button', { name: 'Close' }).click()
   await expect(page.getByRole('alertdialog')).toHaveCount(0)
-  await expect(sheet).toHaveCount(0)
+  await expect(screen).toHaveCount(0)
+})
+
+/** The pixel width and height in a PNG's header. */
+function pngSize(bytes: ArrayBuffer) {
+  const view = new DataView(bytes)
+  return { width: view.getUint32(16), height: view.getUint32(20) }
+}
+
+/** Whether the canvas has ink near a point in its own frame (CSS px). */
+function inkNear(pad: Locator, x: number, y: number) {
+  return pad.evaluate(
+    (canvas: HTMLCanvasElement, [px, py]) => {
+      const ratio = canvas.width / canvas.clientWidth
+      const ctx = canvas.getContext('2d')!
+      const size = Math.round(8 * ratio)
+      const { data } = ctx.getImageData(
+        Math.round(px * ratio) - size,
+        Math.round(py * ratio) - size,
+        size * 2,
+        size * 2,
+      )
+      for (let i = 3; i < data.length; i += 4) if (data[i] > 0) return true
+      return false
+    },
+    [x, y] as const,
+  )
+}
+
+test('a phone held upright signs on its side, and the saved image is the right way up', async ({
+  page,
+}) => {
+  const { email, owner, businessId, slug, propertyId } =
+    await setup('sig-turned')
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+
+  await signInViaUi(page, email)
+  await page.goto(
+    sectionUrl(slug, reportId, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
+
+  // This spec runs at phone width, held upright: the screen fills it, laid
+  // out a quarter turn round, so the pad's own width runs down the screen.
+  const screen = page.getByRole('dialog')
+  const pad = screen.getByRole('img', {
+    name: "Technician's Signature — sign here",
+  })
+  const turned = () =>
+    pad.evaluate(
+      (canvas: HTMLCanvasElement) =>
+        canvas.clientWidth > canvas.getBoundingClientRect().width + 1,
+    )
+  const filled = (await screen.boundingBox())!
+  expect(filled.x).toBeCloseTo(0, 0)
+  expect(filled.y).toBeCloseTo(0, 0)
+  expect(filled.width).toBeCloseTo(390, 0)
+  expect(filled.height).toBeCloseTo(844, 0)
+  expect(await turned()).toBe(true)
+
+  // Across the pad as the signer sees it — down the screen of a phone held
+  // upright — with a wave, as handwriting has, in the pad's top half as the
+  // signer sees it: the right of the screen.
+  const box = (await pad.boundingBox())!
+  const at = (t: number) => ({
+    x: box.x + box.width * (0.7 + 0.04 * Math.sin(t * Math.PI * 4)),
+    y: box.y + box.height * (0.1 + 0.8 * t),
+  })
+  await page.mouse.move(at(0).x, at(0).y)
+  await page.mouse.down()
+  for (let i = 1; i <= 24; i++)
+    await page.mouse.move(at(i / 24).x, at(i / 24).y)
+  await page.mouse.up()
+
+  // The ink is under the pen: halfway along the stroke in the pad's own
+  // frame, and not where a mirrored reading would have put it.
+  const mid = at(0.5)
+  const local = {
+    x: mid.y - box.y,
+    y: box.x + box.width - mid.x,
+  }
+  const padHeight = await pad.evaluate((canvas) => canvas.clientHeight)
+  expect(await inkNear(pad, local.x, local.y)).toBe(true)
+  expect(await inkNear(pad, local.x, padHeight - local.y)).toBe(false)
+
+  await screen.getByRole('button', { name: 'Done' }).click()
+  await expect(
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
+  ).toBeVisible()
+
+  // What is saved is the ink, cut from the empty pad and drawn at least
+  // 1,200 pixels across — and wide, as it was signed, not standing on end as
+  // the phone was held.
+  const urls = await owner.client.query(api.reports.signatureUrls, {
+    businessId,
+    reportId,
+  })
+  const image = await fetch(urls.technician)
+  expect(image.headers.get('content-type')).toContain('image/png')
+  const { width, height } = pngSize(await image.arrayBuffer())
+  expect(width).toBeGreaterThanOrEqual(1200)
+  expect(width).toBeLessThanOrEqual(2000)
+  expect(width).toBeGreaterThan(height * 2)
+
+  // A phone already on its side gets the screen as it is.
+  await page.setViewportSize({ width: 844, height: 390 })
+  await page
+    .getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    })
+    .click()
+  await expect(screen).toBeVisible()
+  expect(await turned()).toBe(false)
+})
+
+test('a signature can be taken back: undone, cleared, discarded, and Back asks first', async ({
+  page,
+}) => {
+  const { email, owner, businessId, slug, propertyId } =
+    await setup('sig-takeback')
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+
+  await signInViaUi(page, email)
+  // Into the section from the report's overview, inside the app, so Back
+  // stays in the app — a second page load would make Back leave the
+  // document, which no page can stop.
+  await page.goto(`/${slug}/reports/${reportId}`)
+  await builderReady(page)
+  const signButton = page.getByRole('button', {
+    name: "Technician's Signature — sign",
+  })
+  await clickUntil(
+    page.getByRole('button', { name: /TECHNICIAN'S RECOMMENDATIONS/ }),
+    () => expect(signButton).toBeVisible({ timeout: 2_000 }),
+  )
+  await signButton.click()
+
+  const screen = page.getByRole('dialog')
+  const done = screen.getByRole('button', { name: 'Done' })
+  const undo = screen.getByRole('button', { name: 'Undo the last stroke' })
+  const clear = screen.getByRole('button', { name: 'Clear the signature' })
+  await expect(undo).toBeDisabled()
+  await expect(clear).toBeDisabled()
+
+  // Undo takes one stroke at a time; Clear takes them all.
+  await draw(page, "Technician's Signature")
+  await draw(page, "Technician's Signature")
+  await undo.click()
+  await expect(done).toBeEnabled()
+  await undo.click()
+  await expect(done).toBeDisabled()
+  await expect(undo).toBeDisabled()
+  await draw(page, "Technician's Signature")
+  await draw(page, "Technician's Signature")
+  await clear.click()
+  await expect(done).toBeDisabled()
+  await expect(clear).toBeDisabled()
+
+  // Discard closes the screen and signs nothing.
+  await draw(page, "Technician's Signature")
+  await screen.getByRole('button', { name: 'Close' }).click()
+  const discard = page
+    .getByRole('alertdialog')
+    .filter({ hasText: 'Discard this signature?' })
+  await discard.getByRole('button', { name: 'Discard' }).click()
+  await expect(screen).toHaveCount(0)
+  await expect(signButton).toBeVisible()
+  // And focus is back on what opened it.
+  await expect(signButton).toBeFocused()
+
+  // The phone's Back asks too: keeping it stays put, with the ink.
+  await signButton.click()
+  await draw(page, "Technician's Signature")
+  const url = page.url()
+  // As the phone's Back does it: through the history, not a page load.
+  await page.evaluate(() => history.back())
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Keep signing' }).click()
+  await expect(discard).toHaveCount(0)
+  expect(page.url()).toBe(url)
+  await expect(done).toBeEnabled()
+  // Discarding lets Back go on, and the screen goes with it.
+  await page.evaluate(() => history.back())
+  await discard.getByRole('button', { name: 'Discard' }).click()
+  await expect(screen).toHaveCount(0)
+  await expect.poll(() => page.url()).not.toBe(url)
+
+  const report = await owner.client.query(api.reports.get, {
+    businessId,
+    reportId,
+  })
+  expect(report!.signatureSlots?.technician).toBeUndefined()
 })
 
 test('a client signing sees the statement and gives their name', async ({
@@ -461,9 +648,9 @@ test('a client signing sees the statement and gives their name', async ({
 
   // Handed the phone, a client sees what they are agreeing to on the screen
   // they are signing, not somewhere above the fold on the form behind it.
-  const sheet = page.getByRole('dialog')
+  const screen = page.getByRole('dialog')
   await expect(
-    sheet.getByText(/The Client acknowledges and agrees with the contents/),
+    screen.getByText(/The Client acknowledges and agrees with the contents/),
   ).toBeVisible()
 
   // And who signed is recorded: an agent or a tenant may sign for the client.
