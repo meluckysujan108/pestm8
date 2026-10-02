@@ -14,6 +14,7 @@ import {
 import { settingsFor } from '../templateSettings'
 import { fieldsOf, getTemplate } from '../../src/lib/reportTemplates'
 import { resolveReportTemplate } from '../../src/lib/reportTemplates/resolve'
+import { CLIENT_SIGNATURES_SHOWN } from '../../src/lib/reportTemplates/settings'
 import { submittablePayload } from '../../src/lib/reportTemplates/validate'
 import { PRODUCT_CHANGES } from './templates'
 import { at, demoBaseV, manifestJobV, propertyMapV } from './shared'
@@ -604,7 +605,9 @@ export const seed = internalMutation({
           susceptibilityRating: 'HIGH',
           ...CONDUCIVE_FLAGGED,
           inspectorSignedDate: day,
-          clientSignedDate: day,
+          // Asked only while clients sign: with client signatures off, §9
+          // (the client's acknowledgment) is left out, and nobody dated it.
+          ...(CLIENT_SIGNATURES_SHOWN ? { clientSignedDate: day } : {}),
         })
         .sign(t + 85 * MINUTE, 'inspectorSignature', { technician: 'owner' })
         .sign(t + 88 * MINUTE, 'clientSignature', { client: null })
@@ -760,8 +763,10 @@ export const seed = internalMutation({
           reinspectionInterval: '12 months',
           nextInspectionDue: dayKeyOf(t + 365 * 24 * HOUR, base.timezone),
           installerDateSigned: day,
-          clientSignatoryName: 'Arthur Wilson',
-          clientDateSigned: day,
+          // §8, the client's acknowledgment, likewise.
+          ...(CLIENT_SIGNATURES_SHOWN
+            ? { clientSignatoryName: 'Arthur Wilson', clientDateSigned: day }
+            : {}),
         })
         .photo(t + 225 * MINUTE, 'durableNoticePhoto', { photo: 3 })
         .sign(t + 232 * MINUTE, 'installerSignature', { technician: 'owner' })
@@ -1290,7 +1295,8 @@ function storyteller(
   }
 
   /** The form as the builder shows it: the business's lists and settings
-   * over the revision the report was started on. */
+   * over the revision the report was started on, without a client's part
+   * that is left out. */
   const formOf = async (report: Doc<'reports'>): Promise<ReportTemplate> => {
     const custom = report.customTemplateId
       ? await ctx.db.get(report.customTemplateId)
@@ -1305,6 +1311,8 @@ function storyteller(
         report.businessId,
         templateRefOf(report),
       ),
+      status: report.status,
+      signedSlots: Object.keys(report.signatureSlots ?? {}),
     })
   }
 
@@ -1365,6 +1373,10 @@ function storyteller(
        * client signs on the technician's device, typing their name.
        */
       sign(ts, fieldKey, signer) {
+        // While client signatures are off the builder shows no client's pad,
+        // so nobody could have signed one: the step is skipped, and the form
+        // below would not have the field to find.
+        if ('client' in signer && !CLIENT_SIGNATURES_SHOWN) return self
         schedule(ts, async (when) => {
           const report = await read(key)
           const field = fieldsOf(await formOf(report)).find(

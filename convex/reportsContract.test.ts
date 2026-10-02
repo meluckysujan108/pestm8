@@ -147,6 +147,46 @@ describe('clearCustomSnapshots', () => {
     expect(snapshot!.boilerplate).toBe('The terms as signed.')
   })
 
+  test('a client’s part on the inline copy is frozen with it, whatever the switch says', async () => {
+    // A form whose last section is nothing but the client's sign-off: the
+    // part a draft leaves out while client signatures are off. This report
+    // was locked and sent with it, and the backfill keeps it that way.
+    const signed = {
+      ...INLINE,
+      sections: [
+        ...INLINE.sections,
+        {
+          title: 'Client sign-off',
+          fields: [
+            { kind: 'text', key: 'clientSignatoryName', label: 'Client name' },
+            {
+              kind: 'signature',
+              key: 'clientSignature',
+              label: 'Client signature',
+              slot: 'client',
+              role: 'client',
+            },
+          ],
+        },
+      ],
+    }
+    const t = convexTest(schema, modules)
+    const reportId = await t.run(async (ctx) => {
+      const ids = await seed(ctx)
+      return insert(ctx, ids, { customTemplateSnapshot: signed })
+    })
+
+    await t.mutation(internal.migrations.reportsContract.clearCustomSnapshots, {
+      cursor: null,
+    })
+
+    const after = await t.run((ctx) => ctx.db.get(reportId))
+    const snapshot = await t.run((ctx) =>
+      ctx.db.get(after!.templateSnapshotId!),
+    )
+    expect(snapshot!.sections).toEqual(signed.sections)
+  })
+
   test('rows without an inline copy are left alone, and the invariant reads zero after', async () => {
     const t = convexTest(schema, modules)
     const untouchedId = await t.run(async (ctx) => {

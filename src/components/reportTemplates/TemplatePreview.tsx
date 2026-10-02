@@ -30,6 +30,10 @@ export function TemplatePreview({ draft }: { draft: TemplateDraft }) {
   // Built through the real resolver, not by hand: a preview assembled its own
   // way would be a second definition of what a custom template is, and the
   // whole point is to show what the finished document does.
+  //
+  // As a draft, because that is the form a technician meets and what a report
+  // is locked from: while client signatures are off it has no client's pad,
+  // and the section count below has to match what a lock keeps.
   const template = useMemo(
     () =>
       parsed.success
@@ -43,6 +47,7 @@ export function TemplatePreview({ draft }: { draft: TemplateDraft }) {
               sections: parsed.data as Array<SectionDef>,
               boilerplate: draft.boilerplate,
             },
+            status: 'draft',
           })
         : null,
     [

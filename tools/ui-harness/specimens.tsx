@@ -33,6 +33,7 @@ import type {
 import { ReportsLibrary } from '#/components/reports/ReportsLibrary'
 import type { Segment } from '#/components/reports/ReportsLibrary'
 import { getTemplate } from '#/lib/reportTemplates'
+import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import { Sheet } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
 import { SearchBox } from '#/components/primitives/SearchBox'
@@ -714,6 +715,17 @@ function NoMatchesDemo() {
 const SERVICE = getTemplate('serviceReport')
 
 /**
+ * The Service Report as the builder resolves a draft of it, and so as the
+ * lock sheet is handed it: while client signatures are off, without the
+ * client's pad.
+ */
+const SERVICE_DRAFT = resolveReportTemplate({
+  template: 'serviceReport',
+  templateVersion: SERVICE.version,
+  status: 'draft',
+})
+
+/**
  * The sheet that locks a report, at its email note. The report id picks the
  * fixture (`deliveries:known`): `r_nomail` is a deployment with no email set
  * up. The client's copy can be switched off here, as in the app.
@@ -742,7 +754,7 @@ function LockSheet({
         onClose={() => {}}
         onConfirm={() => {}}
         pending={false}
-        template={SERVICE}
+        template={SERVICE_DRAFT}
         data={data}
         context={{ client: { name: 'Jane Nguyen', email: clientEmail } }}
         signedSlots={['technician']}

@@ -5,6 +5,7 @@ import { OptionsListEditor } from './OptionsListEditor'
 import { VisibleWhenEditor } from './VisibleWhenEditor'
 import { slugifyKey } from './fieldKinds'
 import { isDataField } from '#/lib/reportTemplates'
+import { CLIENT_SIGNATURES_SHOWN } from '#/lib/reportTemplates/settings'
 import type { FieldDef, RichDoc } from '#/lib/reportTemplates'
 import type { Condition } from '#/lib/reportTemplates/visibility'
 import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
@@ -155,13 +156,23 @@ export function FieldConfigForm({
         )}
       {/* The client's signature is never required to lock a report
           (`withOptionalClientSignatures`), so there is no switch that would
-          promise otherwise — only the reason there is none. */}
-      {field.kind === 'signature' && field.role === 'client' && (
-        <p className="text-caption text-ink-2">
-          A client’s signature is never required to lock a report. The pad is
-          there for when they can sign.
-        </p>
-      )}
+          promise otherwise — only the reason there is none. While client
+          signatures are off the pad is left off reports altogether
+          (`withoutClientSigning`). It stays in the form all the same, so the
+          form is whole again when they are switched back on. */}
+      {field.kind === 'signature' &&
+        field.role === 'client' &&
+        (CLIENT_SIGNATURES_SHOWN ? (
+          <p className="text-caption text-ink-2">
+            A client’s signature is never required to lock a report. The pad is
+            there for when they can sign.
+          </p>
+        ) : (
+          <p className="text-caption text-ink-2">
+            Client signatures are switched off for now, so this pad isn’t shown
+            on reports.
+          </p>
+        ))}
 
       <KindSpecificFields field={field} onChange={onChange} />
 

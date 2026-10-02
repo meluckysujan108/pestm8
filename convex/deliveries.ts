@@ -197,7 +197,8 @@ async function subjectFor(
 /**
  * The form a report is on: its FROZEN wording once finalised, else the form
  * as it stands. Only a custom report finalised before snapshots existed has
- * no frozen wording, and reads as its form.
+ * no frozen wording, and reads as its form. A draft reads as its builder
+ * shows it, without a client's part that is left out.
  */
 async function templateOf(ctx: QueryCtx | MutationCtx, report: Doc<'reports'>) {
   const snapshot = report.templateSnapshotId
@@ -212,6 +213,8 @@ async function templateOf(ctx: QueryCtx | MutationCtx, report: Doc<'reports'>) {
     templateVersion: report.templateVersion,
     customTemplate: live,
     templateSnapshot: snapshot,
+    status: report.status,
+    signedSlots: Object.keys(report.signatureSlots ?? {}),
   })
 }
 

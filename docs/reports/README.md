@@ -118,16 +118,30 @@ blocked at Complete is how a business learns to switch a policy off.
 **Template settings** (`convex/templateSettings.ts`) — cover title and
 subtitle, the footer's form name, and which of the technician's signatures a
 report needs before it can lock. **A client's signature is never required** —
-not by a form, a clone or these settings — so a report locks on the
-technician's alone (`withOptionalClientSignatures`, applied where a draft's
-template is resolved, so the builder and `finalise` agree). The client's pad
-stays on the form for when they are there to sign, and the lock sheet calls it
-optional rather than warning about it. That is the whole writable surface;
-email is not part of it. A
+not by a form, a clone or these settings (`withOptionalClientSignatures`,
+applied where a draft's template is resolved, so the builder and `finalise`
+agree). That is the whole writable surface; email is not part of it. A
 delivery's subject is computed per report (`deliveries.subjectFor`) and its
 recipients come from the form's own semantics, with the business's blind copy
-from `businesses.reportCopyEmail` — a business column, not a template one. Anything that would change a question
-or an answer is on the other side of the line: a clone.
+from `businesses.reportCopyEmail` — a business column, not a template one.
+Anything that would change a question or an answer is on the other side of the
+line: a clone.
+
+**Since 1 Oct 2026 the client is not asked to sign at all**, while
+`CLIENT_SIGNATURES_SHOWN` (`src/lib/reportTemplates/settings.ts`) is `false` —
+the app's switch, not a business's setting. A report not yet locked leaves out
+every pad the client signs, and a section holding nothing but the client's
+sign-off — Termite §8, Timber Pest §9, or a clone's copy of either — so the
+Termite certificate's terms print as §8; a business's own section loses only
+the pad, unless the pad is all it holds (`withoutClientSigning`). A pad the
+draft already holds a signature in stays. `finalise` freezes the form as the
+draft showed it (`freezeTemplate` with `atLock`); a report already locked keeps
+whatever it was locked with, and the snapshot backfills freeze the whole form.
+Nothing stored is deleted, so setting the switch back to `true` brings the
+client's part back on every draft. Ship the backend first when switching it
+off, and the app first when switching it back on: the side that shows the
+client less goes first, so a draft is never locked with a client's section
+nobody was shown.
 
 **Phrases** (`convex/snippets.ts`) — saved wording for the long-answer boxes,
 of which the three forms have twenty-eight, twenty-three of them on the Timber
