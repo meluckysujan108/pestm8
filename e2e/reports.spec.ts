@@ -29,6 +29,10 @@ import {
   reportViewer,
 } from './fixtures/reportViewer'
 import { getTemplate } from '../src/lib/reportTemplates'
+import {
+  CLIENT_SIGNATURES_SHOWN,
+  withoutClientSigning,
+} from '../src/lib/reportTemplates/settings'
 import type { Id } from '../convex/_generated/dataModel'
 
 /**
@@ -532,12 +536,22 @@ test.describe('report builder', () => {
 
     // The overview lists every numbered section of the source form, in its own
     // words — the form is answered one section at a time, so this is where the
-    // whole of it is visible at once.
-    for (const section of timber.sections ?? []) {
+    // whole of it is visible at once. Every one a draft shows, that is: while
+    // client signatures are off, §9 is the client's sign-off and nothing else,
+    // and a new report has nobody's signature to keep it for.
+    for (const section of withoutClientSigning(timber).sections ?? []) {
       if (section.number === undefined) continue
       await expect(
         page.getByRole('button', { name: new RegExp(escapeForRegExp(section.title)) }).first(),
       ).toBeVisible()
+    }
+    if (!CLIENT_SIGNATURES_SHOWN) {
+      // After the loop, so the overview is known to be drawn.
+      await expect(
+        page.getByRole('button', {
+          name: /CLIENT ACKNOWLEDGMENT OF THIS REPORT/,
+        }),
+      ).toHaveCount(0)
     }
 
     // And opening one shows that section's own questions and notices. The

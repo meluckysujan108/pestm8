@@ -186,7 +186,10 @@ export function FinaliseSheet({
           const signed = signedSlots.includes(field.slot)
           // The client's pad is never needed to lock
           // (`withOptionalClientSignatures`): said as the fact it is, not as
-          // a warning, which read as something still to be done.
+          // a warning, which read as something still to be done. The client's
+          // row is only here while client signatures are shown, or once the
+          // client has already signed: otherwise the draft's form has no
+          // client's pad to list (`withoutClientSigning`).
           if (field.role === 'client' && !signed) {
             return (
               <Row key={field.key} ok={false} optional>

@@ -2,11 +2,18 @@
 import { convexTest } from 'convex-test'
 import { describe, expect, test } from 'vitest'
 import schema from './schema'
+import { internal } from './_generated/api'
 import { freezeTemplate } from './lib/templateSnapshot'
 import { fieldsOf, getTemplate, sectionsOf, templateFor } from '../src/lib/reportTemplates'
+import {
+  CLIENT_SIGNATURES_SHOWN,
+  withoutClientSigning,
+} from '../src/lib/reportTemplates/settings'
 import { buildReportContext, toPresentContext } from './lib/reportContext'
 import { present } from '../src/lib/reportTemplates/present'
 import { rewriteDraftsForRename } from './lib/optionSets'
+import type { CustomSource } from './lib/templateSnapshot'
+import type { SectionDef } from '../src/lib/reportTemplates'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -278,6 +285,173 @@ describe('verbatim templates (v2)', () => {
       const row = (await ctx.db.get(after!))!
       expect(JSON.stringify(row.sections)).toContain('House Brand Spray')
     })
+  })
+})
+
+/**
+ * `finalise` freezes the form as its draft showed it (`atLock`): while client
+ * signatures are off, without the client's part. The backfills never ask for
+ * that, because what they freeze was signed and sent with the whole form.
+ */
+describe('freezing at lock', () => {
+  const CLIENT_PART = {
+    termiteManagementCert: 'acknowledgment',
+    timberPestInspection: 'clientAcknowledgment',
+  } as const
+  const TERMS = 'TERMS AND CONDITIONS OF CERTIFICATE'
+
+  const sectionIds = (row: Doc<'reportTemplateSnapshots'>) =>
+    (row.sections as Array<SectionDef>).map((section) => section.id)
+
+  async function draft(
+    ctx: MutationCtx,
+    template: Doc<'reports'>['template'],
+    extra: Partial<Doc<'reports'>> = {},
+  ): Promise<Doc<'reports'>> {
+    const reportId = await insertReport(ctx, await seed(ctx), template, {
+      templateVersion:
+        template === 'custom' ? 1 : getTemplate(template).version,
+      status: 'draft',
+      ...extra,
+    })
+    return (await ctx.db.get(reportId))!
+  }
+
+  test('a v2 Termite or Timber draft freezes as it was filled in, on one row of its own', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      for (const template of [
+        'termiteManagementCert',
+        'timberPestInspection',
+      ] as const) {
+        const report = await draft(ctx, template)
+        const whole = await freezeTemplate(ctx, report)
+        const locked = await freezeTemplate(ctx, report, { atLock: true })
+        const again = await freezeTemplate(ctx, report, { atLock: true })
+        expect(locked, template).toBeDefined()
+
+        const row = (await ctx.db.get(locked!))!
+        const filledIn = withoutClientSigning(getTemplate(template))
+        expect(row.sections, template).toEqual(sectionsOf(filledIn))
+        expect(row.print, template).toEqual(filledIn.print)
+        expect(sectionIds(row).includes(CLIENT_PART[template]), template).toBe(
+          CLIENT_SIGNATURES_SHOWN,
+        )
+        // Not what the backfill freezes for the same form while the switch is
+        // off, so a row of its own — but one row, however many lock on it.
+        expect(locked === whole, template).toBe(CLIENT_SIGNATURES_SHOWN)
+        expect(again, template).toBe(locked)
+      }
+    })
+  })
+
+  test('the Termite certificate’s terms are numbered on from the sections left', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const report = await draft(ctx, 'termiteManagementCert')
+      const row = (await ctx.db.get(
+        (await freezeTemplate(ctx, report, { atLock: true }))!,
+      ))!
+      expect(row.print?.termsHeading).toBe(
+        `${CLIENT_SIGNATURES_SHOWN ? 9 : 8}. ${TERMS}`,
+      )
+    })
+  })
+
+  test('a draft the client has already signed keeps the client’s part', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const storageId = await ctx.storage.store(
+        new Blob(['signature'], { type: 'image/png' }),
+      )
+      const report = await draft(ctx, 'termiteManagementCert', {
+        signatureSlots: {
+          client: { storageId, signedAt: Date.now(), method: 'drawn' },
+        },
+      })
+      const locked = await freezeTemplate(ctx, report, { atLock: true })
+      // The whole form, so the very row the backfill would have written.
+      expect(locked).toBe(await freezeTemplate(ctx, report))
+
+      const row = (await ctx.db.get(locked!))!
+      expect(sectionIds(row)).toContain('acknowledgment')
+      expect(row.print?.termsHeading).toBe(`9. ${TERMS}`)
+    })
+  })
+
+  test('a form with no client part freezes the same either way', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      for (const report of [
+        // Version 1 of the certificate had no client's part at all.
+        await draft(ctx, 'termiteManagementCert', { templateVersion: 1 }),
+        await draft(ctx, 'treatmentRecord'),
+      ]) {
+        const whole = await freezeTemplate(ctx, report)
+        expect(whole, report.template).toBeDefined()
+        expect(await freezeTemplate(ctx, report, { atLock: true })).toBe(whole)
+      }
+      expect(
+        await ctx.db.query('reportTemplateSnapshots').collect(),
+      ).toHaveLength(2)
+    })
+  })
+
+  test('a business’s clone of the Timber report loses its client acknowledgment too, unnumbered', async () => {
+    const t = convexTest(schema, modules)
+    await t.run(async (ctx) => {
+      const timber = getTemplate('timberPestInspection')
+      // Matched by its fields' keys, which a clone keeps, and not by the
+      // section's id or number, which a business can strip.
+      const sections = sectionsOf(timber).map(
+        ({ id, number, ...section }) => section,
+      )
+      const custom: CustomSource = {
+        name: 'Timber Pest Inspection',
+        shortName: timber.shortName,
+        legalBasis: timber.legalBasis,
+        blurb: timber.blurb,
+        sections,
+        boilerplate: timber.boilerplate,
+        terms: timber.terms,
+        print: timber.print,
+      }
+      const report = await draft(ctx, 'custom')
+      const row = (await ctx.db.get(
+        (await freezeTemplate(ctx, report, { custom, atLock: true }))!,
+      ))!
+      expect(
+        JSON.stringify(row.sections).includes(
+          'CLIENT ACKNOWLEDGMENT OF THIS REPORT',
+        ),
+      ).toBe(CLIENT_SIGNATURES_SHOWN)
+      expect(row.sections).toHaveLength(
+        sections.length - (CLIENT_SIGNATURES_SHOWN ? 0 : 1),
+      )
+    })
+  })
+
+  test('the snapshot backfill freezes a locked report’s whole form, the client’s part included', async () => {
+    const t = convexTest(schema, modules)
+    const live = getTemplate('termiteManagementCert')
+    const reportId = await t.run(async (ctx) =>
+      // Finalised, with no snapshot: what the backfill exists for.
+      insertReport(ctx, await seed(ctx), 'termiteManagementCert', {
+        templateVersion: live.version,
+      }),
+    )
+
+    await t.mutation(internal.migrations.reportSnapshotsV1.backfillSnapshots, {
+      cursor: null,
+    })
+
+    const row = await t.run(async (ctx) => {
+      const report = await ctx.db.get(reportId)
+      return ctx.db.get(report!.templateSnapshotId!)
+    })
+    expect(row!.sections).toEqual(sectionsOf(live))
+    expect(sectionIds(row!)).toContain('acknowledgment')
+    expect(row!.print?.termsHeading).toBe(`9. ${TERMS}`)
   })
 })
 

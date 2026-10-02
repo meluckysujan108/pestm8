@@ -5,12 +5,20 @@ import {
 } from '../../src/lib/reportTemplates/snapshot'
 import { templateFor } from '../../src/lib/reportTemplates'
 import { applyOptionSets } from '../../src/lib/reportTemplates/optionSets'
-import { applyTemplateSettings } from '../../src/lib/reportTemplates/settings'
+import {
+  applyTemplateSettings,
+  withoutClientSigning,
+} from '../../src/lib/reportTemplates/settings'
 import { settingsFor } from '../templateSettings'
 import { templateRefOf } from '../reports'
 import type { TemplateSnapshotContent } from '../../src/lib/reportTemplates/snapshot'
 import { loadOverrides } from './optionSets'
-import type { PrintSpec, RichDoc, SectionDef } from '../../src/lib/reportTemplates'
+import type {
+  PrintSpec,
+  ReportTemplate,
+  RichDoc,
+  SectionDef,
+} from '../../src/lib/reportTemplates'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { MutationCtx } from '../_generated/server'
 
@@ -24,14 +32,28 @@ import type { MutationCtx } from '../_generated/server'
  * the same template from opposite directions: one from a module literal, whose
  * keys are in declaration order, and one from a Convex read, which returns
  * them sorted.
+ *
+ * `atLock` is `finalise`, and only `finalise`. It freezes the form as the
+ * draft showed it: while client signatures are off, without the client's part
+ * (`withoutClientSigning`), except a pad this report already holds a signature
+ * in. The backfills never pass it, because the reports they freeze were signed
+ * and sent with the whole form. So for a form with a client part the two
+ * writers no longer freeze the same content, and a lock gets its own row,
+ * shared with every other lock of that form. A form with no client part
+ * freezes the same either way and still shares one row.
  */
 export async function freezeTemplate(
   ctx: MutationCtx,
   report: Doc<'reports'>,
-  sources: { custom?: CustomSource } = {},
+  sources: { custom?: CustomSource; atLock?: boolean } = {},
 ): Promise<Id<'reportTemplateSnapshots'> | undefined> {
   try {
-    const content = await contentFor(ctx, report, sources.custom)
+    const content = await contentFor(
+      ctx,
+      report,
+      sources.custom,
+      sources.atLock === true,
+    )
     if (!content) return undefined
     return await upsertSnapshot(ctx, content)
   } catch (error) {
@@ -65,8 +87,18 @@ export type CustomSource = {
 async function contentFor(
   ctx: MutationCtx,
   report: Doc<'reports'>,
-  custom?: CustomSource,
+  custom: CustomSource | undefined,
+  atLock: boolean,
 ): Promise<TemplateSnapshotContent | undefined> {
+  // Applied here and never inside `snapshotOf`, which the backfills share: a
+  // report signed with the whole form must freeze the whole form.
+  const asFilledIn = (template: ReportTemplate) =>
+    atLock
+      ? withoutClientSigning(template, {
+          keep: Object.keys(report.signatureSlots ?? {}),
+        })
+      : template
+
   if (report.template !== 'custom') {
     // The revision this report was WRITTEN against, never the current module.
     // A v1 draft finalised after the verbatim rewrite must freeze v1 wording
@@ -81,12 +113,11 @@ async function contentFor(
     // the draft showed them. Freezing the bare module would hand the signed
     // report the form's own cover title back — the settings would apply to
     // every draft and then silently vanish the moment one was locked.
-    return snapshotOf(
-      applyTemplateSettings(
-        applyOptionSets(template, await overridesFor(ctx, report)),
-        await settingsFor(ctx, report.businessId, templateRefOf(report)),
-      ),
+    const settled = applyTemplateSettings(
+      applyOptionSets(template, await overridesFor(ctx, report)),
+      await settingsFor(ctx, report.businessId, templateRefOf(report)),
     )
+    return snapshotOf(asFilledIn(settled))
   }
 
   // The inline copy first — it is what this report has been rendering from all
@@ -125,10 +156,14 @@ async function contentFor(
   )
   // And the business's own settings on top, for the same reason: a signed
   // report freezes the document the technician was looking at, chrome and
-  // signing rule included.
-  const settled = applyTemplateSettings(
-    { ...overlaid, print: source.print },
-    await settingsFor(ctx, report.businessId, templateRefOf(report)),
+  // signing rule included. The sections and the print spec both come from
+  // this one result, so a clone of the Termite certificate that loses §8 at
+  // lock has its terms heading numbered on too.
+  const settled = asFilledIn(
+    applyTemplateSettings(
+      { ...overlaid, print: source.print },
+      await settingsFor(ctx, report.businessId, templateRefOf(report)),
+    ),
   )
 
   return {
@@ -150,10 +185,7 @@ async function contentFor(
  * wording. Kept behind a function so a deployment without the table's rows
  * resolves to the verbatim defaults and hashes exactly as before.
  */
-async function overridesFor(
-  ctx: MutationCtx,
-  report: Doc<'reports'>,
-) {
+async function overridesFor(ctx: MutationCtx, report: Doc<'reports'>) {
   return loadOverrides(ctx, report.businessId)
 }
 
@@ -192,7 +224,9 @@ export async function upsertSnapshot(
   })
 }
 
-function rowContent(row: Doc<'reportTemplateSnapshots'>): TemplateSnapshotContent {
+function rowContent(
+  row: Doc<'reportTemplateSnapshots'>,
+): TemplateSnapshotContent {
   return {
     template: row.template,
     version: row.version,

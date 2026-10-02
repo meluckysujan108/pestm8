@@ -445,6 +445,7 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 - `AlertDialog` appears only in `ConfirmDialog.tsx` **(lint)**, and never `window.confirm` **(lint)**.
 - A sheet closes three ways, all equivalent: dragged down, tapped outside, or ✕. A sheet that is only a list or a read-out ends with a "Done".
 - **A sheet being edited does not swipe away.** An edit mode, or a form with something typed in, calls `useSheetLock`: the grab handle goes, a swipe and a tap outside do nothing, and ✕, Escape and the phone's Back ask "Discard your changes?" (Keep editing / Discard) when something has changed, or just close when nothing has. Back is caught only as Back, so the sheet's own close and a save's navigation go through. Notes that save as they are typed need no lock.
+- **The signing sheet is locked for as long as it is open** (`SheetLock`), and its canvas carries `data-vaul-no-drag`, so a stroke is never a drag. Nothing below the pad comes or goes as the first stroke lands: the sheet grows from the bottom, and the pad would jump under the pen.
 - **An edit mode is the form and nothing else:** the rest of the sheet steps aside, and Cancel and Save are pinned below the fields (`SHEET_FOOTER`), within reach with the keyboard up.
 - **`ConfirmDialog` wording:**
   - The title is the question, naming the thing: "Archive Jane Smith?", "Cancel this job?".
@@ -615,6 +616,7 @@ Call, Text, Email and Map are holds (`HoldButton`), so a pocket or a brushing th
 - **Locking emails it,** so the read-back sheet says who to and where the business's copy goes, and the finished report says whether it went (`LatestDelivery`, above its tabs).
 - **A report too big to email** goes as a copy with smaller photos. The lock and Send sheets say so before (`LARGE_FOR_EMAIL` in `lockEmail.ts`), and the Email tab and Logs after ("Photos made smaller to fit an email"). The email itself does not, so it invites no "can I have the full size?".
 - **Locked boilerplate** sits in a grey inset (`bg-surface-2`) with a `Lock` glyph.
+- **While client signatures are switched off** (`CLIENT_SIGNATURES_SHOWN`), a report being filled in has no client's pad and no client acknowledgment section, unless the client has already signed it, and nothing on screen asks for one. A locked report keeps whatever it was locked with.
 
 ---
 

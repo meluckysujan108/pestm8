@@ -23,6 +23,7 @@ import {
   reportViewer,
 } from './fixtures/reportViewer'
 import { getTemplate } from '../src/lib/reportTemplates'
+import { CLIENT_SIGNATURES_SHOWN } from '../src/lib/reportTemplates/settings'
 import type { Id } from '../convex/_generated/dataModel'
 
 /**
@@ -636,11 +637,19 @@ test.describe('the sheet before the lock', () => {
     await expect(sheet.getByText('6 Months')).toBeVisible()
     // The gate answered No still locks — and must be impossible to miss.
     await expect(sheet.getByText('No', { exact: true })).toBeVisible()
-    // The client's pad is never needed to lock: said plainly, not as a
-    // warning that reads like something still to do.
-    await expect(
-      sheet.getByText('Client’s signature — not signed (optional)'),
-    ).toBeVisible()
+    // The client's pad is never needed to lock. While client signatures are
+    // off a draft has no client's pad, so the sheet does not mention one;
+    // while they are on, it is said plainly, not as a warning that reads like
+    // something still to do. Asked after what the sheet does say, so a sheet
+    // still drawing cannot pass for one without it.
+    await expect(sheet.getByText(/Client’s signature/)).toHaveCount(
+      CLIENT_SIGNATURES_SHOWN ? 1 : 0,
+    )
+    if (CLIENT_SIGNATURES_SHOWN) {
+      await expect(
+        sheet.getByText('Client’s signature — not signed (optional)'),
+      ).toBeVisible()
+    }
     await expect(sheet.getByText('No photos')).toBeVisible()
 
     // The one answer nobody could have known any earlier.

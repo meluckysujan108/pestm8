@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { PenLine, RotateCcw } from 'lucide-react'
-import { Sheet } from '#/components/primitives/Sheet'
+import { Sheet, SheetLock } from '#/components/primitives/Sheet'
 import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import {
@@ -10,6 +10,22 @@ import {
   SECONDARY_BUTTON,
 } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
+
+/** The pad's bitmap at the screen's own resolution, and its pen. */
+function setUpPad(canvas: HTMLCanvasElement) {
+  const ratio = window.devicePixelRatio || 1
+  const rect = canvas.getBoundingClientRect()
+  canvas.width = Math.round(rect.width * ratio)
+  canvas.height = Math.round(rect.height * ratio)
+  const ctx = canvas.getContext('2d')
+  if (!ctx) return
+  ctx.scale(ratio, ratio)
+  ctx.lineWidth = 2.2
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  // --ink, light: the pad is paper in both themes.
+  ctx.strokeStyle = '#1C1C1E'
+}
 
 /**
  * Signing, as its own screen.
@@ -81,24 +97,31 @@ export function SignSheet({
     }) => convexAttach(args),
   })
 
-  // A canvas laid out by CSS keeps its default 300x150 bitmap, so strokes land
-  // offset from the pen. Sized once the sheet is open and the box has a size.
+  // Every opening starts blank, reset as it happens rather than in an effect:
+  // the sheet closed and opened again is the same component, and a pad that
+  // still thought it held a stroke offered Done on an empty pad — and, held
+  // by the lock below, asked whether to discard nothing.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setDrawn(false)
+      setFailed(false)
+    }
+  }
+
+  // A canvas laid out by CSS keeps its default 300x150 bitmap, stretched to
+  // the box: strokes landed below and beside the pen, soft-edged, and past
+  // the bitmap's edge not at all. Sized when the element itself arrives — the
+  // sheet mounts its body a render or two after `open` flips, so an effect on
+  // `open` alone found no canvas and never sized one — and again on an opening
+  // that finds it still there. Sizing a canvas also clears it.
+  const padRef = useCallback((canvas: HTMLCanvasElement | null) => {
+    canvasRef.current = canvas
+    if (canvas) setUpPad(canvas)
+  }, [])
   useEffect(() => {
-    if (!open) return
-    const canvas = canvasRef.current
-    if (!canvas) return
-    const ratio = window.devicePixelRatio || 1
-    const rect = canvas.getBoundingClientRect()
-    canvas.width = rect.width * ratio
-    canvas.height = rect.height * ratio
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-    ctx.scale(ratio, ratio)
-    ctx.lineWidth = 2.2
-    ctx.lineCap = 'round'
-    ctx.lineJoin = 'round'
-    ctx.strokeStyle = '#1C1C1E'
-    setDrawn(false)
+    if (open && canvasRef.current) setUpPad(canvasRef.current)
   }, [open])
 
   function positionOf(event: React.PointerEvent<HTMLCanvasElement>) {
@@ -203,7 +226,11 @@ export function SignSheet({
   return (
     <Sheet
       open={open}
-      onClose={onClose}
+      // Not while a signature is being saved: it will be attached whatever
+      // happens to the sheet, so closing would only hide that it had been.
+      onClose={() => {
+        if (!busy) onClose()
+      }}
       title={label}
       footer={
         <div className="flex gap-2">
@@ -230,6 +257,13 @@ export function SignSheet({
         </div>
       }
     >
+      {/* Locked from the moment it opens: a stroke that starts downward is
+          otherwise the drag that closes the sheet, and a signature half
+          drawn goes with it. With a stroke on the pad, ✕ and Back ask before
+          throwing it away — but not while it is being saved, when there is
+          nothing left to throw away. Done and "Use my saved signature" close
+          through `onClose` itself, which asks nothing. */}
+      <SheetLock changed={drawn && !busy} />
       {statement && (
         <p className="rounded-xl border border-hairline bg-surface px-3.5 py-3 text-body text-ink-2">
           {statement}
@@ -250,17 +284,24 @@ export function SignSheet({
       )}
 
       <canvas
-        ref={canvasRef}
+        ref={padRef}
         role="img"
         aria-label={`${label} — sign here`}
         onPointerDown={start}
         onPointerMove={move}
         onPointerUp={() => (drawing.current = false)}
         onPointerCancel={() => (drawing.current = false)}
-        // Without this the browser scrolls the page instead of drawing.
+        // Never the start of a drag, even if the lock above were lifted: the
+        // pad is the one place in a sheet where a finger moving down means
+        // ink, not "close".
+        data-vaul-no-drag
+        // `touch-none`: without it the browser scrolls the page instead of
+        // drawing. `select-none` and no callout: a slow first stroke on an
+        // iPhone is otherwise a long press, which selects the hint below and
+        // raises the copy menu over the pad.
         // Paper, not surface: the ink is dark in both themes (it is printed
         // on white), and on dark mode's #1c1c1e surface it could not be seen.
-        className="mt-3 h-56 w-full touch-none rounded-xl border border-dashed border-hairline bg-paper"
+        className="mt-3 h-56 w-full touch-none select-none rounded-xl border border-dashed border-hairline bg-paper [-webkit-touch-callout:none]"
       />
       <p className="mt-1.5 text-caption text-muted">
         {drawn
@@ -268,28 +309,39 @@ export function SignSheet({
           : 'Sign above with a finger or a stylus.'}
       </p>
 
-      {ownSignature && saved && !drawn && (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={() => void useSaved()}
-          className={`${SECONDARY_BUTTON} mt-3 flex w-full items-center justify-center gap-2`}
-        >
-          <PenLine size={16} strokeWidth={2} />
-          Use my saved signature
-        </button>
-      )}
-
-      {ownSignature && drawn && (
-        <label className="mt-3 flex items-center gap-2.5 text-body text-ink-2">
-          <input
-            type="checkbox"
-            checked={keepMine}
-            onChange={(event) => setKeepMine(event.target.checked)}
-            className="size-4 accent-red"
-          />
-          Save this as my signature
-        </label>
+      {/* One slot, one height (the button's 48px), whatever is in it. The
+          sheet rises from the bottom and is as tall as what it holds, so
+          anything below the pad that comes or goes moves the pad: the saved
+          signature landing after the sheet opened, or — worse — the first
+          stroke swapping the button for the checkbox, which jumped the pad
+          out from under the pen mid-signature. With neither to show, the
+          space is held empty. */}
+      {ownSignature && (
+        <div className="mt-3 h-12">
+          {drawn ? (
+            <label className="flex h-full items-center gap-2.5 text-body text-ink-2">
+              <input
+                type="checkbox"
+                checked={keepMine}
+                onChange={(event) => setKeepMine(event.target.checked)}
+                className="size-4 accent-red"
+              />
+              Save this as my signature
+            </label>
+          ) : (
+            saved && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void useSaved()}
+                className={`${SECONDARY_BUTTON} flex w-full items-center justify-center gap-2`}
+              >
+                <PenLine size={16} strokeWidth={2} />
+                Use my saved signature
+              </button>
+            )
+          )}
+        </div>
       )}
 
       {failed && (

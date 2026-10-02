@@ -4,6 +4,7 @@ import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import { fieldsOf, getTemplate } from '#/lib/reportTemplates'
+import { CLIENT_SIGNATURES_SHOWN } from '#/lib/reportTemplates/settings'
 import type { TemplateId } from '#/lib/reportTemplates'
 import type { Id } from '../../../convex/_generated/dataModel'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
@@ -227,12 +228,21 @@ export function TemplateSettingsSheet({
                   the app insisting on it.
                 </p>
               )}
-              {hasClientPad && (
-                <p className="mt-1.5 text-caption text-ink-2">
-                  The client’s signature is never needed to lock a report. The
-                  pad stays on the form for when they’re there to sign.
-                </p>
-              )}
+              {/* While client signatures are off the pad is not on the form
+                  at all (`withoutClientSigning`), so "it stays for when
+                  they’re there" would promise a pad nobody will see. */}
+              {hasClientPad &&
+                (CLIENT_SIGNATURES_SHOWN ? (
+                  <p className="mt-1.5 text-caption text-ink-2">
+                    The client’s signature is never needed to lock a report. The
+                    pad stays on the form for when they’re there to sign.
+                  </p>
+                ) : (
+                  <p className="mt-1.5 text-caption text-ink-2">
+                    Client signatures are switched off for now, so the client
+                    isn’t asked to sign this form.
+                  </p>
+                ))}
             </>
           )}
 

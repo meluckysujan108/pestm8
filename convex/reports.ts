@@ -1658,11 +1658,19 @@ async function templateForNewReport(
       templateVersion: getTemplate(args.template).version,
       optionSets,
       settings: await settingsFor(ctx, args.businessId, args.template),
+      // The form the new draft will show, so nothing is seeded into a part
+      // of it that is left out.
+      status: 'draft',
     })
   }
   const custom = args.customTemplateId ? await ctx.db.get(args.customTemplateId) : null
   if (!custom) return null
-  return resolveReportTemplate({ template: 'custom', customTemplate: custom, optionSets })
+  return resolveReportTemplate({
+    template: 'custom',
+    customTemplate: custom,
+    optionSets,
+    status: 'draft',
+  })
 }
 
 /**
@@ -1812,6 +1820,8 @@ export const applyWeatherSuggestion = internalMutation({
         ? ((await ctx.db.get(report.customTemplateId)) ?? undefined)
         : undefined,
       optionSets,
+      status: report.status,
+      signedSlots: Object.keys(report.signatureSlots ?? {}),
     })
 
     const data = (report.data ?? {}) as Record<string, unknown>
@@ -1939,6 +1949,10 @@ async function carryOverFor(
       ? ((await ctx.db.get(draft.customTemplateId)) ?? undefined)
       : undefined,
     optionSets,
+    // The form this draft shows, so nothing from last visit is offered for a
+    // part of it that is left out.
+    status: draft.status,
+    signedSlots: Object.keys(draft.signatureSlots ?? {}),
   })
 
   return carryOverFrom(
@@ -2122,6 +2136,11 @@ async function assertComplete(
     // Who must sign is the business's rule, so the gate that refuses an
     // unsigned report has to read the same settings the builder does.
     settings: await settingsFor(ctx, report.businessId, templateRefOf(report)),
+    // And the same form: while client signatures are off a draft leaves out
+    // the client's part, so a question in it the builder never showed cannot
+    // hold the lock.
+    status: report.status,
+    signedSlots: Object.keys(report.signatureSlots ?? {}),
   })
 
   const photos = await ctx.db
@@ -2271,7 +2290,12 @@ export async function finaliseReport(
       }
     }
 
-    const templateSnapshotId = await freezeTemplate(ctx, report, { custom })
+    // `atLock`: the form as this draft showed it, so a client's part it left
+    // out is not printed blank under the technician's signature.
+    const templateSnapshotId = await freezeTemplate(ctx, report, {
+      custom,
+      atLock: true,
+    })
     if (report.template === 'custom' && templateSnapshotId === undefined) {
       throw new ConvexError('TEMPLATE_NOT_FROZEN')
     }

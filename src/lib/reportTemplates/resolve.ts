@@ -1,7 +1,11 @@
 import { templateFor } from './index'
 import { deriveGenericSchema } from './deriveSchema'
 import { applyOptionSets } from './optionSets'
-import { applyTemplateSettings, withOptionalClientSignatures } from './settings'
+import {
+  applyTemplateSettings,
+  withOptionalClientSignatures,
+  withoutClientSigning,
+} from './settings'
 import type { OptionSetOverrides } from './optionSets'
 import type { TemplateSettings } from './settings'
 import type {
@@ -76,18 +80,37 @@ export function resolveReportTemplate(report: {
    * frozen with its wording.
    */
   settings?: TemplateSettings | null
+  /**
+   * Whether the report is still being filled in. A draft's form leaves out
+   * the client's part while client signatures are off
+   * (`withoutClientSigning`); a finalised report, or a caller that does not
+   * say, gets the whole form — so a report locked without a frozen copy of
+   * its wording (`freezeTemplate` gave up) reads as it always has.
+   */
+  status?: 'draft' | 'finalised'
+  /**
+   * The signature slots this draft already holds an image in. A pad somebody
+   * has signed is never left out, the client's included.
+   */
+  signedSlots?: ReadonlyArray<string>
 }): ReportTemplate {
   const snapshot = report.templateSnapshot
+  const asFilledIn = (template: ReportTemplate) =>
+    report.status === 'draft'
+      ? withoutClientSigning(template, { keep: report.signedSlots })
+      : template
 
   if (report.template !== 'custom') {
     if (!snapshot) {
-      return withOptionalClientSignatures(
-        applyTemplateSettings(
-          applyOptionSets(
-            templateFor(report.template, report.templateVersion),
-            report.optionSets,
+      return asFilledIn(
+        withOptionalClientSignatures(
+          applyTemplateSettings(
+            applyOptionSets(
+              templateFor(report.template, report.templateVersion),
+              report.optionSets,
+            ),
+            report.settings,
           ),
-          report.settings,
         ),
       )
     }
@@ -146,11 +169,14 @@ export function resolveReportTemplate(report: {
   if (frozen) return built
 
   // Before the schema is derived: a clone that marked the client's pad
-  // required would otherwise have the rule built into its schema too.
-  const overlaid = withOptionalClientSignatures(
-    applyTemplateSettings(
-      applyOptionSets(built, report.optionSets),
-      report.settings,
+  // required would otherwise have the rule built into its schema too, and a
+  // draft would be checked for a client's section it no longer shows.
+  const overlaid = asFilledIn(
+    withOptionalClientSignatures(
+      applyTemplateSettings(
+        applyOptionSets(built, report.optionSets),
+        report.settings,
+      ),
     ),
   )
   return overlaid === built

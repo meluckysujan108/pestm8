@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test, vi } from 'vitest'
 import { api, internal } from '../_generated/api'
 import { fieldsOf, sectionsOf } from '../../src/lib/reportTemplates'
 import { resolveReportTemplate } from '../../src/lib/reportTemplates/resolve'
+import { CLIENT_SIGNATURES_SHOWN } from '../../src/lib/reportTemplates/settings'
 import {
   submittablePayload,
   validateReport,
@@ -347,7 +348,7 @@ describe('the demo reports', () => {
 
   // ───────────────────────────────────────────────────── the service reports
 
-  test('the last visit at Marcus’s answers every section, with photos and both signatures', () => {
+  test('the last visit at Marcus’s answers every section, with photos and the signatures the form asks for', () => {
     const r = report('srLastVisit')
     const answers = data(r)
     for (const key of [
@@ -379,9 +380,16 @@ describe('the demo reports', () => {
     expect(gallery.filter((p) => p.isCover)).toHaveLength(1)
     expect(gallery.some((p) => p.caption)).toBe(true)
 
-    expect(r.signatureSlots?.client).toMatchObject({
-      signedBy: 'Marcus Roberts',
-    })
+    expect(r.signatureSlots?.technician).toBeDefined()
+    // Marcus signs only while the form asks clients to; otherwise there was
+    // no pad for him to sign.
+    if (CLIENT_SIGNATURES_SHOWN) {
+      expect(r.signatureSlots?.client).toMatchObject({
+        signedBy: 'Marcus Roberts',
+      })
+    } else {
+      expect(r.signatureSlots?.client).toBeUndefined()
+    }
     const [delivery, ...more] = deliveriesOf(r)
     expect(more).toHaveLength(0)
     expect(delivery.status).toBe('queued')

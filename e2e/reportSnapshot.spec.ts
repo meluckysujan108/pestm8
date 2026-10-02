@@ -2,6 +2,11 @@ import { expect, test } from '@playwright/test'
 import { api, setupBusinessWithSub } from './fixtures'
 import { createReport, finaliseReport } from './fixtures/reportPayloads'
 import { getTemplate, sectionsOf } from '../src/lib/reportTemplates'
+import {
+  CLIENT_SIGNATURES_SHOWN,
+  withoutClientSigning,
+} from '../src/lib/reportTemplates/settings'
+import type { SectionDef } from '../src/lib/reportTemplates'
 import type { TemplateId } from './fixtures/reportPayloads'
 
 /**
@@ -43,7 +48,10 @@ test.describe('built-in template snapshots', () => {
         reportId,
       })
 
-      expect(report?.templateSnapshotId, `${template} has no snapshot`).toBeTruthy()
+      expect(
+        report?.templateSnapshotId,
+        `${template} has no snapshot`,
+      ).toBeTruthy()
 
       // Not merely present — the same wording, section for section, as the
       // revision it was written against, including the printed content that
@@ -53,9 +61,23 @@ test.describe('built-in template snapshots', () => {
       expect(report?.templateVersion).toBe(2)
       expect(report?.templateSnapshot?.version).toBe(2)
       expect(report?.templateSnapshot?.name).toBe(live.name)
-      expect(report?.templateSnapshot?.sections).toEqual(sectionsOf(live))
+      // As it was filled in: locked with only the technician's signature, so
+      // while client signatures are off, without the client's pad, the
+      // sign-off sections made of nothing else, and — on the certificate —
+      // with its terms numbered on from the section before them.
+      const filledIn = withoutClientSigning(live, {
+        keep: Object.keys(report?.signatureSlots ?? {}),
+      })
+      expect(report?.templateSnapshot?.sections).toEqual(sectionsOf(filledIn))
       expect(report?.templateSnapshot?.terms).toEqual(live.terms)
-      expect(report?.templateSnapshot?.print).toEqual(live.print)
+      expect(report?.templateSnapshot?.print).toEqual(filledIn.print)
+      const frozen: Array<SectionDef> = report?.templateSnapshot?.sections
+      const signers = frozen
+        .flatMap((section) => section.fields)
+        .flatMap((field) => (field.kind === 'signature' ? [field.role] : []))
+      expect(signers, `${template} froze the wrong pads`).toEqual(
+        CLIENT_SIGNATURES_SHOWN ? ['technician', 'client'] : ['technician'],
+      )
       expect(report?.templateSnapshot?.features).toBeUndefined()
       // And the records it printed, frozen with it.
       expect(report?.contextSnapshot?.property?.addressLine).toBeTruthy()
@@ -107,7 +129,11 @@ test.describe('built-in template snapshots', () => {
   test('the document a client receives is built from the snapshot, not the live module', async () => {
     const s = await setupBusinessWithSub('snapshot-pdf')
 
-    const reportId = await createReport(s.owner.client, s, 'termiteManagementCert')
+    const reportId = await createReport(
+      s.owner.client,
+      s,
+      'termiteManagementCert',
+    )
     await finaliseReport(s.owner.client, s, reportId, 'termiteManagementCert')
 
     const { url } = await s.owner.client.action(api.reportPdf.generate, {

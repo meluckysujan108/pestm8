@@ -16,6 +16,7 @@ import {
   sectionUrl,
   signReport,
 } from './fixtures/reportPayloads'
+import { CLIENT_SIGNATURES_SHOWN } from '../src/lib/reportTemplates/settings'
 
 /**
  * A signature is the evidence these documents rest on, so this spec is about
@@ -202,20 +203,246 @@ test('a saved signature is offered to its owner, and to nobody else', async ({
   expect(report!.signatureSlots!.technician).toMatchObject({ method: 'saved' })
 
   // The client's pad never offers it. A saved signature applied by somebody
-  // else is forgery with extra steps, however convenient.
+  // else is forgery with extra steps, however convenient. The client's pad
+  // shares §4 with the technician's, so this is the same screen either way.
+  // Reloaded only once the signed answer has been saved: left to its
+  // debounce, the reload finds it still on this phone, and the page opens
+  // under "Unsaved answers on this phone" instead.
+  await expect
+    .poll(
+      async () =>
+        (
+          await owner.client.query(api.reports.get, {
+            businessId,
+            reportId: second,
+          })
+        )?.data?.technicianSignature,
+    )
+    .toBeTruthy()
   await page.goto(sectionUrl(slug, second, 'serviceReport', 'clientSignature'))
   await builderReady(page)
-  await page
-    .getByRole('button', { name: 'Signature — sign', exact: true })
-    .click()
+  if (CLIENT_SIGNATURES_SHOWN) {
+    await page
+      .getByRole('button', { name: 'Signature — sign', exact: true })
+      .click()
+    await expect(
+      page.getByRole('button', { name: 'Use my saved signature' }),
+    ).toHaveCount(0)
+  } else {
+    // While client signatures are off there is no client's pad to offer it
+    // on. Asked once the technician's pad is on the screen, so a page that
+    // has not drawn yet cannot pass for one without the client's.
+    await expect(
+      page.getByRole('button', {
+        name: "Technician's Signature — signed, sign again",
+      }),
+    ).toBeVisible()
+    await expect(
+      page.getByRole('button', { name: 'Signature — sign', exact: true }),
+    ).toHaveCount(0)
+  }
+})
+
+test('a client is not asked to sign a report being filled in', async ({
+  page,
+}) => {
+  test.skip(CLIENT_SIGNATURES_SHOWN, 'client signatures are switched on')
+  const { email, owner, businessId, slug, propertyId } =
+    await setup('sig-no-client')
+  const timber = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'timberPestInspection',
+  )
+  const service = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+
+  await signInViaUi(page, email)
+
+  // The Timber Pest form's §9 is the client's sign-off and nothing else, so
+  // the whole section is left out, not left as a screen with nothing on it.
+  // Read from the overview: `sectionUrl` finds sections in the whole form,
+  // and a link to one a draft does not show lands back on the overview, where
+  // its absence would prove nothing.
+  await page.goto(`/${slug}/reports/${timber}`)
+  await builderReady(page)
   await expect(
-    page.getByRole('button', { name: 'Use my saved signature' }),
+    page.getByRole('button', { name: /CONTACT THE INSPECTOR/ }).first(),
+  ).toBeVisible()
+  await expect(
+    page.getByText('CLIENT ACKNOWLEDGMENT OF THIS REPORT'),
   ).toHaveCount(0)
+
+  // The Service Report's client pad shares §4 with the technician's, so §4
+  // stays and only the client's pad goes.
+  await page.goto(
+    sectionUrl(slug, service, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await expect(
+    page.getByRole('button', { name: "Technician's Signature — sign" }),
+  ).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: 'Signature — sign', exact: true }),
+  ).toHaveCount(0)
+})
+
+test('the pad holds still while a signature is drawn', async ({ page }) => {
+  const { email, owner, businessId, slug, propertyId } =
+    await setup('sig-still')
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+
+  await signInViaUi(page, email)
+  await page.goto(
+    sectionUrl(slug, reportId, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
+
+  const sheet = page.getByRole('dialog')
+  const pad = sheet.getByRole('img', {
+    name: "Technician's Signature — sign here",
+  })
+  const done = sheet.getByRole('button', { name: 'Done' })
+  // A sheet is dragged down by a press anywhere in it that is not marked
+  // otherwise, so a downward stroke on the pad pulled the sheet, the pad and
+  // the line being drawn down with it.
+  await expect(pad).toHaveAttribute('data-vaul-no-drag')
+
+  // Vaul will not start a drag while anything behind the press is scrolled,
+  // and reaching §4's pad scrolled the page. At the top, only the sheet's
+  // lock and the pad's marker stop it; left scrolled, this passes on a pad
+  // that still moves. Each guard is checked on its own as well: the marker
+  // above, the lock by the tap outside and the ✕ below.
+  await page.evaluate(() => window.scrollTo(0, 0))
+  expect(await page.evaluate(() => document.scrollingElement?.scrollTop)).toBe(
+    0,
+  )
+  // And it ignores a drag for the first half-second a sheet is open.
+  await page.waitForTimeout(700)
+
+  const sheetTop = (await sheet.boundingBox())!.y
+  const box = (await pad.boundingBox())!
+  const x = box.x + box.width / 2
+  const y = box.y + 12
+  // 300px down, the length of a sheet-closing swipe, but kept on the screen:
+  // the sheet sits at the bottom of a phone-height page.
+  const bottom = page.viewportSize()!.height - 4
+  await page.mouse.move(x, y)
+  await page.mouse.down()
+  await page.mouse.move(x, Math.min(y + 300, bottom), { steps: 12 })
+  // Two frames, so anything the first stroke changed has been laid out.
+  await page.evaluate(
+    () =>
+      new Promise((resolve) =>
+        requestAnimationFrame(() => requestAnimationFrame(resolve)),
+      ),
+  )
+
+  // Measured with the pen still down: the sheet has not moved, and nothing
+  // the first stroke shows or hides has moved the pad inside it.
+  expect(
+    Math.abs((await sheet.boundingBox())!.y - sheetTop),
+  ).toBeLessThanOrEqual(1)
+  expect(Math.abs((await pad.boundingBox())!.y - box.y)).toBeLessThanOrEqual(1)
+  await page.mouse.up()
+
+  await expect(sheet).toBeVisible()
+  await expect(done).toBeEnabled()
+
+  // A signature is not thrown away by a tap beside the sheet…
+  await page.mouse.click(5, 5)
+  await expect(sheet).toHaveAttribute('data-state', 'open')
+  await expect(done).toBeEnabled()
+
+  // …and ✕ asks first. Keeping it keeps the ink, and Done still signs.
+  await sheet.getByRole('button', { name: 'Close' }).click()
+  const discard = page
+    .getByRole('alertdialog')
+    .filter({ hasText: 'Discard your changes?' })
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Keep editing' }).click()
+  await expect(discard).toHaveCount(0)
+  await expect(done).toBeEnabled()
+  await done.click()
+  await expect(
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
+  ).toBeVisible()
+})
+
+test('a pad opened again starts blank, sharp, and closes without asking', async ({
+  page,
+}) => {
+  const { email, owner, businessId, slug, propertyId } =
+    await setup('sig-again')
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+
+  await signInViaUi(page, email)
+  await page.goto(
+    sectionUrl(slug, reportId, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
+
+  const sheet = page.getByRole('dialog')
+  const pad = sheet.getByRole('img', {
+    name: "Technician's Signature — sign here",
+  })
+  // The pad's bitmap is the screen's own resolution, not a canvas's default
+  // 300x150 stretched over the box: that put the ink beside the pen, soft,
+  // and nowhere at all past the bitmap's edge.
+  const sized = () =>
+    pad.evaluate((canvas: HTMLCanvasElement) => {
+      const rect = canvas.getBoundingClientRect()
+      return (
+        canvas.width === Math.round(rect.width * window.devicePixelRatio) &&
+        canvas.height === Math.round(rect.height * window.devicePixelRatio)
+      )
+    })
+  await expect.poll(sized).toBe(true)
+
+  await draw(page, "Technician's Signature")
+  await sheet.getByRole('button', { name: 'Done' }).click()
+  await expect(
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
+  ).toBeVisible()
+
+  // Opened again, it is a new pad: nothing to commit, nothing to discard.
+  await page
+    .getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    })
+    .click()
+  await expect(sheet.getByRole('button', { name: 'Done' })).toBeDisabled()
+  await expect.poll(sized).toBe(true)
+  await sheet.getByRole('button', { name: 'Close' }).click()
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(sheet).toHaveCount(0)
 })
 
 test('a client signing sees the statement and gives their name', async ({
   page,
 }) => {
+  test.skip(!CLIENT_SIGNATURES_SHOWN, 'client signatures are switched off')
   const { email, owner, businessId, slug, propertyId } =
     await setup('sig-client')
   const reportId = await createReport(

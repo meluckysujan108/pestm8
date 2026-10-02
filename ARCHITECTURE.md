@@ -692,6 +692,33 @@ last year. `resolveReportTemplate` merges, in order: the built-in module →
 the business's option libraries → its template settings — or a frozen snapshot,
 which wins and ignores both overlays.
 
+*Amended (1 Oct 2026):* **while client signatures are off, a report being
+filled in has no client's part.** The switch is `CLIENT_SIGNATURES_SHOWN` in
+`src/lib/reportTemplates/settings.ts`, `false` since this date at the product
+owner's request: the client is usually not there to sign, and a pad nobody
+signs is a blank on every document. `withoutClientSigning` removes every pad
+the client signs, and any section holding nothing else but the client's
+sign-off — Termite §8 and Timber Pest §9, and a clone's copy of either, matched
+by field key; the Termite certificate's terms are then numbered 8, not 9. A
+section a business wrote itself loses only the pad. It applies in two places:
+`resolveReportTemplate` with `status: 'draft'` (the builder and its progress,
+`finalise`'s completeness check, seeding, carry-over, the forecast), and
+`freezeTemplate` with `atLock`, which only `finalise` passes, so what is locked
+is what was filled in. It never applies to a locked report, to a caller that
+passes no status (a built-in locked without a snapshot reads its whole form),
+or to the snapshot backfills (`reportSnapshotsV1`, `reportsContract`), which
+freeze documents already sent with the whole form. A pad the report already
+holds a signature in is kept, and its section with it: a signature somebody
+gave is never left off the document. Nothing stored is deleted. The fields are
+removed from the form rather than hidden, so `pruneHidden` keeps their
+answers, and `data` and `signatureSlots` are never touched; setting the switch
+back to `true` brings the client's part back on every draft. Switching it off
+ships the backend first, switching it back on the frontend first: the side
+that shows the client less goes first, so no draft is locked with a client's
+section nobody was shown. While it is off, a lock of a form with a client part
+freezes different content from a backfill of the same form, so it gets its own
+deduplicated snapshot row.
+
 Business-authored templates additionally split **saving from issuing**:
 `saveDraft` keeps unvalidated work in progress, `publish` validates it and
 bumps `publishedVersion`, and `reports.create` reads only what is published.
