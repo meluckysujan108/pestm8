@@ -55,6 +55,7 @@ import type * as lib_clientRecord from "../lib/clientRecord.js";
 import type * as lib_clientScope from "../lib/clientScope.js";
 import type * as lib_colours from "../lib/colours.js";
 import type * as lib_contactNames from "../lib/contactNames.js";
+import type * as lib_contactPerson from "../lib/contactPerson.js";
 import type * as lib_dates from "../lib/dates.js";
 import type * as lib_drawReportPdf from "../lib/drawReportPdf.js";
 import type * as lib_email from "../lib/email.js";
@@ -193,6 +194,7 @@ declare const fullApi: ApiFromModules<{
   "lib/clientScope": typeof lib_clientScope;
   "lib/colours": typeof lib_colours;
   "lib/contactNames": typeof lib_contactNames;
+  "lib/contactPerson": typeof lib_contactPerson;
   "lib/dates": typeof lib_dates;
   "lib/drawReportPdf": typeof lib_drawReportPdf;
   "lib/email": typeof lib_email;

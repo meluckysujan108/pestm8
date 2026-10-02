@@ -40,6 +40,7 @@ import {
 } from './lib/jobStatus'
 import { hidePrices, redactJob } from './lib/prices'
 import { HORIZON_DAYS, intervalOf } from './lib/recurrence'
+import { contactPersonOf } from './lib/contactPerson'
 import type { RowScope } from './lib/capabilities'
 import type { ActorEnvelope, WriteEnvelope } from './lib/actor'
 import type { MutationCtx, QueryCtx } from './_generated/server'
@@ -154,6 +155,23 @@ async function decorate(
     return pending
   }
 
+  // Each business client's contact person (lib/contactPerson.ts), for the
+  // card's Contact line. Once per client per query, not once per visit — a
+  // shop on a weekly service fills the Job tab — memoised on the in-flight
+  // promise like the two above.
+  const contactPeople = new Map<
+    Id<'clients'>,
+    Promise<{ name: string; phone: string | undefined } | null>
+  >()
+  const contactPersonOfClient = (client: Doc<'clients'> | null) => {
+    if (!client) return Promise.resolve(null)
+    const inFlight = contactPeople.get(client._id)
+    if (inFlight) return inFlight
+    const pending = contactPersonOf(ctx, client)
+    contactPeople.set(client._id, pending)
+    return pending
+  }
+
   // Everyone also going on these jobs (lib/jobPeople.ts), in one range read
   // over their dates rather than one read per job: a list of a thousand
   // projected visits must not spend a thousand of its reads finding nobody.
@@ -178,6 +196,7 @@ async function decorate(
         const recurrence = job.recurrenceId
           ? await seriesOf(job.recurrenceId)
           : null
+        const contactPerson = await contactPersonOfClient(client)
         return {
           ...redactJob(env.caps, job),
           // The card SHOWS the suburb alone (§2.3: scanning a day wants the
@@ -205,6 +224,15 @@ async function decorate(
           // For the card's Email: the address the job sheet's Email uses,
           // off the same document, with the same exposure as the phone.
           clientEmail: client?.email ?? '',
+          // A business client's contact person, for the card's Contact line:
+          // who to ask for on the business's line, and who Call rings when
+          // they have a number of their own (lib/siteContact.ts). Beside
+          // `clientPhone`, never folded into it, for the same reason as the
+          // site contact. The same exposure as the client's own number: the
+          // job sheet shows them too, and `clientContacts.list` is open to
+          // whoever has the client book.
+          contactPersonName: contactPerson?.name ?? '',
+          contactPersonPhone: contactPerson?.phone ?? '',
           // How often the visit's series repeats, for the card's indicator —
           // only while the series is running, as the job sheet shows it, so
           // a visit left over from a stopped series does not read as one
@@ -733,6 +761,10 @@ export const get = query({
     return {
       ...redactJob(env.caps, job),
       property,
+      // A business client's contact person (lib/contactPerson.ts), for the
+      // sheet's Property section: who to ask for, with their own Call and
+      // Text when they have a number. Null for a person client.
+      contactPerson: await contactPersonOf(ctx, property?.client ?? null),
       recurrence: recurrence && {
         _id: recurrence._id,
         // The shape the UI renders, resolved here so no client has to know

@@ -145,6 +145,9 @@ function JobCards() {
             timezone={TZ}
             onOpen={() => {}}
             hideTechnician
+            // The last card has the hop from the job before it as well as a
+            // Contact line, so the two are seen stacked beside the price.
+            travel={job._id === 'j5' ? '≈ 4 km → Leederville' : undefined}
           />
         ))}
       </div>
@@ -178,6 +181,8 @@ function jobDetail(jobId: string) {
 const JobDetail = jobDetail('j2')
 /** A job for three services, with a note. */
 const JobDetailServices = jobDetail('j1')
+/** A business job with a contact person and no site contact. */
+const JobDetailContact = jobDetail('j5')
 
 function JobDetailLoading() {
   return (
@@ -1152,6 +1157,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   jobcards: JobCards,
   jobdetail: JobDetail,
   'jobdetail-services': JobDetailServices,
+  'jobdetail-contact': JobDetailContact,
   'jobdetail-loading': JobDetailLoading,
   client: Client,
   clientbusy: ClientBusy,

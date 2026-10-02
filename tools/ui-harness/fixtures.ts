@@ -120,6 +120,31 @@ export const JOBS = [
     recurrenceId: 'r2',
     repeats: { count: 6, unit: 'month' },
   },
+  {
+    _id: 'j5',
+    jobNumber: 1045,
+    jobType: 'Cockroaches',
+    price: 17500,
+    scheduledAt: perthToday(17),
+    durationMinutes: 60,
+    status: 'booked',
+    addressLine: '142 Oxford St',
+    suburb: 'Leederville',
+    postcode: '6007',
+    propertyState: 'WA',
+    // A business with a contact person and no site contact: the card's
+    // Contact line says who to ask for on the business's line
+    // (convex/lib/siteContact.ts).
+    clientName: 'Leederville Noodle House Pty Ltd',
+    clientPhone: '08 9444 1200',
+    clientEmail: 'accounts@noodlehouse.example',
+    clientKind: 'business',
+    contactPersonName: 'Jan Morris',
+    contactPersonPhone: '',
+    assigneeColour: '#0A84FF',
+    assigneeName: 'Terence Walsh',
+    assignedMembershipId: 'm_owner',
+  },
 ]
 
 const ALL_CAPS = {
@@ -163,6 +188,15 @@ function jobGet(args: { jobId: string }) {
     businessId: BIZ,
     propertyId: 'p_' + row._id,
     workOrder: row.clientKind === 'business' ? 'PO-88213' : undefined,
+    // `jobs.get` reads the business's contact person (lib/contactPerson.ts).
+    contactPerson: (row as { contactPersonName?: string }).contactPersonName
+      ? {
+          name: (row as { contactPersonName: string }).contactPersonName,
+          phone:
+            (row as { contactPersonPhone?: string }).contactPersonPhone ||
+            undefined,
+        }
+      : null,
     property: {
       _id: 'p_' + row._id,
       addressLine: row.addressLine,
