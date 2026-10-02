@@ -131,6 +131,19 @@ describe('status colours in the stylesheet', () => {
   })
 })
 
+describe('a field in the stylesheet', () => {
+  for (const [theme, vars] of Object.entries(THEMES)) {
+    test.each(['canvas', 'surface', 'surface-2'])(
+      `${theme}: its edge holds 3:1 on the %s, so it can be found in sun`,
+      (bg) => {
+        expect(
+          contrastRatio(vars['field-edge'], vars[bg]),
+        ).toBeGreaterThanOrEqual(3)
+      },
+    )
+  }
+})
+
 describe('which status takes which hue', () => {
   test('covers exactly the statuses the schema admits', () => {
     const schemaStatuses = jobStatus.members.map((m) => m.value).sort()

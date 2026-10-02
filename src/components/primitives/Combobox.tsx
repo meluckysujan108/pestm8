@@ -243,7 +243,7 @@ export function Combobox({
         onClick={openSheet}
         // Red while invalid even with focus on it: focus is moved here when
         // booking is refused, and a blue focus ring would hide the reason.
-        className={`flex min-h-12 w-full items-center justify-between gap-2 rounded-xl bg-surface-3 px-3.5 py-2.5 text-[16px] text-ink outline-none ${invalid ? 'ring-2 ring-red' : 'focus-visible:ring-2 focus-visible:ring-blue'}`}
+        className={`flex min-h-12 w-full items-center justify-between gap-2 rounded-xl border border-field-edge bg-surface-3 px-3.5 py-2.5 text-[16px] text-ink outline-none ${invalid ? 'ring-2 ring-red' : 'focus-visible:ring-2 focus-visible:ring-blue'}`}
       >
         {/* Whole, over two lines if it needs them: "30 Paterson Ro…" was
             not enough to tell which Paterson Road. */}
@@ -284,7 +284,7 @@ export function Combobox({
           data-combobox-search
           className="sticky top-0 z-20 -mx-4 flex items-center gap-1 bg-canvas px-4 pb-2"
         >
-          <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3">
+          <label className="flex h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-field-edge bg-surface-3 px-3">
             <Search size={16} strokeWidth={2} className="shrink-0 text-muted" />
             {placeholder && <span className="sr-only">{placeholder}</span>}
             <input

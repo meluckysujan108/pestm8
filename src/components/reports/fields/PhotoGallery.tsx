@@ -360,7 +360,7 @@ function GalleryTile({
             void updateCaption({ businessId, reportId, photoId: photo._id, caption })
           }
         }}
-        className="h-9 w-full rounded-lg bg-surface-3 px-2 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
+        className="h-9 w-full rounded-lg border border-field-edge bg-surface-3 px-2 text-[16px] text-ink outline-none focus:ring-2 focus:ring-blue"
       />
 
       {/* Three 44px tools fit the tile; five did not, so reordering sits

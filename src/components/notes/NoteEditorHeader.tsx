@@ -460,7 +460,7 @@ function JobPickerList({
 
   return (
     <>
-      <label className="flex items-center gap-2 rounded-xl bg-surface-3 px-3">
+      <label className="flex items-center gap-2 rounded-xl border border-field-edge bg-surface-3 px-3">
         <Search size={17} strokeWidth={2} className="text-muted" />
         <span className="sr-only">Search jobs</span>
         <input

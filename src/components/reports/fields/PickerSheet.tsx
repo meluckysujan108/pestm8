@@ -146,7 +146,7 @@ export function PickerSheet({
         </div>
       }
     >
-      <label className="flex h-11 items-center gap-2 rounded-xl bg-surface-2 px-3">
+      <label className="flex h-11 items-center gap-2 rounded-xl border border-field-edge bg-surface-2 px-3">
         <Search size={16} strokeWidth={2} className="shrink-0 text-muted" />
         <input
           value={query}

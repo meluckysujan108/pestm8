@@ -68,7 +68,7 @@ export function SearchBar({
             }
           }}
           className={[
-            'h-11 w-full rounded-xl bg-fill-track pl-9 text-[16px] text-ink outline-none placeholder:text-muted focus-visible:ring-2 focus-visible:ring-blue',
+            'h-11 w-full rounded-xl border border-field-edge bg-fill-track pl-9 text-[16px] text-ink outline-none placeholder:text-muted focus-visible:ring-2 focus-visible:ring-blue',
             query ? 'pr-28' : 'pr-3',
           ].join(' ')}
         />

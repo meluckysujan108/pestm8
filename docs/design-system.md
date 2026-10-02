@@ -74,6 +74,7 @@ All tokens live in `src/styles.css`.
 | `--surface`            | `#ffffff`                   | `#1c1c1e`                   | Cards, rows in a sheet, popovers                                                                                                    |
 | `--surface-2`          | `#f2f2f7`                   | `#2c2c2e`                   | Inset blocks inside a card: locked boilerplate, a note, a quiet chip, a thumbnail                                                   |
 | `--surface-3`          | `#f4f4f8`                   | `#2a2a2c`                   | Input wells: every field's fill, and read-only values shown as fields                                                               |
+| `--field-edge`         | `#86868b`                   | `#76767b`                   | A field's edge, on `FIELD` and any field made by hand: 3:1 on the canvas, a card and an inset block, so it is found in sun          |
 | `--canvas`             | `#ededf1`                   | `#000000`                   | The app background, a sheet's background, and the iOS launch screens (`pnpm icons` redraws them)                                    |
 | `--fill-track`         | `rgba(118, 118, 128, 0.08)` | `rgba(120, 120, 128, 0.28)` | A segmented control's track                                                                                                         |
 | `--fill-secondary`     | `rgba(118, 118, 128, 0.12)` | `rgba(118, 118, 128, 0.24)` | Grey buttons (`SECONDARY_BUTTON`, `LINK_BUTTON`)                                                                                    |
@@ -409,7 +410,7 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 
 - **Every field has a visible label.** A placeholder is an example ("Who is signing"), never the label.
 - **Required fields are not marked;** optional ones say "(optional)" in the label. Report forms are the exception: they mirror a paper form and may star what that form requires.
-- **Use `FIELD` for the look:** 16px text, a `bg-surface-3` well, a blue focus ring. Don't style inputs by hand.
+- **Use `FIELD` for the look:** 16px text, a `bg-surface-3` well with a `--field-edge` border, a blue focus ring. Don't style inputs by hand; where one must be (a search box, a code box, a picker's trigger), it has the same `border-field-edge` border: a well alone is all but invisible on the canvas, and in sun. A read-only value shown as a field has the well and no edge: the edge says it can be typed in.
 - **Refuse** only what can never work (an undeliverable email, letters in a phone number). **Warn** about what is probably wrong but may be right, and offer the fix as a tap. Never rewrite what was typed without a tap.
 - **Show an error** once the field is left or a submit is refused, not while it is still being typed.
 - **Name the keyboard:** `inputMode`, `autoComplete` and `enterKeyHint` on anything typed on a phone.
