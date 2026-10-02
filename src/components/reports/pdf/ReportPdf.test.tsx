@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { describe, expect, test } from 'vitest'
 import { getTemplate } from '../../../lib/reportTemplates'
+import { CLIENT_SIGNATURES_SHOWN } from '../../../lib/reportTemplates/settings'
 import { ReportPdf } from './ReportPdf'
 import { SIZES } from './theme'
 import type { PdfReport } from './ReportPdf'
@@ -282,6 +283,44 @@ describe('the AS forms', () => {
     expect(text).toContain('Chemical Soil Barrier')
     // The app's own durable-notice extra is off unless a template opts in.
     expect(text).not.toContain('DO NOT REMOVE THIS NOTICE')
+  })
+})
+
+describe('the client’s part, while client signatures are off', () => {
+  const certificate = (overrides: Partial<PdfReport>) =>
+    serviceReport({
+      template: 'termiteManagementCert',
+      templateVersion: getTemplate('termiteManagementCert').version,
+      legalBasis: 'AS 3660.2-2017',
+      data: {
+        installDate: '2026-08-28',
+        systemType: 'Chemical Soil Barrier',
+        installerSignature: { signedAt: FINALISED_AT },
+      },
+      ...overrides,
+    })
+
+  test.skipIf(CLIENT_SIGNATURES_SHOWN)(
+    'a draft’s preview has no client acknowledgment, and its terms are §8',
+    async () => {
+      const { text } = await render(
+        certificate({
+          finalised: false,
+          finalisedAt: undefined,
+          watermark: 'DRAFT',
+        }),
+      )
+      expect(text).not.toContain('8. CLIENT ACKNOWLEDGMENT')
+      expect(text).toContain('8. TERMS AND CONDITIONS OF CERTIFICATE')
+    },
+  )
+
+  test('a certificate locked without a frozen copy still prints it', async () => {
+    // `freezeTemplate` can give up, and a report locked without its wording
+    // reads as it always has.
+    const { text } = await render(certificate({ templateSnapshot: null }))
+    expect(text).toContain('8. CLIENT ACKNOWLEDGMENT')
+    expect(text).toContain('9. TERMS AND CONDITIONS OF CERTIFICATE')
   })
 })
 

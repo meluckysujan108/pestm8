@@ -171,12 +171,18 @@ const styles = StyleSheet.create({
 })
 
 export function ReportPdf({ report }: { report: PdfReport }) {
+  const finalised = report.finalised ?? report.finalisedAt !== undefined
   const template = resolveReportTemplate({
     template: report.template,
     templateVersion: report.templateVersion,
     customTemplate: report.customTemplate,
     templateSnapshot: report.templateSnapshot,
     settings: report.settings,
+    // A draft's preview prints what locking it would: without the client's
+    // part while client signatures are off, unless the client has signed.
+    // A locked report prints whatever was locked, exactly as before.
+    status: finalised ? 'finalised' : 'draft',
+    signedSlots: Object.keys(report.context?.signatureUrls ?? {}),
   })
 
   const model = buildReportModel({
@@ -200,7 +206,7 @@ export function ReportPdf({ report }: { report: PdfReport }) {
     finalisedAt: report.finalisedAt,
     reportNumber: report.reportNumber,
     version: report.version,
-    finalised: report.finalised ?? report.finalisedAt !== undefined,
+    finalised,
     licenceNumber: report.licenceNumber,
   })
 

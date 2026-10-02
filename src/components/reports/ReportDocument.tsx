@@ -103,6 +103,7 @@ export function ReportDocument({
   variant?: ReportDocumentVariant
 }) {
   const timezone = useBusinessTimezone()
+  const finalised = report.status === 'finalised'
   const template = resolveReportTemplate({
     template: report.template,
     templateVersion: report.templateVersion,
@@ -112,6 +113,11 @@ export function ReportDocument({
     // were frozen with its wording.
     optionSets: report.optionSets,
     settings: report.settings,
+    // A draft read by someone who cannot edit it shows the form its writer is
+    // filling in, without the client's part while client signatures are off.
+    // A locked report shows whatever was locked, exactly as before.
+    status: finalised ? 'finalised' : 'draft',
+    signedSlots: Object.keys(report.context?.signatureUrls ?? {}),
   })
 
   // Photos live in their own table rather than in the answers, so the document
@@ -127,7 +133,6 @@ export function ReportDocument({
     convexQuery(api.reports.photoUrls, { businessId, reportId: report._id }),
   )
 
-  const finalised = report.status === 'finalised'
   const model = buildReportModel({
     template,
     data: (report.data ?? {}) as Record<string, unknown>,

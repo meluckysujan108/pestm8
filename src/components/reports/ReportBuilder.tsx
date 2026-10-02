@@ -138,10 +138,35 @@ export function ReportBuilder({
    * how to get unstuck when it cannot be finalised. */
   isCorrection?: boolean
 }) {
+  const hydrated = useHydrated()
+
+  // A signature is an image in storage, not a timestamp in `data`, so whether
+  // one exists is a separate question — and the one the server asks too.
+  // Asked before the form is worked out, because the answer shapes it: a pad
+  // somebody has already signed stays on the form, the client's included.
+  const { data: signatures } = useQuery({
+    ...convexQuery(api.reports.signatureUrls, { businessId, reportId }),
+    enabled: hydrated,
+  })
+  // `undefined` while the query is out, never `[]`: an empty list is the claim
+  // that nothing is signed, and making that claim early is how a technician
+  // gets told their signature is missing while it is on the screen behind the
+  // message.
+  const signedSlots = useMemo(
+    () => (signatures ? Object.keys(signatures) : undefined),
+    [signatures],
+  )
+
   // Memoised: with a business's own option lists applied, resolution builds a
   // new template object, and a new object every render would re-render every
   // field. Convex query results are referentially stable, so these inputs only
   // change when the data does.
+  //
+  // Always a draft here — a locked report is a document, never this form —
+  // so the client's part is left out while client signatures are off. Until
+  // the signatures are in, that includes a pad the client has already signed,
+  // which comes back with them. Nothing it holds is lost meanwhile: the fields
+  // are left out of the form, not hidden in it (`withoutClientSigning`).
   const template = useMemo(
     () =>
       resolveReportTemplate({
@@ -150,8 +175,17 @@ export function ReportBuilder({
         customTemplate,
         optionSets,
         settings,
+        status: 'draft',
+        signedSlots,
       }),
-    [templateId, templateVersion, customTemplate, optionSets, settings],
+    [
+      templateId,
+      templateVersion,
+      customTemplate,
+      optionSets,
+      settings,
+      signedSlots,
+    ],
   )
 
   const [data, setData] = useState<Record<string, unknown>>(() =>
@@ -167,7 +201,6 @@ export function ReportBuilder({
    */
   const [confirmed, setConfirmed] = useState<Array<string>>([])
 
-  const hydrated = useHydrated()
   const keyboardInset = useKeyboardInset()
 
   // Photos live outside `data`, so progress can only count them by asking.
@@ -247,21 +280,6 @@ export function ReportBuilder({
     [convexRemember, businessId],
   )
 
-  // A signature is an image in storage, not a timestamp in `data`, so whether
-  // one exists is a separate question — and the one the server asks too.
-  const { data: signatures } = useQuery({
-    ...convexQuery(api.reports.signatureUrls, { businessId, reportId }),
-    enabled: hydrated,
-  })
-  // `undefined` while the query is out, never `[]`: an empty list is the claim
-  // that nothing is signed, and making that claim early is how a technician
-  // gets told their signature is missing while it is on the screen behind the
-  // message.
-  const signedSlots = useMemo(
-    () => (signatures ? Object.keys(signatures) : undefined),
-    [signatures],
-  )
-
   const photoCounts = useMemo(() => {
     if (!galleryPhotos) return undefined
     const counts: Record<string, number> = {}
@@ -318,10 +336,14 @@ export function ReportBuilder({
 
   // A section can disappear while it is open — answering one question hides
   // another's whole section. Land the technician back on the overview rather
-  // than on a blank screen.
+  // than on a blank screen. The same goes for an address naming a section the
+  // form no longer has, such as the client's acknowledgment while client
+  // signatures are off. Not until the signatures are in, though: a client's
+  // section the client has already signed is missing until then, and comes
+  // back with them.
   useEffect(() => {
-    if (sectionId && !current) onSection(undefined)
-  }, [sectionId, current, onSection])
+    if (sectionId && !current && signedSlots !== undefined) onSection(undefined)
+  }, [sectionId, current, signedSlots, onSection])
 
   const convexSave = useConvexMutation(api.reports.saveDraft)
   const save = useMutation({
