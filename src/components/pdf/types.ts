@@ -64,6 +64,15 @@ export type ViewerActions = {
    */
   saveLabel?: string
   /**
+   * Save as its own button in the top bar rather than in the More menu. For
+   * a caller whose menu would only ever hold Save (a finished report), where
+   * a menu of one is a tap to find a tap. Asked for rather than inferred:
+   * Products' menu gains and loses Replace and Keep as the phone goes
+   * offline or its kept list loads, and the button must not change shape
+   * under a thumb.
+   */
+  saveInBar?: boolean
+  /**
    * Offered only to the product's creator and the owner. Opens the file
    * picker; once the new file is saved, `source.key` changes and the viewer
    * reloads on its own.
@@ -72,6 +81,13 @@ export type ViewerActions = {
   /** The menu's words for `replace`. "Replace PDF…" unless the picker
    * takes more than a PDF — a licence can be replaced with a photo. */
   replaceLabel?: string
+  /**
+   * Sends the document from the app, in the caller's words ("Send this
+   * report"). The viewer hands over: sheets sit below it, so `run` closes the
+   * viewer and opens the caller's sheet on the page behind, and the viewer
+   * does not put focus back on the page as it goes.
+   */
+  send?: { label: string; run: () => void }
   /** A copy kept on this phone, for sites with no signal. */
   keep?: {
     kept: boolean
@@ -210,10 +226,15 @@ export type DocumentViewerProps = {
   /** A markup layer over the pages; absent means no pen and no marks. */
   markup?: ViewerMarkup
   /**
-   * A short, non-interactive label kept on screen under the top bar, e.g.
-   * "Draft — not the finished document" or "Replaced by version 2".
+   * A short label kept on screen under the top bar, e.g. "Draft — not the
+   * finished document" or "Replaced by version 2".
    */
   badge?: string
+  /**
+   * Makes the badge a button — "Replaced by version 2" opens the version that
+   * replaced it. The badge is only words without it.
+   */
+  onBadge?: () => void
   /**
    * Remember and restore where the reader was, per `source.key` (default
    * true). Off for a one-off document such as a draft preview, whose key

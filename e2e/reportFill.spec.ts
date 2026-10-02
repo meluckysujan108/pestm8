@@ -688,9 +688,15 @@ test.describe('the sheet before the lock', () => {
     await expectDocumentOpen(preview)
     await expect(preview.getByText(DRAFT_BADGE)).toBeVisible()
     // View only: nothing leaves the app from a draft — no Share, no Save (so
-    // no More menu, which would hold nothing) — and nothing to mark.
+    // no More menu, which would hold nothing), no Send — and nothing to mark.
     await expect(preview.getByRole('button', { name: 'Share' })).toHaveCount(0)
     await expect(preview.getByRole('button', { name: 'More' })).toHaveCount(0)
+    await expect(
+      preview.getByRole('button', { name: /^(Download|Save to Files)$/ }),
+    ).toHaveCount(0)
+    await expect(
+      preview.getByRole('button', { name: 'Send this report' }),
+    ).toHaveCount(0)
     await expect(
       preview.getByRole('button', { name: 'Markup', exact: true }),
     ).toHaveCount(0)

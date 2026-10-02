@@ -121,9 +121,9 @@ function thinned<T>(points: Array<T>, max: number): Array<T> {
  * for the same key gets the promise the first one started, and the next
  * caller after it settles starts afresh.
  *
- * For `reportPdf.generate`. Opening the PDF tab asks for the report's PDF,
- * and so does opening the viewer — often a second apart, when a link lands
- * straight on the viewer or someone taps View PDF while the tab is still
+ * For `reportPdf.generate`. Opening a finished report asks for its PDF, and
+ * so does opening the viewer — often a second apart, when a link lands
+ * straight on the viewer or someone taps View PDF while the page is still
  * preparing. Two calls would each claim the render, the second would sit
  * waiting on the first, and a technician on one bar of signal would pay for
  * the round trip twice.

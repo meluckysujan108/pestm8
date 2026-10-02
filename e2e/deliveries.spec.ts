@@ -17,7 +17,7 @@ import { createReport, finaliseReport } from './fixtures/reportPayloads'
  * email: since 29 Sept 2026 nothing waits for an owner's approval, which no
  * screen could ever give. Instead every send is a record — who asked, and
  * which of its addresses were not on the client's record — that the owner
- * reads in the report's Email and Logs tabs, and the Send sheet marks a new
+ * reads in the finished report's Email list, and the Send sheet marks a new
  * address before Send, because a report emailed to a typo is simply gone.
  *
  * No `RESEND_API_KEY` is configured on this deployment (that is the business's
@@ -84,7 +84,7 @@ test('an address on nobody’s record goes too, and the record says it was new',
   // Nothing waits for an owner.
   expect(status).toBe('queued')
 
-  // What the owner reads in the report's Email tab: who sent it, and that the
+  // What the owner reads in the report's Email list: who sent it, and that the
   // address was new to this client.
   const history = await s.owner.client.query(api.deliveries.forReport, {
     businessId: s.businessId,
@@ -337,7 +337,6 @@ test.describe('the send sheet', () => {
 
     await signInViaUi(page, s.sub.email)
     await page.goto(`/${s.slug}/reports/${reportId}`)
-    await page.getByRole('tab', { name: 'Email' }).click()
     await page.getByRole('button', { name: 'Send this report' }).click()
 
     const sheet = page.getByRole('dialog')
@@ -365,7 +364,7 @@ test.describe('the send sheet', () => {
     await expect(sheet.getByText(/approv/i)).toHaveCount(0)
   })
 
-  test('a delivery the form opened shows in the history without anyone sending', async ({
+  test('a delivery the form opened shows on the report without anyone sending', async ({
     page,
   }) => {
     const s = await setupBusinessWithSub('send-sheet-history')
@@ -386,15 +385,15 @@ test.describe('the send sheet', () => {
 
     await signInViaUi(page, s.owner.email)
     await page.goto(`/${s.slug}/reports/${reportId}`)
-    await page.getByRole('tab', { name: 'Email' }).click()
 
     // Queued rather than sent: no Resend key on this deployment. The record
     // exists either way, which is the point of writing it before the call.
-    await expect(page.getByText(/client@example\.com/)).toBeVisible()
-    await expect(page.getByText(/asked for by the form/)).toBeVisible()
+    const email = page.getByRole('region', { name: 'Email' })
+    await expect(email.getByText(/client@example\.com/)).toBeVisible()
+    await expect(email.getByText(/as it was finalised/)).toBeVisible()
   })
 
-  test('the Email tab says which addresses weren’t on the client’s record', async ({
+  test('the report’s Email list says which addresses weren’t on the client’s record', async ({
     page,
   }) => {
     const s = await reportForSub('send-history-new', 'client@example.com')
@@ -407,18 +406,16 @@ test.describe('the send sheet', () => {
     // What an owner reads afterwards, with nothing to approve.
     await signInViaUi(page, s.owner.email)
     await page.goto(`/${s.slug}/reports/${s.reportId}`)
-    await page.getByRole('tab', { name: 'Email' }).click()
-    await expect(
-      page.getByText(
-        'Wasn’t on the client’s record: someone@elsewhere.example',
-      ),
-    ).toBeVisible()
+    // Said under the address itself, rather than the address again.
+    const row = page
+      .getByRole('region', { name: 'Email' })
+      .getByRole('listitem')
+      .filter({ hasText: 'someone@elsewhere.example' })
+    await expect(row).toContainText('Wasn’t on the client’s record')
     await expect(page.getByText(/approv/i)).toHaveCount(0)
   })
 
-  test('the finished report says whether it went, above its tabs', async ({
-    page,
-  }) => {
+  test('the finished report says whether it went', async ({ page }) => {
     const s = await setupBusinessWithSub('send-status-line')
     const property = await s.owner.client.query(api.properties.get, {
       businessId: s.businessId,
@@ -438,17 +435,15 @@ test.describe('the send sheet', () => {
     await page.goto(`/${s.slug}/reports/${reportId}`)
 
     // Locking sent it — or, with no Resend key here, could not — and the page
-    // that opens straight after is where that is said, not only in a tab.
-    const status = page.getByRole('button', {
-      name: /Not emailed: email isn’t set up for this business yet/,
-    })
-    await expect(status).toBeVisible()
-    await status.click()
-    await expect(page.getByRole('tab', { name: 'Email' })).toHaveAttribute(
-      'aria-selected',
-      'true',
-    )
-    await expect(page.getByText(/asked for by the form/)).toBeVisible()
+    // that opens straight after is where that is said, with what to do.
+    const email = page.getByRole('region', { name: 'Email' })
+    await expect(email.getByText(/client@example\.com/)).toBeVisible()
+    await expect(
+      email.getByText(
+        'Email isn’t set up for this business yet. Share the PDF instead.',
+      ),
+    ).toBeVisible()
+    await expect(email.getByText(/as it was finalised/)).toBeVisible()
   })
 
   test('says what happened to each recipient, not one verdict for all', async ({
@@ -471,7 +466,6 @@ test.describe('the send sheet', () => {
 
     await signInViaUi(page, s.sub.email)
     await page.goto(`/${s.slug}/reports/${reportId}`)
-    await page.getByRole('tab', { name: 'Email' }).click()
     await page.getByRole('button', { name: 'Send this report' }).click()
 
     const sheet = page.getByRole('dialog')

@@ -94,10 +94,10 @@ test('an exported inspection PDF carries its findings and scope limits', async (
   await signInViaUi(page, email)
   await page.goto(`/${slug}/reports/${reportId}`)
 
-  // The file leaves from the app's viewer, not the document on the page: the
-  // action bar's "PDF" tab, View PDF, then Save in the viewer's More menu.
-  // The tab and the button stay disabled until the page hydrates; a click
-  // before then would be swallowed by server-rendered markup.
+  // The file leaves from the app's viewer, not the page: View PDF, then Save
+  // in the viewer's top bar. View PDF stays disabled until the page
+  // hydrates; a click before then would be swallowed by server-rendered
+  // markup.
   const viewer = await openReportPdf(page)
   const download = await downloadFromViewer(page, viewer)
   const path = await download.path()

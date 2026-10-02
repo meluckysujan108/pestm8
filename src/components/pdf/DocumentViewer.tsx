@@ -8,6 +8,7 @@ import {
   useState,
 } from 'react'
 import { flushSync } from 'react-dom'
+import { ChevronRight } from 'lucide-react'
 import { Dialog } from 'radix-ui'
 import { useKeyboardInset } from '#/lib/useKeyboardInset'
 import { handOver } from './handOver'
@@ -24,9 +25,11 @@ import { useTextSearch } from './useTextSearch'
 import {
   BottomBar,
   MoreMenu,
+  SaveButton,
   Toolbar,
   TopBar,
   hasMoreMenu,
+  saveInBar,
 } from './ViewerChrome'
 import { keyCommand } from './viewerKeys'
 import { ErrorState, LoadingState, PasswordState } from './ViewerStates'
@@ -68,6 +71,7 @@ export function DocumentViewer({
   onClose,
   markup,
   badge,
+  onBadge,
   rememberPosition = true,
   pager,
 }: DocumentViewerProps) {
@@ -118,6 +122,8 @@ export function DocumentViewer({
 
   const ready = doc !== null
   const badgeId = useId()
+  /** Send was pressed: the caller's sheet takes over from here. */
+  const handingOver = useRef(false)
 
   const keyboard = useKeyboardInset()
   // The bar already reserves the home-indicator strip, which the keyboard
@@ -499,6 +505,7 @@ export function DocumentViewer({
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault()
+            if (handingOver.current) return
             if (returnFocus instanceof HTMLElement && returnFocus.isConnected) {
               returnFocus.focus()
             }
@@ -614,9 +621,19 @@ export function DocumentViewer({
             title={title}
             pages={pages}
             onDone={onClose}
+            // One Done at a time: while the pen is out, the palette's own
+            // Done puts it away, and the top bar's (which closes the whole
+            // viewer) steps aside rather than sit beside it.
+            doneHidden={marking}
             pager={pager}
             menu={
-              hasMoreMenu(actions) ? (
+              saveInBar(actions) ? (
+                <SaveButton
+                  label={actions.saveLabel ?? 'Download'}
+                  disabled={!file}
+                  onSave={save}
+                />
+              ) : hasMoreMenu(actions) ? (
                 <MoreMenu actions={actions} canSave={!!file} onSave={save} />
               ) : null
             }
@@ -625,16 +642,40 @@ export function DocumentViewer({
           {/* What this document is, kept in view: "Draft — not the finished
               document". Read once as the viewer opens (it describes the
               dialog), and not again every time the bars come and go. */}
-          {badge && !gridOpen && (
-            <p
-              id={badgeId}
-              aria-live="off"
-              className="chrome-blur pointer-events-none absolute left-1/2 z-10 max-w-[calc(100%-1.5rem)] -translate-x-1/2 truncate rounded-full px-2.5 py-1 text-caption font-semibold text-ink shadow-elevation transition-[top] duration-300"
-              style={{ top: pillTop(showBars, topBarHeight, 0) }}
-            >
-              {badge}
-            </p>
-          )}
+          {badge &&
+            !gridOpen &&
+            // A button only when it leads somewhere, and not while the pen
+            // is out: a stroke that starts on it would leave the document.
+            (onBadge && !marking ? (
+              // "Replaced by version 2" is a way to the version that is
+              // current, not only a warning about this one.
+              <button
+                type="button"
+                onClick={onBadge}
+                aria-label={`${badge}. Open the current version`}
+                className="chrome-blur tap-target absolute left-1/2 z-10 flex max-w-[calc(100%-1.5rem)] -translate-x-1/2 items-center gap-1 rounded-full py-1 pl-3 pr-2 text-caption font-semibold text-ink shadow-elevation outline-none transition-[top] duration-300 active:scale-[.95] focus-visible:ring-2 focus-visible:ring-blue"
+                style={{ top: pillTop(showBars, topBarHeight, 0) }}
+              >
+                <span id={badgeId} className="truncate">
+                  {badge}
+                </span>
+                <ChevronRight
+                  aria-hidden
+                  size={13}
+                  strokeWidth={2.2}
+                  className="shrink-0 text-blue"
+                />
+              </button>
+            ) : (
+              <p
+                id={badgeId}
+                aria-live="off"
+                className="chrome-blur pointer-events-none absolute left-1/2 z-10 max-w-[calc(100%-1.5rem)] -translate-x-1/2 truncate rounded-full px-2.5 py-1 text-caption font-semibold text-ink shadow-elevation transition-[top] duration-300"
+                style={{ top: pillTop(showBars, topBarHeight, 0) }}
+              >
+                {badge}
+              </p>
+            ))}
 
           {noText && (
             <p
@@ -687,6 +728,17 @@ export function DocumentViewer({
                 searchOpen={searchOpen}
                 gridOpen={gridOpen}
                 onShare={share}
+                onSend={
+                  actions.send && {
+                    label: actions.send.label,
+                    run: () => {
+                      // The page's sheet takes focus as it opens; putting it
+                      // back on the page behind first would only scroll it.
+                      handingOver.current = true
+                      actions.send?.run()
+                    },
+                  }
+                }
                 onSearch={openSearch}
                 onPages={() => {
                   setBarsVisible(true)

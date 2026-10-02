@@ -9,7 +9,7 @@ export const loadViewer = () => import('#/components/pdf/DocumentViewer')
 
 /**
  * Starts fetching the viewer while the person is still a tap away from it —
- * the product sheet open, a report's PDF tab, the sheet that offers a draft's
+ * the product sheet open, a finished report's page, the sheet that offers a draft's
  * preview — so the viewer opens without a wait. Safe to call repeatedly (the
  * module is fetched once), and a failure here is not reported: the real load
  * reports it, with a Reload.
