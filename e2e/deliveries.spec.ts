@@ -390,7 +390,7 @@ test.describe('the send sheet', () => {
     // Nothing has gone, so the client is offered where the sends would be.
     const email = page.getByRole('region', { name: 'Email' })
     await expect(email.getByText('Not emailed yet')).toBeVisible()
-    const oneTap = email.getByRole('button', { name: /^Email J\. Nguyen/ })
+    const oneTap = email.getByRole('button', { name: /^Send to J\. Nguyen/ })
     await expect(oneTap).toContainText('client@example.com')
     await oneTap.click()
 

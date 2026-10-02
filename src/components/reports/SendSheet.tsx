@@ -16,7 +16,10 @@ import {
 import { FieldMessage } from '#/components/forms/FieldMessage'
 import { describedBy, fieldMessageId } from '#/components/forms/FormField'
 import { domainsWithoutMail, noMailMessage } from './fields/staticBlocks'
-import { deliveryRecipients } from '#/lib/reportTemplates/delivery'
+import {
+  clientCopyDeclined,
+  deliveryRecipients,
+} from '#/lib/reportTemplates/delivery'
 import type { ReportTemplate } from '#/lib/reportTemplates'
 import type { RefObject } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -54,10 +57,16 @@ type Recipient = {
   problem: string | null
   /** The address most likely meant, for the one-tap fix. */
   fix: string | null
-  /** Who it is, from the client book or the form: "Jane Nguyen · Client". */
-  who: string | null
+  /** Who it is, from the client book: Jane Nguyen, Client. */
+  who: { name: string; role: string } | null
+  /** The form asked for it ("email this report to"). */
+  askedByForm: boolean
   /** When this report last went to them, if it has. */
   sentAt: number | null
+  /** An email of this report to them is on its way now. */
+  sending: boolean
+  /** The client, whose copy the form was told not to send. */
+  declined: boolean
 }
 
 /** Someone the client book says a report could go to (`deliveries.known`). */
@@ -74,6 +83,7 @@ type Earlier = {
   to: ReadonlyArray<string>
   status: string
   sentAt?: number
+  waitingForEmailSetup?: boolean
 }
 
 export const SEND_ERROR: Record<string, string> = {
@@ -169,8 +179,10 @@ export async function sendToEach(
  * address the business already holds — the sheet used to offer the client
  * only when the form's own "send a copy" was Yes.
  *
- * Except anyone this report has already reached, who is listed with when and
- * left unchosen: a second copy is a decision, not a default.
+ * Except anyone this report has already reached — or is on its way to — who
+ * is listed with when and left unchosen: a second copy is a decision, not a
+ * default. Nor the client when the form's "send a copy" was answered No, nor
+ * anyone at all on a document a correction has replaced.
  *
  * An address that can never be delivered to is never chosen. One saved
  * before addresses were checked ("bob@gmail") still reaches here from the
@@ -182,14 +194,26 @@ export function suggestedRecipients({
   people,
   before,
   knownAddresses,
+  clientDeclined = false,
+  replaced = false,
 }: {
   asked: ReadonlyArray<string>
   people: ReadonlyArray<Person>
   before: ReadonlyArray<Earlier>
   knownAddresses: ReadonlyArray<string>
+  /** The form's "send a copy to the client" was answered No. */
+  clientDeclined?: boolean
+  /** A correction has replaced this document: nothing is chosen for them. */
+  replaced?: boolean
 }): Array<Recipient> {
   const lastSent = new Map<string, number>()
+  // On its way: queued with something able to send it. A send queued where
+  // email is not set up is going nowhere, and does not count.
+  const onItsWay = new Set<string>()
   for (const row of before) {
+    if (row.status === 'queued' && !row.waitingForEmailSetup) {
+      for (const address of row.to) onItsWay.add(address)
+    }
     if (row.status !== 'sent') continue
     for (const address of row.to) {
       const at = row.sentAt ?? 0
@@ -219,20 +243,22 @@ export function suggestedRecipients({
     seen.add(address)
     const problem = emailProblem(address)
     const person = named.get(address)
-    const wanted = asked.includes(address) || person?.kind === 'client'
+    const isClient = person?.kind === 'client'
+    const wanted = asked.includes(address) || (isClient && !clientDeclined)
     const sentAt = lastSent.get(address) ?? null
+    const sending = sentAt === null && onItsWay.has(address)
     out.push({
       address,
-      chosen: problem === null && wanted && sentAt === null,
+      chosen:
+        problem === null && wanted && sentAt === null && !sending && !replaced,
       known: knownAddresses.includes(address),
       problem,
       fix: problem === null ? null : emailTypoFix(address),
-      who: person
-        ? `${person.name} · ${personRole(person)}`
-        : asked.includes(address)
-          ? 'Asked for on the form'
-          : null,
+      who: person ? { name: person.name, role: personRole(person) } : null,
+      askedByForm: asked.includes(address),
       sentAt,
+      sending,
+      declined: isClient && clientDeclined && !asked.includes(address),
     })
   }
   return out
@@ -257,6 +283,7 @@ export function SendSheet({
   clientName,
   subject,
   chosen: chosenAtOpen = NONE,
+  replaced = false,
   returnFocusRef,
 }: {
   open: boolean
@@ -278,6 +305,8 @@ export function SendSheet({
    * send that failed brings its addresses back ticked.
    */
   chosen?: ReadonlyArray<string>
+  /** A correction has replaced this document: nobody is chosen for them. */
+  replaced?: boolean
   /** Where focus goes as it closes, when what opened it has gone (the
    * viewer's Send). */
   returnFocusRef?: RefObject<HTMLElement | null>
@@ -345,11 +374,16 @@ export function SendSheet({
       people,
       before: history ?? [],
       knownAddresses,
+      clientDeclined: clientCopyDeclined(template, data),
+      replaced,
     })
-  }, [template, data, clientEmail, people, history, knownAddresses])
+  }, [template, data, clientEmail, people, history, knownAddresses, replaced])
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
   const [added, setAdded] = useState<Array<string>>([])
+  // Typed by hand, as opposed to a one-tap fix of an address on file: only
+  // these may be offered for the client's record.
+  const [typedIn, setTypedIn] = useState<Array<string>>([])
   const [draft, setDraft] = useState('')
   const [adding, setAdding] = useState(false)
   // What is wrong with the typed address shows once the field is left or Add
@@ -376,15 +410,24 @@ export function SendSheet({
         entry.problem === null &&
         (overrides[entry.address] ?? (onlyChosen ? false : entry.chosen)),
     })),
-    ...added.map((address) => ({
-      address,
-      chosen: overrides[address] ?? true,
-      known: knownAddresses.includes(address),
-      problem: null,
-      fix: null,
-      who: null,
-      sentAt: null,
-    })),
+    // Once an address typed in turns up among those offered (it was sent to,
+    // or saved to the record), it is listed once, there.
+    ...added
+      .filter(
+        (address) => !suggested.some((entry) => entry.address === address),
+      )
+      .map((address) => ({
+        address,
+        chosen: overrides[address] ?? true,
+        known: knownAddresses.includes(address),
+        problem: null,
+        fix: null,
+        who: null,
+        askedByForm: false,
+        sentAt: null,
+        sending: false,
+        declined: false,
+      })),
   ]
   const chosen = recipients.filter((entry) => entry.chosen)
   // Said wherever it is true: an email to the copy address itself carries no
@@ -396,9 +439,11 @@ export function SendSheet({
   // has none: off unless asked for. What became of it is said after Send.
   const [saveToRecord, setSaveToRecord] = useState(false)
   const [saved, setSaved] = useState<'saved' | 'failed' | null>(null)
+  // The first address typed by hand, for a client whose record has none
+  // that can be delivered to.
   const savable =
     recordClient !== null && !recordClient.hasEmail
-      ? (added.at(0) ?? null)
+      ? (typedIn.at(0) ?? null)
       : null
 
   const convexSend = useConvexAction(api.email.sendReportPdf)
@@ -410,7 +455,10 @@ export function SendSheet({
       )
       // Only an address that took the email: one that failed may be a typo.
       const keep =
-        saveToRecord && savable !== null && recordClient !== null
+        saveToRecord &&
+        savable !== null &&
+        recordClient !== null &&
+        addresses.includes(savable)
           ? outcomes.find(
               (outcome) => outcome.address === savable && outcome.code === null,
             )
@@ -451,6 +499,7 @@ export function SendSheet({
     setSaveToRecord(false)
     setSaved(null)
     setAdded([])
+    setTypedIn([])
     setDraft('')
     setAdding(false)
     setDraftShown(false)
@@ -533,6 +582,7 @@ export function SendSheet({
       setOverrides((prev) => ({ ...prev, [typed]: true }))
     } else {
       setAdded((prev) => [...prev, typed])
+      setTypedIn((prev) => [...prev, typed])
     }
     setDraft('')
     setDraftShown(false)
@@ -596,10 +646,13 @@ export function SendSheet({
                         [entry.address]: !entry.chosen,
                       }))
                     }
-                    className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
+                    // Not chosen reads from the empty tick and the grey fill —
+                    // never faded text, which in sun reads as "can't be
+                    // picked".
+                    className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-blue ${
                       entry.chosen
                         ? 'border-ink/15 bg-surface'
-                        : 'border-hairline bg-surface-2 opacity-60'
+                        : 'border-hairline bg-surface-2'
                     }`}
                   >
                     <TickBox on={entry.chosen} />
@@ -608,8 +661,14 @@ export function SendSheet({
                           address whole, never cut off: the end of an address
                           is where a typo in its domain would be. */}
                       {entry.who && (
-                        <span className="block break-words text-body font-semibold text-ink">
-                          {entry.who}
+                        <span className="block break-words text-body text-ink">
+                          <span className="font-semibold">
+                            {entry.who.name}
+                          </span>
+                          <span className="text-ink-2">
+                            {' '}
+                            · {entry.who.role}
+                          </span>
                         </span>
                       )}
                       <span
@@ -617,12 +676,26 @@ export function SendSheet({
                       >
                         {entry.address}
                       </span>
-                      {/* Why it is not chosen: it already has this report. */}
-                      {entry.sentAt !== null && (
+                      {!entry.who && entry.askedByForm && (
+                        <span className="mt-0.5 block text-caption text-ink-2">
+                          Asked for on the form
+                        </span>
+                      )}
+                      {/* Why it is not chosen: it already has this report,
+                          it is on its way, or the form said no. */}
+                      {entry.sentAt !== null ? (
                         <span className="mt-0.5 block text-caption text-grey-ink">
                           Sent {formatWhen(entry.sentAt, timezone)}
                         </span>
-                      )}
+                      ) : entry.sending ? (
+                        <span className="mt-0.5 block text-caption text-grey-ink">
+                          Sending now
+                        </span>
+                      ) : entry.declined ? (
+                        <span className="mt-0.5 block text-caption text-grey-ink">
+                          The form said no copy for the client
+                        </span>
+                      ) : null}
                       {/* Said before Send, not after: an address the business
                           has never used is where a typo would be. It goes all
                           the same. Shown chosen or not, so the button's name
@@ -644,6 +717,21 @@ export function SendSheet({
                     <FieldMessage id={noMailId} tone="warning">
                       {noMailMessage(noMailDomain)}
                     </FieldMessage>
+                  )}
+                  {/* With the address it keeps, and only while that
+                      address is going: saved only if it took the email. */}
+                  {entry.address === savable && entry.chosen && (
+                    <button
+                      type="button"
+                      aria-pressed={saveToRecord}
+                      onClick={() => setSaveToRecord((on) => !on)}
+                      className="mt-1 flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-blue"
+                    >
+                      <TickBox on={saveToRecord} />
+                      <span className="min-w-0 flex-1 text-body text-ink">
+                        Also save to {recordClient?.name}’s record
+                      </span>
+                    </button>
                   )}
                 </>
               )}
@@ -752,22 +840,6 @@ export function SendSheet({
         >
           <Plus size={15} strokeWidth={2.2} />
           Send to someone else
-        </button>
-      )}
-
-      {/* The address just typed, kept for next time — only for a client
-          with none on their record, and only if asked. */}
-      {savable && (
-        <button
-          type="button"
-          aria-pressed={saveToRecord}
-          onClick={() => setSaveToRecord((on) => !on)}
-          className="mt-2 flex w-full items-center gap-2.5 rounded-xl px-1 py-2 text-left outline-none focus-visible:ring-2 focus-visible:ring-blue"
-        >
-          <TickBox on={saveToRecord} />
-          <span className="min-w-0 flex-1 break-words text-body text-ink">
-            Also save {savable} to {recordClient?.name}’s record
-          </span>
         </button>
       )}
 

@@ -1,5 +1,7 @@
 import { createContext, useContext } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useHydrated } from '#/lib/useHydrated'
+import { FIELD } from '#/components/forms/FormField'
 import { REPORT_PILL } from '#/lib/statusColours'
 import { convexQuery } from '@convex-dev/react-query'
 import { Lock } from 'lucide-react'
@@ -291,65 +293,75 @@ function Body({ model }: { model: ReportModel }) {
 const sectionAnchor = (key: string) => `answers-${key}`
 
 /**
- * The Answers page's sections, at its top, each a tap from where it is: a
- * Timber inspection is a dozen sections and many screens, and someone after
- * the product used should not scroll through the subfloor to find it. Not for
- * a form of two sections, which needs no index.
+ * The Answers page's sections, at its top, each a pick away: a Timber
+ * inspection is a dozen sections and many screens, and someone after the
+ * product used should not scroll through the subfloor to find it. Not for a
+ * form of two sections, which needs no index.
+ *
+ * A native select rather than a row of chips: a dozen chips pushed the
+ * answers a screen down and were too small to tap, and the phone's own
+ * picker scales to any number, reads its options aloud and needs no sheet.
  */
 function JumpList({ sections }: { sections: ReadonlyArray<DocSection> }) {
+  const hydrated = useHydrated()
   const headed = sections.filter((section) => section.heading !== null)
   if (headed.length < 3) return null
 
   const jump = (key: string) => {
-    const target = document.getElementById(sectionAnchor(key))
-    if (!target) return
+    const heading = document.getElementById(sectionAnchor(key))
+    if (!heading) return
     const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    target.scrollIntoView({
+    heading.scrollIntoView({
       behavior: still ? 'auto' : 'smooth',
       block: 'start',
     })
-    // Where a screen reader or keyboard carries on reading from.
-    target.focus({ preventScroll: true })
+    // The heading, so a screen reader reads just it and carries on from
+    // there, rather than the whole section at once.
+    heading.focus({ preventScroll: true })
   }
 
   return (
-    <nav aria-labelledby="answers-jump" className="mt-3">
-      <h2 id="answers-jump" className="section-label mb-2">
-        Jump to
-      </h2>
-      <ul className="flex flex-wrap gap-2">
+    <label className="mt-3 flex flex-col gap-1.5">
+      <span className="section-label">Jump to</span>
+      <select
+        // A select that only acts: it always shows its prompt, so picking the
+        // same section twice still jumps.
+        value=""
+        disabled={!hydrated}
+        onChange={(event) => {
+          if (event.target.value) jump(event.target.value)
+        }}
+        className={FIELD}
+      >
+        <option value="" disabled>
+          A section of this form
+        </option>
         {headed.map((section) => (
-          <li key={section.key}>
-            <button
-              type="button"
-              onClick={() => jump(section.key)}
-              className="relative tap-target rounded-full border border-hairline bg-surface px-3 py-1.5 text-caption font-semibold text-ink-2 outline-none transition active:scale-[.95] focus-visible:ring-2 focus-visible:ring-blue"
-            >
-              {section.number !== undefined ? `${section.number}. ` : ''}
-              {section.heading}
-            </button>
-          </li>
+          <option key={section.key} value={section.key}>
+            {section.number !== undefined ? `${section.number}. ` : ''}
+            {section.heading}
+          </option>
         ))}
-      </ul>
-    </nav>
+      </select>
+    </label>
   )
 }
 
 function Section({ section }: { section: DocSection }) {
   const answers = useContext(Variant) === 'answers'
   return (
-    <section
-      // On the Answers page, somewhere the jump list can land — below the
-      // sticky header, not under it.
-      id={answers ? sectionAnchor(section.key) : undefined}
-      tabIndex={answers ? -1 : undefined}
-      className="mt-6 scroll-mt-32 outline-none"
-    >
+    <section className="mt-6">
       {/* The heading the client received. This is the finished document, not
           the form — the builder keeps showing the section's own title so a
-          technician can find where they are. */}
+          technician can find where they are. On the Answers page it is where
+          the jump list lands: below the sticky header (its height and the
+          phone's top inset), not under it. */}
       {section.heading !== null && (
-        <h2 className="section-label mb-2">
+        <h2
+          id={answers ? sectionAnchor(section.key) : undefined}
+          tabIndex={answers ? -1 : undefined}
+          className="section-label mb-2 scroll-mt-[calc(6.5rem+env(safe-area-inset-top))] outline-none"
+        >
           {section.number !== undefined ? `${section.number}. ` : ''}
           {section.heading}
         </h2>

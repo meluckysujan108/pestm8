@@ -89,7 +89,8 @@ export type RecipientPerson = {
  * never be delivered to is still listed, for the sheet to show with its fix.
  *
  * `clientId` is there for "Save to the client's record", offered only when
- * the record has no address yet and the caller may see the client book.
+ * the record has no address that can be delivered to and the caller may see
+ * the client book.
  */
 export async function recipientPeople(
   ctx: QueryCtx,
@@ -136,7 +137,13 @@ export async function recipientPeople(
   }
   return {
     client: withContacts
-      ? { clientId: client._id, name: client.name, hasEmail: !!clientEmail }
+      ? {
+          clientId: client._id,
+          name: client.name,
+          // One that can never be delivered to ("bob@gmail") is no address:
+          // the Send sheet may offer to put a typed one in its place.
+          hasEmail: clientEmail !== undefined && isValidEmail(clientEmail),
+        }
       : null,
     people,
   }

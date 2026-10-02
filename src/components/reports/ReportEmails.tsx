@@ -57,8 +57,9 @@ export function ReportEmails({
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
   hydrated: boolean
-  /** The client and their address, offered when nothing has been sent. */
-  client: { name: string; address: string } | null
+  /** The client and their address, offered when nothing has been sent;
+   * `undefined` while that is still being looked up. */
+  client: { name: string; address: string } | null | undefined
   /** What the attachment is called (`documentIdentity`). */
   fileName: string
   /** Opens the Send sheet with these addresses chosen. */
@@ -70,7 +71,10 @@ export function ReportEmails({
   )
   const rows = history.data
   const [all, setAll] = useState(false)
-  const [open, setOpen] = useState<Delivery | null>(null)
+  // By id, read from the live rows: a send tapped while "Sending…" must show
+  // it going, or failing, as the list behind it does.
+  const [openId, setOpenId] = useState<string | null>(null)
+  const open = rows?.find((row) => row._id === openId) ?? null
   const now = useClock((rows ?? []).some((row) => row.status === 'queued'))
   const stuckOf = (row: Delivery) =>
     row.status === 'queued' &&
@@ -106,7 +110,7 @@ export function ReportEmails({
           what="where this report was sent"
           onRetry={() => void history.refetch()}
         />
-      ) : rows === undefined ? (
+      ) : rows === undefined || (rows.length === 0 && client === undefined) ? (
         // Loading is not the same as nothing: "Not emailed yet" under a report
         // the form already sent is a lie, and one a technician would act on by
         // sending it again.
@@ -131,7 +135,7 @@ export function ReportEmails({
               />
               <span className="min-w-0 flex-1">
                 <span className="block text-body font-semibold text-blue">
-                  Email {client.name}
+                  Send to {client.name}
                 </span>
                 <span className="block break-words text-caption text-grey-ink">
                   {client.address}
@@ -148,16 +152,18 @@ export function ReportEmails({
         </div>
       ) : (
         <>
-          <ul className="divide-y divide-hairline rounded-2xl border border-hairline bg-surface shadow-elevation">
-            {(all ? rows : rows.slice(0, SHOWN)).map((row, index) => {
+          {/* Clipped to its corners: every control in it is a real 44px with
+              an inset focus ring, so nothing is cut off. */}
+          <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
+            {(all ? rows : rows.slice(0, SHOWN)).map((row) => {
               const state = deliveryState(row, stuckOf(row))
               return (
                 <li key={row._id}>
                   <button
                     type="button"
                     disabled={!hydrated}
-                    onClick={() => setOpen(row)}
-                    className={`flex w-full gap-2.5 px-3.5 pt-3 text-left outline-none transition active:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue ${index === 0 ? 'rounded-t-2xl' : ''} ${state.retry ? 'pb-1' : 'pb-3'}`}
+                    onClick={() => setOpenId(row._id)}
+                    className={`flex w-full gap-2.5 px-3.5 pt-3 text-left outline-none transition active:bg-surface-2 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue ${state.retry ? 'pb-1' : 'pb-3'}`}
                   >
                     <span aria-hidden className="mt-0.5 shrink-0">
                       <StateGlyph warn={state.warn} sending={state.sending} />
@@ -245,10 +251,12 @@ export function ReportEmails({
         row={open}
         stuck={open !== null && stuckOf(open)}
         fileName={fileName}
-        onClose={() => setOpen(null)}
+        onClose={() => setOpenId(null)}
         onSendAgain={(addresses) => {
-          setOpen(null)
-          onSendAgain(addresses)
+          setOpenId(null)
+          // After this sheet has gone: one sheet closing as another rises
+          // undoes the page's scroll lock on iOS Safari (see `Sheet`).
+          setTimeout(() => onSendAgain(addresses), SHEET_CLOSE_MS)
         }}
       />
     </section>
@@ -290,19 +298,21 @@ function DeliverySheet({
 }) {
   const timezone = useBusinessTimezone()
   // Kept while the sheet slides away, so it does not empty as it closes.
-  const [shown, setShown] = useState<Delivery | null>(row)
+  const [kept, setKept] = useState<Delivery | null>(row)
   useEffect(() => {
-    if (row) setShown(row)
+    if (row) setKept(row)
   }, [row])
+  const shown = row ?? kept
   const state = shown ? deliveryState(shown, stuck) : null
   const copies = shown ? copiesOf(shown) : []
+  const went = shown?.status === 'sent' || state?.sending === true
+  const fresh = shown?.newAddresses ?? []
 
   return (
     <Sheet
       open={row !== null}
       onClose={onClose}
       title="Email"
-      description={shown ? shown.to.join(', ') : undefined}
       footer={
         <div className="flex gap-2">
           {shown && state?.retry && (
@@ -331,12 +341,29 @@ function DeliverySheet({
           <div className="rounded-xl border border-hairline bg-surface">
             <DetailRows>
               <DetailRow
-                label={state.word}
-                value={formatWhen(shown.sentAt ?? shown.createdAt, timezone)}
+                label="To"
+                value={shown.to.join(', ')}
+                below={
+                  // As it was when it was sent: the address may be on the
+                  // record since.
+                  fresh.length > 0 ? (
+                    <p className="text-right text-caption text-ink-2">
+                      {fresh.length === shown.to.length
+                        ? shown.to.length === 1
+                          ? 'Wasn’t on the client’s record'
+                          : 'None were on the client’s record'
+                        : `${fresh.join(', ')} ${fresh.length === 1 ? 'wasn’t' : 'weren’t'} on the client’s record`}
+                    </p>
+                  ) : undefined
+                }
+              />
+              <DetailRow
+                label="Status"
+                value={`${state.word} · ${formatWhen(shown.sentAt ?? shown.createdAt, timezone)}`}
               />
               {shown.sentBy?.name && (
                 <DetailRow
-                  label="Sent by"
+                  label={went ? 'Sent by' : 'By'}
                   value={senderName(shown.sentBy.name, shown.onBehalfOf?.name)}
                   sub={
                     shown.trigger === 'finalise'
@@ -346,27 +373,23 @@ function DeliverySheet({
                 />
               )}
               <DetailRow label="Subject" value={shown.subject} />
-              <DetailRow
-                label="Attached"
-                value={/\.pdf$/i.test(fileName) ? fileName : `${fileName}.pdf`}
-                sub={
-                  shown.lighterCopy
-                    ? 'Photos made smaller to fit an email'
-                    : undefined
-                }
-              />
-              {/* Only once it went (or while it is on its way): the copy of
-                  one that did not go went nowhere either. */}
-              {copies.length > 0 &&
-                (shown.status === 'sent' || state.sending) && (
-                  <DetailRow label="Business copy" value={copies.join(', ')} />
-                )}
-              {shown.newAddresses && shown.newAddresses.length > 0 && (
+              {/* What the client got — only for an email that went (or is
+                  going): one that failed may have had nothing attached. */}
+              {went && (
                 <DetailRow
-                  label="New to the client"
-                  value={shown.newAddresses.join(', ')}
-                  sub="Wasn’t on the client’s record when it was sent"
+                  label="Attached"
+                  value={
+                    /\.pdf$/i.test(fileName) ? fileName : `${fileName}.pdf`
+                  }
+                  sub={
+                    shown.status === 'sent' && shown.lighterCopy
+                      ? 'Photos made smaller to fit an email'
+                      : undefined
+                  }
                 />
+              )}
+              {went && copies.length > 0 && (
+                <DetailRow label="Business copy" value={copies.join(', ')} />
               )}
             </DetailRows>
           </div>
@@ -378,6 +401,9 @@ function DeliverySheet({
 
 /** The newest few, before "Show all". */
 const SHOWN = 3
+
+/** Long enough for a sheet to finish sliding away (Vaul's 0.5s). */
+const SHEET_CLOSE_MS = 500
 
 /**
  * How long a delivery may sit queued before it is plainly not on its way.

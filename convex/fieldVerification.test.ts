@@ -988,6 +988,21 @@ describe('sending a report', () => {
     expect(shown.client).toMatchObject({ name: 'Jane Nguyen', hasEmail: false })
   })
 
+  test('an address on file that can never be delivered to is no address to keep', async () => {
+    const s = await setup()
+    const reportId = await withReport(s, {
+      name: 'Jane Nguyen',
+      email: 'jane@gmail',
+    })
+    const shown = await s.owner.as.query(api.deliveries.known, {
+      businessId: s.businessId,
+      reportId,
+    })
+    // Listed, for the sheet to show with its fix, and open to a typed one.
+    expect(shown.people.map((person) => person.address)).toEqual(['jane@gmail'])
+    expect(shown.client).toMatchObject({ hasEmail: false })
+  })
+
   test('to an address that can never be delivered to is refused, not queued', async () => {
     const s = await setup()
     const reportId = await withReport(s, { email: 'accounts@cafe.test' })

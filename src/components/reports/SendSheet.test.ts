@@ -63,10 +63,10 @@ describe('the addresses the send sheet offers', () => {
       knownAddresses: [jane.address, bob.address, kim.address],
     })
     // The client first, then contacts with the primary one leading.
-    expect(list.map((r) => [r.address, r.chosen, r.who])).toEqual([
-      ['jane@gmail.com', true, 'Jane Nguyen · Client'],
-      ['kim@agents.com.au', false, 'Kim Wu · Primary contact'],
-      ['bob@strata.com.au', false, 'Bob Lee · Strata manager'],
+    expect(list.map((r) => [r.address, r.chosen, r.who?.role])).toEqual([
+      ['jane@gmail.com', true, 'Client'],
+      ['kim@agents.com.au', false, 'Primary contact'],
+      ['bob@strata.com.au', false, 'Strata manager'],
     ])
   })
 
@@ -77,10 +77,17 @@ describe('the addresses the send sheet offers', () => {
       before: [],
       knownAddresses: [jane.address, bob.address],
     })
-    expect(list.map((r) => [r.address, r.chosen, r.who])).toEqual([
-      ['bob@strata.com.au', true, 'Bob Lee · Strata manager'],
-      ['office@body-corp.com.au', true, 'Asked for on the form'],
-      ['jane@gmail.com', true, 'Jane Nguyen · Client'],
+    expect(
+      list.map((r) => [
+        r.address,
+        r.chosen,
+        r.who?.name ?? null,
+        r.askedByForm,
+      ]),
+    ).toEqual([
+      ['bob@strata.com.au', true, 'Bob Lee', true],
+      ['office@body-corp.com.au', true, null, true],
+      ['jane@gmail.com', true, 'Jane Nguyen', false],
     ])
   })
 

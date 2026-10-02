@@ -23,6 +23,7 @@ import { ReportDocument } from './ReportDocument'
 import { ReportEmails } from './ReportEmails'
 import { ReportPdfViewer } from './ReportPdfViewer'
 import { ReportStatusPill } from './ReportRows'
+import { emailProblem } from '../../../convex/lib/email'
 import { SendSheet } from './SendSheet'
 import type { Person } from './SendSheet'
 import { SgarNotice } from './SgarNotice'
@@ -125,14 +126,6 @@ export function FinishedReport({
     pdfUrl: report.pdfUrl ?? null,
   })
   const data = (report.data ?? {}) as Record<string, unknown>
-  // What goes with the file into Messages or WhatsApp: what it is, and from
-  // whom — a text with a bare attachment reads as spam.
-  const shareText = identity.title
-    .toLowerCase()
-    .includes(report.businessName.toLowerCase())
-    ? identity.title
-    : `${identity.title} — from ${report.businessName}`
-
   // Who the report is for, offered in one tap when nothing has been sent:
   // the client from their record as it is now, else as the document printed.
   const { data: known } = useQuery(
@@ -142,7 +135,7 @@ export function FinishedReport({
     known as { people?: ReadonlyArray<Person> } | undefined
   )?.people?.find((person) => person.kind === 'client')
   const printedEmail = report.context.client?.email?.trim().toLowerCase()
-  const clientToEmail = recordClient
+  const clientFound = recordClient
     ? { name: recordClient.name, address: recordClient.address }
     : known !== undefined &&
         (known as { people?: unknown }).people === undefined &&
@@ -152,6 +145,17 @@ export function FinishedReport({
           address: printedEmail,
         }
       : null
+  // Undefined while still looked up, so the row never pops in under a thumb;
+  // never for an address that cannot be delivered to, nor on a document a
+  // correction has replaced.
+  const clientToEmail =
+    known === undefined
+      ? undefined
+      : clientFound &&
+          emailProblem(clientFound.address) === null &&
+          report.supersededByReportId === undefined
+        ? clientFound
+        : null
 
   const openSend = (chosen: ReadonlyArray<string> = []) =>
     setSending({ open: true, chosen })
@@ -310,7 +314,6 @@ export function FinishedReport({
             logoUrl={report.business?.logoUrl}
             pdf={pdf}
             title={identity.title}
-            shareText={shareText}
             fileName={identity.fileName}
             hydrated={hydrated}
             replaced={replaced}
@@ -382,6 +385,7 @@ export function FinishedReport({
         clientName={report.context.client?.name}
         subject={identity.title}
         chosen={sending.chosen}
+        replaced={report.supersededByReportId !== undefined}
         // Back to the page's Send, which is always there: the viewer's, which
         // may have opened it, is gone.
         returnFocusRef={sendRef}
@@ -423,7 +427,6 @@ export function FinishedReport({
           businessId={businessId}
           reportId={report._id}
           title={identity.title}
-          shareText={shareText}
           fileName={identity.fileName}
           pdf={pdf}
           badge={replaced ? replacedBadge(report.version) : undefined}
