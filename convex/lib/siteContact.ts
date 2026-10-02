@@ -1,5 +1,5 @@
 /**
- * Who a technician rings about a visit (Prompt 6.3).
+ * Who a technician rings about a visit (Prompt 6.3), and who they ask for.
  *
  * A business client's property can carry its own site contact — the store
  * manager, the caretaker, the tenant who lets them in. On the day that is who
@@ -10,8 +10,15 @@
  * name and the number always move together, so a button never names someone
  * it is not calling.
  *
+ * Next comes the client's contact person — the one "who do we deal with
+ * here" (lib/contactPerson.ts). With a number of their own they are rung
+ * directly, under their name. Without one the business's line is rung, under
+ * its name, and the card says who to ask for when it answers: the request
+ * that added this, from a technician ringing "Turbo Sushi" with no idea who
+ * to talk to.
+ *
  * Only for a business client. A client switched from business to person keeps
- * its site contacts (hidden, not deleted — like its contacts and head-office
+ * its site contacts and contacts (hidden, not deleted — like its head-office
  * address), and must not keep silently dialling someone nobody can see.
  *
  * Pure, and the one place this rule lives: the job card reads flattened
@@ -23,6 +30,12 @@ export type CallTarget = {
   phone: string | undefined
   /** True when this is the site's own contact, not the client's line. */
   atSite: boolean
+  /** Who to ask for, for the card's Contact line: the person Call reaches,
+   * or the contact person when Call rings the business's own line. Undefined
+   * for a person client — the card's heading is them already — and when
+   * nobody is named, as for a site number saved without a name: the card
+   * never names someone its Call does not reach. */
+  askFor: string | undefined
 }
 
 export function contactToCall(input: {
@@ -31,19 +44,39 @@ export function contactToCall(input: {
   clientPhone?: string
   siteContactName?: string
   siteContactPhone?: string
+  contactPersonName?: string
+  contactPersonPhone?: string
 }): CallTarget {
+  const business = input.clientKind === 'business'
   const sitePhone = input.siteContactPhone?.trim()
-  if (input.clientKind === 'business' && sitePhone) {
+  if (business && sitePhone) {
+    const siteName = input.siteContactName?.trim() || undefined
     return {
-      name: input.siteContactName?.trim() || input.clientName,
+      name: siteName ?? input.clientName,
       phone: sitePhone,
       atSite: true,
+      askFor: siteName,
+    }
+  }
+  const contactName = business
+    ? input.contactPersonName?.trim() || undefined
+    : undefined
+  const contactPhone = contactName
+    ? input.contactPersonPhone?.trim() || undefined
+    : undefined
+  if (contactName && contactPhone) {
+    return {
+      name: contactName,
+      phone: contactPhone,
+      atSite: false,
+      askFor: contactName,
     }
   }
   return {
     name: input.clientName,
     phone: input.clientPhone?.trim() || undefined,
     atSite: false,
+    askFor: contactName,
   }
 }
 

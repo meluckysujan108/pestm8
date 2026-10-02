@@ -21,7 +21,12 @@ describe('who a visit calls', () => {
         siteContactName: 'Jan Morris',
         siteContactPhone: '0400 111 222',
       }),
-    ).toEqual({ name: 'Jan Morris', phone: '0400 111 222', atSite: true })
+    ).toEqual({
+      name: 'Jan Morris',
+      phone: '0400 111 222',
+      atSite: true,
+      askFor: 'Jan Morris',
+    })
   })
 
   test('a site number with no name still calls the site, named for the client', () => {
@@ -31,6 +36,8 @@ describe('who a visit calls', () => {
       name: 'Coastal Cafe Group',
       phone: '0400 111 222',
       atSite: true,
+      // Nobody to name: the card names no one its Call does not reach.
+      askFor: undefined,
     })
     expect(
       contactToCall({
@@ -46,6 +53,7 @@ describe('who a visit calls', () => {
       name: 'Coastal Cafe Group',
       phone: '08 9335 1000',
       atSite: false,
+      askFor: undefined,
     })
   })
 
@@ -62,6 +70,7 @@ describe('who a visit calls', () => {
         name: 'Coastal Cafe Group',
         phone: '08 9335 1000',
         atSite: false,
+        askFor: undefined,
       })
     },
   )
@@ -78,7 +87,12 @@ describe('who a visit calls', () => {
           siteContactName: 'Jan Morris',
           siteContactPhone: '0400 111 222',
         }),
-      ).toEqual({ name: 'J. Nguyen', phone: '0412 345 678', atSite: false })
+      ).toEqual({
+        name: 'J. Nguyen',
+        phone: '0412 345 678',
+        atSite: false,
+        askFor: undefined,
+      })
     }
   })
 
@@ -89,7 +103,12 @@ describe('who a visit calls', () => {
         siteContactName: ' Jan Morris ',
         siteContactPhone: ' 0400 111 222 ',
       }),
-    ).toEqual({ name: 'Jan Morris', phone: '0400 111 222', atSite: true })
+    ).toEqual({
+      name: 'Jan Morris',
+      phone: '0400 111 222',
+      atSite: true,
+      askFor: 'Jan Morris',
+    })
     expect(
       contactToCall({ ...cafe, clientPhone: ' 08 9335 1000 ' }).phone,
     ).toBe('08 9335 1000')
@@ -99,7 +118,164 @@ describe('who a visit calls', () => {
         clientKind: 'business',
         clientName: 'Coastal Cafe Group',
       }),
-    ).toEqual({ name: 'Coastal Cafe Group', phone: undefined, atSite: false })
+    ).toEqual({
+      name: 'Coastal Cafe Group',
+      phone: undefined,
+      atSite: false,
+      askFor: undefined,
+    })
+  })
+})
+
+/**
+ * The client's contact person (lib/contactPerson.ts): the name the job card
+ * shows beside the price, so whoever holds Call knows who to ask for. Asked
+ * for by a technician ringing "Turbo Sushi" with no idea who to talk to.
+ */
+describe('who a visit asks for', () => {
+  test('a contact person without a number is asked for on the business’s line', () => {
+    expect(contactToCall({ ...cafe, contactPersonName: 'Sam Lee' })).toEqual({
+      name: 'Coastal Cafe Group',
+      phone: '08 9335 1000',
+      atSite: false,
+      askFor: 'Sam Lee',
+    })
+  })
+
+  test('a contact person with their own number is rung, under their name', () => {
+    expect(
+      contactToCall({
+        ...cafe,
+        contactPersonName: 'Sam Lee',
+        contactPersonPhone: '0411 222 333',
+      }),
+    ).toEqual({
+      name: 'Sam Lee',
+      phone: '0411 222 333',
+      atSite: false,
+      askFor: 'Sam Lee',
+    })
+  })
+
+  test('a site with its own number comes before the contact person, and names its own', () => {
+    const both = {
+      ...cafe,
+      contactPersonName: 'Sam Lee',
+      contactPersonPhone: '0411 222 333',
+      siteContactPhone: '0400 111 222',
+    }
+    expect(contactToCall({ ...both, siteContactName: 'Jan Morris' })).toEqual({
+      name: 'Jan Morris',
+      phone: '0400 111 222',
+      atSite: true,
+      askFor: 'Jan Morris',
+    })
+    // The site's number with no name: Sam is not at that number, so the card
+    // names nobody rather than him.
+    expect(contactToCall(both)).toEqual({
+      name: 'Coastal Cafe Group',
+      phone: '0400 111 222',
+      atSite: true,
+      askFor: undefined,
+    })
+  })
+
+  test('a site contact with only a name gives way to the contact person', () => {
+    // The business's line is rung, so who to ask for there is the person
+    // head office deals with; the site's name is on the job sheet.
+    expect(
+      contactToCall({
+        ...cafe,
+        siteContactName: 'Jan Morris',
+        contactPersonName: 'Sam Lee',
+      }),
+    ).toEqual({
+      name: 'Coastal Cafe Group',
+      phone: '08 9335 1000',
+      atSite: false,
+      askFor: 'Sam Lee',
+    })
+  })
+
+  test('a contact person is named even when the business has no number', () => {
+    expect(
+      contactToCall({
+        clientKind: 'business',
+        clientName: 'Coastal Cafe Group',
+        contactPersonName: 'Sam Lee',
+      }),
+    ).toEqual({
+      name: 'Coastal Cafe Group',
+      phone: undefined,
+      atSite: false,
+      askFor: 'Sam Lee',
+    })
+  })
+
+  test('a person client asks for nobody — their name is the card’s heading', () => {
+    // One switched from business keeps its contacts, hidden: nobody is named
+    // or rung who is not on the screen.
+    for (const clientKind of ['person', undefined] as const) {
+      expect(
+        contactToCall({
+          clientKind,
+          clientName: 'J. Nguyen',
+          clientPhone: '0412 345 678',
+          contactPersonName: 'Sam Lee',
+          contactPersonPhone: '0411 222 333',
+        }),
+      ).toEqual({
+        name: 'J. Nguyen',
+        phone: '0412 345 678',
+        atSite: false,
+        askFor: undefined,
+      })
+    }
+  })
+
+  test.each(['', '   '])(
+    'a blank contact person ("%s") is nobody, and their number with them',
+    (blank) => {
+      expect(
+        contactToCall({
+          ...cafe,
+          contactPersonName: blank,
+          contactPersonPhone: '0411 222 333',
+        }),
+      ).toEqual({
+        name: 'Coastal Cafe Group',
+        phone: '08 9335 1000',
+        atSite: false,
+        askFor: undefined,
+      })
+    },
+  )
+
+  test('a contact person’s name and number are trimmed, and a blank number is none', () => {
+    expect(
+      contactToCall({
+        ...cafe,
+        contactPersonName: ' Sam Lee ',
+        contactPersonPhone: ' 0411 222 333 ',
+      }),
+    ).toEqual({
+      name: 'Sam Lee',
+      phone: '0411 222 333',
+      atSite: false,
+      askFor: 'Sam Lee',
+    })
+    expect(
+      contactToCall({
+        ...cafe,
+        contactPersonName: 'Sam Lee',
+        contactPersonPhone: '  ',
+      }),
+    ).toEqual({
+      name: 'Coastal Cafe Group',
+      phone: '08 9335 1000',
+      atSite: false,
+      askFor: 'Sam Lee',
+    })
   })
 })
 
