@@ -597,6 +597,8 @@ function EmailStates() {
             businessId={bizId}
             reportId={id as never}
             hydrated
+            client={null}
+            fileName="pest-service-report-30-sloan-drive-leda-2026-09-30"
             onSendAgain={() => {}}
           />
         ))}
@@ -797,7 +799,15 @@ function LockBig() {
   )
 }
 
-function Send({ reportId = 'r_lock' }: { reportId?: string }) {
+function Send({
+  reportId = 'r_lock',
+  clientEmail = 'jane@gmail.com',
+  data = { sendCopy: true },
+}: {
+  reportId?: string
+  clientEmail?: string
+  data?: Record<string, unknown>
+}) {
   return (
     <Phone>
       <SendSheet
@@ -806,12 +816,19 @@ function Send({ reportId = 'r_lock' }: { reportId?: string }) {
         businessId={bizId}
         reportId={reportId as never}
         template={SERVICE}
-        data={{ sendCopy: true }}
-        clientEmail="jane@gmail.com"
+        data={data}
+        clientEmail={clientEmail}
+        clientName="Jane Nguyen"
         subject="Service Report — 30 Sloan Drive, Leda — 29 Sept 2026"
       />
     </Phone>
   )
+}
+
+/** A client with no email on their record: the address field is already
+ * there, and typing one offers to keep it on the record. */
+function SendNoClientEmail() {
+  return <Send reportId="r_noclientmail" clientEmail="" data={{}} />
 }
 
 /** The same sheet for a 53-photo job: the email goes as a copy with smaller
@@ -1173,6 +1190,9 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
     'answers',
   ),
   emails: EmailStates,
+  'send-noclientmail': SendNoClientEmail,
+  // Locked, nothing sent, and the client has an address: one tap to email.
+  'finished-notsent': finished('r_fresh'),
   send: Send,
   'send-big': SendBig,
   'form-settings': FormSettings,

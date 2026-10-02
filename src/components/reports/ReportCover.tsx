@@ -73,6 +73,8 @@ export function ReportCover({
   // Where the phone's share sheet takes files, Share; elsewhere a download,
   // which is all a computer's browser can do with it.
   const purpose = support.files ? 'share' : 'save'
+  // The file alone, with its title: words shared beside it are saved as a
+  // stray .txt file by "Save to Files" and AirDrop on an iPhone.
   const handOver = useReportHandOver({ pdf, fileName, title, purpose })
 
   // Asked for once per failure, never in a loop: after one the person
@@ -149,7 +151,7 @@ export function ReportCover({
           type="button"
           disabled={!hydrated}
           onClick={onSend}
-          className={`${replaced ? LINK_BUTTON_COMPACT : NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2 px-3`}
+          className={`${replaced ? LINK_BUTTON_COMPACT : NEUTRAL_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-2 whitespace-nowrap px-3`}
         >
           <Send size={16} strokeWidth={2} />
           Send this report

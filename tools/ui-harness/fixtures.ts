@@ -265,11 +265,48 @@ const CLIENT = {
  * is info@. `r_nomail` is a deployment with no email set up; `r_big` a
  * report with more photos than an email carries (convex/emailCopy.ts). */
 function deliveriesKnown(args: { reportId: string }) {
+  // `r_none` and `r_noclientmail`: a client with no address on their record.
+  const noEmail =
+    args.reportId === 'r_none' || args.reportId === 'r_noclientmail'
   return {
-    addresses: ['jane@gmail.com', 'info@pestm8.com.au'],
+    addresses: noEmail
+      ? ['info@pestm8.com.au']
+      : [
+          'jane@gmail.com',
+          'bob@harbourside-strata.com.au',
+          'kim@coastalagents.com.au',
+          'info@pestm8.com.au',
+        ],
     copy: 'info@pestm8.com.au',
     emailReady: args.reportId !== 'r_nomail',
     largeForEmail: args.reportId === 'r_big',
+    // The client book, by name: the client, then their contacts.
+    people: noEmail
+      ? []
+      : [
+          {
+            address: 'jane@gmail.com',
+            name: 'Jane Nguyen',
+            kind: 'client',
+            role: null,
+            primary: false,
+          },
+          {
+            address: 'bob@harbourside-strata.com.au',
+            name: 'Bob Lee',
+            kind: 'contact',
+            role: 'Strata manager',
+            primary: false,
+          },
+          {
+            address: 'kim@coastalagents.com.au',
+            name: 'Kim Wu',
+            kind: 'contact',
+            role: 'Property manager',
+            primary: true,
+          },
+        ],
+    client: { clientId: 'c1', name: 'Jane Nguyen', hasEmail: !noEmail },
   }
 }
 

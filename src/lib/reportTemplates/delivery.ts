@@ -66,6 +66,31 @@ export function deliveryRecipients(
 }
 
 /**
+ * Whether the form was asked to send the client a copy and answered No.
+ *
+ * Not the same as not asking: a form with no such question says nothing,
+ * and the Send sheet offers the client as usual. An explicit No is the
+ * technician's — or the client's — choice, so the sheet lists the client
+ * without choosing them.
+ */
+export function clientCopyDeclined(
+  template: ReportTemplate,
+  data: Record<string, unknown>,
+): boolean {
+  const visible = new Set(
+    visibleSections(template.sections ?? [], data).flatMap((section) =>
+      section.fields.map((field) => field.key),
+    ),
+  )
+  return fieldsOf(template).some(
+    (field) =>
+      field.semantic === 'sendCopyToClient' &&
+      visible.has(field.key) &&
+      data[field.key] === false,
+  )
+}
+
+/**
  * The business's own copy of one email, as its blind-copy list.
  *
  * Never both: a business that is also a recipient gets one copy, and it

@@ -1,4 +1,6 @@
 import { useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { convexQuery } from '@convex-dev/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
 import { DropdownMenu } from 'radix-ui'
 import { Ellipsis, FilePenLine, Trash2 } from 'lucide-react'
@@ -21,13 +23,15 @@ import { ReportDocument } from './ReportDocument'
 import { ReportEmails } from './ReportEmails'
 import { ReportPdfViewer } from './ReportPdfViewer'
 import { ReportStatusPill } from './ReportRows'
+import { emailProblem } from '../../../convex/lib/email'
 import { SendSheet } from './SendSheet'
+import type { Person } from './SendSheet'
 import { SgarNotice } from './SgarNotice'
 import { replacedBadge } from './reportPdfModel'
 import { useReportPdf } from './useReportPdf'
 import type { ReactNode } from 'react'
 import type { FunctionReturnType } from 'convex/server'
-import type { api } from '../../../convex/_generated/api'
+import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 
 /** A finalised report, as `reports.get` returns it. */
@@ -122,6 +126,36 @@ export function FinishedReport({
     pdfUrl: report.pdfUrl ?? null,
   })
   const data = (report.data ?? {}) as Record<string, unknown>
+  // Who the report is for, offered in one tap when nothing has been sent:
+  // the client from their record as it is now, else as the document printed.
+  const { data: known } = useQuery(
+    convexQuery(api.deliveries.known, { businessId, reportId: report._id }),
+  )
+  const recordClient = (
+    known as { people?: ReadonlyArray<Person> } | undefined
+  )?.people?.find((person) => person.kind === 'client')
+  const printedEmail = report.context.client?.email?.trim().toLowerCase()
+  const clientFound = recordClient
+    ? { name: recordClient.name, address: recordClient.address }
+    : known !== undefined &&
+        (known as { people?: unknown }).people === undefined &&
+        printedEmail
+      ? {
+          name: report.context.client?.name ?? 'the client',
+          address: printedEmail,
+        }
+      : null
+  // Undefined while still looked up, so the row never pops in under a thumb;
+  // never for an address that cannot be delivered to, nor on a document a
+  // correction has replaced.
+  const clientToEmail =
+    known === undefined
+      ? undefined
+      : clientFound &&
+          emailProblem(clientFound.address) === null &&
+          report.supersededByReportId === undefined
+        ? clientFound
+        : null
 
   const openSend = (chosen: ReadonlyArray<string> = []) =>
     setSending({ open: true, chosen })
@@ -273,7 +307,9 @@ export function FinishedReport({
           />
         </div>
 
-        <div className="mt-4 flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:items-start">
+        {/* Two columns from lg, the document's never narrower than its two
+            buttons need side by side. */}
+        <div className="mt-4 flex flex-col gap-6 lg:grid lg:grid-cols-[minmax(22rem,5fr)_minmax(0,7fr)] lg:items-start">
           <ReportCover
             logoUrl={report.business?.logoUrl}
             pdf={pdf}
@@ -292,6 +328,8 @@ export function FinishedReport({
               businessId={businessId}
               reportId={report._id}
               hydrated={hydrated}
+              client={clientToEmail}
+              fileName={identity.fileName}
               onSendAgain={(addresses) => openSend(addresses)}
             />
 
@@ -344,8 +382,10 @@ export function FinishedReport({
         template={template}
         data={data}
         clientEmail={report.context.client?.email}
+        clientName={report.context.client?.name}
         subject={identity.title}
         chosen={sending.chosen}
+        replaced={report.supersededByReportId !== undefined}
         // Back to the page's Send, which is always there: the viewer's, which
         // may have opened it, is gone.
         returnFocusRef={sendRef}

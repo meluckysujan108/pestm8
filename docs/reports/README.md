@@ -511,7 +511,8 @@ client receive on 28 August?" answerable once the renderer has moved on.
     painter version) makes a new original, and the next send a new copy.
   - **Said before and after.** The lock sheet and the Send sheet say the
     email carries smaller photos (`deliveries.known.largeForEmail`); the
-    report's Email list ("Photos made smaller to fit an email") and its
+    report's Email list, in each email's sheet ("Photos made smaller to fit
+    an email"), and its
     Activity line (`lighterCopy`, `photoEdge`) say so after. The email itself does not: a
     line inviting "can I have the full size?" is work for the business.
   - **Checking a deployment.** Two internal actions, both read-only.

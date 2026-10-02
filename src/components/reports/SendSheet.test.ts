@@ -14,15 +14,38 @@ import {
 } from './SendSheet'
 
 describe('the addresses the send sheet offers', () => {
+  const jane = {
+    address: 'jane@gmail.com',
+    name: 'Jane Nguyen',
+    kind: 'client' as const,
+    role: null,
+    primary: false,
+  }
+  const bob = {
+    address: 'bob@strata.com.au',
+    name: 'Bob Lee',
+    kind: 'contact' as const,
+    role: 'Strata manager',
+    primary: false,
+  }
+  const kim = {
+    address: 'kim@agents.com.au',
+    name: 'Kim Wu',
+    kind: 'contact' as const,
+    role: null,
+    primary: true,
+  }
+
   it('never chooses one that can never be delivered to', () => {
     // Saved on the client before addresses were checked, and put on the
     // sheet by the form's "send a copy to the client". Chosen, it failed at
     // the server with no reason given.
-    const [bad, good] = suggestedRecipients(
-      ['bob@gmail', 'strata@office.com.au'],
-      [],
-      [],
-    )
+    const [bad, good] = suggestedRecipients({
+      asked: ['bob@gmail', 'strata@office.com.au'],
+      people: [],
+      before: [],
+      knownAddresses: [],
+    })
     expect(bad).toMatchObject({
       address: 'bob@gmail',
       chosen: false,
@@ -32,12 +55,69 @@ describe('the addresses the send sheet offers', () => {
     expect(good).toMatchObject({ chosen: true, problem: null, fix: null })
   })
 
-  it('still chooses only what the form asked for, once each', () => {
-    const list = suggestedRecipients(
-      ['a@x.com.au'],
-      ['a@x.com.au', 'b@y.com.au'],
-      ['a@x.com.au'],
-    )
+  it('offers the client from their record, chosen, even when the form asked for nobody', () => {
+    const list = suggestedRecipients({
+      asked: [],
+      people: [jane, bob, kim],
+      before: [],
+      knownAddresses: [jane.address, bob.address, kim.address],
+    })
+    // The client first, then contacts with the primary one leading.
+    expect(list.map((r) => [r.address, r.chosen, r.who?.role])).toEqual([
+      ['jane@gmail.com', true, 'Client'],
+      ['kim@agents.com.au', false, 'Primary contact'],
+      ['bob@strata.com.au', false, 'Strata manager'],
+    ])
+  })
+
+  it('puts the form’s own people first, named when the client book knows them', () => {
+    const list = suggestedRecipients({
+      asked: ['bob@strata.com.au', 'office@body-corp.com.au'],
+      people: [jane, bob],
+      before: [],
+      knownAddresses: [jane.address, bob.address],
+    })
+    expect(
+      list.map((r) => [
+        r.address,
+        r.chosen,
+        r.who?.name ?? null,
+        r.askedByForm,
+      ]),
+    ).toEqual([
+      ['bob@strata.com.au', true, 'Bob Lee', true],
+      ['office@body-corp.com.au', true, null, true],
+      ['jane@gmail.com', true, 'Jane Nguyen', false],
+    ])
+  })
+
+  it('leaves anyone who already has this report unchosen, and says when it went', () => {
+    const list = suggestedRecipients({
+      asked: ['jane@gmail.com'],
+      people: [jane],
+      before: [
+        { to: ['jane@gmail.com'], status: 'sent', sentAt: 1000 },
+        { to: ['old@x.com.au'], status: 'failed' },
+      ],
+      knownAddresses: [jane.address],
+    })
+    expect(list.map((r) => [r.address, r.chosen, r.sentAt])).toEqual([
+      ['jane@gmail.com', false, 1000],
+      // Tried before and failed: offered, never assumed.
+      ['old@x.com.au', false, null],
+    ])
+  })
+
+  it('still lists each address once', () => {
+    const list = suggestedRecipients({
+      asked: ['a@x.com.au'],
+      people: [],
+      before: [
+        { to: ['a@x.com.au', 'b@y.com.au'], status: 'failed' },
+        { to: ['b@y.com.au'], status: 'failed' },
+      ],
+      knownAddresses: ['a@x.com.au'],
+    })
     expect(list.map((r) => [r.address, r.chosen, r.known])).toEqual([
       ['a@x.com.au', true, true],
       ['b@y.com.au', false, false],
