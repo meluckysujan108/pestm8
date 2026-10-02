@@ -22,6 +22,7 @@ import {
   businessCopyAddress,
   knownRecipients as knownFor,
   normaliseAddresses,
+  recipientPeople,
 } from './lib/recipients'
 import { blindCopy } from '../src/lib/reportTemplates/delivery'
 import { printedGalleryKeys, sectionsOf } from '../src/lib/reportTemplates'
@@ -243,17 +244,26 @@ async function knownToCaller(
   env: ActorEnvelope,
   report: Doc<'reports'>,
 ): Promise<Array<string>> {
+  return knownFor(ctx, report, {
+    withContacts: await seesClientBook(ctx, env, report),
+  })
+}
+
+/** Whether this caller may be told the client's contacts (see above). */
+async function seesClientBook(
+  ctx: QueryCtx,
+  env: ActorEnvelope,
+  report: Doc<'reports'>,
+): Promise<boolean> {
   const own =
     report.authorMembershipId === env.actor.real._id ||
     report.authorMembershipId === env.actor.acting._id
-  let withContacts = own || clientScope(env.caps) === 'directory'
-  if (!withContacts) {
-    const property = await ctx.db.get(report.propertyId)
-    withContacts =
-      property !== null &&
-      inClientScope(await visibleClientIds(ctx, env), property.clientId)
-  }
-  return knownFor(ctx, report, { withContacts })
+  if (own || clientScope(env.caps) === 'directory') return true
+  const property = await ctx.db.get(report.propertyId)
+  return (
+    property !== null &&
+    inClientScope(await visibleClientIds(ctx, env), property.clientId)
+  )
 }
 
 /**
@@ -276,6 +286,8 @@ export const known = query({
       copy: null,
       emailReady: false,
       largeForEmail: false,
+      client: null,
+      people: [],
     }
     const report = await ctx.db.get(reportId)
     if (!report || report.businessId !== businessId) return none
@@ -286,8 +298,20 @@ export const known = query({
     }
 
     const business = await ctx.db.get(businessId)
+    const withContacts = await seesClientBook(ctx, env, report)
+    const named = await recipientPeople(ctx, report, { withContacts })
     return {
-      addresses: await knownToCaller(ctx, env, report),
+      addresses: await knownFor(ctx, report, { withContacts }),
+      /**
+       * Who the report is for, by name — the client from their record as it
+       * is now, then their contacts — for the Send sheet to offer rather
+       * than leave someone to type. Added 1 Oct 2026; an older frontend
+       * ignores it.
+       */
+      people: named.people,
+      /** The client, for "Save to the client's record" (null when the
+       * caller may not see the client book). */
+      client: named.client,
       /** The blind copy every email of this report carries, if any. */
       copy: businessCopyAddress(business),
       /** Whether this deployment can send at all (`lib/emailConfig`). */

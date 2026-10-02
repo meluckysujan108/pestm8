@@ -613,8 +613,19 @@ Call, Text, Email and Map are holds (`HoldButton`), so a pocket or a brushing th
 
 - **Something the app worked out** (the forecast, the start time) is marked "Suggested" until it is confirmed. A fact read off a record is not marked.
 - **Locking is two acts.** "Finalise & lock" opens a read-back sheet first.
-- **Locking emails it,** so the read-back sheet says who to and where the business's copy goes, and the finished report says whether it went (`LatestDelivery`, above its tabs).
-- **A report too big to email** goes as a copy with smaller photos. The lock and Send sheets say so before (`LARGE_FOR_EMAIL` in `lockEmail.ts`), and the Email tab and Logs after ("Photos made smaller to fit an email"). The email itself does not, so it invites no "can I have the full size?".
+- **Locking emails it,** so the read-back sheet says who to and where the business's copy goes, and the finished report says whether it went (its Email list, `ReportEmails`, on the page Finalise lands on).
+- **A finished report is one page** (`reports/FinishedReport.tsx`), built like a job's sheet:
+  - the header: "Report #12" (the number a client quotes), "‹ Reports", and a "⋯" for the rare acts (Issue a correction; Delete report, for the owner);
+  - what it is: the form, the address, its Finalised or Sent pill (`ReportStatusPill size="page"`), client and day; then any notice (replaced, being corrected, a follow-up due);
+  - Document (`ReportCover`): one card with View PDF (a drawn likeness of its first page, never a download) and Answers, then Send this report and Share under it;
+  - Email (`ReportEmails`: each send in a line or two, how it went, Send again on one that did not go, the business's copy said once; tapping a send shows the whole email in a sheet), Details, and Activity (`ReportActivity`: the report's own history; its emails are only under Email). Not emailed yet, it offers the client in one tap ("Send to Jane Nguyen"), which opens the Send sheet with them chosen; never for an address that can't be delivered to, nor on a replaced report.
+  - Answers opens on a "Jump to" select of its sections when there are three or more: the phone's own picker, which scales to a Timber form's dozen sections where chips did not.
+
+  No tabs: they held a document, an action and a record, and a segmented control is for views of one thing. A report a correction has replaced still offers Send, but grey: the current version is the one to send.
+
+- **Send offers people, not an empty box** (`suggestedRecipients` in `SendSheet.tsx`): whoever the form asked for, then the client from their record as it is now, both chosen; then the client's contacts by name and role, primary first, and anyone it already went to, not chosen. Nobody this report already reached, or is on its way to, is chosen again ("Sent {day}", "Sending now"); nor the client when the form's "send a copy" was answered No ("The form said no copy for the client"); nor anyone on a report a correction has replaced. Unchosen rows are an empty tick on the grey fill, never faded text. With nobody on file the address field is already open (no keyboard until tapped), and an address typed for a client with none on their record that can be delivered to can also be saved to it — offered under that address, never ticked for them, and saved only if the email went.
+- **Share on the page** hands the PDF to the share sheet in one tap (`useReportHandOver`), or counts it down ("Preparing… 40%") and asks for "Tap to share" when the download outlived the tap, as the Products page does. Where the browser can't share files it is a download. The file goes alone, with its title: words shared beside it are saved as a stray `.txt` by "Save to Files" and AirDrop.
+- **A report too big to email** goes as a copy with smaller photos. The lock and Send sheets say so before (`LARGE_FOR_EMAIL` in `lockEmail.ts`), and each email's sheet in the report's Email list after ("Photos made smaller to fit an email"). The email itself does not, so it invites no "can I have the full size?".
 - **Locked boilerplate** sits in a grey inset (`bg-surface-2`) with a `Lock` glyph.
 - **While client signatures are switched off** (`CLIENT_SIGNATURES_SHOWN`), a report being filled in has no client's pad and no client acknowledgment section, unless the client has already signed it, and nothing on screen asks for one. A locked report keeps whatever it was locked with.
 
@@ -771,6 +782,7 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 | Done, selected                    | `Check`                                                                           |
 | Finalised, locked                 | `Lock` (only this: a locked report, locked boilerplate, a password PDF)           |
 | Undo, restore, try again          | `RotateCcw`                                                                       |
+| A correction of a report          | `FilePenLine`                                                                     |
 | Replace, regenerate, reload       | `RefreshCw`                                                                       |
 | Recurring                         | `Repeat` (ink, not blue)                                                          |
 | Photo                             | `Camera` (take), `ImageIcon` (library)                                            |
@@ -798,6 +810,7 @@ Counts are digits with their noun ("3 jobs"), singular or plural by count.
 **Printed things stay light:**
 
 - The report preview pins `data-theme="light"` so it matches the PDF.
+- A finished report's **Answers** (`ReportDocument` with `variant="answers"`) is not a preview: it is what was recorded, in the app's type and theme, with its questions in sentence case rather than grey capitals. The PDF, a tap away, is the paper.
 - A signature pad and a PDF page are `bg-paper` in both themes, because what is drawn on them is for paper.
 
 **The PDF is its own design system.**
@@ -836,7 +849,8 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **Hold to act** is used for anything that reaches a client or leaves the app.
 - **Filters:** binary and ternary filters use `Segmented`, never a dropdown.
 - **The report builder** opens on an overview and fills one section at a time, with the section in the URL. A list of more than 12 options opens a picker sheet.
-- **Report emails need no owner's approval.** Anyone who may send a report may send it anywhere that can receive email. An address not on the client's record is pointed out, never held: "Not on the client’s record" in the Send sheet, "check it’s right" on the lock sheet, and "Wasn’t on the client’s record" in the report's history. Every email is in the report's Email tab, and every outcome in its Logs.
+- **Send names who it is for.** The client from their record as it is now (not as the document printed it) and anyone the form asked for are chosen; contacts are offered by role; nobody who already has this report, or is about to, is chosen again; an explicit "no copy for the client" on the form is kept. Saving a typed address to the client's record is offered unticked. _Added 1 Oct 2026._
+- **Report emails need no owner's approval.** Anyone who may send a report may send it anywhere that can receive email. An address not on the client's record is pointed out, never held: "Not on the client’s record" in the Send sheet, "check it’s right" on the lock sheet, and "Wasn’t on the client’s record" in the report's Email list. Every email, and how it went, is in the finished report's Email list, and every act on it in its Activity.
 - **No email asks for a reply.** The report email says the PDF is attached and stops. Account email says replies aren't read, and gives no address to ask instead. Never add "Reply to this email if…", "Need help? Email…" or "Get in touch": each question it invites is work for the business.
 - **Only the owner deletes a finalised report,** and it waits in Deleted for 30 days like a draft. Every version of its number goes with it, the confirm says anything already emailed stays sent, and it points a report that is only wrong at "Issue a correction" instead. _Amended 30 Sept 2026:_ a finalised report could not be deleted at all.
 - **Finalising** is a read-back sheet, not a hold. Its button is never greyed for an incomplete report, because pressing it is how you find out what is missing.
@@ -857,6 +871,7 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **A job can be for more than one person.** "Assigned to" is its lead, whose colour it carries and whose name a report starts with (unless someone else on the job writes it); "Also going" lists the others, set in the job's edit form and behind "Add someone else" in New Job. Everyone on a job sees it on their own schedule, with its notes, photos and reports, and may do on it whatever its lead may. The Schedule's card, which usually leaves the name to the rail, names everyone on a shared job ("Technicians"), each dot kept with its name; the week's block has two initials at most ("T +3" past two). Removing someone says how many jobs ahead they come off. A shared job counts in each person's own numbers and once in totals. _Added 30 Sept 2026;_ a repeating service's visits take people one visit at a time, for now.
 - **Job types are the owner's own list** (Settings → Job types), A–Z in New Job's picker, each with the report it produces. Deleting one only stops it being offered: every job keeps it, and "Offer again" brings it back. A rename changes it on every job and repeating service, finished ones included, and says so before it is saved; renaming onto a name the list has is a merge, asked first. A service typed into New Job is used on that job only ("Use … on this job only") and waits under "Typed into jobs" for the owner to swap or add. _Amended 30 Sept 2026:_ the list was nine names fixed in the app.
 - **PDFs** open in the in-app viewer, never in Safari and never as a forced download.
+- **A finalised report is one page, not tabs** (see Reports in section 5): its header, what it is, the PDF with Send and Share, Answers a tap away (following the theme), then Email, Details and Activity. The PDF and the Answers each open over it with the address saying so (`?view=pdf`, `?view=answers`), so Back closes them. The viewer's own Send closes the viewer and opens the Send sheet, because a sheet sits under it. _Amended 30 Sept 2026:_ it was four tabs, Form, PDF, Email and Logs, on a page with no header.
 - **A report email heads with the business's logo as it is now;** the attached PDF keeps the logo its report was locked with. Account emails carry PestM8's own mark, never a business's: a login can belong to more than one.
 - **When behaviour departs from `ARCHITECTURE.md`,** amend it there with a dated _Amended_ note.
 

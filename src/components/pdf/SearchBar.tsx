@@ -124,11 +124,12 @@ export function SearchBar({
       <button
         type="button"
         onClick={onDone}
-        // Named apart from the top bar's Done, which closes the whole viewer.
-        aria-label="Done searching"
-        className="h-11 shrink-0 rounded-lg px-2.5 text-[17px] font-semibold text-blue transition active:opacity-50"
+        // Cancel, as iOS closes a search: a second "Done" beside the top
+        // bar's, which closes the whole viewer, read as the same button.
+        aria-label="Cancel search"
+        className="h-11 shrink-0 rounded-lg px-2.5 text-[17px] font-semibold text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue"
       >
-        Done
+        Cancel
       </button>
     </form>
   )

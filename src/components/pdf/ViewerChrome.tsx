@@ -4,14 +4,15 @@ import {
   ChevronRight,
   CircleArrowDown,
   CircleCheck,
-  CircleEllipsis,
   CircleMinus,
   Download,
+  Ellipsis,
   FileUp,
   LayoutGrid,
   LoaderCircle,
-  Pencil,
+  PenLine,
   Search,
+  Send,
   Share,
 } from 'lucide-react'
 import type { ReactNode, Ref } from 'react'
@@ -37,6 +38,7 @@ export function TopBar({
   title,
   pages,
   onDone,
+  doneHidden = false,
   menu,
   pager,
 }: {
@@ -47,6 +49,9 @@ export function TopBar({
   /** 0 until the document is open. */
   pages: number
   onDone: () => void
+  /** Keeps Done's place but hides it — while the pen is out, whose own
+   * Done is the one to press. */
+  doneHidden?: boolean
   /** The More menu, or null when there is nothing to put in it. */
   menu: ReactNode
   /** Which of several files this is, said under the title. */
@@ -71,7 +76,7 @@ export function TopBar({
             ref={doneRef}
             type="button"
             onClick={onDone}
-            className="h-11 rounded-lg px-3 text-[17px] font-semibold text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue"
+            className={`h-11 rounded-lg px-3 text-[17px] font-semibold text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue ${doneHidden ? 'invisible' : ''}`}
           >
             Done
           </button>
@@ -177,6 +182,7 @@ export function Toolbar({
   searchOpen,
   gridOpen,
   onShare,
+  onSend,
   onSearch,
   onPages,
   searchButtonRef,
@@ -191,6 +197,8 @@ export function Toolbar({
   searchOpen: boolean
   gridOpen: boolean
   onShare: () => void
+  /** Sends it from the app (`ViewerActions.send`); absent draws no Send. */
+  onSend?: { label: string; run: () => void }
   onSearch: () => void
   onPages: () => void
   searchButtonRef: Ref<HTMLButtonElement>
@@ -221,6 +229,11 @@ export function Toolbar({
           <Share size={22} strokeWidth={1.7} />
         </ToolbarButton>
       )}
+      {onSend && (
+        <ToolbarButton label={onSend.label} onClick={onSend.run}>
+          <Send size={21} strokeWidth={1.7} />
+        </ToolbarButton>
+      )}
       <ToolbarButton
         label="Search"
         buttonRef={searchButtonRef}
@@ -246,7 +259,7 @@ export function Toolbar({
           pressed={markup.open}
           onClick={markup.onToggle}
         >
-          <Pencil size={21} strokeWidth={1.7} />
+          <PenLine size={21} strokeWidth={1.7} />
         </ToolbarButton>
       )}
       {keep && (
@@ -292,6 +305,36 @@ export function hasMoreMenu(actions: ViewerActions): boolean {
   return !!actions.save || !!actions.replace || !!actions.keep
 }
 
+/** Whether Save is its own button in the top bar (`saveInBar`). */
+export function saveInBar(actions: ViewerActions): boolean {
+  return !!actions.save && actions.saveInBar === true
+}
+
+/** The top bar's Save, for a caller that asked for it there. */
+export function SaveButton({
+  label,
+  disabled,
+  onSave,
+}: {
+  label: string
+  disabled: boolean
+  onSave: () => void
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      disabled={disabled}
+      // Acts inside the tap: Safari opens the share sheet (Save to Files)
+      // only from a user gesture.
+      onClick={onSave}
+      className="flex size-11 items-center justify-center rounded-full text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue disabled:text-muted-2"
+    >
+      <Download size={22} strokeWidth={1.7} />
+    </button>
+  )
+}
+
 /**
  * The top bar's "…": save a copy, replace the file, keep it on the phone.
  *
@@ -317,7 +360,7 @@ export function MoreMenu({
         aria-label="More"
         className="flex size-11 items-center justify-center rounded-full text-blue outline-none transition active:opacity-50 focus-visible:ring-2 focus-visible:ring-blue"
       >
-        <CircleEllipsis size={24} strokeWidth={1.7} />
+        <Ellipsis size={24} strokeWidth={1.7} />
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content

@@ -422,13 +422,16 @@ test('both ends of the pair say so on screen', async ({ page }) => {
   await signInViaUi(page, s.owner.email)
 
   await page.goto(`/${s.slug}/reports/${s.reportId}`)
-  // Clicked straight after load, before hydration, the tap is dropped and the
-  // sheet never opens (see clickUntil).
+  // In the header's "⋯". Clicked straight after load, before hydration, the
+  // tap is dropped and the menu never opens (see clickUntil).
+  const more = page.getByRole('button', {
+    name: 'More actions for this report',
+  })
+  const menu = page.getByRole('menu')
+  await clickUntil(more, () => expect(menu).toBeVisible({ timeout: 2_000 }))
+  await menu.getByRole('menuitem', { name: 'Issue a correction' }).click()
   const sheet = page.getByRole('dialog')
-  await clickUntil(
-    page.getByRole('button', { name: 'Issue a correction' }),
-    () => expect(sheet).toBeVisible({ timeout: 2_000 }),
-  )
+  await expect(sheet).toBeVisible()
   await sheet
     .getByLabel('What was wrong?')
     .fill('Wrong product recorded against the second treatment')
@@ -449,9 +452,11 @@ test('both ends of the pair say so on screen', async ({ page }) => {
     .split('?')[0] as Id<'reports'>
   await page.goto(`/${s.slug}/reports/${s.reportId}`)
   await expect(page.getByText('A correction is under way.')).toBeVisible()
+  await clickUntil(more, () => expect(menu).toBeVisible({ timeout: 2_000 }))
   await expect(
-    page.getByRole('button', { name: 'Issue a correction' }),
+    menu.getByRole('menuitem', { name: 'Issue a correction' }),
   ).toHaveCount(0)
+  await page.keyboard.press('Escape')
 
   // Once it is issued, the document it replaced says it was replaced, rather
   // than silently becoming the wrong one to work from.
@@ -459,7 +464,8 @@ test('both ends of the pair say so on screen', async ({ page }) => {
   await page.reload()
   await expect(page.getByText('Replaced.')).toBeVisible()
   // With no way to fork the number again.
+  await clickUntil(more, () => expect(menu).toBeVisible({ timeout: 2_000 }))
   await expect(
-    page.getByRole('button', { name: 'Issue a correction' }),
+    menu.getByRole('menuitem', { name: 'Issue a correction' }),
   ).toHaveCount(0)
 })

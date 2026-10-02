@@ -30,6 +30,8 @@ export function ReportPdfViewer({
   fileName,
   pdf,
   badge,
+  onBadge,
+  onSend,
   onClose,
 }: {
   businessId: Id<'businesses'>
@@ -39,6 +41,10 @@ export function ReportPdfViewer({
   pdf: ReportPdf
   /** "Replaced by version 2", for a document a correction has replaced. */
   badge?: string
+  /** Opens the version that replaced it. */
+  onBadge?: () => void
+  /** Closes the viewer and opens the report's Send sheet. */
+  onSend?: () => void
   onClose: () => void
 }) {
   const support = useShareSupport()
@@ -57,8 +63,11 @@ export function ReportPdfViewer({
       share: support.files ? (file) => sharePdf(file, { title }) : undefined,
       save: savePdf,
       saveLabel: support.saveLabel,
+      // Save is all its menu would ever hold.
+      saveInBar: true,
+      send: onSend && { label: 'Send this report', run: onSend },
     }),
-    [support, title],
+    [support, title, onSend],
   )
 
   return (
@@ -69,6 +78,7 @@ export function ReportPdfViewer({
       actions={actions}
       markup={markup}
       badge={badge}
+      onBadge={onBadge}
       onClose={onClose}
     />
   )

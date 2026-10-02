@@ -25,7 +25,10 @@ export type InlineReport = {
 
 type Bucket = 'draft' | 'finalised' | 'sent'
 
-function bucketOf(report: InlineReport): Bucket {
+/** What a report's pill is drawn from. */
+type Pilled = Pick<InlineReport, 'status' | 'emailedAt'>
+
+function bucketOf(report: Pilled): Bucket {
   return report.status === 'draft'
     ? 'draft'
     : report.emailedAt
@@ -33,14 +36,29 @@ function bucketOf(report: InlineReport): Bucket {
       : 'finalised'
 }
 
-/** Draft, Finalised or Sent, with a lock once it is no longer a draft. */
-export function ReportStatusPill({ report }: { report: InlineReport }) {
+/**
+ * Draft, Finalised or Sent, with a lock once it is no longer a draft. Small in
+ * a list row; `size="page"` is the pill at the top of a finished report.
+ */
+export function ReportStatusPill({
+  report,
+  size = 'row',
+}: {
+  report: Pilled
+  size?: 'row' | 'page'
+}) {
   const bucket = bucketOf(report)
   return (
     <span
-      className={`flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${REPORT_PILL[bucket]}`}
+      className={`flex shrink-0 items-center gap-1 rounded-full font-semibold ${
+        size === 'page'
+          ? 'px-2.5 py-0.5 text-[12px]'
+          : 'px-2 py-0.5 text-[11px]'
+      } ${REPORT_PILL[bucket]}`}
     >
-      {bucket !== 'draft' && <Lock size={10} strokeWidth={2.4} />}
+      {bucket !== 'draft' && (
+        <Lock aria-hidden size={size === 'page' ? 11 : 10} strokeWidth={2.4} />
+      )}
       {bucket === 'sent'
         ? 'Sent'
         : bucket === 'finalised'

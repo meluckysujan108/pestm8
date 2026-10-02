@@ -357,17 +357,76 @@ const PLAN = {
   // More photos than an email carries: said before the lock sends it.
   'lock-big': { before: async (p) => p.waitForTimeout(700) },
   'send-big': { before: async (p) => p.waitForTimeout(700) },
-  'history-big': { full: true },
-  delivered: {},
+  // A finished report: the page, and each state of its Email list.
+  finished: { full: true, before: async (p) => p.waitForTimeout(600) },
+  'finished-menu': {
+    spec: 'finished',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p
+        .getByRole('button', { name: 'More actions for this report' })
+        .click()
+      await p.waitForTimeout(400)
+    },
+  },
+  'finished-sending': {
+    full: true,
+    before: async (p) => p.waitForTimeout(600),
+  },
+  'finished-noemail': {
+    full: true,
+    before: async (p) => p.waitForTimeout(900),
+  },
+  'finished-legacy': { full: true, before: async (p) => p.waitForTimeout(600) },
+  'finished-big': { full: true, before: async (p) => p.waitForTimeout(600) },
+  'finished-replaced': {
+    full: true,
+    before: async (p) => p.waitForTimeout(600),
+  },
+  'finished-answers': {
+    full: true,
+    before: async (p) => p.waitForTimeout(600),
+  },
+  // A replaced version's answers still say it was replaced.
+  'finished-answers-replaced': {
+    before: async (p) => p.waitForTimeout(600),
+  },
+  emails: { full: true, before: async (p) => p.waitForTimeout(600) },
+  // Nobody on file: the field is there, and an address typed into it can be
+  // kept on the client's record.
+  'finished-notsent': { before: async (p) => p.waitForTimeout(600) },
+  'send-noclientmail': {
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByLabel('Email address').fill('jane.nguyen@outlook.com')
+      await p.getByRole('button', { name: 'Add', exact: true }).click()
+      await p.waitForTimeout(300)
+    },
+  },
+  // A send's whole story, from its row.
+  'finished-email-detail': {
+    spec: 'finished',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: /^acounts@ridgeline/ }).click()
+      await p.waitForTimeout(700)
+    },
+  },
+  // "Send again" on the failed send: the sheet opens with it ticked.
+  'finished-again': {
+    spec: 'finished',
+    before: async (p) => {
+      await p.waitForTimeout(600)
+      await p.getByRole('button', { name: 'Send again' }).click()
+      await p.waitForTimeout(700)
+    },
+  },
   'report-settings': { full: true },
   // Whole page: the Letterhead card sits below the Business one.
   letterhead: { full: true },
   'letterhead-nodark': { full: true },
   'letterhead-nologo': { full: true },
   'report-preview': {},
-  history: {},
-  logs: {},
-  legacy: { full: true },
   send: { before: async (p) => p.waitForTimeout(700) },
   // Someone the client's record does not have: marked new, and sent like
   // anyone else.
@@ -408,11 +467,16 @@ const PLAN = {
   },
   // A technician: their deleted draft is theirs, a signed report the owner's.
   'reports-deleted-tech': { before: async (p) => p.waitForTimeout(600) },
-  'report-foot': {},
-  'report-foot-confirm': {
-    spec: 'report-foot',
+  // The owner's Delete report, from the header's "⋯".
+  'finished-delete': {
+    spec: 'finished',
     before: async (p) => {
-      await p.getByRole('button', { name: 'Delete report' }).click()
+      await p.waitForTimeout(600)
+      await p
+        .getByRole('button', { name: 'More actions for this report' })
+        .click()
+      await p.waitForTimeout(300)
+      await p.getByRole('menuitem', { name: 'Delete report' }).click()
       await p.waitForTimeout(500)
     },
   },

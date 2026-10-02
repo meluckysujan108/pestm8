@@ -1,16 +1,11 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { convexQuery, useConvexAction } from '@convex-dev/react-query'
 import {
-  Check,
-  ChevronRight,
-  CircleAlert,
-  Info,
-  LoaderCircle,
-  Plus,
-  Send,
-  TriangleAlert,
-} from 'lucide-react'
+  convexQuery,
+  useConvexAction,
+  useConvexMutation,
+} from '@convex-dev/react-query'
+import { CircleAlert, Info, Plus, Send } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
 import {
@@ -21,19 +16,20 @@ import {
 import { FieldMessage } from '#/components/forms/FieldMessage'
 import { describedBy, fieldMessageId } from '#/components/forms/FormField'
 import { domainsWithoutMail, noMailMessage } from './fields/staticBlocks'
-import { deliveryRecipients } from '#/lib/reportTemplates/delivery'
+import {
+  clientCopyDeclined,
+  deliveryRecipients,
+} from '#/lib/reportTemplates/delivery'
 import type { ReportTemplate } from '#/lib/reportTemplates'
-import type { Doc, Id } from '../../../convex/_generated/dataModel'
-import { NEUTRAL_BUTTON } from '#/components/primitives/buttons'
-import { RowPending } from '#/components/shell/Pending'
-import { formatWhen } from '#/lib/format'
-import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
+import type { RefObject } from 'react'
+import type { Id } from '../../../convex/_generated/dataModel'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FormAlert } from '#/components/forms/FormAlert'
 import type { ErrorCopy } from '#/components/forms/describeError'
-import { LoadFailed } from '#/components/primitives/EmptyState'
 import { TickBox } from './TickBox'
+import { formatWhen } from '#/lib/format'
+import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
 import { LARGE_FOR_EMAIL } from './lockEmail'
-import { useHydrated } from '#/lib/useHydrated'
 import { isOffline } from '#/lib/online'
 
 /**
@@ -61,6 +57,33 @@ type Recipient = {
   problem: string | null
   /** The address most likely meant, for the one-tap fix. */
   fix: string | null
+  /** Who it is, from the client book: Jane Nguyen, Client. */
+  who: { name: string; role: string } | null
+  /** The form asked for it ("email this report to"). */
+  askedByForm: boolean
+  /** When this report last went to them, if it has. */
+  sentAt: number | null
+  /** An email of this report to them is on its way now. */
+  sending: boolean
+  /** The client, whose copy the form was told not to send. */
+  declined: boolean
+}
+
+/** Someone the client book says a report could go to (`deliveries.known`). */
+export type Person = {
+  address: string
+  name: string
+  kind: 'client' | 'contact'
+  role: string | null
+  primary: boolean
+}
+
+/** An earlier send of this report, as far as choosing goes. */
+type Earlier = {
+  to: ReadonlyArray<string>
+  status: string
+  sentAt?: number
+  waitingForEmailSetup?: boolean
 }
 
 export const SEND_ERROR: Record<string, string> = {
@@ -76,10 +99,10 @@ export const SEND_ERROR: Record<string, string> = {
   // Only once a copy with smaller photos was tried and still did not fit
   // (convex/emailCopy.ts).
   PDF_TOO_LARGE:
-    'The report is too large to email, even with its photos made smaller. Share it from the PDF tab instead.',
-  // The history is behind this sheet, not below it.
+    'The report is too large to email, even with its photos made smaller. Use Share on the report instead.',
+  // The report's Email list is behind this sheet, not below it.
   EMAIL_SEND_FAILED:
-    'The email failed to send. Close this to see why in the history, then try again.',
+    'The email failed to send. Close this to see why under Email, then try again.',
   SEND_RATE_LIMITED:
     'That is a lot of reports in an hour. Try again shortly, or ask an owner.',
   NO_RECIPIENT: 'Choose at least one person to send it to.',
@@ -143,37 +166,111 @@ export async function sendToEach(
 }
 
 /**
- * Who the form asked for, plus anyone this report has already gone to.
- * Chosen by default only where the form asked: a second copy to someone who
- * already has one is a decision, not a default.
+ * Who to offer, in the order they are likely to be wanted:
  *
- * An address that can never be delivered to is never chosen by default. One
- * saved before addresses were checked ("bob@gmail") still reaches here from
- * the client's record, and chosen it failed at the server with no reason
- * given. It shows as "Can’t be delivered", with the address most likely
- * meant one tap away.
+ *  1. whoever the form asked for ("send a copy to the client", "email this
+ *     report to");
+ *  2. the client, from their record as it is now;
+ *  3. the client's contacts — the strata manager, the agent — primary first;
+ *  4. anyone else this report has already gone to.
+ *
+ * The form's people and the client are chosen; the rest are a tap away. A
+ * technician asked for the report at the door should not have to type an
+ * address the business already holds — the sheet used to offer the client
+ * only when the form's own "send a copy" was Yes.
+ *
+ * Except anyone this report has already reached — or is on its way to — who
+ * is listed with when and left unchosen: a second copy is a decision, not a
+ * default. Nor the client when the form's "send a copy" was answered No, nor
+ * anyone at all on a document a correction has replaced.
+ *
+ * An address that can never be delivered to is never chosen. One saved
+ * before addresses were checked ("bob@gmail") still reaches here from the
+ * client's record; it shows as "Can’t be delivered", with the address most
+ * likely meant one tap away.
  */
-export function suggestedRecipients(
-  asked: ReadonlyArray<string>,
-  before: ReadonlyArray<string>,
-  knownAddresses: ReadonlyArray<string>,
-): Array<Recipient> {
+export function suggestedRecipients({
+  asked,
+  people,
+  before,
+  knownAddresses,
+  clientDeclined = false,
+  replaced = false,
+}: {
+  asked: ReadonlyArray<string>
+  people: ReadonlyArray<Person>
+  before: ReadonlyArray<Earlier>
+  knownAddresses: ReadonlyArray<string>
+  /** The form's "send a copy to the client" was answered No. */
+  clientDeclined?: boolean
+  /** A correction has replaced this document: nothing is chosen for them. */
+  replaced?: boolean
+}): Array<Recipient> {
+  const lastSent = new Map<string, number>()
+  // On its way: queued with something able to send it. A send queued where
+  // email is not set up is going nowhere, and does not count.
+  const onItsWay = new Set<string>()
+  for (const row of before) {
+    if (row.status === 'queued' && !row.waitingForEmailSetup) {
+      for (const address of row.to) onItsWay.add(address)
+    }
+    if (row.status !== 'sent') continue
+    for (const address of row.to) {
+      const at = row.sentAt ?? 0
+      lastSent.set(address, Math.max(lastSent.get(address) ?? 0, at))
+    }
+  }
+  const named = new Map<string, Person>()
+  for (const person of people) {
+    // The client before a contact who shares their address.
+    if (!named.has(person.address)) named.set(person.address, person)
+  }
+  const client = people.filter((person) => person.kind === 'client')
+  const contacts = people
+    .filter((person) => person.kind === 'contact')
+    .sort((a, b) => Number(b.primary) - Number(a.primary))
+
+  const order = [
+    ...asked,
+    ...client.map((person) => person.address),
+    ...contacts.map((person) => person.address),
+    ...before.flatMap((row) => row.to),
+  ]
   const seen = new Set<string>()
   const out: Array<Recipient> = []
-  for (const address of [...asked, ...before]) {
+  for (const address of order) {
     if (seen.has(address)) continue
     seen.add(address)
     const problem = emailProblem(address)
+    const person = named.get(address)
+    const isClient = person?.kind === 'client'
+    const wanted = asked.includes(address) || (isClient && !clientDeclined)
+    const sentAt = lastSent.get(address) ?? null
+    const sending = sentAt === null && onItsWay.has(address)
     out.push({
       address,
-      chosen: problem === null && asked.includes(address),
+      chosen:
+        problem === null && wanted && sentAt === null && !sending && !replaced,
       known: knownAddresses.includes(address),
       problem,
       fix: problem === null ? null : emailTypoFix(address),
+      who: person ? { name: person.name, role: personRole(person) } : null,
+      askedByForm: asked.includes(address),
+      sentAt,
+      sending,
+      declined: isClient && clientDeclined && !asked.includes(address),
     })
   }
   return out
 }
+
+/** "Client", a contact's own role, or what is known of it. */
+function personRole(person: Person): string {
+  if (person.kind === 'client') return 'Client'
+  return person.role ?? (person.primary ? 'Primary contact' : 'Contact')
+}
+
+const NONE: ReadonlyArray<string> = []
 
 export function SendSheet({
   open,
@@ -183,7 +280,11 @@ export function SendSheet({
   template,
   data,
   clientEmail,
+  clientName,
   subject,
+  chosen: chosenAtOpen = NONE,
+  replaced = false,
+  returnFocusRef,
 }: {
   open: boolean
   onClose: () => void
@@ -192,10 +293,25 @@ export function SendSheet({
   /** The wording this report was signed against. */
   template: ReportTemplate
   data: Record<string, unknown>
+  /** The client's address as the document printed it — used only by a
+   * backend from before the client book was read out (`known.people`). */
   clientEmail?: string
+  /** The client's name as the document printed it, for the same. */
+  clientName?: string
   /** What the email will say it is — the document's own name. */
   subject: string
+  /**
+   * Addresses chosen as it opens, besides the form's own: "Send again" on a
+   * send that failed brings its addresses back ticked.
+   */
+  chosen?: ReadonlyArray<string>
+  /** A correction has replaced this document: nobody is chosen for them. */
+  replaced?: boolean
+  /** Where focus goes as it closes, when what opened it has gone (the
+   * viewer's Send). */
+  returnFocusRef?: RefObject<HTMLElement | null>
 }) {
+  const timezone = useBusinessTimezone()
   const { data: known } = useQuery(
     convexQuery(api.deliveries.known, { businessId, reportId }),
   )
@@ -213,18 +329,61 @@ export function SendSheet({
   // which every email of this report carries.
   const copy = known?.copy ?? null
 
-  const suggested = useMemo(
-    () =>
-      suggestedRecipients(
-        deliveryRecipients(template, data, { clientEmail }).to,
-        (history ?? []).flatMap((row) => row.to),
-        knownAddresses,
-      ),
-    [template, data, clientEmail, history, knownAddresses],
-  )
+  // The client book as it is now: the client, then their contacts. Before a
+  // backend that reads it out (1 Oct 2026), the address the document printed.
+  const people = useMemo((): ReadonlyArray<Person> => {
+    if (known === undefined) return []
+    const fromBook = (known as { people?: ReadonlyArray<Person> }).people
+    if (fromBook) return fromBook
+    return clientEmail
+      ? [
+          {
+            address: clientEmail.trim().toLowerCase(),
+            name: clientName ?? 'Client',
+            kind: 'client',
+            role: null,
+            primary: false,
+          },
+        ]
+      : []
+  }, [known, clientEmail, clientName])
+  // The client the record names, for "Save to the client's record" — only
+  // where the caller may see the client book, and only while it has no
+  // address of its own.
+  const recordClient =
+    (
+      known as
+        | {
+            client?: {
+              clientId: Id<'clients'>
+              name: string
+              hasEmail: boolean
+            } | null
+          }
+        | undefined
+    )?.client ?? null
+
+  const suggested = useMemo(() => {
+    // "Send a copy to the client" means the client as the record has them
+    // now, not an address the document printed that has since changed.
+    const live = people.find((person) => person.kind === 'client')?.address
+    return suggestedRecipients({
+      asked: deliveryRecipients(template, data, {
+        clientEmail: live ?? clientEmail,
+      }).to,
+      people,
+      before: history ?? [],
+      knownAddresses,
+      clientDeclined: clientCopyDeclined(template, data),
+      replaced,
+    })
+  }, [template, data, clientEmail, people, history, knownAddresses, replaced])
 
   const [overrides, setOverrides] = useState<Record<string, boolean>>({})
   const [added, setAdded] = useState<Array<string>>([])
+  // Typed by hand, as opposed to a one-tap fix of an address on file: only
+  // these may be offered for the client's record.
+  const [typedIn, setTypedIn] = useState<Array<string>>([])
   const [draft, setDraft] = useState('')
   const [adding, setAdding] = useState(false)
   // What is wrong with the typed address shows once the field is left or Add
@@ -238,20 +397,37 @@ export function SendSheet({
   const draftRef = useRef<HTMLInputElement>(null)
   const draftId = useId()
 
+  // Opened for particular addresses ("Send again" on one that failed): those
+  // are chosen and nothing else is — the form's own recipients already have
+  // their copy, and a second one to the client is a decision, not a default.
+  const [onlyChosen, setOnlyChosen] = useState(false)
+
   const recipients: Array<Recipient> = [
     ...suggested.map((entry) => ({
       ...entry,
       // One that can never arrive cannot be chosen at all.
       chosen:
-        entry.problem === null && (overrides[entry.address] ?? entry.chosen),
+        entry.problem === null &&
+        (overrides[entry.address] ?? (onlyChosen ? false : entry.chosen)),
     })),
-    ...added.map((address) => ({
-      address,
-      chosen: overrides[address] ?? true,
-      known: knownAddresses.includes(address),
-      problem: null,
-      fix: null,
-    })),
+    // Once an address typed in turns up among those offered (it was sent to,
+    // or saved to the record), it is listed once, there.
+    ...added
+      .filter(
+        (address) => !suggested.some((entry) => entry.address === address),
+      )
+      .map((address) => ({
+        address,
+        chosen: overrides[address] ?? true,
+        known: knownAddresses.includes(address),
+        problem: null,
+        fix: null,
+        who: null,
+        askedByForm: false,
+        sentAt: null,
+        sending: false,
+        declined: false,
+      })),
   ]
   const chosen = recipients.filter((entry) => entry.chosen)
   // Said wherever it is true: an email to the copy address itself carries no
@@ -259,11 +435,77 @@ export function SendSheet({
   const copied = (addresses: ReadonlyArray<string>) =>
     copy !== null && addresses.some((address) => address !== copy)
 
+  // A typed address saved to the client's record as well, when the record
+  // has none: off unless asked for. What became of it is said after Send.
+  const [saveToRecord, setSaveToRecord] = useState(false)
+  const [saved, setSaved] = useState<'saved' | 'failed' | null>(null)
+  // The first address typed by hand, for a client whose record has none
+  // that can be delivered to.
+  const savable =
+    recordClient !== null && !recordClient.hasEmail
+      ? (typedIn.at(0) ?? null)
+      : null
+
   const convexSend = useConvexAction(api.email.sendReportPdf)
+  const convexSaveEmail = useConvexMutation(api.clients.update)
   const send = useMutation({
-    mutationFn: (addresses: Array<string>) =>
-      sendToEach(addresses, (to) => convexSend({ businessId, reportId, to })),
+    mutationFn: async (addresses: Array<string>) => {
+      const outcomes = await sendToEach(addresses, (to) =>
+        convexSend({ businessId, reportId, to }),
+      )
+      // Only an address that took the email: one that failed may be a typo.
+      const keep =
+        saveToRecord &&
+        savable !== null &&
+        recordClient !== null &&
+        addresses.includes(savable)
+          ? outcomes.find(
+              (outcome) => outcome.address === savable && outcome.code === null,
+            )
+          : undefined
+      if (keep && recordClient) {
+        try {
+          await convexSaveEmail({
+            businessId,
+            clientId: recordClient.clientId,
+            email: keep.address,
+          })
+          setSaved('saved')
+        } catch {
+          setSaved('failed')
+        }
+      }
+      return outcomes
+    },
   })
+
+  // Each opening starts afresh: what was ticked, typed and sent last time was
+  // for then. Done as it opens rather than by a new sheet each time, which
+  // would lose the sheet's slide down as it closes. Before paint, so the
+  // last opening's ticks never show.
+  //
+  // Except while a send is still going (a big report takes up to a minute):
+  // reopened then, the sheet must still say "Sending…" with Send held, or a
+  // second tap would email everyone again while the first is on its way.
+  const { reset: resetSend } = send
+  const sending = useRef(false)
+  sending.current = send.isPending
+  useLayoutEffect(() => {
+    if (!open || sending.current) return
+    setOverrides(
+      Object.fromEntries(chosenAtOpen.map((address) => [address, true])),
+    )
+    setOnlyChosen(chosenAtOpen.length > 0)
+    setSaveToRecord(false)
+    setSaved(null)
+    setAdded([])
+    setTypedIn([])
+    setDraft('')
+    setAdding(false)
+    setDraftShown(false)
+    setTypoAsked(null)
+    resetSend()
+  }, [open, chosenAtOpen, resetSend])
 
   const outcomes = send.data ?? []
   const sent = outcomes.filter((result) => result.code === null)
@@ -340,6 +582,7 @@ export function SendSheet({
       setOverrides((prev) => ({ ...prev, [typed]: true }))
     } else {
       setAdded((prev) => [...prev, typed])
+      setTypedIn((prev) => [...prev, typed])
     }
     setDraft('')
     setDraftShown(false)
@@ -353,24 +596,27 @@ export function SendSheet({
       onClose={onClose}
       title="Send this report"
       description={subject}
+      returnFocusRef={returnFocusRef}
       footer={
+        // Red: this is the tap that emails someone (design system §4.1).
         <button
           type="button"
           disabled={chosen.length === 0 || send.isPending || !settled}
           onClick={() => send.mutate(chosen.map((entry) => entry.address))}
-          className={`${NEUTRAL_BUTTON} flex w-full items-center justify-center gap-2`}
+          className={`${PRIMARY_BUTTON} flex w-full items-center justify-center gap-2`}
         >
           <Send size={16} strokeWidth={2} />
           {send.isPending
             ? 'Sending…'
-            : `Send to ${chosen.length === 1 ? '1 person' : `${chosen.length} people`}`}
+            : chosen.length === 0
+              ? 'Choose who to send to'
+              : `Send to ${chosen.length === 1 ? '1 person' : `${chosen.length} people`}`}
         </button>
       }
     >
-      {recipients.length === 0 && !adding && (
-        <p className="text-body text-muted">
-          This form did not ask for a copy to go anywhere. Add an address below
-          and it will go there.
+      {settled && recipients.length === 0 && (
+        <p className="text-body text-ink-2">
+          {`No email on file for ${recordClient?.name ?? clientName ?? 'the client'}. Add an address and it goes there.`}
         </p>
       )}
 
@@ -400,19 +646,56 @@ export function SendSheet({
                         [entry.address]: !entry.chosen,
                       }))
                     }
-                    className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
+                    // Not chosen reads from the empty tick and the grey fill —
+                    // never faded text, which in sun reads as "can't be
+                    // picked".
+                    className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-blue ${
                       entry.chosen
                         ? 'border-ink/15 bg-surface'
-                        : 'border-hairline bg-surface-2 opacity-60'
+                        : 'border-hairline bg-surface-2'
                     }`}
                   >
                     <TickBox on={entry.chosen} />
                     <span className="min-w-0 flex-1">
-                      {/* Whole, never cut off: the end of an address is
-                          where a typo in its domain would be. */}
-                      <span className="block break-words text-body text-ink">
+                      {/* Who, from the client book or the form, then the
+                          address whole, never cut off: the end of an address
+                          is where a typo in its domain would be. */}
+                      {entry.who && (
+                        <span className="block break-words text-body text-ink">
+                          <span className="font-semibold">
+                            {entry.who.name}
+                          </span>
+                          <span className="text-ink-2">
+                            {' '}
+                            · {entry.who.role}
+                          </span>
+                        </span>
+                      )}
+                      <span
+                        className={`block break-words ${entry.who ? 'text-caption text-ink-2' : 'text-body text-ink'}`}
+                      >
                         {entry.address}
                       </span>
+                      {!entry.who && entry.askedByForm && (
+                        <span className="mt-0.5 block text-caption text-ink-2">
+                          Asked for on the form
+                        </span>
+                      )}
+                      {/* Why it is not chosen: it already has this report,
+                          it is on its way, or the form said no. */}
+                      {entry.sentAt !== null ? (
+                        <span className="mt-0.5 block text-caption text-grey-ink">
+                          Sent {formatWhen(entry.sentAt, timezone)}
+                        </span>
+                      ) : entry.sending ? (
+                        <span className="mt-0.5 block text-caption text-grey-ink">
+                          Sending now
+                        </span>
+                      ) : entry.declined ? (
+                        <span className="mt-0.5 block text-caption text-grey-ink">
+                          The form said no copy for the client
+                        </span>
+                      ) : null}
                       {/* Said before Send, not after: an address the business
                           has never used is where a typo would be. It goes all
                           the same. Shown chosen or not, so the button's name
@@ -435,6 +718,21 @@ export function SendSheet({
                       {noMailMessage(noMailDomain)}
                     </FieldMessage>
                   )}
+                  {/* With the address it keeps, and only while that
+                      address is going: saved only if it took the email. */}
+                  {entry.address === savable && entry.chosen && (
+                    <button
+                      type="button"
+                      aria-pressed={saveToRecord}
+                      onClick={() => setSaveToRecord((on) => !on)}
+                      className="mt-1 flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-blue"
+                    >
+                      <TickBox on={saveToRecord} />
+                      <span className="min-w-0 flex-1 text-body text-ink">
+                        Also save to {recordClient?.name}’s record
+                      </span>
+                    </button>
+                  )}
                 </>
               )}
             </li>
@@ -442,13 +740,16 @@ export function SendSheet({
         })}
       </ul>
 
-      {adding ? (
+      {/* Open by itself when there is nobody to offer — but without the
+          keyboard: focus stays put as a sheet opens (design system §4.4),
+          and rises only when "Send to someone else" asks for it. */}
+      {adding || (settled && recipients.length === 0) ? (
         <div className="mt-2">
           <div className="flex gap-2">
             <input
               ref={draftRef}
               id={draftId}
-              autoFocus
+              autoFocus={adding}
               type="email"
               inputMode="email"
               autoCapitalize="none"
@@ -592,6 +893,15 @@ export function SendSheet({
               {copied(sent.map((result) => result.address))
                 ? ` A copy went to ${copy}.`
                 : ''}
+              {saved === 'saved' && recordClient
+                ? ` Saved to ${recordClient.name}’s record.`
+                : ''}
+            </p>
+          )}
+          {saved === 'failed' && recordClient && (
+            <p role="alert" className="text-caption text-amber-ink">
+              Sent, but could not save the address to {recordClient.name}’s
+              record. Add it on their client page.
             </p>
           )}
           {failed.map((result) => (
@@ -651,343 +961,17 @@ function UndeliverableChip({
   )
 }
 
-/**
- * Every attempt to send this report, and how each one went: who asked (and
- * from whose account), who it went to, where the business's copy went, and
- * which addresses were new to this client.
- *
- * Read from the delivery rows rather than the audit log: a row exists from the
- * moment someone asks, so a send still on its way, or one that died
- * mid-flight, appears here too, rather than only the ones that finished.
- */
-export function DeliveryHistory({
-  businessId,
-  reportId,
-}: {
-  businessId: Id<'businesses'>
-  reportId: Id<'reports'>
-}) {
-  const timezone = useBusinessTimezone()
-  const history = useQuery(
-    convexQuery(api.deliveries.forReport, { businessId, reportId }),
-  )
-  const rows = history.data
-
-  if (rows === undefined && history.isError) {
-    return (
-      <LoadFailed
-        what="the delivery history"
-        onRetry={() => void history.refetch()}
-      />
-    )
-  }
-  // Loading is not the same as nothing: "Not sent yet." under a report the
-  // form already opened a delivery for is a lie, and one a technician would
-  // act on by sending it again.
-  if (rows === undefined) {
-    return <RowPending className="py-1" />
-  }
-  if (rows.length === 0) {
-    return <p className="text-caption text-muted">Not sent yet.</p>
-  }
-
-  return (
-    <ul className="divide-y divide-hairline overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation">
-      {rows.map((row) => (
-        <li key={row._id} className="px-3.5 py-3">
-          <p className="text-body text-ink">
-            {STATUS_LABEL[row.status]} — {row.to.join(', ')}
-          </p>
-          {/* Grey-ink, not muted: with no approval step, who sent it — and
-              from whose account — is the record an owner reads. */}
-          <p className="text-caption text-grey-ink">
-            {row.sentBy?.name
-              ? `${senderName(row.sentBy.name, row.onBehalfOf?.name)} · `
-              : ''}
-            {formatWhen(row.sentAt ?? row.createdAt, timezone)}
-            {row.trigger === 'finalise' ? ' · asked for by the form' : ''}
-          </p>
-          {/* Only once it went: on a failed row it would read as though the
-              copy had gone when nothing did. */}
-          {row.status === 'sent' && copiesOf(row).length > 0 && (
-            <p className="text-caption text-muted">
-              Copy to {copiesOf(row).join(', ')}
-            </p>
-          )}
-          {/* What went, once it went: the report's own PDF was more than an
-              email carries, so its copy with smaller photos did. */}
-          {(row.status === 'sent' || row.status === 'bounced') &&
-            row.lighterCopy && (
-              <p className="text-caption text-muted">
-                Photos made smaller to fit an email
-              </p>
-            )}
-          {/* Nothing waited on it; this is what an owner reads to see a
-              report went somewhere new. As it was when it was sent. */}
-          {row.newAddresses && row.newAddresses.length > 0 && (
-            <p className="text-caption text-ink-2">
-              {newAddressLine(row.newAddresses)}
-            </p>
-          )}
-          {row.waitingForEmailSetup && (
-            <p className="mt-1 text-caption text-amber-ink">
-              Not sent: email isn’t set up for this business yet. Download or
-              share the PDF instead.
-            </p>
-          )}
-          {row.error && (
-            <p className="mt-1 text-caption text-amber-ink">{row.error}</p>
-          )}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 /** "Terence", or "Terence, in Kevin’s account" when it was sent from there —
- * as the report's Logs say it. */
+ * as the report's Email list and Activity both say it. */
 export function senderName(name: string, onBehalfOf?: string): string {
   return onBehalfOf ? `${name}, in ${onBehalfOf}’s account` : name
 }
 
 /**
- * The line a send to addresses new to this client carries, in the Email tab's
- * history and the report's Logs alike. In the past tense: it is what was true
+ * The line a send to addresses new to this client carries, in the report's
+ * Email list and its Activity alike. In the past tense: it is what was true
  * when it was sent, and the address may be on the record since.
  */
 export function newAddressLine(addresses: ReadonlyArray<string>): string {
   return `${addresses.length === 1 ? 'Wasn’t' : 'Weren’t'} on the client’s record: ${addresses.join(', ')}`
-}
-
-/**
- * Who else a delivery went to: the business's blind copy, and — on a row from
- * before copies were blind (29 Sept 2026), or one an API caller asked for —
- * its visible cc.
- */
-function copiesOf(row: {
-  cc: Array<string>
-  bcc?: Array<string>
-}): Array<string> {
-  return [...new Set([...(row.bcc ?? []), ...row.cc])]
-}
-
-/**
- * The newest send of a finished report, above its tabs.
- *
- * Locking is what sends a report — the form asks whether to send the client a
- * copy "when you submit this form", and it is Yes whenever the client has an
- * email — so the page a technician lands on after Finalise is where "did it
- * go, and to whom?" gets answered: "Sending…" for the few seconds the PDF
- * takes to draw, then who it went to and where the business's copy went.
- *
- * One line per email in that send, not only the newest row: a lock opens one
- * email for everyone the form asked for, but a tap of Send opens one per
- * person. It opens the Email tab, which has the whole history. Nothing at all
- * for a report that was never emailed.
- */
-export function LatestDelivery({
-  businessId,
-  reportId,
-  onOpen,
-}: {
-  businessId: Id<'businesses'>
-  reportId: Id<'reports'>
-  /** Opens the Email tab. */
-  onOpen: () => void
-}) {
-  const timezone = useBusinessTimezone()
-  const hydrated = useHydrated()
-  const { data: rows } = useQuery(
-    convexQuery(api.deliveries.forReport, { businessId, reportId }),
-  )
-  const all = rows ?? []
-  const newest = all.at(0)
-  // Newest first already (`forReport`): everything opened in the same moment
-  // as the newest row — one lock, or one tap of Send.
-  const batch = newest
-    ? all
-        .filter((row) => newest.createdAt - row.createdAt < BATCH_MS)
-        .slice(0, 3)
-    : []
-  const now = useClock(batch.some((row) => row.status === 'queued'))
-  if (batch.length === 0) return null
-
-  const lines = batch.map((row) => {
-    const copies = copiesOf(row)
-    // A send takes seconds: the PDF is drawn, then Resend is called. A row
-    // still queued minutes later is not on its way — its render failed, or
-    // it was never scheduled — and a spinner beside it would be a promise.
-    const stuck =
-      row.status === 'queued' &&
-      !row.waitingForEmailSetup &&
-      now - row.createdAt > STUCK_AFTER_MS
-    const line = deliveryLine(row, row.to.join(', '), stuck)
-    const sending =
-      row.status === 'queued' && !row.waitingForEmailSetup && !stuck
-    const detail =
-      row.status === 'sent'
-        ? `${formatWhen(row.sentAt ?? row.createdAt, timezone)}${
-            copies.length > 0 ? ` · copy to ${copies.join(', ')}` : ''
-          }`
-        : sending
-          ? copies.length > 0
-            ? `A copy goes to ${copies.join(', ')}.`
-            : null
-          : line.next
-    return { row, line, sending, detail }
-  })
-  const allWarn = lines.every(({ line }) => line.warn)
-
-  return (
-    <div className="mx-4 mt-4">
-      <button
-        type="button"
-        disabled={!hydrated}
-        onClick={onOpen}
-        className={`flex w-full items-center gap-2.5 rounded-2xl border px-3.5 py-3 text-left active:scale-[.99] ${
-          allWarn
-            ? 'border-amber-line bg-amber-bg'
-            : 'border-hairline bg-surface shadow-elevation'
-        }`}
-      >
-        {/* Polite, so "Sending…" turning into "Emailed" is heard: it changes
-            by itself a few seconds after the page opens. */}
-        <span aria-live="polite" className="flex min-w-0 flex-1 flex-col gap-2">
-          {lines.map(({ row, line, sending, detail }) => (
-            <span key={row._id} className="flex items-start gap-2.5">
-              {line.warn ? (
-                <TriangleAlert
-                  size={16}
-                  strokeWidth={2}
-                  aria-hidden
-                  className="mt-0.5 shrink-0 text-amber-ink"
-                />
-              ) : sending ? (
-                <LoaderCircle
-                  size={16}
-                  strokeWidth={2}
-                  aria-hidden
-                  className="mt-0.5 shrink-0 animate-spin text-muted"
-                />
-              ) : (
-                <Check
-                  size={16}
-                  strokeWidth={2.2}
-                  aria-hidden
-                  className="mt-0.5 shrink-0 text-green"
-                />
-              )}
-              <span className="min-w-0 flex-1">
-                <span
-                  className={`block break-words text-body ${line.warn ? 'text-amber-ink' : 'text-ink'}`}
-                >
-                  {line.text}
-                </span>
-                {detail && (
-                  <span
-                    className={`block break-words text-caption ${line.warn ? 'text-amber-ink' : 'text-ink-2'}`}
-                  >
-                    {detail}
-                  </span>
-                )}
-              </span>
-            </span>
-          ))}
-        </span>
-        <ChevronRight
-          size={16}
-          strokeWidth={2.2}
-          aria-hidden
-          className={`shrink-0 ${allWarn ? 'text-amber-ink' : 'text-muted'}`}
-        />
-      </button>
-    </div>
-  )
-}
-
-/**
- * How long a delivery may sit queued before it is plainly not on its way.
- *
- * Five minutes, not two, since a report too big to email has its PDF drawn
- * and then a copy with smaller photos made before it goes (convex/emailCopy.ts)
- * — a minute or so for a big job, which two minutes cut close to calling
- * stuck while it was still on its way.
- */
-const STUCK_AFTER_MS = 5 * 60_000
-
-/** Rows opened this close together are one send: one lock, or one tap. */
-const BATCH_MS = 60_000
-
-/**
- * The time, read again every fifteen seconds while `ticking` — so a page left
- * open stops saying "Sending…" once a queued row has plainly stopped.
- */
-function useClock(ticking: boolean): number {
-  const [now, setNow] = useState(() => Date.now())
-  useEffect(() => {
-    if (!ticking) return
-    setNow(Date.now())
-    const timer = setInterval(() => setNow(Date.now()), 15_000)
-    return () => clearInterval(timer)
-  }, [ticking])
-  return now
-}
-
-/** What one delivery's state reads as, and what to do about it. */
-function deliveryLine(
-  row: {
-    status: Doc<'reportDeliveries'>['status']
-    error?: string
-    waitingForEmailSetup: boolean
-  },
-  who: string,
-  stuck: boolean,
-): { text: string; next: string | null; warn: boolean } {
-  switch (row.status) {
-    case 'sent':
-      return { text: `Emailed to ${who}.`, next: null, warn: false }
-    case 'queued':
-      if (row.waitingForEmailSetup) {
-        return {
-          text: 'Not emailed: email isn’t set up for this business yet.',
-          next: 'Download or share the PDF instead.',
-          warn: true,
-        }
-      }
-      return stuck
-        ? {
-            text: `Not sent to ${who}.`,
-            next: 'Send it from the Email tab.',
-            warn: true,
-          }
-        : { text: `Sending to ${who}…`, next: null, warn: false }
-    case 'bounced':
-      return {
-        text: `The email to ${who} bounced.`,
-        next: 'Check the address, then send it again from the Email tab.',
-        warn: true,
-      }
-    case 'failed':
-      // Refused by an owner before approval was retired (29 Sept 2026): what
-      // happened, rather than a nudge to send it again to an address an
-      // owner said no to.
-      return row.error === 'Not approved'
-        ? {
-            text: `Not emailed to ${who}: an owner didn’t approve it.`,
-            next: 'Open the Email tab to send it somewhere else.',
-            warn: true,
-          }
-        : {
-            text: `Could not email ${who}.`,
-            next: 'Send it again from the Email tab.',
-            warn: true,
-          }
-  }
-}
-
-const STATUS_LABEL: Record<string, string> = {
-  queued: 'Queued',
-  sent: 'Sent',
-  failed: 'Failed',
-  bounced: 'Bounced',
 }

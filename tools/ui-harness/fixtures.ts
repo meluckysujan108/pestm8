@@ -265,15 +265,53 @@ const CLIENT = {
  * is info@. `r_nomail` is a deployment with no email set up; `r_big` a
  * report with more photos than an email carries (convex/emailCopy.ts). */
 function deliveriesKnown(args: { reportId: string }) {
+  // `r_none` and `r_noclientmail`: a client with no address on their record.
+  const noEmail =
+    args.reportId === 'r_none' || args.reportId === 'r_noclientmail'
   return {
-    addresses: ['jane@gmail.com', 'info@pestm8.com.au'],
+    addresses: noEmail
+      ? ['info@pestm8.com.au']
+      : [
+          'jane@gmail.com',
+          'bob@harbourside-strata.com.au',
+          'kim@coastalagents.com.au',
+          'info@pestm8.com.au',
+        ],
     copy: 'info@pestm8.com.au',
     emailReady: args.reportId !== 'r_nomail',
     largeForEmail: args.reportId === 'r_big',
+    // The client book, by name: the client, then their contacts.
+    people: noEmail
+      ? []
+      : [
+          {
+            address: 'jane@gmail.com',
+            name: 'Jane Nguyen',
+            kind: 'client',
+            role: null,
+            primary: false,
+          },
+          {
+            address: 'bob@harbourside-strata.com.au',
+            name: 'Bob Lee',
+            kind: 'contact',
+            role: 'Strata manager',
+            primary: false,
+          },
+          {
+            address: 'kim@coastalagents.com.au',
+            name: 'Kim Wu',
+            kind: 'contact',
+            role: 'Property manager',
+            primary: true,
+          },
+        ],
+    client: { clientId: 'c1', name: 'Jane Nguyen', hasEmail: !noEmail },
   }
 }
 
-/** One delivery per report id, one per state `LatestDelivery` can show. */
+/** One delivery per report id, one per state a finished report's Email list
+ * can show. */
 function deliveryRows(args: { reportId: string }) {
   const at = perthToday(14, 38)
   const base = {
@@ -312,9 +350,9 @@ function deliveryRows(args: { reportId: string }) {
           'Not sent: the PDF could not be prepared to attach. Open the PDF tab, then send it again.',
       },
     ],
-    // The Email tab's history — the same sends as the Logs specimen: the
-    // form's own as Kevin locked it, one to someone new made by Terence in
-    // Kevin's account, then Kevin's own to a typo that failed.
+    // A finished report's Email list: the form's own as Kevin locked it, one
+    // to someone new made by Terence in Kevin's account, then Kevin's own to
+    // a typo that failed.
     r_history: [
       {
         ...base,
@@ -399,8 +437,9 @@ function deliveryRows(args: { reportId: string }) {
   return rows[args.reportId] ?? []
 }
 
-/** A finished report's Logs: who did what, and every email's addresses.
- * `r_logs_legacy` is a report from before approval was retired. */
+/** A report's audit rows: who did what, and every email's addresses (which
+ * the page's Activity leaves to its Email list). `r_logs_legacy` and
+ * `r_legacy` are from before approval was retired. */
 function auditEntries(args: { entityId: string }) {
   const at = perthToday(14, 38)
   const kevin = { actorName: 'Kevin Doyle', actorColour: '#FF3B30' }
@@ -422,7 +461,19 @@ function auditEntries(args: { entityId: string }) {
       },
     ]
   }
-  if (args.entityId === 'r_logs_legacy') {
+  // Just locked, or never emailed: only the lock is on record.
+  if (args.entityId === 'r_sending' || args.entityId === 'r_none') {
+    return [
+      {
+        _id: 'f1',
+        action: 'report.finalise',
+        at: Date.now() - 20_000,
+        ...kevin,
+        meta: {},
+      },
+    ]
+  }
+  if (args.entityId === 'r_logs_legacy' || args.entityId === 'r_legacy') {
     return [
       {
         _id: 'l4',
@@ -503,6 +554,82 @@ function auditEntries(args: { entityId: string }) {
     },
     { _id: 'a1', action: 'report.finalise', at, ...kevin, meta: {} },
   ]
+}
+
+/**
+ * A finalised Pest Service Report as `reports.get` returns it — #12, Kevin's,
+ * for Jane Nguyen at 30 Sloan Drive — with `overrides` for the state a
+ * specimen shows (sent, replaced, no PDF yet). Its sends and activity come
+ * from the fixtures above, by `id`.
+ */
+export function finishedReport(
+  id: string,
+  overrides: Record<string, unknown> = {},
+) {
+  const at = perthToday(14, 38)
+  return {
+    _id: id,
+    _creationTime: at - 3_600_000,
+    businessId: BIZ,
+    template: 'serviceReport',
+    templateVersion: undefined,
+    customTemplate: null,
+    templateSnapshot: null,
+    legalBasis: 'APVMA · AEPMA',
+    status: 'finalised',
+    finalisedAt: at,
+    reportNumber: 12,
+    version: 1,
+    jobId: 'j1',
+    businessName: 'Coastal Pest Control',
+    business: {
+      logoUrl: SAMPLE_LOGO,
+      phone: '08 9381 2200',
+      email: 'info@pestm8.com.au',
+    },
+    property: {
+      client: { name: 'Jane Nguyen' },
+      addressLine: '30 Sloan Drive',
+      suburb: 'Leda',
+      state: 'WA',
+      postcode: '6170',
+    },
+    author: { name: 'Kevin Doyle', licenceNumber: 'PMT 4471' },
+    context: {
+      client: {
+        name: 'Jane Nguyen',
+        email: 'jane@gmail.com',
+        phone: '0412 345 678',
+      },
+      technician: { name: 'Kevin Doyle', licence: 'PMT 4471' },
+      job: { number: '1042' },
+    },
+    contextSnapshot: {
+      client: { name: 'Jane Nguyen' },
+      property: { suburb: 'Leda' },
+    },
+    // Any URL: "Ready" is all the page reads from it until the viewer opens.
+    pdfUrl: 'https://example.invalid/report.pdf',
+    data: {
+      serviceDate: '2026-09-30',
+      startTime: '09:30',
+      finishTime: '10:15',
+      sendCopy: true,
+      spillKit: true,
+      msds: true,
+      ppe: true,
+      chemicalsSecured: true,
+      firstAid: true,
+      signage: true,
+      safeToStart: true,
+      comments:
+        'Treated the perimeter and the garage. German cockroach activity under the kitchen sink — gel baits placed.',
+    },
+    canEdit: false,
+    canAmend: true,
+    correcting: false,
+    ...overrides,
+  }
 }
 
 /**
@@ -665,6 +792,9 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'jobs:photos': () => [],
   'properties:jobHistory': () => [],
   'reports:listByProperty': () => [],
+  // A finished report's photos: none on the sample.
+  'reports:galleryPhotos': () => [],
+  'reports:photoUrls': () => ({}),
   'properties:list': propertiesList,
   'memberships:listForBusiness': () =>
     MEMBERS.map((m) => ({ ...m, displayName: m.name, status: 'active' })),

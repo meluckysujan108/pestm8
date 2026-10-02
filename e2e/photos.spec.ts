@@ -14,6 +14,7 @@ import {
   customSectionUrl,
   customTemplateArgs,
 } from './fixtures/reportPayloads'
+import { LOCKED, openAnswers } from './fixtures/reportViewer'
 
 /** Smallest valid PNG — enough to exercise compress → upload → attach. */
 const PNG = Buffer.from(
@@ -85,7 +86,8 @@ test('a photo uploaded in the builder survives onto the finalised document', asy
   })
 
   await page.reload()
-  await expect(page.getByText('Finalised and locked')).toBeVisible()
+  await expect(page.getByText(LOCKED)).toBeVisible()
+  await openAnswers(page)
   await expect(page.getByRole('img', { name: 'Before' })).toBeVisible()
 })
 

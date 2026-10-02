@@ -288,8 +288,8 @@ Draft deletion is unchanged: whoever may edit a draft may delete it.
 ## Drawing the PDF
 
 `reportPipeline.renderIfNeeded()` is the single path, and every caller goes
-through it: the pipeline scheduled at finalise, the PDF tab, a download, an
-email send.
+through it: the pipeline scheduled at finalise, the finished report's page
+as it opens, the viewer, a download, an email send.
 
 - `internal.reports.claimPdf` takes the job, or reports that the file is
   already current, or that someone else holds it. A caller who arrives while a
@@ -411,10 +411,10 @@ client receive on 28 August?" answerable once the renderer has moved on.
 - **Said before and after.** The sheet that locks a report says who it is
   about to be emailed to and where the business's copy goes, worked out by
   the same rule `finalise` applies (`src/components/reports/lockEmail.ts`),
-  and the client's copy can be switched off there. The finished report then
-  shows its newest delivery above its tabs (`LatestDelivery`): "Sending…",
-  then who it went to — or why it did not, including a row still queued
-  minutes later, which is not on its way.
+  and the client's copy can be switched off there. The finished report's page
+  then lists each send under Email (`ReportEmails`): "Sending…", then who it
+  went to — or why it did not, including a row still queued minutes later,
+  which is not on its way — with Send again on one that did not go.
 - **The business keeps a copy of every one.** Its Business copy address
   (`reportCopyEmail`, Settings → Reports), else its business email, rides on
   every report email as a **bcc** (`lib/recipients.businessCopyAddress`,
@@ -456,8 +456,11 @@ client receive on 28 August?" answerable once the renderer has moved on.
   be drawn or attached; Resend's own reply goes to the deployment's logs and
   rides on the Logs line, out of sight. Once Resend has taken an email,
   nothing afterwards marks it failed: that would have someone send the client
-  a second copy. So an owner sees each send three ways: the report's Email
-  tab, its Logs tab, and the blind copy in the business's own inbox.
+  a second copy. So an owner sees each send three ways: the finished report's
+  Email list, its Activity, and the blind copy in the business's own inbox.
+  (Until 30 Sept 2026 these were the report's Email and Logs tabs; failure
+  words stored then still say "the PDF tab" or "the Email tab", and the page
+  rewords them as it shows them, `reports/deliveryWords.ts`.)
 - **How many.** Twenty emails and fifty addresses per member per hour
   (`lib/sendLimit.ts`), counted from the delivery rows themselves — they are
   already the exact record of every send, so a separate token bucket would be
@@ -515,15 +518,16 @@ client receive on 28 August?" answerable once the renderer has moved on.
   - **Made once, kept** (`convex/emailCopy.ts`, `convex/emailCopies.ts`). A
     `reportPdfs` row with `variant: 'email'`, its `sourceStorageId` (the
     original it was made from) and `photoEdge`. `reports.pdfStorageId` never
-    moves to it: the PDF tab shows every pixel. Made at lock for every
+    moves to it: the report's own PDF, in the app, shows every pixel. Made at lock for every
     report over budget, so a later Send is instant; otherwise by the first
     send. Always attached from storage, never drawn for a send, so a retried
     send is the same payload under its idempotency key. A re-render (a new
     painter version) makes a new original, and the next send a new copy.
   - **Said before and after.** The lock sheet and the Send sheet say the
     email carries smaller photos (`deliveries.known.largeForEmail`); the
-    Email tab ("Photos made smaller to fit an email") and the Logs line
-    (`lighterCopy`, `photoEdge`) say so after. The email itself does not: a
+    report's Email list, in each email's sheet ("Photos made smaller to fit
+    an email"), and its
+    Activity line (`lighterCopy`, `photoEdge`) say so after. The email itself does not: a
     line inviting "can I have the full size?" is work for the business.
   - **Checking a deployment.** Two internal actions, both read-only.
     `emailCopy:engineCheck` runs the codecs on a picture made on the spot.

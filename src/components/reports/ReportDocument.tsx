@@ -1,4 +1,7 @@
+import { createContext, useContext } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useHydrated } from '#/lib/useHydrated'
+import { FIELD } from '#/components/forms/FormField'
 import { REPORT_PILL } from '#/lib/statusColours'
 import { convexQuery } from '@convex-dev/react-query'
 import { Lock } from 'lucide-react'
@@ -74,13 +77,30 @@ type ReportDoc = {
   context?: PresentContext | null
 }
 
+/**
+ * Which face of the document this is.
+ *
+ * - `document`: the whole thing, as it prints — its header lines, the red
+ *   band, the footer — pinned light, because it stands in for paper (a draft
+ *   read by someone who may not edit it).
+ * - `answers`: a finished report's "Answers" page. The page around it already
+ *   says what the report is, where and when, and the PDF is a tap away, so
+ *   this is only what was recorded, section by section, in the app's own
+ *   type and theme: a question reads as a sentence, not in capitals.
+ */
+export type ReportDocumentVariant = 'document' | 'answers'
+
+const Variant = createContext<ReportDocumentVariant>('document')
+
 /** The rendered document a client actually receives. */
 export function ReportDocument({
   report,
   businessId,
+  variant = 'document',
 }: {
   report: ReportDoc
   businessId: Id<'businesses'>
+  variant?: ReportDocumentVariant
 }) {
   const timezone = useBusinessTimezone()
   const finalised = report.status === 'finalised'
@@ -138,6 +158,25 @@ export function ReportDocument({
     licenceNumber: report.author?.licenceNumber,
   })
 
+  if (variant === 'answers') {
+    return (
+      <Variant.Provider value="answers">
+        <article className="px-4 pb-8 pt-2 text-ink">
+          {model.cover?.photo && (
+            <img
+              src={model.cover.photo.url}
+              alt={model.cover.photo.caption || 'Front page photo'}
+              className="mt-2 w-full rounded-2xl border border-hairline bg-surface object-cover"
+              style={{ aspectRatio: '16 / 7' }}
+            />
+          )}
+          <JumpList sections={model.sections} />
+          <Body model={model} />
+        </article>
+      </Variant.Provider>
+    )
+  }
+
   return (
     // Pinned light in both themes. What this shows must match what
     // reports/pdf/* prints on white paper, so it does not follow the app.
@@ -155,20 +194,13 @@ export function ReportDocument({
         />
       )}
 
-      {model.headings.length > 0 ? (
-        <>
-          {/* The form's own header lines stand in for the app's picker name,
-              which would otherwise print the title twice. */}
-          <h1 className="sr-only">{template.name}</h1>
-          {model.headings.map((line) => (
-            <p key={line} className="mt-1 text-row-title text-ink">
-              {line}
-            </p>
-          ))}
-        </>
-      ) : (
-        <h1 className="mt-1 text-page-title text-ink">{template.name}</h1>
-      )}
+      {/* The form's own header lines, as they print. The page's header is
+          its <h1> and already names the form. */}
+      {model.headings.map((line) => (
+        <p key={line} className="mt-1 text-row-title text-ink">
+          {line}
+        </p>
+      ))}
       {model.standardsLine && (
         <p className="mt-1 text-caption text-muted">{model.standardsLine}</p>
       )}
@@ -194,6 +226,31 @@ export function ReportDocument({
         </div>
       )}
 
+      <Body model={model} />
+
+      {/* The same provenance the printed footer carries, so the screen and the
+          file a client keeps identify the document the same way. */}
+      {finalised && report.finalisedAt && (
+        <p className="mt-6 text-caption text-muted">
+          {model.footer.submittedBy
+            ? `Submitted by: ${model.footer.submittedBy}`
+            : `Finalised ${dateTimeFormat('en-AU', { dateStyle: 'long', timeZone: timezone }).format(new Date(report.finalisedAt))}`}
+          {model.footer.submissionId !== undefined &&
+            ` · Submission ID: ${model.footer.submissionId}`}
+          {` · Version: ${model.footer.version}`}
+          <br />
+          This document can no longer be edited.
+        </p>
+      )}
+    </article>
+  )
+}
+
+/** Everything under the document's head: its sections, photos, notice and
+ * terms — the same on paper and on the Answers page. */
+function Body({ model }: { model: ReportModel }) {
+  return (
+    <>
       {model.sections.map((section) => (
         <Section key={section.key} section={section} />
       ))}
@@ -233,33 +290,83 @@ export function ReportDocument({
           </div>
         </section>
       )}
+    </>
+  )
+}
 
-      {/* The same provenance the printed footer carries, so the screen and the
-          file a client keeps identify the document the same way. */}
-      {finalised && report.finalisedAt && (
-        <p className="mt-6 text-caption text-muted">
-          {model.footer.submittedBy
-            ? `Submitted by: ${model.footer.submittedBy}`
-            : `Finalised ${dateTimeFormat('en-AU', { dateStyle: 'long', timeZone: timezone }).format(new Date(report.finalisedAt))}`}
-          {model.footer.submissionId !== undefined &&
-            ` · Submission ID: ${model.footer.submissionId}`}
-          {` · Version: ${model.footer.version}`}
-          <br />
-          This document can no longer be edited.
-        </p>
-      )}
-    </article>
+/** Where a section's heading is on the Answers page, for the jump list. */
+const sectionAnchor = (key: string) => `answers-${key}`
+
+/**
+ * The Answers page's sections, at its top, each a pick away: a Timber
+ * inspection is a dozen sections and many screens, and someone after the
+ * product used should not scroll through the subfloor to find it. Not for a
+ * form of two sections, which needs no index.
+ *
+ * A native select rather than a row of chips: a dozen chips pushed the
+ * answers a screen down and were too small to tap, and the phone's own
+ * picker scales to any number, reads its options aloud and needs no sheet.
+ */
+function JumpList({ sections }: { sections: ReadonlyArray<DocSection> }) {
+  const hydrated = useHydrated()
+  const headed = sections.filter((section) => section.heading !== null)
+  if (headed.length < 3) return null
+
+  const jump = (key: string) => {
+    const heading = document.getElementById(sectionAnchor(key))
+    if (!heading) return
+    const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    heading.scrollIntoView({
+      behavior: still ? 'auto' : 'smooth',
+      block: 'start',
+    })
+    // The heading, so a screen reader reads just it and carries on from
+    // there, rather than the whole section at once.
+    heading.focus({ preventScroll: true })
+  }
+
+  return (
+    <label className="mt-3 flex flex-col gap-1.5">
+      <span className="section-label">Jump to</span>
+      <select
+        // A select that only acts: it always shows its prompt, so picking the
+        // same section twice still jumps.
+        value=""
+        disabled={!hydrated}
+        onChange={(event) => {
+          if (event.target.value) jump(event.target.value)
+        }}
+        className={FIELD}
+      >
+        <option value="" disabled>
+          A section of this form
+        </option>
+        {headed.map((section) => (
+          <option key={section.key} value={section.key}>
+            {section.number !== undefined ? `${section.number}. ` : ''}
+            {section.heading}
+          </option>
+        ))}
+      </select>
+    </label>
   )
 }
 
 function Section({ section }: { section: DocSection }) {
+  const answers = useContext(Variant) === 'answers'
   return (
     <section className="mt-6">
       {/* The heading the client received. This is the finished document, not
           the form — the builder keeps showing the section's own title so a
-          technician can find where they are. */}
+          technician can find where they are. On the Answers page it is where
+          the jump list lands: below the sticky header (its height and the
+          phone's top inset), not under it. */}
       {section.heading !== null && (
-        <h2 className="section-label mb-2">
+        <h2
+          id={answers ? sectionAnchor(section.key) : undefined}
+          tabIndex={answers ? -1 : undefined}
+          className="section-label mb-2 scroll-mt-[calc(6.5rem+env(safe-area-inset-top))] outline-none"
+        >
           {section.number !== undefined ? `${section.number}. ` : ''}
           {section.heading}
         </h2>
@@ -281,6 +388,9 @@ const BAR_CLASS: Record<DocBar, string> = {
 }
 
 function Block({ block }: { block: DocBlock }) {
+  // On paper a heading inside a section is the PDF's red; in the app's own
+  // theme that red on black is a warning colour, so it is ink.
+  const answers = useContext(Variant) === 'answers'
   switch (block.type) {
     case 'rows':
       return (
@@ -294,7 +404,9 @@ function Block({ block }: { block: DocBlock }) {
     case 'heading':
       return (
         <div className="mt-4 first:mt-0">
-          <h3 className="text-body font-semibold text-red-fill">
+          <h3
+            className={`text-body font-semibold ${answers ? 'text-ink' : 'text-red-fill'}`}
+          >
             {block.text}
           </h3>
           {block.note && (
@@ -389,6 +501,10 @@ function Block({ block }: { block: DocBlock }) {
 }
 
 function Row({ row }: { row: DocRow }) {
+  // A question on a form is often a sentence ("Client agrees that an
+  // inspection can be completed"); in grey capitals it shouts. The paper face
+  // keeps the printed look; the Answers page reads it as written.
+  const answers = useContext(Variant) === 'answers'
   return (
     <div className="flex gap-2.5 px-3.5 py-3">
       {/* The same bar the printed document carries beside an answer that
@@ -399,8 +515,10 @@ function Row({ row }: { row: DocRow }) {
         />
       )}
       <div className="min-w-0 flex-1">
-        <dt className="section-label">{row.label}</dt>
-        <dd className="mt-1 text-body text-ink">
+        <dt className={answers ? 'text-caption text-ink-2' : 'section-label'}>
+          {row.label}
+        </dt>
+        <dd className={`${answers ? 'mt-0.5' : 'mt-1'} text-body text-ink`}>
           <FieldValue shown={row.shown} />
         </dd>
       </div>
