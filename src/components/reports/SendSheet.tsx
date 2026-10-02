@@ -14,8 +14,13 @@ import {
   emailTypoFix,
 } from '../../../convex/lib/email'
 import { FieldMessage } from '#/components/forms/FieldMessage'
-import { describedBy, fieldMessageId } from '#/components/forms/FormField'
+import {
+  describedBy,
+  fieldInputClass,
+  fieldMessageId,
+} from '#/components/forms/FormField'
 import { domainsWithoutMail, noMailMessage } from './fields/staticBlocks'
+import { checkEmailDomain } from '#/lib/emailDomainCheck'
 import {
   clientCopyDeclined,
   deliveryRecipients,
@@ -23,7 +28,12 @@ import {
 import type { ReportTemplate } from '#/lib/reportTemplates'
 import type { RefObject } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import {
+  NEUTRAL_BUTTON_COMPACT,
+  PRIMARY_BUTTON,
+} from '#/components/primitives/buttons'
+import { LoadFailed } from '#/components/primitives/EmptyState'
+import { RowPending } from '#/components/shell/Pending'
 import { FormAlert } from '#/components/forms/FormAlert'
 import type { ErrorCopy } from '#/components/forms/describeError'
 import { TickBox } from './TickBox'
@@ -272,6 +282,28 @@ function personRole(person: Person): string {
 
 const NONE: ReadonlyArray<string> = []
 
+/** The longest Send waits to hear whether a typed address's domain takes
+ * mail, as a form's Save does: a lookup is only ever a warning, so past this
+ * the address goes as it is. */
+const SEND_CHECK_MS = 3000
+
+/**
+ * A pasted list of addresses, split where a person would: at a comma, a
+ * semicolon, a space or a new line. "Bob Smith <bob@x.com>; Jane
+ * <jane@y.com>", as a mail app copies them, gives the addresses in the
+ * brackets. A name stops at an @ or a new line, so it never takes an address
+ * before it with it; what it cannot tell apart (a name with a comma in it, an
+ * address and a name with only a space between) leaves a piece that is not an
+ * address, so the paste goes into the box as it is, to be put right.
+ */
+export function splitPasted(text: string): Array<string> {
+  return text
+    .replace(/[^,;<>@\n]*<([^<>]*)>/g, ',$1,')
+    .split(/[\s,;]+/)
+    .map((part) => part.toLowerCase())
+    .filter(Boolean)
+}
+
 export function SendSheet({
   open,
   onClose,
@@ -312,9 +344,10 @@ export function SendSheet({
   returnFocusRef?: RefObject<HTMLElement | null>
 }) {
   const timezone = useBusinessTimezone()
-  const { data: known } = useQuery(
+  const knownQuery = useQuery(
     convexQuery(api.deliveries.known, { businessId, reportId }),
   )
+  const known = knownQuery.data
   const { data: history } = useQuery(
     convexQuery(api.deliveries.forReport, { businessId, reportId }),
   )
@@ -394,6 +427,8 @@ export function SendSheet({
   // Domains DNS has said take no mail (src/lib/emailDomainCheck.ts), asked as
   // a typed address is left or added. A warning only: it may still be sent.
   const [noMail, setNoMail] = useState<ReadonlyArray<string>>([])
+  // Send asking about a typed address's domain before it goes.
+  const [checking, setChecking] = useState(false)
   const draftRef = useRef<HTMLInputElement>(null)
   const draftId = useId()
 
@@ -449,18 +484,22 @@ export function SendSheet({
   const convexSend = useConvexAction(api.email.sendReportPdf)
   const convexSaveEmail = useConvexMutation(api.clients.update)
   const send = useMutation({
-    mutationFn: async (addresses: Array<string>) => {
+    mutationFn: async ({
+      addresses,
+      save,
+    }: {
+      addresses: Array<string>
+      /** The typed address to keep on the client's record, if it goes. */
+      save: string | null
+    }) => {
       const outcomes = await sendToEach(addresses, (to) =>
         convexSend({ businessId, reportId, to }),
       )
       // Only an address that took the email: one that failed may be a typo.
       const keep =
-        saveToRecord &&
-        savable !== null &&
-        recordClient !== null &&
-        addresses.includes(savable)
+        save !== null && recordClient !== null
           ? outcomes.find(
-              (outcome) => outcome.address === savable && outcome.code === null,
+              (outcome) => outcome.address === save && outcome.code === null,
             )
           : undefined
       if (keep && recordClient) {
@@ -489,9 +528,20 @@ export function SendSheet({
   // second tap would email everyone again while the first is on its way.
   const { reset: resetSend } = send
   const sending = useRef(false)
-  sending.current = send.isPending
+  // Asking about a typed address's domain is the send's first step: an
+  // opening then must not undo the tap that is still on its way.
+  sending.current = send.isPending || checking
+  // A typed address held after the sheet was closed mid-check: the next
+  // opening shows it, rather than starting afresh as if it had gone.
+  const heldWhileClosed = useRef(false)
+  const openNow = useRef(open)
+  openNow.current = open
   useLayoutEffect(() => {
     if (!open || sending.current) return
+    if (heldWhileClosed.current) {
+      heldWhileClosed.current = false
+      return
+    }
     setOverrides(
       Object.fromEntries(chosenAtOpen.map((address) => [address, true])),
     )
@@ -558,36 +608,200 @@ export function SendSheet({
   }
 
   /**
-   * An address that can never be delivered to stays in the box with the
-   * reason under it. This used to drop anything without an @ without a word,
-   * and let "bob@gmail" through to a send that could not arrive. A near miss
-   * of a common provider asks once, and so does a domain DNS has already said
-   * takes no mail; the second Add takes it as typed. An answer that comes
-   * after Add shows under the address's chip instead.
+   * Takes an address typed in as someone to send to, or keeps it in the box
+   * with the reason it needs another look. One that can never be delivered
+   * to stays there with the reason under it — this used to drop anything
+   * without an @ without a word, and let "bob@gmail" through to a send that
+   * could not arrive. A near miss of a common provider asks, and so does a
+   * domain DNS has said takes no mail; only Add anyway or Send anyway (a
+   * `confirm`ing take) sends it as typed, never a comma typed after it. An
+   * answer that comes after shows under the address's chip instead.
    */
-  function addTyped() {
-    if (typed === '') return
-    if (draftProblem !== null) {
+  function takeAddress(
+    address: string,
+    {
+      confirm,
+      noMailDomains = noMail,
+    }: { confirm: boolean; noMailDomains?: ReadonlyArray<string> },
+  ): 'added' | 'held' {
+    if (emailProblem(address) !== null) {
+      setDraft(address)
+      setTypoAsked(null)
       setDraftShown(true)
-      draftRef.current?.focus()
-      return
+      if (openNow.current) draftRef.current?.focus()
+      return 'held'
     }
-    if ((draftFix !== null || showDraftNoMail) && typoAsked !== typed) {
-      setTypoAsked(typed)
+    const domain = emailDomain(address)
+    const asks =
+      emailTypoFix(address) !== null ||
+      (domain !== null && noMailDomains.includes(domain))
+    if (asks && !(confirm && typoAsked === address)) {
+      setDraft(address)
+      setTypoAsked(address)
       setDraftShown(true)
-      return
+      // To the box, whose warning it then reads out: Send held with
+      // nothing said was a tap that did nothing. Not into a closed sheet.
+      if (openNow.current) draftRef.current?.focus()
+      return 'held'
     }
-    askDomains([typed])
-    if (recipients.some((entry) => entry.address === typed)) {
-      setOverrides((prev) => ({ ...prev, [typed]: true }))
+    askDomains([address])
+    if (recipients.some((entry) => entry.address === address)) {
+      setOverrides((prev) => ({ ...prev, [address]: true }))
     } else {
-      setAdded((prev) => [...prev, typed])
-      setTypedIn((prev) => [...prev, typed])
+      setAdded((prev) => (prev.includes(address) ? prev : [...prev, address]))
+      setTypedIn((prev) => (prev.includes(address) ? prev : [...prev, address]))
     }
+    return 'added'
+  }
+
+  function clearDraft() {
     setDraft('')
     setDraftShown(false)
     setTypoAsked(null)
+  }
+
+  function addTyped() {
+    if (typed === '') return
+    if (takeAddress(typed, { confirm: true }) === 'held') return
+    clearDraft()
     setAdding(false)
+  }
+
+  // What is typed and not yet added goes with the rest: tapping Send without
+  // Add used to leave it out without a word, and the person asked for was
+  // the one who did not get the report. Counted whatever it is, so the
+  // button says what a tap will try: one that needs another look holds
+  // Send, and the box says why.
+  const pendingDraft =
+    typed !== '' && !chosen.some((entry) => entry.address === typed)
+  const outgoing = [
+    ...chosen.map((entry) => entry.address),
+    ...(pendingDraft ? [typed] : []),
+  ]
+  const count = outgoing.length
+  // Asked about: "Did you mean…?", or a domain that takes no mail.
+  const askingTyped = typoAsked !== null && typoAsked === typed
+  // The address the client's record would keep, when it has none: the first
+  // one typed by hand, listed or still in the box.
+  const savableTyped = (address: string) =>
+    recordClient !== null &&
+    !recordClient.hasEmail &&
+    typedIn.length === 0 &&
+    emailProblem(address) === null &&
+    // One already listed (a contact, someone sent to before) is not a typed
+    // address, and Add would not offer it either.
+    !recipients.some((entry) => entry.address === address)
+  const draftSavable =
+    pendingDraft && draftProblem === null && savableTyped(typed)
+  const draftInfoId = `${draftId}-info`
+  const showDraftInfo =
+    settled &&
+    pendingDraft &&
+    draftProblem === null &&
+    !showDraftTypo &&
+    !showDraftNoMail &&
+    !knownAddresses.includes(typed)
+
+  async function sendNow() {
+    if (checking || send.isPending) return
+    const addresses = chosen.map((entry) => entry.address)
+    let save =
+      saveToRecord && savable !== null && addresses.includes(savable)
+        ? savable
+        : null
+    const address = typed
+    if (address !== '') {
+      // Asked before it goes rather than said after: whether the domain
+      // takes mail at all, which a tap straight from the box to Send left no
+      // time to learn. Only the domain is sent; an answer already had (the
+      // box was left) is no wait at all, and past SEND_CHECK_MS it goes.
+      setChecking(true)
+      const giveUp = new AbortController()
+      const timer = setTimeout(() => giveUp.abort(), SEND_CHECK_MS)
+      let fresh: ReadonlyArray<string> = []
+      try {
+        fresh = await domainsWithoutMail([address], (domain) =>
+          checkEmailDomain(domain, { signal: giveUp.signal }),
+        )
+      } finally {
+        clearTimeout(timer)
+        setChecking(false)
+      }
+      if (fresh.length > 0) {
+        setNoMail((prev) => [...new Set([...prev, ...fresh])])
+      }
+      const take = takeAddress(address, {
+        confirm: true,
+        noMailDomains: [...noMail, ...fresh],
+      })
+      if (take === 'held') {
+        if (!openNow.current) heldWhileClosed.current = true
+        return
+      }
+      if (saveToRecord && save === null && savableTyped(address)) {
+        save = address
+      }
+      clearDraft()
+      if (!addresses.includes(address)) addresses.push(address)
+    }
+    if (addresses.length === 0) return
+    send.mutate({ addresses, save })
+  }
+
+  /**
+   * A comma or a semicolon just typed after an address finishes it, as Add
+   * does — and never sends one that asked "Did you mean…?" as it is: that
+   * takes Add anyway or Send anyway. Only at the end, as it is typed: one
+   * typed into the middle of an address is left for the box to say what is
+   * wrong with it.
+   */
+  function finishOnSeparator(value: string, inserted: string | null): boolean {
+    const separator = value.at(-1)
+    if (separator !== ',' && separator !== ';') return false
+    // Typed (or a keyboard's word put in whole), not pasted.
+    if (inserted === null || !inserted.endsWith(separator)) return false
+    const address = value.slice(0, -1).trim().toLowerCase()
+    if (/[\s,;]/.test(address)) return false
+    // Nothing before it: the separator alone goes nowhere.
+    if (address === '') return true
+    if (takeAddress(address, { confirm: false }) === 'added') {
+      clearDraft()
+      // The box stays, even where it opened only for want of anyone on
+      // file: a comma says another is coming.
+      setAdding(true)
+    }
+    return true
+  }
+
+  /**
+   * A pasted list goes in whole when every address in it is ready to send;
+   * otherwise it lands in the box like anything else, to be put right. One
+   * address with a name around it goes into the box as just the address.
+   */
+  function pasteList(text: string): boolean {
+    if (typed !== '') return false
+    const addresses = splitPasted(text)
+    if (addresses.length === 1) {
+      if (addresses[0] === text.trim().toLowerCase()) return false
+      setDraft(addresses[0])
+      setDraftShown(false)
+      setTypoAsked(null)
+      return true
+    }
+    if (addresses.length === 0) return false
+    const ready = addresses.every((address) => {
+      const domain = emailDomain(address)
+      return (
+        emailProblem(address) === null &&
+        emailTypoFix(address) === null &&
+        !(domain !== null && noMail.includes(domain))
+      )
+    })
+    if (!ready) return false
+    for (const address of addresses) takeAddress(address, { confirm: false })
+    clearDraft()
+    setAdding(true)
+    return true
   }
 
   return (
@@ -601,19 +815,35 @@ export function SendSheet({
         // Red: this is the tap that emails someone (design system §4.1).
         <button
           type="button"
-          disabled={chosen.length === 0 || send.isPending || !settled}
-          onClick={() => send.mutate(chosen.map((entry) => entry.address))}
+          disabled={count === 0 || send.isPending || checking || !settled}
+          onClick={() => void sendNow()}
           className={`${PRIMARY_BUTTON} flex w-full items-center justify-center gap-2`}
         >
           <Send size={16} strokeWidth={2} />
-          {send.isPending
-            ? 'Sending…'
-            : chosen.length === 0
-              ? 'Choose who to send to'
-              : `Send to ${chosen.length === 1 ? '1 person' : `${chosen.length} people`}`}
+          {!settled
+            ? 'Send'
+            : checking
+              ? 'Checking…'
+              : send.isPending
+                ? 'Sending…'
+                : count === 0
+                  ? 'Choose who to send to'
+                  : `Send to ${count === 1 ? '1 person' : `${count} people`}${askingTyped ? ' anyway' : ''}`}
         </button>
       }
     >
+      {/* Who is on file comes from the server: until it does, Send waits,
+          and says why rather than sitting grey. */}
+      {!settled &&
+        (knownQuery.isError ? (
+          <LoadFailed
+            what="who this report goes to"
+            onRetry={() => void knownQuery.refetch()}
+          />
+        ) : (
+          <RowPending label="Finding who this goes to" className="py-1" />
+        ))}
+
       {settled && recipients.length === 0 && (
         <p className="text-body text-ink-2">
           {`No email on file for ${recordClient?.name ?? clientName ?? 'the client'}. Add an address and it goes there.`}
@@ -640,6 +870,7 @@ export function SendSheet({
                     type="button"
                     aria-pressed={entry.chosen}
                     aria-describedby={noMailDomain ? noMailId : undefined}
+                    disabled={checking}
                     onClick={() =>
                       setOverrides((prev) => ({
                         ...prev,
@@ -724,6 +955,7 @@ export function SendSheet({
                     <button
                       type="button"
                       aria-pressed={saveToRecord}
+                      disabled={checking}
                       onClick={() => setSaveToRecord((on) => !on)}
                       className="mt-1 flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-blue"
                     >
@@ -755,8 +987,22 @@ export function SendSheet({
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
+              enterKeyHint="done"
+              // Held while Send asks about it: what goes is what was there
+              // when Send was tapped.
+              readOnly={checking}
               value={draft}
+              onPaste={(event) => {
+                if (pasteList(event.clipboardData.getData('text'))) {
+                  event.preventDefault()
+                }
+              }}
               onChange={(event) => {
+                const inserted =
+                  'data' in event.nativeEvent
+                    ? (event.nativeEvent as InputEvent).data
+                    : null
+                if (finishOnSeparator(event.target.value, inserted)) return
                 const next = event.target.value.trim().toLowerCase()
                 // Put right (or cleared), it goes quiet until next left.
                 if (
@@ -789,14 +1035,19 @@ export function SendSheet({
               aria-describedby={describedBy(
                 showDraftProblem && draftErrorId,
                 (showDraftTypo || showDraftNoMail) && draftWarningId,
+                showDraftInfo && draftInfoId,
               )}
               placeholder="name@example.com"
-              className={`h-11 min-w-0 flex-1 rounded-xl bg-surface-3 px-3 text-[16px] text-ink outline-none ${showDraftProblem ? 'ring-2 ring-red' : 'focus:ring-2 focus:ring-blue'}`}
+              // The app's own field, not a well of its own that all but
+              // vanished against the sheet.
+              className={`${fieldInputClass('md', showDraftProblem)} min-w-0 flex-1`}
             />
             <button
               type="button"
               onClick={addTyped}
-              className="shrink-0 rounded-xl bg-surface-2 px-3.5 text-body font-semibold text-ink"
+              disabled={checking}
+              // Ink, not grey: a grey fill all but vanishes on a sheet.
+              className={`${NEUTRAL_BUTTON_COMPACT} shrink-0 px-4`}
             >
               {typoAsked === typed ? 'Add anyway' : 'Add'}
             </button>
@@ -831,6 +1082,36 @@ export function SendSheet({
               {noMailMessage(draftDomain)}
             </FieldMessage>
           )}
+          {/* What its chip would say, said of the address still in the box:
+              Send takes it as it is. */}
+          {showDraftInfo && (
+            <p
+              id={draftInfoId}
+              className="mt-1.5 flex items-center gap-1 px-1 text-caption text-ink-2"
+            >
+              <Info
+                size={13}
+                strokeWidth={2}
+                aria-hidden
+                className="shrink-0 text-blue"
+              />
+              Not on the client’s record
+            </p>
+          )}
+          {draftSavable && (
+            <button
+              type="button"
+              aria-pressed={saveToRecord}
+              disabled={checking}
+              onClick={() => setSaveToRecord((on) => !on)}
+              className="mt-1 flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-blue"
+            >
+              <TickBox on={saveToRecord} />
+              <span className="min-w-0 flex-1 text-body text-ink">
+                Also save to {recordClient?.name}’s record
+              </span>
+            </button>
+          )}
         </div>
       ) : (
         <button
@@ -843,7 +1124,7 @@ export function SendSheet({
         </button>
       )}
 
-      {copy && copied(chosen.map((entry) => entry.address)) && (
+      {copy && copied(outgoing) && (
         <p className="mt-3 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
           <Send
             size={13}
@@ -854,7 +1135,7 @@ export function SendSheet({
           {/* One email per person (see `send`), so one copy per email: the
               business's inbox then shows each email and who it went to. */}
           <span>
-            {chosen.length > 1 ? 'A copy of each goes to ' : 'A copy goes to '}
+            {count > 1 ? 'A copy of each goes to ' : 'A copy goes to '}
             <span className="break-words font-semibold text-ink">{copy}</span>.
           </span>
         </p>
@@ -864,19 +1145,17 @@ export function SendSheet({
           ones on this phone, and the first send of a big report makes its
           copy, which takes longer than an ordinary send. Not where email
           isn't set up: nothing would go, smaller or not. */}
-      {known?.largeForEmail === true &&
-        known.emailReady &&
-        chosen.length > 0 && (
-          <p className="mt-2 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
-            <Info
-              size={13}
-              strokeWidth={2}
-              aria-hidden
-              className="mt-0.5 shrink-0"
-            />
-            <span>{LARGE_FOR_EMAIL} Sending it can take up to a minute.</span>
-          </p>
-        )}
+      {known?.largeForEmail === true && known.emailReady && count > 0 && (
+        <p className="mt-2 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5 text-caption text-ink-2">
+          <Info
+            size={13}
+            strokeWidth={2}
+            aria-hidden
+            className="mt-0.5 shrink-0"
+          />
+          <span>{LARGE_FOR_EMAIL} Sending it can take up to a minute.</span>
+        </p>
+      )}
 
       {/* The whole tap refused, with no signal: nothing went to anyone. */}
       <FormAlert
