@@ -1,3 +1,5 @@
+import { sameName } from './contactNames'
+
 /**
  * Who a technician rings about a visit (Prompt 6.3), and who they ask for.
  *
@@ -32,7 +34,8 @@ export type CallTarget = {
   atSite: boolean
   /** Who to ask for, for the card's Contact line: the person Call reaches,
    * or the contact person when Call rings the business's own line. Undefined
-   * for a person client — the card's heading is them already — and when
+   * for a person client — the card's heading is them already — and so for a
+   * sole trader whose contact person is the business's own name; and when
    * nobody is named, as for a site number saved without a name: the card
    * never names someone its Call does not reach. */
   askFor: string | undefined
@@ -48,6 +51,9 @@ export function contactToCall(input: {
   contactPersonPhone?: string
 }): CallTarget {
   const business = input.clientKind === 'business'
+  // Nobody to ask for who is already the card's heading.
+  const named = (who: string | undefined) =>
+    who !== undefined && !sameName(who, input.clientName) ? who : undefined
   const sitePhone = input.siteContactPhone?.trim()
   if (business && sitePhone) {
     const siteName = input.siteContactName?.trim() || undefined
@@ -55,7 +61,7 @@ export function contactToCall(input: {
       name: siteName ?? input.clientName,
       phone: sitePhone,
       atSite: true,
-      askFor: siteName,
+      askFor: named(siteName),
     }
   }
   const contactName = business
@@ -69,14 +75,14 @@ export function contactToCall(input: {
       name: contactName,
       phone: contactPhone,
       atSite: false,
-      askFor: contactName,
+      askFor: named(contactName),
     }
   }
   return {
     name: input.clientName,
     phone: input.clientPhone?.trim() || undefined,
     atSite: false,
-    askFor: contactName,
+    askFor: named(contactName),
   }
 }
 

@@ -233,6 +233,44 @@ describe('who a visit asks for', () => {
     }
   })
 
+  test('a sole trader’s contact person who is the business itself is not named twice', () => {
+    const soleTrader = {
+      clientKind: 'business' as const,
+      clientName: 'Jan Morris',
+      clientPhone: '0412 345 678',
+    }
+    // The heading already says it: no Contact line.
+    expect(
+      contactToCall({ ...soleTrader, contactPersonName: ' jan  morris ' }),
+    ).toEqual({
+      name: 'Jan Morris',
+      phone: '0412 345 678',
+      atSite: false,
+      askFor: undefined,
+    })
+    // Their own number is still the one rung.
+    expect(
+      contactToCall({
+        ...soleTrader,
+        contactPersonName: 'Jan Morris',
+        contactPersonPhone: '0400 999 888',
+      }),
+    ).toEqual({
+      name: 'Jan Morris',
+      phone: '0400 999 888',
+      atSite: false,
+      askFor: undefined,
+    })
+    // So is a site's, under the same rule.
+    expect(
+      contactToCall({
+        ...soleTrader,
+        siteContactName: 'Jan Morris',
+        siteContactPhone: '0400 111 222',
+      }).askFor,
+    ).toBeUndefined()
+  })
+
   test.each(['', '   '])(
     'a blank contact person ("%s") is nobody, and their number with them',
     (blank) => {
