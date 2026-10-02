@@ -395,6 +395,42 @@ export async function binContact(
 }
 
 /**
+ * A client's contact person is its one starred contact, and the bin leaves
+ * the star on: a contact person deleted by mistake comes back as the contact
+ * person. Unless someone else was made it in the meantime — `setPrimary` and
+ * `setContactPerson` only take the star off contacts outside the bin — when
+ * the later choice stands and this one comes back as a plain contact.
+ * Otherwise the client would have two, and every screen would quietly show
+ * the older one (lib/contactPerson.ts takes the first).
+ *
+ * `restored` are the contacts just brought back, each deleted on its own: a
+ * client's contacts are not marked when the client is (`gather`), so
+ * restoring a client leaves its star as it was.
+ */
+async function keepOneContactPerson(
+  ctx: MutationCtx,
+  restored: Array<Doc<'clientContacts'>>,
+) {
+  const restoredIds = new Set(restored.map((c) => c._id))
+  for (const contact of restored) {
+    if (!contact.isPrimary) continue
+    const starred = await ctx.db
+      .query('clientContacts')
+      .withIndex('by_client', (q) => q.eq('clientId', contact.clientId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('deletedAt'), undefined),
+          q.eq(q.field('isPrimary'), true),
+        ),
+      )
+      .collect()
+    if (starred.some((other) => !restoredIds.has(other._id))) {
+      await ctx.db.patch(contact._id, { isPrimary: false })
+    }
+  }
+}
+
+/**
  * Brings a delete back exactly as it went in: every row carrying this entry,
  * and nothing else.
  *
@@ -447,6 +483,7 @@ export const restore = mutation({
     for (const rows of [properties, recurrences, jobs, notes, contacts]) {
       for (const row of rows) await ctx.db.patch(row._id, back)
     }
+    await keepOneContactPerson(ctx, contacts)
     // A correction whose report the owner deleted while it was in here goes
     // to that report in Recently Deleted instead (reports.ts).
     for (const draft of drafts) {
