@@ -133,6 +133,118 @@ describe('a contact', () => {
   })
 })
 
+/**
+ * A client's contact person is its one starred contact (lib/contactPerson.ts,
+ * the job card's Contact line). The bin keeps the star, so a contact person
+ * deleted by mistake comes back as one, but never as a second.
+ */
+describe('a contact person and the bin', () => {
+  function starred(s: Setup) {
+    return s.t.run(async (ctx) =>
+      (
+        await ctx.db
+          .query('clientContacts')
+          .withIndex('by_client', (q) => q.eq('clientId', s.nguyen.clientId))
+          .collect()
+      )
+        .filter((c) => c.deletedAt === undefined && c.isPrimary)
+        .map((c) => c.name),
+    )
+  }
+
+  function person(s: Setup, name: string, isPrimary = false) {
+    return s.t.run((ctx) =>
+      ctx.db.insert('clientContacts', {
+        businessId: s.businessId,
+        clientId: s.nguyen.clientId,
+        name,
+        ...(isPrimary && { isPrimary }),
+        createdAt: Date.now(),
+      }),
+    )
+  }
+
+  test('comes back as the contact person when nobody replaced them', async () => {
+    const s = await setup()
+    const sam = await person(s, 'Sam Lee', true)
+    const entryId = await s.owner.as.mutation(api.bin.deleteContact, {
+      businessId: s.businessId,
+      contactId: sam,
+    })
+    expect(await starred(s)).toEqual([])
+
+    await s.owner.as.mutation(api.bin.restore, {
+      businessId: s.businessId,
+      entryId,
+    })
+    expect(await starred(s)).toEqual(['Sam Lee'])
+  })
+
+  test('comes back as a plain contact when someone else was made it meanwhile', async () => {
+    const s = await setup()
+    const sam = await person(s, 'Sam Lee', true)
+    const entryId = await s.owner.as.mutation(api.bin.deleteContact, {
+      businessId: s.businessId,
+      contactId: sam,
+    })
+    const priya = await person(s, 'Priya Shah')
+    await s.owner.as.mutation(api.clientContacts.setPrimary, {
+      businessId: s.businessId,
+      contactId: priya,
+    })
+
+    await s.owner.as.mutation(api.bin.restore, {
+      businessId: s.businessId,
+      entryId,
+    })
+    // One star, and it is the later choice.
+    expect(await starred(s)).toEqual(['Priya Shah'])
+    const back = await s.t.run((ctx) => ctx.db.get(sam))
+    expect(back?.deletedAt).toBeUndefined()
+    expect(back?.isPrimary).toBe(false)
+  })
+
+  test('the same when the replacement came through the client form', async () => {
+    const s = await setup()
+    // The form's contact person is a business client's.
+    await s.t.run((ctx) =>
+      ctx.db.patch(s.nguyen.clientId, { kind: 'business' }),
+    )
+    const sam = await person(s, 'Sam Lee', true)
+    const entryId = await s.owner.as.mutation(api.bin.deleteContact, {
+      businessId: s.businessId,
+      contactId: sam,
+    })
+    await s.owner.as.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId: s.nguyen.clientId,
+      contactPerson: 'Priya Shah',
+    })
+
+    await s.owner.as.mutation(api.bin.restore, {
+      businessId: s.businessId,
+      entryId,
+    })
+    expect(await starred(s)).toEqual(['Priya Shah'])
+  })
+
+  test('a client restored from the bin keeps its one contact person', async () => {
+    const s = await setup()
+    await person(s, 'Sam Lee', true)
+    await person(s, 'Priya Shah')
+    const entryId = await s.owner.as.mutation(api.bin.deleteClient, {
+      businessId: s.businessId,
+      clientId: s.nguyen.clientId,
+    })
+
+    await s.owner.as.mutation(api.bin.restore, {
+      businessId: s.businessId,
+      entryId,
+    })
+    expect(await starred(s)).toEqual(['Sam Lee'])
+  })
+})
+
 describe('clients archived before the bin', () => {
   test('move into it, and restoring one un-archives it', async () => {
     const s = await setup()
