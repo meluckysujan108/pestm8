@@ -48,6 +48,11 @@ export type JobRow = {
   clientKind?: 'person' | 'business'
   siteContactName?: string
   siteContactPhone?: string
+  /** A business client's contact person: the card's Contact line, and who
+   * Call rings when they have a number of their own. Absent from a backend
+   * older than the line — then the card names nobody, as before. */
+  contactPersonName?: string
+  contactPersonPhone?: string
   assigneeColour: string
   assigneeName?: string
   assignedMembershipId: string
@@ -182,15 +187,19 @@ export function JobCard({
     hideActions ? 'none' : cardActionsFor(job, timezone, now),
   )
   // Call and Text ring whoever is at the site, where a business site has its
-  // own number (convex/lib/siteContact.ts). Email stays the client's: an
-  // address is for paperwork, and head office is who gets it. The heading
-  // stays the client's name either way — it is whose job this is.
+  // own number, then the contact person, where they have one
+  // (convex/lib/siteContact.ts). Email stays the client's: an address is for
+  // paperwork, and head office is who gets it. The heading stays the client's
+  // name either way — it is whose job this is — and the Contact line beside
+  // the price says who to ask for.
   const callee = contactToCall({
     clientKind: job.clientKind,
     clientName: job.clientName,
     clientPhone: job.clientPhone,
     siteContactName: job.siteContactName,
     siteContactPhone: job.siteContactPhone,
+    contactPersonName: job.contactPersonName,
+    contactPersonPhone: job.contactPersonPhone,
   })
   const phone = callee.phone
   const email = job.clientEmail || undefined
@@ -342,8 +351,24 @@ export function JobCard({
           <WeatherStrip cell={weather} />
 
           <span className="mt-auto flex items-end justify-between gap-2 border-t border-hairline-2 pt-3">
-            <span className="min-w-0 truncate text-caption text-muted">
-              {travel ?? ''}
+            <span className="min-w-0">
+              {travel && (
+                <span className="block truncate text-caption text-muted">
+                  {travel}
+                </span>
+              )}
+              {/* Who to ask for, on the price's line: straight above Call,
+                  Text and Email, so whoever holds Call knows who they are
+                  ringing for. A business's contact person, or the site's;
+                  never a person client, whose name is the heading. */}
+              {callee.askFor && (
+                <span className="block truncate text-caption">
+                  <span className="text-muted">Contact</span>{' '}
+                  <span className="font-semibold text-ink-2">
+                    {callee.askFor}
+                  </span>
+                </span>
+              )}
             </span>
             <span className="shrink-0 text-metric-sm leading-none text-ink">
               {formatJobMoney(job)}

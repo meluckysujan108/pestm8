@@ -318,12 +318,19 @@ function JobDetailBody({
         siteContactPhone: job.property.siteContactPhone,
       })
     : null
-  // The client's own buttons are captioned only beside a site contact, so the
-  // technician can tell which Call is the site and which the office — and
-  // only when there are buttons to caption.
+  // A business client's contact person (convex/lib/contactPerson.ts): who to
+  // ask for, with their own Call and Text when they have a number. Absent
+  // from a backend older than it, and null for a person client.
+  const contactPerson = job?.contactPerson ?? null
+  // The client's own buttons are captioned only beside another Call — the
+  // site's or the contact person's — so the technician can tell which Call is
+  // whose, and only when there are buttons to caption. Beside a contact
+  // person with no number of their own they stay uncaptioned, under the
+  // name: the business's line is where to ask for them.
   const client = job?.property?.client
   const captionOffice =
-    siteContact !== null && Boolean(client?.phone || client?.email)
+    (siteContact !== null || Boolean(contactPerson?.phone)) &&
+    Boolean(client?.phone || client?.email)
 
   if (job && editing) {
     // Edit mode is the form and nothing else, its Save and Cancel pinned
@@ -547,6 +554,30 @@ function JobDetailBody({
                       <ContactButtons
                         name={siteContact.name ?? 'site contact'}
                         phone={siteContact.phone}
+                        show={['call', 'text']}
+                      />
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* The client's contact person — who to ask for. The job card
+                names them beside the price; here with their number, and their
+                own Call and Text, when they have one. */}
+            {contactPerson && (
+              <div className="mt-3 border-t border-hairline-2 pt-3">
+                <h4 className="section-label mb-1">Contact person</h4>
+                <p className="text-body text-ink">{contactPerson.name}</p>
+                {contactPerson.phone && (
+                  <>
+                    <p className="text-caption text-muted">
+                      {contactPerson.phone}
+                    </p>
+                    <div className="mt-2">
+                      <ContactButtons
+                        name={contactPerson.name}
+                        phone={contactPerson.phone}
                         show={['call', 'text']}
                       />
                     </div>

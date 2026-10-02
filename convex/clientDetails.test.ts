@@ -825,6 +825,7 @@ describe('what a job row carries for the card’s Call', () => {
       name: 'Jan Morris',
       phone: '0400 111 222',
       atSite: true,
+      askFor: 'Jan Morris',
     })
 
     const timezone = await s.t.run(
@@ -855,6 +856,188 @@ describe('what a job row carries for the card’s Call', () => {
       siteContactName: '',
       siteContactPhone: '',
     })
+  })
+})
+
+/**
+ * The card's Contact line: a business client's contact person on each of its
+ * visits, so whoever holds Call knows who to ask for — the owner's customer
+ * ringing "Turbo Sushi" with no idea who to talk to. What can go wrong is a
+ * name on the wrong card: a person client's hidden contacts, someone in the
+ * Recycle bin, someone who is not the contact person at all.
+ */
+describe('what a job row carries for the card’s Contact line', () => {
+  async function bookAt(
+    s: Setup,
+    propertyId: Id<'properties'>,
+    at = Date.now() + DAY,
+  ) {
+    return s.owner.as.mutation(api.jobs.create, {
+      ...booking(s),
+      propertyId,
+      scheduledAt: at,
+    })
+  }
+
+  async function rows(s: Setup) {
+    const { jobs } = await s.owner.as.query(api.jobs.list, {
+      businessId: s.businessId,
+    })
+    return jobs
+  }
+
+  function insertContact(
+    s: Setup,
+    clientId: Id<'clients'>,
+    fields: Partial<Doc<'clientContacts'>> = {},
+  ) {
+    return s.t.run((ctx) =>
+      ctx.db.insert('clientContacts', {
+        businessId: s.businessId,
+        clientId,
+        name: 'Sam Lee',
+        isPrimary: true,
+        createdAt: Date.now(),
+        ...fields,
+      }),
+    )
+  }
+
+  test('the contact person set on the client rides on every visit, beside the client’s number', async () => {
+    const s = await setup()
+    const { clientId, propertyId } = await insertClient(s)
+    // The way the owner's data has it: a name from the client form or an
+    // import, with no number of their own.
+    await s.owner.as.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId,
+      contactPerson: 'Sam Lee',
+    })
+    // Two visits for one client: the contact person is read once per client,
+    // and both must carry it.
+    const at = Date.now() + DAY
+    await bookAt(s, propertyId, at)
+    await bookAt(s, propertyId, at + 2 * 60 * 60 * 1000)
+
+    const jobs = await rows(s)
+    expect(jobs).toHaveLength(2)
+    for (const job of jobs) {
+      expect(job).toMatchObject({
+        clientName: 'Coastal Cafe Group',
+        clientPhone: '08 9335 1000',
+        contactPersonName: 'Sam Lee',
+        contactPersonPhone: '',
+      })
+      // Call rings the business, and the card says to ask for Sam.
+      expect(contactToCall(job)).toEqual({
+        name: 'Coastal Cafe Group',
+        phone: '08 9335 1000',
+        atSite: false,
+        askFor: 'Sam Lee',
+      })
+    }
+
+    const timezone = await s.t.run(
+      async (ctx) => (await ctx.db.get(s.businessId))!.timezone,
+    )
+    const day = await s.owner.as.query(api.jobs.listDay, {
+      businessId: s.businessId,
+      dayKey: dayKeyOf(at, timezone),
+    })
+    expect(day[0]).toMatchObject({ contactPersonName: 'Sam Lee' })
+  })
+
+  test('a contact person’s own number rides beside the client’s, and is who Call rings', async () => {
+    const s = await setup()
+    const { clientId, propertyId } = await insertClient(s)
+    await insertContact(s, clientId, { phone: '0411 222 333' })
+    await bookAt(s, propertyId)
+
+    const [job] = await rows(s)
+    expect(job).toMatchObject({
+      // Still the client's line: an older card dials this under the
+      // client's name.
+      clientPhone: '08 9335 1000',
+      contactPersonName: 'Sam Lee',
+      contactPersonPhone: '0411 222 333',
+    })
+    expect(contactToCall(job)).toEqual({
+      name: 'Sam Lee',
+      phone: '0411 222 333',
+      atSite: false,
+      askFor: 'Sam Lee',
+    })
+  })
+
+  test('only the contact person: not another contact, and not one in the Recycle bin', async () => {
+    const s = await setup()
+    const { clientId, propertyId } = await insertClient(s)
+    await insertContact(s, clientId, {
+      name: 'Priya Shah',
+      role: 'Accounts',
+      isPrimary: false,
+      phone: '0400 999 888',
+    })
+    await insertContact(s, clientId, {
+      name: 'Old Contact',
+      deletedAt: Date.now(),
+    })
+    await bookAt(s, propertyId)
+
+    const [job] = await rows(s)
+    expect(job).toMatchObject({
+      contactPersonName: '',
+      contactPersonPhone: '',
+    })
+    expect(contactToCall(job).askFor).toBeUndefined()
+
+    // Given the star, Priya is the one.
+    await insertContact(s, clientId, { name: 'Priya Shah' })
+    expect((await rows(s))[0]).toMatchObject({
+      contactPersonName: 'Priya Shah',
+    })
+  })
+
+  test('a person client carries nobody, even with contacts kept from being a business', async () => {
+    const s = await setup()
+    const { clientId, propertyId } = await insertClient(s, {
+      kind: 'person',
+      name: 'J. Nguyen',
+      phone: '0412 345 678',
+    })
+    await insertContact(s, clientId, { phone: '0411 222 333' })
+    await bookAt(s, propertyId)
+
+    const [job] = await rows(s)
+    expect(job).toMatchObject({
+      contactPersonName: '',
+      contactPersonPhone: '',
+    })
+    expect(contactToCall(job)).toEqual({
+      name: 'J. Nguyen',
+      phone: '0412 345 678',
+      atSite: false,
+      askFor: undefined,
+    })
+  })
+
+  test('the job sheet gets the contact person, and null for a person client', async () => {
+    const s = await setup()
+    const business = await insertClient(s)
+    await insertContact(s, business.clientId, { name: ' Sam Lee ' })
+    const businessJob = await bookAt(s, business.propertyId)
+
+    const person = await insertClient(s, { kind: 'person', name: 'J. Nguyen' })
+    await insertContact(s, person.clientId)
+    const personJob = await bookAt(s, person.propertyId)
+
+    const sheet = (jobId: Id<'jobs'>) =>
+      s.owner.as.query(api.jobs.get, { businessId: s.businessId, jobId })
+    expect((await sheet(businessJob))?.contactPerson).toEqual({
+      name: 'Sam Lee',
+      phone: undefined,
+    })
+    expect((await sheet(personJob))?.contactPerson).toBeNull()
   })
 })
 

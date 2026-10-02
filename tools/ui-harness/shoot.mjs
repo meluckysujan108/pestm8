@@ -145,6 +145,7 @@ const PLAN = {
   // Three services and a note: the title, the Notes section, and a report
   // shortcut for each form the job produces.
   'jobdetail-services': { before: async (p) => p.waitForTimeout(900) },
+  'jobdetail-contact': { before: async (p) => p.waitForTimeout(900) },
   'jobdetail-services-reports': {
     spec: 'jobdetail-services',
     before: async (p) => {
