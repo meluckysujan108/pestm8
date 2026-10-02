@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Check, PenLine } from 'lucide-react'
-import { SignSheet } from './SignSheet'
+import { ReportSigning } from './ReportSigning'
 import { api } from '../../../../convex/_generated/api'
 import { useHydrated } from '#/lib/useHydrated'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -11,7 +11,7 @@ import { SECONDARY_BUTTON } from '#/components/primitives/buttons'
 /**
  * A signature in the form: what was signed, or the way to sign it.
  *
- * The pad itself lives in a sheet — see `SignSheet` for why — so what stays on
+ * The pad itself has a screen of its own — see `ReportSigning` for why — so what stays on
  * the form is the evidence: the signature as an image once there is one, and
  * one button when there is not.
  */
@@ -80,7 +80,7 @@ export function SignatureRow({
         )}
       </button>
 
-      <SignSheet
+      <ReportSigning
         open={signing}
         onClose={() => setSigning(false)}
         businessId={businessId}

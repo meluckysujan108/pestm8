@@ -8,7 +8,7 @@ import type { Point } from '#/lib/canvasStrokes'
  * A hand-rolled canvas annotator — freehand red pen over a loaded photo, no
  * library. Per the plan's Phase 7 note, Konva (~150 KB gzipped) was
  * evaluated and skipped: this needs the same pointer-event canvas
- * `SignSheet.tsx` already established, just drawing over an image instead
+ * the signature pad established, just drawing over an image instead
  * of a blank background.
  *
  * The whole canvas is redrawn (image + every stroke so far) on every change

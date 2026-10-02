@@ -11,7 +11,7 @@ import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { useBlocker, useRouter } from '@tanstack/react-router'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
-import type { ReactNode, RefObject } from 'react'
+import type { ReactNode, Ref, RefObject } from 'react'
 
 /**
  * True inside a sheet. A sheet opened from one — a picker over the New Job
@@ -443,12 +443,16 @@ export function Sheet({
 export function SheetCloseButton({
   onClick,
   label = 'Close',
+  ref,
 }: {
   onClick: () => void
   label?: string
+  /** For a layer that puts focus on its ✕ as it opens (`SigningScreen`). */
+  ref?: Ref<HTMLButtonElement>
 }) {
   return (
     <button
+      ref={ref}
       type="button"
       aria-label={label}
       onClick={onClick}
