@@ -56,7 +56,7 @@ export function SearchBox({
   }, [draft, value])
 
   return (
-    <label className="flex h-10 flex-1 items-center gap-2 rounded-xl bg-surface-3 px-3 focus-within:ring-2 focus-within:ring-blue">
+    <label className="flex h-10 flex-1 items-center gap-2 rounded-xl border border-field-edge bg-surface-3 px-3 focus-within:ring-2 focus-within:ring-blue">
       <Search size={16} strokeWidth={2} className="shrink-0 text-muted" />
       <span className="sr-only">{label}</span>
       <input

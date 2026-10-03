@@ -496,6 +496,265 @@ test.describe('the send sheet', () => {
     ).toBeVisible()
   })
 
+  test('sends to an address that was typed and never added', async ({
+    page,
+  }) => {
+    const s = await setupBusinessWithSub('send-sheet-typed')
+    const property = await s.owner.client.query(api.properties.get, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    await s.owner.client.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId: property!.clientId,
+      email: 'client@example.com',
+    })
+    const reportId = await createReport(s.sub.client, s, 'serviceReport')
+    await finaliseReport(s.sub.client, s, reportId, 'serviceReport', {
+      sendCopy: true,
+    })
+
+    await signInViaUi(page, s.sub.email)
+    await page.goto(`/${s.slug}/reports/${reportId}`)
+    await page.getByRole('button', { name: 'Send this report' }).click()
+
+    const sheet = page.getByRole('dialog')
+    await sheet.getByRole('button', { name: 'Send to someone else' }).click()
+    const box = sheet.getByLabel('Email address')
+    // A comma finishes an address, as Add does.
+    await box.pressSequentially('agent@elsewhere.example,')
+    await expect(
+      sheet.getByRole('button', { name: /agent@elsewhere\.example/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await expect(box).toHaveValue('')
+
+    // And one left in the box goes with the rest: Send counts it and sends
+    // it, where it used to leave it behind without a word.
+    await box.fill('strata@elsewhere.example')
+    await sheet.getByRole('button', { name: /Send to 3 people/ }).click()
+    const results = sheet.getByRole('status')
+    await expect(
+      results.getByText(/^strata@elsewhere\.example —/),
+    ).toBeVisible()
+    await expect(results.getByText(/^agent@elsewhere\.example —/)).toBeVisible()
+    await expect(results.getByText(/^client@example\.com —/)).toBeVisible()
+  })
+
+  test('holds a typed address that needs another look, and sends it when asked again', async ({
+    page,
+  }) => {
+    const s = await setupBusinessWithSub('send-sheet-held')
+    const property = await s.owner.client.query(api.properties.get, {
+      businessId: s.businessId,
+      propertyId: s.propertyId,
+    })
+    await s.owner.client.mutation(api.clients.update, {
+      businessId: s.businessId,
+      clientId: property!.clientId,
+      email: 'client@example.com',
+    })
+    const reportId = await createReport(s.sub.client, s, 'serviceReport')
+    await finaliseReport(s.sub.client, s, reportId, 'serviceReport', {
+      sendCopy: true,
+    })
+
+    await signInViaUi(page, s.sub.email)
+    await page.goto(`/${s.slug}/reports/${reportId}`)
+    await page.getByRole('button', { name: 'Send this report' }).click()
+
+    const sheet = page.getByRole('dialog')
+    await sheet.getByRole('button', { name: 'Send to someone else' }).click()
+    const box = sheet.getByLabel('Email address')
+    await box.fill('bob@gmial.com')
+
+    // Send holds it, and the box says why: nothing has gone to anyone.
+    await sheet.getByRole('button', { name: 'Send to 2 people' }).click()
+    await expect(sheet.getByText('Did you mean bob@gmail.com?')).toBeVisible()
+    await expect(box).toBeFocused()
+    await expect(sheet.getByText(/^client@example\.com —/)).toHaveCount(0)
+
+    // A comma never takes it as it is.
+    await box.press('End')
+    await box.press(',')
+    await expect(box).toHaveValue('bob@gmial.com')
+    await expect(
+      sheet.getByRole('button', { name: /bob@gmial\.com/ }),
+    ).toHaveCount(0)
+
+    // Asked once, Send says it goes as typed — and it does.
+    await sheet.getByRole('button', { name: 'Send to 2 people anyway' }).click()
+    const results = sheet.getByRole('status')
+    await expect(results.getByText(/^bob@gmial\.com —/)).toBeVisible()
+    await expect(results.getByText(/^client@example\.com —/)).toBeVisible()
+  })
+
+  test('offers to keep a typed address for a client whose record has none', async ({
+    page,
+  }) => {
+    const s = await setupBusinessWithSub('send-sheet-save-offer')
+    const reportId = await createReport(s.sub.client, s, 'serviceReport')
+    await finaliseReport(s.sub.client, s, reportId, 'serviceReport', {
+      sendCopy: false,
+    })
+
+    await signInViaUi(page, s.sub.email)
+    await page.goto(`/${s.slug}/reports/${reportId}`)
+    await page.getByRole('button', { name: 'Send this report' }).click()
+
+    // Nobody on file, so the box is open — and what is typed there is
+    // offered for the record before Send, not only once it is added.
+    const sheet = page.getByRole('dialog')
+    const box = sheet.getByLabel('Email address')
+    await box.fill('new@elsewhere.example')
+    await expect(sheet.getByText('Not on the client’s record')).toBeVisible()
+    const keep = sheet.getByRole('button', {
+      name: 'Also save to J. Nguyen’s record',
+    })
+    await expect(keep).toHaveAttribute('aria-pressed', 'false')
+    await keep.click()
+    await expect(
+      sheet.getByRole('button', { name: 'Send to 1 person' }),
+    ).toBeVisible()
+
+    // Added, the offer moves with it to its chip, still ticked.
+    await sheet.getByRole('button', { name: 'Add', exact: true }).click()
+    await expect(
+      sheet.getByRole('button', { name: /new@elsewhere\.example/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await expect(keep).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  test.describe('asking whether a typed domain takes mail', () => {
+    // Requests answered by `page.route` must not be taken by the service
+    // worker first (Playwright's own advice for request interception).
+    test.use({ serviceWorkers: 'block' })
+
+    test('holds the sheet still while it asks, and holds a domain that takes no mail', async ({
+      page,
+    }) => {
+      const s = await setupBusinessWithSub('send-sheet-dns')
+      const property = await s.owner.client.query(api.properties.get, {
+        businessId: s.businessId,
+        propertyId: s.propertyId,
+      })
+      await s.owner.client.mutation(api.clients.update, {
+        businessId: s.businessId,
+        clientId: property!.clientId,
+        email: 'client@example.com',
+      })
+      const reportId = await createReport(s.sub.client, s, 'serviceReport')
+      await finaliseReport(s.sub.client, s, reportId, 'serviceReport', {
+        sendCopy: true,
+      })
+
+      // Off under automation unless a spec opts in; this one does, and
+      // answers for the resolvers — slowly, as on one bar of signal, and
+      // "no such domain".
+      await page.addInitScript((key) => {
+        localStorage.setItem(key, 'on')
+      }, 'pestm8:address-lookup')
+      let answer = () => {}
+      const answered = new Promise<void>((resolve) => {
+        answer = resolve
+      })
+      for (const resolver of [
+        'https://dns.google/resolve**',
+        'https://cloudflare-dns.com/dns-query**',
+      ]) {
+        await page.route(resolver, async (route) => {
+          await answered
+          // The app may have given up on this one already.
+          await route.fulfill({ json: { Status: 3 } }).catch(() => {})
+        })
+      }
+
+      await signInViaUi(page, s.sub.email)
+      await page.goto(`/${s.slug}/reports/${reportId}`)
+      await page.getByRole('button', { name: 'Send this report' }).click()
+      const sheet = page.getByRole('dialog')
+      await sheet.getByRole('button', { name: 'Send to someone else' }).click()
+      const box = sheet.getByLabel('Email address')
+      await box.fill('office@nowhere-pest.example')
+      await sheet.getByRole('button', { name: 'Send to 2 people' }).click()
+
+      // Asking: Send says so, and nothing that would change what goes can
+      // be changed until it has its answer.
+      await expect(
+        sheet.getByRole('button', { name: 'Checking…' }),
+      ).toBeDisabled()
+      await expect(box).toHaveAttribute('readonly', '')
+      await expect(
+        sheet.getByRole('button', { name: /client@example\.com/ }),
+      ).toBeDisabled()
+      await expect(
+        sheet.getByRole('button', { name: 'Add', exact: true }),
+      ).toBeDisabled()
+      answer()
+
+      // No such domain: held, said, and nothing went to anyone.
+      await expect(
+        sheet.getByText(
+          'nowhere-pest.example doesn’t look like it receives email.',
+        ),
+      ).toBeVisible()
+      await expect(
+        sheet.getByRole('button', { name: 'Send to 2 people anyway' }),
+      ).toBeEnabled()
+      await expect(box).not.toHaveAttribute('readonly', '')
+      await expect(sheet.getByText(/^client@example\.com —/)).toHaveCount(0)
+    })
+  })
+
+  test.describe('pasting', () => {
+    test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
+
+    test('takes a pasted list whole only when every address in it is ready', async ({
+      page,
+    }) => {
+      const s = await setupBusinessWithSub('send-sheet-paste')
+      const reportId = await createReport(s.sub.client, s, 'serviceReport')
+      await finaliseReport(s.sub.client, s, reportId, 'serviceReport', {
+        sendCopy: false,
+      })
+
+      await signInViaUi(page, s.sub.email)
+      await page.goto(`/${s.slug}/reports/${reportId}`)
+      await page.getByRole('button', { name: 'Send this report' }).click()
+      const sheet = page.getByRole('dialog')
+      const box = sheet.getByLabel('Email address')
+
+      // As a mail app copies them: the names come off, the addresses go in.
+      await page.evaluate(() =>
+        navigator.clipboard.writeText(
+          'Agent Smith <agent@elsewhere.example>; strata@elsewhere.example',
+        ),
+      )
+      await box.focus()
+      await box.press('ControlOrMeta+V')
+      for (const address of [
+        /agent@elsewhere\.example/,
+        /strata@elsewhere\.example/,
+      ]) {
+        await expect(
+          sheet.getByRole('button', { name: address }),
+        ).toHaveAttribute('aria-pressed', 'true')
+      }
+      await expect(box).toHaveValue('')
+
+      // One in it needs a look, so none of it is taken: it waits in the box.
+      await page.evaluate(() =>
+        navigator.clipboard.writeText(
+          'owner@elsewhere.example, tenant@gmial.com',
+        ),
+      )
+      await box.press('ControlOrMeta+V')
+      await expect(box).toHaveValue('owner@elsewhere.example, tenant@gmial.com')
+      await expect(
+        sheet.getByRole('button', { name: /owner@elsewhere\.example/ }),
+      ).toHaveCount(0)
+    })
+  })
+
   test('says what happened to each recipient, not one verdict for all', async ({
     page,
   }) => {

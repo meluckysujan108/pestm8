@@ -127,7 +127,7 @@ export function SectionEditor({
         value={section.preamble ?? ''}
         onChange={(e) => onChange({ ...section, preamble: e.target.value || undefined })}
         placeholder="Preamble (optional)"
-        className="mt-2 h-11 w-full rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink-2 outline-none focus:ring-2 focus:ring-blue"
+        className="mt-2 h-11 w-full rounded-xl border border-field-edge bg-surface-3 px-3.5 text-[16px] text-ink-2 outline-none focus:ring-2 focus:ring-blue"
       />
 
       <div className="mt-3 flex flex-col gap-1.5">

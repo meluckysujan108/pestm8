@@ -78,7 +78,7 @@ export function AbnInput({
         onInvalid={() => setReveal(true)}
         aria-invalid={showError || undefined}
         aria-describedby={showError ? errorId : undefined}
-        className={`${SIZES[size]} w-full rounded-xl bg-surface-3 tabular-nums text-ink outline-none ${showError ? 'ring-2 ring-red' : 'focus:ring-2 focus:ring-blue'}`}
+        className={`${SIZES[size]} w-full rounded-xl border border-field-edge bg-surface-3 tabular-nums text-ink outline-none ${showError ? 'ring-2 ring-red' : 'focus:ring-2 focus:ring-blue'}`}
       />
       {showError && (
         <p

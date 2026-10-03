@@ -475,6 +475,37 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
+  // Typed and not added: Send counts it, and the box says what its chip
+  // would.
+  'send-typed': {
+    spec: 'send',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Send to someone else' }).click()
+      await p.getByLabel('Email address').fill('strata@harbourside.com.au')
+      await p.waitForTimeout(300)
+    },
+  },
+  // A near miss, held by Send: the box says why, and Send now says "anyway".
+  'send-held': {
+    spec: 'send',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Send to someone else' }).click()
+      await p.getByLabel('Email address').fill('bob@gmial.com')
+      await p.getByRole('button', { name: /^Send to/ }).click()
+      await p.waitForTimeout(300)
+    },
+  },
+  // Nobody on file: what is typed is offered for the record before Send.
+  'send-save-offer': {
+    spec: 'send-noclientmail',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByLabel('Email address').fill('jane@harbourside.com.au')
+      await p.waitForTimeout(300)
+    },
+  },
   'form-settings': { before: async (p) => p.waitForTimeout(700) },
   install: { full: true },
   'install-settings': { full: true },

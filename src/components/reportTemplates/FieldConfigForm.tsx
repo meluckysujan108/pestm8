@@ -107,7 +107,7 @@ export function FieldConfigForm({
           aria-invalid={keyTaken || undefined}
           aria-describedby={keyTaken ? keyErrorId : undefined}
           onChange={(e) => onChange({ ...field, key: e.target.value })}
-          className={`h-11 w-full rounded-xl bg-surface-3 px-3.5 font-mono text-[16px] outline-none focus:ring-2 focus:ring-blue ${
+          className={`h-11 w-full rounded-xl border border-field-edge bg-surface-3 px-3.5 font-mono text-[16px] outline-none focus:ring-2 focus:ring-blue ${
             keyTaken ? 'text-red-ink' : 'text-ink-2'
           }`}
         />

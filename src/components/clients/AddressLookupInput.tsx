@@ -280,7 +280,7 @@ export function AddressLookupInput({
             setOpen(false)
             setActive(-1)
           }}
-          className={`${SIZES[size]} w-full rounded-xl bg-surface-3 text-ink outline-none focus:ring-2 focus:ring-blue`}
+          className={`${SIZES[size]} w-full rounded-xl border border-field-edge bg-surface-3 text-ink outline-none focus:ring-2 focus:ring-blue`}
         />
 
         <div

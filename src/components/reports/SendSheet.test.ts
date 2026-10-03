@@ -11,6 +11,7 @@ import {
   sendToEach,
   senderName,
   suggestedRecipients,
+  splitPasted,
 } from './SendSheet'
 
 describe('the addresses the send sheet offers', () => {
@@ -217,5 +218,61 @@ describe('how a send is described afterwards', () => {
     expect(newAddressLine(['a@example.com', 'b@example.com'])).toBe(
       'Weren’t on the client’s record: a@example.com, b@example.com',
     )
+  })
+})
+
+describe('a list of addresses pasted into the box', () => {
+  it('comes apart at commas, semicolons, spaces and new lines', () => {
+    expect(
+      splitPasted('a@example.com, B@Example.com;c@example.com\nd@example.com'),
+    ).toEqual([
+      'a@example.com',
+      'b@example.com',
+      'c@example.com',
+      'd@example.com',
+    ])
+  })
+
+  it('takes the addresses out of the names a mail app copies with them', () => {
+    expect(
+      splitPasted('Bob Smith <bob@example.com>; Jane <Jane@example.com>'),
+    ).toEqual(['bob@example.com', 'jane@example.com'])
+    // Mixed: the bare one is kept, not dropped for the bracketed one.
+    expect(splitPasted('bob@example.com, Jane <jane@example.com>')).toEqual([
+      'bob@example.com',
+      'jane@example.com',
+    ])
+    expect(splitPasted('Bob Smith <bob@example.com>')).toEqual([
+      'bob@example.com',
+    ])
+  })
+
+  it('never lets a name take the address before it', () => {
+    expect(splitPasted('bob@example.com\nJane <jane@example.com>')).toEqual([
+      'bob@example.com',
+      'jane@example.com',
+    ])
+    expect(
+      splitPasted('a@example.com\r\nJane <j@example.com>\nb@example.com'),
+    ).toEqual(['a@example.com', 'j@example.com', 'b@example.com'])
+    // Only a space between them: a piece that is not an address is left,
+    // which holds the paste — never one dropped without a word.
+    expect(splitPasted('bob@example.com Jane <jane@example.com>')).toEqual([
+      'bob@',
+      'jane@example.com',
+    ])
+  })
+
+  it('leaves a piece that is not an address when a name has a comma in it', () => {
+    // Which holds the whole paste: nothing in it is taken without a look.
+    expect(splitPasted('"Smith, Bob" <bob@example.com>')).toEqual([
+      '"smith',
+      'bob@example.com',
+    ])
+  })
+
+  it('finds nothing in nothing but separators', () => {
+    expect(splitPasted('')).toEqual([])
+    expect(splitPasted(' , ;\n')).toEqual([])
   })
 })

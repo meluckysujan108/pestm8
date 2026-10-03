@@ -12,8 +12,10 @@ export type FieldSize = 'lg' | 'md'
  * smaller than 16px the moment it is tapped, and does not zoom back out. The
  * md size was 15px, and zoomed.
  */
+// The edge (--field-edge) is what finds a field in sun: the well's fill is
+// all but the grey of the sheet or card it sits on.
 const FIELD_BASE =
-  'rounded-xl bg-surface-3 px-3.5 text-[16px] text-ink outline-none disabled:opacity-60'
+  'rounded-xl border border-field-edge bg-surface-3 px-3.5 text-[16px] text-ink outline-none disabled:opacity-60'
 
 /** The field look with its focus ring and no height: a textarea (which sets
  * its own `min-h-*`), or a field whose height its content decides. */

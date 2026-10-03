@@ -43,6 +43,10 @@
   --surface: #ffffff;
   --surface-2: #f2f2f7;
   --surface-3: #f4f4f8;
+  /* A field's edge: 3:1 on the canvas, a card and an inset block, so a field
+     can be found in sun. Its well alone (--surface-3) is all but the
+     canvas's own grey. */
+  --field-edge: #86868b;
   --canvas: #ededf1;
   --fill-track: rgba(118, 118, 128, 0.08);
   /* A grey button's fill (buttons.ts). Translucent, as iOS's tertiary fill,
@@ -160,6 +164,7 @@
   /* Nearer --surface than --surface-2 is, mirroring light (#f4f4f8 sits nearer
      white than #f2f2f7 does), so input wells keep reading as input wells. */
   --surface-3: #2a2a2c;
+  --field-edge: #76767b;
   --canvas: #000000;
   --fill-track: rgba(120, 120, 128, 0.28);
   --fill-secondary: rgba(118, 118, 128, 0.24);
@@ -297,6 +302,7 @@
   --color-surface: var(--surface);
   --color-surface-2: var(--surface-2);
   --color-surface-3: var(--surface-3);
+  --color-field-edge: var(--field-edge);
   --color-canvas: var(--canvas);
   --color-fill-track: var(--fill-track);
   --color-fill-secondary: var(--fill-secondary);
