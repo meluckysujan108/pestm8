@@ -74,6 +74,42 @@ describe('what a section still wants', () => {
   })
 })
 
+describe('who it goes to, asked when it locks', () => {
+  test('is not counted on the form, which no longer shows it', () => {
+    // A form whose only questions are the send-copy one and the address box
+    // reads as nothing to fill: they are asked on the sheet that locks it.
+    const delivery: ReportTemplate = {
+      ...service,
+      sections: [
+        {
+          id: 'send',
+          title: 'Send',
+          fields: [
+            {
+              kind: 'toggle',
+              key: 'sendCopy',
+              semantic: 'sendCopyToClient',
+              label: 'Send a copy to the client?',
+              required: true,
+            },
+            {
+              kind: 'emails',
+              key: 'emailReportTo',
+              semantic: 'emailTo',
+              label: 'Email Report To',
+              required: true,
+            },
+          ],
+        },
+      ],
+    }
+    const [section] = reportProgress(delivery, {}).sections
+    expect(section.questions).toBe(0)
+    expect(section.missing).toEqual([])
+    expect(section.done).toBe(true)
+  })
+})
+
 describe('answers the app guessed', () => {
   test('block completion until they are confirmed', () => {
     const progress = reportProgress(

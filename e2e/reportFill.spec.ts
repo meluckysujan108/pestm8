@@ -802,9 +802,11 @@ test.describe('the sheet before the lock', () => {
     await expect(
       sheet.getByText(/Email isn’t set up for this business yet/),
     ).toBeVisible()
-    const toClient = sheet.getByRole('button', { name: /Email the client/ })
+    const toClient = sheet.getByRole('button', {
+      name: /jnguyen@example\.com/,
+    })
     await expect(toClient).toHaveAttribute('aria-pressed', 'true')
-    await expect(toClient).toContainText('jnguyen@example.com')
+    await expect(toClient).toContainText('J. Nguyen · Client')
 
     // "Not yet" is decided here: switched off, the lock opens no delivery.
     await toClient.click()
@@ -858,7 +860,6 @@ test.describe('the sheet before the lock', () => {
     // Taken off here, and still listed, to be put back if that was a slip.
     await strata.click()
     await expect(strata).toHaveAttribute('aria-pressed', 'false')
-    await expect(strata).toContainText('won’t be emailed')
     await strata.click()
     await expect(strata).toHaveAttribute('aria-pressed', 'true')
     await strata.click()
@@ -881,6 +882,117 @@ test.describe('the sheet before the lock', () => {
     expect(deliveries.flatMap((delivery) => delivery.to)).toEqual([
       'agent@elsewhere.example',
     ])
+  })
+})
+
+test.describe('who it goes to', () => {
+  test('is not asked on the form, but on the sheet that locks it, with the client’s contacts named', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, propertyId, reportId } =
+      await startJobReport('fill-lock-picker')
+    const property = await owner.client.query(api.properties.get, {
+      businessId,
+      propertyId,
+    })
+    await owner.client.mutation(api.clients.update, {
+      businessId,
+      clientId: property!.clientId,
+      email: 'jnguyen@example.com',
+    })
+    await owner.client.mutation(api.clientContacts.create, {
+      businessId,
+      clientId: property!.clientId,
+      name: 'Kim Wu',
+      role: 'Property manager',
+      email: 'kim@coastal.example',
+    })
+    await readyToLock(owner, businessId, reportId, {
+      safeToStart: true,
+      treatments: [],
+      sendCopy: true,
+    })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    await builderReady(page)
+
+    // The form asks neither question any more, in either section it did.
+    for (const section of ['clientSite', 'recommendations']) {
+      await page.goto(`/${slug}/reports/${reportId}?s=${section}`)
+      await builderReady(page)
+      await expect(page.getByText('Email Report To')).toHaveCount(0)
+      await expect(page.getByText(/Send copy of the report/)).toHaveCount(0)
+    }
+
+    await page.getByRole('button', { name: 'Finalise & lock' }).click()
+    const sheet = page.getByRole('dialog', { name: 'Ready to lock' })
+    const client = sheet.getByRole('button', { name: /jnguyen@example\.com/ })
+    const kim = sheet.getByRole('button', { name: /kim@coastal\.example/ })
+    await expect(client).toHaveAttribute('aria-pressed', 'true')
+    await expect(kim).toHaveAttribute('aria-pressed', 'false')
+    await expect(kim).toContainText('Kim Wu · Property manager')
+
+    // One tap for the property manager; an address typed and never added
+    // goes with the lock, as it does with Send.
+    await kim.click()
+    await expect(kim).toHaveAttribute('aria-pressed', 'true')
+    await sheet.getByLabel('Email address').fill('strata@elsewhere.example')
+    await sheet.getByRole('button', { name: 'Finalise & lock' }).click()
+
+    await expect
+      .poll(async () => {
+        const report = await owner.client.query(api.reports.get, {
+          businessId,
+          reportId,
+        })
+        return report!.status
+      })
+      .toBe('finalised')
+    const deliveries = await owner.client.query(api.deliveries.forReport, {
+      businessId,
+      reportId,
+    })
+    expect(deliveries.flatMap((delivery) => delivery.to).sort()).toEqual([
+      'jnguyen@example.com',
+      'kim@coastal.example',
+      'strata@elsewhere.example',
+    ])
+  })
+
+  test('holds the lock for an address that can never be delivered to', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, reportId } = await startJobReport(
+      'fill-lock-undeliverable',
+    )
+    // Typed before addresses were checked: in the answers, and refused at lock.
+    await readyToLock(owner, businessId, reportId, {
+      safeToStart: true,
+      treatments: [],
+      sendCopy: false,
+      emailReportTo: ['bob@gmail'],
+    })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    await builderReady(page)
+    // Not a refusal on the form, which no longer shows the box: the sheet
+    // opens, and says what to do there.
+    await page.getByRole('button', { name: 'Finalise & lock' }).click()
+    const sheet = page.getByRole('dialog', { name: 'Ready to lock' })
+    // The row, not its fix ("Use bob@gmail.com").
+    const bob = sheet.getByRole('button', { name: /^bob@gmail(?!\.)/ })
+    await expect(bob).toContainText('Can’t be delivered')
+    const lock = sheet.getByRole('button', { name: 'Finalise & lock' })
+    await expect(lock).toBeDisabled()
+
+    // The address meant, in its place: then it locks.
+    await sheet.getByRole('button', { name: 'Use bob@gmail.com' }).click()
+    await expect(
+      sheet.getByRole('button', { name: /^bob@gmail\.com/ }),
+    ).toHaveAttribute('aria-pressed', 'true')
+    await expect(lock).toBeEnabled()
   })
 })
 
