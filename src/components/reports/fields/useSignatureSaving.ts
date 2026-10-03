@@ -60,12 +60,19 @@ export function useSignatureSaving({
       strokesStorageId,
       method: 'drawn',
       drawnAt: kept.drawnAt,
+      // Refused once the report has moved to a new version of its form,
+      // which withdrew every signature made against the old one.
+      ...(kept.templateVersion !== undefined
+        ? { templateVersion: kept.templateVersion }
+        : {}),
       ...(kept.signedBy ? { signedBy: kept.signedBy } : {}),
       ...(kept.statement ? { statement: kept.statement } : {}),
       // Saving it is the signer's own choice, and only ever their own.
       ...(ownSignature && kept.keepAsMine ? { saveForMember: true } : {}),
     })
-    await forgetSignature(kept.reportId, kept.slot)
+    // This drawing, not whatever is kept for the slot now: a Done made while
+    // this one was on its way is a newer signature.
+    await forgetSignature(kept.reportId, kept.slot, kept.drawnAt)
     return result.signedAt
   }
 

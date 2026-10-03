@@ -457,6 +457,143 @@ test('a drawing kept on the phone can be discarded', async ({
   await expect(page.getByText(/Not saved yet/)).toHaveCount(0)
 })
 
+/** Settings → Sign out, which reloads to the sign-in screen. */
+async function signOut(page: Page, slug: string) {
+  await page.goto(`/${slug}/settings`)
+  const button = page.getByRole('button', { name: 'Sign out' })
+  await expect(button).toBeEnabled()
+  await clickUntil(button, () =>
+    expect(page).toHaveURL(/\/login/, { timeout: 5_000 }),
+  )
+}
+
+test('after a Done that could not save, a changed pad asks before it is thrown away', async ({
+  page,
+  context,
+}) => {
+  const { email, owner, businessId, slug, propertyId } =
+    await setup('sig-redraw')
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+  await signInViaUi(page, email)
+  await page.goto(
+    sectionUrl(slug, reportId, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
+  await draw(page, "Technician's Signature")
+  await context.setOffline(true)
+  await page.getByRole('button', { name: 'Done' }).click()
+  const screen = page.getByRole('dialog')
+  await expect(screen.getByText(/kept on this phone/)).toBeVisible()
+
+  // Drawn again: that drawing is on the pad alone, so it is asked about.
+  await screen.getByRole('button', { name: 'Clear the signature' }).click()
+  await draw(page, "Technician's Signature")
+  await screen.getByRole('button', { name: 'Close' }).click()
+  const discard = page
+    .getByRole('alertdialog')
+    .filter({ hasText: 'Discard this signature?' })
+  await expect(discard).toBeVisible()
+  await discard.getByRole('button', { name: 'Keep signing' }).click()
+  await expect(screen).toBeVisible()
+})
+
+test('a Done tried again on the same drawing keeps the time it was first tapped', async ({
+  page,
+  context,
+}) => {
+  const { email, owner, businessId, slug, propertyId } =
+    await setup('sig-retry')
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+  await signInViaUi(page, email)
+  await page.goto(
+    sectionUrl(slug, reportId, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
+  await draw(page, "Technician's Signature")
+
+  await context.setOffline(true)
+  const firstTap = Date.now()
+  await page.getByRole('button', { name: 'Done' }).click()
+  await expect(page.getByText(/kept on this phone/)).toBeVisible()
+  await page.waitForTimeout(2_000)
+  await context.setOffline(false)
+  const secondTap = Date.now()
+  await page.getByRole('button', { name: 'Done' }).click()
+  await expect(
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
+  ).toBeVisible()
+
+  const report = await owner.client.query(api.reports.get, {
+    businessId,
+    reportId,
+  })
+  const signedAt = (report!.signatureSlots!.technician as { signedAt: number })
+    .signedAt
+  expect(signedAt).toBeGreaterThanOrEqual(firstTap - 1_000)
+  expect(signedAt).toBeLessThan(secondTap)
+})
+
+test('a drawing kept on the phone is shown only to the person who drew it', async ({
+  page,
+  context,
+}) => {
+  const s = await setupBusinessWithSub('sig-kept-person')
+  const reportId = await createReport(s.sub.client, s, 'serviceReport')
+  const url = sectionUrl(
+    s.slug,
+    reportId,
+    'serviceReport',
+    'technicianSignature',
+  )
+
+  await signInViaUi(page, s.sub.email)
+  await page.goto(url)
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
+  await draw(page, "Technician's Signature")
+  await context.setOffline(true)
+  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
+  await expect(page.getByText(/Not saved yet/)).toBeVisible()
+  await context.setOffline(false)
+
+  // Someone else on the same phone: not theirs to save, nor to keep as
+  // their own signature.
+  await signOut(page, s.slug)
+  await signInViaUi(page, s.owner.email)
+  await page.goto(url)
+  await builderReady(page)
+  await expect(
+    page.getByRole('button', { name: "Technician's Signature — sign" }),
+  ).toBeVisible()
+  await expect(page.getByText(/Not saved yet/)).toHaveCount(0)
+
+  // Back to the person who drew it: still there for them.
+  await signOut(page, s.slug)
+  await signInViaUi(page, s.sub.email)
+  await page.goto(url)
+  await builderReady(page)
+  await expect(page.getByText(/Not saved yet/)).toBeVisible()
+})
+
 test('a client is not asked to sign a report being filled in', async ({
   page,
 }) => {

@@ -40,6 +40,7 @@ export function ReportSigning({
   askName,
   /** Whose signature this is, for the "use my saved one" offer. */
   ownSignature,
+  templateVersion,
   onSigned,
 }: {
   open: boolean
@@ -53,6 +54,8 @@ export function ReportSigning({
   /** Client signatures are signed by a person who must say who they are. */
   askName?: boolean
   ownSignature: boolean
+  /** The form's version being signed (`KeptSignature.templateVersion`). */
+  templateVersion?: number
   onSigned: (signedAt: number) => void
 }) {
   const [name, setName] = useState('')
@@ -80,8 +83,10 @@ export function ReportSigning({
     enabled: open && ownSignature,
   })
   // A first drawing is kept for next time unless they say not; a later one
-  // replaces the saved signature only if they say so.
-  const keepMine = keepChoice ?? !saved
+  // replaces the saved signature only if they say so. Not known yet (no
+  // signal), nothing is kept: a saved signature replaced without a word is
+  // worse than one not saved.
+  const keepMine = keepChoice ?? saved === null
 
   const { saveDrawn, applySaved } = useSignatureSaving({
     businessId,
@@ -98,6 +103,7 @@ export function ReportSigning({
       png: await drawn.png.arrayBuffer(),
       strokes: drawn.strokes,
       drawnAt: drawn.drawnAt,
+      ...(templateVersion !== undefined ? { templateVersion } : {}),
       ...(name.trim() ? { signedBy: name.trim() } : {}),
       ...(statement ? { statement } : {}),
       keepAsMine: ownSignature && keepMine,
@@ -150,6 +156,8 @@ export function ReportSigning({
                   <input
                     type="checkbox"
                     checked={keepMine}
+                    // Until it is known whether there is one to replace.
+                    disabled={saved === undefined}
                     onChange={(event) => setKeepChoice(event.target.checked)}
                     className="size-4 shrink-0 accent-red"
                   />

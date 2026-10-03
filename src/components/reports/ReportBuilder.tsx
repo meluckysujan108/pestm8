@@ -878,6 +878,7 @@ export function ReportBuilder({
                   photoContext={{
                     businessId,
                     reportId,
+                    templateVersion: template.version,
                     roster,
                     usual,
                     remember,

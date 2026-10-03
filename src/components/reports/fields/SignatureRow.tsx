@@ -39,6 +39,7 @@ export function SignatureRow({
   statement,
   askName,
   ownSignature,
+  templateVersion,
   signedAt,
   onSigned,
 }: {
@@ -49,6 +50,8 @@ export function SignatureRow({
   statement?: string
   askName?: boolean
   ownSignature: boolean
+  /** The version of the form on screen, kept with a drawing. */
+  templateVersion?: number
   signedAt?: number
   onSigned: (signedAt: number | undefined) => void
 }) {
@@ -72,6 +75,8 @@ export function SignatureRow({
   })
   const [busy, setBusy] = useState(false)
   const [problem, setProblem] = useState<string | null>(null)
+  // A kept drawing the report can no longer take: only Discard is left.
+  const [refused, setRefused] = useState(false)
 
   // A drawing kept on this phone for this slot, read again each time the
   // signing screen closes: that is when one may have been left behind.
@@ -83,16 +88,24 @@ export function SignatureRow({
       if (!live) return
       if (kept && signedAt !== undefined && kept.drawnAt <= signedAt) {
         // The report holds one at least as new: this one is done with.
-        void forgetSignature(reportId, slot)
+        void forgetSignature(reportId, slot, kept.drawnAt)
         setWaiting(null)
         return
       }
+      // Drawn against a form this report has since moved on from, which
+      // withdrew its signatures: the server would refuse it too.
+      setRefused(
+        kept !== null &&
+          templateVersion !== undefined &&
+          kept.templateVersion !== undefined &&
+          kept.templateVersion !== templateVersion,
+      )
       setWaiting(kept)
     })
     return () => {
       live = false
     }
-  }, [hydrated, signing, reportId, slot, signedAt])
+  }, [hydrated, signing, reportId, slot, signedAt, templateVersion])
 
   const waitingUrl = useObjectUrl(waiting?.png)
   const [discarding, setDiscarding] = useState(false)
@@ -103,7 +116,14 @@ export function SignatureRow({
     try {
       onSigned(await work())
       setWaiting(null)
-    } catch {
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      if (/TEMPLATE_VERSION_MISMATCH|REPORT_FINALISED/.test(message)) {
+        // Never going to be taken: the form changed under it, or the report
+        // was locked. Saying "try again" would be a promise it can't keep.
+        setRefused(true)
+        return
+      }
       setProblem(
         isOffline()
           ? 'No signal. Try again when you have signal.'
@@ -139,20 +159,22 @@ export function SignatureRow({
           <span className="flex items-start gap-1.5 text-caption text-amber-ink">
             <CircleAlert size={14} strokeWidth={2} className="mt-px shrink-0" />
             <span>
-              Not saved yet. Drawn on this phone{' '}
-              {formatWhen(waiting.drawnAt, timezone)}, and kept here until it
-              is.
+              {refused
+                ? `Drawn on this phone ${formatWhen(waiting.drawnAt, timezone)}, but the report can’t take it now: the form has changed or the report is locked. Sign again instead.`
+                : `Not saved yet. Drawn on this phone ${formatWhen(waiting.drawnAt, timezone)}, and kept here until it is.`}
             </span>
           </span>
           <span className="flex gap-2">
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => void run(() => saveDrawn(waiting))}
-              className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
-            >
-              {busy ? 'Saving…' : 'Save it'}
-            </button>
+            {!refused && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void run(() => saveDrawn(waiting))}
+                className={`${SECONDARY_BUTTON_COMPACT} flex-1`}
+              >
+                {busy ? 'Saving…' : 'Save it'}
+              </button>
+            )}
             <button
               type="button"
               disabled={busy}
@@ -233,6 +255,7 @@ export function SignatureRow({
         statement={statement}
         askName={askName}
         ownSignature={ownSignature}
+        templateVersion={templateVersion}
         onSigned={onSigned}
       />
 
@@ -243,8 +266,9 @@ export function SignatureRow({
         body="It was never saved to the report, and it can’t be got back."
         confirm="Discard"
         onConfirm={() => {
-          void forgetSignature(reportId, slot)
+          if (waiting) void forgetSignature(reportId, slot, waiting.drawnAt)
           setWaiting(null)
+          setRefused(false)
         }}
       />
 
