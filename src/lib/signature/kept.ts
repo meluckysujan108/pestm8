@@ -1,4 +1,3 @@
-import { signedInUserId } from '#/lib/rootState'
 import type { StrokesFile } from './ink'
 
 /**
@@ -28,6 +27,21 @@ import type { StrokesFile } from './ink'
  * only once its transaction has committed. Its own database, so neither's
  * upgrade waits on the other's.
  */
+
+/**
+ * Who is signed in now (`signedInUserId`), loaded when first asked. The root
+ * state is on every page already, so this costs nothing there; imported at
+ * the top, it would bring the server's sign-in into everything that reaches
+ * the report form, its unit tests included.
+ */
+async function whoIsSignedIn(): Promise<string | null> {
+  try {
+    const { signedInUserId } = await import('#/lib/rootState')
+    return signedInUserId()
+  } catch {
+    return null
+  }
+}
 
 const DB_NAME = 'pestm8-signatures'
 const DB_VERSION = 1
@@ -114,7 +128,7 @@ async function transact<T>(
  * Replaces any they kept for its slot: the newest drawing is the one meant.
  * Whether it was kept. */
 export async function keepSignature(kept: KeptSignature): Promise<boolean> {
-  const userId = signedInUserId()
+  const userId = await whoIsSignedIn()
   if (!userId) return false
   const row: Row = {
     ...kept,
@@ -132,7 +146,7 @@ export async function keptSignature(
   reportId: string,
   slot: string,
 ): Promise<KeptSignature | null> {
-  const userId = signedInUserId()
+  const userId = await whoIsSignedIn()
   if (!userId) return null
   const row = await transact<Row | undefined>('readonly', (store, ok) => {
     const request = store.get(keyOf(userId, reportId, slot))
@@ -153,7 +167,7 @@ export async function forgetSignature(
   slot: string,
   drawnAt?: number,
 ): Promise<void> {
-  const userId = signedInUserId()
+  const userId = await whoIsSignedIn()
   if (!userId) return
   const key = keyOf(userId, reportId, slot)
   await transact<true>('readwrite', (store, ok) => {
@@ -173,7 +187,7 @@ export async function forgetSignature(
  * finalised, and nothing can be signed on it any more.
  */
 export async function forgetReportSignatures(reportId: string): Promise<void> {
-  const userId = signedInUserId()
+  const userId = await whoIsSignedIn()
   if (!userId) return
   const prefix = `${userId}:${reportId}:`
   await transact<true>('readwrite', (store, ok) => {

@@ -24,6 +24,7 @@ import { ReportSigning } from '#/components/reports/fields/ReportSigning'
 import { SignatureRow } from '#/components/reports/fields/SignatureRow'
 import { MySignature } from '#/components/settings/MySignature'
 import { keepSignature } from '#/lib/signature/kept'
+import { seedRootState } from '#/lib/rootState'
 import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
 import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
 import { SendSheet } from '#/components/reports/SendSheet'
@@ -359,6 +360,12 @@ function SignRowWaiting() {
   const [ready, setReady] = useState(false)
   useEffect(() => {
     void (async () => {
+      // A drawing is kept as the signed-in person's: a stand-in session,
+      // whose token says only who it is.
+      seedRootState({
+        token: `x.${btoa(JSON.stringify({ sub: 'harness-user' }))}.x`,
+        theme: 'system',
+      })
       const canvas = document.createElement('canvas')
       canvas.width = 600
       canvas.height = 180
