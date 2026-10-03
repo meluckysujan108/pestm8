@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import {
@@ -29,15 +29,18 @@ import { FormAlert } from '#/components/forms/FormAlert'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
 import {
+  answersFor,
   clientToggleOf,
+  deliveryProblems,
+  deliveryQuestionsOf,
   lockEmail,
   lockEmailSentences,
-  typedAddressesOf,
-  withAddress,
+  lockRecipients,
 } from './lockEmail'
-import { emailProblem } from '../../../convex/lib/email'
-import { TickBox } from './TickBox'
-import type { Sentence, SendingKnown, TypedAddress } from './lockEmail'
+import { AddressBox, RecipientRow, useAddressDraft } from './RecipientPicker'
+import { FieldMessage } from '#/components/forms/FieldMessage'
+import { fieldMessageId } from '#/components/forms/FormField'
+import type { Sentence, SendingKnown } from './lockEmail'
 
 /**
  * The last screen before a document becomes a record.
@@ -73,7 +76,12 @@ export function FinaliseSheet({
   reportId: Id<'reports'>
   open: boolean
   onClose: () => void
-  onConfirm: () => void
+  /**
+   * Locks it, with any answers the sheet made in the same tap — an address
+   * still in the box when the button was pressed — which the form's own state
+   * has not caught up with yet.
+   */
+  onConfirm: (answers: Record<string, unknown>) => void
   pending: boolean
   template: ReportTemplate
   data: Record<string, unknown>
@@ -101,6 +109,105 @@ export function FinaliseSheet({
   const known = useQuery(
     convexQuery(api.deliveries.known, { businessId, reportId }),
   )
+  // Who it goes to, chosen here: the form's send-copy question and its
+  // address boxes, which the form itself no longer shows (`askedAtLock`).
+  const clientEmail = context?.client?.email
+  const questions = deliveryQuestionsOf(template, data)
+  const knownData = known.data as
+    | (SendingKnown & {
+        emailReady: boolean
+        largeForEmail?: boolean
+        people?: ReadonlyArray<{
+          address: string
+          name: string
+          kind: 'client' | 'contact'
+          role: string | null
+          primary: boolean
+        }>
+      })
+    | undefined
+  // Everyone typed in while the sheet has been open, so one unticked stays
+  // listed, to be ticked back. New each time it opens.
+  const [listed, setListed] = useState<Array<string>>([])
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) setListed([])
+  }
+  const rows = lockRecipients({
+    template,
+    data,
+    people: knownData?.people ?? [],
+    clientEmail,
+    knownAddresses: knownData?.addresses ?? [],
+    listed,
+  })
+  const shownTyped = rows
+    .filter((row) => row.on && !row.isClient && row.who === null)
+    .map((row) => row.address)
+  if (shownTyped.some((address) => !listed.includes(address))) {
+    setListed([...new Set([...listed, ...shownTyped])])
+  }
+  const clientAddress = rows.find((row) => row.isClient)?.address ?? null
+
+  /** Ticks and unticks, as answers to the form's own questions, all worked
+   * out from one view of the answers so two changes to one box both land. */
+  function apply(
+    changes: ReadonlyArray<{ address: string; on: boolean }>,
+  ): Record<string, unknown> {
+    let view = data
+    const answers: Record<string, unknown> = {}
+    for (const { address, on } of changes) {
+      const next = answersFor(
+        questions,
+        view,
+        { address, isClient: address === clientAddress },
+        on,
+      )
+      Object.assign(answers, next)
+      view = { ...view, ...next }
+    }
+    for (const [key, value] of Object.entries(answers)) onAnswer(key, value)
+    return answers
+  }
+
+  const openNow = useRef(open)
+  openNow.current = open
+  const box = useAddressDraft({
+    onTake: (address) => void apply([{ address, on: true }]),
+    isOpen: () => openNow.current,
+  })
+  const resetBox = box.reset
+  useLayoutEffect(() => {
+    if (open) resetBox()
+  }, [open, resetBox])
+  const listId = useId()
+
+  // What stops a lock among them: an address that can never be delivered to,
+  // said here, where it is put right.
+  const problems = deliveryProblems(template, data)
+
+  /** Finalise & lock: an address still in the box goes too, unless it needs
+   * another look (Phase 3's rule, as on the Send sheet). */
+  async function lock() {
+    if (pending || box.checking) return
+    const typed = await box.takePending()
+    if (typed.kind === 'held') return
+    onConfirm(
+      typed.kind === 'taken'
+        ? answersFor(
+            questions,
+            data,
+            {
+              address: typed.address,
+              isClient: typed.address === clientAddress,
+            },
+            true,
+          )
+        : {},
+    )
+  }
+
   const summary = reportSummary(template, data, context)
   const signatures = fields.filter(
     (field): field is Extract<FieldDef, { kind: 'signature' }> =>
@@ -140,14 +247,21 @@ export function FinaliseSheet({
               Preview the document
             </button>
           )}
+          {problems.length > 0 && (
+            <FormAlert className="mb-2">{problems.join(' ')}</FormAlert>
+          )}
           <button
             type="button"
-            disabled={pending}
-            onClick={onConfirm}
+            disabled={pending || box.checking || problems.length > 0}
+            onClick={() => void lock()}
             className={`${PRIMARY_BUTTON} flex w-full items-center justify-center gap-2`}
           >
             <Lock size={17} strokeWidth={2} />
-            {pending ? 'Locking…' : 'Finalise & lock'}
+            {box.checking
+              ? 'Checking…'
+              : pending
+                ? 'Locking…'
+                : 'Finalise & lock'}
           </button>
         </>
       }
@@ -227,16 +341,84 @@ export function FinaliseSheet({
         )}
       </ul>
 
-      <LockEmailNote
-        reportId={reportId}
-        template={template}
-        data={data}
-        clientEmail={context?.client?.email}
-        known={known.data}
-        failed={known.isError}
-        onRetry={() => void known.refetch()}
-        onAnswer={onAnswer}
-      />
+      <section className="mt-4" aria-labelledby={`lock-email-${reportId}`}>
+        <h3 id={`lock-email-${reportId}`} className="section-label">
+          Email it to
+        </h3>
+        {rows.length > 0 && (
+          <ul className="mt-1.5 flex flex-col gap-1.5">
+            {rows.map((row, index) => (
+              <li key={row.address}>
+                <RecipientRow
+                  address={row.address}
+                  chosen={row.on}
+                  who={row.who}
+                  // The client's own address is theirs by definition; anyone
+                  // else not on their record is pointed out, never held.
+                  newToClient={
+                    knownData !== undefined && !row.isClient && !row.known
+                  }
+                  noMailDomain={box.noMailOf(row.address)}
+                  noMailId={fieldMessageId(`${listId}-row-${index}`, 'warning')}
+                  disabled={box.checking}
+                  onToggle={() =>
+                    void apply([{ address: row.address, on: !row.on }])
+                  }
+                >
+                  {row.on && row.problem !== null && (
+                    <span className="mt-0.5 flex items-center gap-1 text-caption text-red-ink">
+                      <CircleAlert size={13} strokeWidth={2} />
+                      Can’t be delivered
+                    </span>
+                  )}
+                </RecipientRow>
+                {row.on && row.problem !== null && (
+                  <FieldMessage
+                    tone="error"
+                    fix={
+                      row.fix
+                        ? {
+                            label: `Use ${row.fix}`,
+                            onApply: () =>
+                              void apply([
+                                { address: row.address, on: false },
+                                { address: row.fix!, on: true },
+                              ]),
+                          }
+                        : undefined
+                    }
+                  >
+                    {row.problem}
+                  </FieldMessage>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        {questions.boxKeys.length > 0 ? (
+          <AddressBox
+            draft={box}
+            newToClient={
+              knownData !== undefined &&
+              box.typed !== '' &&
+              !knownData.addresses.includes(box.typed)
+            }
+          />
+        ) : questions.sendCopyKey !== null ? (
+          // A form with no box of its own has nowhere to keep anyone else.
+          <p className="mt-1.5 text-caption text-ink-2">
+            Anyone else: send it from the report once it’s locked.
+          </p>
+        ) : null}
+        <LockEmailNote
+          template={template}
+          data={data}
+          clientEmail={clientEmail}
+          known={knownData}
+          failed={known.isError}
+          onRetry={() => void known.refetch()}
+        />
+      </section>
     </Sheet>
   )
 }
@@ -305,23 +487,17 @@ function readableNow(): string {
  *
  * Read from the same rule `reports.finalise` applies (`lockEmail`), with the
  * server's own answer about what is on file, where the business's copy goes
- * and whether this deployment can send at all. The client's copy can be
- * switched off here: it is the form's own send-copy question, and the last
- * screen before the email goes is where "not yet" gets decided. So can each
- * address typed into the form's own box ("Email Report To"): unticked, it is
- * taken off the form, and ticked again, put back.
+ * and whether this deployment can send at all. The ticks above it are where
+ * that is chosen; this is what they come to.
  */
 function LockEmailNote({
-  reportId,
   template,
   data,
   clientEmail,
   known,
   failed,
   onRetry,
-  onAnswer,
 }: {
-  reportId: Id<'reports'>
   template: ReportTemplate
   data: Record<string, unknown>
   clientEmail?: string
@@ -329,121 +505,42 @@ function LockEmailNote({
   known?: SendingKnown & { emailReady: boolean; largeForEmail?: boolean }
   failed: boolean
   onRetry: () => void
-  onAnswer: (key: string, value: unknown) => void
 }) {
-  // From the form alone, so it is there at once — on weak signal too, which
-  // is exactly when "not yet" is worth being able to say.
   const toggle = clientToggleOf(template, data, clientEmail)
-  const plan = known ? lockEmail(template, data, clientEmail, known) : null
+  // The client's row shows them ticked whichever question sends them, so the
+  // sheet never has to explain an address left in a box it does not show.
+  const plan = known
+    ? { ...lockEmail(template, data, clientEmail, known), stillTyped: null }
+    : null
 
-  // Every address the box held while the sheet has been open, so one taken
-  // off stays listed, unticked, to be put back. The sheet's body is new each
-  // time it opens.
-  const typed = typedAddressesOf(template, data)
-  const [listed, setListed] = useState<Array<TypedAddress>>(typed)
-  const added = typed.filter(
-    (entry) => !listed.some((shown) => shown.address === entry.address),
-  )
-  if (added.length > 0) setListed([...listed, ...added])
-
-  return (
-    <section className="mt-4" aria-labelledby={`lock-email-${reportId}`}>
-      <h3 id={`lock-email-${reportId}`} className="section-label">
-        Email
-      </h3>
-      {toggle && (
-        <button
-          type="button"
-          aria-pressed={toggle.on}
-          onClick={() => onAnswer(toggle.key, !toggle.on)}
-          className={`mt-1.5 flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
-            toggle.on
-              ? 'border-ink/15 bg-surface'
-              : 'border-hairline bg-surface-2'
-          }`}
-        >
-          <TickBox on={toggle.on} />
-          <span className="min-w-0 flex-1">
-            <span className="block text-body text-ink">Email the client</span>
-            <span className="block truncate text-caption text-ink-2">
-              {toggle.address}
-            </span>
-          </span>
-          {toggle.on && toggle.problem !== null && (
-            <span className="flex shrink-0 items-center gap-1 text-caption text-red-ink">
-              <CircleAlert size={13} strokeWidth={2} />
-              Can’t be delivered
-            </span>
-          )}
-        </button>
-      )}
-      {listed.map(({ key, address }) => {
-        const on = typed.some((entry) => entry.address === address)
-        const problem = emailProblem(address)
-        return (
-          <button
-            key={address}
-            type="button"
-            aria-pressed={on}
-            onClick={() => onAnswer(key, withAddress(data[key], address, !on))}
-            className={`mt-1.5 flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
-              on ? 'border-ink/15 bg-surface' : 'border-hairline bg-surface-2'
-            }`}
-          >
-            <TickBox on={on} />
-            <span className="min-w-0 flex-1">
-              {/* Whole, never cut off: the end of an address is where a
-                  typo in its domain would be. */}
-              <span className="block break-words text-body text-ink">
-                {address}
-              </span>
-              <span className="block text-caption text-ink-2">
-                {on ? 'Added on the form' : 'Taken off — won’t be emailed'}
-              </span>
-            </span>
-            {on && problem !== null && (
-              <span className="flex shrink-0 items-center gap-1 text-caption text-red-ink">
-                <CircleAlert size={13} strokeWidth={2} />
-                Can’t be delivered
-              </span>
-            )}
-          </button>
-        )
-      })}
-      {plan && known ? (
-        <div className="mt-1.5 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5">
-          <Send
-            size={15}
-            strokeWidth={2}
-            aria-hidden
-            className="mt-0.5 shrink-0 text-ink-2"
-          />
-          {/* Polite, so switching the client's copy off is heard as well as
-              seen: the sentence is the answer to the tap. */}
-          <p aria-live="polite" className="text-caption text-ink-2">
-            {/* Only an explicit "no" means email is off. A backend older than
-                this screen does not say, and reading that silence as "won't
-                be emailed" on a deployment that does email is the very
-                instruction that sent clients a second copy. */}
-            {lockEmailSentences(plan, known.emailReady !== false, {
-              clientToggle: toggle,
-              clientHasEmail: Boolean(clientEmail?.trim()),
-              largeForEmail: known.largeForEmail === true,
-            }).map((sentence, index) => (
-              <SentenceText key={index} sentence={sentence} lead={index > 0} />
-            ))}
-          </p>
-        </div>
-      ) : failed ? (
-        <LoadFailed
-          what="who this goes to"
-          onRetry={onRetry}
-          className="mt-1.5"
-        />
-      ) : (
-        <RowPending announce={false} className="mt-1.5 py-1" />
-      )}
-    </section>
+  return plan && known ? (
+    <div className="mt-1.5 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5">
+      <Send
+        size={15}
+        strokeWidth={2}
+        aria-hidden
+        className="mt-0.5 shrink-0 text-ink-2"
+      />
+      {/* Polite, so a tick is heard as well as seen: the sentence is the
+          answer to the tap. */}
+      <p aria-live="polite" className="text-caption text-ink-2">
+        {/* Only an explicit "no" means email is off. A backend older than
+            this screen does not say, and reading that silence as "won't be
+            emailed" on a deployment that does email is the very instruction
+            that sent clients a second copy. */}
+        {lockEmailSentences(plan, known.emailReady !== false, {
+          clientToggle: toggle,
+          clientHasEmail: Boolean(clientEmail?.trim()),
+          largeForEmail: known.largeForEmail === true,
+        }).map((sentence, index) => (
+          <SentenceText key={index} sentence={sentence} lead={index > 0} />
+        ))}
+      </p>
+    </div>
+  ) : failed ? (
+    <LoadFailed what="who this goes to" onRetry={onRetry} className="mt-1.5" />
+  ) : (
+    <RowPending announce={false} className="mt-1.5 py-1" />
   )
 }
 

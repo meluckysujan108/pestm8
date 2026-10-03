@@ -1494,6 +1494,8 @@ export const timberPestInspection: ReportTemplate = {
           label: 'Email report warning',
           tone: 'warning',
           printed: false,
+          // Asked on the sheet that locks the report, with its box.
+          attachedTo: 'emailReportTo',
           body: doc(EMAIL_BOX_NOTE),
         },
         {

@@ -1,4 +1,4 @@
-import { emailProblem } from '../../../convex/lib/email'
+import { emailProblem, emailTypoFix } from '../../../convex/lib/email'
 import { sectionsOf } from '#/lib/reportTemplates'
 import { blindCopy, deliveryRecipients } from '#/lib/reportTemplates/delivery'
 import { visibleSections } from '#/lib/reportTemplates/visibility'
@@ -113,6 +113,225 @@ export function withAddress(
       entry.trim().toLowerCase() !== address,
   )
   return on ? [...kept, address] : kept
+}
+
+/**
+ * Where the lock sheet writes who the report goes to: the form's own
+ * send-copy question, for the client, and its address boxes ("Email Report
+ * To"), for everyone else — so what locking sends is still worked out from
+ * the form's answers (`deliveryRecipients`, `reports.finalise`), unchanged.
+ * The form shows neither: they are asked on the sheet that locks it.
+ */
+export type DeliveryQuestions = {
+  /** The send-copy question's key, where the form asks one. */
+  sendCopyKey: string | null
+  /** The address boxes the form is asking, in its order: a choice made on
+   * the sheet goes into the first. */
+  boxKeys: Array<string>
+}
+
+export function deliveryQuestionsOf(
+  template: ReportTemplate,
+  data: Record<string, unknown>,
+): DeliveryQuestions {
+  const fields = visibleSections(sectionsOf(template), data).flatMap(
+    (section) => section.fields,
+  )
+  return {
+    sendCopyKey:
+      fields.find(
+        (field) =>
+          field.semantic === 'sendCopyToClient' && field.kind === 'toggle',
+      )?.key ?? null,
+    boxKeys: fields
+      .filter((field) => field.semantic === 'emailTo')
+      .map((field) => field.key),
+  }
+}
+
+/** Someone the lock sheet offers, ticked or not. */
+export type LockRecipient = {
+  address: string
+  on: boolean
+  /** Who, from the client book: "Jane Nguyen · Client". */
+  who: { name: string; role: string } | null
+  /** The client: their tick is the form's send-copy question. */
+  isClient: boolean
+  /** Why it can never be delivered to, or null. */
+  problem: string | null
+  /** The address most likely meant, for the one-tap fix. */
+  fix: string | null
+  /** On the client's record. */
+  known: boolean
+}
+
+/** Someone the client book names (`deliveries.known`'s `people`). */
+type BookPerson = {
+  address: string
+  name: string
+  kind: 'client' | 'contact'
+  role: string | null
+  primary: boolean
+}
+
+/**
+ * Who the lock sheet offers, in the order they are likely to be wanted: the
+ * client; their contacts, primary first; anyone typed in. Ticked where the
+ * form's answers send to them. `listed` keeps anyone already shown on the
+ * list after they are unticked, so a slip can be ticked back.
+ *
+ * Contacts and typed addresses only where the form has a box to keep them
+ * in: a form without one can only send the client theirs, and the rest go
+ * from the report once it is locked.
+ */
+export function lockRecipients({
+  template,
+  data,
+  people,
+  clientEmail,
+  knownAddresses,
+  listed = [],
+}: {
+  template: ReportTemplate
+  data: Record<string, unknown>
+  people: ReadonlyArray<BookPerson>
+  clientEmail: string | null | undefined
+  knownAddresses: ReadonlyArray<string>
+  listed?: ReadonlyArray<string>
+}): Array<LockRecipient> {
+  const questions = deliveryQuestionsOf(template, data)
+  const typed = typedAddressesOf(template, data).map((entry) => entry.address)
+  const client =
+    people.find((person) => person.kind === 'client')?.address ??
+    (clientEmail?.trim().toLowerCase() || null)
+  const clientPerson = people.find((person) => person.kind === 'client')
+  const contacts = people
+    .filter((person) => person.kind === 'contact')
+    .sort((a, b) => Number(b.primary) - Number(a.primary))
+  const canKeep = questions.boxKeys.length > 0
+
+  const out: Array<LockRecipient> = []
+  const seen = new Set<string>()
+  const add = (
+    address: string,
+    on: boolean,
+    who: LockRecipient['who'],
+    isClient: boolean,
+  ) => {
+    if (seen.has(address)) return
+    seen.add(address)
+    const problem = emailProblem(address)
+    out.push({
+      address,
+      on,
+      who,
+      isClient,
+      problem,
+      fix: problem === null ? null : emailTypoFix(address),
+      known: knownAddresses.includes(address),
+    })
+  }
+
+  if (client && (questions.sendCopyKey !== null || canKeep)) {
+    add(
+      client,
+      (questions.sendCopyKey !== null &&
+        data[questions.sendCopyKey] === true) ||
+        typed.includes(client),
+      { name: clientPerson?.name ?? 'Client', role: 'Client' },
+      true,
+    )
+  }
+  if (canKeep) {
+    for (const person of contacts) {
+      add(
+        person.address,
+        typed.includes(person.address),
+        {
+          name: person.name,
+          role: person.role ?? (person.primary ? 'Primary contact' : 'Contact'),
+        },
+        false,
+      )
+    }
+    for (const address of typed) add(address, true, null, false)
+    for (const address of listed) add(address, false, null, false)
+  }
+  return out
+}
+
+/**
+ * The answers that tick `address` on the lock sheet, or untick it. The
+ * client is the send-copy question; everyone else goes into the first
+ * address box, and comes out of every box that holds them. Unticking the
+ * client takes them out of the boxes too, so off is off.
+ */
+export function answersFor(
+  questions: DeliveryQuestions,
+  data: Record<string, unknown>,
+  { address, isClient }: { address: string; isClient: boolean },
+  on: boolean,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  const holds = (key: string) =>
+    (Array.isArray(data[key]) ? (data[key] as Array<unknown>) : [data[key]])
+      .filter((entry): entry is string => typeof entry === 'string')
+      .some((entry) => entry.trim().toLowerCase() === address)
+  if (isClient && questions.sendCopyKey !== null) {
+    out[questions.sendCopyKey] = on
+    if (!on) {
+      for (const key of questions.boxKeys) {
+        if (holds(key)) out[key] = withAddress(data[key], address, false)
+      }
+    }
+    return out
+  }
+  if (on) {
+    const first = questions.boxKeys.at(0)
+    if (first !== undefined && !questions.boxKeys.some(holds)) {
+      out[first] = withAddress(data[first], address, true)
+    }
+    return out
+  }
+  for (const key of questions.boxKeys) {
+    if (holds(key)) out[key] = withAddress(data[key], address, false)
+  }
+  return out
+}
+
+/**
+ * What stops the report locking, among who it goes to: an address in a box
+ * that can never be delivered to (the lock refuses it, as `validateReport`
+ * does), or a box the form requires with nobody in it. Said on the sheet,
+ * where they are put right, rather than on a form that no longer shows them.
+ */
+export function deliveryProblems(
+  template: ReportTemplate,
+  data: Record<string, unknown>,
+): Array<string> {
+  const out: Array<string> = []
+  const fields = visibleSections(sectionsOf(template), data).flatMap(
+    (section) => section.fields,
+  )
+  for (const field of fields) {
+    if (field.semantic !== 'emailTo') continue
+    const value = data[field.key]
+    const entries = (Array.isArray(value) ? value : [value]).filter(
+      (entry): entry is string =>
+        typeof entry === 'string' && entry.trim() !== '',
+    )
+    for (const entry of entries) {
+      if (emailProblem(entry) !== null) {
+        out.push(
+          `${entry.trim().toLowerCase()} can’t receive email — untick it, or use the address meant.`,
+        )
+      }
+    }
+    if (field.required && entries.length === 0) {
+      out.push('This form asks who to email it to — tick or add someone.')
+    }
+  }
+  return out
 }
 
 export type LockEmail = {

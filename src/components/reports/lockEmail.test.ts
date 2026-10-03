@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { getTemplate } from '#/lib/reportTemplates'
+import { fieldsOf, getTemplate } from '#/lib/reportTemplates'
 import {
   clientToggleOf,
   lockEmail,
@@ -7,7 +7,12 @@ import {
   sentenceText,
   typedAddressesOf,
   withAddress,
+  answersFor,
+  deliveryProblems,
+  deliveryQuestionsOf,
+  lockRecipients,
 } from './lockEmail'
+import { askedAtLock } from '#/lib/reportTemplates/delivery'
 import type { SendingKnown } from './lockEmail'
 
 /**
@@ -273,6 +278,142 @@ describe('the addresses typed into the form, on the sheet', () => {
     expect(say(data, 'jane@gmail.com')).toBe(
       'Once it’s locked, it’s emailed to jane@gmail.com. A copy goes to info@pestm8.com.au.',
     )
+  })
+})
+
+describe('who it goes to, chosen on the sheet that locks it', () => {
+  const people = [
+    {
+      address: 'jane@gmail.com',
+      name: 'Jane Nguyen',
+      kind: 'client' as const,
+      role: null,
+      primary: false,
+    },
+    {
+      address: 'kim@coastalagents.com.au',
+      name: 'Kim Wu',
+      kind: 'contact' as const,
+      role: 'Property manager',
+      primary: false,
+    },
+    {
+      address: 'bob@strata.com.au',
+      name: 'Bob Lee',
+      kind: 'contact' as const,
+      role: null,
+      primary: true,
+    },
+  ]
+  const rows = (data: Record<string, unknown>, listed: Array<string> = []) =>
+    lockRecipients({
+      template,
+      data,
+      people,
+      clientEmail: 'jane@gmail.com',
+      knownAddresses: known.addresses,
+      listed,
+    })
+
+  test('is not asked on the form: the send-copy question, the box, and its note', () => {
+    const fields = fieldsOf(template)
+    expect(
+      fields.filter((field) => askedAtLock(field, fields)).map((f) => f.key),
+    ).toEqual(['sendCopy', 'emailReportTo', 'emailReportToWarning'])
+    const timber = getTemplate('timberPestInspection')
+    const timberFields = fieldsOf(timber)
+    expect(
+      timberFields
+        .filter((field) => askedAtLock(field, timberFields))
+        .map((f) => f.key)
+        .sort(),
+    ).toEqual(['emailReportTo', 'emailReportToWarning', 'sendCopyToClient'])
+  })
+
+  test('offers the client, then their contacts, primary first, by name and role', () => {
+    expect(
+      rows({ sendCopy: true }).map((row) => [
+        row.address,
+        row.on,
+        row.who?.name,
+        row.who?.role,
+      ]),
+    ).toEqual([
+      ['jane@gmail.com', true, 'Jane Nguyen', 'Client'],
+      ['bob@strata.com.au', false, 'Bob Lee', 'Primary contact'],
+      ['kim@coastalagents.com.au', false, 'Kim Wu', 'Property manager'],
+    ])
+  })
+
+  test('lists anyone typed in, ticked, and keeps them listed once unticked', () => {
+    const data = { sendCopy: false, emailReportTo: ['agent@example.com'] }
+    const typed = rows(data).find((row) => row.address === 'agent@example.com')
+    expect(typed).toMatchObject({ on: true, who: null, known: false })
+    const off = rows({ sendCopy: false }, ['agent@example.com']).find(
+      (row) => row.address === 'agent@example.com',
+    )
+    expect(off).toMatchObject({ on: false })
+  })
+
+  test('writes the client to the send-copy question, and everyone else into the box', () => {
+    const questions = deliveryQuestionsOf(template, {})
+    expect(questions).toEqual({
+      sendCopyKey: 'sendCopy',
+      boxKeys: ['emailReportTo'],
+    })
+    expect(
+      answersFor(
+        questions,
+        {},
+        { address: 'jane@gmail.com', isClient: true },
+        true,
+      ),
+    ).toEqual({ sendCopy: true })
+    expect(
+      answersFor(
+        questions,
+        { emailReportTo: ['agent@example.com'] },
+        { address: 'kim@coastalagents.com.au', isClient: false },
+        true,
+      ),
+    ).toEqual({
+      emailReportTo: ['agent@example.com', 'kim@coastalagents.com.au'],
+    })
+    expect(
+      answersFor(
+        questions,
+        { emailReportTo: ['agent@example.com', 'kim@coastalagents.com.au'] },
+        { address: 'agent@example.com', isClient: false },
+        false,
+      ),
+    ).toEqual({ emailReportTo: ['kim@coastalagents.com.au'] })
+  })
+
+  test('unticking the client takes them out of the box too: off is off', () => {
+    const questions = deliveryQuestionsOf(template, {})
+    const data = { sendCopy: true, emailReportTo: ['Jane@Gmail.com'] }
+    expect(rows(data)[0]).toMatchObject({ address: 'jane@gmail.com', on: true })
+    const answers = answersFor(
+      questions,
+      data,
+      { address: 'jane@gmail.com', isClient: true },
+      false,
+    )
+    expect(answers).toEqual({ sendCopy: false, emailReportTo: [] })
+    expect(say({ ...data, ...answers }, 'jane@gmail.com')).not.toContain(
+      'jane@gmail.com',
+    )
+  })
+
+  test('stops the lock for an address in the box that can never be delivered to', () => {
+    expect(
+      deliveryProblems(template, { emailReportTo: ['bob@gmail'] }),
+    ).toEqual([
+      'bob@gmail can’t receive email — untick it, or use the address meant.',
+    ])
+    expect(
+      deliveryProblems(template, { emailReportTo: ['bob@gmail.com'] }),
+    ).toEqual([])
   })
 })
 

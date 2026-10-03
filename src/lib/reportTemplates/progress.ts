@@ -1,5 +1,6 @@
 import { isDataField, sectionsOf } from './index'
 import { isFilled, visibleSections } from './visibility'
+import { askedAtLock } from './delivery'
 import type { PrefillMap } from './seed'
 import type { ReportTemplate, SectionDef } from './types'
 
@@ -91,7 +92,11 @@ function progressOf(
   prefill: PrefillMap,
   photoCounts: Record<string, number> | undefined,
 ): SectionProgress {
-  const questions = section.fields.filter(isDataField)
+  // Not the questions the sheet that locks it asks instead (`askedAtLock`):
+  // a section is "to go" only for what the form shows.
+  const questions = section.fields
+    .filter(isDataField)
+    .filter((field) => !askedAtLock(field, section.fields))
   const missing: Array<string> = []
   let answered = 0
 

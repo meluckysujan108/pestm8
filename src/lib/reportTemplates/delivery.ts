@@ -1,6 +1,6 @@
 import { fieldsOf } from './index'
 import { visibleSections } from './visibility'
-import type { ReportTemplate } from './types'
+import type { FieldDef, ReportTemplate } from './types'
 
 /**
  * Who the form itself says should get a copy.
@@ -108,4 +108,30 @@ export function blindCopy(
 
 function clean(address: string): string {
   return address.trim().toLowerCase()
+}
+
+/**
+ * Whether a field is asked on the sheet that locks the report rather than on
+ * the form: the send-copy question, the address boxes ("Email Report To"),
+ * and notes that belong to them (`attachedTo`). Chosen there, once, with the
+ * client and their contacts named — the form asked the same thing in three
+ * places, and a box at the end of it read as the way to send the client
+ * their copy.
+ *
+ * Screen only. They stay in the form, and in its answers: who locking emails
+ * is still worked out from them (`deliveryRecipients`), and an address that
+ * can never be delivered to is still refused at lock (`validateReport`).
+ */
+export function askedAtLock(
+  field: FieldDef,
+  fields: ReadonlyArray<FieldDef>,
+): boolean {
+  if (field.semantic === 'sendCopyToClient' || field.semantic === 'emailTo') {
+    return true
+  }
+  if (field.kind !== 'note' || field.attachedTo === undefined) return false
+  const target = fields.find((candidate) => candidate.key === field.attachedTo)
+  return (
+    target?.semantic === 'sendCopyToClient' || target?.semantic === 'emailTo'
+  )
 }

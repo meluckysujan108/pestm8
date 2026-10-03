@@ -16,6 +16,7 @@ import {
   sectionsOf,
 } from '#/lib/reportTemplates'
 import { visibleSections } from '#/lib/reportTemplates/visibility'
+import { askedAtLock } from '#/lib/reportTemplates/delivery'
 import {
   submittablePayload,
   validateReport,
@@ -639,6 +640,18 @@ export function ReportBuilder({
     if (typeof window !== 'undefined') window.scrollTo({ top: 0 })
   }
 
+  // The questions the sheet that locks the report asks instead of the form
+  // (`askedAtLock`): what is wrong with them is said and put right there.
+  const deliveryKeys = useMemo(
+    () =>
+      new Set(
+        fieldsOf(template)
+          .filter((field) => askedAtLock(field, fieldsOf(template)))
+          .map((field) => field.key),
+      ),
+    [template],
+  )
+
   /**
    * What is standing between this report and being locked, named rather than
    * counted: each entry says what is wrong, which section asks it, and jumps
@@ -692,13 +705,15 @@ export function ReportBuilder({
       photoCounts,
       prefill: stillPending,
     })
-    if (!result.ok) {
+    // Who it goes to is chosen on the sheet, which says what is wrong there.
+    const blocking = result.ok
+      ? []
+      : result.issues.filter((issue) => !deliveryKeys.has(issue.key))
+    if (blocking.length > 0) {
       setErrors(
-        Object.fromEntries(
-          result.issues.map((issue) => [issue.key, issue.message]),
-        ),
+        Object.fromEntries(blocking.map((issue) => [issue.key, issue.message])),
       )
-      setIssues(result.issues)
+      setIssues(blocking)
       return
     }
     setErrors({})
@@ -716,15 +731,17 @@ export function ReportBuilder({
    * sheet: the sheet can answer the finish time, and an answer made in the
    * last five seconds belongs in the document as much as any other.
    */
-  function onConfirmFinalise() {
+  function onConfirmFinalise(answers: Record<string, unknown> = {}) {
     const result = validateReport({
       template,
-      data,
+      data: { ...data, ...answers },
       signedSlots,
       photoCounts,
       prefill: pending,
     })
     if (!result.ok) {
+      // Only who it goes to: the sheet is saying so, and stays open.
+      if (result.issues.every((issue) => deliveryKeys.has(issue.key))) return
       setConfirming(false)
       setErrors(
         Object.fromEntries(
@@ -837,60 +854,62 @@ export function ReportBuilder({
                 />
               )}
 
-              {section.fields.map((field, index) => (
-                <FieldRenderer
-                  key={field.key}
-                  field={field}
-                  value={data[field.key]}
-                  error={errors[field.key]}
-                  onChange={(next) =>
-                    setData((prev) => ({
-                      ...prev,
-                      [field.key]: applyUpdate(next, prev[field.key]),
-                    }))
-                  }
-                  suggestion={
-                    (pending as Partial<PrefillMap>)[field.key]?.source
-                  }
-                  captionHidden={
-                    // Only where the heading really is directly above: a rendered
-                    // heading, nothing between it and the grid, and no required
-                    // marker that would vanish with the caption.
-                    field.kind === 'repeater' &&
-                    !section.implicit &&
-                    !section.preamble &&
-                    index === 0 &&
-                    !field.required &&
-                    sameWords(field.label, section.title)
-                  }
-                  after={
-                    field.kind === 'heading' && field.quick ? (
-                      <QuickAnswer
-                        mode={field.quick}
-                        fields={groupAfter(section.fields, index)}
-                        data={data}
-                        onAnswer={(patch) =>
-                          setData((prev) => ({ ...prev, ...patch }))
-                        }
-                      />
-                    ) : undefined
-                  }
-                  photoContext={{
-                    businessId,
-                    reportId,
-                    templateVersion: template.version,
-                    roster,
-                    usual,
-                    remember,
-                    phrases,
-                    // Live answers, so a licence row follows the technician picked
-                    // a moment ago rather than the one last saved.
-                    context: context
-                      ? { ...context, answers: data }
-                      : undefined,
-                  }}
-                />
-              ))}
+              {section.fields.map((field, index) =>
+                askedAtLock(field, section.fields) ? null : (
+                  <FieldRenderer
+                    key={field.key}
+                    field={field}
+                    value={data[field.key]}
+                    error={errors[field.key]}
+                    onChange={(next) =>
+                      setData((prev) => ({
+                        ...prev,
+                        [field.key]: applyUpdate(next, prev[field.key]),
+                      }))
+                    }
+                    suggestion={
+                      (pending as Partial<PrefillMap>)[field.key]?.source
+                    }
+                    captionHidden={
+                      // Only where the heading really is directly above: a rendered
+                      // heading, nothing between it and the grid, and no required
+                      // marker that would vanish with the caption.
+                      field.kind === 'repeater' &&
+                      !section.implicit &&
+                      !section.preamble &&
+                      index === 0 &&
+                      !field.required &&
+                      sameWords(field.label, section.title)
+                    }
+                    after={
+                      field.kind === 'heading' && field.quick ? (
+                        <QuickAnswer
+                          mode={field.quick}
+                          fields={groupAfter(section.fields, index)}
+                          data={data}
+                          onAnswer={(patch) =>
+                            setData((prev) => ({ ...prev, ...patch }))
+                          }
+                        />
+                      ) : undefined
+                    }
+                    photoContext={{
+                      businessId,
+                      reportId,
+                      templateVersion: template.version,
+                      roster,
+                      usual,
+                      remember,
+                      phrases,
+                      // Live answers, so a licence row follows the technician picked
+                      // a moment ago rather than the one last saved.
+                      context: context
+                        ? { ...context, answers: data }
+                        : undefined,
+                    }}
+                  />
+                ),
+              )}
             </section>
           ))}
 
