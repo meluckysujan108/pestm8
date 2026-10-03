@@ -541,7 +541,7 @@ A signature is drawn on a screen of its own and kept as the pen's strokes (`lib/
 | Export          | Use for                                                                                                                                                                                                                                                                                               |
 | --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `SigningScreen` | Signing anything: the title, the words being agreed to, the pad, Clear, Undo and Done, and a slot beside Done for what else the signer may choose. Full screen at `z-[80]`; on a phone held upright it is laid out a quarter turn round, so the signature gets the long side once the phone is turned |
-| `SignaturePad`  | The pad inside it: ink whose width follows the pen's speed, drawn at the screen's resolution, refitted as the pad changes shape, and saved (`toPng`) as a PNG cut to the ink, at least 1,200 pixels across                                                                                            |
+| `SignaturePad`  | The pad inside it: ink whose width follows the pen's speed, drawn at the screen's resolution, refitted as the pad changes shape, and saved (`save`) as a PNG cut to the ink, at least 1,200 pixels across, with the strokes it was drawn from                                                         |
 
 **Rules:**
 
@@ -549,6 +549,8 @@ A signature is drawn on a screen of its own and kept as the pen's strokes (`lib/
 - **Nothing beside the pad comes or goes as the first stroke lands:** the slot beside Done is one size, whatever is in it, so the pad never moves under the pen.
 - **It asks before throwing a signature away,** on ✕, Escape and the phone's Back, in place ("Discard this signature?" / Keep signing / Discard): it sits above `ConfirmDialog`'s layer.
 - **The pad is `bg-paper`, and its ink is `--ink` (light) in both themes:** what is drawn there is printed on white.
+- **A drawing is kept on the phone until the report has it** (`lib/signature/kept.ts`), where the browser allows. A Done that cannot save says whether it was kept; once it is, closing asks nothing while the pad still holds just that drawing. The report shows it as "Not saved yet", with Save it and Discard, to the person who drew it alone, until one is tapped or the report holds a signature at least as new. It is signed when Done was first tapped on it, however late it arrives, and a report on a new version of its form, or locked, can only discard it.
+- **A saved signature goes on a report only by a tap,** on the signer's own slot: "Sign with my saved signature", with "Draw instead" under it. A first drawing offers "Keep for next time", ticked; a later one "Replace my saved signature", unticked. Settings → My signature shows it, draws a new one or removes it, and neither changes a report already signed.
 
 ---
 

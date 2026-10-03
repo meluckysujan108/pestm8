@@ -68,7 +68,10 @@ import { reportFactsFrom } from './lib/reportFacts'
 import { factsFromMembership } from './lib/membershipFacts'
 import type { TemplateId } from '../src/lib/reportTemplates'
 import type { MutationCtx, QueryCtx } from './_generated/server'
-import { recordAudit, recordOnBehalf, recordOnce } from './lib/audit'
+import { forSelf, recordAudit, recordOnBehalf, recordOnce } from './lib/audit'
+import { heldAnywhere } from './lib/fileClaims'
+import { CLAIM_WINDOW_MS } from './lib/products'
+import { signatureFileRefusal, signedAtOf } from './lib/signatures'
 import { hasCapability, requireActor, requireWriteActor } from './lib/actor'
 
 /**
@@ -1076,6 +1079,12 @@ export const attachPhoto = mutation({
  * Mirrors `attachPhoto`, and deliberately so: a signature is an image the
  * client cannot afford to lose, and `data` is replaced wholesale on every save.
  * Only the `{ signedAt, signedBy }` metadata travels in the draft blob.
+ *
+ * A drawing is claimed as a product's or a licence's file is: a fresh upload
+ * that nothing else holds (`claimSignatureFile`). Storage ids are not
+ * secrets, and a signature's image is shown to everyone who reads the report,
+ * so an old id — someone's licence card, a colleague's signature — must not
+ * be able to become one.
  */
 export const attachSignature = mutation({
   args: {
@@ -1091,14 +1100,43 @@ export const attachSignature = mutation({
     method: v.optional(v.union(v.literal('drawn'), v.literal('saved'))),
     /** Also keep this drawing as the signer's own, for their next report. */
     saveForMember: v.optional(v.boolean()),
+    /** The strokes the drawing was made from (`lib/signatures.ts`). */
+    strokesStorageId: v.optional(v.id('_storage')),
+    /**
+     * When the phone says it was drawn: one drawn with no signal arrives
+     * later, and is stamped with this where it could be true (`signedAtOf`).
+     */
+    drawnAt: v.optional(v.number()),
+    /**
+     * The form's version it was signed against. A drawing kept on the phone
+     * can arrive after the report moved to a new version, which withdrew
+     * every signature made against the old wording; it is refused then
+     * (TEMPLATE_VERSION_MISMATCH), as a save of the old answers would be.
+     */
+    templateVersion: v.optional(v.number()),
   },
   handler: async (
     ctx,
-    { businessId, reportId, storageId, slot, signedBy, statement, method, saveForMember },
+    {
+      businessId,
+      reportId,
+      storageId,
+      slot,
+      signedBy,
+      statement,
+      method,
+      saveForMember,
+      strokesStorageId,
+      drawnAt,
+      templateVersion,
+    },
   ) => {
     // A signature attests to a document's contents at a moment in time. Once
     // locked, it must not be possible to attach a different one.
     const { env, report } = await requireEditableReport(ctx, businessId, reportId)
+    if (templateVersion !== undefined) {
+      requireSameVersion(report, templateVersion)
+    }
     // The HUMAN, not the account being worked in: a saved signature is the
     // hand of whoever holds the pen, and so is the record of who captured one.
     const membership = await ctx.db.get(env.actor.real._id)
@@ -1107,10 +1145,11 @@ export const attachSignature = mutation({
     // A saved signature is applied by the person it belongs to, and by nobody
     // else — that is the whole of what `method: 'saved'` claims on the record.
     // Nor may a colleague's saved signature arrive dressed as a fresh drawing.
-    if (method === 'saved' && storageId !== membership.savedSignatureStorageId) {
+    const saved = storageId === membership.savedSignatureStorageId
+    if (method === 'saved' && !saved) {
       throw new ConvexError('NOT_YOUR_SIGNATURE')
     }
-    if (storageId !== membership.savedSignatureStorageId) {
+    if (!saved) {
       const team = await ctx.db
         .query('memberships')
         .withIndex('by_business', (q) => q.eq('businessId', businessId))
@@ -1118,32 +1157,72 @@ export const attachSignature = mutation({
       if (team.some((m) => m.savedSignatureStorageId === storageId)) {
         throw new ConvexError('NOT_YOUR_SIGNATURE')
       }
+      await claimSignatureFile(ctx, storageId, 'image')
+    }
+    // Strokes belong to a drawing made here and now, never to a saved one.
+    if (strokesStorageId !== undefined) {
+      if (saved || strokesStorageId === storageId) {
+        throw new ConvexError('FILE_NOT_FOUND')
+      }
+      await claimSignatureFile(ctx, strokesStorageId, 'strokes')
     }
 
+    const { signedAt, receivedAt } = signedAtOf(drawnAt, {
+      now: Date.now(),
+      notBefore: report._creationTime,
+    })
     await ctx.db.patch(reportId, {
       signatureSlots: {
         ...(report.signatureSlots ?? {}),
         [slot]: {
           storageId,
-          signedAt: Date.now(),
-          method: method ?? 'drawn',
+          signedAt,
+          // What the file is, whatever the call said: the saved signature
+          // sent as a drawing is still the saved signature.
+          method: saved ? 'saved' : 'drawn',
           ...(signedBy ? { signedBy } : {}),
           // Frozen with the signature: what a business prints can be edited
           // afterwards, and what somebody agreed to cannot.
           ...(statement ? { statement } : {}),
           templateVersion: report.templateVersion,
           capturedByMembershipId: membership._id,
+          ...(strokesStorageId ? { strokesStorageId } : {}),
+          ...(receivedAt !== undefined ? { receivedAt } : {}),
         },
       },
     })
 
     // Their own signature, kept for their own next report — and only ever the
     // caller's own membership.
-    if (saveForMember) {
+    if (saveForMember && !saved) {
       await ctx.db.patch(membership._id, { savedSignatureStorageId: storageId })
     }
+    return { signedAt }
   },
 })
+
+/**
+ * Takes an upload as a signature's image or its strokes, or refuses it:
+ * uploaded within `CLAIM_WINDOW_MS` and held by nothing that can be asked
+ * (`heldAnywhere`) — FILE_NOT_FOUND or ALREADY_ATTACHED otherwise, as for a
+ * product's file — and the kind of file the pad makes
+ * (`signatureFileRefusal`).
+ */
+async function claimSignatureFile(
+  ctx: MutationCtx,
+  storageId: Id<'_storage'>,
+  as: 'image' | 'strokes',
+) {
+  const file = await ctx.db.system.get('_storage', storageId)
+  if (!file || Date.now() - file._creationTime > CLAIM_WINDOW_MS) {
+    throw new ConvexError('FILE_NOT_FOUND')
+  }
+  if (await heldAnywhere(ctx, storageId)) {
+    throw new ConvexError('ALREADY_ATTACHED')
+  }
+  const refusal = signatureFileRefusal(file, as)
+  if (refusal !== null) throw new ConvexError(refusal)
+}
 
 /**
  * The caller's saved signature, if they have one.
@@ -1164,21 +1243,85 @@ export const mySavedSignature = query({
 })
 
 /**
- * What was signed, and how — without the stored image's id.
+ * Settings → My signature: a new saved signature, drawn there.
  *
- * The id is a capability: `attachSignature` takes one, so handing out the id
- * under a colleague's signature handed out the means to put it on a document
- * of your own. The image is still drawn from `context.signatureUrls`; nothing
- * that reads a report needs the id itself.
+ * Only ever the caller's own membership — the real person, not an account
+ * they are working in — and only a fresh upload nothing else holds, as a
+ * drawing on a report must be. The one it replaces is not deleted: every
+ * report signed with it still prints that file.
+ */
+export const setMySavedSignature = mutation({
+  args: { businessId: v.id('businesses'), storageId: v.id('_storage') },
+  handler: async (ctx, { businessId, storageId }) => {
+    const env = await requireWriteActor(ctx, businessId)
+    const membership = await ctx.db.get(env.actor.real._id)
+    if (!membership) throw new ConvexError('NO_ACCESS')
+    if (storageId === membership.savedSignatureStorageId) return null
+
+    const team = await ctx.db
+      .query('memberships')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .take(MAX_MEMBERS)
+    if (team.some((m) => m.savedSignatureStorageId === storageId)) {
+      throw new ConvexError('NOT_YOUR_SIGNATURE')
+    }
+    await claimSignatureFile(ctx, storageId, 'image')
+
+    await ctx.db.patch(membership._id, { savedSignatureStorageId: storageId })
+    await recordAudit(ctx, forSelf(membership._id), {
+      businessId,
+      action: 'membership.setSignature',
+      entityType: 'memberships',
+      entityId: membership._id,
+      meta: { replaced: membership.savedSignatureStorageId !== undefined },
+    })
+    return null
+  },
+})
+
+/**
+ * Settings → My signature → Remove: the caller has no saved signature, and is
+ * asked to draw each time. The file stays — reports signed with it print it.
+ */
+export const clearMySavedSignature = mutation({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const env = await requireWriteActor(ctx, businessId)
+    const membership = await ctx.db.get(env.actor.real._id)
+    if (!membership) throw new ConvexError('NO_ACCESS')
+    if (membership.savedSignatureStorageId === undefined) return null
+
+    await ctx.db.patch(membership._id, { savedSignatureStorageId: undefined })
+    await recordAudit(ctx, forSelf(membership._id), {
+      businessId,
+      action: 'membership.clearSignature',
+      entityType: 'memberships',
+      entityId: membership._id,
+    })
+    return null
+  },
+})
+
+/**
+ * What was signed, and how — without the stored files' ids.
+ *
+ * The image's id is a capability: `attachSignature` takes one, so handing out
+ * the id under a colleague's signature handed out the means to put it on a
+ * document of your own. The image is still drawn from
+ * `context.signatureUrls`; nothing that reads a report needs the id itself.
+ * The strokes are not shown to anyone: their timing is close to biometric.
  */
 function withoutImages(slots: Doc<'reports'>['signatureSlots']) {
   if (!slots) return undefined
   return Object.fromEntries(
     Object.entries(slots).map(([slot, held]) => {
-      const { storageId: _image, ...record } = held
+      const { storageId: _image, strokesStorageId: _strokes, ...record } = held
       return [slot, record]
     }),
-  ) as Record<string, Omit<(typeof slots)[string], 'storageId'>>
+  ) as Record<
+    string,
+    Omit<(typeof slots)[string], 'storageId' | 'strokesStorageId'>
+  >
 }
 
 /** Signed URLs for display; storage ids are useless to the client on their own. */

@@ -10,6 +10,7 @@ import {
   inkToSave,
   outlineOf,
   pathOf,
+  strokesFile,
   toInkPoint,
 } from '#/lib/signature/ink'
 import type {
@@ -18,6 +19,7 @@ import type {
   ScreenBox,
   Size,
   Stroke,
+  StrokesFile,
 } from '#/lib/signature/ink'
 
 export type SignaturePadHandle = {
@@ -26,11 +28,12 @@ export type SignaturePadHandle = {
   /** Takes off the last stroke. */
   undo: () => void
   /**
-   * The signature as a PNG: cut to its ink, drawn again from the strokes at
-   * least 1,200 pixels across, dark ink on a transparent ground. Null when
-   * there is nothing on the pad to call a signature.
+   * The signature as it is saved: a PNG cut to its ink, drawn again from the
+   * strokes at least 1,200 pixels across, dark ink on a transparent ground,
+   * and the strokes it was drawn from (`strokesFile`) — both from the same
+   * ink. Null when there is nothing on the pad to call a signature.
    */
-  toPng: () => Promise<Blob | null>
+  save: () => Promise<{ png: Blob; strokes: StrokesFile } | null>
 }
 
 /**
@@ -53,6 +56,7 @@ export function SignaturePad({
   label,
   turned,
   onChange,
+  onEdit,
 }: {
   ref?: Ref<SignaturePadHandle>
   /** Names the pad: "{label} — sign here". */
@@ -64,6 +68,8 @@ export function SignaturePad({
    * Undo and Clear have to take away.
    */
   onChange: (state: { signed: boolean; marked: boolean }) => void
+  /** Anything done to the ink: a stroke begun, Undo, Clear. */
+  onEdit?: () => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const ink = useRef<Ink>([])
@@ -80,9 +86,11 @@ export function SignaturePad({
   const reported = useRef({ signed: false, marked: false })
   const turnedRef = useRef(turned)
   const onChangeRef = useRef(onChange)
+  const onEditRef = useRef(onEdit)
   useEffect(() => {
     turnedRef.current = turned
     onChangeRef.current = onChange
+    onEditRef.current = onEdit
   })
 
   const draw = useCallback(() => {
@@ -190,16 +198,19 @@ export function SignaturePad({
         ink.current = []
         schedule()
         report()
+        onEditRef.current?.()
       },
       undo() {
         if (drawing.current) return
         ink.current = ink.current.slice(0, -1)
         schedule()
         report()
+        onEditRef.current?.()
       },
-      async toPng() {
+      async save() {
         // A stray tap far from the signature is left on the pad, not saved.
         const strokes = inkToSave(ink.current)
+        const kept = strokesFile(strokes, size.current)
         const bounds = inkBounds(strokes)
         if (!bounds || !hasInk(strokes)) return null
         const plan = exportPlan(bounds)
@@ -215,9 +226,10 @@ export function SignaturePad({
         for (const stroke of strokes) {
           ctx.fill(new Path2D(pathOf(outlineOf(stroke))))
         }
-        return new Promise<Blob | null>((resolve) =>
+        const png = await new Promise<Blob | null>((resolve) =>
           out.toBlob(resolve, 'image/png'),
         )
+        return png ? { png, strokes: kept } : null
       },
     }),
     [schedule, report],
@@ -271,6 +283,7 @@ export function SignaturePad({
     ink.current = [...ink.current, stroke]
     schedule()
     report()
+    onEditRef.current?.()
   }
 
   function move(event: ReactPointerEvent<HTMLCanvasElement>) {

@@ -99,6 +99,7 @@ import type * as lib_reportMarkup from "../lib/reportMarkup.js";
 import type * as lib_reportSearch from "../lib/reportSearch.js";
 import type * as lib_richText from "../lib/richText.js";
 import type * as lib_sendLimit from "../lib/sendLimit.js";
+import type * as lib_signatures from "../lib/signatures.js";
 import type * as lib_siteContact from "../lib/siteContact.js";
 import type * as lib_svix from "../lib/svix.js";
 import type * as lib_teamRelease from "../lib/teamRelease.js";
@@ -238,6 +239,7 @@ declare const fullApi: ApiFromModules<{
   "lib/reportSearch": typeof lib_reportSearch;
   "lib/richText": typeof lib_richText;
   "lib/sendLimit": typeof lib_sendLimit;
+  "lib/signatures": typeof lib_signatures;
   "lib/siteContact": typeof lib_siteContact;
   "lib/svix": typeof lib_svix;
   "lib/teamRelease": typeof lib_teamRelease;

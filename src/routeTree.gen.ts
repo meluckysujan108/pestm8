@@ -41,6 +41,7 @@ import { Route as BusinessSlugSettingsDetailsRouteImport } from './routes/$busin
 import { Route as BusinessSlugSettingsInstallRouteImport } from './routes/$businessSlug/settings/install'
 import { Route as BusinessSlugSettingsJobTypesRouteImport } from './routes/$businessSlug/settings/job-types'
 import { Route as BusinessSlugSettingsSignInRouteImport } from './routes/$businessSlug/settings/sign-in'
+import { Route as BusinessSlugSettingsSignatureRouteImport } from './routes/$businessSlug/settings/signature'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 import { Route as BusinessSlugReportsTemplatesIndexRouteImport } from './routes/$businessSlug/reports/templates/index'
 import { Route as BusinessSlugReportsTemplatesTemplateIdRouteImport } from './routes/$businessSlug/reports/templates/$templateId'
@@ -225,6 +226,12 @@ const BusinessSlugSettingsSignInRoute =
     path: '/settings/sign-in',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
+const BusinessSlugSettingsSignatureRoute =
+  BusinessSlugSettingsSignatureRouteImport.update({
+    id: '/settings/signature',
+    path: '/settings/signature',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   id: '/api/auth/$',
   path: '/api/auth/$',
@@ -314,6 +321,7 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/settings/install': typeof BusinessSlugSettingsInstallRoute
   '/$businessSlug/settings/job-types': typeof BusinessSlugSettingsJobTypesRoute
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
+  '/$businessSlug/settings/signature': typeof BusinessSlugSettingsSignatureRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/job/': typeof BusinessSlugJobIndexRoute
@@ -357,6 +365,7 @@ export interface FileRoutesByTo {
   '/$businessSlug/settings/install': typeof BusinessSlugSettingsInstallRoute
   '/$businessSlug/settings/job-types': typeof BusinessSlugSettingsJobTypesRoute
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
+  '/$businessSlug/settings/signature': typeof BusinessSlugSettingsSignatureRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/job': typeof BusinessSlugJobIndexRoute
@@ -402,6 +411,7 @@ export interface FileRoutesById {
   '/$businessSlug/settings/install': typeof BusinessSlugSettingsInstallRoute
   '/$businessSlug/settings/job-types': typeof BusinessSlugSettingsJobTypesRoute
   '/$businessSlug/settings/sign-in': typeof BusinessSlugSettingsSignInRoute
+  '/$businessSlug/settings/signature': typeof BusinessSlugSettingsSignatureRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/$businessSlug/clients/': typeof BusinessSlugClientsIndexRoute
   '/$businessSlug/job/': typeof BusinessSlugJobIndexRoute
@@ -448,6 +458,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/install'
     | '/$businessSlug/settings/job-types'
     | '/$businessSlug/settings/sign-in'
+    | '/$businessSlug/settings/signature'
     | '/api/auth/$'
     | '/$businessSlug/clients/'
     | '/$businessSlug/job/'
@@ -491,6 +502,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/install'
     | '/$businessSlug/settings/job-types'
     | '/$businessSlug/settings/sign-in'
+    | '/$businessSlug/settings/signature'
     | '/api/auth/$'
     | '/$businessSlug/clients'
     | '/$businessSlug/job'
@@ -535,6 +547,7 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/install'
     | '/$businessSlug/settings/job-types'
     | '/$businessSlug/settings/sign-in'
+    | '/$businessSlug/settings/signature'
     | '/api/auth/$'
     | '/$businessSlug/clients/'
     | '/$businessSlug/job/'
@@ -791,6 +804,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessSlugSettingsSignInRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
+    '/$businessSlug/settings/signature': {
+      id: '/$businessSlug/settings/signature'
+      path: '/settings/signature'
+      fullPath: '/$businessSlug/settings/signature'
+      preLoaderRoute: typeof BusinessSlugSettingsSignatureRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -895,6 +915,7 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugSettingsInstallRoute: typeof BusinessSlugSettingsInstallRoute
   BusinessSlugSettingsJobTypesRoute: typeof BusinessSlugSettingsJobTypesRoute
   BusinessSlugSettingsSignInRoute: typeof BusinessSlugSettingsSignInRoute
+  BusinessSlugSettingsSignatureRoute: typeof BusinessSlugSettingsSignatureRoute
   BusinessSlugClientsIndexRoute: typeof BusinessSlugClientsIndexRoute
   BusinessSlugReportsIndexRoute: typeof BusinessSlugReportsIndexRoute
   BusinessSlugSettingsIndexRoute: typeof BusinessSlugSettingsIndexRoute
@@ -927,6 +948,7 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugSettingsInstallRoute: BusinessSlugSettingsInstallRoute,
   BusinessSlugSettingsJobTypesRoute: BusinessSlugSettingsJobTypesRoute,
   BusinessSlugSettingsSignInRoute: BusinessSlugSettingsSignInRoute,
+  BusinessSlugSettingsSignatureRoute: BusinessSlugSettingsSignatureRoute,
   BusinessSlugClientsIndexRoute: BusinessSlugClientsIndexRoute,
   BusinessSlugReportsIndexRoute: BusinessSlugReportsIndexRoute,
   BusinessSlugSettingsIndexRoute: BusinessSlugSettingsIndexRoute,

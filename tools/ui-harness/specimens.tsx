@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { ErrorComponent } from '@tanstack/react-router'
 import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
@@ -21,6 +21,10 @@ import { StagedLicenceFiles } from '#/components/settings/StagedLicenceFiles'
 import type { StagedFiles } from '#/components/settings/StagedLicenceFiles'
 import type { LicenceDraft } from '#/components/settings/LicenceFields'
 import { ReportSigning } from '#/components/reports/fields/ReportSigning'
+import { SignatureRow } from '#/components/reports/fields/SignatureRow'
+import { MySignature } from '#/components/settings/MySignature'
+import { keepSignature } from '#/lib/signature/kept'
+import { seedRootState } from '#/lib/rootState'
 import { FinaliseSheet } from '#/components/reports/FinaliseSheet'
 import { TemplateSettingsSheet } from '#/components/reports/TemplateSettingsSheet'
 import { SendSheet } from '#/components/reports/SendSheet'
@@ -327,6 +331,100 @@ function SignClient() {
         ownSignature={false}
         onSigned={() => {}}
       />
+    </Phone>
+  )
+}
+
+/** The technician's own slot on the form, with a saved signature: one tap
+ * signs with it, or they draw instead. */
+function SignRowSaved() {
+  return (
+    <Phone>
+      <div className="p-4">
+        <SignatureRow
+          businessId={bizId}
+          reportId={'r_unsigned' as never}
+          slot="technician"
+          label="Technician's Signature"
+          ownSignature
+          onSigned={() => {}}
+        />
+      </div>
+    </Phone>
+  )
+}
+
+/** A drawing this phone kept because it could not be saved: the form offers
+ * it until it is saved or discarded. */
+function SignRowWaiting() {
+  const [ready, setReady] = useState(false)
+  useEffect(() => {
+    void (async () => {
+      // A drawing is kept as the signed-in person's: a stand-in session,
+      // whose token says only who it is.
+      seedRootState({
+        token: `x.${btoa(JSON.stringify({ sub: 'harness-user' }))}.x`,
+        theme: 'system',
+      })
+      const canvas = document.createElement('canvas')
+      canvas.width = 600
+      canvas.height = 180
+      const ctx = canvas.getContext('2d')
+      if (ctx) {
+        ctx.strokeStyle = '#1C1C1E'
+        ctx.lineWidth = 6
+        ctx.lineCap = 'round'
+        ctx.beginPath()
+        ctx.moveTo(30, 130)
+        ctx.bezierCurveTo(120, 20, 180, 20, 240, 110)
+        ctx.bezierCurveTo(300, 170, 380, 160, 460, 60)
+        ctx.bezierCurveTo(500, 30, 540, 70, 570, 90)
+        ctx.stroke()
+      }
+      const blob = await new Promise<Blob | null>((resolve) =>
+        canvas.toBlob(resolve, 'image/png'),
+      )
+      if (blob) {
+        await keepSignature({
+          reportId: 'r_waiting',
+          slot: 'technician',
+          png: await blob.arrayBuffer(),
+          strokes: {
+            version: 1,
+            pad: { width: 600, height: 180 },
+            strokes: [],
+          },
+          // Drawn at 10:42 this morning, with no signal under the house.
+          drawnAt: new Date().setHours(10, 42, 0, 0),
+          keepAsMine: false,
+        })
+      }
+      setReady(true)
+    })()
+  }, [])
+  return (
+    <Phone>
+      <div className="p-4">
+        {ready && (
+          <SignatureRow
+            businessId={bizId}
+            reportId={'r_waiting' as never}
+            slot="technician"
+            label="Technician's Signature"
+            ownSignature
+            onSigned={() => {}}
+          />
+        )}
+      </div>
+    </Phone>
+  )
+}
+
+/** Settings → My signature, with one saved. */
+function MySignatureSpecimen() {
+  return (
+    <Phone>
+      <MySignature businessId={bizId} />
     </Phone>
   )
 }
@@ -1178,6 +1276,9 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   recurringservices: RecurringServicesBusy,
   sign: Sign,
   'sign-client': SignClient,
+  'sign-row-saved': SignRowSaved,
+  'sign-row-waiting': SignRowWaiting,
+  'my-signature': MySignatureSpecimen,
   sheet: SheetPrimitive,
   warnings: Acting,
   filters: Filters,

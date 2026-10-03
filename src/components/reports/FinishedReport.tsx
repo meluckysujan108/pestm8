@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { Link, useNavigate } from '@tanstack/react-router'
@@ -10,6 +10,7 @@ import { formatJobDate, formatWhen, todayKey } from '#/lib/format'
 import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import { documentIdentity } from '#/lib/reportTemplates/documentModel'
 import { useBusinessTimezone } from '#/lib/useBusinessTimezone'
+import { forgetReportSignatures } from '#/lib/signature/kept'
 import { dayKeyOf } from '../../../convex/lib/dates'
 import {
   AmendSheet,
@@ -96,6 +97,12 @@ export function FinishedReport({
 }) {
   const timezone = useBusinessTimezone()
   const navigate = useNavigate()
+  // Locked: nothing can be signed on it now, so a drawing this phone kept for
+  // it, never saved (src/lib/signature/kept.ts), can only ever sit there.
+  const reportId = report._id
+  useEffect(() => {
+    void forgetReportSignatures(reportId)
+  }, [reportId])
   const [sending, setSending] = useState<{
     open: boolean
     /** Chosen as the sheet opens: the form's own, or a "Send again"'s. */

@@ -243,7 +243,9 @@ function cutAt(text: string, length: number): string {
  * ("Application/PDF; charset=binary" → "application/pdf"). Undefined when
  * there is none, which is how an upload with no `Content-Type` is stored.
  */
-function mediaTypeOf(contentType: string | undefined): string | undefined {
+export function mediaTypeOf(
+  contentType: string | undefined,
+): string | undefined {
   const bare = contentType?.split(';')[0].trim().toLowerCase()
   return bare === '' ? undefined : bare
 }

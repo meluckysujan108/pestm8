@@ -29,6 +29,8 @@ export { GalleryControl }
 export type EditorCtx = {
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
+  /** The version of the form on screen: a signature is kept with it. */
+  templateVersion?: number
   /**
    * The business's active members, for the `member` kind. Optional because the
    * builder gains it when the roster is threaded through; a control with no

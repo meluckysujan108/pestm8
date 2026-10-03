@@ -639,6 +639,7 @@ export function SignatureControl({ field, value, onChange, ctx }: Of<'signature'
       // The technician's own slot is the only one their saved signature may
       // ever fill. A client's is signed by the client, on this phone, now.
       ownSignature={field.role === 'technician'}
+      templateVersion={ctx.templateVersion}
       signedAt={signed?.signedAt}
       onSigned={(signedAt: number | undefined) =>
         onChange(signedAt === undefined ? undefined : { signedAt })

@@ -9,6 +9,7 @@ import {
   outlineOf,
   pathOf,
   pressuresOf,
+  strokesFile,
   toInkPoint,
   turnsForSigning,
 } from './ink'
@@ -166,6 +167,33 @@ describe('what is saved', () => {
     const plan = exportPlan({ x: 0, y: 0, width: 20, height: 300 })
     expect(plan.height).toBe(1200)
     expect(plan.width).toBeLessThan(plan.height)
+  })
+})
+
+describe('the strokes kept beside the image', () => {
+  test('are every point, in tenths of a pixel, timed from the first', () => {
+    const first: Stroke = [
+      { x: 10.04, y: 20.06, t: 1000.4 },
+      { x: 12.55, y: 21.01, t: 1008.6 },
+    ]
+    const second: Stroke = [{ x: 40, y: 30, t: 1250 }]
+    expect(
+      strokesFile([first, second], { width: 600.4, height: 299.6 }),
+    ).toEqual({
+      version: 1,
+      pad: { width: 600, height: 300 },
+      strokes: [
+        [
+          [10, 20.1, 0],
+          [12.6, 21, 8],
+        ],
+        [[40, 30, 250]],
+      ],
+    })
+  })
+
+  test('are nothing for an empty pad', () => {
+    expect(strokesFile([], { width: 600, height: 300 }).strokes).toEqual([])
   })
 })
 

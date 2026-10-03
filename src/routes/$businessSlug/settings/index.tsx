@@ -13,6 +13,7 @@ import {
   IdCard,
   Info,
   ListChecks,
+  PenLine,
   ShieldCheck,
   SquarePlus,
   SunMoon,
@@ -186,6 +187,9 @@ function SettingsHub() {
   // Not suspended on, unlike the name at the top of the page: each row's value
   // fills in when it comes, and a row with no value yet still opens.
   const user = useQuery(rq.currentUser()).data
+  const signature = useQuery(
+    convexQuery(api.reports.mySavedSignature, { businessId: business._id }),
+  ).data
   const twoStepOn = user ? user.twoFactorEnabled === true : undefined
 
   // Codes shown at set-up but never confirmed saved (lib/twoStepReminders).
@@ -314,6 +318,14 @@ function SettingsHub() {
                 <RowBadge tone="amber">Expiring</RowBadge>
               ) : undefined
             }
+          />
+          <SettingsLinkRow
+            to="/$businessSlug/settings/signature"
+            params={{ businessSlug }}
+            icon={PenLine}
+            tint="orange"
+            title="My signature"
+            value={signature ? 'Saved' : undefined}
           />
           <SettingsLinkRow
             to="/$businessSlug/settings/sign-in"

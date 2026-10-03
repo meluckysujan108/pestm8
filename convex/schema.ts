@@ -1082,6 +1082,19 @@ export default defineSchema({
           templateVersion: v.optional(v.number()),
           /** Whose device captured it — not necessarily who signed. */
           capturedByMembershipId: v.optional(v.id('memberships')),
+          /**
+           * The strokes it was drawn from, as a small JSON file: where the
+           * pen went and when. Evidence of how it was made, kept out of
+           * everything that reads a report (`withoutImages`). Only on a
+           * drawing made since they were kept, never on a saved signature.
+           */
+          strokesStorageId: v.optional(v.id('_storage')),
+          /**
+           * When the server had it, where that was after `signedAt`: drawn
+           * with no signal and kept on the phone until there was some
+           * (`lib/signatures.ts`, `signedAtOf`).
+           */
+          receivedAt: v.optional(v.number()),
         }),
       ),
     ),
