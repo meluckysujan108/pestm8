@@ -63,6 +63,58 @@ export function clientToggleOf(
   }
 }
 
+/** An address typed into one of the form's own address boxes. */
+export type TypedAddress = { key: string; address: string }
+
+/**
+ * The addresses typed into the form's own address boxes ("Email Report To"),
+ * each with the box it is in: the people locking emails besides the client.
+ * The sheet that locks the report lists them, so one can be taken off before
+ * anything is sent. Read as `deliveryRecipients` reads them: only boxes the
+ * form is asking, lower-cased, each address once, in the form's order.
+ */
+export function typedAddressesOf(
+  template: ReportTemplate,
+  data: Record<string, unknown>,
+): Array<TypedAddress> {
+  const seen = new Set<string>()
+  const out: Array<TypedAddress> = []
+  const fields = visibleSections(sectionsOf(template), data).flatMap(
+    (section) => section.fields,
+  )
+  for (const field of fields) {
+    if (field.semantic !== 'emailTo') continue
+    const value = data[field.key]
+    for (const entry of Array.isArray(value) ? value : [value]) {
+      if (typeof entry !== 'string') continue
+      const address = entry.trim().toLowerCase()
+      if (address === '' || seen.has(address)) continue
+      seen.add(address)
+      out.push({ key: field.key, address })
+    }
+  }
+  return out
+}
+
+/**
+ * A box's answer with one address taken off, or put back: what the sheet
+ * writes as it is unticked or ticked again. An answer kept as one address
+ * (a form's first version) comes back as a list, which every version takes.
+ */
+export function withAddress(
+  value: unknown,
+  address: string,
+  on: boolean,
+): Array<string> {
+  const kept = (Array.isArray(value) ? value : [value]).filter(
+    (entry): entry is string =>
+      typeof entry === 'string' &&
+      entry.trim() !== '' &&
+      entry.trim().toLowerCase() !== address,
+  )
+  return on ? [...kept, address] : kept
+}
+
 export type LockEmail = {
   /** Emailed as soon as it is locked, in the form's order: one email. */
   sending: Array<string>

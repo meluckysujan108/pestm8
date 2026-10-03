@@ -5,6 +5,8 @@ import {
   lockEmail,
   lockEmailSentences,
   sentenceText,
+  typedAddressesOf,
+  withAddress,
 } from './lockEmail'
 import type { SendingKnown } from './lockEmail'
 
@@ -221,6 +223,56 @@ describe('what locking will email', () => {
       { address: 'jane@gmail.com' },
       '.',
     ])
+  })
+})
+
+describe('the addresses typed into the form, on the sheet', () => {
+  test('are listed once each, lower-cased, in the form’s order, with their box', () => {
+    expect(
+      typedAddressesOf(template, {
+        emailReportTo: [
+          ' Strata@Example.com',
+          'agent@example.com',
+          'strata@example.com',
+          '',
+        ],
+      }),
+    ).toEqual([
+      { key: 'emailReportTo', address: 'strata@example.com' },
+      { key: 'emailReportTo', address: 'agent@example.com' },
+    ])
+    // A form's first version kept one address as a plain string.
+    expect(
+      typedAddressesOf(template, { emailReportTo: 'agent@example.com' }),
+    ).toEqual([{ key: 'emailReportTo', address: 'agent@example.com' }])
+    expect(typedAddressesOf(template, {})).toEqual([])
+  })
+
+  test('can each be taken off, and put back', () => {
+    const value = ['Strata@Example.com', 'agent@example.com']
+    const off = withAddress(value, 'strata@example.com', false)
+    expect(off).toEqual(['agent@example.com'])
+    expect(withAddress(off, 'strata@example.com', true)).toEqual([
+      'agent@example.com',
+      'strata@example.com',
+    ])
+    expect(
+      withAddress('agent@example.com', 'agent@example.com', false),
+    ).toEqual([])
+  })
+
+  test('taken off, is not emailed when it locks', () => {
+    const data = {
+      sendCopy: true,
+      emailReportTo: withAddress(
+        ['strata@example.com'],
+        'strata@example.com',
+        false,
+      ),
+    }
+    expect(say(data, 'jane@gmail.com')).toBe(
+      'Once it’s locked, it’s emailed to jane@gmail.com. A copy goes to info@pestm8.com.au.',
+    )
   })
 })
 

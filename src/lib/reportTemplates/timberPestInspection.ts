@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { EMAIL_BOX_NOTE } from './emailBoxNote'
 import { CERTIFICATE_TERMS } from './terms/certificateTerms'
 import type { Option, RichDoc, ReportTemplate } from './types'
 
@@ -1493,9 +1494,7 @@ export const timberPestInspection: ReportTemplate = {
           label: 'Email report warning',
           tone: 'warning',
           printed: false,
-          body: doc(
-            'Warning: Any email address added to this field will receive a copy of the PDF when you hit "Submit"',
-          ),
+          body: doc(EMAIL_BOX_NOTE),
         },
         {
           // src: timber-pest-inspection.md:240
@@ -1700,7 +1699,17 @@ export const timberPestInspection: ReportTemplate = {
 
   sourceRef: 'docs/sources/timber-pest-inspection.md',
 
-  corrections: [],
+  corrections: [
+    {
+      where: 'Email Report To, its note (screen only)',
+      source:
+        'Warning: Any email address added to this field will receive a copy of the PDF when you hit "Submit"',
+      printed: EMAIL_BOX_NOTE,
+      reason:
+        'Reworded at the owner’s request (3 Oct 2026): the box read as the way to send the client and the business their copies',
+      kind: 'reworded',
+    },
+  ],
 
   superseded: [
     {

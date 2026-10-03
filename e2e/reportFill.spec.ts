@@ -827,6 +827,61 @@ test.describe('the sheet before the lock', () => {
       }),
     ).toEqual([])
   })
+
+  test('lists each address typed into the form, and one can be taken off there', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('fill-sheet-typed')
+    await readyToLock(owner, businessId, reportId, {
+      safeToStart: true,
+      treatments: [],
+      sendCopy: false,
+      emailReportTo: ['strata@elsewhere.example', 'agent@elsewhere.example'],
+    })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    await builderReady(page)
+    await page.getByRole('button', { name: 'Finalise & lock' }).click()
+
+    const sheet = page.getByRole('dialog', { name: 'Ready to lock' })
+    const strata = sheet.getByRole('button', {
+      name: /strata@elsewhere\.example/,
+    })
+    const agent = sheet.getByRole('button', {
+      name: /agent@elsewhere\.example/,
+    })
+    await expect(strata).toHaveAttribute('aria-pressed', 'true')
+    await expect(agent).toHaveAttribute('aria-pressed', 'true')
+
+    // Taken off here, and still listed, to be put back if that was a slip.
+    await strata.click()
+    await expect(strata).toHaveAttribute('aria-pressed', 'false')
+    await expect(strata).toContainText('won’t be emailed')
+    await strata.click()
+    await expect(strata).toHaveAttribute('aria-pressed', 'true')
+    await strata.click()
+
+    await sheet.getByRole('button', { name: 'Finalise & lock' }).click()
+    await expect
+      .poll(async () => {
+        const report = await owner.client.query(api.reports.get, {
+          businessId,
+          reportId,
+        })
+        return report!.status
+      })
+      .toBe('finalised')
+    // Locked with only the address left on: one delivery, to the agent.
+    const deliveries = await owner.client.query(api.deliveries.forReport, {
+      businessId,
+      reportId,
+    })
+    expect(deliveries.flatMap((delivery) => delivery.to)).toEqual([
+      'agent@elsewhere.example',
+    ])
+  })
 })
 
 /**
