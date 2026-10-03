@@ -304,7 +304,11 @@ function filesOfReport(report: Doc<'reports'>): Array<Id<'_storage'>> {
   return [
     ...report.photoIds,
     ...Object.values(report.photoSlots ?? {}),
-    ...Object.values(report.signatureSlots ?? {}).map((slot) => slot.storageId),
+    ...Object.values(report.signatureSlots ?? {}).flatMap((slot) =>
+      slot.strokesStorageId
+        ? [slot.storageId, slot.strokesStorageId]
+        : [slot.storageId],
+    ),
     ...(report.contextSnapshot?.business?.logoStorageId
       ? [report.contextSnapshot.business.logoStorageId]
       : []),
