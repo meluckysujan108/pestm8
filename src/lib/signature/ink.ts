@@ -255,6 +255,38 @@ export function exportPlan(
   }
 }
 
+/**
+ * The strokes as they are kept beside the image (`strokesStorageId` on the
+ * report): the points that were saved, in the pad's own pixels to a tenth,
+ * each with its time in milliseconds from the first point, and the size of
+ * the pad they were drawn on. The image can be drawn again from these at any
+ * size, and they say how the signature was made; their timing is close to
+ * biometric, so they are kept, never shown.
+ */
+export type StrokesFile = {
+  version: 1
+  /** The pad, in CSS pixels, when it was saved. */
+  pad: Size
+  /** Each stroke as `[x, y, ms]`. */
+  strokes: Array<Array<[number, number, number]>>
+}
+
+export function strokesFile(ink: Ink, pad: Size): StrokesFile {
+  const start = ink.find((stroke) => stroke.length > 0)?.[0]?.t ?? 0
+  const tenth = (n: number) => Math.round(n * 10) / 10
+  return {
+    version: 1,
+    pad: { width: Math.round(pad.width), height: Math.round(pad.height) },
+    strokes: ink.map((stroke) =>
+      stroke.map((point): [number, number, number] => [
+        tenth(point.x),
+        tenth(point.y),
+        Math.round(point.t - start),
+      ]),
+    ),
+  }
+}
+
 /** Where a pad is on screen: a `DOMRect`, or anything shaped like one. */
 export type ScreenBox = { left: number; top: number; right: number }
 

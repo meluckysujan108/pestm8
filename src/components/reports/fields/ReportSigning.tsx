@@ -1,11 +1,16 @@
 import { useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
-import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
+import { useQuery } from '@tanstack/react-query'
+import { convexQuery } from '@convex-dev/react-query'
 import { PenLine } from 'lucide-react'
 import { api } from '../../../../convex/_generated/api'
 import type { Id } from '../../../../convex/_generated/dataModel'
 import { SECONDARY_BUTTON_COMPACT } from '#/components/primitives/buttons'
 import { SigningScreen } from '#/components/signature/SigningScreen'
+import type { Drawn } from '#/components/signature/SigningScreen'
+import { isOffline } from '#/lib/online'
+import { keepSignature } from '#/lib/signature/kept'
+import type { KeptSignature } from '#/lib/signature/kept'
+import { useSignatureSaving } from './useSignatureSaving'
 
 /**
  * Signing a report: the signing screen, and what Done does with what was
@@ -19,8 +24,10 @@ import { SigningScreen } from '#/components/signature/SigningScreen'
  * were agreeing to somewhere above the fold.
  *
  * So: a screen of its own (`SigningScreen`) that shows the statement and a
- * pad worth signing on, and one Done that commits exactly once — one upload,
- * one mutation, and only if the pen actually drew something.
+ * pad worth signing on, and one Done that commits exactly once — and only if
+ * the pen actually drew something. The drawing is kept on the phone first
+ * (`kept.ts`), so a Done that cannot reach the server loses nothing: the
+ * screen says so, and the report offers to save it later (`SignatureRow`).
  */
 export function ReportSigning({
   open,
@@ -49,16 +56,21 @@ export function ReportSigning({
   onSigned: (signedAt: number) => void
 }) {
   const [name, setName] = useState('')
-  const [keepMine, setKeepMine] = useState(true)
+  // Unset until the signer chooses: the default follows whether they have a
+  // saved signature yet (below), which arrives after the screen opens.
+  const [keepChoice, setKeepChoice] = useState<boolean | null>(null)
   const [busy, setBusy] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [failed, setFailed] = useState<Failure | null>(null)
 
-  // Every opening starts without the last one's failure. The pad itself is
-  // new each time: the screen is not drawn at all while closed.
+  // Every opening starts without the last one's failure or choice. The pad
+  // itself is new each time: the screen is not drawn at all while closed.
   const [wasOpen, setWasOpen] = useState(open)
   if (open !== wasOpen) {
     setWasOpen(open)
-    if (open) setFailed(false)
+    if (open) {
+      setFailed(null)
+      setKeepChoice(null)
+    }
   }
 
   const { data: saved } = useQuery({
@@ -67,70 +79,54 @@ export function ReportSigning({
     // saved signature is forgery with extra steps, however convenient.
     enabled: open && ownSignature,
   })
+  // A first drawing is kept for next time unless they say not; a later one
+  // replaces the saved signature only if they say so.
+  const keepMine = keepChoice ?? !saved
 
-  const getUploadUrl = useConvexMutation(api.reports.generateUploadUrl)
-  const convexAttach = useConvexMutation(api.reports.attachSignature)
-  const attach = useMutation({
-    mutationFn: (args: {
-      businessId: Id<'businesses'>
-      reportId: Id<'reports'>
-      storageId: Id<'_storage'>
-      slot: string
-      signedBy?: string
-      statement?: string
-      method?: 'drawn' | 'saved'
-      saveForMember?: boolean
-    }) => convexAttach(args),
+  const { saveDrawn, applySaved } = useSignatureSaving({
+    businessId,
+    reportId,
+    ownSignature,
   })
 
-  async function commit(storageId: Id<'_storage'>, method: 'drawn' | 'saved') {
-    await attach.mutateAsync({
-      businessId,
+  async function done(drawn: Drawn) {
+    setBusy(true)
+    setFailed(null)
+    const kept: KeptSignature = {
       reportId,
-      storageId,
       slot,
-      method,
+      png: await drawn.png.arrayBuffer(),
+      strokes: drawn.strokes,
+      drawnAt: drawn.drawnAt,
       ...(name.trim() ? { signedBy: name.trim() } : {}),
       ...(statement ? { statement } : {}),
-      // Saving it is the signer's own choice, and only ever their own.
-      ...(method === 'drawn' && ownSignature && keepMine
-        ? { saveForMember: true }
-        : {}),
-    })
-    onSigned(Date.now())
-    onClose()
-  }
-
-  async function done(png: Blob) {
-    setBusy(true)
-    setFailed(false)
+      keepAsMine: ownSignature && keepMine,
+    }
+    // On the phone before anything is sent: from here a failure loses
+    // nothing. Not every browser can keep it (a private window), and then
+    // the screen stays as it always did, the signature on the pad.
+    const held = await keepSignature(kept)
     try {
-      // One upload, one write — the whole reason signing has a Done rather
-      // than a pad that commits on every pen lift.
-      const uploadUrl = await getUploadUrl({ businessId })
-      const res = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'image/png' },
-        body: png,
-      })
-      if (!res.ok) throw new Error('upload failed')
-      const { storageId } = (await res.json()) as { storageId: Id<'_storage'> }
-      await commit(storageId, 'drawn')
+      onSigned(await saveDrawn(kept))
+      onClose()
     } catch {
-      setFailed(true)
+      setFailed({ held, offline: isOffline() })
     } finally {
       setBusy(false)
     }
   }
 
-  async function useSaved() {
+  async function signWithSaved() {
     if (!saved) return
     setBusy(true)
-    setFailed(false)
+    setFailed(null)
     try {
-      await commit(saved.storageId, 'saved')
+      onSigned(
+        await applySaved({ slot, storageId: saved.storageId, statement }),
+      )
+      onClose()
     } catch {
-      setFailed(true)
+      setFailed({ held: false, offline: isOffline() })
     } finally {
       setBusy(false)
     }
@@ -144,11 +140,8 @@ export function ReportSigning({
       statement={statement}
       name={askName ? { value: name, onChange: setName } : undefined}
       busy={busy}
-      error={
-        failed
-          ? 'Could not save the signature. Check your signal and tap Done again.'
-          : undefined
-      }
+      error={failed ? failureText(failed) : undefined}
+      keptOnPhone={failed?.held === true}
       extra={
         ownSignature
           ? (signed) =>
@@ -157,16 +150,20 @@ export function ReportSigning({
                   <input
                     type="checkbox"
                     checked={keepMine}
-                    onChange={(event) => setKeepMine(event.target.checked)}
+                    onChange={(event) => setKeepChoice(event.target.checked)}
                     className="size-4 shrink-0 accent-red"
                   />
-                  <span className="truncate">Save this as my signature</span>
+                  <span className="truncate">
+                    {saved
+                      ? 'Replace my saved signature'
+                      : 'Keep for next time'}
+                  </span>
                 </label>
               ) : saved ? (
                 <button
                   type="button"
                   disabled={busy}
-                  onClick={() => void useSaved()}
+                  onClick={() => void signWithSaved()}
                   className={`${SECONDARY_BUTTON_COMPACT} flex w-full min-w-0 items-center justify-center gap-2 px-3`}
                 >
                   <PenLine size={16} strokeWidth={2} />
@@ -175,8 +172,23 @@ export function ReportSigning({
               ) : null
           : undefined
       }
-      onDone={(png) => void done(png)}
+      onDone={(drawn) => void done(drawn)}
       onClose={onClose}
     />
   )
+}
+
+/** Why the last Done did not save: was there signal, and is the drawing
+ * kept on the phone? */
+type Failure = { held: boolean; offline: boolean }
+
+function failureText({ held, offline }: Failure): string {
+  if (held) {
+    return offline
+      ? 'No signal. The signature is kept on this phone: tap Done when you have signal, or save it from the report later.'
+      : 'Could not save the signature. It is kept on this phone: tap Done again, or save it from the report later.'
+  }
+  return offline
+    ? 'No signal. Tap Done again when you have signal.'
+    : 'Could not save the signature. Check your signal and tap Done again.'
 }

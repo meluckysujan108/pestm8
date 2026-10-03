@@ -71,7 +71,8 @@ test('signing commits once, and records what was signed', async ({ page }) => {
   )
 
   // The pad used to upload on every pen lift: a five-stroke signature was five
-  // uploads and five writes, any of which could half-fail.
+  // uploads and five writes, any of which could half-fail. Now Done uploads
+  // the image and its strokes, once each.
   let uploads = 0
   page.on('request', (request) => {
     if (request.method() === 'POST' && request.url().includes('storage/upload'))
@@ -105,7 +106,7 @@ test('signing commits once, and records what was signed', async ({ page }) => {
       name: 'Installer Signature — signed, sign again',
     }),
   ).toBeVisible()
-  expect(uploads).toBe(1)
+  expect(uploads).toBe(2)
 
   // And what is stored is the act, not just the image: when, how, against which
   // words, on which revision of the form.
@@ -167,9 +168,10 @@ test('a saved signature is offered to its owner, and to nobody else', async ({
     .getByRole('button', { name: "Technician's Signature — sign" })
     .click()
   await draw(page, "Technician's Signature")
-  // Offered only once something has been drawn to save, and on by default:
-  // signing your own name on every report is the thing worth saving.
-  await expect(page.getByLabel('Save this as my signature')).toBeChecked()
+  // Offered only once something has been drawn to save, and on by default
+  // for a first one: signing your own name on every report is the thing
+  // worth saving.
+  await expect(page.getByLabel('Keep for next time')).toBeChecked()
   await page.getByRole('button', { name: 'Done' }).click()
   await expect(
     page.getByRole('button', {
@@ -188,9 +190,8 @@ test('a saved signature is offered to its owner, and to nobody else', async ({
   )
   await builderReady(page)
   await page
-    .getByRole('button', { name: "Technician's Signature — sign" })
+    .getByRole('button', { name: 'Sign with my saved signature' })
     .click()
-  await page.getByRole('button', { name: 'Use my saved signature' }).click()
   await expect(
     page.getByRole('button', {
       name: "Technician's Signature — signed, sign again",
@@ -242,6 +243,218 @@ test('a saved signature is offered to its owner, and to nobody else', async ({
       page.getByRole('button', { name: 'Signature — sign', exact: true }),
     ).toHaveCount(0)
   }
+})
+
+test('a later drawing replaces the saved signature only when asked', async ({
+  page,
+}) => {
+  const { email, owner, businessId, slug, propertyId } =
+    await setup('sig-replace')
+  const first = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+  await signInViaUi(page, email)
+  await page.goto(
+    sectionUrl(slug, first, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
+  await draw(page, "Technician's Signature")
+  await page.getByRole('button', { name: 'Done' }).click()
+  await expect(
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
+  ).toBeVisible()
+  const kept = await owner.client.query(api.reports.mySavedSignature, {
+    businessId,
+  })
+  expect(kept).not.toBeNull()
+
+  // Drawn again on the next report: the one saved stays unless asked.
+  const second = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+  await page.goto(
+    sectionUrl(slug, second, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — draw instead" })
+    .click()
+  await draw(page, "Technician's Signature")
+  await expect(page.getByLabel('Replace my saved signature')).not.toBeChecked()
+  await page.getByRole('button', { name: 'Done' }).click()
+  await expect(
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
+  ).toBeVisible()
+  const after = await owner.client.query(api.reports.mySavedSignature, {
+    businessId,
+  })
+  expect(after?.storageId).toBe(kept!.storageId)
+  const report = await owner.client.query(api.reports.get, {
+    businessId,
+    reportId: second,
+  })
+  expect(report!.signatureSlots!.technician).toMatchObject({ method: 'drawn' })
+})
+
+test('My signature is drawn, seen and removed in Settings', async ({
+  page,
+}) => {
+  const { email, owner, businessId, slug } = await setup('sig-settings')
+  await signInViaUi(page, email)
+  await page.goto(`/${slug}/settings`)
+  await clickUntil(page.getByRole('link', { name: /My signature/ }), () =>
+    expect(page.getByRole('heading', { name: 'My signature' })).toBeVisible({
+      timeout: 2_000,
+    }),
+  )
+  await expect(page.getByText(/No saved signature/)).toBeVisible()
+
+  await page.getByRole('button', { name: 'Draw my signature' }).click()
+  await draw(page, 'My signature')
+  await page.getByRole('button', { name: 'Done' }).click()
+  await expect(
+    page.getByRole('img', { name: 'My saved signature' }),
+  ).toBeVisible()
+  expect(
+    await owner.client.query(api.reports.mySavedSignature, { businessId }),
+  ).not.toBeNull()
+
+  await page.getByRole('button', { name: 'Remove my signature' }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Remove' })
+    .click()
+  await expect(page.getByText(/No saved signature/)).toBeVisible()
+  expect(
+    await owner.client.query(api.reports.mySavedSignature, { businessId }),
+  ).toBeNull()
+})
+
+test('a signature drawn with no signal is kept on the phone, and saved later as signed when it was drawn', async ({
+  page,
+  context,
+}) => {
+  const { email, owner, businessId, slug, propertyId } = await setup('sig-kept')
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+  await signInViaUi(page, email)
+  await page.goto(
+    sectionUrl(slug, reportId, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
+  await draw(page, "Technician's Signature")
+
+  // No signal: nothing is tried, and nothing is lost.
+  await context.setOffline(true)
+  await page.getByRole('button', { name: 'Done' }).click()
+  const screen = page.getByRole('dialog')
+  await expect(screen.getByText(/kept on this phone/)).toBeVisible()
+  // Kept, so closing asks nothing.
+  await screen.getByRole('button', { name: 'Close' }).click()
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await expect(page.getByText(/Not saved yet/)).toBeVisible()
+
+  // The app closed and opened again, with signal: still there.
+  await context.setOffline(false)
+  await page.reload()
+  await builderReady(page)
+  await expect(page.getByText(/Not saved yet/)).toBeVisible()
+  await page.getByRole('button', { name: 'Save it' }).click()
+  await expect(
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
+  ).toBeVisible()
+  await expect(page.getByText(/Not saved yet/)).toHaveCount(0)
+
+  // Signed when Done was tapped, not when it arrived — and both are kept.
+  const report = await owner.client.query(api.reports.get, {
+    businessId,
+    reportId,
+  })
+  const slot = report!.signatureSlots!.technician as {
+    signedAt: number
+    receivedAt?: number
+    method: string
+  }
+  expect(slot.method).toBe('drawn')
+  expect(slot.receivedAt).toBeGreaterThan(slot.signedAt)
+  expect(slot).not.toHaveProperty('strokesStorageId')
+
+  // Saved, it is forgotten here: opened again, nothing is offered. Reloaded
+  // once the signed answer is saved too, or the page opens on the answers
+  // still on this phone instead.
+  await expect
+    .poll(
+      async () =>
+        (await owner.client.query(api.reports.get, { businessId, reportId }))
+          ?.data?.technicianSignature,
+    )
+    .toBeTruthy()
+  await page.reload()
+  await builderReady(page)
+  await expect(
+    page.getByRole('button', {
+      name: "Technician's Signature — signed, sign again",
+    }),
+  ).toBeVisible()
+  await expect(page.getByText(/Not saved yet/)).toHaveCount(0)
+})
+
+test('a drawing kept on the phone can be discarded', async ({
+  page,
+  context,
+}) => {
+  const { email, owner, businessId, slug, propertyId } =
+    await setup('sig-discard-kept')
+  const reportId = await createReport(
+    owner.client,
+    { businessId, propertyId },
+    'serviceReport',
+  )
+  await signInViaUi(page, email)
+  await page.goto(
+    sectionUrl(slug, reportId, 'serviceReport', 'technicianSignature'),
+  )
+  await builderReady(page)
+  await page
+    .getByRole('button', { name: "Technician's Signature — sign" })
+    .click()
+  await draw(page, "Technician's Signature")
+  await context.setOffline(true)
+  await page.getByRole('button', { name: 'Done' }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
+  await context.setOffline(false)
+
+  await page.getByRole('button', { name: 'Discard' }).click()
+  await page
+    .getByRole('alertdialog')
+    .getByRole('button', { name: 'Discard' })
+    .click()
+  await expect(page.getByText(/Not saved yet/)).toHaveCount(0)
+  await page.reload()
+  await builderReady(page)
+  await expect(
+    page.getByRole('button', { name: "Technician's Signature — sign" }),
+  ).toBeVisible()
+  await expect(page.getByText(/Not saved yet/)).toHaveCount(0)
 })
 
 test('a client is not asked to sign a report being filled in', async ({

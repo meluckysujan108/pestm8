@@ -834,6 +834,8 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
     url: 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="300" height="90"><path d="M10 70 C 60 10, 90 10, 120 60 S 190 90, 230 30 S 280 40, 290 50" stroke="%231C1C1E" stroke-width="3" fill="none"/></svg>',
   }),
   'reports:photoUrls': () => ({}),
+  // No signature on the sample forms yet.
+  'reports:signatureUrls': () => ({}),
   'properties:list': propertiesList,
   'memberships:listForBusiness': () =>
     MEMBERS.map((m) => ({ ...m, displayName: m.name, status: 'active' })),

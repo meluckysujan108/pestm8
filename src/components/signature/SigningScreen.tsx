@@ -10,8 +10,12 @@ import {
 import { SheetCloseButton } from '#/components/primitives/Sheet'
 import { FIELD } from '#/components/forms/FormField'
 import { turnsForSigning } from '#/lib/signature/ink'
+import type { StrokesFile } from '#/lib/signature/ink'
 import { SignaturePad } from './SignaturePad'
 import type { SignaturePadHandle } from './SignaturePad'
+
+/** What Done hands over: the image, the strokes it was drawn from, and when. */
+export type Drawn = { png: Blob; strokes: StrokesFile; drawnAt: number }
 
 /**
  * Signing, on the whole screen.
@@ -40,6 +44,7 @@ export function SigningScreen({
   name,
   busy,
   error,
+  keptOnPhone = false,
   extra,
   onDone,
   onClose,
@@ -55,13 +60,21 @@ export function SigningScreen({
   /** Why the last Done did not save. */
   error?: ReactNode
   /**
+   * What Done tried to save is kept on the phone (`kept.ts`), so closing
+   * loses nothing and is not asked about.
+   */
+  keptOnPhone?: boolean
+  /**
    * The slot beside Done — a saved signature to use, or the choice to keep
    * this one — given whether the pad holds a signature. It is the same size
    * whatever is in it, so nothing moves as the first stroke lands.
    */
   extra?: (signed: boolean) => ReactNode
-  /** The pad's signature as a PNG, cut to its ink. */
-  onDone: (png: Blob) => void
+  /**
+   * The pad's signature as a PNG cut to its ink, with its strokes, and the
+   * moment Done was tapped — the time it was signed, however late it saves.
+   */
+  onDone: (drawn: Drawn) => void
   /** Closed without a signature: ✕, Escape or Back, or Discard. */
   onClose: () => void
 }) {
@@ -92,7 +105,7 @@ export function SigningScreen({
   /** ✕ or Escape: asks first if there is a signature to lose. */
   function requestClose() {
     if (working) return
-    if (ink.signed) setAsking('close')
+    if (ink.signed && !keptOnPhone) setAsking('close')
     else onClose()
   }
 
@@ -135,8 +148,9 @@ export function SigningScreen({
     setExporting(true)
     setUnreadable(false)
     try {
-      const png = await pad.current?.toPng()
-      if (png) onDone(png)
+      const drawnAt = Date.now()
+      const saved = await pad.current?.save()
+      if (saved) onDone({ ...saved, drawnAt })
       else setUnreadable(true)
     } finally {
       setExporting(false)
@@ -296,7 +310,7 @@ export function SigningScreen({
 
           {asking && <DiscardSignature onKeep={keep} onDiscard={discard} />}
           {/* The phone's Back, while there is a signature to lose. */}
-          {router && ink.signed && !working && (
+          {router && ink.signed && !working && !keptOnPhone && (
             <BackGuard
               onBlocked={(pending) => {
                 back.current = pending

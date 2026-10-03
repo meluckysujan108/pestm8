@@ -353,6 +353,11 @@ const PLAN = {
   sign: { before: async (p) => signAcross(p) },
   // A client's pad: upright, asking their name.
   'sign-client': { before: async (p) => signAcross(p) },
+  // The form's own slot with a saved signature, and a drawing kept on the
+  // phone because it could not be saved.
+  'sign-row-saved': { before: async (p) => p.waitForTimeout(500) },
+  'sign-row-waiting': { before: async (p) => p.waitForTimeout(800) },
+  'my-signature': { before: async (p) => p.waitForTimeout(500) },
   // A phone already on its side: laid out as it is, not turned.
   'sign-landscape': {
     spec: 'sign',
