@@ -960,6 +960,105 @@ test.describe('who it goes to', () => {
     ])
   })
 
+  test('keeps what is typed in its box through a look at the preview, and a near miss asks once', async ({
+    page,
+  }) => {
+    const { email, owner, businessId, slug, reportId } =
+      await startJobReport('fill-lock-preview')
+    await readyToLock(owner, businessId, reportId, {
+      safeToStart: true,
+      treatments: [],
+      sendCopy: false,
+    })
+
+    await signInViaUi(page, email)
+    await page.goto(`/${slug}/reports/${reportId}`)
+    await builderReady(page)
+    await page.getByRole('button', { name: 'Finalise & lock' }).click()
+    const sheet = page.getByRole('dialog', { name: 'Ready to lock' })
+    const box = sheet.getByLabel('Email address')
+    await box.fill('strata@elsewhere.example')
+
+    // Off to the preview and back: the sheet comes back as it was.
+    await sheet.getByRole('button', { name: 'Preview the document' }).click()
+    const preview = reportViewer(page)
+    await expectDocumentOpen(preview)
+    await preview.getByRole('button', { name: 'Done', exact: true }).click()
+    await expect(sheet).toBeVisible()
+    await expect(box).toHaveValue('strata@elsewhere.example')
+
+    // A near miss holds the lock once, and the button says what a second
+    // tap does.
+    await box.fill('jane@gmial.com')
+    await sheet.getByRole('button', { name: 'Finalise & lock' }).click()
+    await expect(sheet.getByText('Did you mean jane@gmail.com?')).toBeVisible()
+    await expect(
+      sheet.getByRole('button', { name: 'Finalise & lock anyway' }),
+    ).toBeVisible()
+    const report = await owner.client.query(api.reports.get, {
+      businessId,
+      reportId,
+    })
+    expect(report!.status).toBe('draft')
+  })
+
+  test.describe('pasting', () => {
+    test.use({ permissions: ['clipboard-read', 'clipboard-write'] })
+
+    test('takes a pasted list whole', async ({ page }) => {
+      const { email, owner, businessId, slug, reportId } =
+        await startJobReport('fill-lock-paste')
+      await readyToLock(owner, businessId, reportId, {
+        safeToStart: true,
+        treatments: [],
+        sendCopy: false,
+      })
+
+      await signInViaUi(page, email)
+      await page.goto(`/${slug}/reports/${reportId}`)
+      await builderReady(page)
+      await page.getByRole('button', { name: 'Finalise & lock' }).click()
+      const sheet = page.getByRole('dialog', { name: 'Ready to lock' })
+      await page.evaluate(() =>
+        navigator.clipboard.writeText(
+          'a@coastal.example, b@strata.example, c@agents.example',
+        ),
+      )
+      const box = sheet.getByLabel('Email address')
+      await box.focus()
+      await box.press('ControlOrMeta+V')
+      // Every one of them, not only the last.
+      for (const address of [
+        /a@coastal\.example/,
+        /b@strata\.example/,
+        /c@agents\.example/,
+      ]) {
+        await expect(
+          sheet.getByRole('button', { name: address }),
+        ).toHaveAttribute('aria-pressed', 'true')
+      }
+      await sheet.getByRole('button', { name: 'Finalise & lock' }).click()
+      await expect
+        .poll(async () => {
+          const report = await owner.client.query(api.reports.get, {
+            businessId,
+            reportId,
+          })
+          return report!.status
+        })
+        .toBe('finalised')
+      const deliveries = await owner.client.query(api.deliveries.forReport, {
+        businessId,
+        reportId,
+      })
+      expect(deliveries.flatMap((delivery) => delivery.to).sort()).toEqual([
+        'a@coastal.example',
+        'b@strata.example',
+        'c@agents.example',
+      ])
+    })
+  })
+
   test('holds the lock for an address that can never be delivered to', async ({
     page,
   }) => {

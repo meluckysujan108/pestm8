@@ -67,10 +67,21 @@ export function reportProgress(
   input: ProgressInput = {},
 ): ReportProgress {
   const prefill = input.prefill ?? {}
-  const sections = visibleSections(sectionsOf(template), data).map(
-    (section, index) =>
-      progressOf(section, index, data, prefill, input.photoCounts),
-  )
+  const sections = visibleSections(sectionsOf(template), data)
+    .map((section, index) => ({
+      section,
+      progress: progressOf(section, index, data, prefill, input.photoCounts),
+    }))
+    // A section holding nothing but what the sheet that locks the report
+    // asks (a business form's own "Send" page) is no page at all now: left
+    // out, and the rest numbered without it. Its key is its own still.
+    .filter(
+      ({ section }) =>
+        Boolean(section.preamble) ||
+        section.fields.length === 0 ||
+        !section.fields.every((field) => askedAtLock(field, section.fields)),
+    )
+    .map(({ progress }, position) => ({ ...progress, index: position }))
 
   const missingRequired = sections.flatMap((section) => section.missing)
   const toConfirm = sections.flatMap((section) => section.toConfirm)

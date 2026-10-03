@@ -126,8 +126,11 @@ export type DeliveryQuestions = {
   /** The send-copy question's key, where the form asks one. */
   sendCopyKey: string | null
   /** The address boxes the form is asking, in its order: a choice made on
-   * the sheet goes into the first. */
+   * the sheet goes into the first, or the first the form requires while it
+   * is empty. */
   boxKeys: Array<string>
+  /** Those of `boxKeys` the form requires an address in. */
+  requiredKeys: Array<string>
 }
 
 export function deliveryQuestionsOf(
@@ -146,7 +149,19 @@ export function deliveryQuestionsOf(
     boxKeys: fields
       .filter((field) => field.semantic === 'emailTo')
       .map((field) => field.key),
+    requiredKeys: fields
+      .filter((field) => field.semantic === 'emailTo' && field.required)
+      .map((field) => field.key),
   }
+}
+
+/** The addresses an answer holds, lower-cased: a list, or a form's first
+ * version's one address. */
+function addressesIn(value: unknown): Array<string> {
+  return (Array.isArray(value) ? value : [value])
+    .filter((entry): entry is string => typeof entry === 'string')
+    .map((entry) => entry.trim().toLowerCase())
+    .filter((entry) => entry !== '')
 }
 
 /** Someone the lock sheet offers, ticked or not. */
@@ -189,6 +204,7 @@ export function lockRecipients({
   data,
   people,
   clientEmail,
+  clientName,
   knownAddresses,
   listed = [],
 }: {
@@ -196,6 +212,9 @@ export function lockRecipients({
   data: Record<string, unknown>
   people: ReadonlyArray<BookPerson>
   clientEmail: string | null | undefined
+  /** The client's name as the report has it, while the client book has not
+   * answered (no signal, or the client is in the bin). */
+  clientName?: string | null
   knownAddresses: ReadonlyArray<string>
   listed?: ReadonlyArray<string>
 }): Array<LockRecipient> {
@@ -238,7 +257,11 @@ export function lockRecipients({
       (questions.sendCopyKey !== null &&
         data[questions.sendCopyKey] === true) ||
         typed.includes(client),
-      { name: clientPerson?.name ?? 'Client', role: 'Client' },
+      // Named as the book or the report names them; with no name at all,
+      // just "Client", once.
+      clientPerson?.name || clientName
+        ? { name: clientPerson?.name || (clientName as string), role: 'Client' }
+        : { name: 'Client', role: '' },
       true,
     )
   }
@@ -273,12 +296,17 @@ export function answersFor(
   on: boolean,
 ): Record<string, unknown> {
   const out: Record<string, unknown> = {}
-  const holds = (key: string) =>
-    (Array.isArray(data[key]) ? (data[key] as Array<unknown>) : [data[key]])
-      .filter((entry): entry is string => typeof entry === 'string')
-      .some((entry) => entry.trim().toLowerCase() === address)
+  const holds = (key: string) => addressesIn(data[key]).includes(address)
+  // A box the form requires and nobody is in yet: where an address goes
+  // first, the client's too, or the report could never be locked.
+  const emptyRequired = questions.requiredKeys.find(
+    (key) => addressesIn(data[key]).length === 0,
+  )
   if (isClient && questions.sendCopyKey !== null) {
     out[questions.sendCopyKey] = on
+    if (on && emptyRequired !== undefined && !holds(emptyRequired)) {
+      out[emptyRequired] = withAddress(data[emptyRequired], address, true)
+    }
     if (!on) {
       for (const key of questions.boxKeys) {
         if (holds(key)) out[key] = withAddress(data[key], address, false)
@@ -287,9 +315,9 @@ export function answersFor(
     return out
   }
   if (on) {
-    const first = questions.boxKeys.at(0)
-    if (first !== undefined && !questions.boxKeys.some(holds)) {
-      out[first] = withAddress(data[first], address, true)
+    const target = emptyRequired ?? questions.boxKeys.at(0)
+    if (target !== undefined && !questions.boxKeys.some(holds)) {
+      out[target] = withAddress(data[target], address, true)
     }
     return out
   }
@@ -326,9 +354,14 @@ export function deliveryProblems(
           `${entry.trim().toLowerCase()} can’t receive email — untick it, or use the address meant.`,
         )
       }
+      // (The client's own address, from their record, is not checked here:
+      // it is left out of the email if it can't receive one, and the sheet
+      // says so. Nothing in the form is wrong.)
     }
     if (field.required && entries.length === 0) {
-      out.push('This form asks who to email it to — tick or add someone.')
+      out.push(
+        `${field.label.replace(/:$/, '')} needs at least one address — tick or add someone.`,
+      )
     }
   }
   return out

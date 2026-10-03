@@ -103,10 +103,44 @@ describe('who it goes to, asked when it locks', () => {
         },
       ],
     }
-    const [section] = reportProgress(delivery, {}).sections
-    expect(section.questions).toBe(0)
-    expect(section.missing).toEqual([])
-    expect(section.done).toBe(true)
+    // Not a page to open and find empty: it is left out of the list.
+    expect(reportProgress(delivery, {}).sections).toEqual([])
+    expect(reportProgress(delivery, {}).complete).toBe(true)
+  })
+
+  test('leaves the other sections numbered in order, keyed as before', () => {
+    const delivery: ReportTemplate = {
+      ...service,
+      sections: [
+        {
+          id: 'first',
+          title: 'First',
+          fields: [{ kind: 'text', key: 'a', label: 'A' }],
+        },
+        {
+          id: 'send',
+          title: 'Send',
+          fields: [
+            {
+              kind: 'emails',
+              key: 'emailReportTo',
+              semantic: 'emailTo',
+              label: 'Email Report To',
+            },
+          ],
+        },
+        {
+          id: 'last',
+          title: 'Last',
+          fields: [{ kind: 'text', key: 'b', label: 'B' }],
+        },
+      ],
+    }
+    const listed = reportProgress(delivery, {}).sections
+    expect(listed.map((section) => [section.id, section.index])).toEqual([
+      ['first', 0],
+      ['last', 1],
+    ])
   })
 })
 

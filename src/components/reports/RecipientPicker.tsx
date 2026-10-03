@@ -60,6 +60,9 @@ export type PendingAddress =
   | { kind: 'held' }
   /** Ready, and taken: it goes with the tap. */
   | { kind: 'taken'; address: string }
+  /** The tap was given up while the domain was being asked about (the
+   * sheet closed and opened again): nothing was taken. */
+  | { kind: 'abandoned' }
 
 export type AddressDraft = ReturnType<typeof useAddressDraft>
 
@@ -239,7 +242,12 @@ export function useAddressDraft({
    * had (the box was left) is no wait at all, and past `SEND_CHECK_MS` it
    * goes.
    */
-  async function takePending(): Promise<PendingAddress> {
+  async function takePending({
+    stillWanted,
+  }: {
+    /** Asked once the domain is known: false, and nothing is taken. */
+    stillWanted?: () => boolean
+  } = {}): Promise<PendingAddress> {
     const address = typed
     if (address === '') return { kind: 'none' }
     setChecking(true)
@@ -257,6 +265,7 @@ export function useAddressDraft({
     if (fresh.length > 0) {
       setNoMail((prev) => [...new Set([...prev, ...fresh])])
     }
+    if (stillWanted && !stillWanted()) return { kind: 'abandoned' }
     if (
       take(address, { confirm: true, noMailDomains: [...noMail, ...fresh] }) ===
       'held'
@@ -509,7 +518,7 @@ export function RecipientRow({
           {who && (
             <span className="block break-words text-body text-ink">
               <span className="font-semibold">{who.name}</span>
-              <span className="text-ink-2"> · {who.role}</span>
+              {who.role && <span className="text-ink-2"> · {who.role}</span>}
             </span>
           )}
           <span

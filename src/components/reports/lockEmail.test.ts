@@ -360,6 +360,7 @@ describe('who it goes to, chosen on the sheet that locks it', () => {
     expect(questions).toEqual({
       sendCopyKey: 'sendCopy',
       boxKeys: ['emailReportTo'],
+      requiredKeys: [],
     })
     expect(
       answersFor(
@@ -403,6 +404,67 @@ describe('who it goes to, chosen on the sheet that locks it', () => {
     expect(say({ ...data, ...answers }, 'jane@gmail.com')).not.toContain(
       'jane@gmail.com',
     )
+  })
+
+  test('names the client however it can, and never “Client · Client”', () => {
+    const fromReport = lockRecipients({
+      template,
+      data: { sendCopy: true },
+      people: [],
+      clientEmail: 'jane@gmail.com',
+      clientName: 'Jane Nguyen',
+      knownAddresses: [],
+    })
+    expect(fromReport[0].who).toEqual({ name: 'Jane Nguyen', role: 'Client' })
+    const unnamed = lockRecipients({
+      template,
+      data: { sendCopy: true },
+      people: [],
+      clientEmail: 'jane@gmail.com',
+      knownAddresses: [],
+    })
+    expect(unnamed[0].who).toEqual({ name: 'Client', role: '' })
+  })
+
+  test('takes a pasted list whole when each change builds on the last', () => {
+    // The sheet applies each address of a paste in turn, each on the answers
+    // the last one left (`latest` in FinaliseSheet): none is lost.
+    const questions = deliveryQuestionsOf(template, {})
+    let view: Record<string, unknown> = { emailReportTo: [] }
+    for (const address of ['a@coastal.com.au', 'b@strata.com.au']) {
+      view = {
+        ...view,
+        ...answersFor(questions, view, { address, isClient: false }, true),
+      }
+    }
+    expect(view.emailReportTo).toEqual(['a@coastal.com.au', 'b@strata.com.au'])
+  })
+
+  test('fills a box the form requires first, the client included', () => {
+    const required = {
+      ...template,
+      sections: template.sections?.map((section) => ({
+        ...section,
+        fields: section.fields.map((field) =>
+          field.key === 'emailReportTo' ? { ...field, required: true } : field,
+        ),
+      })),
+    }
+    const questions = deliveryQuestionsOf(required, {})
+    expect(questions.requiredKeys).toEqual(['emailReportTo'])
+    // Ticking the client sends their copy and, with the box empty and
+    // required, puts them in it: a client-only report can still lock.
+    expect(
+      answersFor(
+        questions,
+        { emailReportTo: [] },
+        { address: 'jane@gmail.com', isClient: true },
+        true,
+      ),
+    ).toEqual({ sendCopy: true, emailReportTo: ['jane@gmail.com'] })
+    expect(deliveryProblems(required, { emailReportTo: [] })).toEqual([
+      'Email Report To needs at least one address — tick or add someone.',
+    ])
   })
 
   test('stops the lock for an address in the box that can never be delivered to', () => {
