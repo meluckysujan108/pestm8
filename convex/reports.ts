@@ -1107,6 +1107,13 @@ export const attachSignature = mutation({
      * later, and is stamped with this where it could be true (`signedAtOf`).
      */
     drawnAt: v.optional(v.number()),
+    /**
+     * The form's version it was signed against. A drawing kept on the phone
+     * can arrive after the report moved to a new version, which withdrew
+     * every signature made against the old wording; it is refused then
+     * (TEMPLATE_VERSION_MISMATCH), as a save of the old answers would be.
+     */
+    templateVersion: v.optional(v.number()),
   },
   handler: async (
     ctx,
@@ -1121,11 +1128,15 @@ export const attachSignature = mutation({
       saveForMember,
       strokesStorageId,
       drawnAt,
+      templateVersion,
     },
   ) => {
     // A signature attests to a document's contents at a moment in time. Once
     // locked, it must not be possible to attach a different one.
     const { env, report } = await requireEditableReport(ctx, businessId, reportId)
+    if (templateVersion !== undefined) {
+      requireSameVersion(report, templateVersion)
+    }
     // The HUMAN, not the account being worked in: a saved signature is the
     // hand of whoever holds the pen, and so is the record of who captured one.
     const membership = await ctx.db.get(env.actor.real._id)

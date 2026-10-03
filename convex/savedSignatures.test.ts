@@ -138,6 +138,7 @@ function sign(
     saveForMember?: boolean
     strokesStorageId?: Id<'_storage'>
     drawnAt?: number
+    templateVersion?: number
   } = {},
 ) {
   return as.as.mutation(api.reports.attachSignature, {
@@ -366,6 +367,21 @@ describe('a signature on a report', () => {
     const slot = await slotOf(s, reportId)
     expect(slot?.signedAt).toBeGreaterThanOrEqual(before)
     expect(slot).not.toHaveProperty('receivedAt')
+  })
+
+  test('is refused when drawn against a version of the form the report has left', async () => {
+    const s = await setup()
+    const reportId = await draft(s)
+    const version = getTemplate('serviceReport').version
+    const image = await upload(s)
+    await expect(
+      sign(s, s.kevin, reportId, image, { templateVersion: version - 1 }),
+    ).rejects.toThrow(/TEMPLATE_VERSION_MISMATCH/)
+    expect(await slotOf(s, reportId)).toBeNull()
+
+    const again = await upload(s)
+    await sign(s, s.kevin, reportId, again, { templateVersion: version })
+    expect(await slotOf(s, reportId)).toMatchObject({ storageId: again })
   })
 
   test('saves a drawing as the signer’s own only when asked, and only theirs', async () => {
