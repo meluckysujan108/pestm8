@@ -5,22 +5,17 @@ import {
   useConvexAction,
   useConvexMutation,
 } from '@convex-dev/react-query'
-import { CircleAlert, Info, Plus, Send } from 'lucide-react'
+import { Info, Plus, Send } from 'lucide-react'
 import { Sheet } from '#/components/primitives/Sheet'
 import { api } from '../../../convex/_generated/api'
+import { emailProblem, emailTypoFix } from '../../../convex/lib/email'
+import { fieldMessageId } from '#/components/forms/FormField'
 import {
-  emailDomain,
-  emailProblem,
-  emailTypoFix,
-} from '../../../convex/lib/email'
-import { FieldMessage } from '#/components/forms/FieldMessage'
-import {
-  describedBy,
-  fieldInputClass,
-  fieldMessageId,
-} from '#/components/forms/FormField'
-import { domainsWithoutMail, noMailMessage } from './fields/staticBlocks'
-import { checkEmailDomain } from '#/lib/emailDomainCheck'
+  AddressBox,
+  RecipientRow,
+  UndeliverableChip,
+  useAddressDraft,
+} from './RecipientPicker'
 import {
   clientCopyDeclined,
   deliveryRecipients,
@@ -28,10 +23,7 @@ import {
 import type { ReportTemplate } from '#/lib/reportTemplates'
 import type { RefObject } from 'react'
 import type { Id } from '../../../convex/_generated/dataModel'
-import {
-  NEUTRAL_BUTTON_COMPACT,
-  PRIMARY_BUTTON,
-} from '#/components/primitives/buttons'
+import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 import { RowPending } from '#/components/shell/Pending'
 import { FormAlert } from '#/components/forms/FormAlert'
@@ -282,28 +274,6 @@ function personRole(person: Person): string {
 
 const NONE: ReadonlyArray<string> = []
 
-/** The longest Send waits to hear whether a typed address's domain takes
- * mail, as a form's Save does: a lookup is only ever a warning, so past this
- * the address goes as it is. */
-const SEND_CHECK_MS = 3000
-
-/**
- * A pasted list of addresses, split where a person would: at a comma, a
- * semicolon, a space or a new line. "Bob Smith <bob@x.com>; Jane
- * <jane@y.com>", as a mail app copies them, gives the addresses in the
- * brackets. A name stops at an @ or a new line, so it never takes an address
- * before it with it; what it cannot tell apart (a name with a comma in it, an
- * address and a name with only a space between) leaves a piece that is not an
- * address, so the paste goes into the box as it is, to be put right.
- */
-export function splitPasted(text: string): Array<string> {
-  return text
-    .replace(/[^,;<>@\n]*<([^<>]*)>/g, ',$1,')
-    .split(/[\s,;]+/)
-    .map((part) => part.toLowerCase())
-    .filter(Boolean)
-}
-
 export function SendSheet({
   open,
   onClose,
@@ -417,20 +387,8 @@ export function SendSheet({
   // Typed by hand, as opposed to a one-tap fix of an address on file: only
   // these may be offered for the client's record.
   const [typedIn, setTypedIn] = useState<Array<string>>([])
-  const [draft, setDraft] = useState('')
   const [adding, setAdding] = useState(false)
-  // What is wrong with the typed address shows once the field is left or Add
-  // pressed, not while it is still going in. `typoAsked` is the address a
-  // "Did you mean" was shown for: pressing Add again adds it as typed.
-  const [draftShown, setDraftShown] = useState(false)
-  const [typoAsked, setTypoAsked] = useState<string | null>(null)
-  // Domains DNS has said take no mail (src/lib/emailDomainCheck.ts), asked as
-  // a typed address is left or added. A warning only: it may still be sent.
-  const [noMail, setNoMail] = useState<ReadonlyArray<string>>([])
-  // Send asking about a typed address's domain before it goes.
-  const [checking, setChecking] = useState(false)
-  const draftRef = useRef<HTMLInputElement>(null)
-  const draftId = useId()
+  const listId = useId()
 
   // Opened for particular addresses ("Send again" on one that failed): those
   // are chosen and nothing else is — the form's own recipients already have
@@ -465,6 +423,29 @@ export function SendSheet({
       })),
   ]
   const chosen = recipients.filter((entry) => entry.chosen)
+
+  // The box to add anyone else (`useAddressDraft`): an address it lets
+  // through is chosen where it is already listed, and listed chosen where it
+  // is not.
+  const box = useAddressDraft({
+    onTake: (address) => {
+      if (recipients.some((entry) => entry.address === address)) {
+        setOverrides((prev) => ({ ...prev, [address]: true }))
+      } else {
+        setAdded((prev) => (prev.includes(address) ? prev : [...prev, address]))
+        setTypedIn((prev) =>
+          prev.includes(address) ? prev : [...prev, address],
+        )
+      }
+    },
+    onAdded: () => setAdding(false),
+    // The box stays, even where it opened only for want of anyone on file: a
+    // comma says another is coming.
+    onKeepOpen: () => setAdding(true),
+    isOpen: () => openNow.current,
+  })
+  const checking = box.checking
+  const resetBox = box.reset
   // Said wherever it is true: an email to the copy address itself carries no
   // second, hidden one (`blindCopy`).
   const copied = (addresses: ReadonlyArray<string>) =>
@@ -550,44 +531,16 @@ export function SendSheet({
     setSaved(null)
     setAdded([])
     setTypedIn([])
-    setDraft('')
+    resetBox()
     setAdding(false)
-    setDraftShown(false)
-    setTypoAsked(null)
     resetSend()
-  }, [open, chosenAtOpen, resetSend])
+  }, [open, chosenAtOpen, resetSend, resetBox])
 
   const outcomes = send.data ?? []
   const sent = outcomes.filter((result) => result.code === null)
   const failed = outcomes.filter((result) => result.code !== null)
 
-  const typed = draft.trim().toLowerCase()
-  const draftProblem = typed === '' ? null : emailProblem(typed)
-  // Offered with the error too: "bob@gmail" is refused, and bob@gmail.com is
-  // almost certainly what was meant.
-  const draftFix = typed === '' ? null : emailTypoFix(typed)
-  const showDraftProblem = draftShown && draftProblem !== null
-  const showDraftTypo = draftShown && draftProblem === null && draftFix !== null
-  const draftDomain = draftProblem === null ? emailDomain(typed) : null
-  const showDraftNoMail =
-    draftFix === null && draftDomain !== null && noMail.includes(draftDomain)
-  const draftErrorId = fieldMessageId(draftId, 'error')
-  const draftWarningId = fieldMessageId(draftId, 'warning')
-
-  /** Asks DNS about these addresses' domains, and remembers the ones that
-   * take no mail. Only ever added to: the answer is about the domain. */
-  function askDomains(addresses: ReadonlyArray<string>) {
-    void domainsWithoutMail(addresses).then((found) => {
-      if (found.length === 0) return
-      setNoMail((prev) => [...new Set([...prev, ...found])])
-    })
-  }
-
-  /** The domain of `address`, when DNS has said it takes no mail. */
-  function chipNoMail(address: string): string | null {
-    const domain = emailDomain(address)
-    return domain !== null && noMail.includes(domain) ? domain : null
-  }
+  const typed = box.typed
 
   /** "Use bob@gmail.com" on an address that can't be delivered: the one
    * meant is chosen in its place, and the bad one stays, unchosen, so it is
@@ -597,74 +550,7 @@ export function SendSheet({
       setAdded((prev) => [...prev, fix])
     }
     setOverrides((prev) => ({ ...prev, [fix]: true }))
-    askDomains([fix])
-  }
-
-  function takeDraftFix(fix: string) {
-    setDraft(fix)
-    setDraftShown(false)
-    setTypoAsked(null)
-    draftRef.current?.focus()
-  }
-
-  /**
-   * Takes an address typed in as someone to send to, or keeps it in the box
-   * with the reason it needs another look. One that can never be delivered
-   * to stays there with the reason under it — this used to drop anything
-   * without an @ without a word, and let "bob@gmail" through to a send that
-   * could not arrive. A near miss of a common provider asks, and so does a
-   * domain DNS has said takes no mail; only Add anyway or Send anyway (a
-   * `confirm`ing take) sends it as typed, never a comma typed after it. An
-   * answer that comes after shows under the address's chip instead.
-   */
-  function takeAddress(
-    address: string,
-    {
-      confirm,
-      noMailDomains = noMail,
-    }: { confirm: boolean; noMailDomains?: ReadonlyArray<string> },
-  ): 'added' | 'held' {
-    if (emailProblem(address) !== null) {
-      setDraft(address)
-      setTypoAsked(null)
-      setDraftShown(true)
-      if (openNow.current) draftRef.current?.focus()
-      return 'held'
-    }
-    const domain = emailDomain(address)
-    const asks =
-      emailTypoFix(address) !== null ||
-      (domain !== null && noMailDomains.includes(domain))
-    if (asks && !(confirm && typoAsked === address)) {
-      setDraft(address)
-      setTypoAsked(address)
-      setDraftShown(true)
-      // To the box, whose warning it then reads out: Send held with
-      // nothing said was a tap that did nothing. Not into a closed sheet.
-      if (openNow.current) draftRef.current?.focus()
-      return 'held'
-    }
-    askDomains([address])
-    if (recipients.some((entry) => entry.address === address)) {
-      setOverrides((prev) => ({ ...prev, [address]: true }))
-    } else {
-      setAdded((prev) => (prev.includes(address) ? prev : [...prev, address]))
-      setTypedIn((prev) => (prev.includes(address) ? prev : [...prev, address]))
-    }
-    return 'added'
-  }
-
-  function clearDraft() {
-    setDraft('')
-    setDraftShown(false)
-    setTypoAsked(null)
-  }
-
-  function addTyped() {
-    if (typed === '') return
-    if (takeAddress(typed, { confirm: true }) === 'held') return
-    clearDraft()
-    setAdding(false)
+    box.askDomains([fix])
   }
 
   // What is typed and not yet added goes with the rest: tapping Send without
@@ -680,7 +566,7 @@ export function SendSheet({
   ]
   const count = outgoing.length
   // Asked about: "Did you mean…?", or a domain that takes no mail.
-  const askingTyped = typoAsked !== null && typoAsked === typed
+  const askingTyped = box.asking
   // The address the client's record would keep, when it has none: the first
   // one typed by hand, listed or still in the box.
   const savableTyped = (address: string) =>
@@ -692,15 +578,7 @@ export function SendSheet({
     // address, and Add would not offer it either.
     !recipients.some((entry) => entry.address === address)
   const draftSavable =
-    pendingDraft && draftProblem === null && savableTyped(typed)
-  const draftInfoId = `${draftId}-info`
-  const showDraftInfo =
-    settled &&
-    pendingDraft &&
-    draftProblem === null &&
-    !showDraftTypo &&
-    !showDraftNoMail &&
-    !knownAddresses.includes(typed)
+    pendingDraft && box.problem === null && savableTyped(typed)
 
   async function sendNow() {
     if (checking || send.isPending) return
@@ -709,99 +587,21 @@ export function SendSheet({
       saveToRecord && savable !== null && addresses.includes(savable)
         ? savable
         : null
-    const address = typed
-    if (address !== '') {
-      // Asked before it goes rather than said after: whether the domain
-      // takes mail at all, which a tap straight from the box to Send left no
-      // time to learn. Only the domain is sent; an answer already had (the
-      // box was left) is no wait at all, and past SEND_CHECK_MS it goes.
-      setChecking(true)
-      const giveUp = new AbortController()
-      const timer = setTimeout(() => giveUp.abort(), SEND_CHECK_MS)
-      let fresh: ReadonlyArray<string> = []
-      try {
-        fresh = await domainsWithoutMail([address], (domain) =>
-          checkEmailDomain(domain, { signal: giveUp.signal }),
-        )
-      } finally {
-        clearTimeout(timer)
-        setChecking(false)
-      }
-      if (fresh.length > 0) {
-        setNoMail((prev) => [...new Set([...prev, ...fresh])])
-      }
-      const take = takeAddress(address, {
-        confirm: true,
-        noMailDomains: [...noMail, ...fresh],
-      })
-      if (take === 'held') {
-        if (!openNow.current) heldWhileClosed.current = true
-        return
-      }
-      if (saveToRecord && save === null && savableTyped(address)) {
-        save = address
-      }
-      clearDraft()
-      if (!addresses.includes(address)) addresses.push(address)
+    // Worked out before the box takes it: once taken it is listed like any
+    // other typed address, and the client's record keeps only the first.
+    const saveTyped =
+      saveToRecord && save === null && typed !== '' && savableTyped(typed)
+    const pending = await box.takePending()
+    if (pending.kind === 'held') {
+      if (!openNow.current) heldWhileClosed.current = true
+      return
+    }
+    if (pending.kind === 'taken') {
+      if (saveTyped) save = pending.address
+      if (!addresses.includes(pending.address)) addresses.push(pending.address)
     }
     if (addresses.length === 0) return
     send.mutate({ addresses, save })
-  }
-
-  /**
-   * A comma or a semicolon just typed after an address finishes it, as Add
-   * does — and never sends one that asked "Did you mean…?" as it is: that
-   * takes Add anyway or Send anyway. Only at the end, as it is typed: one
-   * typed into the middle of an address is left for the box to say what is
-   * wrong with it.
-   */
-  function finishOnSeparator(value: string, inserted: string | null): boolean {
-    const separator = value.at(-1)
-    if (separator !== ',' && separator !== ';') return false
-    // Typed (or a keyboard's word put in whole), not pasted.
-    if (inserted === null || !inserted.endsWith(separator)) return false
-    const address = value.slice(0, -1).trim().toLowerCase()
-    if (/[\s,;]/.test(address)) return false
-    // Nothing before it: the separator alone goes nowhere.
-    if (address === '') return true
-    if (takeAddress(address, { confirm: false }) === 'added') {
-      clearDraft()
-      // The box stays, even where it opened only for want of anyone on
-      // file: a comma says another is coming.
-      setAdding(true)
-    }
-    return true
-  }
-
-  /**
-   * A pasted list goes in whole when every address in it is ready to send;
-   * otherwise it lands in the box like anything else, to be put right. One
-   * address with a name around it goes into the box as just the address.
-   */
-  function pasteList(text: string): boolean {
-    if (typed !== '') return false
-    const addresses = splitPasted(text)
-    if (addresses.length === 1) {
-      if (addresses[0] === text.trim().toLowerCase()) return false
-      setDraft(addresses[0])
-      setDraftShown(false)
-      setTypoAsked(null)
-      return true
-    }
-    if (addresses.length === 0) return false
-    const ready = addresses.every((address) => {
-      const domain = emailDomain(address)
-      return (
-        emailProblem(address) === null &&
-        emailTypoFix(address) === null &&
-        !(domain !== null && noMail.includes(domain))
-      )
-    })
-    if (!ready) return false
-    for (const address of addresses) takeAddress(address, { confirm: false })
-    clearDraft()
-    setAdding(true)
-    return true
   }
 
   return (
@@ -852,13 +652,13 @@ export function SendSheet({
 
       <ul className="flex flex-col gap-1.5">
         {recipients.map((entry, index) => {
-          const noMailDomain = chipNoMail(entry.address)
-          const noMailId = fieldMessageId(`${draftId}-chip-${index}`, 'warning')
           return (
             <li key={entry.address}>
               {entry.problem !== null ? (
                 <UndeliverableChip
-                  entry={entry}
+                  address={entry.address}
+                  problem={entry.problem}
+                  fix={entry.fix}
                   fixChosen={recipients.some(
                     (other) => other.address === entry.fix && other.chosen,
                   )}
@@ -866,89 +666,48 @@ export function SendSheet({
                 />
               ) : (
                 <>
-                  <button
-                    type="button"
-                    aria-pressed={entry.chosen}
-                    aria-describedby={noMailDomain ? noMailId : undefined}
+                  <RecipientRow
+                    address={entry.address}
+                    chosen={entry.chosen}
+                    who={entry.who}
+                    // Said before Send, not after: an address the business
+                    // has never used is where a typo would be. It goes all
+                    // the same.
+                    newToClient={settled && !entry.known}
+                    noMailDomain={box.noMailOf(entry.address)}
+                    noMailId={fieldMessageId(
+                      `${listId}-row-${index}`,
+                      'warning',
+                    )}
                     disabled={checking}
-                    onClick={() =>
+                    onToggle={() =>
                       setOverrides((prev) => ({
                         ...prev,
                         [entry.address]: !entry.chosen,
                       }))
                     }
-                    // Not chosen reads from the empty tick and the grey fill —
-                    // never faded text, which in sun reads as "can't be
-                    // picked".
-                    className={`flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-blue ${
-                      entry.chosen
-                        ? 'border-ink/15 bg-surface'
-                        : 'border-hairline bg-surface-2'
-                    }`}
                   >
-                    <TickBox on={entry.chosen} />
-                    <span className="min-w-0 flex-1">
-                      {/* Who, from the client book or the form, then the
-                          address whole, never cut off: the end of an address
-                          is where a typo in its domain would be. */}
-                      {entry.who && (
-                        <span className="block break-words text-body text-ink">
-                          <span className="font-semibold">
-                            {entry.who.name}
-                          </span>
-                          <span className="text-ink-2">
-                            {' '}
-                            · {entry.who.role}
-                          </span>
-                        </span>
-                      )}
-                      <span
-                        className={`block break-words ${entry.who ? 'text-caption text-ink-2' : 'text-body text-ink'}`}
-                      >
-                        {entry.address}
+                    {!entry.who && entry.askedByForm && (
+                      <span className="mt-0.5 block text-caption text-ink-2">
+                        Asked for on the form
                       </span>
-                      {!entry.who && entry.askedByForm && (
-                        <span className="mt-0.5 block text-caption text-ink-2">
-                          Asked for on the form
-                        </span>
-                      )}
-                      {/* Why it is not chosen: it already has this report,
-                          it is on its way, or the form said no. */}
-                      {entry.sentAt !== null ? (
-                        <span className="mt-0.5 block text-caption text-grey-ink">
-                          Sent {formatWhen(entry.sentAt, timezone)}
-                        </span>
-                      ) : entry.sending ? (
-                        <span className="mt-0.5 block text-caption text-grey-ink">
-                          Sending now
-                        </span>
-                      ) : entry.declined ? (
-                        <span className="mt-0.5 block text-caption text-grey-ink">
-                          The form said no copy for the client
-                        </span>
-                      ) : null}
-                      {/* Said before Send, not after: an address the business
-                          has never used is where a typo would be. It goes all
-                          the same. Shown chosen or not, so the button's name
-                          does not change as it is toggled. */}
-                      {settled && !entry.known && (
-                        <span className="mt-0.5 flex items-center gap-1 text-caption text-ink-2">
-                          <Info
-                            size={13}
-                            strokeWidth={2}
-                            aria-hidden
-                            className="shrink-0 text-blue"
-                          />
-                          Not on the client’s record
-                        </span>
-                      )}
-                    </span>
-                  </button>
-                  {noMailDomain && (
-                    <FieldMessage id={noMailId} tone="warning">
-                      {noMailMessage(noMailDomain)}
-                    </FieldMessage>
-                  )}
+                    )}
+                    {/* Why it is not chosen: it already has this report, it
+                        is on its way, or the form said no. */}
+                    {entry.sentAt !== null ? (
+                      <span className="mt-0.5 block text-caption text-grey-ink">
+                        Sent {formatWhen(entry.sentAt, timezone)}
+                      </span>
+                    ) : entry.sending ? (
+                      <span className="mt-0.5 block text-caption text-grey-ink">
+                        Sending now
+                      </span>
+                    ) : entry.declined ? (
+                      <span className="mt-0.5 block text-caption text-grey-ink">
+                        The form said no copy for the client
+                      </span>
+                    ) : null}
+                  </RecipientRow>
                   {/* With the address it keeps, and only while that
                       address is going: saved only if it took the email. */}
                   {entry.address === savable && entry.chosen && (
@@ -976,143 +735,29 @@ export function SendSheet({
           keyboard: focus stays put as a sheet opens (design system §4.4),
           and rises only when "Send to someone else" asks for it. */}
       {adding || (settled && recipients.length === 0) ? (
-        <div className="mt-2">
-          <div className="flex gap-2">
-            <input
-              ref={draftRef}
-              id={draftId}
-              autoFocus={adding}
-              type="email"
-              inputMode="email"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              enterKeyHint="done"
-              // Held while Send asks about it: what goes is what was there
-              // when Send was tapped.
-              readOnly={checking}
-              value={draft}
-              onPaste={(event) => {
-                if (pasteList(event.clipboardData.getData('text'))) {
-                  event.preventDefault()
-                }
-              }}
-              onChange={(event) => {
-                const inserted =
-                  'data' in event.nativeEvent
-                    ? (event.nativeEvent as InputEvent).data
-                    : null
-                if (finishOnSeparator(event.target.value, inserted)) return
-                const next = event.target.value.trim().toLowerCase()
-                // Put right (or cleared), it goes quiet until next left.
-                if (
-                  next === '' ||
-                  (emailProblem(next) === null && emailTypoFix(next) === null)
-                ) {
-                  setDraftShown(false)
-                }
-                setDraft(event.target.value)
-              }}
-              onBlur={() => {
-                setDraftShown(draftProblem !== null || draftFix !== null)
-                // Ask now, so Add has the answer waiting. Only the domain goes.
-                if (
-                  draftProblem === null &&
-                  draftFix === null &&
-                  typed !== ''
-                ) {
-                  askDomains([typed])
-                }
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault()
-                  addTyped()
-                }
-              }}
-              aria-label="Email address"
-              aria-invalid={showDraftProblem || undefined}
-              aria-describedby={describedBy(
-                showDraftProblem && draftErrorId,
-                (showDraftTypo || showDraftNoMail) && draftWarningId,
-                showDraftInfo && draftInfoId,
-              )}
-              placeholder="name@example.com"
-              // The app's own field, not a well of its own that all but
-              // vanished against the sheet.
-              className={`${fieldInputClass('md', showDraftProblem)} min-w-0 flex-1`}
-            />
-            <button
-              type="button"
-              onClick={addTyped}
-              disabled={checking}
-              // Ink, not grey: a grey fill all but vanishes on a sheet.
-              className={`${NEUTRAL_BUTTON_COMPACT} shrink-0 px-4`}
-            >
-              {typoAsked === typed ? 'Add anyway' : 'Add'}
-            </button>
-          </div>
-          {showDraftProblem && (
-            <FieldMessage
-              id={draftErrorId}
-              tone="error"
-              fix={
-                draftFix
-                  ? {
-                      label: `Use ${draftFix}`,
-                      onApply: () => takeDraftFix(draftFix),
-                    }
-                  : undefined
-              }
-            >
-              {draftProblem}
-            </FieldMessage>
-          )}
-          {showDraftTypo && (
-            <FieldMessage
-              id={draftWarningId}
-              tone="warning"
-              fix={{ label: 'Use it', onApply: () => takeDraftFix(draftFix) }}
-            >
-              Did you mean {draftFix}?
-            </FieldMessage>
-          )}
-          {showDraftNoMail && (
-            <FieldMessage id={draftWarningId} tone="warning">
-              {noMailMessage(draftDomain)}
-            </FieldMessage>
-          )}
-          {/* What its chip would say, said of the address still in the box:
-              Send takes it as it is. */}
-          {showDraftInfo && (
-            <p
-              id={draftInfoId}
-              className="mt-1.5 flex items-center gap-1 px-1 text-caption text-ink-2"
-            >
-              <Info
-                size={13}
-                strokeWidth={2}
-                aria-hidden
-                className="shrink-0 text-blue"
-              />
-              Not on the client’s record
-            </p>
-          )}
-          {draftSavable && (
-            <button
-              type="button"
-              aria-pressed={saveToRecord}
-              disabled={checking}
-              onClick={() => setSaveToRecord((on) => !on)}
-              className="mt-1 flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-blue"
-            >
-              <TickBox on={saveToRecord} />
-              <span className="min-w-0 flex-1 text-body text-ink">
-                Also save to {recordClient?.name}’s record
-              </span>
-            </button>
-          )}
-        </div>
+        <AddressBox
+          draft={box}
+          autoFocus={adding}
+          newToClient={
+            settled && pendingDraft && !knownAddresses.includes(typed)
+          }
+          below={
+            draftSavable && (
+              <button
+                type="button"
+                aria-pressed={saveToRecord}
+                disabled={checking}
+                onClick={() => setSaveToRecord((on) => !on)}
+                className="mt-1 flex min-h-11 w-full items-center gap-2.5 rounded-xl px-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-blue"
+              >
+                <TickBox on={saveToRecord} />
+                <span className="min-w-0 flex-1 text-body text-ink">
+                  Also save to {recordClient?.name}’s record
+                </span>
+              </button>
+            )
+          }
+        />
       ) : (
         <button
           type="button"
@@ -1193,50 +838,6 @@ export function SendSheet({
         </div>
       )}
     </Sheet>
-  )
-}
-
-/**
- * An address on file that can never be delivered to, shown as it is — not a
- * choice, since the server refuses it — with the address most likely meant
- * one tap away.
- */
-function UndeliverableChip({
-  entry,
-  fixChosen,
-  onFix,
-}: {
-  entry: Recipient
-  /** The fix is already on the list and chosen, so it is not offered again. */
-  fixChosen: boolean
-  onFix: (fix: string) => void
-}) {
-  const fix = entry.fix
-  // Not a button: there is nothing to choose. The line under it is read
-  // straight after, in order.
-  return (
-    <>
-      <div className="flex w-full items-center gap-2.5 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5">
-        <span aria-hidden className="size-5 shrink-0 rounded-md bg-surface-3" />
-        <span className="min-w-0 flex-1 truncate text-body text-ink">
-          {entry.address}
-        </span>
-        <span className="flex shrink-0 items-center gap-1 text-caption text-red-ink">
-          <CircleAlert size={13} strokeWidth={2} />
-          Can’t be delivered
-        </span>
-      </div>
-      <FieldMessage
-        tone="warning"
-        fix={
-          fix && !fixChosen
-            ? { label: `Use ${fix}`, onApply: () => onFix(fix) }
-            : undefined
-        }
-      >
-        {entry.problem}
-      </FieldMessage>
-    </>
   )
 }
 

@@ -11,8 +11,8 @@ import {
   sendToEach,
   senderName,
   suggestedRecipients,
-  splitPasted,
 } from './SendSheet'
+import { splitPasted } from './RecipientPicker'
 
 describe('the addresses the send sheet offers', () => {
   const jane = {
