@@ -530,8 +530,11 @@ export type Correction = {
   source: string
   printed: string
   reason: string
-  /** `variant`: the sources disagreed and one reading was chosen. */
-  kind?: 'typo' | 'variant'
+  /**
+   * `variant`: the sources disagreed and one reading was chosen. `reworded`:
+   * a screen-only instruction the owner asked to be put differently.
+   */
+  kind?: 'typo' | 'variant' | 'reworded'
 }
 
 /**

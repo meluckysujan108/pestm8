@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { EMAIL_BOX_NOTE } from './emailBoxNote'
 import type {
   CellDef,
   Option,
@@ -792,11 +793,7 @@ export const serviceReport: ReportTemplate = {
           printed: false,
           body: {
             type: 'doc',
-            content: [
-              para(
-                'Any email address added to this field will receive a copy of the PDF when you hit “Submit”',
-              ),
-            ],
+            content: [para(EMAIL_BOX_NOTE)],
           },
         },
       ],
@@ -831,6 +828,15 @@ export const serviceReport: ReportTemplate = {
     'docs/sources/service-report-spec.md + docs/sources/service-report-submitted.md + service-report-printed.pdf (text layer in spec/serviceReport.generated.ts)',
 
   corrections: [
+    {
+      where: 'Email Report To, its note (screen only)',
+      source:
+        'Any email address added to this field will receive a copy of the PDF when you hit “Submit”',
+      printed: EMAIL_BOX_NOTE,
+      reason:
+        'Reworded at the owner’s request (3 Oct 2026): the box read as the way to send the client and the business their copies',
+      kind: 'reworded',
+    },
     {
       where: 'Service Report, treatment table header (§2 column 4)',
       source: 'Chemical Aplication Method',

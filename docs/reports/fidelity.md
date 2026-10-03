@@ -136,6 +136,14 @@ cannot pass.
 | `Technician's Comments`                    | PDF `Technicians Comments` | Both markdown files |
 | `Chemicals locked up and stored after use` | PDF's trailing full stop   | Both markdown files |
 
+**Reworded at the owner’s request** — screen-only instructions, never printed,
+put differently because the source's words misled. Each is a correction with
+`kind: 'reworded'`, so the test still holds every other word to the source:
+
+| Where | Source | Now | Why |
+| --- | --- | --- | --- |
+| Service Report and Timber Pest, the note on `Email Report To` | `Any email address added to this field will receive a copy of the PDF when you hit “Submit”` (Timber: `Warning: …"Submit"`) | `EMAIL_BOX_NOTE` (`src/lib/reportTemplates/emailBoxNote.ts`): optional, for anyone else who should get the PDF — not the client, whose copy is the send-a-copy question, nor the business, which is copied on every email — emailed on Finalise & lock | The box read as the way to send the client and the business their copies (3 Oct 2026) |
+
 ## Kept verbatim, flagged for the owner
 
 These read as mistakes but they are the business's own form wording, so they print

@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import {
@@ -27,9 +28,16 @@ import { deviceTimezone } from '#/lib/useBusinessTimezone'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { api } from '../../../convex/_generated/api'
 import type { Id } from '../../../convex/_generated/dataModel'
-import { clientToggleOf, lockEmail, lockEmailSentences } from './lockEmail'
+import {
+  clientToggleOf,
+  lockEmail,
+  lockEmailSentences,
+  typedAddressesOf,
+  withAddress,
+} from './lockEmail'
+import { emailProblem } from '../../../convex/lib/email'
 import { TickBox } from './TickBox'
-import type { Sentence, SendingKnown } from './lockEmail'
+import type { Sentence, SendingKnown, TypedAddress } from './lockEmail'
 
 /**
  * The last screen before a document becomes a record.
@@ -299,7 +307,9 @@ function readableNow(): string {
  * server's own answer about what is on file, where the business's copy goes
  * and whether this deployment can send at all. The client's copy can be
  * switched off here: it is the form's own send-copy question, and the last
- * screen before the email goes is where "not yet" gets decided.
+ * screen before the email goes is where "not yet" gets decided. So can each
+ * address typed into the form's own box ("Email Report To"): unticked, it is
+ * taken off the form, and ticked again, put back.
  */
 function LockEmailNote({
   reportId,
@@ -325,6 +335,16 @@ function LockEmailNote({
   // is exactly when "not yet" is worth being able to say.
   const toggle = clientToggleOf(template, data, clientEmail)
   const plan = known ? lockEmail(template, data, clientEmail, known) : null
+
+  // Every address the box held while the sheet has been open, so one taken
+  // off stays listed, unticked, to be put back. The sheet's body is new each
+  // time it opens.
+  const typed = typedAddressesOf(template, data)
+  const [listed, setListed] = useState<Array<TypedAddress>>(typed)
+  const added = typed.filter(
+    (entry) => !listed.some((shown) => shown.address === entry.address),
+  )
+  if (added.length > 0) setListed([...listed, ...added])
 
   return (
     <section className="mt-4" aria-labelledby={`lock-email-${reportId}`}>
@@ -357,6 +377,39 @@ function LockEmailNote({
           )}
         </button>
       )}
+      {listed.map(({ key, address }) => {
+        const on = typed.some((entry) => entry.address === address)
+        const problem = emailProblem(address)
+        return (
+          <button
+            key={address}
+            type="button"
+            aria-pressed={on}
+            onClick={() => onAnswer(key, withAddress(data[key], address, !on))}
+            className={`mt-1.5 flex w-full items-center gap-2.5 rounded-xl border px-3 py-2.5 text-left transition ${
+              on ? 'border-ink/15 bg-surface' : 'border-hairline bg-surface-2'
+            }`}
+          >
+            <TickBox on={on} />
+            <span className="min-w-0 flex-1">
+              {/* Whole, never cut off: the end of an address is where a
+                  typo in its domain would be. */}
+              <span className="block break-words text-body text-ink">
+                {address}
+              </span>
+              <span className="block text-caption text-ink-2">
+                {on ? 'Added on the form' : 'Taken off — won’t be emailed'}
+              </span>
+            </span>
+            {on && problem !== null && (
+              <span className="flex shrink-0 items-center gap-1 text-caption text-red-ink">
+                <CircleAlert size={13} strokeWidth={2} />
+                Can’t be delivered
+              </span>
+            )}
+          </button>
+        )
+      })}
       {plan && known ? (
         <div className="mt-1.5 flex gap-2 rounded-xl border border-hairline bg-surface-2 px-3 py-2.5">
           <Send
