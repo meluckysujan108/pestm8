@@ -569,6 +569,12 @@ export function ReportBuilder({
    * refresh or a shared link has no sheet to go back to.
    */
   const [previewing, setPreviewing] = useState<number | null>(null)
+  // Which opening of the sheet this is: new from the form, the same when the
+  // preview hands it back (`FinaliseSheet`'s `session`).
+  const [lockSession, setLockSession] = useState(0)
+  // Why the last lock was refused over who it goes to, said on the sheet.
+  const [deliveryRefusal, setDeliveryRefusal] =
+    useState<ReadonlyArray<string> | null>(null)
   const previews = useRef(0)
   /** Why the last preview could not be drawn, said on the sheet it came from. */
   const [previewTrouble, setPreviewTrouble] = useState<string | null>(null)
@@ -721,6 +727,8 @@ export function ReportBuilder({
     // A fresh look at the sheet: what stopped an earlier preview may be
     // long mended.
     setPreviewTrouble(null)
+    setDeliveryRefusal(null)
+    setLockSession((n) => n + 1)
     setConfirming(true)
   }
 
@@ -740,8 +748,12 @@ export function ReportBuilder({
       prefill: pending,
     })
     if (!result.ok) {
-      // Only who it goes to: the sheet is saying so, and stays open.
-      if (result.issues.every((issue) => deliveryKeys.has(issue.key))) return
+      // Only who it goes to: said on the sheet, which stays open — never a
+      // tap that silently does nothing.
+      if (result.issues.every((issue) => deliveryKeys.has(issue.key))) {
+        setDeliveryRefusal(result.issues.map((issue) => issue.message))
+        return
+      }
       setConfirming(false)
       setErrors(
         Object.fromEntries(
@@ -1048,6 +1060,8 @@ export function ReportBuilder({
           }
           onPreview={openPreview}
           previewTrouble={previewTrouble}
+          session={lockSession}
+          refused={deliveryRefusal}
         />
 
         {hydrated && previewing !== null && (

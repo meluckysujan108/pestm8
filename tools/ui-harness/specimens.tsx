@@ -863,6 +863,7 @@ function LockSheet({
   return (
     <Phone>
       <FinaliseSheet
+        session={1}
         businessId={bizId}
         reportId={reportId as never}
         open

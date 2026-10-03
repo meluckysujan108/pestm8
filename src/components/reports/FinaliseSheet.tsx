@@ -71,6 +71,8 @@ export function FinaliseSheet({
   onAnswer,
   onPreview,
   previewTrouble,
+  session,
+  refused,
 }: {
   businessId: Id<'businesses'>
   reportId: Id<'reports'>
@@ -83,6 +85,15 @@ export function FinaliseSheet({
    */
   onConfirm: (answers: Record<string, unknown>) => void
   pending: boolean
+  /**
+   * Which opening this is: new each time "Finalise & lock" opens the sheet
+   * from the form, and the same when the preview hands it back — so what is
+   * typed in its box, or listed, is still there after a look at the PDF.
+   */
+  session: number
+  /** Why the last lock was refused over who it goes to, as the lock's own
+   * check put it — said here, since the form no longer shows those. */
+  refused?: ReadonlyArray<string> | null
   template: ReportTemplate
   data: Record<string, unknown>
   context?: PresentContext | null
@@ -126,19 +137,21 @@ export function FinaliseSheet({
         }>
       })
     | undefined
-  // Everyone typed in while the sheet has been open, so one unticked stays
-  // listed, to be ticked back. New each time it opens.
+  // Everyone typed in this opening, so one unticked stays listed, to be
+  // ticked back. New with each opening (`session`), not each time the sheet
+  // comes back from the preview.
   const [listed, setListed] = useState<Array<string>>([])
-  const [wasOpen, setWasOpen] = useState(open)
-  if (open !== wasOpen) {
-    setWasOpen(open)
-    if (open) setListed([])
+  const [seenSession, setSeenSession] = useState(session)
+  if (session !== seenSession) {
+    setSeenSession(session)
+    setListed([])
   }
   const rows = lockRecipients({
     template,
     data,
     people: knownData?.people ?? [],
     clientEmail,
+    clientName: context?.client?.name,
     knownAddresses: knownData?.addresses ?? [],
     listed,
   })
@@ -150,16 +163,22 @@ export function FinaliseSheet({
   }
   const clientAddress = rows.find((row) => row.isClient)?.address ?? null
 
-  /** Ticks and unticks, as answers to the form's own questions, all worked
-   * out from one view of the answers so two changes to one box both land. */
-  function apply(
-    changes: ReadonlyArray<{ address: string; on: boolean }>,
-  ): Record<string, unknown> {
-    let view = data
+  // The answers as they stand after every change made here, ahead of the
+  // form's state catching up: a pasted list is several changes in one event,
+  // and each built on `data` alone kept only the last.
+  const latest = useRef(data)
+  latest.current = data
+  // A lock in flight gathers what its own tap changes (an address still in
+  // the box), which the form's state has not caught up with when it locks.
+  const collecting = useRef<Record<string, unknown> | null>(null)
+
+  /** Ticks and unticks, as answers to the form's own questions. */
+  function apply(changes: ReadonlyArray<{ address: string; on: boolean }>) {
+    let view = latest.current
     const answers: Record<string, unknown> = {}
     for (const { address, on } of changes) {
       const next = answersFor(
-        questions,
+        deliveryQuestionsOf(template, view),
         view,
         { address, isClient: address === clientAddress },
         on,
@@ -167,45 +186,67 @@ export function FinaliseSheet({
       Object.assign(answers, next)
       view = { ...view, ...next }
     }
+    latest.current = view
+    if (collecting.current) Object.assign(collecting.current, answers)
     for (const [key, value] of Object.entries(answers)) onAnswer(key, value)
-    return answers
   }
 
   const openNow = useRef(open)
   openNow.current = open
+  const sessionNow = useRef(session)
+  sessionNow.current = session
+  const onConfirmNow = useRef(onConfirm)
+  onConfirmNow.current = onConfirm
   const box = useAddressDraft({
-    onTake: (address) => void apply([{ address, on: true }]),
+    onTake: (address) => apply([{ address, on: true }]),
     isOpen: () => openNow.current,
   })
   const resetBox = box.reset
   useLayoutEffect(() => {
-    if (open) resetBox()
-  }, [open, resetBox])
+    resetBox()
+  }, [session, resetBox])
   const listId = useId()
 
-  // What stops a lock among them: an address that can never be delivered to,
-  // said here, where it is put right.
-  const problems = deliveryProblems(template, data)
-
-  /** Finalise & lock: an address still in the box goes too, unless it needs
-   * another look (Phase 3's rule, as on the Send sheet). */
-  async function lock() {
-    if (pending || box.checking) return
-    const typed = await box.takePending()
-    if (typed.kind === 'held') return
-    onConfirm(
-      typed.kind === 'taken'
-        ? answersFor(
+  // What stops a lock among them, said here, where it is put right: an
+  // address in a box that can never be delivered to, or a box the form
+  // requires with nobody in it — counting what is typed in the box, which
+  // the lock takes with it.
+  const typedReady = box.typed !== '' && box.problem === null ? box.typed : null
+  const problems = deliveryProblems(
+    template,
+    typedReady
+      ? {
+          ...data,
+          ...answersFor(
             questions,
             data,
-            {
-              address: typed.address,
-              isClient: typed.address === clientAddress,
-            },
+            { address: typedReady, isClient: typedReady === clientAddress },
             true,
-          )
-        : {},
-    )
+          ),
+        }
+      : data,
+  )
+
+  /** Finalise & lock: an address still in the box goes too, unless it needs
+   * another look (Phase 3's rule, as on the Send sheet). Not if the sheet
+   * was closed, or opened afresh, while the box was being checked. */
+  async function lock() {
+    if (pending || box.checking) return
+    const opening = sessionNow.current
+    collecting.current = {}
+    try {
+      const wanted = () => openNow.current && sessionNow.current === opening
+      const typed = await box.takePending({ stillWanted: wanted })
+      if (typed.kind === 'abandoned' || !wanted()) return
+      if (typed.kind === 'held') {
+        // The reason is under the box, which may be out of sight.
+        box.inputRef.current?.scrollIntoView({ block: 'center' })
+        return
+      }
+      onConfirmNow.current(collecting.current)
+    } finally {
+      collecting.current = null
+    }
   }
 
   const summary = reportSummary(template, data, context)
@@ -240,6 +281,7 @@ export function FinaliseSheet({
           {onPreview && (
             <button
               type="button"
+              disabled={box.checking}
               onClick={onPreview}
               className={`${SECONDARY_BUTTON_COMPACT} mb-2 flex w-full items-center justify-center gap-2`}
             >
@@ -247,9 +289,11 @@ export function FinaliseSheet({
               Preview the document
             </button>
           )}
-          {problems.length > 0 && (
+          {problems.length > 0 ? (
             <FormAlert className="mb-2">{problems.join(' ')}</FormAlert>
-          )}
+          ) : refused && refused.length > 0 ? (
+            <FormAlert className="mb-2">{refused.join(' ')}</FormAlert>
+          ) : null}
           <button
             type="button"
             disabled={pending || box.checking || problems.length > 0}
@@ -261,7 +305,12 @@ export function FinaliseSheet({
               ? 'Checking…'
               : pending
                 ? 'Locking…'
-                : 'Finalise & lock'}
+                : box.asking
+                  ? // The address in the box asked "Did you mean…?" or has a
+                    // domain that takes no mail: a second tap sends it as
+                    // typed, and says so, as Send does.
+                    'Finalise & lock anyway'
+                  : 'Finalise & lock'}
           </button>
         </>
       }
@@ -295,6 +344,9 @@ export function FinaliseSheet({
       {finish && !finishAnswered && (
         <button
           type="button"
+          // Not while the lock is checking an address: it locks with the
+          // answers it started with.
+          disabled={box.checking}
           onClick={() => onAnswer(finish.key, nowAsTime())}
           className="mt-3 flex w-full items-center gap-2 rounded-xl border border-dashed border-hairline px-3.5 py-2.5 text-left text-body text-ink"
         >
@@ -376,7 +428,9 @@ export function FinaliseSheet({
                   <FieldMessage
                     tone="error"
                     fix={
-                      row.fix
+                      // The address meant goes into the form's box: a form
+                      // with none has nowhere to put it.
+                      row.fix && questions.boxKeys.length > 0
                         ? {
                             label: `Use ${row.fix}`,
                             onApply: () =>
