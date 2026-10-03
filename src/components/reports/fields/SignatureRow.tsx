@@ -12,6 +12,7 @@ import {
   SECONDARY_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { errorCode } from '#/components/forms/describeError'
 import { formatWhen } from '#/lib/format'
 import { isOffline } from '#/lib/online'
 import { forgetSignature, keptSignature } from '#/lib/signature/kept'
@@ -117,8 +118,8 @@ export function SignatureRow({
       onSigned(await work())
       setWaiting(null)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      if (/TEMPLATE_VERSION_MISMATCH|REPORT_FINALISED/.test(message)) {
+      const code = errorCode(error)
+      if (code === 'TEMPLATE_VERSION_MISMATCH' || code === 'REPORT_FINALISED') {
         // Never going to be taken: the form changed under it, or the report
         // was locked. Saying "try again" would be a promise it can't keep.
         setRefused(true)
