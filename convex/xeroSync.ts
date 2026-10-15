@@ -1794,21 +1794,48 @@ async function preMatch(
   const contacts = s.contacts
   if (!contacts) return creates
 
-  const proposals = matchClients(
-    open.map((item) => clientForMatch(item.input as ContactInput)),
-    contacts,
+  // A contact another client here already has — one PestM8 made for them,
+  // most often, during this very backfill — is only worth asking about when
+  // the likeness is strong: same name AND same email or number, two PestM8
+  // records of one customer most likely, which the holder should see before
+  // a second contact is made. A weak likeness to it (an agency's shared
+  // office email, a namesake) is no question at all: offered, eight clients
+  // sat To check on prod (15 Oct 2026) and Same could only refuse. Those are
+  // matched again against the contacts nobody holds, and added if nothing
+  // there is like them, a clashing name taking its suburb.
+  const forMatch = open.map((item) =>
+    clientForMatch(item.input as ContactInput),
   )
-  const sure = proposals.flatMap((proposal) =>
-    proposal.outcome === 'linked' ? [proposal.contact.contactId] : [],
+  const firstPass = matchClients(forMatch, contacts)
+  const proposed = firstPass.flatMap((proposal) =>
+    proposal.outcome === 'new' ? [] : [proposal.contact.contactId],
   )
   const held = new Set<string>(
-    sure.length > 0
+    proposed.length > 0
       ? await s.ctx.runQuery(internal.xeroSync.contactsHeld, {
           connectionId: s.connectionId,
-          contactIds: sure,
+          contactIds: proposed,
         })
       : [],
   )
+  // Strong matches to a held contact: To check, "contested", as before.
+  const strongHeld = new Set<Id<'clients'>>(
+    firstPass.flatMap((proposal) =>
+      proposal.outcome === 'linked' && held.has(proposal.contact.contactId)
+        ? [proposal.clientId]
+        : [],
+    ),
+  )
+  const proposals =
+    held.size === 0
+      ? firstPass
+      : [
+          ...firstPass.filter((proposal) => strongHeld.has(proposal.clientId)),
+          ...matchClients(
+            forMatch.filter((client) => !strongHeld.has(client.clientId)),
+            contacts.filter((contact) => !held.has(contact.contactId)),
+          ),
+        ]
 
   const byId = new Map(open.map((item) => [item.clientId, item]))
   const settled = new Set<Id<'clients'>>()

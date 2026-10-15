@@ -1670,6 +1670,142 @@ describe('adding many at once', () => {
   }, 30_000)
 })
 
+describe('contacts PestM8 already gave another client', () => {
+  // Prod, 15 Oct 2026: a re-read of Xero's book mid-backfill put eight
+  // clients To check against contacts PestM8 had just made for OTHER clients
+  // (one shared their email, one their name), and Same could only refuse.
+  test('are never offered to a new client: one sharing their email is added as its own contact, one sharing their name takes its suburb — none put To check', async () => {
+    const s = await setup()
+    const { book } = await startWith(s, {
+      agency: {
+        name: 'Pat Shared',
+        clientNumber: 31,
+        email: 'office@agency.test',
+        site: { addressLine: '1 Como Street', suburb: 'Como' },
+      },
+    })
+    const patsContact = (await link(s, book.agency)).xeroContactId
+
+    const importId = await s.terence.as.mutation(api.clientImports.start, {
+      businessId: s.businessId,
+      fileName: 'more.csv',
+    })
+    const site = (n: number, suburb = 'Bassendean') => ({
+      addressLine: `${n} Import Street`,
+      suburb,
+      state: 'WA',
+      postcode: '6054',
+    })
+    const results = await s.terence.as.mutation(api.clientImports.addBatch, {
+      businessId: s.businessId,
+      importId,
+      clients: [
+        // Another tenant of the same agency: same office email, own name.
+        {
+          key: 'tenant',
+          kind: 'person',
+          name: 'Robin Tenant',
+          email: 'office@agency.test',
+          sites: [site(1)],
+        },
+        // Another Pat Shared altogether.
+        {
+          key: 'namesake',
+          kind: 'person',
+          name: 'Pat Shared',
+          sites: [site(2, 'Dianella')],
+        },
+        // Enough to make it re-read Xero's book first, as the backfill did.
+        ...Array.from({ length: 10 }, (_, i) => ({
+          key: `f${i}`,
+          kind: 'person' as const,
+          name: `Fresh Shared ${i}`,
+          sites: [site(10 + i)],
+        })),
+      ],
+    })
+    const byKey = Object.fromEntries(results.map((r) => [r.key, r.clientId!]))
+    await settle(s)
+
+    const tenant = await link(s, byKey.tenant)
+    expect(tenant).toMatchObject({ state: 'linked', how: 'created' })
+    expect(tenant.xeroContactId).not.toBe(patsContact)
+    expect(s.xero.named(ORG.coastal, 'Robin Tenant')).toHaveLength(1)
+
+    const namesake = await link(s, byKey.namesake)
+    expect(namesake).toMatchObject({ state: 'linked', how: 'created' })
+    expect(namesake.xeroContactId).not.toBe(patsContact)
+    expect(s.xero.named(ORG.coastal, 'Pat Shared (Dianella)')).toHaveLength(1)
+
+    // Pat's own contact is still Pat's alone, and nothing waits To check.
+    expect(await link(s, book.agency)).toMatchObject({
+      state: 'linked',
+      xeroContactId: patsContact,
+    })
+    const toCheck = await s.t.run((ctx) =>
+      ctx.db
+        .query('xeroContactLinks')
+        .filter((q) => q.eq(q.field('state'), 'needs_review'))
+        .collect(),
+    )
+    expect(toCheck).toEqual([])
+  }, 30_000)
+})
+
+describe('a second PestM8 record of one customer', () => {
+  test('same name and email as a client already in Xero: put To check against that contact — never a second contact made on a guess', async () => {
+    const s = await setup()
+    const { book } = await startWith(s, {
+      kim: {
+        name: 'Kim Twice',
+        clientNumber: 41,
+        email: 'kim@twice.test',
+        site: { addressLine: '4 Como Street', suburb: 'Como' },
+      },
+    })
+    const kimsContact = (await link(s, book.kim)).xeroContactId
+
+    const importId = await s.terence.as.mutation(api.clientImports.start, {
+      businessId: s.businessId,
+      fileName: 'dupes.csv',
+    })
+    const site = (n: number) => ({
+      addressLine: `${n} Import Street`,
+      suburb: 'Bassendean',
+      state: 'WA',
+      postcode: '6054',
+    })
+    const results = await s.terence.as.mutation(api.clientImports.addBatch, {
+      businessId: s.businessId,
+      importId,
+      clients: [
+        {
+          key: 'again',
+          kind: 'person',
+          name: 'Kim Twice',
+          email: 'kim@twice.test',
+          sites: [site(1)],
+        },
+        ...Array.from({ length: 10 }, (_, i) => ({
+          key: `f${i}`,
+          kind: 'person' as const,
+          name: `Fresh Twice ${i}`,
+          sites: [site(10 + i)],
+        })),
+      ],
+    })
+    const again = results.find((r) => r.key === 'again')!.clientId!
+    await settle(s)
+
+    expect(await link(s, again)).toMatchObject({
+      state: 'needs_review',
+      candidate: { contactId: kimsContact, reason: 'contested' },
+    })
+    expect(s.xero.named(ORG.coastal, 'Kim Twice')).toHaveLength(1)
+    expect(s.xero.named(ORG.coastal, 'Kim Twice (Bassendean)')).toHaveLength(0)
+  }, 30_000)
+})
+
 // ═══════════════════════════════════════════════════════════════════ leads
 
 describe('leads', () => {
