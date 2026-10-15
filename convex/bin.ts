@@ -17,8 +17,9 @@ import type { WriteEnvelope } from './lib/actor'
 import { dropAlsoGoing } from './lib/jobPeople'
 import {
   countXeroLinksOf,
-  deleteXeroLinksOf,
+  dropXeroLinksForClient,
   inXeroBook,
+  markClientsForXero,
 } from './lib/xeroHooks'
 
 /**
@@ -216,6 +217,23 @@ async function gather(ctx: MutationCtx, root: Root): Promise<Group> {
   return group
 }
 
+/**
+ * Every client a delete or a restore changes for Xero: the clients in it,
+ * and the owners of its sites (a person's address there is their oldest
+ * site) and contacts. A job or a series changes none.
+ */
+function clientsTouched(
+  clients: Iterable<Doc<'clients'>>,
+  properties: Iterable<Doc<'properties'>>,
+  contacts: Iterable<Doc<'clientContacts'>>,
+): Set<Id<'clients'>> {
+  const ids = new Set<Id<'clients'>>()
+  for (const client of clients) ids.add(client._id)
+  for (const property of properties) ids.add(property.clientId)
+  for (const contact of contacts) ids.add(contact.clientId)
+  return ids
+}
+
 function sizeOf(group: Group): number {
   return (
     group.clients.size +
@@ -270,14 +288,30 @@ export async function putInBin(
   for (const [id, client] of group.clients) {
     // xero: out of the book, so off the match page's lists — and its counts.
     if (inXeroBook(client)) await countXeroLinksOf(ctx, id, -1)
-    await ctx.db.patch(id, mark)
+    await ctx.db.patch('clients', id, mark)
   }
-  for (const id of group.properties.keys()) await ctx.db.patch(id, mark)
-  for (const id of group.recurrences.keys()) await ctx.db.patch(id, mark)
-  for (const id of group.jobs.keys()) await ctx.db.patch(id, mark)
-  for (const id of group.notes.keys()) await ctx.db.patch(id, mark)
-  for (const id of group.drafts.keys()) await ctx.db.patch(id, mark)
-  for (const id of group.contacts.keys()) await ctx.db.patch(id, mark)
+  for (const id of group.properties.keys()) {
+    await ctx.db.patch('properties', id, mark)
+  }
+  for (const id of group.recurrences.keys()) {
+    await ctx.db.patch('recurrences', id, mark)
+  }
+  for (const id of group.jobs.keys()) await ctx.db.patch('jobs', id, mark)
+  for (const id of group.notes.keys()) await ctx.db.patch('notes', id, mark)
+  for (const id of group.drafts.keys()) await ctx.db.patch('reports', id, mark)
+  for (const id of group.contacts.keys()) {
+    await ctx.db.patch('clientContacts', id, mark)
+  }
+  // xero: nothing is deleted or archived in Xero. A binned client stops
+  // getting changes; one that lost a site or a contact gets the change.
+  await markClientsForXero(
+    ctx,
+    clientsTouched(
+      group.clients.values(),
+      group.properties.values(),
+      group.contacts.values(),
+    ),
+  )
 
   if (!('env' in by)) return binEntryId
 
@@ -434,7 +468,8 @@ async function keepOneContactPerson(
       )
       .collect()
     if (starred.some((other) => !restoredIds.has(other._id))) {
-      await ctx.db.patch(contact._id, { isPrimary: false })
+      // xero: exempt — `restore` queues every restored contact's client
+      await ctx.db.patch('clientContacts', contact._id, { isPrimary: false })
     }
   }
 }
@@ -489,14 +524,23 @@ export const restore = mutation({
       .query('clientContacts')
       .withIndex('by_binEntryId', (q) => q.eq('binEntryId', entryId))
       .collect()
-    for (const rows of [properties, recurrences, jobs, notes, contacts]) {
-      for (const row of rows) await ctx.db.patch(row._id, back)
+    for (const row of properties) {
+      await ctx.db.patch('properties', row._id, back)
+    }
+    for (const row of recurrences) {
+      await ctx.db.patch('recurrences', row._id, back)
+    }
+    for (const row of jobs) await ctx.db.patch('jobs', row._id, back)
+    for (const row of notes) await ctx.db.patch('notes', row._id, back)
+    for (const row of contacts) {
+      await ctx.db.patch('clientContacts', row._id, back)
     }
     await keepOneContactPerson(ctx, contacts)
     // A correction whose report the owner deleted while it was in here goes
     // to that report in Recently Deleted instead (reports.ts).
     for (const draft of drafts) {
       await ctx.db.patch(
+        'reports',
         draft._id,
         (await restoredDraftPatch(ctx, draft)) ?? back,
       )
@@ -504,11 +548,17 @@ export const restore = mutation({
     // A client archived before the bin existed comes back un-archived: the
     // archive had no way back, and the bin is that way now.
     for (const row of clients) {
-      await ctx.db.patch(row._id, { ...back, archivedAt: undefined })
+      await ctx.db.patch('clients', row._id, {
+        ...back,
+        archivedAt: undefined,
+      })
       // xero: back in the book, its links back in the match's counts.
       await countXeroLinksOf(ctx, row._id, 1)
     }
-    await ctx.db.delete(entryId)
+    // xero: a restored client gets its changes again; one that got a site or
+    // a contact back gets the change.
+    await markClientsForXero(ctx, clientsTouched(clients, properties, contacts))
+    await ctx.db.delete('binEntries', entryId)
 
     await recordAudit(ctx, writeAttribution(env.actor), {
       businessId,
@@ -799,7 +849,7 @@ export const wipeStep = internalMutation({
         // finalised. Checked anyway: a finalised report is a record the
         // business must keep, so one found here is put back, never wiped.
         if (report.status === 'finalised') {
-          await ctx.db.patch(report._id, {
+          await ctx.db.patch('reports', report._id, {
             deletedAt: undefined,
             binEntryId: undefined,
           })
@@ -821,11 +871,11 @@ export const wipeStep = internalMutation({
           .withIndex('by_job', (q) => q.eq('jobId', job._id))
           .collect()
         for (const photo of photos) {
-          await ctx.db.delete(photo._id)
+          await ctx.db.delete('jobPhotos', photo._id)
           await dropJobPhotoFile(ctx, photo)
         }
         await dropAlsoGoing(ctx, job._id)
-        await ctx.db.delete(job._id)
+        await ctx.db.delete('jobs', job._id)
       }
       return again()
     }
@@ -835,7 +885,7 @@ export const wipeStep = internalMutation({
       .withIndex('by_binEntryId', (q) => q.eq('binEntryId', entryId))
       .take(ROW_BATCH)
     if (series.length > 0) {
-      for (const row of series) await ctx.db.delete(row._id)
+      for (const row of series) await ctx.db.delete('recurrences', row._id)
       return again()
     }
 
@@ -844,7 +894,9 @@ export const wipeStep = internalMutation({
       .withIndex('by_binEntryId', (q) => q.eq('binEntryId', entryId))
       .take(ROW_BATCH)
     if (properties.length > 0) {
-      for (const row of properties) await ctx.db.delete(row._id)
+      // xero: exempt — its client was queued when it went into the bin, and
+      // a site in the bin is already no one's address there
+      for (const row of properties) await ctx.db.delete('properties', row._id)
       return again()
     }
 
@@ -853,7 +905,10 @@ export const wipeStep = internalMutation({
       .withIndex('by_binEntryId', (q) => q.eq('binEntryId', entryId))
       .take(ROW_BATCH)
     if (contacts.length > 0) {
-      for (const row of contacts) await ctx.db.delete(row._id)
+      // xero: exempt — its client was queued when it went into the bin
+      for (const row of contacts) {
+        await ctx.db.delete('clientContacts', row._id)
+      }
       return again()
     }
 
@@ -867,16 +922,19 @@ export const wipeStep = internalMutation({
           .query('clientContacts')
           .withIndex('by_client', (q) => q.eq('clientId', client._id))
           .collect()
-        for (const person of people) await ctx.db.delete(person._id)
+        // xero: exempt — the client goes too, and its links with it, below
+        for (const person of people) {
+          await ctx.db.delete('clientContacts', person._id)
+        }
         // xero: its links go with it — one per connected organisation, a
         // handful. The contact stays in Xero; PestM8 never deletes there.
-        await deleteXeroLinksOf(ctx, client)
-        await ctx.db.delete(client._id)
+        await dropXeroLinksForClient(ctx, client._id)
+        await ctx.db.delete('clients', client._id)
       }
       return again()
     }
 
-    await ctx.db.delete(entryId)
+    await ctx.db.delete('binEntries', entryId)
     return null
   },
 })

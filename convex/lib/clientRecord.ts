@@ -182,24 +182,3 @@ export async function assignClientNumber(
   await ctx.db.patch(businessId, { nextClientNumber: number + 1 })
   return number
 }
-
-// ---------------------------------------------------------------- booking
-
-/**
- * A lead becomes a client when work is booked for them: the client at this
- * property, if a lead, is made active. Called by the mutations that book —
- * `jobs.create`, `recurrences.create`, `recurrences.convertJobToRecurring`
- * and a job moved to another property in `jobs.update` — and never by the
- * recurrence engine, whose projected visits nobody has booked. An inactive
- * client is left inactive: that is a choice someone made.
- */
-export async function activateLeadAt(
-  ctx: MutationCtx,
-  propertyId: Id<'properties'>,
-): Promise<void> {
-  const property = await ctx.db.get(propertyId)
-  if (!property) return
-  const client = await ctx.db.get(property.clientId)
-  if (client?.status !== 'lead') return
-  await ctx.db.patch(client._id, { status: 'active', updatedAt: Date.now() })
-}

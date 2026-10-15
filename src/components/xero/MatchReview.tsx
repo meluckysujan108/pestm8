@@ -4,11 +4,13 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react'
-import type { ErrorInfo, ReactNode } from 'react'
+import type { ErrorInfo, ReactNode, RefObject } from 'react'
 import { Link } from '@tanstack/react-router'
-import { useQuery, useSuspenseQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
+import { useConvexMutation } from '@convex-dev/react-query'
 import { usePaginatedQuery } from 'convex/react'
 import { api } from '../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
@@ -18,16 +20,37 @@ import {
   EmptyState,
   LoadFailed,
 } from '#/components/primitives/EmptyState'
-import { SECONDARY_BUTTON } from '#/components/primitives/buttons'
+import {
+  NEUTRAL_BUTTON,
+  PRIMARY_BUTTON,
+  SECONDARY_BUTTON,
+} from '#/components/primitives/buttons'
+import { FormAlert } from '#/components/forms/FormAlert'
+import { describeError } from '#/components/forms/describeError'
 import { useLatest } from '#/components/forms/SaveWarnings'
+import { BottomBar } from '#/components/clients/import/ui'
+import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
 import { BackLink, SettingsBody, SettingsGroup } from '#/components/settings/ui'
 import { useAccess, useActing, useCan } from '#/lib/access'
 import { formatWhen } from '#/lib/format'
+import { isOffline } from '#/lib/online'
 import { MATCH_PAGE, matchFirstPage, rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import { ClientRow, DifferentRow, MatchCard, MatchedRow } from './MatchCard'
-import { MatchFailed, MatchReading, useMatchStage } from './XeroPage'
-import { MATCH_FILTER_COPY } from './xeroCopy'
+import {
+  MatchFailed,
+  MatchReading,
+  useMatchStage,
+  usePassed,
+  useRematch,
+} from './XeroPage'
+import {
+  MATCH_FILTER_COPY,
+  REMATCH_ERROR_COPY,
+  START_ERROR_COPY,
+  startSyncingBody,
+} from './xeroCopy'
+import { syncOf } from './syncView'
 import type { MatchItem } from './MatchCard'
 import type { XeroView } from './XeroPage'
 import type { MatchFilter, XeroKind } from './xeroCopy'
@@ -37,6 +60,10 @@ type Business = { _id: Id<'businesses'>; slug: string; name: string }
 
 /** The lists, in the order their chips sit. */
 const FILTERS: Array<MatchFilter> = ['review', 'matched', 'new', 'separate']
+
+/** How old a read of Xero may be when syncing starts: older, and the server
+ * refuses (`MATCH_STALE`), since Xero may have changed under it. */
+const MATCH_FRESH_MS = 7 * 24 * 60 * 60 * 1000
 
 /** The Xero page this one is under, which "‹ Xero" goes back to. */
 function xeroPath(kind: XeroKind) {
@@ -50,9 +77,12 @@ function xeroPath(kind: XeroKind) {
  * PestM8 client is which contact in the organisation, as the match run left
  * it, for the holder to check.
  *
- * Read-only towards Xero, like all of Release 2: Same, Different, Unlink
- * and Match again change only PestM8's own note of which contact a client
- * is, which Release 3 acts on when it starts sending.
+ * Same, Different, Unlink and Match again change only PestM8's own note of
+ * which contact a client is. Nothing reaches Xero until Start syncing, at
+ * the foot of the page (Release 3); after that each answer is acted on as
+ * it is made, and the page says since when it has been syncing. To check
+ * stays usable after the start: a client waits there, unsent, until it is
+ * answered.
  */
 export function MatchReview({
   kind,
@@ -317,7 +347,11 @@ function MatchLists({
   // to the old one. A new read of Xero unmounts it on the way, while the
   // page says it is reading.
   const [attempt, setAttempt] = useState(0)
+  // Where focus goes once Start syncing has gone through: the line saying
+  // so, since the bar it was pressed in goes.
+  const intro = useRef<HTMLParagraphElement>(null)
   if (!match || match.state !== 'ready') return null
+  const sync = syncOf(connection)
 
   // `fresh` counts New to Xero and Different together — both become new
   // contacts — and `different` the Different ones among them.
@@ -329,10 +363,25 @@ function MatchLists({
   }
   return (
     <>
-      <p className="px-1 text-caption text-ink-2">
-        PestM8 compared your clients with the contacts in{' '}
-        {connection.tenantName} on {formatWhen(match.at, timezone)}. Nothing is
-        sent to Xero yet.
+      <p
+        ref={intro}
+        tabIndex={-1}
+        className="px-1 text-caption text-ink-2 outline-none"
+      >
+        {sync ? (
+          <>
+            Syncing since {formatWhen(sync.startedAt, timezone)}: each answer
+            here goes to Xero as it’s made. PestM8 compared your clients with
+            the contacts in {connection.tenantName} on{' '}
+            {formatWhen(match.at, timezone)}.
+          </>
+        ) : (
+          <>
+            PestM8 compared your clients with the contacts in{' '}
+            {connection.tenantName} on {formatWhen(match.at, timezone)}. Nothing
+            is sent to Xero yet.
+          </>
+        )}
       </p>
 
       <div role="group" aria-label="Show" className="mt-3 flex flex-wrap gap-2">
@@ -376,6 +425,135 @@ function MatchLists({
           total={counts[filter]}
         />
       </ListBoundary>
+
+      {/* Only on a working connection: one waiting to be reconnected can
+          be checked, but nothing could be sent to it. Kept once started,
+          with no bar, so its confirm closes as a confirm should. */}
+      {connection.status === 'connected' && (
+        <StartSyncing
+          businessId={businessId}
+          connection={connection}
+          match={match}
+          timezone={timezone}
+          started={sync !== null}
+          returnTo={intro}
+        />
+      )}
+    </>
+  )
+}
+
+/**
+ * Start syncing, pinned at the foot of the page where the thumb is, as an
+ * import's step is: the one red button on the page, since it commits —
+ * from it on, PestM8 adds the new clients to the organisation and keeps
+ * every one in step. Asked first, saying how many go and that nothing added
+ * is taken away again; failing fast with no signal, since the whole book is
+ * about to go into someone's books.
+ *
+ * A read of Xero more than a week old can't be trusted to match what is
+ * there now, and the server refuses to start on one: the bar offers Check
+ * Xero again in its place, on this device's clock.
+ */
+function StartSyncing({
+  businessId,
+  connection,
+  match,
+  timezone,
+  started,
+  returnTo,
+}: {
+  businessId: Id<'businesses'>
+  connection: XeroView
+  match: NonNullable<XeroView['match']>
+  timezone: string
+  /** Syncing has started: the bar goes, and the confirm closes. */
+  started: boolean
+  /** Where focus goes once it has gone through. */
+  returnTo: RefObject<HTMLElement | null>
+}) {
+  const hydrated = useHydrated()
+  const stale = usePassed(match.at + MATCH_FRESH_MS)
+  const rematch = useRematch(businessId, connection.connectionId)
+  const [asking, setAsking] = useState(false)
+  const convexStart = useConvexMutation(api.xeroSync.startSyncing)
+  const start = useMutation({
+    mutationFn: async () => {
+      if (isOffline()) throw new Error('offline')
+      await convexStart({ businessId, connectionId: connection.connectionId })
+    },
+    // On the mutation, not the call: by the time it resolves the page has
+    // already swapped this bar for "Syncing since".
+    onSuccess: () => setAsking(false),
+  })
+
+  const confirm = (
+    <ConfirmDialog
+      open={asking}
+      onOpenChange={setAsking}
+      title="Start syncing with Xero?"
+      body={startSyncingBody({
+        fresh: match.fresh,
+        linked: match.linked,
+        review: match.review,
+        tenantName: connection.tenantName,
+      })}
+      confirm="Start syncing"
+      cancel="Not yet"
+      onConfirm={() => start.mutate()}
+      returnFocus={(confirmed) => (confirmed ? returnTo.current : null)}
+      pending={start.isPending}
+      pendingLabel="Starting…"
+      closeOnConfirm={false}
+      error={
+        start.isError ? describeError(start.error, START_ERROR_COPY) : undefined
+      }
+    />
+  )
+  // The confirm beside the bar, not in it, and always in the same place: it
+  // outlives the bar by the moment it takes to close once the start has
+  // gone through.
+  return (
+    <>
+      {!started && (
+        <BottomBar>
+          {stale ? (
+            <>
+              <p className="mb-2 text-caption text-ink-2">
+                PestM8 last read {connection.tenantName} on{' '}
+                {formatWhen(match.at, timezone)}. Check Xero again before you
+                start, so nothing in it is added twice.
+              </p>
+              <button
+                type="button"
+                disabled={!hydrated || rematch.isPending}
+                onClick={() => rematch.mutate()}
+                className={`${NEUTRAL_BUTTON} w-full`}
+              >
+                {rematch.isPending ? 'Checking…' : 'Check Xero again'}
+              </button>
+              <FormAlert
+                error={rematch.isError ? rematch.error : null}
+                copy={REMATCH_ERROR_COPY}
+                className="mt-2"
+              />
+            </>
+          ) : (
+            <button
+              type="button"
+              disabled={!hydrated}
+              onClick={() => {
+                start.reset()
+                setAsking(true)
+              }}
+              className={`${PRIMARY_BUTTON} w-full`}
+            >
+              Start syncing
+            </button>
+          )}
+        </BottomBar>
+      )}
+      {confirm}
     </>
   )
 }

@@ -72,6 +72,7 @@ import {
 import type { ClientStatus } from '../../../convex/lib/clientRecord'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 import { KIND_CHOICES, KIND_LABELS } from '#/lib/clientFilters'
+import { ClientXeroLines } from '#/components/xero/ClientXeroLines'
 
 type ClientKind = 'person' | 'business'
 
@@ -204,6 +205,10 @@ function ClientBody({
   const { data: properties } = useQuery(
     convexQuery(api.properties.listByClient, { businessId, clientId }),
   )
+  // Where the client stands in Xero, for Details: asked for as the sheet
+  // opens, so the row is there when Details is chosen rather than arriving
+  // under a thumb. Nothing where Xero isn't set up (`ClientXeroLines`).
+  useQuery(rq.xeroClientLines(businessId, clientId))
   const hydrated = useHydrated()
   const queryClient = useQueryClient()
 
@@ -457,6 +462,13 @@ function ClientBody({
                       }
                     />
                   )}
+                <ClientXeroLines
+                  businessId={businessId}
+                  businessSlug={businessSlug}
+                  clientId={clientId}
+                  clientName={client.name}
+                  timezone={timezone}
+                />
               </DetailRows>
             </Section>
 

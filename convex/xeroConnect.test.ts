@@ -226,6 +226,10 @@ const XERO_VIEW_KEYS = [
   'problem',
   'shortCode',
   'status',
+  // How sending to it stands (Release 3, convex/xeroSync.test.ts): counts,
+  // times and the names of clients with a problem — never a token.
+  'sync',
+  'syncStartedAt',
   'tenantName',
 ]
 

@@ -22,7 +22,10 @@ in their Xero. Why it is built this way is `ARCHITECTURE.md` §1.2, §1.4 and
 
 R1's only calls to Xero are the token endpoint (exchange, refresh, revoke),
 `GET` and `DELETE /connections`, and `GET /Organisation`. R2 adds one more,
-`GET /Contacts`, and still writes nothing.
+`GET /Contacts`, and still writes nothing. R3 writes, and only contacts: `PUT
+/Contacts` adds them, `POST /Contacts` updates them, and `GET /Contacts?IDs=`
+and `?where=Name==` read the ones it is about to touch. Nothing is written to
+an organisation until its holder presses **Start syncing**.
 
 ## Setting up (R0, the owner's steps)
 
@@ -128,19 +131,22 @@ days, because Xero kills one unused for 60 — and revokes instead any that no
 live connection uses (a release at Xero that gave up), so PestM8 never keeps
 a sign-in alive for someone who disconnected.
 
-| File                                  | Holds                                                                                                                                            |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `convex/xero.ts`                      | Status for Settings (with the match's counts), connect, finish (which starts the first match), disconnect, release at Xero, the sweep, `inspect` |
-| `convex/xeroCallback.ts`              | `GET /xero/callback`                                                                                                                             |
-| `convex/xeroTokens.ts`                | The refresh lease, the keep-alive, `accessTokenFor` (every Xero action gets its token there)                                                     |
-| `convex/lib/xeroConfig.ts`            | The env, scopes, endpoints and `XERO_TERMS_VERSION`                                                                                              |
-| `convex/lib/xeroCrypto.ts`            | Token encryption, actions only                                                                                                                   |
-| `convex/lib/xeroHttp.ts`              | Every Xero request, and `classify`, which sorts every failure                                                                                    |
-| `convex/lib/xeroHooks.ts`             | `requireConnectionHolder`, `disconnectXeroFor` (called by `team.offboard`)                                                                       |
-| `convex/lib/xeroMatch.ts`             | The matcher (R2): `nameKey`, `accountNumberKey`, `matchClients`. Pure, so every rule is tested without Convex                                    |
-| `convex/xeroMatch.ts`                 | The match run and its tenant lease, the match page's query, Same / Different / Unlink, Check Xero again (R2)                                     |
-| `src/components/xero/`                | `XeroPage` (both Settings pages), `MatchReview` and `MatchCard` (Match your clients), `MemberXero` (Team → a member), `xeroCopy.ts` (every word) |
-| `src/routes/terms.tsx`, `privacy.tsx` | The public pages Xero's developer terms require                                                                                                  |
+| File                                  | Holds                                                                                                                                                                                      |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `convex/xero.ts`                      | Status for Settings (with the match's counts), connect, finish (which starts the first match), disconnect, release at Xero, the sweep, `inspect`                                           |
+| `convex/xeroCallback.ts`              | `GET /xero/callback`                                                                                                                                                                       |
+| `convex/xeroTokens.ts`                | The refresh lease, the keep-alive, `accessTokenFor` (every Xero action gets its token there)                                                                                               |
+| `convex/lib/xeroConfig.ts`            | The env, scopes, endpoints and `XERO_TERMS_VERSION`                                                                                                                                        |
+| `convex/lib/xeroCrypto.ts`            | Token encryption, actions only                                                                                                                                                             |
+| `convex/lib/xeroHttp.ts`              | Every Xero request, and `classify`, which sorts every failure                                                                                                                              |
+| `convex/lib/xeroHooks.ts`             | `requireConnectionHolder`, `disconnectXeroFor` (called by `team.offboard`), the match's counts (R2), and the four hooks every client write calls (R3)                                      |
+| `convex/lib/xeroMatch.ts`             | The matcher (R2): `nameKey`, `accountNumberKey`, `matchClients`. Pure, so every rule is tested without Convex                                                                              |
+| `convex/xeroMatch.ts`                 | The match run and its tenant lease, the match page's query, Same / Different / Unlink, Check Xero again (R2)                                                                               |
+| `convex/lib/xeroContact.ts`           | The mapper (R3): which clients go, what each field is, the field hashes and `diff`. Pure, like the matcher                                                                                 |
+| `convex/xeroSync.ts`                  | The send (R3): Start syncing, the drain, the reconciler, the client sheet's lines, Send PestM8’s details, and the tools below                                                              |
+| `convex/xeroHooks.test.ts`            | Reads the source and fails any write to a client, contact or site that doesn't call a hook (R3)                                                                                            |
+| `src/components/xero/`                | `XeroPage` (both Settings pages), `MatchReview` and `MatchCard` (Match your clients), `MemberXero` (Team → a member), `ClientXeroLines` (a client's sheet, R3), `xeroCopy.ts` (every word) |
+| `src/routes/terms.tsx`, `privacy.tsx` | The public pages Xero's developer terms require                                                                                                                                            |
 
 ## How matching works (R2)
 
@@ -267,6 +273,19 @@ Xero won't hold two contacts with one name, so a Different client whose name
 Xero already has is added with its suburb after the name, "John Smith
 (Nightcliff)" (Release 3).
 
+Release 3 adds three states, which the client's sheet shows, and two more
+`how`s: `created` (PestM8 added the contact) and `relinked` (the client's
+contact was merged into another in Xero, and the link followed it).
+
+| `state`            | On the client's sheet        | Means                                                                                      | Release 3                                              |
+| ------------------ | ---------------------------- | ------------------------------------------------------------------------------------------ | ------------------------------------------------------ |
+| `archived_in_xero` | Archived in Xero             | Someone archived the contact in Xero, without merging it                                   | Sends nothing more for it to that organisation         |
+| `gdpr`             | Removed in Xero, for privacy | Xero holds a privacy request on the contact (`GDPRREQUEST`)                                | Stops for good, and never adds the client again        |
+| `failed`           | Not sent                     | Xero refused the contact for a reason a retry won't fix (`problem.code`, worded on screen) | Tries again when the client next changes, or is booked |
+
+A link also carries what the send needs to compare (`sent`, `seen`,
+`different`, below), its `problem` if any, and `lastSentAt`.
+
 ### Same, Different, Unlink
 
 - **Same client** (`xeroMatch.decide`, `same`) links the client to the contact
@@ -296,14 +315,18 @@ The counts follow the lists without a run in other ways too: a client put in
 the Recycle bin or archived leaves them (its links stay, for a restore), a
 restore or an unarchive puts it back, and a client wiped for good, or taken
 back by an import's undo, takes its links with it (`lib/xeroHooks.ts`
-`countXeroLinksOf`, `deleteXeroLinksOf`).
+`countXeroLinksOf`, `dropXeroLinksForClient`).
 
 ### Check Xero again
 
 `xeroMatch.rematch` is the holder's, on a connected organisation, and is
 refused while a run is still reading under a live lease
-(`XERO_MATCH_RUNNING`). R2 always offers it; Release 3 refuses it once syncing
-has started. The page shows "Reading the contacts in {org}…" at once,
+(`XERO_MATCH_RUNNING`), and once the organisation has started syncing
+(`SYNC_STARTED`): from then its contacts are kept in step one client at a time,
+and `xeroSync:resyncAll` walks the book again when that is needed
+([How syncing works](#how-syncing-works-r3)). Match again stays, and so do Same
+and Different on a client still to check. The page shows "Reading the contacts
+in {org}…" at once,
 and the run it schedules reads everything again: every decision stands, every
 undecided client is proposed afresh, and an undecided row the run didn't
 propose again (its client binned since, say) is deleted (`finishMatch`, the
@@ -370,7 +393,455 @@ npx convex run --inline-query 'const n = {}; for (const l of await ctx.db.query(
 
 A match left showing "Reading" — its run killed by a deploy, say — shows as
 stopped once its `staleAfter` has passed, and the holder's Check Xero again
-reads it afresh; `xeroMatch:run` does the same by hand.
+reads it afresh; `xeroMatch:run` does the same by hand. Not once the
+organisation is syncing: a run then does nothing, since it would replace the
+links being sent, and it is `xeroSync:resyncAll` (below).
+
+## How syncing works (R3)
+
+Release 3 adds the client book to each organisation's contacts and keeps them
+in step: one way, PestM8 → Xero, to every organisation connected in the
+business whose holder has pressed Start syncing. Nothing Xero holds is copied
+back into PestM8. Xero is read only to see what a contact holds before it is
+changed.
+
+### Start syncing
+
+Nothing is queued for an organisation, and nothing written to it, until its
+holder presses **Start syncing** at the foot of Match your clients: the owner
+for the business's organisation, each member for their own
+(`xeroSync.startSyncing`, the holder and not switched, as for every other
+answer). It asks first:
+
+> **Start syncing with Xero?** PestM8 adds {new} clients to {org} and fills in
+> blanks on the {matched} it matched. Contacts added to Xero stay there, even
+> if you disconnect.
+
+It is refused while the match isn't `ready`, or when Xero was read more than
+7 days ago (`MATCH_STALE`): Xero may have changed since, so Check Xero again
+first. It records when and by whom (`syncStartedAt`,
+`syncStartedByMembershipId`), audits `xero.start` with the match's counts, and
+starts the first sync, the **backfill**. The backfill walks the whole book in
+pages (`backfillCursor`). It adds the New to Xero and Different clients as
+contacts and fills in blanks on the Matched ones. Settings shows "Adding your
+clients…" until it is done (`backfillDoneAt`).
+
+After that, Check Xero again is refused (`SYNC_STARTED`), but the match page
+stays. A client still To check can be answered there, and the answer is sent
+like any other change: Same fills in blanks on that contact, and Different adds
+a new one. Match again still works.
+
+A reconnect keeps `syncStartedAt` and carries on where it was. A disconnect
+followed by a new connect is a new connection, which matches and starts again;
+it finds its links by organisation, so nothing is added twice. Members press
+Start syncing on My Xero the same day as the owner (the plan's decision 7):
+there is no staging.
+
+### How a change reaches Xero
+
+Every write to a client, one of its contacts or one of its sites calls a hook
+from `lib/xeroHooks.ts` in the same mutation, so the change and its place in
+the queue commit together:
+
+| Hook                                       | Called by                                                                                                                                                                | Does                                                                                                                                              |
+| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `markClientForXero` / `markClientsForXero` | Every edit of a client, a contact or a site; the Recycle bin's delete and restore; an import; the legacy archive and unarchive; a lead's first booking                   | Queues the client for every organisation of its business that is connected and has started syncing                                                |
+| `ensureClientInXero`                       | Work booked for a client who isn't a lead (`activateLeadAt` in `convex/properties.ts`, from `jobs.create`, `jobs.update`, `recurrences.create`, `convertJobToRecurring`) | Queues it only for an organisation that has no contact for it yet, or failed to make one. Booking for a client already in Xero costs Xero nothing |
+| `dropXeroLinksForClient`                   | A client wiped from the Recycle bin, or taken back by an import's undo, before its row goes                                                                              | Deletes its links and queued rows in every organisation, and moves the counts. Its contacts stay in Xero                                          |
+
+`convex/xeroHooks.test.ts` reads the source with the TypeScript compiler. It
+fails on any `ctx.db.insert`, `patch`, `replace` or `delete` on `clients`,
+`clientContacts` or `properties` that doesn't name its table
+(`ctx.db.patch('clients', id, …)`), or whose function calls none of the four.
+A write that needn't call one (it only clears `importId`, say, or its client is
+marked elsewhere in the same mutation) carries a comment just above it, and
+the test requires the reason:
+
+```ts
+// xero: exempt — restore already marks every restored contact's client
+```
+
+The test skips `_generated/`, tests, `migrations/`, `demo/` and `lib/xero*`,
+and proves it bites against a made-up source. The recurrence engine
+(`materialiseAll`, `insertVisit`) never calls a hook: nobody booked the visits
+it projects.
+
+The hooks queue; they never judge. There is one row per organisation and
+client (`xeroOutbox`), however often the client changes. Each change adds 1 to
+its `rev` and makes it due 5 seconds on, so a burst of edits goes as one. A row
+first queued more than 60 seconds ago keeps its time, so a client edited all
+afternoon still goes within about a minute. The first row due for an
+organisation schedules its drain 5 seconds later. On a deployment without Xero
+the hooks do nothing; with the kill switch on, they still queue.
+
+Whether the client belongs in Xero at all is decided when its row is sent,
+from the client as it is then (`eligibility`, `lib/xeroContact.ts`). So a
+status that changes between the two is never missed:
+
+| Eligibility | When                                                             | Sent                                   |
+| ----------- | ---------------------------------------------------------------- | -------------------------------------- |
+| `gone`      | The client no longer exists                                      | Nothing                                |
+| `binned`    | In the Recycle bin                                               | Nothing. Its link stays, for a restore |
+| `archived`  | Archived the old way (`archivedAt`)                              | Nothing                                |
+| `stopped`   | Its contact in this organisation is `archived_in_xero` or `gdpr` | Nothing                                |
+| `review`    | Its link is To check                                             | Nothing until the holder answers       |
+| `lead`      | A lead with no contact in this organisation                      | Nothing until work is booked for it    |
+| `create`    | No contact yet: New to Xero, Different, or an add that `failed`  | Added                                  |
+| `update`    | Linked                                                           | Whatever changed, if anything          |
+
+An inactive client is sent like an active one. A linked client made a lead
+again keeps syncing: `lead` is only for a client Xero has never had.
+
+### The drain
+
+`xeroSync.drain` sends one organisation's queue. It runs only when Xero is set
+up, the kill switch is off, the business isn't the demo, and the connection is
+connected and has started syncing. It takes the organisation's tenant lease,
+the same one a match takes ([above](#the-tenant-lease)). So a drain and a
+match never overlap, and two businesses connected to one organisation never
+send to it at once. It gets a token (`accessTokenFor`) and works in batches,
+at most 10 batches or 2 minutes a run:
+
+1. **What's next** (`nextWork`): up to 50 clients. Rows due now come first,
+   then the backfill's next page (clients after `backfillCursor` with no row of
+   their own). Live edits always go ahead of the backfill.
+2. **Adds** go in one `PUT /Contacts?summarizeErrors=false`, with only what
+   PestM8 owns. Ten or more in one batch (the backfill, or an import after
+   go-live) first read every Xero contact once and run R2's matcher over them.
+   A client the rules link is updated instead, and one they put To check waits
+   for its holder. So an import never duplicates contacts Xero already has.
+3. **Updates** first read the contacts as Xero holds them now
+   (`GET /Contacts?IDs=`, 50 a call), for what each one is (merged, archived,
+   held for privacy: below) and what each field holds. Only the fields that
+   should change go, in one `POST /Contacts?summarizeErrors=false`, with the
+   `ContactID` on every element. `buildUpdateBatch` throws on an element
+   without one, because a POST without it can update a contact of the same
+   name. A client with nothing changed costs no call at all.
+4. **Each result** is read item by item. A name clash goes to the clash rules
+   (below). Any other refusal makes the link `failed` with a code
+   (`email_invalid`, `name_invalid`, `persons_full`, `website_invalid`,
+   `unknown`), and Xero's own words go only to the logs (`console.error`). A
+   call made for one client alone (a clash looked up, an add or a rename tried
+   again) that Xero refuses outright fails that client only (`itemRefused`);
+   the rest of the batch goes on. Only what stops the whole organisation (a
+   pause, a reconnect, Xero down past its retries) stops the batch.
+5. **Recorded** (`recordResults`, only while the drain still holds the lease):
+   the link (one contact to one client per business and organisation), the
+   hashes of what was sent and of what Xero answered, the counts, `lastSentAt`,
+   the day's remaining calls and the backfill's place. A queued row is deleted
+   only if its `rev` hasn't moved since it was read, so a change made while its
+   batch was in flight goes next time.
+
+Before every write, and at least once a minute between other calls, the drain
+renews the lease and checks it may go on (`checkpoint`, `xeroSync.keepGoing`):
+a batch slowed by clashes or a slow Xero never outlives the lease, so nothing
+else takes the organisation mid-batch. The same check stops a drain at its
+next write, not its next batch, once the kill switch is on or the connection
+is disconnected or needs reconnecting (`XERO_HALTED`); what it had done is
+recorded, and the rest stays queued (or, disconnected, goes).
+
+When the run ends, however it ends, it releases the lease. If anything is
+left, it schedules itself again for when the next row is due, even when the
+organisation was lost to someone else (it may be a match, or another
+business's drain, which leaves this connection's rows where they are).
+
+A cron, "send waiting Xero changes" (`xeroSync.reconcile`, at 5, 15, 25, 35,
+45 and 55 minutes past each hour), catches anything a lost schedule left
+behind. It finds rows overdue by more than a minute, and organisations whose
+backfill isn't done, through indexes only. It starts a drain for each one with
+no live lease and no pause.
+
+### What is sent
+
+PestM8 owns a field of a Xero contact, and may change it, only as this table
+says (`ownedFields`, `lib/xeroContact.ts`). Everything else on the contact is
+left as it is.
+
+| Xero field              | From PestM8                                                                                                                                                                                                                                             | Sent                                                                                                                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `Name`                  | The client's name, trimmed, spaces collapsed, control characters and `< >` dropped, at most 230 characters (room for a suffix)                                                                                                                          | Always                                                                                                                                                                                     |
+| `FirstName`, `LastName` | A person: their name, split at the last word ("Mary Jane Smith" is "Mary Jane", "Smith"). A business: its contact person's name, split the same way                                                                                                     | Always                                                                                                                                                                                     |
+| `EmailAddress`          | The client's email; for a business with none, its contact person's                                                                                                                                                                                      | Unless it has a character outside ASCII, which Xero refuses. Then it isn't sent, and the link's problem says `email_not_ascii`; the rest still goes                                        |
+| `Phones`                | The client's phone, read by `checkPhone` with the business's state: a mobile as `MOBILE`, a landline as `DEFAULT` with its area code in its own field, anything else as `DEFAULT`, as typed                                                             | Always. `DDI` and `FAX` are Xero's                                                                                                                                                         |
+| `Addresses`             | A business: its company address, as both `POBOX` and `STREET`, only when it has a street or a suburb. Otherwise no address at all, never one of its sites: a real-estate agent's rental isn't its address. A person: their oldest live site as `STREET` | A person's site goes in `POBOX` too (it prints on invoices) only on an add, or while Xero's `POBOX` is blank. Suburb is `City`, state `Region`, postcode `PostalCode`, `Country` Australia |
+| `TaxNumber`             | A business's ABN, spaced (`formatAbn`: "51 824 753 556")                                                                                                                                                                                                | Businesses only                                                                                                                                                                            |
+| `AccountNumber`         | The client number                                                                                                                                                                                                                                       | On an add, or while Xero's is blank. Never while another active contact holds the number: Xero refuses it, and R2 may have linked the client elsewhere for that reason                     |
+| `ContactPersons`        | A business's other named contacts, not its contact person, oldest first, at most 5: name and email, `IncludeInEmails` off                                                                                                                               | Only to contacts PestM8 added (`how: created`), until gate check c (`CONTACT_PERSONS_ON_MATCHED`)                                                                                          |
+
+Never sent: `ContactNumber`, bank details, `IsCustomer` or `IsSupplier`,
+contact groups, `ContactStatus` (PestM8 never archives), a contact's phone or
+role (Xero's contact persons have no field for them), site contacts, and
+nothing of jobs, prices, notes, reports, photos, tags or a client's status.
+
+**Never part of a list.** Xero doesn't say whether an update with one phone
+replaces the contact's other phones, one address the other, or one contact
+person the rest. So an update never sends part of a list:
+
+- `Phones` go as Xero's four, with PestM8's changed ones replaced;
+- `Addresses` go as Xero's `POBOX` and `STREET`, with PestM8's changed one
+  replaced, keeping that address's own `AttentionTo` (the bookkeeper's, never
+  PestM8's). Its `AddressLine2` to `4` aren't sent: if Xero replaces the
+  entry they go with the old address, as they should; if it merges, an old
+  line 2 stays under PestM8's new street (gate check b settles which);
+- `ContactPersons` go as Xero's people with PestM8's updated or added, matched
+  by email (whatever its capitals), else by name. Anyone only Xero has is
+  kept. Over Xero's limit of five, PestM8's are left off first, and the link's
+  problem says `persons_full`.
+
+An add sends only what PestM8 owns. Gate checks a to c say whether this care is
+needed; it is harmless either way.
+
+**Never over a change made in Xero.** A bookkeeper's billing email, or a postal
+address typed in Xero, may be better than PestM8's. So each link keeps two
+hashes per field: `sent`, of PestM8's value when it was last sent, and `seen`,
+of what Xero held just after that (in Xero's own formatting, from its answer)
+or when the client was matched. A field goes only when all three of these hold
+(`diff`):
+
+1. PestM8's value changed since it was last sent.
+2. Xero still holds what PestM8 last saw there, or holds nothing, or the
+   contact is being added.
+3. PestM8 owns the field (the table above).
+
+When PestM8's value changed and Xero holds something else, Xero is left alone
+and the field goes on the link's `different` list. The client's sheet says
+Xero has a different email (amber), and the organisation's holder may press
+**Send PestM8’s details** (`xeroSync.overwrite`, audited `xero.overwrite`).
+That takes Xero's current value as seen, so the next send replaces it. It is
+offered only when PestM8 has a value for every field on `different`: one
+cleared in PestM8 can't be sent (below), so it stays Different with no button.
+Nothing else overwrites a value changed in Xero: not a resync, and not `force`,
+which keeps `sent` for a field on `different` (or one Send PestM8’s details was
+pressed for) and never moves `seen` to a value Xero holds now that it didn't
+when last seen (`nextHashes`).
+
+A contact Release 2 matched has no hashes on record. Its first pass fills in
+what Xero holds blank, leaves every field Xero has filled in as it is (never
+`different`), and records both sides (`nextHashes`). From then, a field Xero
+has filled in is PestM8's to change only when PestM8's own value next changes,
+and then only if Xero still holds what it held at that first pass.
+
+**Never a blank.** Xero leaves alone a field an update doesn't name, and
+doesn't say whether `""` clears one. Until gate check d proves it does, PestM8
+never sends `""` (`XERO_CLEARS_WITH_EMPTY = false`): a phone or an email
+removed in PestM8 stays in Xero, and the field goes on `different`. Removing a
+contact, a site or an email in PestM8 removes nothing from Xero.
+
+A hash is cyrb53 over canonical JSON (`fieldHash`), the same in a query, a
+mutation and an action. A blank and a missing value hash alike.
+
+### Name clashes
+
+Xero won't hold two active contacts with one name. When it refuses an add, or a
+rename, for that reason ("The contact name … is already assigned to another
+contact", `isNameClash`; gate check e has the exact text), it is settled so
+(`resolveCreateClash`; a rename, `resolveRenameClash`, goes straight to 3):
+
+1. It finds the contact that has the name
+   (`GET /Contacts?where=Name=="…"`). If none can be found (renamed in Xero
+   meanwhile, or a filter gate check e has yet to settle), the client is tried
+   again later (`name_unread`), never added with a suffix on a guess: it could
+   be a second contact for a client already there.
+2. **It is linked to no client here, is active, carries this client's number,
+   and isn't the contact the holder said this client isn't**
+   (`ownLostCreate`; Unlink and Different keep that contact as the link's
+   candidate). Most likely it is PestM8's own add, whose answer was lost (the
+   network dropped it, and Xero's 6 minutes of remembering an
+   `Idempotency-Key` had passed), or one the bookkeeper made for this client.
+   The client is linked to it as a match is (`matched`): blanks filled,
+   nothing of Xero's overwritten, and its people left as they are, since
+   PestM8 can't tell which it was.
+3. **It is linked to another client here, the holder said this client is a
+   different one, or this is a rename.** The name is made unique: "John Smith
+   (Nightcliff)", with the suburb of the client's oldest live site, then
+   "John Smith #1916", with the client number, the number left off when
+   another contact has it. A suffixed name that clashes is looked up as in 1
+   and 2, so a suffixed add whose answer was lost is found too. If both are
+   taken, the link `failed` (`name_taken`).
+4. **It is linked to no client, and nobody has ruled on it.** It may be this
+   one. The link goes To check (`name_clash`), the client's sheet says Xero
+   may already have them, and the holder answers on Match your clients: Same
+   links it, and Different adds the client with the suffix.
+
+A contact PestM8 added (`how: created`) has no Unlink on Match your clients:
+unlinking it would only add the client a second time.
+
+A suffixed name is the contact's name in Xero, so it prints on invoices (gate
+check i).
+
+### Leads
+
+A lead isn't sent. It waits until work is first booked for it: `jobs.create`,
+`recurrences.create`, `recurrences.convertJobToRecurring`, or a job moved to a
+lead's property in `jobs.update`. Booking makes the lead active
+(`activateLeadAt`, `convex/properties.ts`) and queues it, and the next drain
+adds it (or matches it first, with ten or more adds in its batch). The
+recurrence engine's projected visits book nothing, so they never send anyone.
+Until then a lead's edits are skipped when sent, and a lead with no link at all
+isn't queued. A client who was in Xero and is made a lead again stays in step.
+
+### The Recycle bin, restore, wipe and undo
+
+PestM8 never deletes or archives a contact in Xero, whatever happens to the
+client.
+
+| In PestM8                                          | In Xero                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| -------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| A client deleted, to the Recycle bin               | Left as it is, and nothing more is sent. The link stays, for a restore                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| One of a client's sites or contacts deleted        | The client is sent again without it: the next-oldest site becomes a person's street address, say. Nothing is removed from Xero (above)                                                                                                                                                                                                                                                                                                                                                                                   |
+| Restored from the Recycle bin                      | Sending resumes, with whatever changed meanwhile. If another client took its contact while it was in the bin (R2), it is added afresh, through the clash rules                                                                                                                                                                                                                                                                                                                                                           |
+| Wiped for good (after 30 days, or by hand)         | Its links and queued rows go (`dropXeroLinksForClient`). The contact stays in Xero, linked to nothing                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| An import undone                                   | From the moment Undo is confirmed nothing more of the import is sent (`eligibility`: `undoing`), so a list taken back isn't added to Xero while it goes. The clients it made are deleted, with their links and queued rows. Contacts already added for them stay in Xero, and the undo's dialog says how many: "{n} of these clients are already in Xero and stay there." (`xeroSync.importNote`). A client the undo keeps (worked on since) is sent once kept; one the import only gave a site is sent again without it |
+| Archived the old way, or unarchived (`archivedAt`) | As the Recycle bin: sending stops, and resumes                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Made inactive                                      | Still sent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| A member removed from the team                     | Their Xero is disconnected (R1). What was sent stays in their Xero                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+
+### Merged, archived and held for privacy in Xero
+
+Before every update the drain reads the contact as Xero has it now:
+
+- **Merged** (`ARCHIVED`, with a `MergedToContactID`): someone merged two
+  contacts in Xero. The link moves to the one that survived
+  (`how: relinked`), and the client is updated there on the next pass. If
+  another client here is already linked to it — or another client of the
+  same batch is moving to it, two of its contacts merged into one — the
+  client goes To check (`contested`) for the holder instead.
+- **Archived** (not merged): `archived_in_xero`. Nothing more is sent for that
+  client to that organisation, and the client's sheet says "Archived in Xero".
+  PestM8 never un-archives a contact.
+- **Held for privacy** (`GDPRREQUEST`): `gdpr`, stopped for good. PestM8 never
+  adds that client to that organisation again, and the sheet says "Removed in
+  Xero", for privacy.
+
+Each is counted under `stopped`. Other organisations carry on.
+
+### Limits and the day's budget
+
+Xero allows each organisation 60 calls a minute, 5 at once and, on Starter,
+1,000 a day (5,000 on Core). PestM8 stays inside them:
+
+- **One drain per organisation**, across every business (the tenant lease),
+  with at least 1.1 seconds between its calls.
+- **50 contacts a call.** A 2,000-client book's first sync is about 40 adds
+  per organisation, or for Matched clients a read and a write per 50 that need
+  filling in.
+- **Live edits before the backfill,** always.
+- **The day's budget.** Xero's `X-DayLimit-Remaining` is kept from each answer
+  (`dayRemaining`). Under 200, the backfill waits an hour
+  (`backfillHeldUntil`), and live edits carry on with what is left.
+- **Told to wait** (429 with `Retry-After`): the organisation is paused until
+  then (`pausedUntil`, and `pauseReason` says why: `minute`, `day`, or
+  `server` when Xero itself is failing). Settings says when it carries on,
+  except for a minute's pause. Too many at once (429 without `Retry-After`)
+  is tried again in 5 seconds.
+- **Xero or the network failing** (5xx, a timeout): the same request is tried
+  again, up to 3 times, 2, 5 and 15 seconds apart, with the same
+  `Idempotency-Key`, so Xero never acts twice on one request. Each request
+  gets a fresh key; only its own retries reuse it. If it still fails, the
+  client's row waits 1 minute, then 5, then 30, and at most 2 hours
+  (`attempts`, `lastError`).
+- **Signed out** (401): the token is refreshed once and the call tried again.
+  When Xero refuses the sign-in, the connection becomes `needs_reconnect`, and
+  its queue is kept for when its holder reconnects.
+
+The hooks queue for a connection that needs reconnecting as for a connected
+one (`sendingConnections` in `lib/xeroHooks.ts`), but ask for no drain: its
+changes wait. The reconnect's `xero.finish` drains them, so nothing has to be
+walked again by hand.
+
+### The kill switch
+
+`XERO_SYNC_PAUSED=on` stops every write to Xero, for every organisation on the
+deployment, at once:
+
+```sh
+npx convex env set --prod XERO_SYNC_PAUSED on   # stop
+npx convex env remove --prod XERO_SYNC_PAUSED   # carry on
+```
+
+While it is on, a drain returns before it takes the lease, one already
+running stops at its next write (`keepGoing`), the reconciler skips, and a
+match won't run (`paused`). The hooks still queue, so nothing is
+lost: every change waits, one row per client, and goes once it is off, on the
+reconciler's next run (within 10 minutes) or at once with `kick`. Settings
+says "Sending to Xero is paused. Changes wait here." Connecting and
+disconnecting still work.
+
+### What Settings and the client's sheet show
+
+`xeroSyncState.counts`, one set per connection, moved by every send and every
+answer; `recount` sets them afresh.
+
+| Count       | Is                                      | On Settings → Xero (or My Xero)                                     |
+| ----------- | --------------------------------------- | ------------------------------------------------------------------- |
+| `inXero`    | Clients linked to a contact and sending | In Xero                                                             |
+| `review`    | To check                                | To check (amber)                                                    |
+| `different` | Links with a field on `different`       | Different in Xero (amber)                                           |
+| `waiting`   | Queued rows                             | Waiting to send (99+ past 99)                                       |
+| `failed`    | Links that `failed`                     | Not sent (amber; each under Recent problems while among the newest) |
+| `stopped`   | Links `archived_in_xero` or `gdpr`      | Not a row                                                           |
+
+`recent` keeps the last 20 problems, newest first. Settings lists those that
+still stand (the client's link still carries that code: one put right since
+goes), one per client, five at most, under Recent problems, with "The newest 5
+of {n}." when there are more. Each says "Could not add {client}", "Could not
+update {client}" (one in Xero already) or, for something only left off a
+contact, the client's name, over why, and opens the client. "Last sent {when}" is
+`lastSentAt`. The hub's Xero row carries one badge: "Reconnect", else "{n} to
+check", else "{n} different".
+
+A client's sheet has a line per organisation the person looking holds, from
+`xeroSync.clientLines`: the business's for the owner (`business.manage`), a
+member's own for that member. Its states are `in_xero`, `waiting`, `lead`,
+`to_check`, `archived`, `gdpr`, `different`, `failed` and `not_yet` (not in
+Xero, and nothing queued), worded by `ClientXeroLines` and `xeroCopy.ts`.
+Before Start syncing a client the match found in Xero is already `in_xero`
+(with no "sent"), one to check `to_check`, a lead `lead`, and the rest
+`not_yet`. Open in Xero opens
+`https://go.xero.com/organisationlogin/default.aspx?shortcode={shortCode}&redirecturl=/Contacts/View/{contactId}`,
+which signs the person in to the right organisation first. It is shown only
+when both are known. Nobody sees a line for an organisation they don't hold,
+and a deployment without Xero shows none.
+
+### Running the sync by hand
+
+Add `--prod` for prod, after confirming the target. `dryRun`'s samples are
+real clients' names, emails, phones and addresses: read them in the terminal
+and paste them nowhere. No command prints a token.
+
+```sh
+# What would be sent, without sending: adds, updates and skips (by reason)
+# over the queue and the whole book, and up to 10 sample payloads. Writes
+# nothing to Xero. It reads Xero's contact list only for 10 or more adds, as
+# a drain would.
+npx convex run xeroSync:dryRun '{"connectionId": "…"}'
+
+# Walk the whole book again from the start: after a migration that changed
+# clients, or a change to what is sent. It compares before it
+# sends, so an unchanged client costs nothing.
+npx convex run xeroSync:resyncAll '{"connectionId": "…"}'
+
+# The same, forgetting what was last sent, so every field PestM8 owns is
+# compared afresh. Still never over a value changed in Xero: what PestM8 last
+# saw there is kept, and a field Different in Xero stays so.
+npx convex run xeroSync:resyncAll '{"connectionId": "…", "force": true}'
+
+# Start a drain now. It waits its turn for the organisation, and does
+# nothing while paused.
+npx convex run xeroSync:kick '{"connectionId": "…"}'
+
+# Count the links and the queue again, if Settings' numbers look wrong
+npx convex run xeroSync:recount '{"connectionId": "…"}'
+
+# The connection and its sign-in, no secrets
+npx convex run xero:inspect '{"connectionId": "…"}'
+
+# Each organisation's sync: pause, day's budget, backfill, counts, lease
+npx convex run --inline-query 'return (await ctx.db.query("xeroSyncState").collect()).map((s) => ({ connectionId: s.connectionId, pausedUntil: s.pausedUntil, pauseReason: s.pauseReason, dayRemaining: s.dayRemaining, backfillCursor: s.backfillCursor, backfillHeldUntil: s.backfillHeldUntil, backfillDoneAt: s.backfillDoneAt, counts: s.counts, lastSentAt: s.lastSentAt, lease: s.lease }))'
+
+# The queue: rows per connection, the oldest, and how many are failing
+npx convex run --inline-query 'const n = {}; for (const r of await ctx.db.query("xeroOutbox").collect()) { const k = r.connectionId; n[k] = n[k] ?? { rows: 0, oldest: r.firstQueuedAt, failing: 0 }; n[k].rows += 1; n[k].oldest = Math.min(n[k].oldest, r.firstQueuedAt); if (r.attempts > 0) n[k].failing += 1 } return n'
+```
 
 ## Running it
 
@@ -386,7 +857,7 @@ Add `--prod` to any of these for prod, after confirming the target:
 
 ```sh
 # Every connection, without a secret in sight
-npx convex run --inline-query 'return (await ctx.db.query("xeroConnections").collect()).map((c) => ({ id: c._id, kind: c.kind, org: c.tenantName, status: c.status, problem: c.problem, reason: c.disconnectReason }))'
+npx convex run --inline-query 'return (await ctx.db.query("xeroConnections").collect()).map((c) => ({ id: c._id, kind: c.kind, org: c.tenantName, status: c.status, problem: c.problem, reason: c.disconnectReason, syncStartedAt: c.syncStartedAt }))'
 
 # One connection and its sign-in: status, refreshedAt, scopes. No ciphertexts.
 npx convex run xero:inspect '{"connectionId": "…"}'
@@ -405,8 +876,9 @@ Never `collect()` `xeroGrants` whole into a terminal: project out
 `accessCipher` and `refreshCipher`, as `inspect` does.
 
 The crons (`convex/crons.ts`): "refresh idle Xero sign-ins" daily at 20:00 UTC
-(about 04:00 in Perth), and "sweep Xero sign-ins left half-way" at 50 minutes
-past each hour.
+(about 04:00 in Perth), "sweep Xero sign-ins left half-way" at 50 minutes past
+each hour, and "send waiting Xero changes" (R3) at 5, 15, 25, 35, 45 and 55
+minutes past each hour.
 
 ### What a connection's status means
 
@@ -539,21 +1011,79 @@ is a contact's `AccountNumber` under another name. Record each.
 | 7   | A member's trial organisation matches on My Xero; the owner can't open their match page, nor the member the business's                                                    |        |      |     |
 | 8   | Real iPhone, Home Screen app: a to-check card, Same and Different, Unlink's dialog                                                                                        |        |      |     |
 
+## Release 3 checks on dev
+
+With "PestM8 Dev", the Demo Company and a trial organisation, after the R2
+checks. Record each.
+
+| #   | Check                                                                                                                                | Result | Date | By  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------ | ------ | ---- | --- |
+| 1   | `xeroSync:dryRun` before Start syncing: its adds and updates agree with the match's New, Different and Matched counts                |        |      |     |
+| 2   | Start syncing: the New and Different clients appear in Xero; Matched contacts have their blanks filled and nothing they held changed |        |      |     |
+| 3   | A phone edited in PestM8 is in Xero within a minute; the client's sheet says when it was sent                                        |        |      |     |
+| 4   | An email changed in Xero, then in PestM8: the sheet says Xero has a different email, and Send PestM8’s details replaces it           |        |      |     |
+| 5   | A lead is not sent; booking its first job sends it                                                                                   |        |      |     |
+| 6   | Recycle bin: nothing more sent; restore: the change made meanwhile goes; wipe: the contact stays in Xero                             |        |      |     |
+| 7   | A second "John Smith" goes in as "John Smith ({suburb})", then a third as "John Smith #{number}"                                     |        |      |     |
+| 8   | Merge a linked contact into another in Xero: the link follows; archive one: the sheet says Archived in Xero                          |        |      |     |
+| 9   | `XERO_SYNC_PAUSED=on`: nothing reaches Xero and Waiting to send counts up; removed, it all goes                                      |        |      |     |
+| 10  | A member's trial organisation starts syncing on My Xero; one edit reaches both organisations                                         |        |      |     |
+| 11  | Real iPhone, Home Screen app: the client's Xero line, Open in Xero as a hold, the Start syncing dialog                               |        |      |     |
+
 ## Release 3 Demo Company gate
 
 To be filled in on dev against the Demo Company before anyone presses Start
-syncing on prod. The code ships with the conservative answer to each.
+syncing on prod. Checks a to e, h, l and m are Xero's behaviour, not PestM8's: make
+them with Xero's API Explorer against the Demo Company. The code ships with the
+conservative answer to each, which the "Until then" column says. A result that
+allows less care changes a constant in `lib/xeroContact.ts`, in a commit of its
+own that quotes the result.
 
-| #   | Check                                                                       | Result | Date | By  |
-| --- | --------------------------------------------------------------------------- | ------ | ---- | --- |
-| a   | A `MOBILE`-only POST keeps `DEFAULT`                                        |        |      |     |
-| b   | A `STREET`-only POST keeps `POBOX`                                          |        |      |     |
-| c   | `ContactPersons`: replaced or merged (decides `CONTACT_PERSONS_ON_MATCHED`) |        |      |     |
-| d   | `""` clears a field                                                         |        |      |     |
-| e   | The exact text of a name clash                                              |        |      |     |
-| f   | A merge in Xero's UI → `ARCHIVED` + `MergedToContactID`                     |        |      |     |
-| g   | Archiving in Xero stops the sync                                            |        |      |     |
-| h   | The same `Idempotency-Key` twice → one contact                              |        |      |     |
-| i   | `AccountNumber` and a suffixed name on a draft invoice                      |        |      |     |
-| j   | Open in Xero, on a computer and an iPhone                                   |        |      |     |
-| k   | Two users, one organisation (the trial organisation)                        |        |      |     |
+| #   | Check                                                                       | Until then                                                                                    | Result | Date | By  |
+| --- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- | ------ | ---- | --- |
+| a   | A `MOBILE`-only POST keeps `DEFAULT`                                        | An update sends all four phones, Xero's own kept                                              |        |      |     |
+| b   | A `STREET`-only POST keeps `POBOX`                                          | An update sends both addresses, Xero's own kept                                               |        |      |     |
+| c   | `ContactPersons`: replaced or merged (decides `CONTACT_PERSONS_ON_MATCHED`) | `false`: people go only to contacts PestM8 added, as Xero's list with PestM8's merged in      |        |      |     |
+| d   | `""` clears a field                                                         | `XERO_CLEARS_WITH_EMPTY = false`: never sent, so a value removed in PestM8 stays in Xero      |        |      |     |
+| e   | The exact text of a name clash                                              | `isNameClash` (`lib/xeroHttp.ts`) looks for "name" then "already assigned to another contact" |        |      |     |
+| f   | A merge in Xero's UI → `ARCHIVED` + `MergedToContactID`                     | The link follows `MergedToContactID`                                                          |        |      |     |
+| g   | Archiving in Xero stops the sync                                            | `archived_in_xero`, and nothing more is sent                                                  |        |      |     |
+| h   | The same `Idempotency-Key` twice → one contact                              | Only retries of one request reuse its key; an answer lost for 6 minutes is found by number    |        |      |     |
+| i   | `AccountNumber` and a suffixed name on a draft invoice                      | — (what a customer sees)                                                                      |        |      |     |
+| j   | Open in Xero, on a computer and an iPhone                                   | —                                                                                             |        |      |     |
+| k   | Two users, one organisation (the trial organisation)                        | One drain per organisation, across every business                                             |        |      |     |
+| l   | `where=Name=="…"` with a `"` in the name, and in other capitals             | `\"` escaping, an exact match kept; a clash not found is tried again later (`name_unread`)    |        |      |     |
+| m   | A `STREET` sent with only line 1: Xero's `AddressLine2` and `AttentionTo`   | `AttentionTo` sent back as Xero had it; lines 2 to 4 not sent                                 |        |      |     |
+
+## Release 3 first sync on prod
+
+Once the gate is filled in, with Terence, for Pest M8 Pest Control's
+organisation:
+
+1. **Confirm the target and the build.** `.env.local` and every command name
+   `rare-retriever-156` (`CLAUDE.md`). Vercel's newest successful production
+   build is `main` with Release 3, and the backend was deployed from the same
+   commit.
+2. **Snapshot:** `npx convex export --prod --path before-xero-sync.zip`.
+3. **Terence answers every To check** on Settings → Xero → Match your
+   clients, and spot-checks five Matched clients against Xero. If Xero was read
+   more than 7 days ago, Check Xero again first: Start syncing would be
+   refused.
+4. **A dry run, read together:**
+   `npx convex run --prod xeroSync:dryRun '{"connectionId": "…"}'`, with the id
+   from the connections query under [Running it](#running-it). Its adds,
+   updates and skips by reason should agree with the match's counts. Read the
+   sample payloads: names, addresses, ABNs. Paste them nowhere.
+5. **Start syncing**, by Terence, on Match your clients.
+6. **Watch it go in.** Settings shows "Adding your clients…", and the sync
+   state query (above) shows the backfill moving and `dayRemaining` falling.
+7. **Check ten contacts in Xero:** a business with a company address, one
+   without (no address at all), a person (their oldest site as the street
+   address), a suffixed name, and a Matched client whose blanks were filled
+   and whose other fields weren't touched. Check each one's account number.
+8. **If anything is wrong:** `npx convex env set --prod XERO_SYNC_PAUSED on`.
+   Writes stop at once and the queue keeps every change. Fix it, dry-run again,
+   then remove the variable.
+
+Members press Start syncing on My Xero the same day (the plan's decision 7),
+each after answering their own To check and a dry run of their connection.

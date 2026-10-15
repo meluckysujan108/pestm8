@@ -106,6 +106,81 @@ const PLAN = {
     },
   },
   'team-member-xero': { before: async (p) => p.waitForTimeout(500) },
+  // Release 3: syncing. The Xero page as it sends — under way, all in, the
+  // kill switch, Xero's daily limit — and a problem opened.
+  'xero-syncing': { full: true, before: async (p) => p.waitForTimeout(500) },
+  'xero-synced': { full: true, before: async (p) => p.waitForTimeout(500) },
+  'xero-sync-paused': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'xero-sync-day-limit': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'my-xero-syncing': { full: true, before: async (p) => p.waitForTimeout(500) },
+  'my-xero-sync-day-limit': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'my-xero-sync-server': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  // A refused client, tapped: its sheet over the page, on Details.
+  'xero-sync-problem-open': {
+    spec: 'xero-syncing',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p
+        .getByRole('button', { name: /Could not add Subi Café Group/ })
+        .click()
+      await p.waitForTimeout(1200)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  // The match page's Start syncing: its confirm, a week-old match that
+  // must be read again first, and the page once syncing.
+  'xero-match-start-confirm': {
+    spec: 'xero-match',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Start syncing' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'xero-match-stale': { before: async (p) => p.waitForTimeout(700) },
+  'xero-match-syncing': { before: async (p) => p.waitForTimeout(700) },
+  'my-xero-match-syncing': { before: async (p) => p.waitForTimeout(700) },
+  // A client's Xero row in every state, Send PestM8's details asked, and
+  // the sample client's sheet on Details.
+  'client-xero-lines': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'client-xero-overwrite': {
+    spec: 'client-xero-lines',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p
+        .getByRole('button', { name: 'Send PestM8’s details' })
+        .first()
+        .click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'client-xero-details': {
+    spec: 'client',
+    full: true,
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('tab', { name: 'Details' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'xero-hub-badges': { before: async (p) => p.waitForTimeout(500) },
+  'import-undo-xero': { before: async (p) => p.waitForTimeout(700) },
   // Release 2: matching. The Xero page's group in each state, then the match
   // page's lists, an answered card and the Unlink confirm.
   'xero-match-reading': { before: async (p) => p.waitForTimeout(500) },

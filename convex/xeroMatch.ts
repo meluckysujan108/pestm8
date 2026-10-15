@@ -18,11 +18,15 @@ import { xeroConfigured, xeroPaused } from './lib/xeroConfig'
 import { CONTACTS_PAGE_SIZE, XeroError, getContactsPage } from './lib/xeroHttp'
 import {
   addCounts,
+  addSyncCounts,
   inXeroBook,
   isLiveXero,
   linkCounts,
+  markClientForXero,
   moveMatchCounts,
+  moveSyncCounts,
   requireConnectionHolder,
+  syncCounts,
 } from './lib/xeroHooks'
 import { matchClients } from './lib/xeroMatch'
 import { DEMO_PLAN } from './demo/shared'
@@ -30,6 +34,7 @@ import { accessTokenFor } from './xeroTokens'
 import {
   xeroCandidate,
   xeroCandidateReason,
+  xeroLinkHow,
   xeroLinkState,
   xeroMatchState,
 } from './schema'
@@ -90,10 +95,19 @@ import type { ClientForMatch, Proposal } from './lib/xeroMatch'
  * is keyed by business and organisation, so whoever connects that
  * organisation here next finds them, and may change them.
  *
+ * ── After Start syncing (Release 3, convex/xeroSync.ts) ───────────────────
+ *
+ * The links are what is sent, so no run replaces them: Check Xero again is
+ * refused (SYNC_STARTED), a reconnect does not read again, and a run asked
+ * for by hand does nothing. To check stays usable: Same, Different and
+ * Unlink queue the client (lib/xeroHooks.ts `markClientForXero`), so Xero
+ * gets the answer within seconds. Links sending found archived or erased in
+ * Xero stand like decisions, and no later run proposes over them.
+ *
  * ── Errors the page words ─────────────────────────────────────────────────
  *
  * NOT_FOUND, NO_ACCESS, SWITCHED, CONTACT_TAKEN, XERO_NOT_CONFIGURED,
- * XERO_RECONNECT.
+ * XERO_RECONNECT, SYNC_STARTED.
  */
 
 // ───────────────────────────────────────────────────────────────── limits
@@ -101,7 +115,7 @@ import type { ClientForMatch, Proposal } from './lib/xeroMatch'
 /** How long a run holds the organisation without renewing. Renewed with
  * every page read and every batch saved, so only a run that died keeps it
  * from the next for longer than a page takes. */
-const LEASE_MS = 5 * 60_000
+export const LEASE_MS = 5 * 60_000
 /** Between pages: Xero allows an organisation 60 calls a minute. */
 const PAGE_GAP_MS = 1100
 /** 50,000 contacts. A book that size wants a different tool than a match
@@ -207,7 +221,8 @@ const reviewItem = v.object({
   /** Its oldest live site's suburb: how two John Smiths are told apart. */
   clientSuburb: v.union(v.string(), v.null()),
   state: xeroLinkState,
-  how: v.union(v.literal('matched'), v.literal('chosen'), v.null()),
+  /** `created` and `relinked` only once syncing (Release 3). */
+  how: v.union(xeroLinkHow, v.null()),
   candidate: v.union(xeroCandidate, v.null()),
   xeroName: v.union(v.string(), v.null()),
   decidedAt: v.union(v.number(), v.null()),
@@ -238,7 +253,7 @@ type MatchTarget = {
 
 // ──────────────────────────────────────────────────────────────── helpers
 
-async function syncRowOf(
+export async function syncRowOf(
   ctx: QueryCtx | MutationCtx,
   connectionId: Id<'xeroConnections'>,
 ): Promise<Doc<'xeroSyncState'> | null> {
@@ -249,7 +264,7 @@ async function syncRowOf(
 }
 
 /** This connection's row, made on first use. */
-async function ensureSyncRow(
+export async function ensureSyncRow(
   ctx: MutationCtx,
   connection: Doc<'xeroConnections'>,
 ): Promise<Doc<'xeroSyncState'>> {
@@ -268,7 +283,7 @@ async function ensureSyncRow(
 /** Someone other than `holder`, in any business, holds a live lease on this
  * organisation. A lease past its time belongs to a run that died, and is
  * anyone's. */
-async function tenantBusy(
+export async function tenantBusy(
   ctx: QueryCtx | MutationCtx,
   tenantId: string,
   holder: string,
@@ -290,7 +305,7 @@ async function tenantBusy(
  * lease, in time or run over with nobody else having taken the
  * organisation since — else LEASE_LOST. Renews the lease.
  */
-async function holdLease(
+export async function holdLease(
   ctx: MutationCtx,
   connectionId: Id<'xeroConnections'>,
   holder: string,
@@ -311,7 +326,7 @@ async function holdLease(
   return sync
 }
 
-async function linkOf(
+export async function linkOf(
   ctx: QueryCtx | MutationCtx,
   businessId: Id<'businesses'>,
   tenantId: string,
@@ -329,7 +344,7 @@ async function linkOf(
 }
 
 /** The suburb of a client's oldest site not in the Recycle bin. */
-async function oldestSiteSuburb(
+export async function oldestSiteSuburb(
   ctx: QueryCtx,
   clientId: Id<'clients'>,
 ): Promise<string | undefined> {
@@ -420,6 +435,9 @@ export async function matchAfterConnect(
   ctx: MutationCtx,
   connection: Doc<'xeroConnections'>,
 ): Promise<void> {
+  // Syncing already (a reconnect): the links are what is being sent, and the
+  // drain carries on from them (xero.ts `finish` asks for one).
+  if (connection.syncStartedAt !== undefined) return
   const sync = await syncRowOf(ctx, connection._id)
   const match = sync?.match
   if (match?.state === 'ready' && Date.now() - match.at < MATCH_FRESH_MS) {
@@ -429,13 +447,31 @@ export async function matchAfterConnect(
 }
 
 /** Moves this connection's finished match counts with one decision, so the
- * page is right without a run (lib/xeroHooks.ts `moveMatchCounts`). */
+ * page is right without a run (lib/xeroHooks.ts `moveMatchCounts`) — and,
+ * once syncing, its sync tallies too (`moveSyncCounts`), from the link as it
+ * was to the link as it is now. */
 async function adjustCounts(
   ctx: MutationCtx,
   connectionId: Id<'xeroConnections'>,
   delta: MatchCountsDelta,
+  links?: {
+    before: Doc<'xeroContactLinks'>
+    after: Pick<
+      Doc<'xeroContactLinks'>,
+      'state' | 'different' | 'problem' | 'xeroContactId'
+    >
+  },
 ): Promise<void> {
-  await moveMatchCounts(ctx, await syncRowOf(ctx, connectionId), delta)
+  const sync = await syncRowOf(ctx, connectionId)
+  await moveMatchCounts(ctx, sync, delta)
+  if (links) {
+    // Each patches only its own field, so the one read serves both.
+    await moveSyncCounts(
+      ctx,
+      sync,
+      addSyncCounts(syncCounts(links.before, -1), syncCounts(links.after, 1)),
+    )
+  }
 }
 
 /** The counts a link moves from one state to another. */
@@ -444,6 +480,27 @@ function movedCounts(
   to: Doc<'xeroContactLinks'>['state'],
 ): MatchCountsDelta {
   return addCounts(linkCounts(from, -1), linkCounts(to, 1))
+}
+
+/** What sending kept about a link's contact (lib/xeroContact.ts hashes and
+ * the rest): meaningless once the link points at another contact, or none,
+ * so cleared with it. The next send starts afresh — filling the new
+ * contact's blanks and leaving what it holds. */
+const SENT_CLEARED = {
+  sent: undefined,
+  seen: undefined,
+  different: undefined,
+  problem: undefined,
+} as const
+
+/** The states only sending reaches that stop a client going to that
+ * organisation for good (archived there, or erased at the person's
+ * request). No match proposes over them: a new contact for either would
+ * undo what the business did in Xero. */
+export function isStoppedInXero(
+  state: Doc<'xeroContactLinks'>['state'],
+): boolean {
+  return state === 'archived_in_xero' || state === 'gdpr'
 }
 
 /**
@@ -457,8 +514,8 @@ function movedCounts(
  *   someone else takes the contact its link goes, and a restore is matched
  *   afresh.
  */
-async function othersLinkedTo(
-  ctx: MutationCtx,
+export async function othersLinkedTo(
+  ctx: QueryCtx | MutationCtx,
   {
     businessId,
     tenantId,
@@ -511,6 +568,11 @@ async function unmatchable(
   if (!connection) return 'skip'
   const business = await ctx.db.get('businesses', connection.businessId)
   if (!business || business.plan === DEMO_PLAN) return 'skip'
+  // Syncing: a run would replace the very links being sent — every contact
+  // PestM8 added is linked by them, and a proposal of "new" for one would
+  // have the drain add it again. Nothing asks for one then (`rematch`
+  // refuses, a reconnect skips it); this holds a run asked for by hand to it.
+  if (connection.syncStartedAt !== undefined) return 'skip'
   switch (connection.status) {
     case 'connected':
       return null
@@ -695,6 +757,10 @@ export const clientsForMatch = internalQuery({
     const page: Array<MatchClient> = []
     for (const client of result.page) {
       if (!inXeroBook(client)) continue
+      const link = await linkOf(ctx, businessId, tenantId, client._id)
+      // Archived or erased in Xero (Release 3): neither proposed nor counted,
+      // and its link stands (`finishMatch` keeps it).
+      if (link && isStoppedInXero(link.state)) continue
 
       const emails = new Set<string>()
       const addEmail = (raw: string | undefined) => {
@@ -716,7 +782,6 @@ export const clientsForMatch = internalQuery({
         addEmail(primary?.email)
       }
 
-      const link = await linkOf(ctx, businessId, tenantId, client._id)
       const decided =
         link?.decidedAt !== undefined &&
         (link.state === 'linked' || link.state === 'separate')
@@ -857,6 +922,9 @@ export const saveProposals = internalMutation({
         tally(link.state)
         continue
       }
+      // Archived or erased in Xero: stands like a decision (and the run
+      // never proposes one — `clientsForMatch` leaves them out).
+      if (link && isStoppedInXero(link.state)) continue
 
       let contestedByDecision = false
       let released: Array<Doc<'xeroContactLinks'>> = []
@@ -884,7 +952,15 @@ export const saveProposals = internalMutation({
         }
       }
       if (link) {
-        await ctx.db.patch('xeroContactLinks', link._id, { ...fields, runId })
+        await ctx.db.patch('xeroContactLinks', link._id, {
+          ...fields,
+          runId,
+          // Another contact, or none: what was sent to the old one is no
+          // guide to the new (only before Start syncing — a run never
+          // touches the links after — or on a new connection to an
+          // organisation whose links outlived the old one).
+          ...(link.xeroContactId !== fields.xeroContactId ? SENT_CLEARED : {}),
+        })
       } else {
         await ctx.db.insert('xeroContactLinks', {
           businessId,
@@ -930,7 +1006,11 @@ export const finishMatch = internalMutation({
       )
       .paginate({ numItems: STALE_BATCH, cursor: args.cursor ?? null })
     for (const link of result.page) {
-      if (link.decidedAt === undefined && link.runId !== runId) {
+      if (
+        link.decidedAt === undefined &&
+        link.runId !== runId &&
+        !isStoppedInXero(link.state)
+      ) {
         await ctx.db.delete('xeroContactLinks', link._id)
       }
     }
@@ -1425,8 +1505,14 @@ async function unlinkLink(
     runId: undefined,
     decidedAt: now,
     decidedByMembershipId: by,
+    ...SENT_CLEARED,
   })
-  await adjustCounts(ctx, connection._id, movedCounts('linked', 'separate'))
+  await adjustCounts(ctx, connection._id, movedCounts('linked', 'separate'), {
+    before: link,
+    after: { state: 'separate' },
+  })
+  // Once syncing, it is added to Xero as a contact of its own.
+  await markClientForXero(ctx, link.clientId)
   await recordAudit(ctx, forSelf(by), {
     businessId: connection.businessId,
     action: 'xero.unlink',
@@ -1497,12 +1583,19 @@ export const decide = mutation({
         runId: undefined,
         decidedAt: now,
         decidedByMembershipId: by,
+        ...SENT_CLEARED,
       })
       await adjustCounts(
         ctx,
         connection._id,
         movedCounts('needs_review', 'linked'),
+        {
+          before: link,
+          after: { state: 'linked', xeroContactId: candidate.contactId },
+        },
       )
+      // Once syncing, its blanks in that contact are filled in.
+      await markClientForXero(ctx, clientId)
       await recordAudit(ctx, forSelf(by), {
         businessId,
         action: 'xero.link',
@@ -1532,7 +1625,11 @@ export const decide = mutation({
       ctx,
       connection._id,
       movedCounts('needs_review', 'separate'),
+      { before: link, after: { state: 'separate' } },
     )
+    // Once syncing, it is added to Xero as a contact of its own — with its
+    // suburb after its name if the one it was asked about holds the name.
+    await markClientForXero(ctx, clientId)
     await recordAudit(ctx, forSelf(by), {
       businessId,
       action: 'xero.separate',
@@ -1609,7 +1706,10 @@ export const reopen = mutation({
       decidedByMembershipId: undefined,
       runId: sync?.match?.runId ?? '',
     })
-    await adjustCounts(ctx, connection._id, movedCounts('separate', state))
+    await adjustCounts(ctx, connection._id, movedCounts('separate', state), {
+      before: link,
+      after: { state },
+    })
     await recordAudit(ctx, forSelf(env.actor.real._id), {
       businessId,
       action: 'xero.reopen',
@@ -1631,8 +1731,8 @@ export const reopen = mutation({
  * under way for this connection is the answer, so pressing it twice reads
  * Xero once.
  *
- * Release 2 allows it at any time; Release 3 refuses it once Start syncing
- * has been pressed (`syncStartedAt`), when the links are what is being sent.
+ * Refused once Start syncing has been pressed (`syncStartedAt`, SYNC_STARTED),
+ * when the links are what is being sent.
  */
 export const rematch = mutation({
   args: {
@@ -1650,6 +1750,12 @@ export const rematch = mutation({
       businessId,
     )
     if (!xeroConfigured()) throw new ConvexError('XERO_NOT_CONFIGURED')
+    // Syncing: the links are what is being sent, every contact PestM8 added
+    // among them, and a fresh match would throw that away. What a run would
+    // catch up on, `xeroSync.resyncAll` does without unlinking anything.
+    if (connection.syncStartedAt !== undefined) {
+      throw new ConvexError('SYNC_STARTED')
+    }
     if (connection.status === 'needs_reconnect') {
       throw new ConvexError('XERO_RECONNECT')
     }

@@ -1,9 +1,9 @@
-import { Suspense, useEffect, useId, useRef, useState } from 'react'
+import { Suspense, lazy, useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
 import { useConvexAction, useConvexMutation } from '@convex-dev/react-query'
-import { LoaderCircle, Plug } from 'lucide-react'
+import { ChevronRight, LoaderCircle, Plug } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { SectionPending } from '#/components/shell/Pending'
@@ -16,6 +16,7 @@ import {
   NEUTRAL_BUTTON,
   NEUTRAL_BUTTON_COMPACT,
 } from '#/components/primitives/buttons'
+import { BarMeter } from '#/components/primitives/BarMeter'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { describeError } from '#/components/forms/describeError'
 import { useLatest } from '#/components/forms/SaveWarnings'
@@ -25,6 +26,7 @@ import {
   DANGER_ROW_CLASS,
   DangerGroup,
   IconTile,
+  ROW_CLASS,
   RowBadge,
   SettingsBody,
   SettingsGroup,
@@ -37,19 +39,31 @@ import { isOffline } from '#/lib/online'
 import { rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import {
+  DIFFERENT_CAPTION,
   DISCONNECT_ERROR_COPY,
   EXPLAINER,
   FINISH_ERROR_COPY,
+  NOT_SENT_CAPTION,
   REMATCH_ERROR_COPY,
+  SYNC_PAUSED,
   TWO_STEP_FIRST,
+  backfillCopy,
+  backfillHeldCopy,
   disclosureCopy,
   matchProblemCopy,
   matchRetry,
+  pauseCopy,
   problemCopy,
+  problemHeading,
+  recentFooterCopy,
   startErrorCopy,
+  syncProblemCopy,
+  waitingCount,
   xeroReturnCopy,
 } from './xeroCopy'
+import { syncOf } from './syncView'
 import type { MatchStage, XeroKind } from './xeroCopy'
+import type { SyncProblem, SyncSummary } from './syncView'
 import type { FunctionReturnType } from 'convex/server'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -65,7 +79,24 @@ const XERO_SIGN_IN_ORIGIN = 'https://login.xero.com'
  * if the page is still here — Xero opened over it, and was closed. */
 const OPENING_RESET_MS = 10_000
 
-type Business = { _id: Id<'businesses'>; slug: string; name: string }
+type Business = {
+  _id: Id<'businesses'>
+  slug: string
+  name: string
+  /** Where address suggestions lean, in a client opened from the page. */
+  state: string
+}
+
+/**
+ * A client's sheet, opened over the page from Recent problems, so a refused
+ * email can be put right where it was read about. Loaded when first opened:
+ * a Xero page opened to look never needs it.
+ */
+const ClientSheet = lazy(() =>
+  import('#/components/clients/ClientSheet').then((m) => ({
+    default: m.ClientSheet,
+  })),
+)
 
 /** The search a Xero page is opened with on the way back from Xero. */
 export type XeroSearch = {
@@ -85,8 +116,10 @@ export type XeroSearch = {
  *
  * Release 1 connects and disconnects. Release 2 reads the organisation's
  * contacts once connected and says what it made of them, with the way to
- * the match page (`MatchReview.tsx`). No contact is sent to Xero yet, and
- * the page says so.
+ * the match page (`MatchReview.tsx`). Release 3 sends, once Start syncing
+ * has been pressed there: from then on the page says how the sending
+ * stands — how many clients are in Xero, what waits, what Xero refused —
+ * where it said the match's counts. Before that it says nothing is sent.
  *
  * Connect Xero is a tap, not a hold (design system, Hold to act): it hands
  * over to Xero's own sign-in, which asks again before anything is shared. It
@@ -292,6 +325,12 @@ function ConnectionStates({
   // Where focus goes once Disconnect has gone through: Connect Xero, which
   // takes the place of the group the confirm was opened from.
   const connectId = useId()
+  // A client opened from Recent problems. The sheet stays mounted once
+  // loaded, so closing it slides it away rather than cutting it off.
+  const [openClient, setOpenClient] = useState<Id<'clients'> | null>(null)
+  const [sheetLoaded, setSheetLoaded] = useState(false)
+  const canManageClients = useCan('clients.manage')
+  const canRenumber = useCan('business.manage')
 
   // Read from the address, so the server renders it and nothing moves when
   // the page hydrates. Still finishing until the token has gone from the
@@ -404,6 +443,12 @@ function ConnectionStates({
             businessSlug={business.slug}
             connection={live}
             paused={paused}
+            timezone={timezone}
+            canEditClients={canManageClients}
+            onOpenClient={(clientId) => {
+              setSheetLoaded(true)
+              setOpenClient(clientId)
+            }}
           />
         </>
       ) : (
@@ -438,6 +483,20 @@ function ConnectionStates({
         connection={live}
         afterDisconnect={() => document.getElementById(connectId)}
       />
+      {sheetLoaded && (
+        <Suspense fallback={null}>
+          <ClientSheet
+            businessId={business._id}
+            timezone={timezone}
+            businessSlug={business.slug}
+            businessState={business.state}
+            canManageClients={canManageClients}
+            canRenumber={canRenumber}
+            clientId={openClient}
+            onClose={() => setOpenClient(null)}
+          />
+        </Suspense>
+      )}
     </>
   )
 }
@@ -478,9 +537,10 @@ function OrgRow({
  * them, the counts once it has, or why it couldn't — under the
  * organisation, in one group whose heading stays put while its rows change.
  *
- * Nothing is sent to Xero yet; the counts are what Release 3 will act on,
- * and the To check ones wait for the holder to say Same or Different on
- * the match page.
+ * Until Start syncing nothing is sent to Xero; the counts are what syncing
+ * will act on, and the To check ones wait for the holder to say Same or
+ * Different on the match page. Once it has started, the same group says how
+ * the sending stands instead (`SyncStatus`).
  */
 function MatchStatus({
   kind,
@@ -488,16 +548,40 @@ function MatchStatus({
   businessSlug,
   connection,
   paused,
+  timezone,
+  canEditClients,
+  onOpenClient,
 }: {
   kind: XeroKind
   businessId: Id<'businesses'>
   businessSlug: string
   connection: XeroView
   paused: boolean
+  timezone: string
+  /** Whether the person looking may change clients: a problem's next step
+   * is then theirs. */
+  canEditClients: boolean
+  onOpenClient: (clientId: Id<'clients'>) => void
 }) {
   const match = connection.match
   const stage = useMatchStage(connection)
+  const sync = syncOf(connection)
   const title = 'Your clients in Xero'
+
+  if (sync) {
+    return (
+      <SyncStatus
+        kind={kind}
+        businessSlug={businessSlug}
+        connection={connection}
+        sync={sync}
+        paused={paused}
+        timezone={timezone}
+        canEditClients={canEditClients}
+        onOpenClient={onOpenClient}
+      />
+    )
+  }
 
   if (stage.stage === 'reading') {
     return (
@@ -599,6 +683,238 @@ function MatchCountRow({
 }
 
 /**
+ * How sending to the organisation stands, from Start syncing on (Release 3):
+ * anything holding it up first — PestM8's kill switch, or Xero asking it to
+ * wait — then, while the book is still going in, how far it has got; then
+ * the counts, a row each, with the ones that need someone amber; and the
+ * clients Xero refused, each opening the client, so a bad email can be put
+ * right where it was read about.
+ *
+ * Every count is the server's (`xeroSyncState.counts`), never worked out
+ * here, so the page and the hub's badge always agree.
+ */
+function SyncStatus({
+  kind,
+  businessSlug,
+  connection,
+  sync,
+  paused,
+  timezone,
+  canEditClients,
+  onOpenClient,
+}: {
+  kind: XeroKind
+  businessSlug: string
+  connection: XeroView
+  sync: SyncSummary
+  /** The kill switch, `XERO_SYNC_PAUSED`: nothing goes, everything waits. */
+  paused: boolean
+  timezone: string
+  canEditClients: boolean
+  onOpenClient: (clientId: Id<'clients'>) => void
+}) {
+  const { counts } = sync
+  const count = (n: number) => n.toLocaleString('en-AU')
+  // Xero's own pause, judged against this device's clock: the server
+  // can't put "now" in a query, and a pause that has run out says nothing.
+  const pauseOver = usePassed(sync.pausedUntil)
+  const pause =
+    !paused && sync.pausedUntil !== null && !pauseOver
+      ? pauseCopy(
+          sync.pauseReason,
+          connection.tenantName,
+          formatWhen(sync.pausedUntil, timezone),
+        )
+      : null
+  const { backfill } = sync
+  const heldUntil = backfill?.heldUntil ?? null
+  const heldOver = usePassed(heldUntil)
+  // Said only while nothing else is holding everything up: under a pause,
+  // the book waiting too goes without saying.
+  const held =
+    !paused && pause === null && heldUntil !== null && !heldOver
+      ? backfillHeldCopy(formatWhen(heldUntil, timezone))
+      : null
+  const stalled = paused || pause !== null || held !== null
+  const matchPath =
+    kind === 'business'
+      ? ('/$businessSlug/settings/xero/match' as const)
+      : ('/$businessSlug/settings/my-xero/match' as const)
+
+  return (
+    <>
+      <SettingsGroup
+        title="Your clients in Xero"
+        footer={`Syncing since ${formatWhen(sync.startedAt, timezone)}. PestM8 sends each change to ${connection.tenantName} as it’s made, and never deletes or archives anything there.`}
+      >
+        {paused && <SyncNotice>{SYNC_PAUSED}</SyncNotice>}
+        {pause && <SyncNotice>{pause}</SyncNotice>}
+        {backfill && (
+          <div>
+            <div className="flex min-h-[52px] items-center gap-3 px-3.5 py-2.5">
+              {/* Turning only while it is moving: held, it would say
+                something is happening that isn't. */}
+              {!stalled && (
+                <LoaderCircle
+                  aria-hidden
+                  size={17}
+                  strokeWidth={2}
+                  className="mx-1.5 shrink-0 animate-spin text-muted-2"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <p className="text-body text-ink">Adding your clients…</p>
+                {/* The words for the meter, which is drawn for the eye
+                  only: "in Xero", since the matched ones are there
+                  already, and the count starts with them. */}
+                <p className="text-caption text-muted">
+                  {backfillCopy(backfill.done, backfill.total)}
+                </p>
+              </div>
+              {backfill.total > 0 && (
+                <span className="shrink-0">
+                  <BarMeter value={backfill.done} max={backfill.total} />
+                </span>
+              )}
+            </div>
+            {/* Under the row, across it: beside the meter it ran to four
+              lines. */}
+            {held && (
+              <p className="-mt-1 px-3.5 pb-3 text-caption text-amber-ink">
+                {held}
+              </p>
+            )}
+          </div>
+        )}
+        <SettingsRow title="In Xero" value={count(counts.inXero)} />
+        <SettingsRow
+          title="To check"
+          value={
+            <Count needs={counts.review > 0}>{count(counts.review)}</Count>
+          }
+        />
+        <SettingsRow
+          title="Different in Xero"
+          subtitle={counts.different > 0 ? DIFFERENT_CAPTION : undefined}
+          value={
+            <Count needs={counts.different > 0}>
+              {count(counts.different)}
+            </Count>
+          }
+        />
+        <SettingsRow
+          title="Not sent"
+          subtitle={counts.failed > 0 ? NOT_SENT_CAPTION : undefined}
+          value={
+            <Count needs={counts.failed > 0}>{count(counts.failed)}</Count>
+          }
+        />
+        <SettingsRow
+          title="Waiting to send"
+          value={waitingCount(counts.waiting)}
+        />
+        {sync.lastSentAt !== null && (
+          // Not a SettingsRow: its value is cut at under half the row, and
+          // the time is what the row is for.
+          <div className="flex min-h-[52px] items-center gap-3 px-3.5 py-2.5">
+            <span className="min-w-0 flex-1 text-body text-ink">Last sent</span>
+            <span className="shrink-0 text-right text-body text-muted">
+              {formatWhen(sync.lastSentAt, timezone)}
+            </span>
+          </div>
+        )}
+        <SettingsLinkRow
+          to={matchPath}
+          params={{ businessSlug }}
+          title="Match your clients"
+          badge={
+            counts.review > 0 ? (
+              <RowBadge tone="amber">{count(counts.review)} to check</RowBadge>
+            ) : undefined
+          }
+        />
+      </SettingsGroup>
+
+      {/* The newest five, which the server picks: the ones worth doing
+          something about. */}
+      {sync.recent.length > 0 && (
+        <SettingsGroup
+          title="Recent problems"
+          footer={
+            recentFooterCopy(sync.recent.length, sync.problems) ?? undefined
+          }
+        >
+          {sync.recent.map((problem) => (
+            <ProblemRow
+              key={`${problem.clientId}:${problem.at}`}
+              problem={problem}
+              canEdit={canEditClients}
+              onOpen={() => onOpenClient(problem.clientId)}
+            />
+          ))}
+        </SettingsGroup>
+      )}
+    </>
+  )
+}
+
+/** A row's count, amber while it needs someone. */
+function Count({ needs, children }: { needs: boolean; children: ReactNode }) {
+  return needs ? (
+    <span className="font-semibold text-amber-ink">{children}</span>
+  ) : (
+    <>{children}</>
+  )
+}
+
+/** Something holding the sending up, at the top of the group: amber words
+ * that wrap, since each says when it carries on. */
+function SyncNotice({ children }: { children: ReactNode }) {
+  return <p className="px-3.5 py-3 text-caption text-amber-ink">{children}</p>
+}
+
+/**
+ * One client Xero refused: "Could not add {client}" (or "Could not update",
+ * for one in Xero already; the name alone, for one only left short), and
+ * why in words that say what to do, wrapping; a tap opens the client over
+ * the page.
+ */
+function ProblemRow({
+  problem,
+  canEdit,
+  onOpen,
+}: {
+  problem: SyncProblem
+  canEdit: boolean
+  onOpen: () => void
+}) {
+  const hydrated = useHydrated()
+  return (
+    <button
+      type="button"
+      disabled={!hydrated}
+      onClick={onOpen}
+      className={ROW_CLASS}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block text-body text-ink [overflow-wrap:anywhere]">
+          {problemHeading(problem)}
+        </span>
+        <span className="block text-caption text-amber-ink">
+          {syncProblemCopy(problem.code, { canEdit })}
+        </span>
+      </span>
+      <ChevronRight
+        aria-hidden
+        size={17}
+        strokeWidth={2.2}
+        className="shrink-0 text-muted-2"
+      />
+    </button>
+  )
+}
+
+/**
  * "Reading the contacts in {org}…", while the match runs: in words that wrap,
  * since an organisation's name is often long, and with the reassurance that
  * leaving the page doesn't stop it — a big organisation takes a minute.
@@ -662,7 +978,7 @@ const MAX_TIMER_MS = 2 ** 31 - 1
  * page stays open, from the moment it does. False until hydrated, so the
  * server's render and the first render here agree.
  */
-function usePassed(deadline: number | null): boolean {
+export function usePassed(deadline: number | null): boolean {
   const hydrated = useHydrated()
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -782,7 +1098,7 @@ function RematchLink({
  * no signal: held for the signal, a read of Xero would start long after the
  * tap seemed to do nothing.
  */
-function useRematch(
+export function useRematch(
   businessId: Id<'businesses'>,
   connectionId: Id<'xeroConnections'>,
 ) {

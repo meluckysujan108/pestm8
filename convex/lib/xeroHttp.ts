@@ -1,7 +1,10 @@
 /**
  * Xero over plain `fetch`: the OAuth token endpoints, the connections list,
- * and the Accounting calls — `GET /Organisation` (Release 1) and the paged
- * `GET /Contacts` the match reads (Release 2). Nothing here writes a contact.
+ * and the Accounting calls — `GET /Organisation` (Release 1), the paged
+ * `GET /Contacts` the match reads (Release 2), and the contact reads and
+ * writes the sync sends (Release 3: `putContacts`, `postContacts`,
+ * `getContactsByIds`, `getContactByName`). Nothing here archives or deletes
+ * a contact: PestM8 never does either in Xero.
  *
  * Plain `fetch` rather than `xero-node`, in the default Convex runtime: the
  * SDK needs Node, a `"use node"` file cannot hold the queries and mutations
@@ -18,8 +21,8 @@
  *   token, a code, a URL or a header. A successful answer is never logged:
  *   the token endpoint's carries the tokens.
  *
- * Release 3 adds the contact writes here (per-item validation errors). Every
- * Accounting call names its organisation (`xero-tenant-id`).
+ * Every Accounting call names its organisation (`xero-tenant-id`), which is
+ * never defaulted: a blank one is refused before anything is sent.
  */
 import { base64UrlToBytes, bytesToBase64 } from './base64'
 import {
@@ -636,6 +639,453 @@ function contactFrom(row: unknown): XeroContactRow | null {
     if (value !== undefined) {
       contact[field as keyof typeof optional] = value
     }
+  }
+  return contact
+}
+
+// ───────────────────────────────────────── contact reads and writes (R3)
+
+/** One of a contact's phones, as Xero holds it. Xero lists all four types
+ * (DEFAULT, DDI, MOBILE, FAX) on every contact, most of them empty. */
+export type XeroContactPhone = {
+  PhoneType: string
+  PhoneNumber?: string
+  PhoneAreaCode?: string
+  PhoneCountryCode?: string
+}
+
+/** One of a contact's addresses, as Xero holds it: POBOX (what an invoice
+ * prints) and STREET. */
+export type XeroContactAddress = {
+  AddressType: string
+  AddressLine1?: string
+  AddressLine2?: string
+  AddressLine3?: string
+  AddressLine4?: string
+  City?: string
+  Region?: string
+  PostalCode?: string
+  Country?: string
+  AttentionTo?: string
+}
+
+/** One of a contact's people (at most five): names and an email, nothing
+ * else — Xero keeps no phone or role for them. */
+export type XeroContactPerson = {
+  FirstName?: string
+  LastName?: string
+  EmailAddress?: string
+  IncludeInEmails?: boolean
+}
+
+/**
+ * One Xero contact as the sync reads and writes it, in Xero's own field
+ * names. Strings are kept exactly as Xero sent them (blanks included), so a
+ * merged update (lib/xeroContact.ts `toXeroUpdate`) sends back the phones,
+ * addresses and people PestM8 did not change as Xero holds them, not a
+ * tidied copy. Anything that is not a string is left out.
+ *
+ * `ContactStatus` reads as `getContactsPage` reads it: absent is ACTIVE, a
+ * status Xero adds later is ARCHIVED — the sync stops rather than write
+ * into a contact it does not understand. `MergedToContactID` is present only
+ * when it names a contact (Xero sends all zeros for none).
+ */
+export type XeroContactFull = {
+  ContactID: string
+  Name: string
+  FirstName?: string
+  LastName?: string
+  EmailAddress?: string
+  AccountNumber?: string
+  TaxNumber?: string
+  ContactStatus: 'ACTIVE' | 'ARCHIVED' | 'GDPRREQUEST'
+  MergedToContactID?: string
+  Phones: Array<XeroContactPhone>
+  Addresses: Array<XeroContactAddress>
+  ContactPersons: Array<XeroContactPerson>
+}
+
+/**
+ * What Xero did with one element of a `PUT` or `POST /Contacts`, in the
+ * order they were sent: match back by position, and check by `name`.
+ *
+ * - `contact`: the contact as Xero now holds it (its normalised forms, which
+ *   is what the sync's `seen` hashes are taken from). Present only when this
+ *   element was written.
+ * - `errors`: Xero's own words for why it was not (the element's
+ *   `ValidationErrors`). For `isNameClash`, a code map and `console.error`
+ *   only — never a row, a log of success, or the screen.
+ * - `name`: the Name Xero echoed back for this element, written or not.
+ */
+export type ItemResult = {
+  contact?: XeroContactFull
+  errors: Array<string>
+  name?: string
+}
+
+/** Xero's id for "no contact": what a failed element of a batch carries. */
+const NO_CONTACT_ID = /^0{8}-0{4}-0{4}-0{4}-0{12}$/
+
+/** Ids per `GET /Contacts?IDs=`: a URL of 50 GUIDs stays well under any
+ * proxy's limit, and it is the size of an update batch. */
+export const CONTACT_IDS_PER_READ = 50
+
+/** The most Xero keeps of an `Idempotency-Key`. */
+const IDEMPOTENCY_KEY_MAX = 128
+
+/**
+ * A fresh `Idempotency-Key`: 64 random bytes as hex, 128 characters — Xero's
+ * longest. Minted once per request in the action that sends it, and reused
+ * ONLY when that same request is tried again (a timeout, a 5xx, too many at
+ * once), so a create whose answer was lost is not made twice. Never derived
+ * from the payload: two different clients with the same details are two
+ * requests, and must not be taken for one.
+ *
+ * Xero keeps a key for 6 minutes, per app rather than per organisation, and
+ * replays a cached error as well as a cached success.
+ */
+export function newIdempotencyKey(): string {
+  const bytes = new Uint8Array(IDEMPOTENCY_KEY_MAX / 2)
+  crypto.getRandomValues(bytes)
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Whether one element's error is Xero's name clash: Name must be unique
+ * among an organisation's ACTIVE contacts, and a create (or a rename) that
+ * takes one already held fails with "The contact name John Smith is already
+ * assigned to another contact." The sync answers that with a suffix or a
+ * question (convex/xeroSync.ts `resolveCreateClash`, `resolveRenameClash`),
+ * never with a failure.
+ */
+export function isNameClash(message: string): boolean {
+  return /\bname\b[\s\S]*\balready assigned to another contact\b/i.test(message)
+}
+
+/** The headers of an Accounting call. The organisation is never defaulted:
+ * a blank tenant id is a bug in the caller, refused before anything is
+ * sent, because Xero would answer for some other organisation or none. */
+function tenantHeaders(
+  accessToken: string,
+  tenantId: string,
+): Record<string, string> {
+  if (tenantId.trim() === '') {
+    throw new Error('Xero: an Accounting call needs its xero-tenant-id')
+  }
+  return { ...bearer(accessToken), 'xero-tenant-id': tenantId }
+}
+
+/**
+ * Creates contacts: `PUT /Contacts`, which only ever creates — unlike a
+ * POST without a ContactID, which may quietly update whichever contact has
+ * the same Name. `summarizeErrors=false`, so one bad element fails alone
+ * and the answer says, element by element, what happened (`ItemResult`, in
+ * request order).
+ *
+ * An empty list sends nothing. A whole-request refusal (rate limit, 5xx,
+ * reconnect, a 400 for the request itself) throws `XeroError`, as every
+ * call here does; per-element validation errors do not.
+ */
+export async function putContacts(
+  accessToken: string,
+  tenantId: string,
+  contacts: Array<object>,
+  idempotencyKey: string,
+): Promise<{ results: Array<ItemResult>; rate: XeroRate }> {
+  return await writeContacts(
+    'PUT',
+    accessToken,
+    tenantId,
+    contacts,
+    idempotencyKey,
+  )
+}
+
+/**
+ * Updates contacts: `POST /Contacts` with every element naming its
+ * `ContactID` (lib/xeroContact.ts `buildUpdateBatch`). An element without
+ * one is refused here before anything is sent: Xero would take it as
+ * "create, or update whoever has this Name", which is how a stranger's
+ * contact gets this client's details. `summarizeErrors=false`, results in
+ * request order, as `putContacts`.
+ */
+export async function postContacts(
+  accessToken: string,
+  tenantId: string,
+  contacts: Array<object>,
+  idempotencyKey: string,
+): Promise<{ results: Array<ItemResult>; rate: XeroRate }> {
+  for (const contact of contacts) {
+    const id = (contact as { ContactID?: unknown }).ContactID
+    if (typeof id !== 'string' || id.trim() === '' || NO_CONTACT_ID.test(id)) {
+      throw new Error('Xero: every contact in an update needs its ContactID')
+    }
+  }
+  return await writeContacts(
+    'POST',
+    accessToken,
+    tenantId,
+    contacts,
+    idempotencyKey,
+  )
+}
+
+async function writeContacts(
+  method: 'PUT' | 'POST',
+  accessToken: string,
+  tenantId: string,
+  contacts: Array<object>,
+  idempotencyKey: string,
+): Promise<{ results: Array<ItemResult>; rate: XeroRate }> {
+  const headers = tenantHeaders(accessToken, tenantId)
+  if (
+    idempotencyKey.length === 0 ||
+    idempotencyKey.length > IDEMPOTENCY_KEY_MAX
+  ) {
+    throw new Error('Xero: an Idempotency-Key is 1 to 128 characters')
+  }
+  if (contacts.length === 0) return { results: [], rate: {} }
+
+  const what = method === 'PUT' ? 'create contacts' : 'update contacts'
+  const {
+    status,
+    headers: answered,
+    body,
+  } = await call(what, `${XERO_API_BASE}/Contacts?summarizeErrors=false`, {
+    method,
+    headers: {
+      ...headers,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': idempotencyKey,
+    },
+    body: JSON.stringify({ Contacts: contacts }),
+  })
+  const rows = isRecord(body) ? body.Contacts : undefined
+  // Results are matched back by position, so an answer that does not have
+  // one per element sent cannot be read at all.
+  if (!Array.isArray(rows) || rows.length !== contacts.length) {
+    throw badAnswer(what, status)
+  }
+  return { results: rows.map(itemFrom), rate: rateFrom(answered) }
+}
+
+/** One element of a write's answer. Written means no validation errors and
+ * a real ContactID; Xero gives a failed element all zeros. */
+function itemFrom(row: unknown): ItemResult {
+  if (!isRecord(row))
+    return { errors: ['Xero sent no result for this contact'] }
+  const name = typeof row.Name === 'string' ? row.Name : undefined
+  const named = name === undefined ? {} : { name }
+  const errors = messagesOf(row.ValidationErrors)
+  if (errors.length === 0 && row.StatusAttributeString === 'ERROR') {
+    errors.push('Xero refused this contact without saying why')
+  }
+  if (errors.length > 0) return { errors, ...named }
+  const contact = fullContactFrom(row)
+  if (!contact) {
+    return { errors: ['Xero returned no ContactID for this contact'], ...named }
+  }
+  return { contact, errors: [], ...named }
+}
+
+/** The `Message` of each of Xero's `ValidationErrors`. */
+function messagesOf(value: unknown): Array<string> {
+  if (!Array.isArray(value)) return []
+  return value.flatMap((error: unknown) => {
+    const message = isRecord(error) ? textOf(error.Message) : undefined
+    return message === undefined ? [] : [message]
+  })
+}
+
+/**
+ * The contacts with these ids, as Xero holds them now: what an update is
+ * compared against (lib/xeroContact.ts `diff`), and how a merge, an archive
+ * or a GDPR request in Xero is noticed. Archived contacts included — a
+ * contact that has gone missing from the answer is not one that was
+ * archived.
+ *
+ * At most 50 ids. None sends nothing: `GET /Contacts` with no ids is every
+ * contact in the organisation. `page=1` asks for each contact in full
+ * (people and addresses included), as a paged read gives it.
+ */
+export async function getContactsByIds(
+  accessToken: string,
+  tenantId: string,
+  ids: Array<string>,
+): Promise<{ contacts: Array<XeroContactFull>; rate: XeroRate }> {
+  const headers = tenantHeaders(accessToken, tenantId)
+  if (ids.length > CONTACT_IDS_PER_READ) {
+    throw new Error(`Xero: at most ${CONTACT_IDS_PER_READ} ids per read`)
+  }
+  const wanted = ids.filter((id) => id.trim() !== '')
+  if (wanted.length === 0) return { contacts: [], rate: {} }
+
+  const search = [
+    `IDs=${wanted.map(encodeURIComponent).join(',')}`,
+    'includeArchived=true',
+    'page=1',
+  ].join('&')
+  const {
+    status,
+    headers: answered,
+    body,
+  } = await call('contacts by id', `${XERO_API_BASE}/Contacts?${search}`, {
+    method: 'GET',
+    headers,
+  })
+  const rows = isRecord(body) ? body.Contacts : undefined
+  if (!Array.isArray(rows)) throw badAnswer('contacts by id', status)
+  return {
+    contacts: rows.flatMap((row: unknown) => {
+      const contact = fullContactFrom(row)
+      return contact ? [contact] : []
+    }),
+    rate: rateFrom(answered),
+  }
+}
+
+/** A name as Xero's uniqueness compares it, near enough: trimmed, spaces
+ * collapsed, any case. */
+function nameFold(name: string): string {
+  return name.trim().replace(/\s+/g, ' ').toLowerCase()
+}
+
+/**
+ * The contact holding this Name, if any: who a create clashed with
+ * (convex/xeroSync.ts `resolveCreateClash`). An ACTIVE contact first — Name
+ * is unique only among those — else whatever else holds it (a contact
+ * frozen by a GDPR request).
+ *
+ * `where=Name=="…"`, the name as PestM8 sent it, with `"` and `\` escaped
+ * by a backslash. Only an exact match is returned, compared trimmed and in
+ * any case, so a filter that matches more loosely than Xero's uniqueness
+ * check never hands back the wrong contact. Two things only the Demo
+ * Company can settle (docs/xero.md, gate l): whether Xero's filter wants
+ * quotes escaped this way, and whether it ignores case as its uniqueness
+ * check may — a name that clashed but is not found comes back null.
+ */
+export async function getContactByName(
+  accessToken: string,
+  tenantId: string,
+  name: string,
+): Promise<XeroContactFull | null> {
+  const headers = tenantHeaders(accessToken, tenantId)
+  const wanted = name.trim()
+  if (wanted === '') return null
+
+  const where = `Name=="${wanted.replace(/["\\]/g, (ch) => `\\${ch}`)}"`
+  const { status, body } = await call(
+    'contact by name',
+    `${XERO_API_BASE}/Contacts?where=${encodeURIComponent(where)}&page=1`,
+    { method: 'GET', headers },
+  )
+  const rows = isRecord(body) ? body.Contacts : undefined
+  if (!Array.isArray(rows)) throw badAnswer('contact by name', status)
+  const holders = rows.flatMap((row: unknown) => {
+    const contact = fullContactFrom(row)
+    return contact && nameFold(contact.Name) === nameFold(wanted)
+      ? [contact]
+      : []
+  })
+  return (
+    holders.find((contact) => contact.ContactStatus === 'ACTIVE') ??
+    holders.at(0) ??
+    null
+  )
+}
+
+/** A string Xero sent, as it sent it; anything else is left out. */
+function rawText(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined
+}
+
+/** Only the string fields of a record Xero sent, as `T`, always with its
+ * `key` (a phone's type, an address's type). */
+function stringFields<T>(
+  row: unknown,
+  fields: ReadonlyArray<string>,
+  key: string,
+): T | null {
+  if (!isRecord(row) || typeof row[key] !== 'string') return null
+  const picked: Record<string, string> = {}
+  for (const field of fields) {
+    const value = rawText(row[field])
+    if (value !== undefined) picked[field] = value
+  }
+  return picked as T
+}
+
+const PHONE_FIELDS = [
+  'PhoneType',
+  'PhoneNumber',
+  'PhoneAreaCode',
+  'PhoneCountryCode',
+] as const
+
+const ADDRESS_FIELDS = [
+  'AddressType',
+  'AddressLine1',
+  'AddressLine2',
+  'AddressLine3',
+  'AddressLine4',
+  'City',
+  'Region',
+  'PostalCode',
+  'Country',
+  'AttentionTo',
+] as const
+
+function personFrom(row: unknown): XeroContactPerson | null {
+  if (!isRecord(row)) return null
+  const person: XeroContactPerson = {}
+  for (const field of ['FirstName', 'LastName', 'EmailAddress'] as const) {
+    const value = rawText(row[field])
+    if (value !== undefined) person[field] = value
+  }
+  if (typeof row.IncludeInEmails === 'boolean') {
+    person.IncludeInEmails = row.IncludeInEmails
+  }
+  return person
+}
+
+/** A contact from any of Xero's answers, in full, or null when it has no
+ * real ContactID — there would be nothing to link or update it by. */
+function fullContactFrom(row: unknown): XeroContactFull | null {
+  if (!isRecord(row)) return null
+  const contactId = textOf(row.ContactID)
+  if (!contactId || NO_CONTACT_ID.test(contactId)) return null
+  const list = <T>(value: unknown, read: (item: unknown) => T | null) =>
+    Array.isArray(value)
+      ? value.flatMap((item: unknown) => {
+          const one = read(item)
+          return one === null ? [] : [one]
+        })
+      : []
+  const merged = textOf(row.MergedToContactID)
+  const contact: XeroContactFull = {
+    ContactID: contactId,
+    Name: rawText(row.Name) ?? '',
+    ContactStatus: statusOf(row.ContactStatus),
+    Phones: list(row.Phones, (item) =>
+      stringFields<XeroContactPhone>(item, PHONE_FIELDS, 'PhoneType'),
+    ),
+    Addresses: list(row.Addresses, (item) =>
+      stringFields<XeroContactAddress>(item, ADDRESS_FIELDS, 'AddressType'),
+    ),
+    ContactPersons: list(row.ContactPersons, personFrom),
+  }
+  for (const field of [
+    'FirstName',
+    'LastName',
+    'EmailAddress',
+    'AccountNumber',
+    'TaxNumber',
+  ] as const) {
+    const value = rawText(row[field])
+    if (value !== undefined) contact[field] = value
+  }
+  if (merged && !NO_CONTACT_ID.test(merged)) {
+    contact.MergedToContactID = merged
   }
   return contact
 }

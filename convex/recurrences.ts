@@ -4,7 +4,6 @@ import { allocateJobNumber } from './jobs'
 import { isBinned, unbinned } from './lib/bin'
 import { requireActor, requireWriteActor } from './lib/actor'
 import { recordOnBehalf } from './lib/audit'
-import { activateLeadAt } from './lib/clientRecord'
 import { insertJobNote } from './notes'
 import { isInScope, writeAttribution } from './lib/capabilities'
 import {
@@ -29,6 +28,7 @@ import {
   occurrencesFrom,
 } from './lib/recurrence'
 import {
+  activateLeadAt,
   clientNameOf,
   newClientFields,
   newPropertyFields,

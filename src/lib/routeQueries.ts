@@ -138,6 +138,18 @@ export const rq = {
   /** One member's own Xero, read-only, for the owner's Team page. */
   xeroMemberStatus: (businessId: B, membershipId: Id<'memberships'>) =>
     convexQuery(api.xero.memberStatus, { businessId, membershipId }),
+  /** Where one client stands in each Xero this person holds, for the client
+   * sheet's Details (`xeroSync.clientLines`): none where Xero isn't set up,
+   * or nothing is connected. Anyone who can see the client may ask. */
+  xeroClientLines: (businessId: B, clientId: Id<'clients'>) =>
+    convexQuery(api.xeroSync.clientLines, { businessId, clientId }),
+  /** How many of an import's clients have reached Xero, for its Undo
+   * confirm (`xeroSync.importNote`); skipped while no import is asked
+   * about. */
+  xeroImportNote: (businessId: B, importId: Id<'clientImports'> | null) =>
+    importId === null
+      ? convexQuery(api.xeroSync.importNote, 'skip')
+      : convexQuery(api.xeroSync.importNote, { businessId, importId }),
 }
 
 /** How many rows the paginated libraries ask for first. */

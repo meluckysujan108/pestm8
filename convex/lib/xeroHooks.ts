@@ -4,6 +4,7 @@ import { requireCapability } from './actor'
 import { forSelf, recordAudit } from './audit'
 import { isBinned } from './bin'
 import { isSwitched } from './capabilities'
+import { xeroConfigured, xeroPaused } from './xeroConfig'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { MutationCtx, QueryCtx } from '../_generated/server'
 import type { ActorEnvelope } from './actor'
@@ -19,10 +20,11 @@ import type { ActorEnvelope } from './actor'
  * is doing at the time.
  *
  * Release 2 keeps a match's counts true as clients leave and rejoin the
- * book (`deleteXeroLinksOf`, `countXeroLinksOf`). Release 3 adds
- * `markClientForXero`, `markClientsForXero` and `ensureClientInXero` here:
- * the hooks every client, site and contact write calls to queue its change
- * for each connected organisation.
+ * book (`dropXeroLinksForClient`, `countXeroLinksOf`); Release 3 keeps its
+ * sync tallies the same way (`moveSyncCounts`). Release 3 queues every
+ * change for each organisation that is syncing through the four hooks at the
+ * end of this file, which every write to a client, its contacts or its sites
+ * calls — convex/xeroHooks.test.ts reads the source to hold each one to that.
  */
 
 /** A connection that still means something: being finished, working, or
@@ -121,6 +123,10 @@ export async function disconnectXeroFor(
     await ctx.scheduler.runAfter(0, internal.xero.releaseAtXero, {
       connectionId: connection._id,
     })
+    // What was waiting to go to their organisation no longer will.
+    await ctx.scheduler.runAfter(0, internal.xeroSync.dropOutbox, {
+      connectionId: connection._id,
+    })
     count += 1
   }
   return count
@@ -135,7 +141,9 @@ export type MatchCountsDelta = Partial<
 
 /** What one link of this state adds to its organisation's counts (`sign`
  * 1), or takes from them (−1). A Different client is counted under `fresh`
- * too: Release 3 adds it as a new contact, as it does one nothing matched. */
+ * too: Release 3 adds it as a new contact, as it does one nothing matched.
+ * The states only sending reaches (archived or erased in Xero, refused) are
+ * on none of the match page's lists, so in none of its counts. */
 export function linkCounts(
   state: Doc<'xeroContactLinks'>['state'],
   sign: 1 | -1,
@@ -149,6 +157,10 @@ export function linkCounts(
       return { fresh: sign }
     case 'separate':
       return { fresh: sign, different: sign }
+    case 'archived_in_xero':
+    case 'gdpr':
+    case 'failed':
+      return {}
   }
 }
 
@@ -197,6 +209,99 @@ export function inXeroBook(client: Doc<'clients'>): boolean {
   return !isBinned(client) && client.archivedAt === undefined
 }
 
+// ─────────────────────────────────────────── a sync's counts (Release 3)
+
+/** A move of an organisation's sync tallies (`xeroSyncState.counts`). */
+export type SyncCountsDelta = Partial<
+  Record<'inXero' | 'review' | 'different' | 'failed' | 'stopped', number>
+>
+
+const SYNC_COUNT_KEYS = [
+  'inXero',
+  'review',
+  'different',
+  'failed',
+  'stopped',
+] as const
+
+/**
+ * Problems a contact can have that leave it in Xero and up to date in all
+ * but one detail (lib/xeroContact.ts `MapperProblem`): an email Xero would
+ * refuse, left out; people past Xero's five, left out. Listed under Recent
+ * problems and shown on the client, but not counted as failed.
+ */
+export function isSoftXeroProblem(code: string): boolean {
+  return code === 'email_not_ascii' || code === 'persons_full'
+}
+
+/**
+ * What one link adds to its organisation's sync tallies (`sign` 1), or takes
+ * from them (−1) — for a client in the book; one in the Recycle bin or
+ * archived is in none. Null for no link at all.
+ */
+export function syncCounts(
+  link: Pick<
+    Doc<'xeroContactLinks'>,
+    'state' | 'different' | 'problem' | 'xeroContactId'
+  > | null,
+  sign: 1 | -1,
+): SyncCountsDelta {
+  if (!link) return {}
+  switch (link.state) {
+    case 'linked': {
+      const delta: SyncCountsDelta = { inXero: sign }
+      if ((link.different?.length ?? 0) > 0) delta.different = sign
+      // In Xero, but its last change was refused: Settings lists it.
+      if (link.problem && !isSoftXeroProblem(link.problem.code)) {
+        delta.failed = sign
+      }
+      return delta
+    }
+    case 'needs_review':
+      return { review: sign }
+    case 'failed':
+      return { failed: sign }
+    case 'archived_in_xero':
+    case 'gdpr':
+      return { stopped: sign }
+    case 'new':
+    case 'separate':
+      return {}
+  }
+}
+
+/** Adds two moves together. */
+export function addSyncCounts(
+  a: SyncCountsDelta,
+  b: SyncCountsDelta,
+): SyncCountsDelta {
+  const sum: SyncCountsDelta = { ...a }
+  for (const key of SYNC_COUNT_KEYS) {
+    if (b[key] !== undefined) sum[key] = (sum[key] ?? 0) + b[key]
+  }
+  return sum
+}
+
+/**
+ * Moves one connection's sync tallies, so Settings and the hub agree with
+ * the links without a scan. Only once Start syncing has made them
+ * (`counts` set); never below nought. `xeroSync.recount` is the repair.
+ */
+export async function moveSyncCounts(
+  ctx: MutationCtx,
+  sync: Doc<'xeroSyncState'> | null,
+  delta: SyncCountsDelta,
+): Promise<void> {
+  const counts = sync?.counts
+  if (!sync || !counts) return
+  if (SYNC_COUNT_KEYS.every((key) => !delta[key])) return
+  const moved = { ...counts }
+  for (const key of SYNC_COUNT_KEYS) {
+    moved[key] = Math.max(0, counts[key] + (delta[key] ?? 0))
+  }
+  await ctx.db.patch('xeroSyncState', sync._id, { counts: moved })
+}
+
 /** Every organisation's counts this client's links are in, moved by `sign`
  * for each link — and, with `drop`, the links deleted. */
 async function moveClientLinks(
@@ -219,28 +324,14 @@ async function moveClientLinks(
         .withIndex('by_tenant', (q) => q.eq('tenantId', link.tenantId))
       for await (const sync of rows) {
         if (sync.businessId !== link.businessId) continue
+        // Each patches only its own field (`match`, `counts`), so the one
+        // read serves both.
         await moveMatchCounts(ctx, sync, linkCounts(link.state, sign))
+        await moveSyncCounts(ctx, sync, syncCounts(link, sign))
       }
     }
     if (drop) await ctx.db.delete('xeroContactLinks', link._id)
   }
-}
-
-/**
- * A client is wiped for good (bin.ts `wipeStep`, clientImports.ts
- * `undoStep`): its links go, in every organisation, and the counts they
- * were in drop — unless it was already out of the book (in the bin), when
- * they were dropped as it went in. The contacts stay in Xero; PestM8 never
- * deletes there.
- */
-export async function deleteXeroLinksOf(
-  ctx: MutationCtx,
-  client: Doc<'clients'>,
-): Promise<void> {
-  await moveClientLinks(ctx, client._id, -1, {
-    drop: true,
-    counted: inXeroBook(client),
-  })
 }
 
 /**
@@ -256,4 +347,225 @@ export async function countXeroLinksOf(
   sign: 1 | -1,
 ): Promise<void> {
   await moveClientLinks(ctx, clientId, sign, { drop: false, counted: true })
+}
+
+// ──────────────────────────────── a client's changes, queued (Release 3)
+//
+// Every write to a client, its contacts or its sites calls one of these, in
+// the same mutation (convex/xeroHooks.test.ts holds the source to it). They
+// queue; they never judge. Whether a client belongs in Xero at all — a lead
+// not yet booked, one in the bin — is decided when the queue is sent, from
+// the client as it is then, so a change of status between the two is never
+// missed.
+//
+// What they queue is a row of `xeroOutbox` per (sending connection, client),
+// which convex/xeroSync.ts `drain` sends. On a deployment not set up for
+// Xero (e2e, local, every test that does not fake it) they do nothing at all,
+// and they read nothing of a business that has never pressed Start syncing
+// beyond its connections — a handful of rows.
+
+/** How long after a change its send waits, so a burst of edits to one client
+ * — a name, then a phone, then a site — goes to Xero as one write. */
+export const XERO_SEND_DELAY_MS = 5000
+/** A queued row older than this keeps its time when changed again, so a
+ * client being edited steadily is still sent rather than pushed back for
+ * ever. */
+const XERO_SEND_STARVE_MS = 60_000
+
+/**
+ * The connections of a business that are sending: Start syncing pressed,
+ * and connected — or waiting for their holder to reconnect, when changes
+ * queue all the same and go once they have. Not a disconnected one, whose
+ * rows were deleted with it. A handful at most.
+ */
+async function sendingConnections(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+): Promise<Array<Doc<'xeroConnections'>>> {
+  const rows: Array<Doc<'xeroConnections'>> = []
+  for (const status of ['connected', 'needs_reconnect'] as const) {
+    const found = await ctx.db
+      .query('xeroConnections')
+      .withIndex('by_business_and_status', (q) =>
+        q.eq('businessId', businessId).eq('status', status),
+      )
+      .collect()
+    rows.push(...found.filter((row) => row.syncStartedAt !== undefined))
+  }
+  return rows
+}
+
+/**
+ * Queues one client for one connection. A client already waiting has its
+ * `rev` raised — so a send in flight for the old version does not clear it —
+ * and its time put back a few seconds, unless it has waited a minute
+ * already. A new row asks for a drain in a few seconds, unless an earlier
+ * row of this connection already has one coming by then (the drain, done,
+ * looks for what is left and comes back for it).
+ *
+ * No drain is asked for while the kill switch is on or the connection needs
+ * reconnecting: either would refuse it. The reconciler (convex/crons.ts)
+ * sends what waited once they are over.
+ */
+export async function queueClientForXero(
+  ctx: MutationCtx,
+  connection: Doc<'xeroConnections'>,
+  clientId: Id<'clients'>,
+  now: number,
+): Promise<void> {
+  const row = await ctx.db
+    .query('xeroOutbox')
+    .withIndex('by_connection_and_client', (q) =>
+      q.eq('connectionId', connection._id).eq('clientId', clientId),
+    )
+    .first()
+  if (row) {
+    const starving = now - row.firstQueuedAt > XERO_SEND_STARVE_MS
+    // A row backing off after a failed send keeps the later time.
+    const dueAt = starving
+      ? row.dueAt
+      : row.attempts > 0
+        ? Math.max(row.dueAt, now + XERO_SEND_DELAY_MS)
+        : now + XERO_SEND_DELAY_MS
+    await ctx.db.patch('xeroOutbox', row._id, { rev: row.rev + 1, dueAt })
+    return
+  }
+
+  const dueAt = now + XERO_SEND_DELAY_MS
+  const coming = await ctx.db
+    .query('xeroOutbox')
+    .withIndex('by_connection_and_dueAt', (q) =>
+      q.eq('connectionId', connection._id).lte('dueAt', dueAt),
+    )
+    .first()
+  await ctx.db.insert('xeroOutbox', {
+    businessId: connection.businessId,
+    connectionId: connection._id,
+    clientId,
+    rev: 1,
+    dueAt,
+    firstQueuedAt: now,
+    attempts: 0,
+  })
+  if (!coming && connection.status === 'connected' && !xeroPaused()) {
+    await ctx.scheduler.runAfter(XERO_SEND_DELAY_MS, internal.xeroSync.drain, {
+      connectionId: connection._id,
+    })
+  }
+}
+
+/** Whether a client has a link in any organisation: a lead with none has
+ * never been in Xero, and waits for its first booking. */
+async function hasAnyLink(
+  ctx: MutationCtx,
+  clientId: Id<'clients'>,
+): Promise<boolean> {
+  const link = await ctx.db
+    .query('xeroContactLinks')
+    .withIndex('by_client', (q) => q.eq('clientId', clientId))
+    .first()
+  return link !== null
+}
+
+/**
+ * Something Xero's copy of this client is made from changed — its name,
+ * number, email or phone, a contact, a site, its place in the book — so each
+ * organisation it is synced to gets it again.
+ *
+ * Queued for every sending connection of its business, whatever the client
+ * now is: in the bin, archived, a lead. The drain decides from the client as
+ * it is when it is sent, so a status change in between is never missed —
+ * with one cheap exception: a lead that is in no organisation yet, which
+ * nothing sends until it is booked (`activateLeadAt` marks it then).
+ */
+export async function markClientForXero(
+  ctx: MutationCtx,
+  clientId: Id<'clients'>,
+): Promise<void> {
+  if (!xeroConfigured()) return
+  const client = await ctx.db.get('clients', clientId)
+  if (!client) return
+  const connections = await sendingConnections(ctx, client.businessId)
+  if (connections.length === 0) return
+  if (client.status === 'lead' && !(await hasAnyLink(ctx, clientId))) return
+  const now = Date.now()
+  for (const connection of connections) {
+    await queueClientForXero(ctx, connection, clientId, now)
+  }
+}
+
+/** `markClientForXero` for several clients at once — a delete or a restore
+ * from the Recycle bin, which can take a client, sites and contacts of
+ * several. Each is queued once, however often it is named. */
+export async function markClientsForXero(
+  ctx: MutationCtx,
+  clientIds: Iterable<Id<'clients'>>,
+): Promise<void> {
+  if (!xeroConfigured()) return
+  for (const clientId of new Set(clientIds)) {
+    await markClientForXero(ctx, clientId)
+  }
+}
+
+/**
+ * Work was booked for a client that is not a lead (`activateLeadAt`). It is
+ * queued only for an organisation that has no contact for it yet, or failed
+ * to make one — so booking a job for a client already in Xero costs Xero
+ * nothing. One the match left as new is added by the walk of the book after
+ * Start syncing, if it has not been already.
+ */
+export async function ensureClientInXero(
+  ctx: MutationCtx,
+  clientId: Id<'clients'>,
+): Promise<void> {
+  if (!xeroConfigured()) return
+  const client = await ctx.db.get('clients', clientId)
+  if (!client) return
+  const connections = await sendingConnections(ctx, client.businessId)
+  if (connections.length === 0) return
+  const now = Date.now()
+  for (const connection of connections) {
+    const link = await ctx.db
+      .query('xeroContactLinks')
+      .withIndex('by_business_and_tenant_and_client', (q) =>
+        q
+          .eq('businessId', client.businessId)
+          .eq('tenantId', connection.tenantId)
+          .eq('clientId', clientId),
+      )
+      .first()
+    if (!link || link.state === 'failed') {
+      await queueClientForXero(ctx, connection, clientId, now)
+    }
+  }
+}
+
+/**
+ * A client is about to be wiped for good (bin.ts `wipeStep`, clientImports.ts
+ * `undoStep`): its links go, in every organisation, and the counts they were
+ * in drop — unless it was already out of the book (in the bin), when they
+ * were dropped as it went in. Anything still queued for it goes too: there
+ * is nothing left to send. The contacts stay in Xero; PestM8 never deletes
+ * there.
+ *
+ * Call it before the client's row is deleted: whether its links are still
+ * counted is read from the client. Once the row is gone there is no telling,
+ * so the links go and the counts are left as they are.
+ */
+export async function dropXeroLinksForClient(
+  ctx: MutationCtx,
+  clientId: Id<'clients'>,
+): Promise<void> {
+  const client = await ctx.db.get('clients', clientId)
+  await moveClientLinks(ctx, clientId, -1, {
+    drop: true,
+    counted: client !== null && inXeroBook(client),
+  })
+  const queued = await ctx.db
+    .query('xeroOutbox')
+    .withIndex('by_client', (q) => q.eq('clientId', clientId))
+    .collect()
+  for (const row of queued) {
+    await ctx.db.delete('xeroOutbox', row._id)
+  }
 }

@@ -8,6 +8,7 @@ import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { isNameCorrection, sameName } from './lib/contactNames'
 import { normaliseEmail } from './lib/email'
 import { normalisePhone } from './lib/phone'
+import { markClientForXero } from './lib/xeroHooks'
 import type { Id } from './_generated/dataModel'
 import type { MutationCtx } from './_generated/server'
 
@@ -23,6 +24,9 @@ import type { MutationCtx } from './_generated/server'
  * number and role: adding Jan's surname must not leave two Jans, one without
  * a phone. Any other name is a different person, added with the star, and
  * whoever had it stays in the list.
+ *
+ * Queues the client for Xero when it changes anyone: a business's contact
+ * person is the name on its Xero contact.
  */
 export async function setContactPerson(
   ctx: MutationCtx,
@@ -40,18 +44,23 @@ export async function setContactPerson(
     .collect()
   const primary = contacts.find((c) => c.isPrimary)
 
+  let changed = false
   let contactId: Id<'clientContacts'> | null
   if (name === '') {
     contactId = null
   } else if (primary && sameName(primary.name, name)) {
-    if (primary.name !== name) await ctx.db.patch(primary._id, { name })
+    if (primary.name !== name) {
+      await ctx.db.patch('clientContacts', primary._id, { name })
+      changed = true
+    }
     contactId = primary._id
   } else {
     const named = contacts.find((c) => sameName(c.name, name))
     if (named) {
       contactId = named._id
     } else if (primary && isNameCorrection(primary.name, name)) {
-      await ctx.db.patch(primary._id, { name })
+      await ctx.db.patch('clientContacts', primary._id, { name })
+      changed = true
       contactId = primary._id
     } else {
       contactId = await ctx.db.insert('clientContacts', {
@@ -60,18 +69,24 @@ export async function setContactPerson(
         name,
         createdAt: Date.now(),
       })
+      changed = true
     }
   }
 
   // Exclusive per client, as `setPrimary` keeps it — and on every path, so a
   // client whose rows have somehow drifted to two stars comes out with one.
+  const unstarred = contacts.filter((c) => c.isPrimary && c._id !== contactId)
   await Promise.all(
-    contacts
-      .filter((c) => c.isPrimary && c._id !== contactId)
-      .map((c) => ctx.db.patch(c._id, { isPrimary: false })),
+    unstarred.map((c) =>
+      ctx.db.patch('clientContacts', c._id, { isPrimary: false }),
+    ),
   )
   if (contactId !== null && contactId !== primary?._id) {
-    await ctx.db.patch(contactId, { isPrimary: true })
+    await ctx.db.patch('clientContacts', contactId, { isPrimary: true })
+    changed = true
+  }
+  if (changed || unstarred.length > 0) {
+    await markClientForXero(ctx, clientId)
   }
 }
 
@@ -118,7 +133,7 @@ export const create = mutation({
     // here rather than discovered when a compliance report goes nowhere.
     const email = normaliseEmail(rest.email)
     const phone = normalisePhone(rest.phone)
-    return ctx.db.insert('clientContacts', {
+    const contactId = await ctx.db.insert('clientContacts', {
       businessId,
       clientId,
       name: rest.name,
@@ -127,6 +142,9 @@ export const create = mutation({
       ...(email !== undefined && { email }),
       createdAt: Date.now(),
     })
+    // Every live contact goes to Xero with the client (its `ContactPersons`).
+    await markClientForXero(ctx, clientId)
+    return contactId
   },
 })
 
@@ -175,7 +193,10 @@ export const update = mutation({
     if (fields.phone !== undefined && edited(fields.phone, contact.phone)) {
       fields.phone = normalisePhone(fields.phone)
     }
-    if (Object.keys(fields).length > 0) await ctx.db.patch(contactId, fields)
+    if (Object.keys(fields).length > 0) {
+      await ctx.db.patch('clientContacts', contactId, fields)
+      await markClientForXero(ctx, contact.clientId)
+    }
   },
 })
 
@@ -204,9 +225,14 @@ export const setPrimary = mutation({
     await Promise.all(
       siblings
         .filter((sibling) => sibling.isPrimary && sibling._id !== contactId)
-        .map((sibling) => ctx.db.patch(sibling._id, { isPrimary: false })),
+        .map((sibling) =>
+          ctx.db.patch('clientContacts', sibling._id, { isPrimary: false }),
+        ),
     )
-    await ctx.db.patch(contactId, { isPrimary: true })
+    await ctx.db.patch('clientContacts', contactId, { isPrimary: true })
+    // The primary contact is whose name and number a business's Xero
+    // contact carries.
+    await markClientForXero(ctx, contact.clientId)
   },
 })
 
@@ -214,7 +240,8 @@ export const setPrimary = mutation({
  * Kept for a client sheet still on an older build: it now does what
  * `bin.deleteContact` does. It used to erase the contact on the spot, for
  * anyone in the business; now it goes to the Recycle bin, and only for the
- * owner and contractors (`clients.manage`).
+ * owner and contractors (`clients.manage`). Queued for Xero there
+ * (`putInBin`), as every delete is.
  */
 export const remove = mutation({
   args: { businessId: v.id('businesses'), contactId: v.id('clientContacts') },

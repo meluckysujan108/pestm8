@@ -263,23 +263,39 @@ export const xeroMatchState = v.union(
 )
 
 /**
- * What a client is in one Xero organisation (convex/xeroMatch.ts):
+ * What a client is in one Xero organisation (convex/xeroMatch.ts,
+ * convex/xeroSync.ts):
  * - `linked`: this client IS that Xero contact;
  * - `needs_review`: a candidate the holder must confirm (Same / Different);
  * - `separate`: the holder said no, so Release 3 creates a contact for it;
  * - `new`: nothing in Xero matched, so Release 3 creates it.
+ *
+ * Release 3 adds the three it learns from sending. Each stops the client
+ * being sent to that organisation until something changes:
+ * - `archived_in_xero`: someone archived its contact in Xero. PestM8 never
+ *   writes into a contact the business put away, nor makes a second one.
+ * - `gdpr`: Xero is erasing the contact at the person's request. Never sent
+ *   again and never recreated — that would undo the erasure.
+ * - `failed`: Xero refused to create it (`problem` says why). Tried again
+ *   when the client next changes, or is booked.
  */
 export const xeroLinkState = v.union(
   v.literal('linked'),
   v.literal('needs_review'),
   v.literal('separate'),
   v.literal('new'),
+  v.literal('archived_in_xero'),
+  v.literal('gdpr'),
+  v.literal('failed'),
 )
 
 /** Why a candidate needs the holder's word rather than being linked
  * (lib/xeroMatch.ts has the rules). `name_shared`: the name, which more than
  * one Xero contact has. `unlinked`: the contact the holder unlinked the
- * client from (`xeroMatch.unlink`), put back to them by Match again. */
+ * client from (`xeroMatch.unlink`), put back to them by Match again.
+ * `name_clash` (Release 3): adding the client was refused because a contact
+ * nobody here is linked to already has its name — Same links it, Different
+ * adds the client with its suburb after the name. */
 export const xeroCandidateReason = v.union(
   v.literal('account_number_only'),
   v.literal('email_only'),
@@ -287,7 +303,52 @@ export const xeroCandidateReason = v.union(
   v.literal('name_shared'),
   v.literal('contested'),
   v.literal('unlinked'),
+  v.literal('name_clash'),
 )
+
+/** How a link came about: `matched` by a run on strong evidence, `chosen` by
+ * the holder (Same client), `created` by PestM8 adding the contact (Release
+ * 3), or `relinked` to the contact Xero merged its old one into. */
+export const xeroLinkHow = v.union(
+  v.literal('matched'),
+  v.literal('chosen'),
+  v.literal('created'),
+  v.literal('relinked'),
+)
+
+/** Field hashes of one Xero contact, by `FieldKey` (lib/xeroContact.ts):
+ * what compare-before-set compares, never the values themselves. */
+export const xeroFieldHashes = v.record(v.string(), v.string())
+
+/** Why sending to an organisation is held off for a while: its minute or
+ * day allowance at Xero, or Xero itself down for a stated time. */
+export const xeroPauseReason = v.union(
+  v.literal('minute'),
+  v.literal('day'),
+  v.literal('server'),
+)
+
+/**
+ * One organisation's sync tallies (convex/xeroSync.ts), kept as links move so
+ * Settings reads them without a scan; `xeroSync.recount` puts them right.
+ * Clients in the Recycle bin or archived are in none of them.
+ */
+export const xeroSyncCounts = v.object({
+  /** Clients that are a Xero contact (matched, chosen, created). */
+  inXero: v.number(),
+  /** Waiting on Same or Different. */
+  review: v.number(),
+  /** In Xero, with a change PestM8 left alone because Xero holds something
+   * else (`different`). */
+  different: v.number(),
+  /** Not added (`failed`), or in Xero with their last change refused. */
+  failed: v.number(),
+  /** Archived in Xero, or removed there for privacy: no longer sent. */
+  stopped: v.number(),
+  /** Changes queued (`xeroOutbox`) when last counted; the page reads the
+   * live number. */
+  waiting: v.number(),
+})
 
 /** A Xero contact a client might be, as the match run read it. */
 export const xeroCandidate = v.object({
@@ -2432,6 +2493,38 @@ export default defineSchema({
     /** The tenant lease: one match run (R2) or drain (R3) per Xero organisation
      * at a time, across every business — Xero's limits are per organisation. */
     lease: v.optional(v.object({ holder: v.string(), until: v.number() })),
+
+    // ── Release 3: sending (convex/xeroSync.ts) ──────────────────────────
+    /** Xero said to stop until then (a 429 with Retry-After, or a stated
+     * outage). Nothing is sent before it; the outbox waits. */
+    pausedUntil: v.optional(v.number()),
+    pauseReason: v.optional(xeroPauseReason),
+    /** `X-DayLimit-Remaining` from the last answer, and when it came: the
+     * organisation's calls left today, across every app's use of it. */
+    dayRemaining: v.optional(v.number()),
+    dayRemainingAt: v.optional(v.number()),
+    /** The day's allowance is nearly spent: the whole-book walk waits until
+     * then, so the calls left go to live edits. */
+    backfillHeldUntil: v.optional(v.number()),
+    /** Where the whole-book walk after Start syncing has got to: a page
+     * cursor over the business's clients. Null to start from the top. */
+    backfillCursor: v.optional(v.union(v.string(), v.null())),
+    /** The walk reached the end of the book. Cleared by `resyncAll`. */
+    backfillDoneAt: v.optional(v.number()),
+    counts: v.optional(xeroSyncCounts),
+    /** When PestM8 last wrote to this organisation. */
+    lastSentAt: v.optional(v.number()),
+    /** The latest problems sending, newest first, at most 20 — what
+     * Settings lists under "Recent problems". Codes the page words. */
+    recent: v.optional(
+      v.array(
+        v.object({
+          clientId: v.id('clients'),
+          code: v.string(),
+          at: v.number(),
+        }),
+      ),
+    ),
   })
     .index('by_connection', ['connectionId'])
     // The lease: is anyone, in any business, working on this organisation?
@@ -2460,11 +2553,13 @@ export default defineSchema({
     tenantId: v.string(),
     clientId: v.id('clients'),
     state: xeroLinkState,
-    /** The Xero contact this client is (`linked` only). */
+    /** The Xero contact this client is (`linked`, and kept on
+     * `archived_in_xero` and `gdpr` to say which contact stopped). */
     xeroContactId: v.optional(v.string()),
-    /** `matched` by the run on strong evidence, or `chosen` by the holder
-     * (Same client). */
-    how: v.optional(v.union(v.literal('matched'), v.literal('chosen'))),
+    /** `matched` by the run on strong evidence, `chosen` by the holder (Same
+     * client), `created` by PestM8 (Release 3), or `relinked` to the contact
+     * Xero merged its old one into. */
+    how: v.optional(xeroLinkHow),
     /** The contact the holder is asked about (`needs_review`), kept after
      * Different — and, after Unlink, the contact it was unlinked from — for
      * reference and for Match again. A copy of Xero's fields as the run read
@@ -2480,6 +2575,24 @@ export default defineSchema({
      * Cleared by Match again. */
     decidedAt: v.optional(v.number()),
     decidedByMembershipId: v.optional(v.id('memberships')),
+
+    // ── Release 3: compare-before-set (convex/xeroSync.ts) ───────────────
+    /** By field, the hash of PestM8's value as last sent. A field whose
+     * value no longer hashes to it is one PestM8 changed. */
+    sent: v.optional(xeroFieldHashes),
+    /** By field, the hash of Xero's value right after PestM8 last wrote it
+     * (Xero's own spelling of it), or when the link was first sent. A field
+     * Xero no longer holds that for is one someone changed in Xero — and
+     * PestM8 leaves it alone. */
+    seen: v.optional(xeroFieldHashes),
+    /** Fields PestM8 changed while Xero holds something else, so left alone
+     * ("Different in Xero"); "Send PestM8's details" (`xeroSync.overwrite`)
+     * sends them anyway. */
+    different: v.optional(v.array(v.string())),
+    /** Why the last send of this client failed, as a code the page words. */
+    problem: v.optional(v.object({ code: v.string(), at: v.number() })),
+    /** When PestM8 last wrote this contact. */
+    lastSentAt: v.optional(v.number()),
   })
     .index('by_business_and_tenant_and_client', [
       'businessId',
@@ -2500,4 +2613,44 @@ export default defineSchema({
     ])
     // A client wiped for good takes its links with it, in every organisation.
     .index('by_client', ['clientId']),
+
+  /**
+   * A client waiting to be sent to one connected organisation (Release 3,
+   * convex/xeroSync.ts): one row per (connection, client), made by the hooks
+   * every client, contact and site write calls (lib/xeroHooks.ts
+   * `markClientForXero`), and deleted by the drain once it has sent that
+   * very version — `rev` goes up with every change, so an edit made while a
+   * send was in flight is never mistaken for the one sent.
+   *
+   * Live edits only: the walk of the whole book after Start syncing goes by
+   * a cursor on `xeroSyncState`, not through here. Rows wait, untouched,
+   * while the kill switch is on or the connection needs reconnecting; a
+   * disconnect deletes its connection's. Nothing here but ids and timing —
+   * what is sent is read from the client when it is sent. New table, so
+   * nothing to migrate.
+   */
+  xeroOutbox: defineTable({
+    businessId: v.id('businesses'),
+    connectionId: v.id('xeroConnections'),
+    clientId: v.id('clients'),
+    /** Bumped by every change; the drain clears the row only if it is still
+     * the rev it sent. */
+    rev: v.number(),
+    /** Not sent before then: a few seconds after the last change, so a burst
+     * of edits is one send — but never pushed back once the row is a minute
+     * old, so steady editing cannot starve it. Later after failures. */
+    dueAt: v.number(),
+    firstQueuedAt: v.number(),
+    /** Sends that failed for a reason worth trying again (Xero down, busy). */
+    attempts: v.number(),
+    lastError: v.optional(v.object({ code: v.string(), at: v.number() })),
+  })
+    // The drain: this connection's rows that are due, oldest first.
+    .index('by_connection_and_dueAt', ['connectionId', 'dueAt'])
+    // The hooks: is this client already waiting for this connection?
+    .index('by_connection_and_client', ['connectionId', 'clientId'])
+    // A client wiped for good takes its rows with it.
+    .index('by_client', ['clientId'])
+    // The reconciler: rows overdue anywhere, whose drain must have died.
+    .index('by_dueAt', ['dueAt']),
 })

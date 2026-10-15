@@ -14,6 +14,7 @@ import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { requireActor } from './lib/actor'
 import { unbinned } from './lib/bin'
+import { ensureClientInXero, markClientForXero } from './lib/xeroHooks'
 
 /** Embeds the owning client alongside a property — the detail-view shape
  * (mirrors how `jobs.get` embeds `assignee`/`property` wholesale). */
@@ -163,7 +164,8 @@ const propertyAddressObject = v.object(propertyAddressFields)
  * Inserts a property for a client already checked to be this business's.
  * Shared by `createForClient` and `resolvePropertyId`'s new-site branch, so a
  * site added from the client sheet and one added while booking are the same
- * record.
+ * record. Queues the client for Xero: a person's address there is their
+ * oldest live site, and this may be their first.
  */
 async function insertPropertyForClient(
   ctx: MutationCtx,
@@ -176,7 +178,7 @@ async function insertPropertyForClient(
   // be dialled is refused (INVALID_PHONE) rather than found out at the door.
   const siteContactPhone = normalisePhone(input.siteContactPhone)
   const now = Date.now()
-  return ctx.db.insert('properties', {
+  const propertyId = await ctx.db.insert('properties', {
     businessId,
     clientId,
     addressLine: input.addressLine,
@@ -191,6 +193,8 @@ async function insertPropertyForClient(
     }),
     createdAt: now,
   })
+  await markClientForXero(ctx, clientId)
+  return propertyId
 }
 
 async function requireClientOf(
@@ -306,7 +310,7 @@ async function insertClientAndProperty(
     })
   }
   // A person client has no site contact: the client IS who is on site.
-  return insertPropertyForClient(ctx, businessId, clientId, {
+  const propertyId = await insertPropertyForClient(ctx, businessId, clientId, {
     addressLine: input.addressLine,
     suburb: input.suburb,
     state: input.state,
@@ -317,6 +321,12 @@ async function insertClientAndProperty(
       siteContactPhone: input.siteContactPhone,
     }),
   })
+  // Every new client, however it was made — `properties.create`, or booked
+  // straight from New Job (`resolvePropertyId`). A lead is queued too: the
+  // sync holds it back until its first job is booked, so it need not be
+  // judged here.
+  await markClientForXero(ctx, clientId)
+  return propertyId
 }
 
 /**
@@ -351,6 +361,42 @@ export async function resolvePropertyId(
 
   if (!input.newClient) throw new ConvexError('MISSING_PROPERTY')
   return insertClientAndProperty(ctx, businessId, input.newClient)
+}
+
+/**
+ * A lead becomes a client when work is booked for them: the client at this
+ * property, if a lead, is made active. Called by the mutations that book —
+ * `jobs.create`, `recurrences.create`, `recurrences.convertJobToRecurring`
+ * and a job moved to another property in `jobs.update` — and never by the
+ * recurrence engine, whose projected visits nobody has booked. An inactive
+ * client is left inactive: that is a choice someone made.
+ *
+ * It is also when a client goes to Xero, if it hasn't yet: a lead waits for
+ * its first booking, so one made active here is queued whole. Any other
+ * client is queued only for an organisation with no contact for it yet, so
+ * booking for a client already in Xero costs Xero nothing.
+ *
+ * Here rather than in lib/clientRecord.ts, where it began: that file is
+ * shared with the browser and with the schema, and the Xero hooks reach the
+ * server's auth.
+ */
+export async function activateLeadAt(
+  ctx: MutationCtx,
+  propertyId: Id<'properties'>,
+): Promise<void> {
+  const property = await ctx.db.get(propertyId)
+  if (!property) return
+  const client = await ctx.db.get(property.clientId)
+  if (!client) return
+  if (client.status !== 'lead') {
+    await ensureClientInXero(ctx, client._id)
+    return
+  }
+  await ctx.db.patch('clients', client._id, {
+    status: 'active',
+    updatedAt: Date.now(),
+  })
+  await markClientForXero(ctx, client._id)
 }
 
 export const create = mutation({
@@ -420,13 +466,15 @@ export const update = mutation({
           : normalisePhone(siteContactPhone)
     }
     if (Object.keys(fields).length > 0 || check !== undefined) {
-      await ctx.db.patch(propertyId, {
+      await ctx.db.patch('properties', propertyId, {
         ...fields,
         ...(check !== undefined && {
           addressCheck: check,
           addressCheckedAt: Date.now(),
         }),
       })
+      // The oldest site is a person's address in Xero.
+      await markClientForXero(ctx, property.clientId)
     }
   },
 })

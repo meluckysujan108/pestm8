@@ -108,4 +108,21 @@ crons.cron(
   {},
 )
 
+/**
+ * Restarts Xero sends that should be running and are not
+ * (convex/xeroSync.ts `reconcile`): a drain killed by a deploy, a pause or
+ * the day's allowance run out, changes made while the kill switch was on or
+ * a reconnect was needed, a walk of the book not finished. Every change asks
+ * for its own drain within seconds; this is the net under that, so nothing
+ * queued waits more than ten minutes for a working organisation.
+ *
+ * Off the hour's other Xero jobs (`:50`, and the keep-alive's `:00`).
+ */
+crons.cron(
+  'send waiting Xero changes',
+  '5,15,25,35,45,55 * * * *',
+  internal.xeroSync.reconcile,
+  {},
+)
+
 export default crons

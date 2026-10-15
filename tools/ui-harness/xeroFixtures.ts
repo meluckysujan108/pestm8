@@ -1,7 +1,9 @@
 /* Xero, as `xero.status`, `xero.memberStatus` and `xeroMatch.reviewPage`
  * answer it, for the Settings → Xero / My Xero specimens, their match pages
  * (Release 2) and the Team page's Xero line — and, for the match page's
- * error states, how its mutations refuse (`XERO_MUTATIONS`).
+ * error states, how its mutations refuse (`XERO_MUTATIONS`). Release 3 adds
+ * the sending (`sync` on a view), the client sheet's lines
+ * (`xeroSync.clientLines`) and an import's undo note (`xeroSync.importNote`).
  *
  * `xero.status` is keyed by business id, so each specimen asks for a
  * business of its own and gets one state: the real page, with one answer.
@@ -42,6 +44,17 @@ export const XERO_BIZ = {
   matchPaged: 'biz_xero_match_paged',
   /** Matched, and every list refuses to load. */
   matchListFails: 'biz_xero_match_list_fails',
+  /** Matched a week and more ago: Start syncing would be refused. */
+  matchStale: 'biz_xero_match_stale',
+  /** Syncing, the book still going in, with some to check, some
+   * different, changes waiting and clients Xero refused. */
+  syncing: 'biz_xero_syncing',
+  /** Syncing, the book all in, nothing needing anyone. */
+  synced: 'biz_xero_synced',
+  /** Syncing, with PestM8's kill switch on. */
+  syncPaused: 'biz_xero_sync_paused',
+  /** Syncing, Xero's daily limit used up and the book's walk held. */
+  syncDayLimit: 'biz_xero_sync_day_limit',
 } as const
 
 type Match = {
@@ -93,6 +106,112 @@ const failed = (problem: string): Match => ({
   problem,
 })
 
+/** How sending to an organisation stands (`sync` on a view, Release 3). */
+type Sync = {
+  counts: {
+    inXero: number
+    review: number
+    different: number
+    failed: number
+    stopped: number
+    waiting: number
+  }
+  lastSentAt: number | null
+  pausedUntil: number | null
+  pauseReason: 'minute' | 'day' | 'server' | null
+  backfill: { done: number; total: number; heldUntil: number | null } | null
+  recent: Array<{
+    clientId: string
+    clientName: string
+    code: string
+    at: number
+    inXero: boolean
+  }>
+  problems: number
+}
+
+/** Clients Xero refused, newest first: never added, a change to one in
+ * Xero refused, one only left short. The first is a client the sheet can
+ * open (`clients.get` answers one client whatever is asked). */
+const RECENT = [
+  {
+    clientId: 'c_xero_failed',
+    clientName: 'Subi Café Group',
+    code: 'email_invalid',
+    at: Date.now() - 20 * 60_000,
+    inXero: false,
+  },
+  {
+    clientId: 'c_xero_taken',
+    clientName: 'John Smith',
+    code: 'name_taken',
+    at: Date.now() - 2 * HOUR,
+    inXero: true,
+  },
+  {
+    clientId: 'c_xero_accents',
+    clientName: 'Zoë Brennan',
+    code: 'email_not_ascii',
+    at: Date.now() - 3 * HOUR,
+    inXero: true,
+  },
+  {
+    clientId: 'c_xero_web',
+    clientName: 'Mosman Park Strata',
+    code: 'website_invalid',
+    at: Date.now() - 4 * HOUR,
+    inXero: false,
+  },
+  {
+    clientId: 'c_xero_gone',
+    clientName: 'Leederville Noodle House Pty Ltd',
+    code: 'contact_missing',
+    at: Date.now() - 5 * HOUR,
+    inXero: true,
+  },
+]
+
+/** Under way: two-thirds of the book in, a few needing someone. */
+const SYNCING: Sync = {
+  counts: {
+    inXero: 302,
+    review: 4,
+    different: 2,
+    failed: 3,
+    stopped: 1,
+    // Counted live up to 100 (`WAITING_CAP`): "99+".
+    waiting: 100,
+  },
+  lastSentAt: Date.now() - 40_000,
+  pausedUntil: null,
+  pauseReason: null,
+  backfill: { done: 302, total: 449, heldUntil: null },
+  recent: RECENT,
+  // More than the five listed: "The newest 5 of 7."
+  problems: 7,
+}
+
+/** The book all in, and nothing for anyone to do. */
+const SYNCED: Sync = {
+  counts: {
+    inXero: 449,
+    review: 0,
+    different: 0,
+    failed: 0,
+    stopped: 0,
+    waiting: 0,
+  },
+  lastSentAt: Date.now() - 10 * 60_000,
+  pausedUntil: null,
+  pauseReason: null,
+  backfill: null,
+  recent: [],
+  problems: 0,
+}
+
+/** Started an hour after the match was read. */
+const STARTED_AT = Date.now() - HOUR
+
 function view(
   kind: 'business' | 'member',
   status: 'pending' | 'connected' | 'needs_reconnect' | 'disconnected',
@@ -100,6 +219,8 @@ function view(
     problem: { code: string; at: number } | null
     disconnectReason: string | null
     match: Match | null
+    syncStartedAt: number | null
+    sync: Sync | null
   }> = {},
 ) {
   return {
@@ -114,8 +235,22 @@ function view(
     shortCode: '!x7Kp2',
     disconnectReason: null,
     match: null as Match | null,
+    syncStartedAt: null as number | null,
+    sync: null as Sync | null,
     ...extra,
   }
+}
+
+/** A connection syncing since `STARTED_AT`, its match in. */
+function syncingView(kind: 'business' | 'member', sync: Sync) {
+  return view(kind, 'connected', {
+    match:
+      kind === 'business'
+        ? READY
+        : { ...READY, linked: 380, review: 1, fresh: 69, leads: 0 },
+    syncStartedAt: STARTED_AT,
+    sync,
+  })
 }
 
 function statusFor(businessId: string) {
@@ -224,6 +359,74 @@ function statusFor(businessId: string) {
         ...base,
         business: view('business', 'connected', { match: READY }),
       }
+    case XERO_BIZ.matchStale:
+      return {
+        ...base,
+        business: view('business', 'connected', {
+          match: { ...READY, at: Date.now() - 9 * 24 * HOUR },
+        }),
+      }
+    case XERO_BIZ.syncing:
+      return {
+        ...base,
+        business: syncingView('business', SYNCING),
+        mine: syncingView('member', {
+          ...SYNCING,
+          counts: { ...SYNCING.counts, inXero: 120, review: 1, waiting: 100 },
+          backfill: { done: 120, total: 449, heldUntil: null },
+          recent: RECENT.slice(0, 1),
+          problems: 1,
+        }),
+      }
+    case XERO_BIZ.synced:
+      return {
+        ...base,
+        business: syncingView('business', SYNCED),
+        // Xero itself failing, so PestM8 waits a while.
+        mine: syncingView('member', {
+          ...SYNCED,
+          counts: { ...SYNCED.counts, waiting: 3 },
+          pausedUntil: Date.now() + 40 * 60_000,
+          pauseReason: 'server',
+        }),
+      }
+    case XERO_BIZ.syncPaused:
+      return {
+        ...base,
+        paused: true,
+        // Nothing to check, two different: the hub's third badge.
+        business: syncingView('business', {
+          ...SYNCED,
+          counts: { ...SYNCED.counts, waiting: 12, different: 2 },
+        }),
+        mine: syncingView('member', SYNCED),
+      }
+    case XERO_BIZ.syncDayLimit:
+      return {
+        ...base,
+        // The day's calls used up: everything waits.
+        business: syncingView('business', {
+          ...SYNCING,
+          recent: [],
+          problems: 0,
+          counts: { ...SYNCING.counts, failed: 0, different: 0 },
+          pausedUntil: Date.now() + 9 * HOUR,
+          pauseReason: 'day',
+          backfill: { done: 302, total: 449, heldUntil: Date.now() + 9 * HOUR },
+        }),
+        // Nearly used up: the book's walk waits, live changes go.
+        mine: syncingView('member', {
+          ...SYNCING,
+          recent: [],
+          problems: 0,
+          counts: { ...SYNCING.counts, inXero: 120, review: 1, failed: 0 },
+          backfill: {
+            done: 120,
+            total: 449,
+            heldUntil: Date.now() + 50 * 60_000,
+          },
+        }),
+      }
     case XERO_BIZ.reconnect:
       return {
         ...base,
@@ -278,7 +481,7 @@ function item(
     clientPhone: string
     clientSuburb: string
     state: 'linked' | 'needs_review' | 'separate' | 'new'
-    how: 'matched' | 'chosen'
+    how: 'matched' | 'chosen' | 'created'
     xeroName: string
     decidedAt: number
     decidedByYou: boolean
@@ -386,6 +589,13 @@ const MATCHED = [
     clientNumber: 58,
     xeroName: 'St John’s Primary School',
   }),
+  // Added by PestM8 once syncing: no Unlink.
+  item('c_morris', 'Jan Morris', {
+    state: 'linked',
+    how: 'created',
+    clientNumber: 118,
+    xeroName: 'Jan Morris (Nightcliff)',
+  }),
 ]
 
 const NEW = [
@@ -477,12 +687,174 @@ function reviewPageFor(args: {
   return { page, isDone: true, continueCursor: 'end' }
 }
 
+/** One client's place in one organisation (`xeroSync.clientLines`). */
+export type XeroLineFixture = {
+  connectionId: string
+  kind: 'business' | 'member'
+  orgName: string
+  state:
+    | 'in_xero'
+    | 'waiting'
+    | 'lead'
+    | 'to_check'
+    | 'archived'
+    | 'gdpr'
+    | 'different'
+    | 'failed'
+    | 'not_yet'
+  lastSentAt: number | null
+  different: Array<string>
+  problemCode: string | null
+  candidateName: string | null
+  openUrl: string | null
+  canOverwrite: boolean
+}
+
+const OPEN_URL =
+  'https://go.xero.com/organisationlogin/default.aspx?shortcode=!x7Kp2&redirecturl=/Contacts/View/7d1c3f2a-0000-4000-8000-000000000001'
+
+/** A line in the business's organisation, in one state. */
+export function xeroLine(
+  state: XeroLineFixture['state'],
+  extra: Partial<XeroLineFixture> = {},
+): XeroLineFixture {
+  return {
+    connectionId: `xc_business_${state}`,
+    kind: 'business',
+    orgName: 'Pest M8 Pest Control',
+    state,
+    lastSentAt: null,
+    different: [],
+    problemCode: null,
+    candidateName: null,
+    openUrl: null,
+    // The owner looking: theirs to send over Xero's.
+    canOverwrite: state === 'different',
+    ...extra,
+  }
+}
+
+/** Every state a client's line can be in, for the sheet's rows at once.
+ * `canEditClient` false: someone who can't change clients is looking (a
+ * subcontractor on their own Xero). */
+export const EVERY_XERO_LINE: Array<{
+  title: string
+  line: XeroLineFixture
+  canEditClient?: boolean
+}> = [
+  {
+    title: 'In Xero',
+    line: xeroLine('in_xero', {
+      lastSentAt: Date.now() - 2 * HOUR,
+      openUrl: OPEN_URL,
+    }),
+  },
+  {
+    title: 'In Xero, before Start syncing (matched)',
+    line: xeroLine('in_xero', { openUrl: OPEN_URL }),
+  },
+  { title: 'Waiting', line: xeroLine('waiting', { openUrl: OPEN_URL }) },
+  { title: 'Lead', line: xeroLine('lead') },
+  {
+    title: 'To check',
+    line: xeroLine('to_check', { candidateName: 'Subi Cafe Pty Ltd' }),
+  },
+  {
+    title: 'Different',
+    line: xeroLine('different', {
+      lastSentAt: Date.now() - 26 * HOUR,
+      different: ['email', 'phoneMobile'],
+      openUrl: OPEN_URL,
+    }),
+  },
+  {
+    title: 'Different, contact people',
+    line: xeroLine('different', {
+      lastSentAt: Date.now() - 26 * HOUR,
+      different: ['persons'],
+      openUrl: OPEN_URL,
+    }),
+  },
+  {
+    // Cleared in PestM8: nothing blank is sent, so no Send PestM8’s
+    // details.
+    title: 'Different, a detail cleared here',
+    line: xeroLine('different', {
+      lastSentAt: Date.now() - 26 * HOUR,
+      different: ['email'],
+      openUrl: OPEN_URL,
+      canOverwrite: false,
+    }),
+  },
+  {
+    title: 'Failed',
+    line: xeroLine('failed', { problemCode: 'email_invalid' }),
+  },
+  {
+    title: 'Failed, seen by a subcontractor',
+    line: xeroLine('failed', {
+      kind: 'member',
+      orgName: 'Doyle Pest Services',
+      problemCode: 'email_invalid',
+      canOverwrite: false,
+    }),
+    canEditClient: false,
+  },
+  {
+    title: 'Not found in Xero (tried again later)',
+    line: xeroLine('failed', { problemCode: 'name_unread' }),
+  },
+  {
+    title: 'In Xero, its email left out',
+    line: xeroLine('in_xero', {
+      lastSentAt: Date.now() - 5 * 60_000,
+      problemCode: 'email_not_ascii',
+      openUrl: OPEN_URL,
+    }),
+  },
+  { title: 'Archived', line: xeroLine('archived', { openUrl: OPEN_URL }) },
+  { title: 'Privacy', line: xeroLine('gdpr') },
+  { title: 'Not reached', line: xeroLine('not_yet') },
+]
+
+/** Two organisations on one client: the business's, then the person's own
+ * — each row then names its organisation. */
+export const TWO_XERO_LINES: Array<XeroLineFixture> = [
+  xeroLine('in_xero', { lastSentAt: Date.now() - 2 * HOUR, openUrl: OPEN_URL }),
+  xeroLine('waiting', {
+    connectionId: 'xc_member_waiting',
+    kind: 'member',
+    orgName: 'Doyle Pest Services',
+  }),
+]
+
+/** The client sheet's lines, by client: the sample client is in the
+ * business's Xero; the one Recent problems opens was refused. */
+function clientLinesFor(args: { clientId: string }) {
+  switch (args.clientId) {
+    case 'c1':
+      return [
+        xeroLine('in_xero', {
+          lastSentAt: Date.now() - 2 * HOUR,
+          openUrl: OPEN_URL,
+        }),
+      ]
+    case 'c_xero_failed':
+      return [xeroLine('failed', { problemCode: 'email_invalid' })]
+    default:
+      return []
+  }
+}
+
 export const XERO_FIXTURES: Record<string, (args: never) => unknown> = {
   'xero:status': (args: { businessId: string }) => statusFor(args.businessId),
   'xero:memberStatus': (args: { membershipId: string }) =>
     memberStatusFor(args.membershipId),
   'xeroMatch:reviewPage': (args: { businessId: string; filter: string }) =>
     reviewPageFor(args),
+  'xeroSync:clientLines': (args: { clientId: string }) => clientLinesFor(args),
+  // Three of the import's clients have reached Xero.
+  'xeroSync:importNote': () => ({ inXero: 3 }),
 }
 
 /**
