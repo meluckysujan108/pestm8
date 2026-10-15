@@ -35,7 +35,11 @@ import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { redactJobs } from './lib/prices'
 import { unbinned } from './lib/bin'
 import { clientFacets } from './lib/clientFacets'
-import { countXeroLinksOf, inXeroBook } from './lib/xeroHooks'
+import {
+  countXeroLinksOf,
+  inXeroBook,
+  markClientForXero,
+} from './lib/xeroHooks'
 
 async function requireClient(
   ctx: QueryCtx,
@@ -454,12 +458,14 @@ export const update = mutation({
       await claimClientNumber(ctx, businessId, clientNumber)
     }
     if (Object.keys(fields).length > 0 || Object.keys(record).length > 0) {
-      await ctx.db.patch(clientId, {
+      await ctx.db.patch('clients', clientId, {
         ...fields,
         ...record,
         updatedAt: Date.now(),
       })
+      await markClientForXero(ctx, clientId)
     }
+    // Queues the client for Xero itself, when it changes anyone.
     if (contactPerson !== undefined) {
       await setContactPerson(ctx, businessId, clientId, contactPerson)
     }
@@ -478,7 +484,10 @@ export const archive = mutation({
     const client = await requireClient(ctx, businessId, clientId)
     // xero: out of the book, so off the match page's lists and counts.
     if (inXeroBook(client)) await countXeroLinksOf(ctx, clientId, -1)
-    await ctx.db.patch(clientId, { archivedAt: Date.now() })
+    await ctx.db.patch('clients', clientId, { archivedAt: Date.now() })
+    // Nothing is archived in Xero; whether it still gets this client's
+    // changes is the sync's to decide, from the client as it is then.
+    await markClientForXero(ctx, clientId)
   },
 })
 
@@ -491,7 +500,8 @@ export const unarchive = mutation({
     if (client.archivedAt !== undefined) {
       await countXeroLinksOf(ctx, clientId, 1)
     }
-    await ctx.db.patch(clientId, { archivedAt: undefined })
+    await ctx.db.patch('clients', clientId, { archivedAt: undefined })
+    await markClientForXero(ctx, clientId)
   },
 })
 

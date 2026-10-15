@@ -244,6 +244,9 @@ export const MatchedRow = memo(function MatchedRow({
   })
   const unlinked = unlink.isSuccess
   const xeroName = item.xeroName ?? item.clientName
+  // A contact PestM8 added for this very client: unlinking it would only
+  // add the client a second time, with a suffix.
+  const added = item.how === 'created'
 
   return (
     <li
@@ -261,15 +264,17 @@ export const MatchedRow = memo(function MatchedRow({
           {unlinked
             ? 'Unlinked — PestM8 will add them to Xero as a new contact.'
             : `Is “${xeroName}” in Xero${
-                item.how !== 'chosen'
-                  ? ''
-                  : item.decidedByYou
-                    ? ' · Matched by you'
-                    : ' · Matched by hand'
+                added
+                  ? ' · Added by PestM8'
+                  : item.how !== 'chosen'
+                    ? ''
+                    : item.decidedByYou
+                      ? ' · Matched by you'
+                      : ' · Matched by hand'
               }`}
         </p>
       </div>
-      {!unlinked && (
+      {!unlinked && !added && (
         <button
           type="button"
           disabled={!hydrated}

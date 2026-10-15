@@ -32,16 +32,22 @@ import {
   xeroConfigured,
   xeroPaused,
 } from './lib/xeroConfig'
-import { XeroError, deleteConnection, getOrganisation } from './lib/xeroHttp'
+import {
+  XeroError,
+  checkAppCredentials,
+  deleteConnection,
+  getOrganisation,
+} from './lib/xeroHttp'
 import {
   LIVE_XERO_STATUSES,
   isLiveXero,
   requireConnectionHolder,
 } from './lib/xeroHooks'
 import { DEMO_PLAN } from './demo/shared'
-import { matchAfterConnect, matchStaleAfter } from './xeroMatch'
+import { linkOf, matchAfterConnect, matchStaleAfter } from './xeroMatch'
 import { accessTokenFor, retireGrant } from './xeroTokens'
-import { xeroConnectionKind, xeroMatchState } from './schema'
+import { RECENT_SHOWN, WAITING_CAP } from './xeroSync'
+import { xeroConnectionKind, xeroMatchState, xeroPauseReason } from './schema'
 import type { Infer } from 'convex/values'
 import type { Doc, Id } from './_generated/dataModel'
 import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server'
@@ -52,7 +58,8 @@ import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server'
  * Nothing here sends a client to Xero — the only calls are the sign-in, the
  * token exchange and refresh, `GET /Organisation`, and taking PestM8 back out
  * (`DELETE /connections`, revoke). A finished connect starts the match of the
- * organisation's contacts (Release 2, convex/xeroMatch.ts), which only reads.
+ * organisation's contacts (Release 2, convex/xeroMatch.ts), which only reads;
+ * sending is convex/xeroSync.ts (Release 3), whose progress `status` reports.
  * docs/xero.md is the runbook.
  *
  * ── How a connect runs ───────────────────────────────────────────────────
@@ -106,6 +113,60 @@ const connectionStatus = v.union(
 )
 
 /**
+ * How sending to one organisation stands, for the Xero page and the hub
+ * (convex/xeroSync.ts). Times are for the page to compare with its own
+ * clock — a query mustn't read one.
+ */
+const syncView = v.object({
+  counts: v.object({
+    /** Clients that are a contact there. */
+    inXero: v.number(),
+    /** Waiting on Same or Different ("To check"). */
+    review: v.number(),
+    /** Left alone because Xero holds something else ("Different in Xero"). */
+    different: v.number(),
+    /** Not added, or their last change refused. */
+    failed: v.number(),
+    /** Archived or erased in Xero: no longer sent. */
+    stopped: v.number(),
+    /** Changes queued now, counted to 100: the page shows "99+" past 99. */
+    waiting: v.number(),
+  }),
+  lastSentAt: v.union(v.number(), v.null()),
+  /** Xero said to wait until then (its minute or day allowance, or an
+   * outage); past it, nothing is held. */
+  pausedUntil: v.union(v.number(), v.null()),
+  pauseReason: v.union(xeroPauseReason, v.null()),
+  /** Adding the book after Start syncing: clients that are a contact there
+   * (`done`) of those it gets (`total`). Null once the walk is done. */
+  backfill: v.union(
+    v.null(),
+    v.object({
+      done: v.number(),
+      total: v.number(),
+      /** The day's allowance ran low: the walk waits until then. */
+      heldUntil: v.union(v.number(), v.null()),
+    }),
+  ),
+  /** The latest problems that still stand, newest first, at most five, one
+   * per client: codes the page words (xeroCopy.ts), with the client to
+   * open, and whether it is a contact there (a change refused, or something
+   * left off one) or was never added. */
+  recent: v.array(
+    v.object({
+      clientId: v.id('clients'),
+      clientName: v.string(),
+      code: v.string(),
+      at: v.number(),
+      inXero: v.boolean(),
+    }),
+  ),
+  /** How many problems still stand, of the newest twenty kept: "The newest
+   * 5 of {n}." */
+  problems: v.number(),
+})
+
+/**
  * One connection as Settings is given it. A `returns` validator, like
  * `memberLicences.listView`: a later `...connection` in a handler, carrying
  * `grantId`, fails every call instead of reaching the page. Nothing of
@@ -151,9 +212,15 @@ const xeroView = v.object({
       staleAfter: v.union(v.number(), v.null()),
     }),
   ),
+  /** When Start syncing was pressed (Release 3): null before, when nothing
+   * is sent to this organisation. */
+  syncStartedAt: v.union(v.number(), v.null()),
+  /** How sending stands (convex/xeroSync.ts), once started. */
+  sync: v.union(v.null(), syncView),
 })
 
 export type XeroView = Infer<typeof xeroView>
+export type XeroSyncView = Infer<typeof syncView>
 
 const statusView = v.object({
   /** False on a deployment without the Xero app's keys (e2e, local). */
@@ -298,6 +365,83 @@ async function nameOfMember(
   )
 }
 
+/** How sending stands, once started. */
+async function syncSummaryOf(
+  ctx: QueryCtx,
+  connection: Doc<'xeroConnections'>,
+  sync: Doc<'xeroSyncState'> | null,
+): Promise<Pick<XeroView, 'syncStartedAt' | 'sync'>> {
+  if (connection.syncStartedAt === undefined || !sync) {
+    return { syncStartedAt: connection.syncStartedAt ?? null, sync: null }
+  }
+  // Live, rather than the tally a drain last wrote: the page shows a change
+  // waiting the moment it is made.
+  const waiting = (
+    await ctx.db
+      .query('xeroOutbox')
+      .withIndex('by_connection_and_dueAt', (q) =>
+        q.eq('connectionId', connection._id),
+      )
+      .take(WAITING_CAP)
+  ).length
+  const counts = sync.counts ?? {
+    inXero: 0,
+    review: 0,
+    different: 0,
+    failed: 0,
+    stopped: 0,
+    waiting: 0,
+  }
+  // Only what still stands: a problem put right since — the client
+  // corrected and sent, or tried again and taken — is no longer its link's,
+  // and goes; and a client is listed once, for its newest.
+  const standing: XeroSyncView['recent'] = []
+  const listed = new Set<Id<'clients'>>()
+  for (const problem of sync.recent ?? []) {
+    if (listed.has(problem.clientId)) continue
+    listed.add(problem.clientId)
+    const client = await ctx.db.get('clients', problem.clientId)
+    // A client gone since, or in the bin, is nothing to open.
+    if (!client || client.deletedAt !== undefined) continue
+    const link = await linkOf(
+      ctx,
+      connection.businessId,
+      connection.tenantId,
+      problem.clientId,
+    )
+    if (link?.problem?.code !== problem.code) continue
+    standing.push({
+      clientId: problem.clientId,
+      clientName: client.name,
+      code: problem.code,
+      at: problem.at,
+      inXero: link.state === 'linked' && link.xeroContactId !== undefined,
+    })
+  }
+  const match = sync.match
+  return {
+    syncStartedAt: connection.syncStartedAt,
+    sync: {
+      counts: { ...counts, waiting },
+      lastSentAt: sync.lastSentAt ?? null,
+      pausedUntil: sync.pausedUntil ?? null,
+      pauseReason: sync.pauseReason ?? null,
+      // Matched or added, of matched or added plus still to add — the
+      // match's own counts, which every link move keeps true.
+      backfill:
+        sync.backfillDoneAt === undefined
+          ? {
+              done: match?.linked ?? counts.inXero,
+              total: (match?.linked ?? counts.inXero) + (match?.fresh ?? 0),
+              heldUntil: sync.backfillHeldUntil ?? null,
+            }
+          : null,
+      recent: standing.slice(0, RECENT_SHOWN),
+      problems: standing.length,
+    },
+  }
+}
+
 async function viewOf(
   ctx: QueryCtx,
   connection: Doc<'xeroConnections'>,
@@ -310,6 +454,7 @@ async function viewOf(
   const match = sync?.match
   const staleAfter = sync ? matchStaleAfter(sync) : null
   return {
+    ...(await syncSummaryOf(ctx, connection, sync)),
     connectionId: connection._id,
     kind: connection.kind,
     tenantName: connection.tenantName,
@@ -1037,6 +1182,13 @@ export const finish = internalMutation({
     })
     // Which client is which of its contacts. Reads only (Release 2).
     await matchAfterConnect(ctx, connection)
+    // Syncing already (a reconnect): what waited while it could not send
+    // goes now.
+    if (connection.syncStartedAt !== undefined) {
+      await ctx.scheduler.runAfter(0, internal.xeroSync.drain, {
+        connectionId: connection._id,
+      })
+    }
     return { tenantName: connection.tenantName }
   },
 })
@@ -1045,7 +1197,8 @@ export const finish = internalMutation({
 
 /**
  * Disconnect, by its holder (`requireConnectionHolder`). PestM8 stops; what
- * was already copied stays in Xero. The row is kept — the record of who
+ * was already copied stays in Xero, and changes still waiting to go there
+ * are dropped (`xeroSync.dropOutbox`). The row is kept — the record of who
  * connected what, and when — and the release at Xero is scheduled. Already
  * disconnected is a no-op, so a double tap is not an error.
  */
@@ -1088,6 +1241,10 @@ export const disconnect = mutation({
       at: now,
     })
     await ctx.scheduler.runAfter(0, internal.xero.releaseAtXero, {
+      connectionId: connection._id,
+    })
+    // What was waiting to go there no longer will, in batches of its own.
+    await ctx.scheduler.runAfter(0, internal.xeroSync.dropOutbox, {
       connectionId: connection._id,
     })
     return null
@@ -1575,6 +1732,28 @@ export const sweep = internalMutation({
     }
 
     return { states: states.length, unfinished: unfinished.length }
+  },
+})
+
+/**
+ * Ops: does Xero accept this deployment's app keys? Run it straight after
+ * setting XERO_CLIENT_ID / XERO_CLIENT_SECRET —
+ * `npx convex run [--prod] xero:checkApp` — so a mistyped or doubled secret
+ * shows up there, not as a failed connect at the owner's end (it did, on
+ * 15 Oct 2026). Answers `{ ok }` or the token endpoint's error code; the
+ * app-only token a good check is given is dropped unread.
+ */
+export const checkApp = internalAction({
+  args: {},
+  returns: v.union(
+    v.object({ ok: v.literal(true) }),
+    v.object({ ok: v.literal(false), error: v.string() }),
+  ),
+  handler: async () => {
+    if (!xeroConfigured()) {
+      return { ok: false as const, error: 'XERO_NOT_CONFIGURED' }
+    }
+    return await checkAppCredentials()
   },
 })
 

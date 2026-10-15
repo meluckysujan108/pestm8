@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useConvexMutation } from '@convex-dev/react-query'
 import { api } from '../../../../convex/_generated/api'
 import {
@@ -8,6 +8,8 @@ import {
 } from '../../../../convex/lib/clientImport'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { importNoteCopy } from '#/components/xero/xeroCopy'
+import { rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
 import { dropIdleClientLists } from './queries'
 import type { ErrorCopy } from '#/components/forms/describeError'
@@ -265,26 +267,39 @@ export function useUndoImport(businessId: Id<'businesses'>) {
   })
   /** The import the dialog is asking about, or null while it is shut. */
   const [asking, setAsking] = useState<Id<'clientImports'> | null>(null)
-  return { mutation, asking, ask: setAsking }
+  return { businessId, mutation, asking, ask: setAsking }
 }
 
 /**
  * The question before an undo. What stays is said plainly: undo keeps
  * whatever has been worked on since — a job, a report, a note someone wrote
- * — so nobody's work goes with the list it came in on.
+ * — so nobody's work goes with the list it came in on. Nor does it take
+ * anything out of Xero (PestM8 never deletes there): when some of the
+ * import's clients have reached it, the dialog says they stay
+ * (`xeroSync.importNote`). Asked as the dialog opens; until it answers, or
+ * where Xero isn't set up, the dialog says only the rest.
  */
 export function UndoDialog({
   undo,
 }: {
   undo: ReturnType<typeof useUndoImport>
 }) {
-  const { asking, ask, mutation } = undo
+  const { asking, ask, mutation, businessId } = undo
+  const inXero: number | undefined = useQuery(
+    rq.xeroImportNote(businessId, asking),
+  ).data?.inXero
+  const xeroNote =
+    asking !== null && inXero !== undefined ? importNoteCopy(inXero) : null
   return (
     <ConfirmDialog
       open={asking !== null}
       onOpenChange={(open) => !open && ask(null)}
       title="Undo this import?"
-      body="The clients and sites it brought in go, unless a job, report or note has been made for them since — those stay."
+      body={
+        xeroNote
+          ? `The clients and sites it brought in go, unless a job, report or note has been made for them since — those stay. ${xeroNote}`
+          : 'The clients and sites it brought in go, unless a job, report or note has been made for them since — those stay.'
+      }
       confirm="Undo import"
       cancel="Keep it"
       onConfirm={() => {

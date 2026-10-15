@@ -31,6 +31,10 @@ export const XERO_RETURN_COPY: Readonly<Record<string, string>> = {
   // will fix it.
   failed:
     'Could not connect Xero. Try again — if it fails again, open Xero → Settings → Connected apps: Xero lets an organisation connect only two apps like PestM8.',
+  // Xero refused PestM8's own keys (convex/xeroCallback.ts): nothing the
+  // person connecting can do, and trying again fails the same way.
+  app_setup:
+    'Could not connect Xero: PestM8’s link to Xero isn’t set up correctly, so nothing was connected. Tell whoever looks after PestM8 for your business.',
   no_org:
     'Could not connect Xero: no organisation was chosen. Connect again, and choose your organisation when Xero asks.',
   // Xero didn't say which of the organisations this login has it chose, and
@@ -310,6 +314,10 @@ export function matchProblemCopy(
 export const REMATCH_ERROR_COPY: ErrorCopy = {
   XERO_MATCH_RUNNING:
     'Could not check Xero again: PestM8 is still reading it. Give it a few minutes.',
+  // Once syncing has started, every contact PestM8 added is linked to its
+  // client, and a fresh match would throw that away (`xeroMatch.rematch`).
+  SYNC_STARTED:
+    'Could not check Xero again: PestM8 is already syncing with it, and keeps it in step by itself.',
   XERO_RECONNECT:
     'Could not check Xero: it needs reconnecting first. Reconnect Xero, and PestM8 reads it again.',
   XERO_NOT_CONFIGURED:
@@ -335,7 +343,8 @@ export const MATCH_REASON_COPY: Readonly<
     | 'name_only'
     | 'name_shared'
     | 'contested'
-    | 'unlinked',
+    | 'unlinked'
+    | 'name_clash',
     string
   >
 > = {
@@ -345,6 +354,9 @@ export const MATCH_REASON_COPY: Readonly<
   name_shared: 'Same name — Xero has more than one contact by this name',
   contested: 'More than one of your clients matches this contact',
   unlinked: 'You unlinked these before',
+  // Release 3: adding the client was refused for its name, which a contact
+  // nobody here is linked to already has.
+  name_clash: 'Same name — Xero won’t take a second contact by it',
 }
 
 /**
@@ -436,4 +448,340 @@ export const MATCH_FILTER_COPY: Readonly<
     emptyBody:
       'Clients you say aren’t the contact PestM8 suggested are listed here.',
   },
+}
+
+// ──────────────────────────────────────────── syncing (Release 3)
+
+/**
+ * Where a client stands in one organisation, as `xeroSync.clientLines` says
+ * it, for the client sheet's Xero row:
+ *
+ * - `in_xero`: linked to a contact there, and nothing waiting;
+ * - `waiting`: a change, or the client itself, not sent yet;
+ * - `lead`: a lead, held until their first job is booked;
+ * - `to_check`: Xero may already have them — waiting on Same or Different;
+ * - `archived`: archived in Xero, so PestM8 stopped sending;
+ * - `gdpr`: removed in Xero at someone's request for privacy — never again;
+ * - `different`: PestM8 changed a detail Xero holds otherwise, and left
+ *   Xero's alone;
+ * - `failed`: Xero refused it (`problemCode` says why);
+ * - `not_yet`: not in Xero, and nothing about to be: syncing not started.
+ *   (Before it, a client the match found in Xero is `in_xero`, and one to
+ *   check `to_check`.)
+ */
+export type XeroLineState =
+  | 'in_xero'
+  | 'waiting'
+  | 'lead'
+  | 'to_check'
+  | 'archived'
+  | 'gdpr'
+  | 'different'
+  | 'failed'
+  | 'not_yet'
+
+/**
+ * The details PestM8 keeps in step, by the mapper's names for them
+ * (`FieldKey` in convex/lib/xeroContact.ts), as a sentence names them:
+ * "Xero has a different email address for Jan Morris".
+ */
+const FIELD_COPY: Readonly<Partial<Record<string, string>>> = {
+  name: 'name',
+  person: 'contact name',
+  email: 'email address',
+  phoneDefault: 'phone number',
+  phoneMobile: 'mobile number',
+  pobox: 'postal address',
+  street: 'street address',
+  taxNumber: 'ABN',
+  accountNumber: 'account number',
+  persons: 'contact people',
+}
+
+/** Of those, the ones a sentence counts as many. */
+const PLURAL_FIELDS: ReadonlySet<string> = new Set(['persons'])
+
+function fieldWords(keys: ReadonlyArray<string>): Array<string> {
+  return keys
+    .map((key) => FIELD_COPY[key])
+    .filter((word): word is string => word !== undefined)
+}
+
+/** "email address", "email address and mobile number", "name, email
+ * address and ABN" — or "details" for keys this page has no words for. */
+export function fieldList(keys: ReadonlyArray<string>): string {
+  const words = fieldWords(keys)
+  if (words.length === 0) return 'details'
+  if (words.length === 1) return words[0]
+  return `${words.slice(0, -1).join(', ')} and ${words[words.length - 1]}`
+}
+
+/**
+ * A client sheet's Different warning, in a sentence that reads right
+ * whatever differs: "Xero’s email address for Jan Morris is different, so
+ * PestM8 left Xero’s alone." — "are" for contact people, several details,
+ * or details this page has no words for.
+ */
+export function differentCopy(
+  keys: ReadonlyArray<string>,
+  clientName: string,
+): string {
+  const words = fieldWords(keys)
+  const one = words.length === 1 && !keys.some((key) => PLURAL_FIELDS.has(key))
+  return `Xero’s ${fieldList(keys)} for ${clientName} ${one ? 'is' : 'are'} different, so PestM8 left Xero’s alone.`
+}
+
+/**
+ * Why Xero didn't take a client (`problem.code` on its link, and in the Xero
+ * page's Recent problems): what happened, then what to do. Each one that a
+ * correction here would fix says so — an edit queues the client again. Raw
+ * Xero text never reaches the page (convex/xeroSync.ts logs it).
+ */
+const SYNC_PROBLEM_COPY: Readonly<Partial<Record<string, string>>> & {
+  unknown: string
+} = {
+  email_invalid:
+    'Xero refused the email address. Correct it on the client, and PestM8 sends it again.',
+  // Xero takes only plain letters in an email address.
+  email_not_ascii:
+    'Xero can’t take an email address with accented letters, so it was left out. Change it on the client to send it.',
+  name_invalid:
+    'Xero refused the name. Change it on the client, and PestM8 sends it again.',
+  // The suburb and the client number were both tried after the name.
+  name_taken:
+    'Xero already has contacts by this name, with the suburb and with the client number. Rename one of them in Xero, or the client here.',
+  name_clash:
+    'Xero already has a contact by this name. Say whether it’s the same client in Match your clients.',
+  persons_full:
+    'Xero holds five contact people at most, so not all of them went. Remove one in Xero to make room.',
+  website_invalid:
+    'Xero refused the website address. Correct it on the client, and PestM8 sends it again.',
+  contested:
+    'Its contact was merged in Xero into one another client already has. Say which is which in Match your clients.',
+  // For good, like gdpr: restoring the contact in Xero doesn't start it
+  // again (convex/lib/xeroContact.ts `eligibility`, `stopped`).
+  archived_in_xero:
+    'Archived in Xero, so PestM8 no longer sends its changes there.',
+  gdpr: 'Removed in Xero for privacy, so PestM8 won’t send it again.',
+  // Its contact's id no longer finds anything (an organisation reset, say).
+  contact_missing:
+    'Its contact can’t be found in Xero any more. Look for it in Xero, then change the client here to send it again.',
+  // Xero or the network kept failing until PestM8 gave up for now
+  // (convex/xeroSync.ts MAX_ATTEMPTS).
+  xero_unavailable:
+    'Xero wasn’t answering, so PestM8 stopped trying for now. It tries again when the client next changes.',
+  // Xero said the name was taken, and then couldn't say by whom: tried
+  // again a few times rather than adding the client with a suffix on a
+  // guess (convex/xeroSync.ts `resolveCreateClash`).
+  name_unread:
+    'Xero says it already has a contact by this name, and PestM8 couldn’t look it up. Rename the client here, or that contact in Xero, and PestM8 sends it again.',
+  unknown:
+    'Xero refused it without saying why. PestM8 tries again when the client next changes.',
+}
+
+/**
+ * The same, for someone who can't change clients (a subcontractor on My
+ * Xero): the step that is the client's is the business owner's to take.
+ */
+const SYNC_PROBLEM_COPY_ASK: Readonly<Partial<Record<string, string>>> = {
+  email_invalid:
+    'Xero refused the email address. Ask the business owner to correct it on the client, and PestM8 sends it again.',
+  email_not_ascii:
+    'Xero can’t take an email address with accented letters, so it was left out. Ask the business owner to change it on the client to send it.',
+  name_invalid:
+    'Xero refused the name. Ask the business owner to change it on the client, and PestM8 sends it again.',
+  name_taken:
+    'Xero already has contacts by this name, with the suburb and with the client number. Rename one of them in Xero, or ask the business owner to rename the client here.',
+  website_invalid:
+    'Xero refused the website address. Ask the business owner to correct it on the client, and PestM8 sends it again.',
+  contact_missing:
+    'Its contact can’t be found in Xero any more. Look for it in Xero, then ask the business owner to change the client here to send it again.',
+  name_unread:
+    'Xero says it already has a contact by this name, and PestM8 couldn’t look it up. Rename that contact in Xero, or ask the business owner to rename the client here.',
+}
+
+/** The words for a client Xero didn't take; an unknown code reads as a
+ * refusal with no reason given. `canEdit` false: whoever is reading can't
+ * change the client, so its next step says who can. */
+export function syncProblemCopy(
+  code: string | null,
+  { canEdit = true }: { canEdit?: boolean } = {},
+): string {
+  const known = code === null ? undefined : SYNC_PROBLEM_COPY[code]
+  const ask = code === null || canEdit ? undefined : SYNC_PROBLEM_COPY_ASK[code]
+  return ask ?? known ?? SYNC_PROBLEM_COPY.unknown
+}
+
+/** Problems that leave the client in Xero with something left off it, not
+ * refused (convex/lib/xeroHooks.ts `isSoftXeroProblem`). */
+const SOFT_PROBLEMS: ReadonlySet<string> = new Set([
+  'email_not_ascii',
+  'persons_full',
+])
+
+/**
+ * A Recent problems row's first line: the client alone when something was
+ * only left off a contact Xero took; "Could not update {client}" when it is
+ * in Xero and a change was refused; "Could not add {client}" when it never
+ * got there.
+ */
+export function problemHeading(problem: {
+  code: string
+  clientName: string
+  inXero: boolean
+}): string {
+  if (SOFT_PROBLEMS.has(problem.code)) return problem.clientName
+  return problem.inXero
+    ? `Could not update ${problem.clientName}`
+    : `Could not add ${problem.clientName}`
+}
+
+/** Under Recent problems, when there are more than it lists. */
+export function recentFooterCopy(shown: number, total: number): string | null {
+  return total > shown
+    ? `The newest ${shown} of ${total.toLocaleString('en-AU')}.`
+    : null
+}
+
+/** The Xero page's Not sent row, while there are any: where to look. One
+ * line, which a row's caption is (it is cut, not wrapped). */
+export const NOT_SENT_CAPTION = 'Refused by Xero — see Recent problems'
+
+/** The Xero page's Different in Xero row, while there are any: the client's
+ * sheet offers Send PestM8’s details. One line, as above. */
+export const DIFFERENT_CAPTION = 'Xero kept its own — open the client'
+
+/** Under "Adding your clients…": how far it has got, and that it needs
+ * nobody to wait. */
+export function backfillCopy(done: number, total: number): string {
+  const tail = 'It carries on if you leave this page.'
+  return total > 0
+    ? `${done.toLocaleString('en-AU')} of ${total.toLocaleString('en-AU')} in Xero. ${tail}`
+    : tail
+}
+
+/**
+ * Why nothing is going to Xero for now (`pauseReason`), and when it carries
+ * on. A minute's pause is seconds long and not worth a line, so it has none.
+ */
+export function pauseCopy(
+  reason: 'minute' | 'day' | 'server' | null,
+  tenantName: string,
+  when: string,
+): string | null {
+  switch (reason) {
+    case 'day':
+      return `Xero’s daily limit for ${tenantName} is used up. PestM8 carries on ${when}, and changes wait here till then.`
+    case 'server':
+      return `Xero isn’t answering properly just now. PestM8 tries again ${when}.`
+    default:
+      return null
+  }
+}
+
+/** The kill switch (`XERO_SYNC_PAUSED`), on PestM8's side: the person can do
+ * nothing about it, and loses nothing. */
+export const SYNC_PAUSED = 'Sending to Xero is paused. Changes wait here.'
+
+/** Adding the rest of the book held for the hour, to leave Xero's day for
+ * live changes (`backfillHeldUntil`). */
+export function backfillHeldCopy(when: string): string {
+  return `Xero’s limit for today is nearly used up, so adding the rest waits until ${when}. Changes you make still go.`
+}
+
+/** "99+": the Waiting to send count, which can run to the whole book while
+ * it is being added and means nothing exact past a screenful. */
+export function waitingCount(n: number): string {
+  return n > 99 ? '99+' : n.toLocaleString('en-AU')
+}
+
+/**
+ * What Start syncing will do, said in its confirm: how many clients become
+ * new contacts, how many matched ones get their blanks filled, and that
+ * nothing added is taken away again. Those still to check wait.
+ */
+export function startSyncingBody({
+  fresh,
+  linked,
+  review,
+  tenantName,
+}: {
+  /** New to Xero and Different: both become new contacts. */
+  fresh: number
+  linked: number
+  review: number
+  tenantName: string
+}): string {
+  const adds = fresh > 0 ? `adds ${clientCount(fresh)} to ${tenantName}` : null
+  const fills =
+    linked > 0
+      ? `fills in blanks on the ${linked.toLocaleString('en-AU')} it matched`
+      : null
+  const does = [adds, fills].filter(Boolean).join(' and ')
+  const first = does
+    ? `PestM8 ${does}.`
+    : `PestM8 keeps ${tenantName} in step with your clients from now on.`
+  const waits =
+    review > 0
+      ? ` The ${review.toLocaleString('en-AU')} to check wait until you decide.`
+      : ''
+  return `${first}${waits} Contacts added to Xero stay there, even if you disconnect.`
+}
+
+/**
+ * Start syncing (`xeroSync.startSyncing`). Fails fast with no signal: it
+ * starts copying the whole book into someone's books, which nobody should
+ * find happening hours later.
+ */
+export const START_ERROR_COPY: ErrorCopy = {
+  // A week-old read of Xero can't be trusted to match what is there now.
+  MATCH_STALE:
+    'Could not start: PestM8 last read Xero more than a week ago. Check Xero again, then start.',
+  XERO_MATCH_RUNNING:
+    'Could not start: PestM8 is still reading Xero. Start once it has finished.',
+  SYNC_STARTED: 'It’s already syncing — nothing more to do.',
+  XERO_RECONNECT:
+    'Could not start: Xero needs reconnecting first. Reconnect Xero, then start.',
+  XERO_NOT_CONFIGURED:
+    'Could not start: this copy of PestM8 isn’t set up for Xero.',
+  XERO_DEMO: XERO_RETURN_COPY.demo,
+  NOT_FOUND:
+    'Could not start: this Xero has been disconnected. Reload this page to see where it stands.',
+  NO_ACCESS: 'Could not start: only whoever connected this Xero can start it.',
+  SWITCHED:
+    'Could not start: switch back to your own account first, then try again.',
+  offline:
+    'Could not start: this device is offline. Nothing was sent — try again when you have signal.',
+  default:
+    'Could not start syncing. Nothing was sent — check your signal and try again.',
+}
+
+/** "Send PestM8’s details" for a client Xero holds differently
+ * (`xeroSync.overwrite`). Fails fast with no signal: it replaces what is in
+ * someone's books. */
+export const OVERWRITE_ERROR_COPY: ErrorCopy = {
+  NOT_FOUND:
+    'Could not send: this client’s Xero contact has changed since you opened this. Close it and look again.',
+  NO_ACCESS:
+    'Could not send: only whoever connected this Xero can choose PestM8’s details over Xero’s.',
+  SWITCHED:
+    'Could not send: switch back to your own account first, then try again.',
+  XERO_RECONNECT:
+    'Could not send: Xero needs reconnecting first, in Settings → Xero.',
+  offline:
+    'Could not send: this device is offline. Xero is unchanged — try again when you have signal.',
+  default:
+    'Could not send PestM8’s details. Xero is unchanged — check your signal and try again.',
+}
+
+/**
+ * The line an import's undo adds when some of its clients have reached
+ * Xero (`xeroSync.importNote`): PestM8 never deletes in Xero, so those
+ * contacts stay.
+ */
+export function importNoteCopy(n: number): string | null {
+  if (n <= 0) return null
+  return n === 1
+    ? '1 of these clients is already in Xero and stays there.'
+    : `${n.toLocaleString('en-AU')} of these clients are already in Xero and stay there.`
 }

@@ -17,7 +17,11 @@ import {
 } from './lib/clientImport'
 import { assignClientNumber } from './lib/clientRecord'
 import { memberName } from './lib/reportContext'
-import { deleteXeroLinksOf } from './lib/xeroHooks'
+import {
+  dropXeroLinksForClient,
+  markClientForXero,
+  markClientsForXero,
+} from './lib/xeroHooks'
 import { deriveNoteFields, docFromPlainText } from './lib/richText'
 import { purgeNote } from './notes'
 import { prosemirrorSync } from './notesSync'
@@ -297,6 +301,9 @@ async function importClient(
       notesCreated += 1
     }
   }
+  // A new client, or new sites at one already here — once, with everything
+  // this row brought in (`insertClient` leaves it to here).
+  await markClientForXero(ctx, clientId)
 
   return {
     key: input.key,
@@ -392,6 +399,7 @@ async function insertClient(
   client: ImportClient,
   now: number,
 ): Promise<Id<'clients'>> {
+  // xero: exempt — `importClient` queues the client once its sites are in
   const clientId = await ctx.db.insert('clients', {
     businessId: run.businessId,
     kind: client.kind,
@@ -415,6 +423,7 @@ async function insertClient(
   // primary contact, not a second, competing field. `checkImportClient` has
   // already dropped a person's.
   if (client.contactPerson) {
+    // xero: exempt — `importClient` queues the client once its sites are in
     await ctx.db.insert('clientContacts', {
       businessId: run.businessId,
       clientId,
@@ -564,17 +573,24 @@ export const undoStep = internalMutation({
       .take(UNDO_BATCH)
 
     if (sites.length > 0) {
+      const lostSite = new Set<Id<'clients'>>()
       for (const site of sites) {
         const check = await siteWorkedOn(ctx, run, site)
         if (check.worked) {
-          await ctx.db.patch(site._id, { importId: undefined })
+          // xero: exempt — only the import's mark goes; nothing Xero gets
+          await ctx.db.patch('properties', site._id, { importId: undefined })
           kept += 1
         } else {
           for (const note of check.notes) await purgeNote(ctx, note)
-          await ctx.db.delete(site._id)
+          await ctx.db.delete('properties', site._id)
+          lostSite.add(site.clientId)
           removed += 1
         }
       }
+      // xero: a client that keeps going may have lost the site that was its
+      // address there. One about to go too is dropped from the queue when it
+      // does, below.
+      await markClientsForXero(ctx, lostSite)
     } else {
       // Sites first, always: a client can only go once it has none left.
       const clients = await ctx.db
@@ -589,17 +605,21 @@ export const undoStep = internalMutation({
       for (const client of clients) {
         const check = await clientWorkedOn(ctx, client)
         if (check.worked) {
-          await ctx.db.patch(client._id, { importId: undefined })
+          await ctx.db.patch('clients', client._id, { importId: undefined })
+          // xero: nothing went for it while the undo ran (`eligibility`,
+          // `undoing`); kept, it goes now.
+          await markClientForXero(ctx, client._id)
           kept += 1
         } else {
+          // xero: exempt — the client goes too, and its links with it, below
           for (const contact of check.contacts) {
-            await ctx.db.delete(contact._id)
+            await ctx.db.delete('clientContacts', contact._id)
           }
           // xero: its links go with it, in every organisation, and out of
           // the match's counts. Any contact already in Xero stays there;
           // PestM8 never deletes there.
-          await deleteXeroLinksOf(ctx, client)
-          await ctx.db.delete(client._id)
+          await dropXeroLinksForClient(ctx, client._id)
+          await ctx.db.delete('clients', client._id)
           removed += 1
         }
       }

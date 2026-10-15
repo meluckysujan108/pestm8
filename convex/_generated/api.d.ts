@@ -109,6 +109,7 @@ import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
 import type * as lib_twoFactorSetup from "../lib/twoFactorSetup.js";
 import type * as lib_workOrder from "../lib/workOrder.js";
 import type * as lib_xeroConfig from "../lib/xeroConfig.js";
+import type * as lib_xeroContact from "../lib/xeroContact.js";
 import type * as lib_xeroCrypto from "../lib/xeroCrypto.js";
 import type * as lib_xeroHooks from "../lib/xeroHooks.js";
 import type * as lib_xeroHttp from "../lib/xeroHttp.js";
@@ -150,6 +151,7 @@ import type * as weather from "../weather.js";
 import type * as xero from "../xero.js";
 import type * as xeroCallback from "../xeroCallback.js";
 import type * as xeroMatch from "../xeroMatch.js";
+import type * as xeroSync from "../xeroSync.js";
 import type * as xeroTokens from "../xeroTokens.js";
 
 import type {
@@ -260,6 +262,7 @@ declare const fullApi: ApiFromModules<{
   "lib/twoFactorSetup": typeof lib_twoFactorSetup;
   "lib/workOrder": typeof lib_workOrder;
   "lib/xeroConfig": typeof lib_xeroConfig;
+  "lib/xeroContact": typeof lib_xeroContact;
   "lib/xeroCrypto": typeof lib_xeroCrypto;
   "lib/xeroHooks": typeof lib_xeroHooks;
   "lib/xeroHttp": typeof lib_xeroHttp;
@@ -301,6 +304,7 @@ declare const fullApi: ApiFromModules<{
   xero: typeof xero;
   xeroCallback: typeof xeroCallback;
   xeroMatch: typeof xeroMatch;
+  xeroSync: typeof xeroSync;
   xeroTokens: typeof xeroTokens;
 }>;
 

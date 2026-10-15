@@ -77,6 +77,7 @@ import {
 import {
   KeyRound,
   Palette,
+  Plug,
   Repeat,
   ShieldCheck,
   User,
@@ -98,6 +99,10 @@ import type { XeroSearch } from '#/components/xero/XeroPage'
 import { MatchSection } from '#/components/xero/MatchReview'
 import type { MatchFilter } from '#/components/xero/xeroCopy'
 import { MemberXero } from '#/components/xero/MemberXero'
+import { XeroLineRows } from '#/components/xero/ClientXeroLines'
+import { XeroBadge, xeroRowValue } from '#/components/xero/XeroBadge'
+import { DetailRow, DetailRows } from '#/components/primitives/DetailRow'
+import { UndoDialog, useUndoImport } from '#/components/clients/import/undo'
 import { MemberSettings } from '#/components/settings/MemberAccessRow'
 import type { Member } from '#/components/settings/MemberAccessRow'
 import type { InstallMethod } from '#/lib/installMethod'
@@ -112,7 +117,7 @@ import {
   resolveFixture,
   state,
 } from './fixtures'
-import { XERO_BIZ } from './xeroFixtures'
+import { EVERY_XERO_LINE, TWO_XERO_LINES, XERO_BIZ } from './xeroFixtures'
 import {
   BUSY_CLIENT_ID,
   BUSY_JOB_ID,
@@ -224,36 +229,45 @@ function JobDetailLoading() {
 }
 
 function Client() {
+  state.technician = false
+  state.actingAs = false
   return (
     <Phone>
-      <Header title="Client" />
-      <ClientSheet
-        businessId={bizId}
-        timezone={TZ}
-        businessSlug="demo"
-        businessState="WA"
-        canManageClients
-        clientId="c1"
-        onClose={() => {}}
-      />
+      {/* The sheet's Xero line asks who is looking (Release 3). */}
+      <AccessProvider businessId={bizId}>
+        <Header title="Client" />
+        <ClientSheet
+          businessId={bizId}
+          timezone={TZ}
+          businessSlug="demo"
+          businessState="WA"
+          canManageClients
+          clientId="c1"
+          onClose={() => {}}
+        />
+      </AccessProvider>
     </Phone>
   )
 }
 
 /** The busy commercial client (busyFixtures.ts). */
 function ClientBusy() {
+  state.technician = false
+  state.actingAs = false
   return (
     <Phone>
-      <Header title="Clients" />
-      <ClientSheet
-        businessId={bizId}
-        timezone={TZ}
-        businessSlug="demo"
-        businessState="WA"
-        canManageClients
-        clientId={BUSY_CLIENT_ID}
-        onClose={() => {}}
-      />
+      <AccessProvider businessId={bizId}>
+        <Header title="Clients" />
+        <ClientSheet
+          businessId={bizId}
+          timezone={TZ}
+          businessSlug="demo"
+          businessState="WA"
+          canManageClients
+          clientId={BUSY_CLIENT_ID}
+          onClose={() => {}}
+        />
+      </AccessProvider>
     </Phone>
   )
 }
@@ -1474,6 +1488,7 @@ function xeroPage(
                 _id: businessId as never,
                 slug: 'demo',
                 name: 'Pest M8 Pest Control',
+                state: 'WA',
               }}
               search={opts.search ?? {}}
               onSearchDone={() => {}}
@@ -1598,6 +1613,129 @@ function TeamMemberXero() {
   )
 }
 
+/**
+ * A client sheet's Xero row in every state it can be in (Release 3), each
+ * in a Details card of its own under the state's name, then a client in two
+ * organisations. The owner looking, so Send PestM8’s details is offered.
+ */
+function ClientXeroLinesSpecimen() {
+  state.technician = false
+  state.actingAs = false
+  const card =
+    'overflow-hidden rounded-2xl border border-hairline bg-surface shadow-elevation'
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <Header kicker="Client #118" title="Subi Café Group" />
+        <div className="px-4 pb-8">
+          {EVERY_XERO_LINE.map(({ title, line, canEditClient }) => (
+            <section key={title} className="mt-6">
+              <h3 className="section-label mb-2">{title}</h3>
+              <div className={card}>
+                <DetailRows>
+                  <DetailRow label="Email" value="ops@subicafe.example" />
+                  <XeroLineRows
+                    businessId={bizId}
+                    businessSlug="demo"
+                    clientId={'c1' as never}
+                    clientName="Subi Café Group"
+                    timezone={TZ}
+                    lines={[line] as never}
+                    canEditClient={canEditClient}
+                  />
+                </DetailRows>
+              </div>
+            </section>
+          ))}
+          <section className="mt-6">
+            <h3 className="section-label mb-2">Two organisations</h3>
+            <div className={card}>
+              <DetailRows>
+                <XeroLineRows
+                  businessId={bizId}
+                  businessSlug="demo"
+                  clientId={'c1' as never}
+                  clientName="Subi Café Group"
+                  timezone={TZ}
+                  lines={TWO_XERO_LINES as never}
+                />
+              </DetailRows>
+            </div>
+          </section>
+        </div>
+      </AccessProvider>
+    </Phone>
+  )
+}
+
+/** One Xero row of the Settings hub, as it reads `xero.status`. */
+function HubXeroRow({
+  businessId,
+  note,
+}: {
+  businessId: string
+  note: string
+}) {
+  const status = useQuery(rq.xeroStatus(businessId as never)).data
+  const view = status?.business ?? null
+  return (
+    <SettingsLinkRow
+      to="/"
+      icon={Plug}
+      tint="blue"
+      title="Xero"
+      subtitle={note}
+      value={xeroRowValue(view)}
+      badge={<XeroBadge view={view} />}
+    />
+  )
+}
+
+/** The hub's Xero row with each badge it can carry, the one that matters
+ * most winning: Reconnect, then to check, then different, then none. */
+function XeroHubBadges() {
+  state.technician = false
+  state.actingAs = false
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <SettingsHeader title="Settings" />
+        <SettingsBody>
+          <SettingsGroup title="Business">
+            <HubXeroRow
+              businessId={XERO_BIZ.reconnect}
+              note="Needs reconnecting"
+            />
+            <HubXeroRow businessId={XERO_BIZ.syncing} note="Some to check" />
+            <HubXeroRow
+              businessId={XERO_BIZ.syncPaused}
+              note="Some different in Xero"
+            />
+            <HubXeroRow businessId={XERO_BIZ.synced} note="All in step" />
+            <HubXeroRow businessId={XERO_BIZ.none} note="Not connected" />
+          </SettingsGroup>
+        </SettingsBody>
+      </AccessProvider>
+    </Phone>
+  )
+}
+
+/** An import's Undo, asked, for an import some of whose clients have
+ * reached Xero (`xeroSync.importNote` answers 3). */
+function ImportUndoXero() {
+  const undo = useUndoImport(bizId)
+  const { ask } = undo
+  useEffect(() => {
+    ask('imp_1' as never)
+  }, [ask])
+  return (
+    <Phone>
+      <Header title="Import clients" />
+      <UndoDialog undo={undo} />
+    </Phone>
+  )
+}
+
 export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   xero: xeroPage('business', XERO_BIZ.none),
   'xero-connected': xeroPage('business', XERO_BIZ.connected),
@@ -1670,6 +1808,22 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   'my-xero-match-switched': matchPage('member', XERO_BIZ.matchReady, {
     switched: true,
   }),
+  // Release 3: syncing. The Xero page as it sends, the match page's Start
+  // syncing (and after it), a client's Xero row in every state, the hub's
+  // badges and an import's undo.
+  'xero-syncing': xeroPage('business', XERO_BIZ.syncing),
+  'xero-synced': xeroPage('business', XERO_BIZ.synced),
+  'xero-sync-paused': xeroPage('business', XERO_BIZ.syncPaused),
+  'xero-sync-day-limit': xeroPage('business', XERO_BIZ.syncDayLimit),
+  'my-xero-syncing': xeroPage('member', XERO_BIZ.syncing),
+  'my-xero-sync-day-limit': xeroPage('member', XERO_BIZ.syncDayLimit),
+  'my-xero-sync-server': xeroPage('member', XERO_BIZ.synced),
+  'xero-match-stale': matchPage('business', XERO_BIZ.matchStale),
+  'xero-match-syncing': matchPage('business', XERO_BIZ.syncing),
+  'my-xero-match-syncing': matchPage('member', XERO_BIZ.syncing),
+  'client-xero-lines': ClientXeroLinesSpecimen,
+  'xero-hub-badges': XeroHubBadges,
+  'import-undo-xero': ImportUndoXero,
   'team-member': TeamMember,
   'team-member-xero': TeamMemberXero,
   jobtypes: JobTypes,

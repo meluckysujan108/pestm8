@@ -226,6 +226,10 @@ const XERO_VIEW_KEYS = [
   'problem',
   'shortCode',
   'status',
+  // How sending to it stands (Release 3, convex/xeroSync.test.ts): counts,
+  // times and the names of clients with a problem — never a token.
+  'sync',
+  'syncStartedAt',
   'tenantName',
 ]
 
@@ -1049,6 +1053,59 @@ describe('replays', () => {
 })
 
 // ────────────────────────────────────────────────── what Xero sends back
+
+describe('Xero refusing PestM8’s own keys', () => {
+  test('a secret pasted twice comes back as app_setup, not “try again”, with nothing kept', async () => {
+    const s = await setup()
+    // What prod held on 15 Oct 2026: the secret, more text, the secret again.
+    vi.stubEnv('XERO_CLIENT_SECRET', XERO_TEST_CLIENT_SECRET.repeat(4))
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const location = await connectVia(s.t, s.terence.as, {
+      businessId: s.businessId,
+      kind: 'business',
+      xeroUserId: XU.terence,
+      tenantId: ORG.coastal,
+    })
+    expect(new URL(location).searchParams.get('xero')).toBe('app_setup')
+    expect(new URL(location).searchParams.get('finish')).toBeNull()
+    expect(
+      await s.t.run((ctx) => ctx.db.query('xeroConnections').collect()),
+    ).toHaveLength(0)
+    expect(
+      await s.t.run((ctx) => ctx.db.query('xeroGrants').collect()),
+    ).toHaveLength(0)
+    // The log names what to check, and never the secret.
+    const logged = errors.mock.calls.map((c) => c.join(' ')).join('\n')
+    expect(logged).toContain('xero:checkApp')
+    expect(logged).not.toContain(XERO_TEST_CLIENT_SECRET)
+  })
+
+  test('xero:checkApp says whether Xero accepts the keys, and never returns the token', async () => {
+    const s = await setup()
+    expect(await s.t.action(internal.xero.checkApp, {})).toEqual({ ok: true })
+
+    vi.stubEnv('XERO_CLIENT_SECRET', 'not-the-secret')
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(await s.t.action(internal.xero.checkApp, {})).toEqual({
+      ok: false,
+      error: 'invalid_client',
+    })
+
+    vi.stubEnv('XERO_CLIENT_SECRET', XERO_TEST_CLIENT_SECRET.repeat(4))
+    expect(await s.t.action(internal.xero.checkApp, {})).toEqual({
+      ok: false,
+      error: 'invalid_request',
+    })
+  })
+
+  test('xero:checkApp on a deployment without Xero says so and calls nothing', async () => {
+    const s = await setup({ configured: false })
+    expect(await s.t.action(internal.xero.checkApp, {})).toEqual({
+      ok: false,
+      error: 'XERO_NOT_CONFIGURED',
+    })
+  })
+})
 
 describe('the callback', () => {
   async function started(s: Setup, kind: 'business' | 'member' = 'business') {

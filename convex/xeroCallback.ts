@@ -7,6 +7,7 @@ import {
   decodeJwtPayload,
   deleteConnection,
   exchangeCode,
+  isAppSetupRefusal,
   listConnections,
   revokeRefreshToken,
 } from './lib/xeroHttp'
@@ -64,10 +65,17 @@ export const xeroCallback = httpAction(async (ctx, request) => {
     try {
       tokens = await exchangeCode(code)
     } catch (exchangeError) {
+      // Xero refusing PestM8's own keys is not the person's to fix, and
+      // "try again" would only fail again: the page says so, and the log
+      // says what to check.
+      const appSetup = isAppSetupRefusal(exchangeError)
       console.error(
-        `xero callback: code exchange failed: ${describe(exchangeError)}`,
+        `xero callback: code exchange failed: ${describe(exchangeError)}` +
+          (appSetup
+            ? ' — Xero refused this deployment’s XERO_CLIENT_ID / XERO_CLIENT_SECRET (or its redirect URI); check with `npx convex run xero:checkApp`'
+            : ''),
       )
-      return redirect(`${page}?xero=failed`)
+      return redirect(`${page}?xero=${appSetup ? 'app_setup' : 'failed'}`)
     }
 
     return await connect(ctx, taken, tokens, page)

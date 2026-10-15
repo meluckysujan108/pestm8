@@ -46,7 +46,7 @@ import {
   SettingsLinkRow,
 } from '#/components/settings/ui'
 import { useHiddenGuide } from '#/components/onboarding/SetupGuide'
-import { connectionValue, matchToCheck } from '#/components/xero/xeroCopy'
+import { XeroBadge, xeroRowValue } from '#/components/xero/XeroBadge'
 import { useAccess, useActing, useCan } from '#/lib/access'
 import { APP_VERSION } from '#/lib/appVersion'
 import { roleLabel } from '#/lib/assignees'
@@ -59,7 +59,6 @@ import { recoveryCodesUnsaved } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
 import { useThemePref } from '#/lib/useTheme'
 import type { Access } from '#/lib/access'
-import type { XeroView as XeroStatusView } from '#/components/xero/XeroPage'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 /** How long the loader holds the navigation for its queries, at most. */
@@ -365,7 +364,7 @@ function SettingsHub() {
               icon={Plug}
               tint="blue"
               title="My Xero"
-              value={connectionValue(xero.mine)}
+              value={xeroRowValue(xero.mine)}
               badge={<XeroBadge view={xero.mine} />}
             />
           )}
@@ -419,7 +418,7 @@ function SettingsHub() {
                 icon={Plug}
                 tint="blue"
                 title="Xero"
-                value={connectionValue(xero.business)}
+                value={xeroRowValue(xero.business)}
                 badge={<XeroBadge view={xero.business} />}
               />
             )}
@@ -491,26 +490,6 @@ function SettingsHub() {
       </SettingsBody>
     </>
   )
-}
-
-/**
- * What a Xero row's badge says needs doing, the more pressing first: a
- * connection Xero stopped accepting, then clients waiting to be checked
- * (Same or Different) on the match page. Nothing otherwise.
- */
-function XeroBadge({ view }: { view: XeroStatusView | null }) {
-  if (view?.status === 'needs_reconnect') {
-    return <RowBadge tone="amber">Reconnect</RowBadge>
-  }
-  const toCheck = matchToCheck(view)
-  if (toCheck > 0) {
-    return (
-      <RowBadge tone="amber">
-        {toCheck.toLocaleString('en-AU')} to check
-      </RowBadge>
-    )
-  }
-  return null
 }
 
 /**

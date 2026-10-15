@@ -10,6 +10,7 @@ import {
   todayKeyInZone,
 } from './lib/dates'
 import {
+  activateLeadAt,
   newClientFields,
   newPropertyFields,
   resolvePropertyId,
@@ -26,7 +27,6 @@ import {
   projectionsInScope,
 } from './lib/jobScope'
 import { unbinned } from './lib/bin'
-import { activateLeadAt } from './lib/clientRecord'
 import {
   insertJobNote,
   insertJobNoteOnce,

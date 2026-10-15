@@ -134,7 +134,7 @@ reconciler cron (every 10 min): due rows, stuck leases, missed writers
 - **One hook helper**, called at ~18 write sites the code map found
   (properties.ts `insertClientAndProperty`, `insertPropertyForClient`,
   `properties.update`, `clients.update` + `setContactPerson`, `clientContacts`
-  create/update/setPrimary, `lib/clientRecord.ts activateLeadAt`, `jobs.create`,
+  create/update/setPrimary, `activateLeadAt` (now in `properties.ts`), `jobs.create`,
   `jobs.update` (lead/property change), `recurrences.create`, `team.offboard`,
   `clientImports.addBatch` (once per batch), bin delete/restore/wipe, import undo,
   legacy `clients.archive/unarchive`). A unit test fails if any mutation writes

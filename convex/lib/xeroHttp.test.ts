@@ -2,14 +2,23 @@ import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { bytesToBase64Url } from './base64'
 import {
   CONTACTS_PAGE_SIZE,
+  CONTACT_IDS_PER_READ,
   XeroError,
+  checkAppCredentials,
   classify,
   decodeJwtPayload,
   deleteConnection,
   exchangeCode,
+  getContactByName,
+  getContactsByIds,
   getContactsPage,
   getOrganisation,
+  isAppSetupRefusal,
+  isNameClash,
   listConnections,
+  newIdempotencyKey,
+  postContacts,
+  putContacts,
   rateFrom,
   refreshTokens,
   revokeRefreshToken,
@@ -65,6 +74,22 @@ describe('classify', () => {
       status: 403,
     })
   })
+
+  test.each([
+    [400, 'invalid_client'],
+    [401, 'invalid_client'],
+    [400, 'unauthorized_client'],
+    [400, 'invalid_request'],
+  ])(
+    '%i %s (Xero refusing the app’s own keys) → stop, whatever the status',
+    (status, error) => {
+      expect(classify(status, headers(), { error }, NOW)).toEqual({
+        kind: 'stop',
+        code: error,
+        status,
+      })
+    },
+  )
 
   test('400 invalid_grant (a dead refresh token) → reconnect', () => {
     expect(classify(400, headers(), { error: 'invalid_grant' }, NOW)).toEqual({
@@ -287,6 +312,60 @@ describe('calls to Xero', () => {
   }
 
   const logged = () => errors.mock.calls.map((c) => c.join(' ')).join('\n')
+
+  test('checkAppCredentials: a client-credentials ask with Basic auth; the token it is given is dropped unread', async () => {
+    reply = () =>
+      json({
+        access_token: 'APP-ONLY-TOKEN',
+        expires_in: 1800,
+        token_type: 'Bearer',
+      })
+    expect(await checkAppCredentials()).toEqual({ ok: true })
+    expect(requests).toHaveLength(1)
+    const [request] = requests
+    expect(request.url).toBe('https://identity.xero.com/connect/token')
+    expect(request.method).toBe('POST')
+    expect(request.headers.authorization).toBe(
+      `Basic ${btoa('the-client-id:the-client-secret')}`,
+    )
+    expect(new URLSearchParams(request.body).get('grant_type')).toBe(
+      'client_credentials',
+    )
+    expect(logged()).not.toContain('APP-ONLY-TOKEN')
+  })
+
+  test.each([
+    ['a wrong secret', 'invalid_client'],
+    ['a secret pasted twice (over 100 characters)', 'invalid_request'],
+  ])(
+    'checkAppCredentials: %s → its code, and isAppSetupRefusal knows it',
+    async (_why, error) => {
+      reply = () => json({ error }, 400)
+      expect(await checkAppCredentials()).toEqual({ ok: false, error })
+      reply = () => json({ error }, 400)
+      const thrown = await exchangeCode('a-code').then(
+        () => null,
+        (e: unknown) => e,
+      )
+      expect(isAppSetupRefusal(thrown)).toBe(true)
+    },
+  )
+
+  test('isAppSetupRefusal: a used code or Xero being down is not the app’s keys', async () => {
+    reply = () => json({ error: 'invalid_grant' }, 400)
+    const usedCode = await exchangeCode('a-code').then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(isAppSetupRefusal(usedCode)).toBe(false)
+    reply = () => json({}, 503)
+    const down = await exchangeCode('a-code').then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(isAppSetupRefusal(down)).toBe(false)
+    expect(isAppSetupRefusal(new Error('anything else'))).toBe(false)
+  })
 
   test('exchangeCode: Basic auth, the code, and the same redirect_uri', async () => {
     reply = () =>
@@ -695,5 +774,419 @@ describe('calls to Xero', () => {
       })
     const outcome = await classified(getOrganisation('AT-1', 'tenant-1'))
     expect(outcome).toMatchObject({ kind: 'pause', why: 'minute' })
+  })
+
+  describe('contact writes and reads (Release 3)', () => {
+    const ID_1 = '6d3c1b2a-0000-4000-8000-000000000001'
+    const ID_2 = '6d3c1b2a-0000-4000-8000-000000000002'
+    const NO_ID = '00000000-0000-0000-0000-000000000000'
+    const KEY = 'k'.repeat(128)
+
+    /** A contact as Xero answers a write or a read: everything there, most
+     * of it blank. */
+    const answered = (over: Record<string, unknown> = {}) => ({
+      ContactID: ID_1,
+      ContactStatus: 'ACTIVE',
+      Name: 'John Smith',
+      FirstName: 'John',
+      LastName: 'Smith',
+      EmailAddress: 'john@example.com',
+      AccountNumber: '1916',
+      BankAccountDetails: '',
+      TaxNumber: '',
+      Addresses: [
+        { AddressType: 'POBOX', City: '', Region: '', PostalCode: '' },
+        {
+          AddressType: 'STREET',
+          AddressLine1: '12 Casuarina Drive',
+          City: 'Nightcliff',
+          Region: 'NT',
+          PostalCode: '0810',
+          Country: 'Australia',
+        },
+      ],
+      Phones: [
+        { PhoneType: 'DDI', PhoneNumber: '', PhoneAreaCode: '' },
+        { PhoneType: 'DEFAULT', PhoneNumber: '', PhoneAreaCode: '' },
+        { PhoneType: 'FAX', PhoneNumber: '', PhoneAreaCode: '' },
+        {
+          PhoneType: 'MOBILE',
+          PhoneNumber: '0412 345 678',
+          PhoneAreaCode: '',
+          PhoneCountryCode: '',
+        },
+      ],
+      ContactPersons: [],
+      UpdatedDateUTC: '/Date(1790000000000+0000)/',
+      IsSupplier: false,
+      IsCustomer: false,
+      HasValidationErrors: false,
+      ...over,
+    })
+
+    /** A failed element of a batch, as Xero sends it under
+     * summarizeErrors=false: all-zero id, and why. */
+    const refused = (name: string, message: string) => ({
+      ContactID: NO_ID,
+      Name: name,
+      StatusAttributeString: 'ERROR',
+      HasValidationErrors: true,
+      ValidationErrors: [{ Message: message }],
+      Phones: [],
+      Addresses: [],
+    })
+
+    const CLASH =
+      'The contact name John Smith is already assigned to another contact. The contact name must be unique across all active contacts.'
+
+    test('newIdempotencyKey: 128 hex characters, fresh every time', () => {
+      const keys = Array.from({ length: 20 }, newIdempotencyKey)
+      for (const key of keys) expect(key).toMatch(/^[0-9a-f]{128}$/)
+      expect(new Set(keys).size).toBe(keys.length)
+    })
+
+    test('isNameClash knows Xero’s words for a name already taken', () => {
+      expect(isNameClash(CLASH)).toBe(true)
+      expect(
+        isNameClash(
+          'The contact name O’Brien & Co is already assigned to another contact.',
+        ),
+      ).toBe(true)
+      expect(isNameClash('Email address must be valid.')).toBe(false)
+      expect(
+        isNameClash(
+          'The account number is already assigned to another contact',
+        ),
+      ).toBe(false)
+      expect(isNameClash('')).toBe(false)
+    })
+
+    test('putContacts: PUT, per-item errors, its tenant and its key', async () => {
+      reply = () =>
+        json({ Contacts: [answered(), refused('Jane Doe', CLASH)] }, 200, {
+          'X-DayLimit-Remaining': '4321',
+          'X-MinLimit-Remaining': '57',
+        })
+      const sent = [{ Name: 'John Smith' }, { Name: 'Jane Doe' }]
+      const { results, rate } = await putContacts('AT-1', 'tenant-1', sent, KEY)
+
+      const [request] = requests
+      expect(requests).toHaveLength(1)
+      expect(request.method).toBe('PUT')
+      expect(request.url).toBe(
+        'https://api.xero.com/api.xro/2.0/Contacts?summarizeErrors=false',
+      )
+      expect(request.headers).toMatchObject({
+        authorization: 'Bearer AT-1',
+        accept: 'application/json',
+        'content-type': 'application/json',
+        'xero-tenant-id': 'tenant-1',
+        'idempotency-key': KEY,
+      })
+      expect(JSON.parse(request.body)).toEqual({ Contacts: sent })
+
+      expect(rate).toEqual({ dayRemaining: 4321, minRemaining: 57 })
+      expect(results).toHaveLength(2)
+      expect(results[0]).toEqual({
+        name: 'John Smith',
+        errors: [],
+        contact: {
+          ContactID: ID_1,
+          Name: 'John Smith',
+          FirstName: 'John',
+          LastName: 'Smith',
+          EmailAddress: 'john@example.com',
+          AccountNumber: '1916',
+          TaxNumber: '',
+          ContactStatus: 'ACTIVE',
+          Phones: answered().Phones,
+          Addresses: answered().Addresses,
+          ContactPersons: [],
+        },
+      })
+      // The failed one: no contact (its id was all zeros), and why.
+      expect(results[1]).toEqual({ name: 'Jane Doe', errors: [CLASH] })
+      expect(isNameClash(results[1].errors[0])).toBe(true)
+      // A success is never logged; it carries the client's details.
+      expect(errors).not.toHaveBeenCalled()
+    })
+
+    test('a failed element without words, or a written one without an id', async () => {
+      reply = () =>
+        json({
+          Contacts: [
+            { ContactID: NO_ID, Name: 'A', StatusAttributeString: 'ERROR' },
+            { ContactID: NO_ID, Name: 'B' },
+            'junk',
+          ],
+        })
+      const { results } = await putContacts(
+        'AT-1',
+        'tenant-1',
+        [{ Name: 'A' }, { Name: 'B' }, { Name: 'C' }],
+        KEY,
+      )
+      expect(results.map((r) => r.contact)).toEqual([
+        undefined,
+        undefined,
+        undefined,
+      ])
+      for (const result of results) expect(result.errors).toHaveLength(1)
+      expect(results.map((r) => r.name)).toEqual(['A', 'B', undefined])
+    })
+
+    test('an answer without one result per contact sent cannot be read', async () => {
+      reply = () => json({ Contacts: [answered()] })
+      expect(
+        await classified(
+          putContacts('AT-1', 'tenant-1', [{ Name: 'A' }, { Name: 'B' }], KEY),
+        ),
+      ).toEqual({ kind: 'stop', code: 'bad_response', status: 200 })
+    })
+
+    test('nothing to create, a blank tenant or a bad key sends nothing', async () => {
+      expect(await putContacts('AT-1', 'tenant-1', [], KEY)).toEqual({
+        results: [],
+        rate: {},
+      })
+      await expect(
+        putContacts('AT-1', ' ', [{ Name: 'A' }], KEY),
+      ).rejects.toThrow('xero-tenant-id')
+      await expect(
+        putContacts('AT-1', 'tenant-1', [{ Name: 'A' }], 'k'.repeat(129)),
+      ).rejects.toThrow('Idempotency-Key')
+      await expect(
+        putContacts('AT-1', 'tenant-1', [{ Name: 'A' }], ''),
+      ).rejects.toThrow('Idempotency-Key')
+      expect(requests).toEqual([])
+    })
+
+    test('a refused write is classified, and the token never logged', async () => {
+      reply = () =>
+        json({ Title: 'Too Many Requests' }, 429, {
+          'Retry-After': '30',
+          'X-Rate-Limit-Problem': 'day',
+        })
+      expect(
+        await classified(
+          putContacts('AT-SECRET', 'tenant-1', [{ Name: 'A' }], KEY),
+        ),
+      ).toMatchObject({ kind: 'pause', why: 'day' })
+
+      reply = () => new Response('Service Unavailable', { status: 503 })
+      expect(
+        await classified(
+          postContacts('AT-SECRET', 'tenant-1', [{ ContactID: ID_1 }], KEY),
+        ),
+      ).toEqual({ kind: 'retry', afterMs: 5000 })
+      expect(logged()).not.toContain('AT-SECRET')
+      expect(logged()).not.toContain(KEY)
+    })
+
+    test('postContacts: POST, every element naming its contact', async () => {
+      reply = () =>
+        json({
+          Contacts: [
+            answered({ EmailAddress: 'new@example.com' }),
+            {
+              ...answered({ ContactID: ID_2, Name: 'Acme' }),
+              StatusAttributeString: 'ERROR',
+              ValidationErrors: [{ Message: 'Email address must be valid.' }],
+            },
+          ],
+        })
+      const sent = [
+        { ContactID: ID_1, EmailAddress: 'new@example.com' },
+        { ContactID: ID_2, EmailAddress: 'not an email' },
+      ]
+      const { results } = await postContacts('AT-1', 'tenant-1', sent, KEY)
+
+      const [request] = requests
+      expect(request.method).toBe('POST')
+      expect(request.url).toBe(
+        'https://api.xero.com/api.xro/2.0/Contacts?summarizeErrors=false',
+      )
+      expect(request.headers['xero-tenant-id']).toBe('tenant-1')
+      expect(request.headers['idempotency-key']).toBe(KEY)
+      expect(JSON.parse(request.body)).toEqual({ Contacts: sent })
+
+      expect(results[0].contact?.EmailAddress).toBe('new@example.com')
+      // Refused: no contact, even though Xero echoed its real id.
+      expect(results[1]).toEqual({
+        name: 'Acme',
+        errors: ['Email address must be valid.'],
+      })
+    })
+
+    test.each([
+      ['no ContactID', { Name: 'A' }],
+      ['a blank one', { ContactID: '' }],
+      ['Xero’s “no contact”', { ContactID: NO_ID }],
+    ])(
+      'postContacts refuses an element with %s, sending nothing',
+      async (_why, element) => {
+        await expect(
+          postContacts('AT-1', 'tenant-1', [{ ContactID: ID_1 }, element], KEY),
+        ).rejects.toThrow('ContactID')
+        expect(requests).toEqual([])
+      },
+    )
+
+    test('getContactsByIds: up to 50, archived included, in full', async () => {
+      reply = () =>
+        json(
+          {
+            Contacts: [
+              answered({
+                ContactPersons: [
+                  {
+                    FirstName: 'Sue',
+                    LastName: 'Brown',
+                    EmailAddress: 'sue@acme.com',
+                    IncludeInEmails: true,
+                  },
+                  'junk',
+                ],
+              }),
+              answered({
+                ContactID: ID_2,
+                ContactStatus: 'ARCHIVED',
+                MergedToContactID: ID_1,
+                Phones: [{ PhoneType: 'DEFAULT', PhoneNumber: 7 }, { nope: 1 }],
+              }),
+              answered({ ContactID: NO_ID }),
+            ],
+          },
+          200,
+          { 'X-DayLimit-Remaining': '100' },
+        )
+      const { contacts, rate } = await getContactsByIds('AT-1', 'tenant-1', [
+        ID_1,
+        ID_2,
+      ])
+
+      const [request] = requests
+      expect(request.method).toBe('GET')
+      expect(request.url).toBe(
+        `https://api.xero.com/api.xro/2.0/Contacts?IDs=${ID_1},${ID_2}&includeArchived=true&page=1`,
+      )
+      expect(request.headers['xero-tenant-id']).toBe('tenant-1')
+      expect(request.headers.authorization).toBe('Bearer AT-1')
+      expect(rate).toEqual({ dayRemaining: 100 })
+
+      expect(contacts.map((c) => c.ContactID)).toEqual([ID_1, ID_2])
+      expect(contacts[0].ContactPersons).toEqual([
+        {
+          FirstName: 'Sue',
+          LastName: 'Brown',
+          EmailAddress: 'sue@acme.com',
+          IncludeInEmails: true,
+        },
+      ])
+      expect(contacts[1]).toMatchObject({
+        ContactStatus: 'ARCHIVED',
+        MergedToContactID: ID_1,
+        // Only strings are kept; a phone with no type is no phone.
+        Phones: [{ PhoneType: 'DEFAULT' }],
+      })
+    })
+
+    test('a merge into nothing (all zeros) is no merge', async () => {
+      reply = () => json({ Contacts: [answered({ MergedToContactID: NO_ID })] })
+      const { contacts } = await getContactsByIds('AT-1', 'tenant-1', [ID_1])
+      expect('MergedToContactID' in contacts[0]).toBe(false)
+    })
+
+    test('getContactsByIds: none asks for nothing; more than 50 is refused', async () => {
+      expect(await getContactsByIds('AT-1', 'tenant-1', [])).toEqual({
+        contacts: [],
+        rate: {},
+      })
+      expect(await getContactsByIds('AT-1', 'tenant-1', [' '])).toEqual({
+        contacts: [],
+        rate: {},
+      })
+      const many = Array.from({ length: CONTACT_IDS_PER_READ + 1 }, () => ID_1)
+      await expect(getContactsByIds('AT-1', 'tenant-1', many)).rejects.toThrow(
+        'at most 50',
+      )
+      expect(CONTACT_IDS_PER_READ).toBe(50)
+      expect(requests).toEqual([])
+    })
+
+    test('getContactByName: an exact match, ACTIVE first', async () => {
+      reply = () =>
+        json({
+          Contacts: [
+            answered({ ContactID: ID_2, Name: 'John Smithers' }),
+            answered({ ContactID: NO_ID, Name: 'John Smith' }),
+            answered({
+              ContactID: '6d3c1b2a-0000-4000-8000-000000000003',
+              Name: 'john  smith',
+              ContactStatus: 'GDPRREQUEST',
+            }),
+            answered({ ContactID: ID_1, Name: 'JOHN SMITH' }),
+          ],
+        })
+      const found = await getContactByName('AT-1', 'tenant-1', ' John Smith ')
+      expect(found?.ContactID).toBe(ID_1)
+
+      const [request] = requests
+      expect(request.method).toBe('GET')
+      const url = new URL(request.url)
+      expect(url.pathname).toBe('/api.xro/2.0/Contacts')
+      expect(url.searchParams.get('where')).toBe('Name=="John Smith"')
+      expect(url.searchParams.get('page')).toBe('1')
+      expect(request.headers['xero-tenant-id']).toBe('tenant-1')
+    })
+
+    test('getContactByName: none is null; a frozen holder is still the holder', async () => {
+      reply = () => json({ Contacts: [answered({ Name: 'John Smithers' })] })
+      expect(
+        await getContactByName('AT-1', 'tenant-1', 'John Smith'),
+      ).toBeNull()
+
+      reply = () =>
+        json({
+          Contacts: [
+            answered({ Name: 'John Smith', ContactStatus: 'GDPRREQUEST' }),
+          ],
+        })
+      expect(
+        (await getContactByName('AT-1', 'tenant-1', 'John Smith'))
+          ?.ContactStatus,
+      ).toBe('GDPRREQUEST')
+    })
+
+    test('getContactByName: a quote or backslash is escaped in the filter', async () => {
+      reply = () =>
+        json({
+          Contacts: [
+            answered({ Name: 'Bob "The Builder" Jones' }),
+            answered({ ContactID: ID_2, Name: 'Bob The Builder Jones' }),
+          ],
+        })
+      const found = await getContactByName(
+        'AT-1',
+        'tenant-1',
+        'Bob "The Builder" Jones',
+      )
+      expect(found?.ContactID).toBe(ID_1)
+      const where = new URL(requests[0].url).searchParams.get('where')
+      expect(where).toBe('Name=="Bob \\"The Builder\\" Jones"')
+
+      await getContactByName('AT-1', 'tenant-1', 'A\\B Holdings')
+      expect(new URL(requests[1].url).searchParams.get('where')).toBe(
+        'Name=="A\\\\B Holdings"',
+      )
+    })
+
+    test('getContactByName: a blank name or tenant asks nothing', async () => {
+      expect(await getContactByName('AT-1', 'tenant-1', '  ')).toBeNull()
+      await expect(getContactByName('AT-1', '', 'A')).rejects.toThrow(
+        'xero-tenant-id',
+      )
+      expect(requests).toEqual([])
+    })
   })
 })
