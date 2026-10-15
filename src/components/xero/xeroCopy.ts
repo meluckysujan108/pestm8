@@ -368,7 +368,7 @@ export const DECIDE_ERROR_COPY: ErrorCopy = {
   // Only a client on Matched can hold a contact: one in the Recycle bin
   // gives it up (`xeroMatch.decide`).
   CONTACT_TAKEN:
-    'Could not match them: that Xero contact is already matched to another client. If that one is wrong, unlink it under Matched first; if not, check Xero again to look for another contact.',
+    'Could not match them: that Xero contact is already another client’s. If they’re different people, choose Different client and PestM8 adds this one as its own contact. If they’re the same customer, unlink the other one under Matched first.',
   NOT_FOUND:
     'Could not save: this one has changed since the page opened. Reload this page and look again.',
   NO_ACCESS:
