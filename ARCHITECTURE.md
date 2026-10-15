@@ -17,6 +17,8 @@ A calendar-first job scheduling and compliance-reporting tool for small Australi
 1. **Per-subcontractor Xero routing** — each subcontractor invoices the client through their *own* Xero organisation, not a shared business ledger.
 2. **Australian-standard report generation** — AS 4349.3, AS 3660.2, and APVMA record-keeping built as first-class document templates, not a generic form builder.
 
+*Amended (2026-10-06):* the first decision now splits contacts from invoices. **Contacts:** every Xero organisation connected in a business — the business's own, which the owner connects, and each contractor's or subcontractor's own — receives the whole client book and every change after that, so whoever does the work can invoice any client from their own books. Leads wait until their first job is booked, and nothing in the Recycle bin is sent. It is one-way, PestM8 → Xero, and PestM8 never deletes or archives anything in Xero. **Invoices**, a later phase, still go to the job lead's own organisation, as this decision always said. The product owner chose the whole book on this date, over the draft's narrower rule of sending a member only the clients of jobs they lead (`docs/xero-contacts-plan.md`). How it is built is §4.5; how it is run is `docs/xero.md`.
+
 ## 1.3 Roles
 | Role | Scope |
 |---|---|
@@ -27,6 +29,7 @@ A calendar-first job scheduling and compliance-reporting tool for small Australi
 ## 1.4 Compliance boundaries (these are product decisions, not footnotes)
 - **No contractor hours, timesheets, or rostering — ever.** Australian sham-contracting law penalises arrangements where an independent contractor is treated like a rostered employee (penalties reaching ~$93,900 per breach, plus back-paid super and personal director liability). These features are deliberately absent. Surface this in the UI and marketing as a designed property.
 - **Per-subcontractor Xero** is the positive expression of the same principle: independent invoicing under their own ABN is evidence of genuine contracting.
+  *Amended (2026-10-06):* it still is. A member's Xero is theirs: only they connect or disconnect it, the owner sees which organisation it is (Team → the member, read-only) and cannot disconnect it, and invoices (later) go to the lead's own organisation. Removing a member disconnects it, so the book stops reaching the Xero of someone who has left. What changed is contacts (§1.2): the whole client book is copied into a member's organisation too, including clients they never serviced, and it stays there after they leave — PestM8 cannot remove anything from someone else's books. That is a disclosure of the business's clients to another business (APP 6), so it is said before Xero's sign-in on the connect page, recorded in the audit log with the wording's version (`disclosure: 'whole_book_v1'`, `termsVersion`), said again when the owner removes a member who has one, and stated publicly on `/terms` and `/privacy`. Those two pages are drafts for the owner to approve, with advice; a contractor agreement should say what happens to the copies when they leave.
 - **The durable notice cannot be fully automated.** AS 3660.2 / NCC require a physical notice fixed to the building. The app generates the label text; fixing it is a human step, tracked as an explicit manual follow-up task.
 
 ---
@@ -123,6 +126,8 @@ Shell      max-width 460px centred on canvas
 *Amended (Appearance moves to Settings):* the header's account button is gone. Its Appearance picker (Light / Dark / System) is now the hub's **Appearance** page, beside About — saved per device, as before. Its "Work in another account" list is now a group near the top of the hub, for contractors and granted subcontractors only; the owner keeps the view menu beside the +. Its Notifications entry was a placeholder with nothing behind it, and was removed with it; a bell comes back in the header when notifications are built.
 
 *Amended (2026-09-29):* the You group's licence row is now **Licences & insurance**. It is one list, with free-text names and no licence/insurance type: "Public liability" sits beside "Pest management", its number is the policy number, and its expiry is the renewal date. Adding one is a single page, **Add new**. It takes the name (a plain field; the name suggestions are gone), the number, the expiry and the photos or PDFs together. Pressing Add uploads the files first, so a failed upload leaves nothing half-made. It then creates the item, attaches the files and returns to the list. Only when a file isn't confirmed in time does it open the item's own page instead. That page says how many files haven't arrived until they do, and what to do if they don't. Leaving Add new part-way makes nothing new and never pulls you back. On an existing item's page, files are still saved the moment they are picked. The report licence number ("On your reports") is unchanged and is still a licence. The route (`/settings/licence`) and the `memberLicences` tables keep their names.
+
+*Amended (2026-10-06):* **Xero.** The Business group gains **Xero**, for the owner: the business's own organisation, showing its name or "Not connected", with an amber "Reconnect" when Xero has stopped accepting the sign-in. The You group gains **My Xero**, for everyone else: their own organisation. The owner has none, because the owner's organisation is the business's. Neither row exists on a deployment with no Xero app (e2e, and wherever the `XERO_*` variables aren't set). Team → a member shows the owner that member's Xero, read-only. Connect Xero goes to Xero's sign-in in the same window, and Xero sends the browser back to the same page, which finishes the connect. Two public pages, `/terms` and `/privacy`, are new: Xero's developer terms require an app to have both, and the connect page links them.
 
 **Modal sheets (5):**
 1. Month picker — bottom sheet, month grid, job-count dots, "Today"
@@ -247,9 +252,11 @@ Breakpoint policy: mobile-first Tailwind, `md:` for tablet re-flow, `lg:` for si
 | Email | **Resend** + **React Email** | Report delivery to clients; React components again. |
 | SMS | **Twilio** | Called from a Convex action. |
 | Billing | **Stripe** (subscriptions) | Already in your stack. Not Connect — you aren't routing contractor money. |
-| Xero | **xero-node** | OAuth2 per subcontractor, called from Convex actions. |
+| Xero | **xero-node** | OAuth2 per subcontractor, called from Convex actions. *Superseded: plain `fetch`, see the note below.* |
 | Testing | **Vitest** + **Playwright** | Playwright specifically for the access-control matrix (see §6.4). |
 | Errors | **Sentry** | |
+
+*Amended (2026-10-06):* **Xero is plain `fetch`, not xero-node.** xero-node runs only in Node, so every action that called it would need `"use node"`, and it brings its own token-set handling where PestM8 keeps one token set per Xero user in the database, refreshed under a lease (§4.5). What PestM8 needs from Xero is a handful of JSON requests: the OAuth token endpoint, `/connections`, `/Organisation` and, from Release 3, `/Contacts`. `convex/lib/xeroHttp.ts` makes them in Convex's default runtime, every one with a 20-second timeout, and sorts every failure into one of a few outcomes in one place (`classify`: refresh, reconnect, pause, retry, stop). The tokens are encrypted with Web Crypto (AES-256-GCM, `convex/lib/xeroCrypto.ts`). No npm dependency and no Convex component was added: the refresh lease has the shape of `reports.claimPdf`, and Release 3's send queue will be a table of its own.
 
 ## 3.2 Explicitly rejected
 - **MUI / Chakra / Mantine** — opinionated visual defaults you'd spend more time overriding than writing from scratch. The iOS look needs primitives, not a design language.
@@ -458,6 +465,35 @@ xeroConnections: {                       // per-user, per-tenant — never share
   connectedAt
 }
 .index("by_membership", ["membershipId"])
+// *Amended (2026-10-06):* the row above is the v1 design, never built, and
+// its tokens are in the wrong place. Xero issues one token set per (Xero
+// user, app), reaching every organisation that user connected, and a new
+// consent supersedes the last; a refresh token rotates on every use. Two
+// rows holding copies of one token set strand each other within half an
+// hour. The live shape (convex/schema.ts) is three tables:
+//   xeroGrants       one per Xero user: both tokens as AES-256-GCM
+//                    ciphertexts (lib/xeroCrypto.ts, key XERO_TOKEN_KEYS),
+//                    scopes, refreshedAt, active | dead, and a refresh lease.
+//                    SERVER ONLY: never in a query result, a scheduler
+//                    argument or a log line.
+//   xeroOAuthStates  a Connect in flight: the OAuth state and the one-time
+//                    finish token, as SHA-256 hashes only, bound to the user
+//                    AND membership that started it. Single use; swept an
+//                    hour after it expires.
+//   xeroConnections  one organisation connected to one business by one
+//                    person: kind business (the owner's) | member (their
+//                    own), grantId, tenantId (never changes: another
+//                    organisation is another connection), tenantName,
+//                    xeroConnectionId, pending | connected |
+//                    needs_reconnect | disconnected, a problem code, who
+//                    disconnected it and why. No secrets, because Settings
+//                    reads it. Never deleted. At most one live row per
+//                    organisation within a business.
+// "expired" became needs_reconnect and "revoked" disconnected. Release 2
+// adds xeroSyncState (a connection's match progress, lease, pause and
+// counts) and xeroContactLinks (one per business, organisation and client,
+// kept through a disconnect so a reconnect never duplicates a contact);
+// Release 3 adds xeroOutbox.
 
 invoices: {
   businessId, jobId, membershipId,
@@ -524,6 +560,20 @@ convex/
   stripe.ts                  [action] checkout, portal; webhook handler
   crons.ts                   materialise recurrences, SMS reminders, Xero token refresh,
                              invoice status sync
+  *Amended (2026-10-06):* Xero (Release 1, connect only) is three modules.
+  `xero.ts` holds what Settings calls — `status`, `memberStatus`, the
+  `startConnect` and `finishConnect` actions, `disconnect` — and the
+  internal steps behind them: `beginConnect`, `takeState`, `storeCallback`,
+  `finish`, `releaseAtXero`, `fetchOrganisation`, `sweep` and `inspect`.
+  `xeroCallback.ts` is the httpAction behind `GET /xero/callback` (routed in
+  `http.ts`). `xeroTokens.ts` holds the refresh lease, the keep-alive and
+  `accessTokenFor(ctx, grantId)`, which every other Xero action uses for a
+  token. Under them: `lib/xeroConfig.ts` (env, scopes, endpoints),
+  `lib/xeroCrypto.ts` (actions only), `lib/xeroHttp.ts`, `lib/base64.ts`
+  and `lib/xeroHooks.ts` (`requireConnectionHolder`, `disconnectXeroFor`;
+  the client-write hooks join it in Release 3). There is no `pushInvoice`
+  yet. `crons.ts` gained "refresh idle Xero sign-ins" (daily, 20:00 UTC)
+  and "sweep Xero sign-ins left half-way" (hourly).
 ```
 
 **Queries vs actions:** anything touching an external API (Xero, Twilio, weather, Stripe, PDF render) is an **action**, never a query or mutation — Convex queries must stay deterministic. Actions write results back through mutations.
@@ -565,6 +615,17 @@ Every function's first line is `const m = await requireMembership(ctx, args.busi
 4. Cron refreshes tokens before expiry; on refresh failure set `status: "expired"` and surface the amber "Xero not connected" state the design file already specifies.
 5. **Guardrail:** the Xero module exposes no function that writes to a business-level or shared Xero organisation. There is no such code path to accidentally call.
 
+*Amended (2026-10-06):* rebuilt for **contacts first**, in releases: Release 1 connects (no contact data goes to Xero; its only calls are the token endpoint, `/connections` and `GET /Organisation`), Release 2 matches the clients Xero already has (reads only), and Release 3 sends. Steps 3 and 5 above are superseded: the owner connects the business's own organisation too, and every organisation connected in a business receives the whole client book's contacts (§1.2). Invoices are a later phase and will go to the job lead's own organisation, as step 3 says. As built:
+
+1. **Who connects what.** The owner connects the business's organisation (Settings → Xero; `business.manage`). A contractor or subcontractor may connect their own (Settings → My Xero; `kind: 'member'`, never the owner). Neither while switched into another account (`SWITCHED`). The owner sees a member's Xero read-only and cannot disconnect it. Removing a member disconnects theirs in the same step (`team.offboard` → `disconnectXeroFor`), and what was already copied stays in their Xero.
+2. **Connect.** `xero.startConnect` mints a random `state`, stores only its hash, bound to the user, membership and kind for 10 minutes, and returns Xero's sign-in URL, which the page opens in the same window. Xero sends the browser to `GET /xero/callback` on the deployment's `.convex.site` (`convex/xeroCallback.ts`). The callback takes the state once, exchanges the code, reads the Xero user from the access token and the organisation from `GET /connections?authEventId=` (organisations only, never a practice), encrypts both tokens, stores the connection as `pending`, and 302s back to the page with a one-time finish token. The page calls `xero.finishConnect`, which succeeds only for the same signed-in user and membership that started: a finish link that reaches anyone else is useless to them. That binds a connect to the person, not to the browser — someone who completes another person's Xero sign-in link and then hands back the address they land on has given them their organisation (binding the state to the browser with a cookie set on the way to Xero is the fix, if that ever matters more). A connect nobody finished is released after 15 minutes (`xero.sweep`). A signed-out finish page goes through `/login?next=` and comes back.
+3. **Refused at the callback,** each with its own words on the page (`?xero=<code>`): the demo business (`demo`); a reconnect that came back with a different organisation (`different_org`); a member choosing the business's organisation (`business_org`); the owner choosing one a member holds (`member_org`); one already connected in this business (`taken`); and an organisation new to this deployment once `XERO_MAX_ORGS` distinct organisations are held across every business (`org_cap`; Xero's own tier cap, 5 on Starter). A refusal deletes the Xero connection the sign-in made, unless another live row in any business holds it.
+4. **Tokens** live once per Xero user (`xeroGrants`), because that is how Xero issues them. Refresh tokens rotate on every use, so one refresh runs at a time, under a 60-second lease, and a daily cron refreshes any token set idle for 30 days (an unused refresh token dies at 60). Xero refusing a refresh (`invalid_grant`) marks the grant dead and every connection on it `needs_reconnect`, which Settings shows as "Reconnect".
+5. **Disconnect** (by hand, by offboarding, or an unfinished connect) deletes the Xero connection only when no other live row in any business holds it, and revokes the refresh token only when no live row uses the grant. A dead grant can do neither, so the page tells the person to remove PestM8 in Xero → Settings → Connected apps.
+6. **Guardrail:** contacts only, only to organisations connected in this business, and every Xero call names its tenant from that business's own connection row. Nothing is sent to any organisation until its holder presses Start syncing (Release 3).
+
+Unconfigured deployments (e2e, unit tests, a local backend without the `XERO_*` variables) refuse Connect (`XERO_NOT_CONFIGURED`), answer the callback with 404 and show no Xero rows. The runbook, env and costs are `docs/xero.md`.
+
 ---
 
 # Part 5 — Frontend Architecture
@@ -574,8 +635,9 @@ Every function's first line is `const m = await requireMembership(ctx, args.busi
 src/routes/
   __root.tsx                      Convex + Query providers, theme, toaster
   index.tsx                       → redirect to /$businessSlug/dashboard
-  login.tsx
+  login.tsx                       ?next= (back to where a signed-out visit began)
   onboarding.tsx                  create first business
+  terms.tsx  privacy.tsx          public and static (Xero's developer terms require both)
   api/auth/$.ts                   Better Auth handler proxy
 
   $businessSlug/
@@ -597,6 +659,8 @@ src/routes/
       details.tsx  licence.tsx  sign-in.tsx  business.tsx  about.tsx
       team/index.tsx  team/$memberId.tsx
       reports/index.tsx  reports/answers.tsx
+      xero/index.tsx  my-xero/index.tsx
+                                  ?finish= &xero= (Xero sending the browser back)
 ```
 
 Filter/date state lives in **validated search params**, not `useState` — the schedule day a tech is looking at survives refresh and is shareable.
@@ -812,7 +876,13 @@ Write these as Playwright specs early; they're the tests that matter most, becau
 | Owner, any job in own tenant | full access |
 | Any user, job in a tenant they aren't a member of | 404, no existence leak |
 | Sub in two businesses | switching context changes visible data; no bleed |
-| Xero push on job assigned to A | lands in A's Xero only; B's connection untouched |
+| Xero contacts (Release 3), any client written in business X | sent to every organisation connected in X (the business's and each member's own); never to one connected only in another business |
+| Member connects the business's organisation, or one already connected in the business | refused at the callback (`business_org`, `taken`); no connection is made |
+| Owner disconnects a member's Xero; anyone connects or disconnects while switched | rejected server-side (`NO_ACCESS`, `SWITCHED`) |
+| Someone finishes a connect another person started | rejected server-side (`NO_ACCESS`) |
+| Xero invoice on a job led by A (later phase) | lands in A's own organisation only |
+
+*Amended (2026-10-06):* the row "Xero push on job assigned to A → lands in A's Xero only; B's connection untouched" is replaced by the five above. Contacts are no longer routed by the job: every connected organisation receives every client (§1.2), so "B's untouched" no longer holds for contacts and still does for invoices. The Xero cases are convex-test cases against a fake Xero (`convex/xeroConnect.test.ts`), not Playwright: the e2e deployment has no Xero app, on purpose, and its spec (`e2e/xero.spec.ts`) checks only the screens of a deployment without one.
 
 Every negative case must be verified at the **Convex function level**, not only by absence of a button.
 

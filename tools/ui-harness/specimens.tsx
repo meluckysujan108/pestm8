@@ -93,6 +93,11 @@ import { InstallCardView } from '#/components/install/InstallCard'
 import { InstallSheet } from '#/components/install/InstallSheet'
 import { InstallLink } from '#/components/install/InstallLink'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
+import { XeroSection } from '#/components/xero/XeroPage'
+import type { XeroSearch } from '#/components/xero/XeroPage'
+import { MemberXero } from '#/components/xero/MemberXero'
+import { MemberSettings } from '#/components/settings/MemberAccessRow'
+import type { Member } from '#/components/settings/MemberAccessRow'
 import type { InstallMethod } from '#/lib/installMethod'
 import type { InstallProgress } from '#/lib/installPrompt'
 import {
@@ -105,6 +110,7 @@ import {
   resolveFixture,
   state,
 } from './fixtures'
+import { XERO_BIZ } from './xeroFixtures'
 import {
   BUSY_CLIENT_ID,
   BUSY_JOB_ID,
@@ -1423,7 +1429,154 @@ function InstallLinkSpecimen() {
   )
 }
 
+/** A Settings page's header as `PageHeader` draws it (which needs the
+ * sidebar's provider): "‹ Settings" over the title. */
+function SettingsHeader({ title }: { title: string }) {
+  return (
+    <header className="chrome-blur sticky top-0 z-30 border-b border-hairline px-4 pb-3 pt-3">
+      <BackLink to="/$businessSlug/settings" params={{ businessSlug: 'demo' }}>
+        Settings
+      </BackLink>
+      <h1 className="truncate text-page-title text-ink">{title}</h1>
+    </header>
+  )
+}
+
+/**
+ * Settings → Xero (`kind="business"`) or My Xero (`"member"`), in one state:
+ * the business id picks `xero.status`'s answer (xeroFixtures.ts). My Xero is
+ * a subcontractor's unless `owner` says otherwise.
+ */
+function xeroPage(
+  kind: 'business' | 'member',
+  businessId: string,
+  opts: { owner?: boolean; switched?: boolean; search?: XeroSearch } = {},
+) {
+  return function XeroSpecimen() {
+    state.technician = !(opts.owner ?? kind === 'business')
+    state.actingAs = opts.switched ?? false
+    return (
+      <Phone>
+        <AccessProvider businessId={businessId as never}>
+          <SettingsHeader title={kind === 'business' ? 'Xero' : 'My Xero'} />
+          <SettingsBody>
+            <XeroSection
+              kind={kind}
+              business={{
+                _id: businessId as never,
+                slug: 'demo',
+                name: 'Pest M8 Pest Control',
+              }}
+              search={opts.search ?? {}}
+              onSearchDone={() => {}}
+            />
+          </SettingsBody>
+        </AccessProvider>
+      </Phone>
+    )
+  }
+}
+
+/** Team → a member, as the owner reads it: their Xero line among the rest. */
+const KEVIN: Member = {
+  _id: 'm_kev' as never,
+  name: 'Kevin Doyle',
+  email: 'kevin@doylepest.example',
+  role: 'subcontractor',
+  grants: {
+    switchInto: null,
+    clientDirectory: false,
+    prices: false,
+    otherSchedules: false,
+  },
+  canViewOtherAccounts: false,
+  canManage: true,
+  canSetRole: true,
+  bookable: true,
+  parentMembershipId: null,
+  licenceNumber: 'TECH-8821',
+  colour: '#FF3B30',
+  status: 'active',
+  canSetColour: false,
+  twoStepOn: false,
+  licenceCount: 0,
+}
+
+function TeamMember() {
+  state.technician = false
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <SettingsHeader title="Kevin Doyle" />
+        <SettingsBody>
+          <MemberSettings
+            businessId={bizId}
+            timezone={TZ}
+            member={KEVIN}
+            onRemoved={() => {}}
+          />
+        </SettingsBody>
+      </AccessProvider>
+    </Phone>
+  )
+}
+
+/** The Team page's Xero line in each state: connected, needing a reconnect,
+ * and nothing connected. */
+function TeamMemberXero() {
+  state.technician = false
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <SettingsHeader title="Team" />
+        <SettingsBody>
+          {[
+            ['m_kev', 'Kevin Doyle'],
+            ['m_sam', 'Sam Nguyen'],
+            ['m_new', 'Mia Torres'],
+          ].map(([id, name]) => (
+            <MemberXero
+              key={id}
+              businessId={bizId}
+              membershipId={id as never}
+              name={name}
+              role="subcontractor"
+              active
+              timezone={TZ}
+            />
+          ))}
+        </SettingsBody>
+      </AccessProvider>
+    </Phone>
+  )
+}
+
 export const SPECIMENS: Partial<Record<string, ComponentType>> = {
+  xero: xeroPage('business', XERO_BIZ.none),
+  'xero-connected': xeroPage('business', XERO_BIZ.connected),
+  'xero-reconnect': xeroPage('business', XERO_BIZ.reconnect),
+  'xero-leftover': xeroPage('business', XERO_BIZ.leftover),
+  'xero-unconfigured': xeroPage('business', XERO_BIZ.unconfigured),
+  'xero-demo': xeroPage('business', XERO_BIZ.demo),
+  'xero-two-step': xeroPage('business', XERO_BIZ.twoStepOff),
+  'xero-loading': xeroPage('business', XERO_BIZ.loading),
+  'xero-finishing': xeroPage('business', XERO_BIZ.none, {
+    search: { finish: 'harness' },
+  }),
+  'xero-returned': xeroPage('business', XERO_BIZ.none, {
+    search: { xero: 'member_org' },
+  }),
+  'xero-owners-only': xeroPage('business', XERO_BIZ.none, { owner: false }),
+  'my-xero': xeroPage('member', XERO_BIZ.none),
+  'my-xero-connected': xeroPage('member', XERO_BIZ.connected),
+  'my-xero-reconnect': xeroPage('member', XERO_BIZ.reconnect),
+  'my-xero-returned': xeroPage('member', XERO_BIZ.none, {
+    search: { xero: 'business_org' },
+  }),
+  'my-xero-owner': xeroPage('member', XERO_BIZ.none, { owner: true }),
+  'my-xero-switched': xeroPage('member', XERO_BIZ.none, { switched: true }),
+  'team-member': TeamMember,
+  'team-member-xero': TeamMemberXero,
   jobtypes: JobTypes,
   install: Install,
   'install-settings': InstallSettingsPage,

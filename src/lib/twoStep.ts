@@ -44,10 +44,21 @@ export function isMfaEnrolmentError(error: unknown): boolean {
  * becomes `/`: a sign-in flow is exactly where an open redirect gets used for
  * phishing, and a standalone iPhone PWA sent off-site leaves the app for good.
  * Never back to /two-step itself, or /login, which would loop.
+ *
+ * No control characters either: a browser drops a tab or a line break from
+ * an address before reading it, so `/<tab>/evil.example` passes the `//`
+ * test here and still lands on evil.example. The sign-in form takes `next`
+ * from its own address (`/login?next=…`), so this is the whole defence.
  */
 export function safeNext(next: unknown): string {
   if (typeof next !== 'string') return '/'
-  if (!next.startsWith('/') || next.startsWith('//') || next.includes('\\')) {
+  if (
+    !next.startsWith('/') ||
+    next.startsWith('//') ||
+    next.includes('\\') ||
+    // eslint-disable-next-line no-control-regex -- the point of the test
+    /[\u0000-\u001f\u007f]/.test(next)
+  ) {
     return '/'
   }
   const path = next.split(/[?#]/)[0]

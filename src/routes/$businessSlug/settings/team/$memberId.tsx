@@ -22,17 +22,30 @@ const LOADER_WAIT_MS = 2000
 export const Route = createFileRoute('/$businessSlug/settings/team/$memberId')({
   // The management roster, which the page finds this person in — the same
   // entry the Team page reads, so coming from there it is already cached.
+  // For the owner, their Xero too (`MemberXero`), so its group is there when
+  // the page opens rather than pushing Remove from team down a moment later.
   // Only for whoever may read it (`access.me` is warm from the layout), and
   // never waited on past LOADER_WAIT_MS: with no signal a Convex query never
   // answers, and the page's placeholder is the better answer to that.
-  loader: ({ context: { queryClient, business } }) => {
+  loader: ({ context: { queryClient, business }, params: { memberId } }) => {
     const access = queryClient.getQueryData<Access>(
       rq.access(business._id).queryKey,
     )
     if (access?.caps['team.manage'] !== true) return
+    const owner = access.caps['business.manage'] === true
     return settleWithin(
       LOADER_WAIT_MS,
-      warm(queryClient, rq.team(business._id), rq.invitations(business._id)),
+      warm(
+        queryClient,
+        rq.team(business._id),
+        rq.invitations(business._id),
+        ...(owner
+          ? [
+              rq.xeroStatus(business._id),
+              rq.xeroMemberStatus(business._id, memberId as Id<'memberships'>),
+            ]
+          : []),
+      ),
     )
   },
   component: MemberPage,

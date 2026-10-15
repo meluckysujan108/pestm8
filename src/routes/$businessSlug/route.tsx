@@ -16,7 +16,15 @@ import { rq } from '#/lib/routeQueries'
 
 export const Route = createFileRoute('/$businessSlug')({
   beforeLoad: async ({ context, params, location }) => {
-    if (!context.isAuthenticated) throw redirect({ to: '/login' })
+    // Back here after signing in, as the two-step redirect below does: a
+    // link into the app (Xero's way back to Settings → Xero with its finish
+    // token, a shared job) is worth more than the schedule it would
+    // otherwise land on. `safeNext` on the sign-in page keeps it on this site.
+    // Xero's way back is a full page load, which the server answers with the
+    // cookie it has, so a lapsed session is caught here.
+    if (!context.isAuthenticated) {
+      throw redirect({ to: '/login', search: { next: location.href } })
+    }
 
     // Signed in without two-step sign-in set up: the server refuses every
     // query below (MFA_ENROLMENT_REQUIRED), so send them to set it up and
@@ -53,6 +61,10 @@ export const Route = createFileRoute('/$businessSlug')({
     // business. Without that, a signed-in tap in such a moment was "Not
     // found" (e2e/socketSignIn.spec.ts).
     if (!business) {
+      // No `next` here: this is a session that ended under an open app —
+      // offboarded, most often — and whoever signs in next, the same person
+      // or someone else on that phone, may not belong in this business.
+      // The front door finds the business they do belong in.
       if (await signedOutAfterAll()) throw redirect({ to: '/login' })
       business = await businessOverHttp(
         context.convexQueryClient.convexClient.url,

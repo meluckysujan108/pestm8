@@ -437,6 +437,9 @@ describe('slugs', () => {
       ['Join', 'join-2'],
       ['Two Step', 'two-step-2'],
       ['Login', 'login-2'],
+      // The public terms and privacy pages (linked from Settings → Xero).
+      ['Terms', 'terms-2'],
+      ['Privacy', 'privacy-2'],
     ]) {
       const created = await someone.as.mutation(api.businesses.create, {
         ...NEW_BUSINESS,

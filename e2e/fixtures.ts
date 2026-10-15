@@ -46,7 +46,13 @@ function assertSafeTarget() {
       )
     }
   }
-  if (deployment && !deployment.startsWith('dev:')) {
+  // A local backend on this machine (`anonymous:` or `local:`, from
+  // `CONVEX_AGENT_MODE=anonymous npx convex dev`) is further from production
+  // than any dev deployment, and touches nothing another session is using —
+  // the way to run the suite while the shared e2e deployment is busy.
+  const local =
+    deployment.startsWith('anonymous:') || deployment.startsWith('local:')
+  if (deployment && !deployment.startsWith('dev:') && !local) {
     throw new Error(
       `Refusing to run the e2e suite against "${deployment}" — it is not a ` +
         `dev deployment. Point .env.local at the e2e deployment first.`,

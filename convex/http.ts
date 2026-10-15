@@ -3,6 +3,7 @@ import { httpAction } from './_generated/server'
 import { internal } from './_generated/api'
 import { authComponent, createAuth } from './auth'
 import { verifySvix } from './lib/svix'
+import { xeroCallback } from './xeroCallback'
 
 const http = httpRouter()
 
@@ -65,6 +66,21 @@ http.route({
 
     return new Response('OK', { status: 200 })
   }),
+})
+
+/**
+ * Where Xero's sign-in sends the browser back after "Connect Xero"
+ * (convex/xeroCallback.ts, and convex/xero.ts for the whole connect).
+ *
+ * Register `https://<deployment>.convex.site/xero/callback` as the redirect
+ * URI on that deployment's Xero app (docs/xero.md) — exactly, since the token
+ * exchange must send the identical string. A deployment without the Xero
+ * variables answers 404 here, as the Resend route does without its secret.
+ */
+http.route({
+  path: '/xero/callback',
+  method: 'GET',
+  handler: xeroCallback,
 })
 
 /**

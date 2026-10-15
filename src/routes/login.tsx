@@ -1,15 +1,22 @@
 import { useState } from 'react'
 import { Link, createFileRoute } from '@tanstack/react-router'
+import { z } from 'zod'
 import { SecondStepForm } from '#/components/auth/SecondStepForm'
 import { InstallLink } from '#/components/install/InstallLink'
 import { authClient, needsSecondStep } from '#/lib/auth-client'
 import { forgetCachedPages } from '#/lib/rootState'
+import { safeNext } from '#/lib/twoStep'
 import { useHydrated } from '#/lib/useHydrated'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { FIELD } from '#/components/forms/FormField'
 import { FormAlert } from '#/components/forms/FormAlert'
 
-export const Route = createFileRoute('/login')({ component: LoginPage })
+export const Route = createFileRoute('/login')({
+  // Where to go once signed in: the page that sent them here
+  // (`$businessSlug/route.tsx`), so a link into the app survives a sign-in.
+  validateSearch: z.object({ next: z.string().optional() }),
+  component: LoginPage,
+})
 
 /**
  * Sign in only. There is deliberately no "create an account" here.
@@ -27,6 +34,7 @@ export const Route = createFileRoute('/login')({ component: LoginPage })
  */
 function LoginPage() {
   const hydrated = useHydrated()
+  const { next } = Route.useSearch()
 
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -76,8 +84,13 @@ function LoginPage() {
     // query cache and the cached sign-in (src/lib/rootState.ts) over for
     // whoever holds the cookie now. `replace`, so Back does not return to a
     // form they have already used. The button stays pending until it lands.
+    //
+    // To `next` when the app sent them here from a page, and only ever a
+    // path on this site (`safeNext`): a sign-in form is exactly where an
+    // open redirect gets used for phishing. Otherwise `/`, which finds their
+    // business.
     await forgetCachedPages()
-    window.location.replace('/')
+    window.location.replace(safeNext(next))
   }
 
   return (

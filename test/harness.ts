@@ -4,7 +4,7 @@ import betterAuthTest from '@convex-dev/better-auth/test'
 import prosemirrorSyncTest from '@convex-dev/prosemirror-sync/test'
 import schema from '../convex/schema'
 import { MEMBER_COLOURS } from '../convex/lib/colours'
-import { components } from '../convex/_generated/api'
+import { api, components } from '../convex/_generated/api'
 import type { Id } from '../convex/_generated/dataModel'
 
 /**
@@ -193,4 +193,40 @@ export async function createBusiness(
     })
     return { businessId, ownerMembershipId }
   })
+}
+
+/**
+ * `invitee` joins `businessId` the way a real person does: the owner makes an
+ * invite link and the invitee redeems it. Returns their new membership.
+ *
+ * Through the real invite path rather than a row insert, so whatever joining
+ * sets up (a colour, the team they land on, the audit line) is what the test
+ * stands on. Promoted from the `join` in convex/teamAuthority.test.ts, which
+ * keeps its own copy.
+ */
+export async function joinBusiness(
+  t: TestApp,
+  owner: TestActor,
+  invitee: TestActor,
+  businessId: Id<'businesses'>,
+  role: 'subcontractor' | 'contractor',
+): Promise<Id<'memberships'>> {
+  const { url } = await owner.as.action(api.invitations.create, {
+    businessId,
+    email: invitee.email,
+    role,
+  })
+  await invitee.as.action(api.invitations.redeem, {
+    token: url.split('/join/')[1],
+  })
+  const membership = await t.run(async (ctx) =>
+    ctx.db
+      .query('memberships')
+      .withIndex('by_user_business', (q) =>
+        q.eq('userId', invitee.userId).eq('businessId', businessId),
+      )
+      .unique(),
+  )
+  if (!membership) throw new Error(`${invitee.email} did not join`)
+  return membership._id
 }
