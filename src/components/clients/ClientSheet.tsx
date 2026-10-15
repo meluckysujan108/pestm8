@@ -1,5 +1,5 @@
 import { Suspense, lazy, useEffect, useId, useRef, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Drawer } from 'vaul'
 import {
@@ -63,8 +63,8 @@ import {
   TagChips,
   TagInput,
   clientNumberLabel,
-  tagsInUse,
 } from '#/components/clients/ClientRecordBits'
+import { rq, warm } from '#/lib/routeQueries'
 import {
   CLIENT_STATUSES,
   clientNumberFromText,
@@ -205,6 +205,7 @@ function ClientBody({
     convexQuery(api.properties.listByClient, { businessId, clientId }),
   )
   const hydrated = useHydrated()
+  const queryClient = useQueryClient()
 
   const convexDelete = useConvexMutation(api.bin.deleteClient)
   const remove = useMutation({
@@ -353,6 +354,14 @@ function ClientBody({
         <button
           type="button"
           disabled={!hydrated || formOpen}
+          // New Job's pickers read the whole client directory, which the
+          // Clients page no longer holds: asked for as the finger lands, so
+          // the sheet usually opens on it rather than on its placeholder.
+          // Through `warm`, which clears a failed attempt nobody is watching:
+          // a bare prefetch would leave the error for New Job to throw.
+          onPointerDown={() => {
+            void warm(queryClient, rq.directory(businessId))
+          }}
           onClick={() => setBookOpen(true)}
           className={`${SECONDARY_BUTTON_COMPACT} mt-3 flex w-full items-center justify-center gap-2`}
         >
@@ -735,12 +744,11 @@ function ClientEditForm({
     client.clientNumber === undefined ? '' : String(client.clientNumber),
   )
   const [tags, setTags] = useState<Array<string>>(client.tags ?? [])
-  // The business's tags, offered as one is typed: the list the Clients page
-  // already has.
-  const { data: allClients } = useQuery(
-    convexQuery(api.clients.list, { businessId }),
-  )
-  const suggestions = tagsInUse(allClients ?? []).map((t) => t.tag)
+  // The business's tags, offered as one is typed: counted on the server for
+  // the Clients page's header and filters (`clients.overview`), the same
+  // cache entry, rather than every client sent down for their tags.
+  const { data: overview } = useQuery(rq.clientOverview(businessId))
+  const suggestions = (overview?.tags ?? []).map((t) => t.tag)
   const wantedNumber = clientNumberFromText(numberText)
   const numberProblem =
     numberText.trim() !== '' && wantedNumber === null

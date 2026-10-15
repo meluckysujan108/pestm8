@@ -2,7 +2,8 @@ import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { convexQuery } from '@convex-dev/react-query'
 import { usePaginatedQuery } from 'convex/react'
-import { ListPending } from '#/components/shell/Pending'
+import { CardRows, ListPending } from '#/components/shell/Pending'
+import { LoadMore } from '#/components/primitives/LoadMore'
 import { NOTES_PAGE, notesFirstPage, rq } from '#/lib/routeQueries'
 import { Briefcase, EyeOff, ListChecks, MapPin, Pin, User } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
@@ -273,17 +274,28 @@ export function NoteList({
           </div>
         </section>
       ))}
-      {!searching &&
-        filter !== 'mentions' &&
-        paged.status === 'CanLoadMore' && (
-          <button
-            type="button"
-            onClick={() => paged.loadMore(NOTES_PAGE)}
-            className="mx-auto mt-4 block rounded-full bg-surface-2 px-4 py-2 text-caption font-semibold text-blue"
-          >
-            Show more
-          </button>
-        )}
+      {/* The next page's notes may open a section of their own, so they
+          are waited for after the sections rather than inside one: as rows
+          the size the list's own placeholder draws, and silent, because
+          LoadMore says a page is coming. */}
+      {paging && paged.status === 'LoadingMore' && (
+        <CardRows count={2} columns={1} className="px-4 pt-4 lg:px-2" />
+      )}
+      {/* The button only, for now: in the desktop column the list scrolls
+          inside the column, not the window, which LoadMore can follow
+          (`scrollRootOf`) but nobody has looked at yet. */}
+      {paging && (
+        <LoadMore
+          auto={false}
+          noun="notes"
+          shown={pageRows.length}
+          canLoadMore={paged.status === 'CanLoadMore'}
+          loading={paged.status === 'LoadingMore'}
+          onLoadMore={() => paged.loadMore(NOTES_PAGE)}
+          resetKey={filter}
+          className="mx-4 mt-4 lg:mx-2"
+        />
+      )}
     </div>
   )
 }

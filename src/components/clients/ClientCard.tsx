@@ -41,22 +41,32 @@ export function ClientKindPill({ kind }: { kind: ClientKind }) {
   )
 }
 
+/** "1 property", "3 properties" — or "50+ properties" when the list was cut
+ * short and there are more than it holds. */
+function propertyCount(count: number, capped: boolean): string {
+  if (capped) return `${count}+ properties`
+  return count === 1 ? '1 property' : `${count} properties`
+}
+
 /** "12 Wattle Street, Bayswater" for one property, a suburb summary for
  * several, or an explicit "no properties", split across a primary and a
  * secondary line. */
-function propertySummary(properties: Array<ClientPropertyRow>): {
+function propertySummary(
+  properties: Array<ClientPropertyRow>,
+  capped: boolean,
+): {
   primary: string
   secondary: string
 } {
   if (properties.length === 0) return { primary: 'No properties yet', secondary: '' }
-  if (properties.length === 1) {
+  if (properties.length === 1 && !capped) {
     return { primary: properties[0].addressLine, secondary: properties[0].suburb }
   }
   const suburbs = [...new Set(properties.map((p) => p.suburb).filter(Boolean))]
   const shown = suburbs.slice(0, 2).join(', ')
   const rest = suburbs.length > 2 ? ` +${suburbs.length - 2}` : ''
   return {
-    primary: `${properties.length} properties`,
+    primary: propertyCount(properties.length, capped),
     secondary: `${shown}${rest}`,
   }
 }
@@ -69,16 +79,20 @@ function propertySummary(properties: Array<ClientPropertyRow>): {
 export function ClientCard({
   client,
   properties,
+  propertiesCapped = false,
   onOpen,
 }: {
   client: ClientRow
   properties: Array<ClientPropertyRow>
+  /** The Clients page's first screen carries a client's newest 50 sites at
+   * most (`clients.page`), and says when there were more. */
+  propertiesCapped?: boolean
   onOpen: (clientId: string) => void
 }) {
   const shell =
     'flex w-full rounded-2xl border border-hairline bg-surface text-left shadow-elevation transition active:scale-[.99]'
   const { Icon } = KIND_STYLE[client.kind]
-  const { primary, secondary } = propertySummary(properties)
+  const { primary, secondary } = propertySummary(properties, propertiesCapped)
 
   return (
     <button
@@ -120,9 +134,7 @@ export function ClientCard({
           {secondary}
         </span>
         <span className="shrink-0 text-row-title text-ink">
-          {properties.length === 1
-            ? '1 property'
-            : `${properties.length} properties`}
+          {propertyCount(properties.length, propertiesCapped)}
         </span>
       </span>
     </button>

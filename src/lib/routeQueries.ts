@@ -57,6 +57,31 @@ export const rq = {
   clients: (businessId: B) => convexQuery(api.clients.list, { businessId }),
   properties: (businessId: B) =>
     convexQuery(api.properties.list, { businessId }),
+  /** Every client and site in slim rows: the pickers, the import's "already
+   * here", and the Clients page's search, A–Z and filters (`clients.ts`). */
+  directory: (businessId: B) =>
+    convexQuery(api.clients.directory, { businessId }),
+  /** The Clients header and filters for the whole book, counted on the
+   * server. */
+  clientOverview: (businessId: B) =>
+    convexQuery(api.clients.overview, { businessId }),
+  /** The bounded Job tab list — one person's or one team's work, or an
+   * older backend's whole list. `status` only when one is chosen, so the
+   * unfiltered key stays the one an older app warmed. */
+  jobsList: (businessId: B, status?: JobListStatus) =>
+    convexQuery(
+      api.jobs.list,
+      status ? { businessId, status } : { businessId },
+    ),
+  /** The paged Job tab's caption: how many jobs, of one status or all. */
+  jobCounts: (businessId: B, status?: JobListStatus) =>
+    convexQuery(
+      api.jobs.listCounts,
+      status ? { businessId, status } : { businessId },
+    ),
+  /** The Recurring Job view's header without its cards. */
+  recurringSummary: (businessId: B, startOfToday: number) =>
+    convexQuery(api.jobs.recurringSummary, { businessId, startOfToday }),
   reportCounts: (businessId: B) =>
     convexQuery(api.reports.counts, { businessId }),
   staleDrafts: (businessId: B) =>
@@ -118,6 +143,9 @@ export const rq = {
 /** How many rows the paginated libraries ask for first. */
 export const REPORTS_PAGE = 25
 export const NOTES_PAGE = 30
+/** 24 fills the Job tab's one, two and three columns evenly. */
+export const JOBS_PAGE = 24
+export const CLIENTS_PAGE = 30
 
 /**
  * The first page of a library, as a plain query.
@@ -219,6 +247,29 @@ export const notesFirstPage = (businessId: B, filter: NotesPageFilter) =>
     businessId,
     filter,
     paginationOpts: { numItems: NOTES_PAGE, cursor: null },
+  })
+
+/** The statuses the Job tab filters by (`settableJobStatus`). */
+export type JobListStatus =
+  'pending' | 'booked' | 'completed' | 'invoiced' | 'cancelled'
+
+/**
+ * The paged Job tab's arguments, built once so the paginator and the warmed
+ * first page ask for the same thing: `status` only when one is chosen.
+ */
+export const jobsPageArgs = (businessId: B, status?: JobListStatus) =>
+  status ? { businessId, status } : { businessId }
+
+export const jobsFirstPage = (businessId: B, status?: JobListStatus) =>
+  convexQuery(api.jobs.listPage, {
+    ...jobsPageArgs(businessId, status),
+    paginationOpts: { numItems: JOBS_PAGE, cursor: null },
+  })
+
+export const clientsFirstPage = (businessId: B) =>
+  convexQuery(api.clients.page, {
+    businessId,
+    paginationOpts: { numItems: CLIENTS_PAGE, cursor: null },
   })
 
 /**

@@ -238,10 +238,16 @@ export function jobWeatherRequests(
  * Recurring Job view — each on its own day, in its own suburb and state. Jobs
  * outside the forecast window draw no strip, as the card always has.
  *
- * Give it every job the page can show, not the ones a filter leaves: the
- * request then stays the same while the filter changes, and nothing is asked
- * again. `showsAny` says whether any of the jobs on screen has a forecast
- * showing, for the credit beside them.
+ * Give it every job the page holds, not the ones a filter on the phone
+ * leaves: the request then stays the same while that filter changes, and
+ * nothing is asked again. A list filtered on the server (the Job tab's
+ * status) holds different jobs under each filter, so there each change asks
+ * once more — only about days it has not asked about, with the forecasts the
+ * two lists share kept on screen meanwhile (`useWeather`). A list that loads
+ * a page at a time holds what has loaded, and asks again as it grows; only
+ * jobs in the next two weeks are asked about, so the pages further back
+ * change nothing. `showsAny` says whether any of the jobs on screen has a
+ * forecast showing, for the credit beside them.
  */
 export function useJobsWeather(
   business: { _id: Id<'businesses'>; state: string; timezone: string },

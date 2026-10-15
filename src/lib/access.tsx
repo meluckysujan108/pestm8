@@ -40,6 +40,14 @@ export type Access = {
    * separately) — and absent must read exactly like null, so nothing renders.
    */
   view?: { mode: ViewMode } | null
+  /**
+   * Whether this person's lists show the whole business (`listsEverything`
+   * in convex/lib/actor.ts): the Job tab pages through one list when they
+   * do, and reads one person's or one team's work whole when they don't.
+   * Optional for the same reason as `view`: absent means a backend from
+   * before paging, and the Job tab reads its old list.
+   */
+  listsEverything?: boolean
 }
 
 /** God view, just my jobs, or working in someone else's account. */

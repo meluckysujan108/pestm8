@@ -41,6 +41,9 @@ import { resolveReportTemplate } from '#/lib/reportTemplates/resolve'
 import { Sheet } from '#/components/primitives/Sheet'
 import { Segmented } from '#/components/primitives/Segmented'
 import { SearchBox } from '#/components/primitives/SearchBox'
+import { LoadMore } from '#/components/primitives/LoadMore'
+import { CardCells } from '#/components/shell/Pending'
+import { useRevealMore } from '#/lib/useRevealMore'
 import {
   EmptyState,
   EmptyStateButton,
@@ -49,6 +52,13 @@ import {
 import { StatusPill } from '#/components/primitives/StatusPill'
 import { ScheduleFilterBar } from '#/components/schedule/ScheduleFilterBar'
 import { ClientFilterBar } from '#/components/clients/ClientFilterBar'
+import { clientFacets } from '../../convex/lib/clientFacets'
+import { useQuery } from '@tanstack/react-query'
+import { api } from '../../convex/_generated/api'
+import { ClientCard } from '#/components/clients/ClientCard'
+import { useClientFilters } from '#/lib/clientFilters'
+import { usePagedList } from '#/lib/usePagedList'
+import { CLIENTS_PAGE, clientsFirstPage, rq } from '#/lib/routeQueries'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { SwitchBanner } from '#/components/shell/SwitchBanner'
 import { AccessProvider } from '#/lib/access'
@@ -514,13 +524,13 @@ function Filters() {
         />
         <p className="section-label">Client filter bar</p>
         <ClientFilterBar
-          rows={[
+          facets={clientFacets([
             {
               client: { status: 'lead', tags: ['GPC', 'Real estate'] },
               properties: [{ suburb: 'Subiaco' }],
             },
             { client: { tags: ['GPC'] }, properties: [{ suburb: 'Crawley' }] },
-          ]}
+          ])}
           kind={kind}
           setKind={setKind}
           suburb={suburb}
@@ -671,6 +681,169 @@ function Empty() {
 function Acting() {
   state.actingAs = true
   return <Warnings />
+}
+
+/**
+ * The end of a long list, in each of its states: more to come (on the Job
+ * tab it loads by itself as it comes near), a page loading (its bones in the
+ * list's own grid, the button saying so), and the button alone (Reports and
+ * Notes). Nothing here loads: `onLoadMore` does nothing.
+ */
+function LoadMoreStates() {
+  const job = (i: number) => (
+    <JobCard
+      key={JOBS[i]._id}
+      job={JOBS[i] as never}
+      timezone={TZ}
+      onOpen={() => {}}
+    />
+  )
+  return (
+    <Phone>
+      <Header kicker="148 jobs" title="Job" />
+      <section className="px-4 pb-6 pt-4">
+        <h2 className="section-label mb-2">More to come</h2>
+        <div className="flex flex-col gap-2.5">{job(4)}</div>
+        <LoadMore
+          canLoadMore
+          loading={false}
+          onLoadMore={() => {}}
+          noun="jobs"
+          shown={24}
+        />
+
+        <h2 className="section-label mb-2 mt-6">Loading the next page</h2>
+        <div className="flex flex-col gap-2.5">
+          {job(2)}
+          <CardCells count={1} size="job" />
+        </div>
+        <LoadMore
+          canLoadMore={false}
+          loading
+          onLoadMore={() => {}}
+          noun="jobs"
+          shown={24}
+        />
+
+        <h2 className="section-label mb-2 mt-6">The button alone</h2>
+        <div className="flex flex-col gap-2.5">
+          <div className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation">
+            <p className="text-row-title text-ink">Pest Management Report</p>
+            <p className="mt-0.5 text-body text-ink-2">Harriet Cole</p>
+            <p className="mt-0.5 text-caption text-muted">Crawley</p>
+          </div>
+        </div>
+        <LoadMore
+          auto={false}
+          canLoadMore
+          loading={false}
+          onLoadMore={() => {}}
+          noun="reports"
+          shown={25}
+        />
+      </section>
+    </Phone>
+  )
+}
+
+const LIVE_ROWS = Array.from({ length: 200 }, (_, i) => i + 1)
+
+/**
+ * LoadMore driving a list, to try by hand: ten at a time, the next ten
+ * arriving by themselves as the end comes near, eight times, and then only
+ * when Show more is tapped (which starts another eight). It opens with
+ * several steps already loaded — a short page is "near" its end at once,
+ * and keeps loading until it is not.
+ */
+function LoadMoreLive() {
+  const reveal = useRevealMore(LIVE_ROWS, 10, '')
+  return (
+    <Phone>
+      <Header kicker="200 clients" title="Clients" />
+      <section className="px-4 pb-6 pt-4">
+        <div className="flex flex-col gap-2.5">
+          {reveal.visible.map((n) => (
+            <div
+              key={n}
+              className="rounded-2xl border border-hairline bg-surface p-3.5 shadow-elevation"
+            >
+              <p className="text-row-title text-ink">Client {n}</p>
+            </div>
+          ))}
+        </div>
+        <LoadMore
+          canLoadMore={reveal.canLoadMore}
+          loading={false}
+          onLoadMore={reveal.loadMore}
+          noun="clients"
+          shown={reveal.visible.length}
+        />
+      </section>
+    </Phone>
+  )
+}
+
+/**
+ * The Clients page as it opens: the whole book's count and filters
+ * (`clients.overview`), the newest clients' first page — a strata client
+ * whose sites run past what a card is sent ("50+ properties"), someone with
+ * no site yet — and Show more for the rest. The route needs the router, so
+ * this is its list, drawn as the route draws it.
+ */
+function ClientsList() {
+  const { data: overview } = useQuery(rq.clientOverview(bizId))
+  const filters = useClientFilters()
+  const paged = usePagedList({
+    query: api.clients.page,
+    args: { businessId: bizId },
+    first: clientsFirstPage(bizId),
+    pageSize: CLIENTS_PAGE,
+  })
+  return (
+    <Phone>
+      <Header
+        kicker={overview && `${overview.total} clients`}
+        title="Clients"
+      />
+      <section className="px-4 pb-6 pt-4">
+        {overview && (
+          <div className="mb-3">
+            <ClientFilterBar
+              facets={overview}
+              kind={filters.kind}
+              setKind={filters.setKind}
+              suburb={filters.suburb}
+              setSuburb={filters.setSuburb}
+              status={filters.status}
+              setStatus={filters.setStatus}
+              tag={filters.tag}
+              setTag={filters.setTag}
+              filtered={filters.filtersActive}
+              onClear={filters.clearFilters}
+            />
+          </div>
+        )}
+        <div className="flex flex-col gap-2.5 md:grid md:grid-cols-2 md:items-stretch">
+          {paged.rows.map((row) => (
+            <ClientCard
+              key={row.client._id}
+              client={row.client}
+              properties={row.properties}
+              propertiesCapped={row.propertiesCapped}
+              onOpen={() => {}}
+            />
+          ))}
+        </div>
+        <LoadMore
+          canLoadMore={paged.canLoadMore}
+          loading={paged.loadingMore}
+          onLoadMore={paged.loadMore}
+          noun="clients"
+          shown={paged.rows.length}
+        />
+      </section>
+    </Phone>
+  )
 }
 
 /** The Reports list, as the owner sees it: a bin on every report. */
@@ -1580,4 +1753,7 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   reports: reportsList('all'),
   'reports-deleted': reportsList('trash'),
   'reports-deleted-tech': reportsList('trash', true),
+  loadmore: LoadMoreStates,
+  'loadmore-live': LoadMoreLive,
+  clients: ClientsList,
 }

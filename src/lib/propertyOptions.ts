@@ -74,6 +74,8 @@ export type PickableProperty = {
   importId?: string
   /** The import it came from, kept after an Undo clears `importId`. */
   importedFrom?: string
+  /** Either of those, as `clients.directory` sends it: a flag, not the id. */
+  imported?: boolean
   /** The site's own contact (Prompt 6.3), counted only for a business client
    * — the same rule as the job card's Call. */
   siteContactName?: string
@@ -110,7 +112,10 @@ export function propertyOptions(
   const top = newest(properties, recent, (p) => ({
     key: p._id,
     createdAt: p.createdAt,
-    imported: p.importId !== undefined || p.importedFrom !== undefined,
+    imported:
+      p.imported === true ||
+      p.importId !== undefined ||
+      p.importedFrom !== undefined,
     archived: Boolean(p.client?.archivedAt),
   }))
   const topAt = new Map(top.map((t) => [t.key, t.createdAt]))
@@ -207,6 +212,7 @@ export type PickableClientSite = {
     createdAt?: number
     importId?: string
     importedFrom?: string
+    imported?: boolean
   } | null
 }
 
@@ -249,7 +255,9 @@ export function clientOptions(
       key: clientId,
       createdAt: client.createdAt,
       imported:
-        client.importId !== undefined || client.importedFrom !== undefined,
+        client.imported === true ||
+        client.importId !== undefined ||
+        client.importedFrom !== undefined,
       archived: Boolean(client.archivedAt),
     }),
   )

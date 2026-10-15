@@ -1,4 +1,5 @@
 import { ConvexError, v } from 'convex/values'
+import { paginationOptsValidator } from 'convex/server'
 import { mutation, query } from './_generated/server'
 import { requireMembership } from './lib/access'
 import { normaliseAbn } from './lib/abn'
@@ -33,6 +34,7 @@ import { intervalOf } from './lib/recurrence'
 import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { redactJobs } from './lib/prices'
 import { unbinned } from './lib/bin'
+import { clientFacets } from './lib/clientFacets'
 import { countXeroLinksOf, inXeroBook } from './lib/xeroHooks'
 
 async function requireClient(
@@ -63,6 +65,262 @@ export const list = query({
     return clients
       .filter((c) => c.archivedAt === undefined)
       .filter((c) => inClientScope(visible, c._id))
+  },
+})
+
+/**
+ * Past this many clients (or sites) the directory stops reading and says so.
+ * Far beyond any book today (the largest is 1,338): before a business gets
+ * here, the Clients search moves to the server (docs/design-system.md, Long
+ * lists). It keeps the read inside a query's limits rather than failing.
+ */
+const DIRECTORY_LIMIT = 8000
+
+/**
+ * Every client and every site of the business, in slim rows — the one list
+ * behind the booking pickers (New Job, the job's edit form, New report), the
+ * client import's "already here", and the Clients page's search, A–Z and
+ * filters.
+ *
+ * Read whole on purpose: a picker that held only some clients would let the
+ * office type an existing one in again, a second history for the same house
+ * (properties.ts `search`). What it no longer does is what made
+ * `properties.list` heavy: one read per site to embed the whole client, and
+ * every field of both. Two range reads, joined here, and only the fields
+ * those screens use — about a third of the bytes.
+ *
+ * Archived clients are in it, with `archivedAt`: the pickers keep them
+ * pickable, labelled and last; the Clients page leaves them out. Both
+ * arrays are oldest first (`by_business`), as `properties.list` was: the
+ * import matches the older of two same-named clients, and New report picks
+ * the first site. Scoped as `properties.list` is.
+ */
+export const directory = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const env = await requireActor(ctx, businessId)
+    const visible = await visibleClientIds(ctx, env)
+
+    // Read newest first, so a book past the limit loses its OLDEST rows:
+    // the newest are the ones about to be booked, and an import's duplicate
+    // check has most need of what was added last. Turned back to oldest
+    // first after the cut.
+    const [clients, sites] = await Promise.all([
+      ctx.db
+        .query('clients')
+        .withIndex('by_business', (q) => q.eq('businessId', businessId))
+        .order('desc')
+        .filter((q) => q.eq(q.field('deletedAt'), undefined))
+        .take(DIRECTORY_LIMIT + 1),
+      ctx.db
+        .query('properties')
+        .withIndex('by_business', (q) => q.eq('businessId', businessId))
+        .order('desc')
+        .filter((q) => q.eq(q.field('deletedAt'), undefined))
+        .take(DIRECTORY_LIMIT + 1),
+    ])
+
+    const shown = clients
+      .slice(0, DIRECTORY_LIMIT)
+      .reverse()
+      .filter((c) => inClientScope(visible, c._id))
+    const ids = new Set(shown.map((c) => c._id))
+    return {
+      clients: shown.map(directoryClient),
+      // Only sites whose client is listed: a site never arrives without the
+      // name it is booked under.
+      sites: sites
+        .slice(0, DIRECTORY_LIMIT)
+        .reverse()
+        .filter((p) => ids.has(p.clientId))
+        .map(directorySite),
+      capped:
+        clients.length > DIRECTORY_LIMIT || sites.length > DIRECTORY_LIMIT,
+    }
+  },
+})
+
+const imported = (row: {
+  importId?: Id<'clientImports'>
+  importedFrom?: Id<'clientImports'>
+}) =>
+  // Either: Undo clears `importId` on what it keeps, never `importedFrom`.
+  row.importId !== undefined || row.importedFrom !== undefined
+    ? { imported: true as const }
+    : {}
+
+/** A client as the directory sends it. An empty field is left out. */
+function directoryClient(c: Doc<'clients'>) {
+  return {
+    _id: c._id,
+    _creationTime: c._creationTime,
+    name: c.name,
+    kind: c.kind,
+    ...(c.phone ? { phone: c.phone } : {}),
+    ...(c.abn ? { abn: c.abn } : {}),
+    ...(c.clientNumber !== undefined ? { clientNumber: c.clientNumber } : {}),
+    ...(c.status ? { status: c.status } : {}),
+    ...(c.tags && c.tags.length > 0 ? { tags: c.tags } : {}),
+    ...(c.archivedAt !== undefined ? { archivedAt: c.archivedAt } : {}),
+    createdAt: c.createdAt,
+    ...imported(c),
+  }
+}
+
+/** A site as the directory sends it. An empty field is left out. */
+function directorySite(p: Doc<'properties'>) {
+  return {
+    _id: p._id,
+    clientId: p.clientId,
+    addressLine: p.addressLine,
+    suburb: p.suburb,
+    postcode: p.postcode,
+    ...(p.siteContactName ? { siteContactName: p.siteContactName } : {}),
+    ...(p.siteContactPhone ? { siteContactPhone: p.siteContactPhone } : {}),
+    createdAt: p.createdAt,
+    ...imported(p),
+  }
+}
+
+/** The Clients page asks for 30; past this a page is cut down. */
+const CLIENT_PAGE_MAX = 60
+
+/**
+ * The Clients page as it opens: the newest clients, a page at a time, each
+ * with its sites for the card — instead of every client and every site.
+ *
+ * Newest first is `by_business` read backwards: every client is inserted
+ * with `createdAt` = now, so creation order is the page's order. Archived
+ * clients and the Recycle bin are stepped over by the filter, before the
+ * page is cut, so a page comes back full. The filter is the same for
+ * everyone, so a page's place never goes stale (see `jobs.listPage`).
+ *
+ * Client scope is applied to the page afterwards — it is the whole book for
+ * every role today (lib/clientScope.ts), and the app keeps asking while a
+ * page comes back empty but not done.
+ *
+ * Search, A–Z and the filters do not page: they read `directory`, and run
+ * the page's own matcher over every client (src/lib/clientFilters.ts).
+ */
+export const page = query({
+  args: {
+    businessId: v.id('businesses'),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, { businessId, paginationOpts }) => {
+    const env = await requireActor(ctx, businessId)
+    const visible = await visibleClientIds(ctx, env)
+
+    const result = await ctx.db
+      .query('clients')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .order('desc')
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('deletedAt'), undefined),
+          q.eq(q.field('archivedAt'), undefined),
+        ),
+      )
+      .paginate({
+        ...paginationOpts,
+        numItems: Math.max(
+          1,
+          Math.min(paginationOpts.numItems, CLIENT_PAGE_MAX),
+        ),
+        maximumRowsRead: paginationOpts.maximumRowsRead ?? 4000,
+      })
+
+    const rows = await Promise.all(
+      result.page
+        .filter((c) => inClientScope(visible, c._id))
+        .map(async (c) => {
+          // Live sites only, oldest first, the newest 50 when there are
+          // more — and `propertiesCapped` to say so ("50+ properties").
+          const sites = await propertiesOf(ctx, businessId, c._id)
+          return {
+            client: {
+              _id: c._id,
+              _creationTime: c._creationTime,
+              name: c.name,
+              kind: c.kind,
+              ...(c.clientNumber !== undefined
+                ? { clientNumber: c.clientNumber }
+                : {}),
+              ...(c.status ? { status: c.status } : {}),
+              ...(c.tags && c.tags.length > 0 ? { tags: c.tags } : {}),
+              createdAt: c.createdAt,
+            },
+            properties: sites.properties.map((p) => ({
+              _id: p._id,
+              addressLine: p.addressLine,
+              suburb: p.suburb,
+            })),
+            propertiesCapped: sites.capped,
+          }
+        }),
+    )
+    return { ...result, page: rows }
+  },
+})
+
+/** Past this many clients the overview stops counting: "5000+ clients". */
+const OVERVIEW_LIMIT = 5000
+
+/**
+ * The Clients page's header and filters for the whole book, without sending
+ * the book: how many clients, and which statuses, tags and suburbs they
+ * have, with counts — a few KB where the page used to need every client and
+ * site to work these out.
+ *
+ * The same clients the page lists (live, not archived, in scope), newest
+ * first as the page shows them, and the same counting
+ * (lib/clientFacets.ts), so the first screen's filters offer exactly what
+ * they did. Also the client form's tag suggestions.
+ */
+export const overview = query({
+  args: { businessId: v.id('businesses') },
+  handler: async (ctx, { businessId }) => {
+    const env = await requireActor(ctx, businessId)
+    const visible = await visibleClientIds(ctx, env)
+
+    const found = await ctx.db
+      .query('clients')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .order('desc')
+      .filter((q) =>
+        q.and(
+          q.eq(q.field('deletedAt'), undefined),
+          q.eq(q.field('archivedAt'), undefined),
+        ),
+      )
+      .take(OVERVIEW_LIMIT + 1)
+    const clients = found
+      .slice(0, OVERVIEW_LIMIT)
+      .filter((c) => inClientScope(visible, c._id))
+
+    // Suburbs are the sites': each client counts once per distinct suburb.
+    const suburbsOf = new Map<Id<'clients'>, Array<{ suburb: string }>>(
+      clients.map((c) => [c._id, []]),
+    )
+    const sites = await ctx.db
+      .query('properties')
+      .withIndex('by_business', (q) => q.eq('businessId', businessId))
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
+      .take(OVERVIEW_LIMIT * 2)
+    for (const site of sites) {
+      suburbsOf.get(site.clientId)?.push({ suburb: site.suburb })
+    }
+
+    return {
+      total: clients.length,
+      capped: found.length > OVERVIEW_LIMIT,
+      ...clientFacets(
+        clients.map((c) => ({
+          client: c,
+          properties: suburbsOf.get(c._id) ?? [],
+        })),
+      ),
+    }
   },
 })
 

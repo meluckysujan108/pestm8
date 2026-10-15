@@ -377,7 +377,7 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 - **A button's words are the verb it performs:**
   - A create commits with the verb and the noun ("Book job", "Add product").
   - An edit form commits with "Save".
-  - While it runs, it says so and waits: `disabled` and "Saving…".
+  - While it runs, it says so and waits: `disabled` and "Saving…". The one exception is "Show more" at the end of a long list, which says "Loading…" and stays focusable (Long lists, in section 5).
   - With save warnings open, it reads "{its words} anyway".
 - **Text buttons** (a blue word, no fill) are for inline links and header actions. They still need a 44px hit area: add `tap-target` and `relative` if they are drawn smaller.
 - **Never hand-roll a filled button** (`rounded-xl h-10–12` red, ink or blue) **(lint)**.
@@ -482,8 +482,10 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 | `NoMatches`                               | A search or filter that found nothing: "No matches for “…”" and a way to clear it. Never `EmptyState` for this                                                                                          |
 | `LoadFailed`                              | Something inside a page that could not load — a sheet's detail, a section's notes, a list in Settings: “Could not load … Check your signal.” with Try again. Never leave a placeholder waiting for good |
 | `PagePending`                             | The router's default: a page loading inside a shell that stays put                                                                                                                                      |
-| `ListPending`                             | A list loading inside a page that is already on screen (announced)                                                                                                                                      |
+| `ListPending`                             | A list loading inside a page that is already on screen (announced). `columns={3} size="job"` for the Job tab's grid                                                                                     |
 | `CardRows`                                | The card-shaped placeholders `ListPending` draws, for a custom layout                                                                                                                                   |
+| `CardCells`                               | The next page loading under a list already drawn: bare bones dropped into the list's own grid after its last card, silent (`LoadMore` speaks). `size="job"` for job cards                               |
+| `LoadMore` (`primitives/LoadMore.tsx`)    | The end of a long list: the next page loads as it comes near, up to `AUTO_LOAD_PAGES` (8) by itself, with "Show more {things}" always below. `auto={false}` is the button alone. See Long lists (5)     |
 | `RowPending`                              | One row loading inside a card (a job's notes). Use it instead of a spinner row                                                                                                                          |
 | `TextPending`                             | A block of text loading (a note's body)                                                                                                                                                                 |
 | `SectionPending`                          | A page section loading (a Settings page's Suspense fallback)                                                                                                                                            |
@@ -623,6 +625,20 @@ _Amended 6 Oct 2026:_ a deliberate hand-over to another service’s sign-in on a
 - **What a job card offers depends on its status.** Committed work gets the contact holds; a due recurring visit gets "… to book"; future or cancelled work gets nothing.
 - **A job card says who to ask for,** on the price's line, above Call, Text and Email where the card has them: "Contact Jan Morris". It names a business client's site contact when Call rings the site, else its contact person, whose own number Call rings when they have one (`contactToCall` in `convex/lib/siteContact.ts`). A card without contact holds (a future visit, the Recurring Job view) still names them, as who to ring to book. Nobody is named who is already the heading — a person client, a sole trader under their own name — and the card never names someone its Call does not reach. The job sheet shows the contact person under the property. _Added 2 Oct 2026._
 - **Recurring projections are shown but never counted** in totals.
+
+### Long lists
+
+A list that can run to hundreds (the Job tab, the Clients page) is paged, never drawn whole: every card is one the phone lays out and hydrates.
+
+- **The first page is in the page itself.** The loader warms it as a plain query (`jobsFirstPage`, `clientsFirstPage` in `routeQueries.ts`), the server renders it, and `usePagedList` hands over to Convex's paginator once that has caught up. A list already here in full (one person's newest 200 jobs, a search over the client directory) is drawn a step at a time with `useRevealMore`.
+- **The next page loads as the end comes near,** a screen and a half ahead (`LoadMore`, `observeNear`), and a "Show more {things}" button is always below it: the way that works from a keyboard, a screen reader, or a browser that can't watch. While a page comes, its bones are `CardCells` inside the list's own grid (Notes, whose next page may open a new date section, puts `CardRows` after its sections instead), and the button says "Loading…" with `aria-disabled`, not `disabled`, so whoever pressed it keeps their place: the one running button that isn't `disabled` (4.1).
+- **It stops loading by itself after eight pages** (`AUTO_LOAD_PAGES`). The button carries on, and a tap starts another eight: past that, someone is looking for something, and search is the faster way to it.
+- **No signal pauses loading by itself;** the button still asks, and the page comes with the signal. A list that needs every client (a search, A–Z, a filter) and cannot get them says so with `LoadFailed` and Try again, never a placeholder left waiting.
+- **It says what it is doing:** "Loading more jobs" while a page comes (`role="status"`; `announce={false}` in a sheet), then "54 jobs showing", in a polite live region, once a load someone asked for has landed — never on every live change. The count is never a `status` region.
+- **Empty means the whole list is empty.** `EmptyState` or `NoMatches` only once the list is done (`usePagedList`'s `empty`). A page can come back empty with more behind it (who sees what is applied after paging): it is asked past a few at a time, then left to Show more, never a placeholder waiting for good.
+- **Counts are the whole book's, from the server** ("148 jobs", "1000+ jobs", digits as every count in the app), never how many have loaded.
+- **Search and filters never search only what has loaded.** They run on the server or over the whole directory, and while that loads they say so, never "No matches".
+- **Reports and Notes use the button alone, for now** (`auto={false}`).
 
 ### Filters and views
 
@@ -891,6 +907,7 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **Controls are fixed sizes:** buttons are 48 or 44px, fields use 16px text, and every target is at least 44px.
 - **Navigation:** Schedule, Clients, Reports and Notes, then More. Settings is an iOS grouped hub of drill-in pages, and Appearance lives there.
 - **Views:** the schedule is cards or a week, and clients are cards. The table and list views are retired.
+- **Long lists load as you scroll, with Show more always there.** The Job tab and the Clients page load 24 and 30 at a time as the end comes near, eight pages at most by themselves; the button is always below, and a search, a filter or a count covers the whole book, never just what has loaded. Reports and Notes keep the button alone for now. _Added 6 Oct 2026._
 - **Hold to act** is used for anything that reaches a client or leaves the app. _Amended 6 Oct 2026:_ a deliberate hand-over to another service’s sign-in on a Settings page (Connect Xero) is a tap; Open in Xero stays a hold.
 - **Filters:** binary and ternary filters use `Segmented`, never a dropdown.
 - **The report builder** opens on an overview and fills one section at a time, with the section in the URL. A list of more than 12 options opens a picker sheet.
