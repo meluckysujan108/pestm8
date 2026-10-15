@@ -221,6 +221,8 @@ const XERO_VIEW_KEYS = [
   'connectionId',
   'disconnectReason',
   'kind',
+  // How matching its contacts stands (Release 2, convex/xeroMatch.test.ts).
+  'match',
   'problem',
   'shortCode',
   'status',

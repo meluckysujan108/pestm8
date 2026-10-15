@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useState } from 'react'
 import type { KeyboardEvent } from 'react'
 
 /**
@@ -14,6 +14,13 @@ import type { KeyboardEvent } from 'react'
  *
  * Either way it is one stop on the Tab key, on the selected segment, and the
  * arrow keys (Home/End too) move the selection, as both patterns expect.
+ *
+ * With nothing chosen yet (a `value` none of the options has — Match your
+ * clients' "Same client" / "Different client", which saves the moment it is
+ * chosen) the arrows only move between the segments, and Space, Enter or a
+ * tap chooses: an arrow pressed to look, or to scroll, must not answer the
+ * question. The unchosen segments are drawn in `ink-2` then, not `muted`:
+ * each is an answer to read, in sun, not the quiet other half of a switch.
  */
 export function Segmented<T extends string>({
   value,
@@ -34,10 +41,15 @@ export function Segmented<T extends string>({
   const buttons = useRef<Array<HTMLButtonElement | null>>([])
   const choice = kind === 'choice'
   const selectedIndex = options.findIndex((option) => option.value === value)
+  const unanswered = selectedIndex === -1
+  // Where the arrows have moved to while nothing is chosen: the Tab stop.
+  const [cursor, setCursor] = useState(0)
 
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (disabled || options.length === 0) return
-    const from = Math.max(selectedIndex, 0)
+    const from = unanswered
+      ? Math.min(cursor, options.length - 1)
+      : selectedIndex
     const last = options.length - 1
     const to = {
       ArrowRight: from === last ? 0 : from + 1,
@@ -49,7 +61,8 @@ export function Segmented<T extends string>({
     }[event.key]
     if (to === undefined) return
     event.preventDefault()
-    onChange(options[to].value)
+    if (unanswered) setCursor(to)
+    else onChange(options[to].value)
     buttons.current[to]?.focus()
   }
 
@@ -72,15 +85,22 @@ export function Segmented<T extends string>({
             role={choice ? 'radio' : 'tab'}
             aria-checked={choice ? selected : undefined}
             aria-selected={choice ? undefined : selected}
-            // One stop on the Tab key: the selected segment, or the first
-            // when nothing is.
+            // One stop on the Tab key: the selected segment, or — when
+            // nothing is — the one the arrows last moved to (the first).
             tabIndex={
-              selected || (selectedIndex === -1 && index === 0) ? 0 : -1
+              selected ||
+              (unanswered && index === Math.min(cursor, options.length - 1))
+                ? 0
+                : -1
             }
             disabled={disabled}
             onClick={() => onChange(option.value)}
             className={`relative tap-target flex-1 rounded-segment px-3 py-1.5 text-caption font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-blue ${
-              selected ? 'bg-surface text-ink shadow-elevation' : 'text-muted'
+              selected
+                ? 'bg-surface text-ink shadow-elevation'
+                : unanswered
+                  ? 'text-ink-2'
+                  : 'text-muted'
             } disabled:opacity-60`}
           >
             {option.label}

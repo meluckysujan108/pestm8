@@ -51,11 +51,13 @@ import { Route as BusinessSlugSettingsLicenceIndexRouteImport } from './routes/$
 import { Route as BusinessSlugSettingsLicenceLicenceIdRouteImport } from './routes/$businessSlug/settings/licence/$licenceId'
 import { Route as BusinessSlugSettingsLicenceNewRouteImport } from './routes/$businessSlug/settings/licence/new'
 import { Route as BusinessSlugSettingsMyXeroIndexRouteImport } from './routes/$businessSlug/settings/my-xero/index'
+import { Route as BusinessSlugSettingsMyXeroMatchRouteImport } from './routes/$businessSlug/settings/my-xero/match'
 import { Route as BusinessSlugSettingsReportsIndexRouteImport } from './routes/$businessSlug/settings/reports/index'
 import { Route as BusinessSlugSettingsReportsAnswersRouteImport } from './routes/$businessSlug/settings/reports/answers'
 import { Route as BusinessSlugSettingsTeamIndexRouteImport } from './routes/$businessSlug/settings/team/index'
 import { Route as BusinessSlugSettingsTeamMemberIdRouteImport } from './routes/$businessSlug/settings/team/$memberId'
 import { Route as BusinessSlugSettingsXeroIndexRouteImport } from './routes/$businessSlug/settings/xero/index'
+import { Route as BusinessSlugSettingsXeroMatchRouteImport } from './routes/$businessSlug/settings/xero/match'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -287,6 +289,12 @@ const BusinessSlugSettingsMyXeroIndexRoute =
     path: '/settings/my-xero/',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
+const BusinessSlugSettingsMyXeroMatchRoute =
+  BusinessSlugSettingsMyXeroMatchRouteImport.update({
+    id: '/settings/my-xero/match',
+    path: '/settings/my-xero/match',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
 const BusinessSlugSettingsReportsIndexRoute =
   BusinessSlugSettingsReportsIndexRouteImport.update({
     id: '/settings/reports/',
@@ -315,6 +323,12 @@ const BusinessSlugSettingsXeroIndexRoute =
   BusinessSlugSettingsXeroIndexRouteImport.update({
     id: '/settings/xero/',
     path: '/settings/xero/',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
+const BusinessSlugSettingsXeroMatchRoute =
+  BusinessSlugSettingsXeroMatchRouteImport.update({
+    id: '/settings/xero/match',
+    path: '/settings/xero/match',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
 
@@ -358,8 +372,10 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
   '/$businessSlug/settings/licence/$licenceId': typeof BusinessSlugSettingsLicenceLicenceIdRoute
   '/$businessSlug/settings/licence/new': typeof BusinessSlugSettingsLicenceNewRoute
+  '/$businessSlug/settings/my-xero/match': typeof BusinessSlugSettingsMyXeroMatchRoute
   '/$businessSlug/settings/reports/answers': typeof BusinessSlugSettingsReportsAnswersRoute
   '/$businessSlug/settings/team/$memberId': typeof BusinessSlugSettingsTeamMemberIdRoute
+  '/$businessSlug/settings/xero/match': typeof BusinessSlugSettingsXeroMatchRoute
   '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
   '/$businessSlug/settings/licence/': typeof BusinessSlugSettingsLicenceIndexRoute
   '/$businessSlug/settings/my-xero/': typeof BusinessSlugSettingsMyXeroIndexRoute
@@ -406,8 +422,10 @@ export interface FileRoutesByTo {
   '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
   '/$businessSlug/settings/licence/$licenceId': typeof BusinessSlugSettingsLicenceLicenceIdRoute
   '/$businessSlug/settings/licence/new': typeof BusinessSlugSettingsLicenceNewRoute
+  '/$businessSlug/settings/my-xero/match': typeof BusinessSlugSettingsMyXeroMatchRoute
   '/$businessSlug/settings/reports/answers': typeof BusinessSlugSettingsReportsAnswersRoute
   '/$businessSlug/settings/team/$memberId': typeof BusinessSlugSettingsTeamMemberIdRoute
+  '/$businessSlug/settings/xero/match': typeof BusinessSlugSettingsXeroMatchRoute
   '/$businessSlug/reports/templates': typeof BusinessSlugReportsTemplatesIndexRoute
   '/$businessSlug/settings/licence': typeof BusinessSlugSettingsLicenceIndexRoute
   '/$businessSlug/settings/my-xero': typeof BusinessSlugSettingsMyXeroIndexRoute
@@ -456,8 +474,10 @@ export interface FileRoutesById {
   '/$businessSlug/reports/templates/$templateId': typeof BusinessSlugReportsTemplatesTemplateIdRoute
   '/$businessSlug/settings/licence/$licenceId': typeof BusinessSlugSettingsLicenceLicenceIdRoute
   '/$businessSlug/settings/licence/new': typeof BusinessSlugSettingsLicenceNewRoute
+  '/$businessSlug/settings/my-xero/match': typeof BusinessSlugSettingsMyXeroMatchRoute
   '/$businessSlug/settings/reports/answers': typeof BusinessSlugSettingsReportsAnswersRoute
   '/$businessSlug/settings/team/$memberId': typeof BusinessSlugSettingsTeamMemberIdRoute
+  '/$businessSlug/settings/xero/match': typeof BusinessSlugSettingsXeroMatchRoute
   '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
   '/$businessSlug/settings/licence/': typeof BusinessSlugSettingsLicenceIndexRoute
   '/$businessSlug/settings/my-xero/': typeof BusinessSlugSettingsMyXeroIndexRoute
@@ -507,8 +527,10 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/templates/$templateId'
     | '/$businessSlug/settings/licence/$licenceId'
     | '/$businessSlug/settings/licence/new'
+    | '/$businessSlug/settings/my-xero/match'
     | '/$businessSlug/settings/reports/answers'
     | '/$businessSlug/settings/team/$memberId'
+    | '/$businessSlug/settings/xero/match'
     | '/$businessSlug/reports/templates/'
     | '/$businessSlug/settings/licence/'
     | '/$businessSlug/settings/my-xero/'
@@ -555,8 +577,10 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/templates/$templateId'
     | '/$businessSlug/settings/licence/$licenceId'
     | '/$businessSlug/settings/licence/new'
+    | '/$businessSlug/settings/my-xero/match'
     | '/$businessSlug/settings/reports/answers'
     | '/$businessSlug/settings/team/$memberId'
+    | '/$businessSlug/settings/xero/match'
     | '/$businessSlug/reports/templates'
     | '/$businessSlug/settings/licence'
     | '/$businessSlug/settings/my-xero'
@@ -604,8 +628,10 @@ export interface FileRouteTypes {
     | '/$businessSlug/reports/templates/$templateId'
     | '/$businessSlug/settings/licence/$licenceId'
     | '/$businessSlug/settings/licence/new'
+    | '/$businessSlug/settings/my-xero/match'
     | '/$businessSlug/settings/reports/answers'
     | '/$businessSlug/settings/team/$memberId'
+    | '/$businessSlug/settings/xero/match'
     | '/$businessSlug/reports/templates/'
     | '/$businessSlug/settings/licence/'
     | '/$businessSlug/settings/my-xero/'
@@ -926,6 +952,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessSlugSettingsMyXeroIndexRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
+    '/$businessSlug/settings/my-xero/match': {
+      id: '/$businessSlug/settings/my-xero/match'
+      path: '/settings/my-xero/match'
+      fullPath: '/$businessSlug/settings/my-xero/match'
+      preLoaderRoute: typeof BusinessSlugSettingsMyXeroMatchRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
     '/$businessSlug/settings/reports/': {
       id: '/$businessSlug/settings/reports/'
       path: '/settings/reports'
@@ -959,6 +992,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/xero'
       fullPath: '/$businessSlug/settings/xero/'
       preLoaderRoute: typeof BusinessSlugSettingsXeroIndexRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/settings/xero/match': {
+      id: '/$businessSlug/settings/xero/match'
+      path: '/settings/xero/match'
+      fullPath: '/$businessSlug/settings/xero/match'
+      preLoaderRoute: typeof BusinessSlugSettingsXeroMatchRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
   }
@@ -1002,8 +1042,10 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugReportsTemplatesTemplateIdRoute: typeof BusinessSlugReportsTemplatesTemplateIdRoute
   BusinessSlugSettingsLicenceLicenceIdRoute: typeof BusinessSlugSettingsLicenceLicenceIdRoute
   BusinessSlugSettingsLicenceNewRoute: typeof BusinessSlugSettingsLicenceNewRoute
+  BusinessSlugSettingsMyXeroMatchRoute: typeof BusinessSlugSettingsMyXeroMatchRoute
   BusinessSlugSettingsReportsAnswersRoute: typeof BusinessSlugSettingsReportsAnswersRoute
   BusinessSlugSettingsTeamMemberIdRoute: typeof BusinessSlugSettingsTeamMemberIdRoute
+  BusinessSlugSettingsXeroMatchRoute: typeof BusinessSlugSettingsXeroMatchRoute
   BusinessSlugReportsTemplatesIndexRoute: typeof BusinessSlugReportsTemplatesIndexRoute
   BusinessSlugSettingsLicenceIndexRoute: typeof BusinessSlugSettingsLicenceIndexRoute
   BusinessSlugSettingsMyXeroIndexRoute: typeof BusinessSlugSettingsMyXeroIndexRoute
@@ -1039,9 +1081,11 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugSettingsLicenceLicenceIdRoute:
     BusinessSlugSettingsLicenceLicenceIdRoute,
   BusinessSlugSettingsLicenceNewRoute: BusinessSlugSettingsLicenceNewRoute,
+  BusinessSlugSettingsMyXeroMatchRoute: BusinessSlugSettingsMyXeroMatchRoute,
   BusinessSlugSettingsReportsAnswersRoute:
     BusinessSlugSettingsReportsAnswersRoute,
   BusinessSlugSettingsTeamMemberIdRoute: BusinessSlugSettingsTeamMemberIdRoute,
+  BusinessSlugSettingsXeroMatchRoute: BusinessSlugSettingsXeroMatchRoute,
   BusinessSlugReportsTemplatesIndexRoute:
     BusinessSlugReportsTemplatesIndexRoute,
   BusinessSlugSettingsLicenceIndexRoute: BusinessSlugSettingsLicenceIndexRoute,

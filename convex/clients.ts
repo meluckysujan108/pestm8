@@ -35,6 +35,7 @@ import { inClientScope, visibleClientIds } from './lib/clientScope'
 import { redactJobs } from './lib/prices'
 import { unbinned } from './lib/bin'
 import { clientFacets } from './lib/clientFacets'
+import { countXeroLinksOf, inXeroBook } from './lib/xeroHooks'
 
 async function requireClient(
   ctx: QueryCtx,
@@ -474,7 +475,9 @@ export const archive = mutation({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
     requireCapability(await requireActor(ctx, businessId), 'clients.manage')
-    await requireClient(ctx, businessId, clientId)
+    const client = await requireClient(ctx, businessId, clientId)
+    // xero: out of the book, so off the match page's lists and counts.
+    if (inXeroBook(client)) await countXeroLinksOf(ctx, clientId, -1)
     await ctx.db.patch(clientId, { archivedAt: Date.now() })
   },
 })
@@ -483,7 +486,11 @@ export const unarchive = mutation({
   args: { businessId: v.id('businesses'), clientId: v.id('clients') },
   handler: async (ctx, { businessId, clientId }) => {
     requireCapability(await requireActor(ctx, businessId), 'clients.manage')
-    await requireClient(ctx, businessId, clientId)
+    const client = await requireClient(ctx, businessId, clientId)
+    // xero: back in the book (`requireClient` refuses one in the bin).
+    if (client.archivedAt !== undefined) {
+      await countXeroLinksOf(ctx, clientId, 1)
+    }
     await ctx.db.patch(clientId, { archivedAt: undefined })
   },
 })

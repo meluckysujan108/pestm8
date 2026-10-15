@@ -2,6 +2,7 @@ import { ConvexError } from 'convex/values'
 import { internal } from '../_generated/api'
 import { requireCapability } from './actor'
 import { forSelf, recordAudit } from './audit'
+import { isBinned } from './bin'
 import { isSwitched } from './capabilities'
 import type { Doc, Id } from '../_generated/dataModel'
 import type { MutationCtx, QueryCtx } from '../_generated/server'
@@ -17,10 +18,11 @@ import type { ActorEnvelope } from './actor'
  * reach Xero is scheduled, so the write that caused it commits whatever Xero
  * is doing at the time.
  *
- * Release 3 adds `markClientForXero`, `markClientsForXero`,
- * `ensureClientInXero` and `dropXeroLinksForClient` here: the hooks every
- * client, site and contact write calls to queue its change for each
- * connected organisation.
+ * Release 2 keeps a match's counts true as clients leave and rejoin the
+ * book (`deleteXeroLinksOf`, `countXeroLinksOf`). Release 3 adds
+ * `markClientForXero`, `markClientsForXero` and `ensureClientInXero` here:
+ * the hooks every client, site and contact write calls to queue its change
+ * for each connected organisation.
  */
 
 /** A connection that still means something: being finished, working, or
@@ -122,4 +124,136 @@ export async function disconnectXeroFor(
     count += 1
   }
   return count
+}
+
+// ─────────────────────────────────────────── a match's counts (Release 2)
+
+/** A move of a finished match's counts (`xeroSyncState.match`). */
+export type MatchCountsDelta = Partial<
+  Record<'linked' | 'review' | 'fresh' | 'different', number>
+>
+
+/** What one link of this state adds to its organisation's counts (`sign`
+ * 1), or takes from them (−1). A Different client is counted under `fresh`
+ * too: Release 3 adds it as a new contact, as it does one nothing matched. */
+export function linkCounts(
+  state: Doc<'xeroContactLinks'>['state'],
+  sign: 1 | -1,
+): MatchCountsDelta {
+  switch (state) {
+    case 'linked':
+      return { linked: sign }
+    case 'needs_review':
+      return { review: sign }
+    case 'new':
+      return { fresh: sign }
+    case 'separate':
+      return { fresh: sign, different: sign }
+  }
+}
+
+/** Adds two moves together. */
+export function addCounts(
+  a: MatchCountsDelta,
+  b: MatchCountsDelta,
+): MatchCountsDelta {
+  const sum: MatchCountsDelta = { ...a }
+  for (const key of ['linked', 'review', 'fresh', 'different'] as const) {
+    if (b[key] !== undefined) sum[key] = (sum[key] ?? 0) + b[key]
+  }
+  return sum
+}
+
+/**
+ * Moves one connection's finished match counts, so Settings, the hub's
+ * badge and the match page's chips agree with the lists without a run. Not
+ * while a run is under way: it zeroed them, and sets them itself when it is
+ * done. Never below nought.
+ */
+export async function moveMatchCounts(
+  ctx: MutationCtx,
+  sync: Doc<'xeroSyncState'> | null,
+  delta: MatchCountsDelta,
+): Promise<void> {
+  const match = sync?.match
+  if (!sync || match?.state !== 'ready') return
+  const moved = (field: 'linked' | 'review' | 'fresh' | 'different') =>
+    Math.max(0, match[field] + (delta[field] ?? 0))
+  await ctx.db.patch('xeroSyncState', sync._id, {
+    match: {
+      ...match,
+      linked: moved('linked'),
+      review: moved('review'),
+      fresh: moved('fresh'),
+      different: moved('different'),
+    },
+  })
+}
+
+/** Whether a client is in the book Xero gets: not in the Recycle bin, and
+ * not archived the old way (`archivedAt`). Only those are matched, listed
+ * and counted. */
+export function inXeroBook(client: Doc<'clients'>): boolean {
+  return !isBinned(client) && client.archivedAt === undefined
+}
+
+/** Every organisation's counts this client's links are in, moved by `sign`
+ * for each link — and, with `drop`, the links deleted. */
+async function moveClientLinks(
+  ctx: MutationCtx,
+  clientId: Id<'clients'>,
+  sign: 1 | -1,
+  { drop, counted }: { drop: boolean; counted: boolean },
+): Promise<void> {
+  const links = await ctx.db
+    .query('xeroContactLinks')
+    .withIndex('by_client', (q) => q.eq('clientId', clientId))
+    .collect()
+  for (const link of links) {
+    if (counted) {
+      // Every connection of this business to this organisation: the live
+      // one, and any it replaced (whose counts nobody reads, but which
+      // shouldn't lie either). A handful at most.
+      const rows = ctx.db
+        .query('xeroSyncState')
+        .withIndex('by_tenant', (q) => q.eq('tenantId', link.tenantId))
+      for await (const sync of rows) {
+        if (sync.businessId !== link.businessId) continue
+        await moveMatchCounts(ctx, sync, linkCounts(link.state, sign))
+      }
+    }
+    if (drop) await ctx.db.delete('xeroContactLinks', link._id)
+  }
+}
+
+/**
+ * A client is wiped for good (bin.ts `wipeStep`, clientImports.ts
+ * `undoStep`): its links go, in every organisation, and the counts they
+ * were in drop — unless it was already out of the book (in the bin), when
+ * they were dropped as it went in. The contacts stay in Xero; PestM8 never
+ * deletes there.
+ */
+export async function deleteXeroLinksOf(
+  ctx: MutationCtx,
+  client: Doc<'clients'>,
+): Promise<void> {
+  await moveClientLinks(ctx, client._id, -1, {
+    drop: true,
+    counted: inXeroBook(client),
+  })
+}
+
+/**
+ * A client leaves the book Xero gets (into the Recycle bin, or archived)
+ * or comes back to it (restored, unarchived): its links stay, for a
+ * restore, but the lists hide them while it is out, so the counts follow.
+ * Call it only when the client's place in the book really changed —
+ * `inXeroBook` before and after.
+ */
+export async function countXeroLinksOf(
+  ctx: MutationCtx,
+  clientId: Id<'clients'>,
+  sign: 1 | -1,
+): Promise<void> {
+  await moveClientLinks(ctx, clientId, sign, { drop: false, counted: true })
 }

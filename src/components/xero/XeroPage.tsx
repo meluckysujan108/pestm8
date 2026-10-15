@@ -11,7 +11,11 @@ import {
   EMPTY_ACTION_CLASS,
   EmptyState,
 } from '#/components/primitives/EmptyState'
-import { LINK_BUTTON, NEUTRAL_BUTTON } from '#/components/primitives/buttons'
+import {
+  LINK_BUTTON,
+  NEUTRAL_BUTTON,
+  NEUTRAL_BUTTON_COMPACT,
+} from '#/components/primitives/buttons'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { describeError } from '#/components/forms/describeError'
 import { useLatest } from '#/components/forms/SaveWarnings'
@@ -24,6 +28,7 @@ import {
   RowBadge,
   SettingsBody,
   SettingsGroup,
+  SettingsLinkRow,
   SettingsRow,
 } from '#/components/settings/ui'
 import { useAccess, useActing, useCan } from '#/lib/access'
@@ -35,13 +40,16 @@ import {
   DISCONNECT_ERROR_COPY,
   EXPLAINER,
   FINISH_ERROR_COPY,
+  REMATCH_ERROR_COPY,
   TWO_STEP_FIRST,
   disclosureCopy,
+  matchProblemCopy,
+  matchRetry,
   problemCopy,
   startErrorCopy,
   xeroReturnCopy,
 } from './xeroCopy'
-import type { XeroKind } from './xeroCopy'
+import type { MatchStage, XeroKind } from './xeroCopy'
 import type { FunctionReturnType } from 'convex/server'
 import type { Id } from '../../../convex/_generated/dataModel'
 
@@ -75,8 +83,10 @@ export type XeroSearch = {
  * own books). One page for both: they differ only in who may use them and
  * in what connecting says it does.
  *
- * Release 1 connects and disconnects, and nothing else: no contact is sent
- * to Xero yet, and the page says so.
+ * Release 1 connects and disconnects. Release 2 reads the organisation's
+ * contacts once connected and says what it made of them, with the way to
+ * the match page (`MatchReview.tsx`). No contact is sent to Xero yet, and
+ * the page says so.
  *
  * Connect Xero is a tap, not a hold (design system, Hold to act): it hands
  * over to Xero's own sign-in, which asks again before anything is shared. It
@@ -244,6 +254,7 @@ function XeroConnection({
       view={kind === 'business' ? status.business : status.mine}
       timezone={status.timezone}
       twoStepOn={status.twoStepOn}
+      paused={status.paused}
       search={search}
       onSearchDone={onSearchDone}
     />
@@ -260,6 +271,7 @@ function ConnectionStates({
   view,
   timezone,
   twoStepOn,
+  paused,
   search,
   onSearchDone,
 }: {
@@ -269,6 +281,8 @@ function ConnectionStates({
   timezone: string
   /** Connecting needs two-step sign-in on (convex/xero.ts). */
   twoStepOn: boolean
+  /** The kill switch is on (`XERO_SYNC_PAUSED`). */
+  paused: boolean
   search: XeroSearch
   onSearchDone: () => void
 }) {
@@ -371,12 +385,27 @@ function ConnectionStates({
     <>
       {alert}
       {live.status === 'connected' ? (
-        <SettingsGroup
-          title="Organisation"
-          footer="PestM8 doesn’t send anything to Xero yet."
-        >
-          <OrgRow tint="blue" name={live.tenantName} detail={connectedLine} />
-        </SettingsGroup>
+        <>
+          <SettingsGroup
+            title="Organisation"
+            // Once the match is in, its own group says this, with why the
+            // checking is worth doing now.
+            footer={
+              live.match?.state === 'ready'
+                ? undefined
+                : 'PestM8 doesn’t send anything to Xero yet.'
+            }
+          >
+            <OrgRow tint="blue" name={live.tenantName} detail={connectedLine} />
+          </SettingsGroup>
+          <MatchStatus
+            kind={kind}
+            businessId={business._id}
+            businessSlug={business.slug}
+            connection={live}
+            paused={paused}
+          />
+        </>
       ) : (
         <SettingsGroup title="Organisation" footer={<TermsLine />}>
           <OrgRow
@@ -442,6 +471,328 @@ function OrgRow({
       </div>
     </div>
   )
+}
+
+/**
+ * What PestM8 made of the organisation's contacts (Release 2): reading
+ * them, the counts once it has, or why it couldn't — under the
+ * organisation, in one group whose heading stays put while its rows change.
+ *
+ * Nothing is sent to Xero yet; the counts are what Release 3 will act on,
+ * and the To check ones wait for the holder to say Same or Different on
+ * the match page.
+ */
+function MatchStatus({
+  kind,
+  businessId,
+  businessSlug,
+  connection,
+  paused,
+}: {
+  kind: XeroKind
+  businessId: Id<'businesses'>
+  businessSlug: string
+  connection: XeroView
+  paused: boolean
+}) {
+  const match = connection.match
+  const stage = useMatchStage(connection)
+  const title = 'Your clients in Xero'
+
+  if (stage.stage === 'reading') {
+    return (
+      <SettingsGroup title={title}>
+        <MatchReading tenantName={connection.tenantName} />
+      </SettingsGroup>
+    )
+  }
+
+  if (stage.stage === 'failed' || !match) {
+    return (
+      <SettingsGroup title={title}>
+        <MatchFailed
+          kind={kind}
+          businessId={businessId}
+          businessSlug={businessSlug}
+          connection={connection}
+          problem={stage.stage === 'failed' ? stage.problem : null}
+          paused={paused}
+        />
+      </SettingsGroup>
+    )
+  }
+
+  const count = (n: number) => n.toLocaleString('en-AU')
+  return (
+    <SettingsGroup
+      title={title}
+      footer={
+        <>
+          PestM8 doesn’t send anything to Xero yet. Checking these now means
+          Xero is ready when it does.{' '}
+          <RematchLink
+            businessId={businessId}
+            connectionId={connection.connectionId}
+          />
+        </>
+      }
+    >
+      {/* The match page's lists, one row each, with the same counts as its
+          chips. New to Xero and Different both become new contacts in
+          Xero (`fresh` counts them together). */}
+      <SettingsRow title="Matched" value={count(match.linked)} />
+      <SettingsRow title="To check" value={count(match.review)} />
+      <SettingsRow
+        title="New to Xero"
+        value={count(Math.max(0, match.fresh - match.different))}
+      />
+      {match.different > 0 && (
+        <SettingsRow title="Different" value={count(match.different)} />
+      )}
+      {/* Only when there are some: a business without leads has nothing
+          waiting, and a row of nought says nothing. */}
+      {match.leads > 0 && (
+        <MatchCountRow
+          title="Leads waiting"
+          detail="Added once their first job is booked"
+          value={count(match.leads)}
+        />
+      )}
+      <SettingsLinkRow
+        to={
+          kind === 'business'
+            ? '/$businessSlug/settings/xero/match'
+            : '/$businessSlug/settings/my-xero/match'
+        }
+        params={{ businessSlug }}
+        title="Match your clients"
+        badge={
+          match.review > 0 ? (
+            <RowBadge tone="amber">{count(match.review)} to check</RowBadge>
+          ) : undefined
+        }
+      />
+    </SettingsGroup>
+  )
+}
+
+/** A count with a line under it that must not be cut short, as a settings
+ * row's one-line subtitle would on a phone. */
+function MatchCountRow({
+  title,
+  detail,
+  value,
+}: {
+  title: string
+  detail: string
+  value: string
+}) {
+  return (
+    <div className="flex min-h-[52px] items-center gap-3 px-3.5 py-2.5">
+      <div className="min-w-0 flex-1">
+        <p className="text-body text-ink">{title}</p>
+        <p className="text-caption text-muted">{detail}</p>
+      </div>
+      <span className="shrink-0 text-body text-muted">{value}</span>
+    </div>
+  )
+}
+
+/**
+ * "Reading the contacts in {org}…", while the match runs: in words that wrap,
+ * since an organisation's name is often long, and with the reassurance that
+ * leaving the page doesn't stop it — a big organisation takes a minute.
+ * Shared with the match page.
+ */
+export function MatchReading({ tenantName }: { tenantName: string }) {
+  return (
+    <div
+      role="status"
+      className="flex min-h-[52px] items-center gap-3 px-3.5 py-2.5"
+    >
+      <LoaderCircle
+        aria-hidden
+        size={17}
+        strokeWidth={2}
+        className="mx-1.5 shrink-0 animate-spin text-muted-2"
+      />
+      <div className="min-w-0 flex-1">
+        <p className="text-body text-ink">
+          Reading the contacts in {tenantName}…
+        </p>
+        <p className="text-caption text-muted">
+          It carries on if you leave this page.
+        </p>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * What the page makes of a connection's match (`MatchStage`): the run's own
+ * state, except two it can't say itself. A read still "reading" once its
+ * `staleAfter` has gone by on this device's clock belongs to a run that died
+ * (killed by a deploy, past the action time limit): it is `stopped`, and
+ * Check Xero again is offered — which the server then accepts. And a
+ * connection with no match at all was connected before matching existed
+ * (connecting asks for one in the same write): it is `not_read`.
+ *
+ * Shared with the match page, so both say the same.
+ */
+export function useMatchStage(connection: XeroView): MatchStage {
+  const match = connection.match
+  const stale = usePassed(match?.state === 'reading' ? match.staleAfter : null)
+  if (!match) return { stage: 'failed', problem: 'not_read' }
+  if (match.state === 'reading') {
+    return stale
+      ? { stage: 'failed', problem: 'stopped' }
+      : { stage: 'reading' }
+  }
+  if (match.state === 'failed') {
+    return { stage: 'failed', problem: match.problem }
+  }
+  return { stage: 'ready' }
+}
+
+/** The longest a browser timer waits (about 24 days). */
+const MAX_TIMER_MS = 2 ** 31 - 1
+
+/**
+ * Whether `deadline` has gone by on this device's clock — and, while the
+ * page stays open, from the moment it does. False until hydrated, so the
+ * server's render and the first render here agree.
+ */
+function usePassed(deadline: number | null): boolean {
+  const hydrated = useHydrated()
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    if (deadline === null) return
+    const wait = deadline - Date.now()
+    if (wait < 0) return
+    const timer = setTimeout(
+      () => setTick((n) => n + 1),
+      Math.min(wait + 50, MAX_TIMER_MS),
+    )
+    return () => clearTimeout(timer)
+  }, [deadline])
+  return hydrated && deadline !== null && Date.now() >= deadline
+}
+
+/**
+ * Why the contacts couldn't be read, and what to do (`matchRetry`): Check
+ * Xero again; Reconnect Xero, on the match page, when the connection needs
+ * it first (the server refuses a check until then, and the Xero page has the
+ * button); or nothing, where trying again can't help. The amber line is an
+ * alert, so a page left open while it reads says when the read stopped.
+ * Shared with the match page.
+ */
+export function MatchFailed({
+  kind,
+  businessId,
+  businessSlug,
+  connection,
+  problem,
+  paused,
+}: {
+  kind: XeroKind
+  businessId: Id<'businesses'>
+  businessSlug: string
+  connection: XeroView
+  problem: string | null
+  paused: boolean
+}) {
+  const hydrated = useHydrated()
+  const rematch = useRematch(businessId, connection.connectionId)
+  const retry = matchRetry(problem, connection, paused)
+  return (
+    <div className="px-3.5 py-3.5">
+      <p role="alert" className="text-caption text-amber-ink">
+        {matchProblemCopy(problem, connection.tenantName)}
+      </p>
+      {retry === 'rematch' && (
+        <>
+          <button
+            type="button"
+            disabled={!hydrated || rematch.isPending}
+            onClick={() => rematch.mutate()}
+            className={`${NEUTRAL_BUTTON_COMPACT} mt-3.5 w-full`}
+          >
+            {rematch.isPending ? 'Checking…' : 'Check Xero again'}
+          </button>
+          <FormAlert
+            error={rematch.isError ? rematch.error : null}
+            copy={REMATCH_ERROR_COPY}
+            className="mt-2"
+          />
+        </>
+      )}
+      {retry === 'reconnect' && (
+        <Link
+          to={
+            kind === 'business'
+              ? '/$businessSlug/settings/xero'
+              : '/$businessSlug/settings/my-xero'
+          }
+          params={{ businessSlug }}
+          className={`${LINK_BUTTON} mt-3.5 flex w-full items-center justify-center`}
+        >
+          Reconnect Xero
+        </Link>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Check Xero again, as a quiet word at the end of the match group's footer:
+ * the counts are there, and reading Xero again is the rare thing to do —
+ * after tidying contacts in Xero, say. Decisions already made are kept.
+ */
+function RematchLink({
+  businessId,
+  connectionId,
+}: {
+  businessId: Id<'businesses'>
+  connectionId: Id<'xeroConnections'>
+}) {
+  const hydrated = useHydrated()
+  const rematch = useRematch(businessId, connectionId)
+  return (
+    <>
+      <button
+        type="button"
+        disabled={!hydrated || rematch.isPending}
+        onClick={() => rematch.mutate()}
+        className="relative tap-target font-semibold text-blue transition active:opacity-50 disabled:opacity-50"
+      >
+        {rematch.isPending ? 'Checking…' : 'Check Xero again'}
+      </button>
+      <FormAlert
+        error={rematch.isError ? rematch.error : null}
+        copy={REMATCH_ERROR_COPY}
+        className="mt-2"
+      />
+    </>
+  )
+}
+
+/**
+ * Reads the organisation's contacts again (`xeroMatch.rematch`), which
+ * marks the match as reading at once, so the page shows it. Fails fast with
+ * no signal: held for the signal, a read of Xero would start long after the
+ * tap seemed to do nothing.
+ */
+function useRematch(
+  businessId: Id<'businesses'>,
+  connectionId: Id<'xeroConnections'>,
+) {
+  const convexRematch = useConvexMutation(api.xeroMatch.rematch)
+  return useMutation({
+    mutationFn: async () => {
+      if (isOffline()) throw new Error('offline')
+      await convexRematch({ businessId, connectionId })
+    },
+  })
 }
 
 /**

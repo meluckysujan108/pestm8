@@ -21,7 +21,8 @@ in their Xero. Why it is built this way is `ARCHITECTURE.md` §1.2, §1.4 and
 | R3      | **Sync**: the send queue, Start syncing, the client sheet's Xero line, the kill switch, a dry run                                 | Yes, after Start syncing |
 
 R1's only calls to Xero are the token endpoint (exchange, refresh, revoke),
-`GET` and `DELETE /connections`, and `GET /Organisation`.
+`GET` and `DELETE /connections`, and `GET /Organisation`. R2 adds one more,
+`GET /Contacts`, and still writes nothing.
 
 ## Setting up (R0, the owner's steps)
 
@@ -127,17 +128,249 @@ days, because Xero kills one unused for 60 — and revokes instead any that no
 live connection uses (a release at Xero that gave up), so PestM8 never keeps
 a sign-in alive for someone who disconnected.
 
-| File                                  | Holds                                                                                        |
-| ------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `convex/xero.ts`                      | Status for Settings, connect, finish, disconnect, release at Xero, the sweep, `inspect`      |
-| `convex/xeroCallback.ts`              | `GET /xero/callback`                                                                         |
-| `convex/xeroTokens.ts`                | The refresh lease, the keep-alive, `accessTokenFor` (every Xero action gets its token there) |
-| `convex/lib/xeroConfig.ts`            | The env, scopes, endpoints and `XERO_TERMS_VERSION`                                          |
-| `convex/lib/xeroCrypto.ts`            | Token encryption, actions only                                                               |
-| `convex/lib/xeroHttp.ts`              | Every Xero request, and `classify`, which sorts every failure                                |
-| `convex/lib/xeroHooks.ts`             | `requireConnectionHolder`, `disconnectXeroFor` (called by `team.offboard`)                   |
-| `src/components/xero/`                | `XeroPage` (both Settings pages), `MemberXero` (Team → a member), `xeroCopy.ts` (every word) |
-| `src/routes/terms.tsx`, `privacy.tsx` | The public pages Xero's developer terms require                                              |
+| File                                  | Holds                                                                                                                                            |
+| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `convex/xero.ts`                      | Status for Settings (with the match's counts), connect, finish (which starts the first match), disconnect, release at Xero, the sweep, `inspect` |
+| `convex/xeroCallback.ts`              | `GET /xero/callback`                                                                                                                             |
+| `convex/xeroTokens.ts`                | The refresh lease, the keep-alive, `accessTokenFor` (every Xero action gets its token there)                                                     |
+| `convex/lib/xeroConfig.ts`            | The env, scopes, endpoints and `XERO_TERMS_VERSION`                                                                                              |
+| `convex/lib/xeroCrypto.ts`            | Token encryption, actions only                                                                                                                   |
+| `convex/lib/xeroHttp.ts`              | Every Xero request, and `classify`, which sorts every failure                                                                                    |
+| `convex/lib/xeroHooks.ts`             | `requireConnectionHolder`, `disconnectXeroFor` (called by `team.offboard`)                                                                       |
+| `convex/lib/xeroMatch.ts`             | The matcher (R2): `nameKey`, `accountNumberKey`, `matchClients`. Pure, so every rule is tested without Convex                                    |
+| `convex/xeroMatch.ts`                 | The match run and its tenant lease, the match page's query, Same / Different / Unlink, Check Xero again (R2)                                     |
+| `src/components/xero/`                | `XeroPage` (both Settings pages), `MatchReview` and `MatchCard` (Match your clients), `MemberXero` (Team → a member), `xeroCopy.ts` (every word) |
+| `src/routes/terms.tsx`, `privacy.tsx` | The public pages Xero's developer terms require                                                                                                  |
+
+## How matching works (R2)
+
+An organisation that has been invoicing for years already holds most of the
+client book. Before anything is sent, PestM8 reads its contacts and works out
+which PestM8 client each one is, so that Release 3 updates the contact a client
+already has instead of adding a second. Xero contacts can't be deleted — a
+duplicate made by mistake stays in someone's books — so a client is linked on
+strong evidence only, and anything weaker is put to the holder. **R2 never
+writes to Xero.** What it makes are PestM8's own rows, `xeroContactLinks`, which
+Release 3 acts on.
+
+A match (`xeroMatch.run`) runs:
+
+- when a connect is finished, unless this connection has a match finished less
+  than 7 days ago (so a reconnect inside a week doesn't read everything again);
+- when the holder presses **Check Xero again**.
+
+The answers are the holder's to give, as connecting is: the owner's for the
+business's organisation (Settings → Xero → Match your clients), and a member's
+for their own (Settings → My Xero → Match your clients), and only through a
+live connection. The owner never sees a member's matches, nor a member the
+business's, while the other holds the organisation.
+
+What the answers say belongs to the organisation, not to whoever gave them:
+which of this business's clients is which of its contacts. So they pass with
+it. If a member disconnects an organisation and the owner then connects the
+same one as the business's (or the other way round), the new holder finds the
+old answers and may change them; the Matched list says "Matched by hand"
+rather than "Matched by you" for an answer they didn't give. The old holder's
+disconnected connection reads nothing (`NOT_FOUND`). Anyone who can connect
+an organisation is a Xero user on it, so none of this shows them a contact
+they couldn't see in Xero.
+
+### What it reads
+
+- **Xero's contacts:** all of them, 1,000 a call (`includeArchived=true`), at
+  least 1.1 seconds apart, because Starter allows an organisation 60 calls a
+  minute. A 3,000-contact organisation is three calls. It keeps each contact's
+  name, email, account number, status, first phone and the city of its first
+  address, and nothing else. Only `ACTIVE` contacts are ever candidates:
+  `ARCHIVED` and `GDPRREQUEST` ones never are. More than 50 pages (50,000
+  contacts) fails the run as `too_many_contacts`.
+- **The client book,** 500 at a time, less what is never sent: leads (counted,
+  as "Leads waiting", and matched by the first run after their first job is
+  booked), clients in the Recycle bin, and clients archived before the Recycle
+  bin existed (`archivedAt`). A client's emails are its own and, for a
+  business client, its primary contact's.
+
+### The rules
+
+Names, account numbers and emails are compared as keys
+(`convex/lib/xeroMatch.ts`):
+
+- **A name** is lower-cased, `&` reads as "and", punctuation goes, a trailing
+  "Pty Ltd", "Pty Limited", "Ltd", "Limited" or "Pty" goes, and the words are
+  sorted. "Smith, John" is "John Smith"; "Acme Pty Ltd" is "ACME".
+- **An account number** is Xero's `AccountNumber` read as a number when it is
+  all digits, and compared with the client's number: "0042" is client #42.
+  Anything else in it is not a number and is ignored.
+- **An email** is lower-cased.
+
+An account number two or more contacts hold is ignored, and so is an email as
+evidence (those contacts can still be found by name). Then, strongest first:
+
+| Evidence (`ACTIVE` contacts only)                                          | Result                                | `reason`              | The card says                                           |
+| -------------------------------------------------------------------------- | ------------------------------------- | --------------------- | ------------------------------------------------------- |
+| The account number is the client's number, and the name or an email agrees | Matched                               | —                     | —                                                       |
+| The account number is the client's number, and nothing else agrees         | To check                              | `account_number_only` | Same account number, different name                     |
+| …unless another contact has an email only it has, and the name, too        | Matched, to that other contact        | —                     | —                                                       |
+| An email only one contact has, and the name agrees                         | Matched                               | —                     | —                                                       |
+| An email only one contact has, and the name doesn't                        | To check                              | `email_only`          | Same email, different name                              |
+| The name                                                                   | To check, with phone and place shown  | `name_only`           | Same name                                               |
+| The name, which two or more contacts have                                  | To check, against one of them (below) | `name_shared`         | Same name — Xero has more than one contact by this name |
+| One contact proposed for two or more clients                               | To check, every one of them           | `contested`           | More than one of your clients matches this contact      |
+| A contact another client was already matched to by hand                    | To check                              | `contested`           | More than one of your clients matches this contact      |
+| Nothing                                                                    | New to Xero                           | —                     | —                                                       |
+
+The same book and the same contacts always give the same answer (ties go by
+client id), so running it again with nothing changed proposes nothing new.
+
+- **The account number, against an email and a name.** Xero's `AccountNumber`
+  is a free field. When the client's number is on a stranger but another
+  contact has the client's own unique email and its name, the client is
+  linked to that other contact: asked about the stranger, the holder would say
+  Different, and Release 3 would add a second contact for someone Xero already
+  holds. (The first spec asked about the numbered contact; this is the change.)
+  The stranger still has the number, and Xero refuses an `AccountNumber`
+  another contact has, so **Release 3 must not copy the client's number into a
+  linked contact while another contact holds it.**
+- **A name more than one contact has.** Contacts already another client's by
+  the holder's word are passed over while any is free (Same on one could only
+  be refused); of the rest, the one whose phone (its last eight digits) or
+  place agrees with the client's phone or suburb, if just one does; else the
+  first by contact id. Once the holder has answered one client of a name,
+  Check Xero again offers its namesakes the contacts left.
+
+### What a link means
+
+One row per business, organisation and client. It is keyed by the
+organisation, not the connection, so a reconnect, or a disconnect and a later
+connect to the same organisation — by whoever — finds every answer still
+there. Disconnecting keeps them. Two businesses connected to one organisation
+each have their own.
+
+**One Xero contact is one client** per business and organisation, after every
+batch a run saves and not only once it is done: a run that stops part-way
+never leaves two clients linked to one contact. A run linking a client to a
+contact an earlier run linked to someone else moves it (the earlier row goes:
+the run, which sees every client at once, gave the contact to this one); one
+the holder linked by their word is never moved, and the run's proposal is put
+to them as `contested` instead. A client in the Recycle bin, or archived,
+holds nothing: whoever is linked to its contact next — by a run, or by Same —
+takes it, and its link goes, so if it is restored it is matched afresh.
+
+| `state`        | On screen   | Means                                                                                      | Release 3                                  |
+| -------------- | ----------- | ------------------------------------------------------------------------------------------ | ------------------------------------------ |
+| `linked`       | Matched     | This client is that Xero contact. `how`: `matched` by the rules, or `chosen` by the holder | Sends the client's changes to that contact |
+| `needs_review` | To check    | A candidate (`candidate`, with its `reason`) for the holder to answer                      | Sends nothing for it until it is answered  |
+| `separate`     | Different   | The holder said it isn't that contact, or unlinked it                                      | Adds it as a new contact                   |
+| `new`          | New to Xero | Nothing in Xero matched                                                                    | Adds it as a new contact                   |
+
+Xero won't hold two contacts with one name, so a Different client whose name
+Xero already has is added with its suburb after the name, "John Smith
+(Nightcliff)" (Release 3).
+
+### Same, Different, Unlink
+
+- **Same client** (`xeroMatch.decide`, `same`) links the client to the contact
+  (`how: chosen`). One Xero contact is one client: if that contact is already
+  matched to another client in the book, it is refused (`CONTACT_TAKEN`) and
+  the holder unlinks the other first — it is on Matched. (One in the Recycle
+  bin gives the contact up instead, above.)
+- **Different client** (`different`) makes it `separate`. The candidate stays
+  on the row, for reference and for Match again.
+- **Unlink** (`xeroMatch.unlink`), on a matched client, does the same as
+  Different, whether the rules matched it or the holder did. The contact it
+  was linked to is kept as its candidate (`reason: unlinked`).
+- **Match again** (`xeroMatch.reopen`), on the Different list, takes either
+  back: the client is undecided again, To check against the same contact.
+  Different saves on one tap, so it must be undoable; this is how.
+
+Each answer records when and by whom (`decidedAt`, `decidedByMembershipId`),
+and a decided client is never proposed again: no later match changes it, and
+the contact it was matched to is held for it. Match again clears both. Each is
+audited against the real person (`xero.link`, `xero.separate`, `xero.unlink`,
+`xero.reopen`, with the organisation's name and the contact's id) and moves the
+counts on Settings at once. A link the rules made is not an answer: the next
+run proposes it afresh, so a contact whose email changed in Xero since can
+move to To check.
+
+The counts follow the lists without a run in other ways too: a client put in
+the Recycle bin or archived leaves them (its links stay, for a restore), a
+restore or an unarchive puts it back, and a client wiped for good, or taken
+back by an import's undo, takes its links with it (`lib/xeroHooks.ts`
+`countXeroLinksOf`, `deleteXeroLinksOf`).
+
+### Check Xero again
+
+`xeroMatch.rematch` is the holder's, on a connected organisation, and is
+refused while a run is still reading under a live lease
+(`XERO_MATCH_RUNNING`). R2 always offers it; Release 3 refuses it once syncing
+has started. The page shows "Reading the contacts in {org}…" at once,
+and the run it schedules reads everything again: every decision stands, every
+undecided client is proposed afresh, and an undecided row the run didn't
+propose again (its client binned since, say) is deleted (`finishMatch`, the
+rows whose `runId` isn't this run's). Press it after tidying Xero — merging
+duplicates, filling in account numbers — or the client book.
+
+### The tenant lease
+
+Xero's limits (60 calls a minute, 5 at once, a daily allowance) are per
+organisation, and one organisation can be connected in more than one business.
+So one match run (R2) or one send (Release 3's drain) works on an organisation
+at a time, across every business. A run claims `xeroSyncState.lease` on its own
+connection's row for 5 minutes, and only when no row for the same organisation
+(`by_tenant`) holds a live one. A run that finds one held tries again in 60
+seconds, up to 10 times, then fails as `busy`. The lease is released when the
+run ends, however it ends; if the run itself dies, it lapses after its 5
+minutes. Every write checks the lease is still the run's (`LEASE_LOST`), so a
+run that outlived it can't overwrite a newer run's proposals.
+
+### What a match's state means
+
+`xeroSyncState.match`, one per connection, which is what Settings shows.
+
+| `state`   | Means                                                                                                                                                                                                                                                |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reading` | A run is reading Xero and matching, or is about to (`runId` empty until it takes the organisation). The page shows "Reading the contacts in {org}…"                                                                                                  |
+| `ready`   | Finished. Counts: `contacts` (`ACTIVE` contacts read), `linked`, `review`, `fresh` (clients Release 3 will add as new contacts: New to Xero and Different), `different` (the Different ones among them) and `leads`. Every answer moves them at once |
+| `failed`  | `problem` says why: `reconnect` (the sign-in is dead, and the connection shows Reconnect), `busy` (the organisation was held throughout), `too_many_contacts`, `rate_limited`, `xero_unavailable`, `paused`, `disconnected`, or `failed`             |
+
+A run that dies without saying so — killed by a deploy, past the action time
+limit — leaves the match `reading`. `xero.status` gives a time after which
+that is past believing (`staleAfter`, `xeroMatch.matchStaleAfter`): the run's
+lease's end, plus two minutes, or 15 minutes after the ask for a run that
+never took the organisation (every busy retry, and more). The page compares it
+with its own clock — a query mustn't read one — and from then shows the read
+as stopped, with Check Xero again, which the server accepts because the lease
+has lapsed. A run asked for while connected that finds the connection needs
+reconnecting, or disconnected, when it starts fails the match as `reconnect`
+or `disconnected` rather than leave it reading. A connection with no match at
+all was connected before matching existed (a connect asks for one in the same
+write), and is offered Check Xero again.
+
+A client binned since the last run is left out of the next one: an undecided
+proposal for it goes, and a decision stays for a restore — unless another
+client takes its contact meanwhile. A client wiped from the Recycle bin, or
+taken back by an import's undo, takes its links with it (`bin.ts`,
+`clientImports.ts`, each marked `// xero:`).
+
+### Running a match by hand
+
+Add `--prod` for prod, after confirming the target:
+
+```sh
+# Read and match one connection now: Check Xero again without the holder
+# check. Reads only, and waits its turn if another run holds the organisation.
+npx convex run xeroMatch:run '{"connectionId": "…"}'
+
+# Every connection's match and lease
+npx convex run --inline-query 'return (await ctx.db.query("xeroSyncState").collect()).map((s) => ({ connectionId: s.connectionId, tenantId: s.tenantId, match: s.match, lease: s.lease }))'
+
+# How many links are in each state, per business and organisation
+npx convex run --inline-query 'const n = {}; for (const l of await ctx.db.query("xeroContactLinks").collect()) { const k = `${l.businessId} ${l.tenantId} ${l.state}`; n[k] = (n[k] ?? 0) + 1 } return n'
+```
+
+A match left showing "Reading" — its run killed by a deploy, say — shows as
+stopped once its `staleAfter` has passed, and the holder's Check Xero again
+reads it afresh; `xeroMatch:run` does the same by hand.
 
 ## Running it
 
@@ -263,8 +496,9 @@ Checked 2026-10-01 against Xero's pricing and developer pages (pricing since
   add PestM8 until they remove one.
 - **Rate limits per organisation:** 5 requests at once, 60 a minute, 1,000 a
   day on Starter (5,000 on Core and up); 10,000 a minute across the app. R1
-  makes a handful of calls per connect. R3 sends 50 contacts a call, so a
-  2,000-client book is about 40 calls per organisation.
+  makes a handful of calls per connect. R2 reads 1,000 contacts a call, so a
+  match is a call or two for most organisations. R3 sends 50 contacts a call,
+  so a 2,000-client book is about 40 calls per organisation.
 - **Tokens:** an access token lasts 30 minutes. A refresh token lasts 60 days
   unused and rotates every time it is used (the old one works for 30 more
   minutes).
@@ -287,6 +521,23 @@ With "PestM8 Dev", the Demo Company and a trial organisation. Record each.
 | 6   | After 30 minutes, `xeroTokens:refreshGrant` succeeds and `xero:inspect` shows a new `refreshedAt`; `keepAlive` runs                  |        |      |     |
 | 7   | Removing the member disconnects their Xero; the owner's is untouched                                                                 |        |      |     |
 | 8   | **Real iPhone, Home Screen app:** where Xero opens, where the finish lands, whether it asks to sign in, the page updates. An R1 gate |        |      |     |
+
+## Release 2 checks on dev
+
+Against the Demo Company, with dev clients seeded to pair with its contacts:
+one with the same email and name, one with only the name, and one whose number
+is a contact's `AccountNumber` under another name. Record each.
+
+| #   | Check                                                                                                                                                                     | Result | Date | By  |
+| --- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------ | ---- | --- |
+| 1   | Connecting shows "Reading {org}’s contacts…", then the counts; `xeroSyncState.match` agrees with them                                                                     |        |      |     |
+| 2   | Same email and name → Matched; the name alone → To check, "Same name", with phone and place; the account number alone → To check, "Same account number, different name"   |        |      |     |
+| 3   | Same client, Different client, Unlink and Match again each move the counts on Settings → Xero, and the hub's "to check" badge; Match again puts a Different back to check |        |      |     |
+| 4   | Check Xero again keeps every answer, and drops a proposal for a client binned since                                                                                       |        |      |     |
+| 5   | A lead is counted under Leads waiting and is on no list                                                                                                                   |        |      |     |
+| 6   | The Demo Company's contacts show no change in Xero: nothing edited, nothing added (each contact's History and notes)                                                      |        |      |     |
+| 7   | A member's trial organisation matches on My Xero; the owner can't open their match page, nor the member the business's                                                    |        |      |     |
+| 8   | Real iPhone, Home Screen app: a to-check card, Same and Different, Unlink's dialog                                                                                        |        |      |     |
 
 ## Release 3 Demo Company gate
 

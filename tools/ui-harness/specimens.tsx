@@ -95,6 +95,8 @@ import { InstallLink } from '#/components/install/InstallLink'
 import { PRIMARY_BUTTON } from '#/components/primitives/buttons'
 import { XeroSection } from '#/components/xero/XeroPage'
 import type { XeroSearch } from '#/components/xero/XeroPage'
+import { MatchSection } from '#/components/xero/MatchReview'
+import type { MatchFilter } from '#/components/xero/xeroCopy'
 import { MemberXero } from '#/components/xero/MemberXero'
 import { MemberSettings } from '#/components/settings/MemberAccessRow'
 import type { Member } from '#/components/settings/MemberAccessRow'
@@ -1430,12 +1432,18 @@ function InstallLinkSpecimen() {
 }
 
 /** A Settings page's header as `PageHeader` draws it (which needs the
- * sidebar's provider): "‹ Settings" over the title. */
-function SettingsHeader({ title }: { title: string }) {
+ * sidebar's provider): "‹ Settings" (or `back`) over the title. */
+function SettingsHeader({
+  title,
+  back = 'Settings',
+}: {
+  title: string
+  back?: string
+}) {
   return (
     <header className="chrome-blur sticky top-0 z-30 border-b border-hairline px-4 pb-3 pt-3">
       <BackLink to="/$businessSlug/settings" params={{ businessSlug: 'demo' }}>
-        Settings
+        {back}
       </BackLink>
       <h1 className="truncate text-page-title text-ink">{title}</h1>
     </header>
@@ -1469,6 +1477,45 @@ function xeroPage(
               }}
               search={opts.search ?? {}}
               onSearchDone={() => {}}
+            />
+          </SettingsBody>
+        </AccessProvider>
+      </Phone>
+    )
+  }
+}
+
+/**
+ * Settings → Xero → Match your clients (or My Xero's), opened on one list:
+ * the business id picks `xero.status`'s answer and the lists'
+ * (xeroFixtures.ts). The chips work, as the page's address would.
+ */
+function matchPage(
+  kind: 'business' | 'member',
+  businessId: string,
+  opts: { filter?: MatchFilter; owner?: boolean; switched?: boolean } = {},
+) {
+  return function MatchSpecimen() {
+    state.technician = !(opts.owner ?? kind === 'business')
+    state.actingAs = opts.switched ?? false
+    const [filter, setFilter] = useState<MatchFilter>(opts.filter ?? 'review')
+    return (
+      <Phone>
+        <AccessProvider businessId={businessId as never}>
+          <SettingsHeader
+            title="Match your clients"
+            back={kind === 'business' ? 'Xero' : 'My Xero'}
+          />
+          <SettingsBody>
+            <MatchSection
+              kind={kind}
+              business={{
+                _id: businessId as never,
+                slug: 'demo',
+                name: 'Pest M8 Pest Control',
+              }}
+              filter={filter}
+              onFilter={setFilter}
             />
           </SettingsBody>
         </AccessProvider>
@@ -1575,6 +1622,54 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   }),
   'my-xero-owner': xeroPage('member', XERO_BIZ.none, { owner: true }),
   'my-xero-switched': xeroPage('member', XERO_BIZ.none, { switched: true }),
+  // Release 2: the contacts read and matched, on the Xero page and on the
+  // match page it leads to.
+  'xero-match-reading': xeroPage('business', XERO_BIZ.matchReading),
+  'xero-match-ready': xeroPage('business', XERO_BIZ.matchReady),
+  'xero-match-failed': xeroPage('business', XERO_BIZ.matchFailed),
+  'my-xero-match-reading': xeroPage('member', XERO_BIZ.matchReading),
+  'my-xero-match-ready': xeroPage('member', XERO_BIZ.matchReady),
+  'my-xero-match-failed': xeroPage('member', XERO_BIZ.matchFailed),
+  'xero-match': matchPage('business', XERO_BIZ.matchReady),
+  'xero-match-matched': matchPage('business', XERO_BIZ.matchReady, {
+    filter: 'matched',
+  }),
+  'xero-match-new': matchPage('business', XERO_BIZ.matchReady, {
+    filter: 'new',
+  }),
+  'xero-match-different': matchPage('business', XERO_BIZ.matchReady, {
+    filter: 'separate',
+  }),
+  'xero-match-clean': matchPage('business', XERO_BIZ.matchClean),
+  'xero-match-page-reading': matchPage('business', XERO_BIZ.matchReading),
+  'xero-match-page-failed': matchPage('business', XERO_BIZ.matchFailed),
+  'xero-match-loading': matchPage('business', XERO_BIZ.loading),
+  'xero-match-not-connected': matchPage('business', XERO_BIZ.none),
+  'xero-match-owners-only': matchPage('business', XERO_BIZ.matchReady, {
+    owner: false,
+  }),
+  'my-xero-match': matchPage('member', XERO_BIZ.matchReady),
+  // A read past believing, a My Xero never read, Xero paused (no retry)
+  // and over its limit, a connection to reconnect first, a long list, a
+  // list that won't load, and the match page's doors.
+  'xero-match-stopped': xeroPage('business', XERO_BIZ.matchStopped),
+  'my-xero-match-not-read': xeroPage('member', XERO_BIZ.matchStopped),
+  'xero-match-paused': xeroPage('business', XERO_BIZ.matchPaused),
+  'my-xero-match-rate-limited': xeroPage('member', XERO_BIZ.matchPaused),
+  'xero-match-page-reconnect': matchPage('business', XERO_BIZ.matchReconnect),
+  'my-xero-match-page-reconnect': matchPage('member', XERO_BIZ.matchReconnect),
+  'xero-match-paged': matchPage('business', XERO_BIZ.matchPaged, {
+    filter: 'matched',
+  }),
+  'xero-match-load-failed': matchPage('business', XERO_BIZ.matchListFails),
+  'xero-match-unconfigured': matchPage('business', XERO_BIZ.unconfigured),
+  'xero-match-demo': matchPage('business', XERO_BIZ.demo),
+  'my-xero-match-owner': matchPage('member', XERO_BIZ.matchReady, {
+    owner: true,
+  }),
+  'my-xero-match-switched': matchPage('member', XERO_BIZ.matchReady, {
+    switched: true,
+  }),
   'team-member': TeamMember,
   'team-member-xero': TeamMemberXero,
   jobtypes: JobTypes,

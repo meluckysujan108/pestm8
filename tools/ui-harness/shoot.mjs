@@ -106,6 +106,146 @@ const PLAN = {
     },
   },
   'team-member-xero': { before: async (p) => p.waitForTimeout(500) },
+  // Release 2: matching. The Xero page's group in each state, then the match
+  // page's lists, an answered card and the Unlink confirm.
+  'xero-match-reading': { before: async (p) => p.waitForTimeout(500) },
+  'xero-match-ready': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'xero-match-failed': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'my-xero-match-reading': { before: async (p) => p.waitForTimeout(500) },
+  'my-xero-match-ready': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'my-xero-match-failed': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'xero-match': { full: true, before: async (p) => p.waitForTimeout(700) },
+  'xero-match-matched': { before: async (p) => p.waitForTimeout(700) },
+  'xero-match-new': { before: async (p) => p.waitForTimeout(700) },
+  'xero-match-different': { before: async (p) => p.waitForTimeout(700) },
+  'xero-match-clean': { before: async (p) => p.waitForTimeout(700) },
+  'xero-match-page-reading': { before: async (p) => p.waitForTimeout(500) },
+  'xero-match-page-failed': { before: async (p) => p.waitForTimeout(500) },
+  'xero-match-loading': { before: async (p) => p.waitForTimeout(500) },
+  'xero-match-not-connected': { before: async (p) => p.waitForTimeout(500) },
+  'xero-match-owners-only': { before: async (p) => p.waitForTimeout(500) },
+  'my-xero-match': { before: async (p) => p.waitForTimeout(700) },
+  // The harness's mutations answer nothing, so a choice saves: the card
+  // stays where it was, answered.
+  'xero-match-answered': {
+    spec: 'xero-match',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('radio', { name: 'Same client' }).first().click()
+      await p.waitForTimeout(400)
+    },
+  },
+  'xero-match-unlink': {
+    spec: 'xero-match-matched',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Unlink Harbour Café' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'xero-match-stopped': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'my-xero-match-not-read': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'xero-match-paused': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'my-xero-match-rate-limited': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'xero-match-page-reconnect': { before: async (p) => p.waitForTimeout(500) },
+  'my-xero-match-page-reconnect': {
+    before: async (p) => p.waitForTimeout(700),
+  },
+  'xero-match-paged': {
+    full: true,
+    before: async (p) => p.waitForTimeout(700),
+  },
+  // "Show 100 more", pressed: the second page under the first.
+  'xero-match-paged-more': {
+    spec: 'xero-match-paged',
+    full: true,
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /Show .* more/ }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'xero-match-load-failed': { before: async (p) => p.waitForTimeout(700) },
+  'xero-match-unconfigured': { before: async (p) => p.waitForTimeout(500) },
+  'xero-match-demo': { before: async (p) => p.waitForTimeout(500) },
+  'my-xero-match-owner': { before: async (p) => p.waitForTimeout(500) },
+  'my-xero-match-switched': { before: async (p) => p.waitForTimeout(500) },
+  // Same on Bayview Strata, whose contact another client has: refused.
+  'xero-match-taken': {
+    spec: 'xero-match',
+    full: true,
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p
+        .getByRole('radiogroup', { name: /^Is Bayview Strata/ })
+        .getByRole('radio', { name: 'Same client' })
+        .click()
+      await p.waitForTimeout(500)
+    },
+  },
+  // The arrow keys move between the answers without choosing one.
+  'xero-match-arrows': {
+    spec: 'xero-match',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p
+        .getByRole('radiogroup', { name: /^Is Jan Morris/ })
+        .getByRole('radio', { name: 'Same client' })
+        .focus()
+      await p.keyboard.press('ArrowRight')
+      await p.waitForTimeout(300)
+    },
+  },
+  // Unlink confirmed on a client matched to nothing by then: refused, in
+  // the dialog.
+  'xero-match-unlink-failed': {
+    spec: 'xero-match-matched',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p
+        .getByRole('button', { name: 'Unlink St John’s Primary School' })
+        .click()
+      await p.waitForTimeout(400)
+      await p
+        .getByRole('alertdialog')
+        .getByRole('button', { name: 'Unlink' })
+        .click()
+      await p.waitForTimeout(500)
+    },
+  },
+  // Match again on a Different client: back under To check.
+  'xero-match-again': {
+    spec: 'xero-match-different',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Match Rob Kelly again' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
   // A shared job: the edit form's "Also going", and its picker.
   'shared-edit': {
     spec: 'jobdetail-services',

@@ -15,6 +15,11 @@ import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import type { WriteEnvelope } from './lib/actor'
 import { dropAlsoGoing } from './lib/jobPeople'
+import {
+  countXeroLinksOf,
+  deleteXeroLinksOf,
+  inXeroBook,
+} from './lib/xeroHooks'
 
 /**
  * The Recycle bin: deleting a client, property, job or Recurring Job, and
@@ -262,7 +267,11 @@ export async function putInBin(
     counts,
   })
   const mark = { deletedAt: now, binEntryId }
-  for (const id of group.clients.keys()) await ctx.db.patch(id, mark)
+  for (const [id, client] of group.clients) {
+    // xero: out of the book, so off the match page's lists — and its counts.
+    if (inXeroBook(client)) await countXeroLinksOf(ctx, id, -1)
+    await ctx.db.patch(id, mark)
+  }
   for (const id of group.properties.keys()) await ctx.db.patch(id, mark)
   for (const id of group.recurrences.keys()) await ctx.db.patch(id, mark)
   for (const id of group.jobs.keys()) await ctx.db.patch(id, mark)
@@ -496,6 +505,8 @@ export const restore = mutation({
     // archive had no way back, and the bin is that way now.
     for (const row of clients) {
       await ctx.db.patch(row._id, { ...back, archivedAt: undefined })
+      // xero: back in the book, its links back in the match's counts.
+      await countXeroLinksOf(ctx, row._id, 1)
     }
     await ctx.db.delete(entryId)
 
@@ -857,6 +868,9 @@ export const wipeStep = internalMutation({
           .withIndex('by_client', (q) => q.eq('clientId', client._id))
           .collect()
         for (const person of people) await ctx.db.delete(person._id)
+        // xero: its links go with it — one per connected organisation, a
+        // handful. The contact stays in Xero; PestM8 never deletes there.
+        await deleteXeroLinksOf(ctx, client)
         await ctx.db.delete(client._id)
       }
       return again()

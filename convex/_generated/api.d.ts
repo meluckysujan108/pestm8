@@ -112,6 +112,7 @@ import type * as lib_xeroConfig from "../lib/xeroConfig.js";
 import type * as lib_xeroCrypto from "../lib/xeroCrypto.js";
 import type * as lib_xeroHooks from "../lib/xeroHooks.js";
 import type * as lib_xeroHttp from "../lib/xeroHttp.js";
+import type * as lib_xeroMatch from "../lib/xeroMatch.js";
 import type * as memberLicences from "../memberLicences.js";
 import type * as memberships from "../memberships.js";
 import type * as migrations_accessV3 from "../migrations/accessV3.js";
@@ -148,6 +149,7 @@ import type * as views from "../views.js";
 import type * as weather from "../weather.js";
 import type * as xero from "../xero.js";
 import type * as xeroCallback from "../xeroCallback.js";
+import type * as xeroMatch from "../xeroMatch.js";
 import type * as xeroTokens from "../xeroTokens.js";
 
 import type {
@@ -261,6 +263,7 @@ declare const fullApi: ApiFromModules<{
   "lib/xeroCrypto": typeof lib_xeroCrypto;
   "lib/xeroHooks": typeof lib_xeroHooks;
   "lib/xeroHttp": typeof lib_xeroHttp;
+  "lib/xeroMatch": typeof lib_xeroMatch;
   memberLicences: typeof memberLicences;
   memberships: typeof memberships;
   "migrations/accessV3": typeof migrations_accessV3;
@@ -297,6 +300,7 @@ declare const fullApi: ApiFromModules<{
   weather: typeof weather;
   xero: typeof xero;
   xeroCallback: typeof xeroCallback;
+  xeroMatch: typeof xeroMatch;
   xeroTokens: typeof xeroTokens;
 }>;
 
