@@ -42,6 +42,39 @@ describe('the client card', () => {
     expect(html).toContain('Active')
     expect(html).not.toContain('#')
   })
+
+  it('says “50+ properties” when the page held only a client’s newest 50', () => {
+    // `clients.page` reads a client's newest 50 live sites and says when
+    // there were more: the card must not claim 50 is all of them.
+    const sites = Array.from({ length: 50 }, (_, i) => ({
+      addressLine: `${i + 1} Hay St`,
+      suburb: i % 2 ? 'Subiaco' : 'Perth',
+    }))
+    const render = (propertiesCapped?: boolean) =>
+      renderToStaticMarkup(
+        <ClientCard
+          client={{ _id: 'c1', name: 'Harbourside Strata', kind: 'business' }}
+          properties={sites}
+          propertiesCapped={propertiesCapped}
+          onOpen={() => {}}
+        />,
+      )
+    expect(render(true)).toContain('50+ properties')
+    expect(render()).toContain('50 properties')
+    expect(render()).not.toContain('50+')
+
+    // One site shown and more behind it is a count, not that site's street.
+    const one = renderToStaticMarkup(
+      <ClientCard
+        client={{ _id: 'c1', name: 'Harbourside Strata', kind: 'business' }}
+        properties={[sites[0]]}
+        propertiesCapped
+        onOpen={() => {}}
+      />,
+    )
+    expect(one).toContain('1+ properties')
+    expect(one).not.toContain('1 Hay St')
+  })
 })
 
 describe('adding tags', () => {

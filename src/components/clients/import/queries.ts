@@ -1,6 +1,6 @@
 import { convexQuery } from '@convex-dev/react-query'
+import { getFunctionName } from 'convex/server'
 import { api } from '../../../../convex/_generated/api'
-import { rq } from '#/lib/routeQueries'
 import type { QueryClient } from '@tanstack/react-query'
 import type { FunctionReturnType } from 'convex/server'
 import type { Id } from '../../../../convex/_generated/dataModel'
@@ -16,6 +16,22 @@ export const recentImports = (businessId: Id<'businesses'>) =>
 export type RecentImport = FunctionReturnType<
   typeof api.clientImports.list
 >[number]
+
+/**
+ * The queries over a business's clients and sites that each batch of an
+ * import re-runs: the whole lists (the directory, and the two older lists
+ * until nothing reads them), the counts behind the Clients header and
+ * filters, and the Clients page's first page. Matched by function rather
+ * than by key, because the keys vary: the first page's carries its page
+ * size, and a key added later would otherwise be missed here.
+ */
+const CLIENT_LISTS: ReadonlySet<string> = new Set([
+  getFunctionName(api.clients.list),
+  getFunctionName(api.properties.list),
+  getFunctionName(api.clients.directory),
+  getFunctionName(api.clients.page),
+  getFunctionName(api.clients.overview),
+])
 
 /**
  * Lets go of the whole client and site lists, when nothing on screen is
@@ -37,14 +53,20 @@ export function dropIdleClientLists(
   queryClient: QueryClient,
   businessId: Id<'businesses'>,
 ): void {
-  for (const { queryKey } of [
-    rq.clients(businessId),
-    rq.properties(businessId),
-  ]) {
-    const watched = queryClient
-      .getQueryCache()
-      .find({ queryKey, exact: true })
-      ?.getObserversCount()
-    if (watched === 0) queryClient.removeQueries({ queryKey, exact: true })
-  }
+  queryClient.removeQueries({
+    predicate: (query) => {
+      const [kind, name, args] = query.queryKey
+      return (
+        kind === 'convexQuery' &&
+        typeof name === 'string' &&
+        CLIENT_LISTS.has(name) &&
+        typeof args === 'object' &&
+        args !== null &&
+        (args as { businessId?: unknown }).businessId === businessId &&
+        // Not one a screen is showing: pulled from under it, it would only
+        // be asked for again.
+        query.getObserversCount() === 0
+      )
+    },
+  })
 }

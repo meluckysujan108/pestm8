@@ -176,6 +176,7 @@ describe('the guide names every shared utility and component', () => {
     'primitives/EmptyState.tsx',
     'primitives/FilterDropdown.tsx',
     'primitives/HoldButton.tsx',
+    'primitives/LoadMore.tsx',
     'primitives/SearchBox.tsx',
     'primitives/Segmented.tsx',
     'primitives/Sheet.tsx',

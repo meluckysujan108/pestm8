@@ -22,6 +22,8 @@ import { visitChoices } from '#/lib/jobHistory'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { dayKeyOf } from '../../../../convex/lib/dates'
 import { FormAlert } from '#/components/forms/FormAlert'
+import { sitesWithClients } from '#/lib/directory'
+import { rq } from '#/lib/routeQueries'
 
 export const Route = createFileRoute('/$businessSlug/reports/new')({
   // Arriving from a job's detail sheet ($businessSlug/schedule via
@@ -45,9 +47,13 @@ function NewReportPage() {
   // then the picker below with it chosen.
   const [newClientOpen, setNewClientOpen] = useState(false)
 
-  const { data: properties } = useSuspenseQuery(
-    convexQuery(api.properties.list, { businessId: business._id }),
-  )
+  // Every site with its client, oldest first, from the slim directory
+  // (`clients.directory`) in the shape `properties.list` had: the first is
+  // still the one picked when nothing else is.
+  const { data: properties } = useSuspenseQuery({
+    ...rq.directory(business._id),
+    select: sitesWithClients,
+  })
   const { data: customTemplates } = useSuspenseQuery(
     convexQuery(api.customTemplates.list, { businessId: business._id }),
   )
@@ -218,7 +224,7 @@ function NewReportPage() {
               <div className="flex flex-col gap-1.5">
                 <span className="section-label">Property</span>
                 <div className="rounded-xl bg-surface-3 px-3.5 py-3">
-                  <p className="text-[16px] text-ink">{lockedProperty.client?.name}</p>
+                  <p className="text-[16px] text-ink">{lockedProperty.client.name}</p>
                   <p className="text-body text-muted">
                     {lockedProperty.addressLine}, {lockedProperty.suburb}
                   </p>
@@ -234,7 +240,7 @@ function NewReportPage() {
                 >
                   {properties.map((p) => (
                     <option key={p._id} value={p._id}>
-                      {p.client?.name} — {p.addressLine}, {p.suburb}
+                      {p.client.name} — {p.addressLine}, {p.suburb}
                     </option>
                   ))}
                 </select>

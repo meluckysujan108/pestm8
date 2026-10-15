@@ -166,20 +166,10 @@ export function TagInput({
   )
 }
 
-/** Every tag a business's clients carry, the most used first. */
-export function tagsInUse(
-  clients: ReadonlyArray<{ tags?: Array<string> }>,
-): Array<{ tag: string; count: number }> {
-  const counts = new Map<string, { tag: string; count: number }>()
-  for (const client of clients) {
-    for (const tag of client.tags ?? []) {
-      const key = tag.toLowerCase()
-      const entry = counts.get(key)
-      if (entry) entry.count++
-      else counts.set(key, { tag, count: 1 })
-    }
-  }
-  return [...counts.values()].sort(
-    (a, b) => b.count - a.count || a.tag.localeCompare(b.tag),
-  )
-}
+/**
+ * Every tag a business's clients carry, the most used first. Counted in
+ * convex/lib/clientFacets.ts, which `clients.overview` shares, so the
+ * Clients page's tag filter offers the same tags whether the server counted
+ * the whole book or the page counted what a search found.
+ */
+export { tagsInUse } from '../../../convex/lib/clientFacets'

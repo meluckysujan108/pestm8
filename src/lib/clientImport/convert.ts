@@ -99,11 +99,12 @@ export function toImportClient(client: ReviewClient): ImportClient {
 }
 
 /**
- * What PestM8 already holds, from `api.clients.list` and
- * `api.properties.list`. An archived client isn't matched: the server won't
- * add sites to one. Of two with one name, the older is matched, as the list
- * comes oldest first. Each site also says whose it is, so the review can
- * tell "already yours" from "already on someone else".
+ * What PestM8 already holds, from `api.clients.directory`: its clients, and
+ * its sites with their clients (`sitesWithClients`, src/lib/directory.ts).
+ * An archived client isn't matched: the server won't add sites to one. Of
+ * two with one name, the older is matched, as the directory comes oldest
+ * first. Each site also says whose it is, so the review can tell "already
+ * yours" from "already on someone else".
  */
 export function indexExisting(
   clients: Array<{
@@ -117,14 +118,17 @@ export function indexExisting(
     suburb: string
     postcode: string
     clientId?: Id<'clients'>
-    /** `properties.list` carries its client; an archived one's too. */
+    /** A site comes with its client; an archived one's too. */
     client?: { name: string } | null
   }>,
 ): ExistingIndex {
   const clientsByName = new Map<string, Id<'clients'>>()
   const names = new Map<Id<'clients'>, string>()
-  // Every client listed; an archived one's number is also kept (the server
-  // gives the next free one), which the review just won't warn about.
+  // Every client listed, archived ones too: an archived client still holds
+  // its number, and the server gives an import asking for it the next free
+  // one (convex/lib/clientRecord.ts), so the review says so. `clients.list`
+  // left archived clients out, and their numbers went unwarned. One in the
+  // Recycle bin holds its number too, but isn't listed.
   const numbers = new Map<number, string>()
   for (const client of clients) {
     names.set(client._id, client.name)

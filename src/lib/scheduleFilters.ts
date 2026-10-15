@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { JOB_STATUS } from '#/lib/statusColours'
 import type { JobStatus } from '#/components/primitives/StatusPill'
+import type { JobListStatus } from '#/lib/routeQueries'
 import { UNASSIGNED_COLOUR } from '../../convex/lib/colours'
 
 export type StatusFilter = 'all' | JobStatus
@@ -24,13 +25,34 @@ export const STATUS_OPTIONS: Array<{ value: JobStatus; label: string }> = (
  * projected visits (`jobs.list` in convex/jobs.ts), so there is no Recurring:
  * those are the Recurring Job view's (src/lib/jobViews.ts).
  */
+const JOB_LIST_STATUSES = [
+  'pending',
+  'booked',
+  'completed',
+  'invoiced',
+  'cancelled',
+] as const satisfies ReadonlyArray<JobListStatus>
+
 export const JOB_LIST_STATUS_OPTIONS: Array<{
-  value: JobStatus
+  value: JobListStatus
   label: string
-}> = [
-  ...STATUS_OPTIONS,
-  { value: 'cancelled', label: JOB_STATUS.cancelled.label },
-]
+}> = JOB_LIST_STATUSES.map((value) => ({
+  value,
+  label: JOB_STATUS[value].label,
+}))
+
+/**
+ * The Job tab's `?status=`, as one of those or none.
+ *
+ * The route's search validation and its loader both read the address
+ * through this. The status is now an argument to the server, so the two have
+ * to agree to the byte: a loader that warmed `?status=recurring` as asked
+ * would warm a query the server refuses, under a key the page — which reads
+ * no status at all — never asks for.
+ */
+export function parseJobListStatus(raw: unknown): JobListStatus | undefined {
+  return JOB_LIST_STATUSES.find((status) => status === raw)
+}
 
 export type StaffLoad = {
   membershipId: string

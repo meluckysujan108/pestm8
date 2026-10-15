@@ -50,6 +50,7 @@ import type * as lib_audit from "../lib/audit.js";
 import type * as lib_bin from "../lib/bin.js";
 import type * as lib_businessLogo from "../lib/businessLogo.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
+import type * as lib_clientFacets from "../lib/clientFacets.js";
 import type * as lib_clientImport from "../lib/clientImport.js";
 import type * as lib_clientRecord from "../lib/clientRecord.js";
 import type * as lib_clientScope from "../lib/clientScope.js";
@@ -190,6 +191,7 @@ declare const fullApi: ApiFromModules<{
   "lib/bin": typeof lib_bin;
   "lib/businessLogo": typeof lib_businessLogo;
   "lib/capabilities": typeof lib_capabilities;
+  "lib/clientFacets": typeof lib_clientFacets;
   "lib/clientImport": typeof lib_clientImport;
   "lib/clientRecord": typeof lib_clientRecord;
   "lib/clientScope": typeof lib_clientScope;

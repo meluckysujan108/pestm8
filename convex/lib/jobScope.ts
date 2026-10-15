@@ -107,6 +107,67 @@ export async function jobsInScope(
 }
 
 /**
+ * The projected (`recurring`) visits in scope between two dates, oldest
+ * first.
+ *
+ * What `jobsInScope(...).filter(status === 'recurring')` answered, without
+ * reading every booked job in the window only to drop it: the overdue badge
+ * is read on every page, and a busy business books hundreds of jobs in the
+ * six months it looks back over. Projections are never shared (nobody is
+ * also going on one until it is booked), so there is no shared-job read.
+ * The Recycle bin is left out, as in `jobsInScope`.
+ */
+export async function projectionsInScope(
+  ctx: QueryCtx,
+  scope: RowScope,
+  opts: {
+    businessId: Id<'businesses'>
+    /** Inclusive lower bound on `scheduledAt`. */
+    from: number
+    /** Exclusive upper bound. */
+    to: number
+  },
+): Promise<Array<Doc<'jobs'>>> {
+  const { businessId, from, to } = opts
+
+  if (scope.kind === 'business') {
+    return ctx.db
+      .query('jobs')
+      .withIndex('by_businessId_and_status_and_scheduledAt', (q) =>
+        q
+          .eq('businessId', businessId)
+          .eq('status', 'recurring')
+          .gte('scheduledAt', from)
+          .lt('scheduledAt', to),
+      )
+      .filter((q) => q.eq(q.field('deletedAt'), undefined))
+      .collect()
+  }
+
+  const ids =
+    scope.kind === 'own' ? [scope.membershipId] : [...scope.membershipIds]
+  const perMember = await Promise.all(
+    ids.map((membershipId) =>
+      ctx.db
+        .query('jobs')
+        .withIndex('by_assignedMembershipId_and_status_and_scheduledAt', (q) =>
+          q
+            .eq('assignedMembershipId', membershipId)
+            .eq('status', 'recurring')
+            .gte('scheduledAt', from)
+            .lt('scheduledAt', to),
+        )
+        .filter((q) => q.eq(q.field('deletedAt'), undefined))
+        .collect(),
+    ),
+  )
+  if (perMember.length === 1) return perMember[0]
+  return uniqueJobs(perMember.flat()).sort(
+    (a, b) => a.scheduledAt - b.scheduledAt,
+  )
+}
+
+/**
  * The newest `limit` jobs in scope with one of `statuses`, most recently
  * created first — what the Job tab lists.
  *

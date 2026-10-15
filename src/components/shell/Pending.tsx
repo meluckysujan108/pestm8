@@ -60,51 +60,94 @@ export function PagePending() {
   )
 }
 
+/** How tall each kind of card's bone is. */
+type CardSize = 'row' | 'job'
+
 /**
  * List or board rows. Two columns from `md` like the schedule and clients
  * boards, unless the list it stands in for is a single column — the reports
  * and notes libraries are, and `md:` is a viewport query, so inside the notes
- * column it would otherwise lay two half-width bones side by side.
+ * column it would otherwise lay two half-width bones side by side. Three is
+ * the Job tab's, which adds a third column at `xl:`.
  */
 export function CardRows({
   count,
   className = '',
   columns = 2,
+  size = 'row',
 }: {
   count: number
   className?: string
-  columns?: 1 | 2
+  columns?: 1 | 2 | 3
+  size?: CardSize
 }) {
   return (
     <div
       aria-hidden
-      className={`flex flex-col gap-2.5 ${columns === 2 ? 'md:grid md:grid-cols-2' : ''} ${className}`}
+      className={`flex flex-col gap-2.5 ${columns > 1 ? 'md:grid md:grid-cols-2' : ''} ${columns === 3 ? 'xl:grid-cols-3' : ''} ${className}`}
     >
-      {Array.from({ length: count }, (_, i) => (
-        <Bone key={i} className="h-[88px] rounded-2xl" />
-      ))}
+      <CardCells count={count} size={size} />
     </div>
+  )
+}
+
+/**
+ * The next page of a list loading, as bare cells to drop into the list's own
+ * grid after its last card — so they take the columns the cards take, and
+ * the cards land where the bones were. No wrapper, no `status` and no words:
+ * the list's `LoadMore` is what says a page is coming.
+ *
+ * `job` is a job card's height: one booked for a single service, with its
+ * contact holds (322–348px on a phone, measured in the UI harness). `row` is
+ * every other card's, the 88px `CardRows` has always drawn.
+ */
+export function CardCells({
+  count,
+  size = 'row',
+}: {
+  count: number
+  size?: CardSize
+}) {
+  return (
+    <>
+      {Array.from({ length: count }, (_, i) => (
+        <Bone
+          key={`bone-${i}`}
+          className={`${size === 'job' ? 'h-[332px]' : 'h-[88px]'} rounded-2xl`}
+        />
+      ))}
+    </>
   )
 }
 
 /**
  * A list loading inside a page that is already on screen, announced because
  * the page-level placeholder — the only other `status` region — is not there
- * to do it.
+ * to do it. One column unless told otherwise: the Job tab's first page is
+ * job cards in its own three columns (`columns={3} size="job"`).
  */
 export function ListPending({
   label,
   count,
   className = '',
+  columns = 1,
+  size = 'row',
 }: {
   label: string
   count: number
   className?: string
+  columns?: 1 | 2 | 3
+  size?: CardSize
 }) {
   return (
     <div role="status">
       <span className="sr-only">{label}</span>
-      <CardRows count={count} columns={1} className={className} />
+      <CardRows
+        count={count}
+        columns={columns}
+        size={size}
+        className={className}
+      />
     </div>
   )
 }

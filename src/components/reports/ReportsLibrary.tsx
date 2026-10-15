@@ -12,7 +12,8 @@ import {
   NoMatches,
 } from '#/components/primitives/EmptyState'
 import { SearchBox } from '#/components/primitives/SearchBox'
-import { ListPending } from '#/components/shell/Pending'
+import { CardCells, ListPending } from '#/components/shell/Pending'
+import { LoadMore } from '#/components/primitives/LoadMore'
 import { REPORTS_PAGE, reportsFirstPage, rq } from '#/lib/routeQueries'
 import { Segmented } from '#/components/primitives/Segmented'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
@@ -155,6 +156,9 @@ export function ReportsLibrary({
           (first.data.page.length === 0 && !first.data.isDone))) ||
       (pageRows.length === 0 &&
         (paged.status === 'CanLoadMore' || paged.status === 'LoadingMore'))
+  // A page coming under rows already drawn. Not while the list itself is
+  // loading, which has its own placeholder and its own announcement.
+  const loadingMore = !searching && !loading && paged.status === 'LoadingMore'
 
   return (
     <>
@@ -222,24 +226,22 @@ export function ReportsLibrary({
                 inTrash={segment === 'trash'}
               />
             ))}
+            {loadingMore && <CardCells count={2} />}
           </div>
         )}
 
-        {/* Only while paging: a search returns everything it found at once. */}
-        {!searching && paged.status === 'CanLoadMore' && (
-          <button
-            type="button"
-            onClick={() => paged.loadMore(PAGE_SIZE)}
-            className={`${SECONDARY_BUTTON_COMPACT} mt-3 w-full`}
-          >
-            Show more
-          </button>
-        )}
-        {!searching && paged.status === 'LoadingMore' && (
-          <ListPending
-            label="Loading more reports"
-            count={2}
-            className="mt-3"
+        {/* Only while paging: a search returns everything it found at once.
+            The button only, for now — loading as the end comes near is the
+            Job tab's and the Clients page's, where lists run to hundreds. */}
+        {!searching && (
+          <LoadMore
+            auto={false}
+            noun="reports"
+            shown={rows.length}
+            canLoadMore={!loading && paged.status === 'CanLoadMore'}
+            loading={loadingMore}
+            onLoadMore={() => paged.loadMore(PAGE_SIZE)}
+            resetKey={segment}
           />
         )}
       </section>
