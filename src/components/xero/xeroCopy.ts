@@ -31,6 +31,10 @@ export const XERO_RETURN_COPY: Readonly<Record<string, string>> = {
   // will fix it.
   failed:
     'Could not connect Xero. Try again — if it fails again, open Xero → Settings → Connected apps: Xero lets an organisation connect only two apps like PestM8.',
+  // Xero refused PestM8's own keys (convex/xeroCallback.ts): nothing the
+  // person connecting can do, and trying again fails the same way.
+  app_setup:
+    'Could not connect Xero: PestM8’s link to Xero isn’t set up correctly, so nothing was connected. Tell whoever looks after PestM8 for your business.',
   no_org:
     'Could not connect Xero: no organisation was chosen. Connect again, and choose your organisation when Xero asks.',
   // Xero didn't say which of the organisations this login has it chose, and

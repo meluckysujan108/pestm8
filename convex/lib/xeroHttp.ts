@@ -128,6 +128,14 @@ export function classify(
   now: number,
 ): Classified {
   if (status >= 200 && status < 300) return { kind: 'ok' }
+
+  // The token endpoint refusing PestM8 itself — its client id or secret, or
+  // the request as a whole — whatever the status: retrying or reconnecting
+  // cannot fix the app's own keys (\`isAppSetupRefusal\`).
+  if (isRecord(body) && isAppSetupCode(body.error)) {
+    return { kind: 'stop', code: body.error, status }
+  }
+
   if (status === 401) return { kind: 'refresh' }
 
   // The token endpoint's word for a refresh token that is dead: revoked,
@@ -202,6 +210,36 @@ function stopCode(body: unknown, status: number): string {
     }
   }
   return `http_${status}`
+}
+
+/**
+ * The token endpoint's words for "this is not a request from an app I know":
+ * a wrong client id or secret (\`invalid_client\`), an app not allowed this
+ * grant (\`unauthorized_client\`), or credentials Xero could not read at all
+ * (\`invalid_request\` — Xero answers that for a secret over 100 characters,
+ * which is how a secret pasted twice showed itself on 15 Oct 2026).
+ */
+const APP_SETUP_CODES = [
+  'invalid_client',
+  'unauthorized_client',
+  'invalid_request',
+]
+
+function isAppSetupCode(value: unknown): value is string {
+  return typeof value === 'string' && APP_SETUP_CODES.includes(value)
+}
+
+/**
+ * Whether a failed call to the token endpoint means the deployment's own
+ * Xero app keys (XERO_CLIENT_ID / XERO_CLIENT_SECRET) are wrong — something
+ * only whoever runs PestM8 can fix, not the person connecting.
+ */
+export function isAppSetupRefusal(error: unknown): boolean {
+  return (
+    error instanceof XeroError &&
+    error.classified.kind === 'stop' &&
+    isAppSetupCode(error.classified.code)
+  )
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -354,6 +392,38 @@ async function tokenRequest(
  * `redirect_uri` must be the very string the authorize URL carried
  * (lib/xeroConfig.ts `redirectUri`), or Xero refuses the trade.
  */
+/**
+ * Whether Xero accepts this deployment's client id and secret, asked without
+ * anybody's sign-in: a client-credentials request, which Xero answers with
+ * an app-only token when the keys are right. The token is dropped unread —
+ * it is never returned, stored or logged. For \`xero:checkApp\`, run straight
+ * after setting the keys (docs/xero.md).
+ */
+export async function checkAppCredentials(): Promise<
+  { ok: true } | { ok: false; error: string }
+> {
+  try {
+    await call('app check', XERO_TOKEN_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: basicAuth(),
+        'Content-Type': 'application/x-www-form-urlencoded',
+        Accept: 'application/json',
+      },
+      body: new URLSearchParams({
+        grant_type: 'client_credentials',
+      }).toString(),
+    })
+    return { ok: true }
+  } catch (error) {
+    if (error instanceof XeroError) {
+      const c = error.classified
+      return { ok: false, error: 'code' in c ? c.code : c.kind }
+    }
+    throw error
+  }
+}
+
 export async function exchangeCode(code: string): Promise<XeroTokenSet> {
   return await tokenRequest('token exchange', {
     grant_type: 'authorization_code',

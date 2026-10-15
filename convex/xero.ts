@@ -32,7 +32,12 @@ import {
   xeroConfigured,
   xeroPaused,
 } from './lib/xeroConfig'
-import { XeroError, deleteConnection, getOrganisation } from './lib/xeroHttp'
+import {
+  XeroError,
+  checkAppCredentials,
+  deleteConnection,
+  getOrganisation,
+} from './lib/xeroHttp'
 import {
   LIVE_XERO_STATUSES,
   isLiveXero,
@@ -1727,6 +1732,28 @@ export const sweep = internalMutation({
     }
 
     return { states: states.length, unfinished: unfinished.length }
+  },
+})
+
+/**
+ * Ops: does Xero accept this deployment's app keys? Run it straight after
+ * setting XERO_CLIENT_ID / XERO_CLIENT_SECRET —
+ * `npx convex run [--prod] xero:checkApp` — so a mistyped or doubled secret
+ * shows up there, not as a failed connect at the owner's end (it did, on
+ * 15 Oct 2026). Answers `{ ok }` or the token endpoint's error code; the
+ * app-only token a good check is given is dropped unread.
+ */
+export const checkApp = internalAction({
+  args: {},
+  returns: v.union(
+    v.object({ ok: v.literal(true) }),
+    v.object({ ok: v.literal(false), error: v.string() }),
+  ),
+  handler: async () => {
+    if (!xeroConfigured()) {
+      return { ok: false as const, error: 'XERO_NOT_CONFIGURED' }
+    }
+    return await checkAppCredentials()
   },
 })
 

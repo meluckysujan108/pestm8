@@ -585,9 +585,34 @@ function makeFake() {
     headers.authorization ===
     `Basic ${btoa(`${XERO_TEST_CLIENT_ID}:${XERO_TEST_CLIENT_SECRET}`)}`
 
+  /** Xero ignores a client secret over 100 characters and treats the
+   * request as having no credentials at all — how a secret pasted twice
+   * showed itself on 15 Oct 2026. */
+  const oversizedSecret = (headers: Record<string, string | undefined>) => {
+    const basic = headers.authorization?.replace(/^Basic /, '')
+    if (!basic) return true
+    const pair = atob(basic)
+    const secret = pair.slice(pair.indexOf(':') + 1)
+    return secret.length > 100
+  }
+
   async function token(r: XeroRequest): Promise<Response> {
+    if (oversizedSecret(r.headers)) {
+      return json({ error: 'invalid_request' }, 400)
+    }
     if (!basicOk(r.headers)) return json({ error: 'invalid_client' }, 401)
     const grantType = r.form.grant_type
+
+    // A Web app may ask for an app-only token (for its connections); PestM8
+    // only does so to check its own keys (`xero:checkApp`).
+    if (grantType === 'client_credentials') {
+      return json({
+        access_token: 'APP-ONLY-TOKEN',
+        expires_in: 1800,
+        token_type: 'Bearer',
+        scope: 'app.connections',
+      })
+    }
 
     if (grantType === 'authorization_code') {
       const issued = codes.get(r.form.code ?? '')

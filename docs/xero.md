@@ -70,6 +70,17 @@ an organisation until its holder presses **Start syncing**.
    deploy. The Convex dashboard's environment variables page does the same
    without leaving the secret in shell history. The e2e deployment gets
    **nothing**: its tests are of the screens a deployment without Xero shows.
+   **Then check the keys before anyone connects:**
+   ```sh
+   npx convex run [--prod] xero:checkApp
+   ```
+   `{ ok: true }` means Xero accepts the client id and secret. `invalid_client`
+   is a wrong secret (or the other app's), and `invalid_request` means Xero
+   could not read the keys at all — a secret over 100 characters, which is
+   what a secret pasted twice looks like (prod, 15 Oct 2026: a 143-character
+   value, the real 48-character secret with text between two copies of it).
+   A connect against bad keys comes back as `?xero=app_setup`, and the log
+   names this command.
 6. **Approve `/terms` and `/privacy`**, with advice. They disclose that the
    whole client book is copied into every connected organisation, members' own
    included, and stays there after a member leaves. That is a disclosure of the
@@ -902,19 +913,20 @@ it can't reach the organisation again.
 
 The page reads `?xero=<code>` and shows its words from `XERO_RETURN_COPY`.
 
-| Code            | Why                                                                                                                  |
-| --------------- | -------------------------------------------------------------------------------------------------------------------- |
-| `cancelled`     | They cancelled at Xero's sign-in                                                                                     |
-| `failed`        | Xero returned another error, the code exchange failed, or the callback threw. The logs say which                     |
-| `no_org`        | The sign-in reached no organisation, only a practice or nothing                                                      |
-| `ambiguous_org` | Xero listed nothing for this sign-in, and the Xero login has more than one organisation: no guessing which           |
-| `business_org`  | A member chose the business's own organisation                                                                       |
-| `member_org`    | The owner chose an organisation a member has connected                                                               |
-| `taken`         | That organisation is already connected in this business                                                              |
-| `different_org` | A reconnect came back with another organisation. A connection's organisation never changes: disconnect, then connect |
-| `org_cap`       | A new organisation when `XERO_MAX_ORGS` are already connected across every business                                  |
-| `demo`          | The demo business can't connect                                                                                      |
-| `expired`       | More than 10 minutes at Xero's sign-in                                                                               |
+| Code            | Why                                                                                                                                                 |
+| --------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cancelled`     | They cancelled at Xero's sign-in                                                                                                                    |
+| `failed`        | Xero returned another error, the code exchange failed, or the callback threw. The logs say which                                                    |
+| `app_setup`     | Xero refused PestM8's own keys at the code exchange (`invalid_client`, `invalid_request`, `unauthorized_client`): fix the env, then `xero:checkApp` |
+| `no_org`        | The sign-in reached no organisation, only a practice or nothing                                                                                     |
+| `ambiguous_org` | Xero listed nothing for this sign-in, and the Xero login has more than one organisation: no guessing which                                          |
+| `business_org`  | A member chose the business's own organisation                                                                                                      |
+| `member_org`    | The owner chose an organisation a member has connected                                                                                              |
+| `taken`         | That organisation is already connected in this business                                                                                             |
+| `different_org` | A reconnect came back with another organisation. A connection's organisation never changes: disconnect, then connect                                |
+| `org_cap`       | A new organisation when `XERO_MAX_ORGS` are already connected across every business                                                                 |
+| `demo`          | The demo business can't connect                                                                                                                     |
+| `expired`       | More than 10 minutes at Xero's sign-in                                                                                                              |
 
 A refusal deletes the Xero connection the sign-in made, unless another live
 connection, in any business, holds it. Finishing can fail too: `FINISH_EXPIRED`

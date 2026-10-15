@@ -4,6 +4,7 @@ import {
   CONTACTS_PAGE_SIZE,
   CONTACT_IDS_PER_READ,
   XeroError,
+  checkAppCredentials,
   classify,
   decodeJwtPayload,
   deleteConnection,
@@ -12,6 +13,7 @@ import {
   getContactsByIds,
   getContactsPage,
   getOrganisation,
+  isAppSetupRefusal,
   isNameClash,
   listConnections,
   newIdempotencyKey,
@@ -72,6 +74,22 @@ describe('classify', () => {
       status: 403,
     })
   })
+
+  test.each([
+    [400, 'invalid_client'],
+    [401, 'invalid_client'],
+    [400, 'unauthorized_client'],
+    [400, 'invalid_request'],
+  ])(
+    '%i %s (Xero refusing the app’s own keys) → stop, whatever the status',
+    (status, error) => {
+      expect(classify(status, headers(), { error }, NOW)).toEqual({
+        kind: 'stop',
+        code: error,
+        status,
+      })
+    },
+  )
 
   test('400 invalid_grant (a dead refresh token) → reconnect', () => {
     expect(classify(400, headers(), { error: 'invalid_grant' }, NOW)).toEqual({
@@ -294,6 +312,60 @@ describe('calls to Xero', () => {
   }
 
   const logged = () => errors.mock.calls.map((c) => c.join(' ')).join('\n')
+
+  test('checkAppCredentials: a client-credentials ask with Basic auth; the token it is given is dropped unread', async () => {
+    reply = () =>
+      json({
+        access_token: 'APP-ONLY-TOKEN',
+        expires_in: 1800,
+        token_type: 'Bearer',
+      })
+    expect(await checkAppCredentials()).toEqual({ ok: true })
+    expect(requests).toHaveLength(1)
+    const [request] = requests
+    expect(request.url).toBe('https://identity.xero.com/connect/token')
+    expect(request.method).toBe('POST')
+    expect(request.headers.authorization).toBe(
+      `Basic ${btoa('the-client-id:the-client-secret')}`,
+    )
+    expect(new URLSearchParams(request.body).get('grant_type')).toBe(
+      'client_credentials',
+    )
+    expect(logged()).not.toContain('APP-ONLY-TOKEN')
+  })
+
+  test.each([
+    ['a wrong secret', 'invalid_client'],
+    ['a secret pasted twice (over 100 characters)', 'invalid_request'],
+  ])(
+    'checkAppCredentials: %s → its code, and isAppSetupRefusal knows it',
+    async (_why, error) => {
+      reply = () => json({ error }, 400)
+      expect(await checkAppCredentials()).toEqual({ ok: false, error })
+      reply = () => json({ error }, 400)
+      const thrown = await exchangeCode('a-code').then(
+        () => null,
+        (e: unknown) => e,
+      )
+      expect(isAppSetupRefusal(thrown)).toBe(true)
+    },
+  )
+
+  test('isAppSetupRefusal: a used code or Xero being down is not the app’s keys', async () => {
+    reply = () => json({ error: 'invalid_grant' }, 400)
+    const usedCode = await exchangeCode('a-code').then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(isAppSetupRefusal(usedCode)).toBe(false)
+    reply = () => json({}, 503)
+    const down = await exchangeCode('a-code').then(
+      () => null,
+      (e: unknown) => e,
+    )
+    expect(isAppSetupRefusal(down)).toBe(false)
+    expect(isAppSetupRefusal(new Error('anything else'))).toBe(false)
+  })
 
   test('exchangeCode: Basic auth, the code, and the same redirect_uri', async () => {
     reply = () =>
