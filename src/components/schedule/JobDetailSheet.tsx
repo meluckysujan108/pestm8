@@ -34,6 +34,9 @@ import { WeatherCredit } from './WeatherCredit'
 import { isWet, isWindy, useWeather } from '#/lib/weather'
 import { useHydrated } from '#/lib/useHydrated'
 import { propertyOptions } from '#/lib/propertyOptions'
+import type { PickableProperty } from '#/lib/propertyOptions'
+import { sitesWithClients } from '#/lib/directory'
+import { rq } from '#/lib/routeQueries'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
@@ -902,13 +905,19 @@ function JobEditForm({
     alsoGoing?: Array<{ _id: Id<'memberships'> }>
     workOrder?: string
     recurrence: { _id: Id<'recurrences'>; interval: Interval; active: boolean } | null
+    /** Where it is now, with its client: what the Property field says
+     * while every other site is still on its way. */
+    property?: PickableProperty | null
   }
   canReassign: boolean
   onDone: () => void
 }) {
-  const { data: properties } = useQuery(
-    convexQuery(api.properties.list, { businessId }),
-  )
+  // Every site with its client, from the slim directory (`clients.directory`)
+  // in the shape `properties.list` had.
+  const { data: properties } = useQuery({
+    ...rq.directory(businessId),
+    select: sitesWithClients,
+  })
   const { data: members } = useQuery(
     convexQuery(api.memberships.listForBusiness, { businessId }),
   )
@@ -916,9 +925,18 @@ function JobEditForm({
   const jobTypeList = useJobTypes(businessId).entries
   const [propertyId, setPropertyId] = useState<string>(job.propertyId)
   const [openedAt] = useState(() => Date.now())
+  // Until the directory is in, the job's own site is the one option: the
+  // field shows its client and address, not the id it holds, which is what
+  // the picker falls back to for a value it has no option for. A business
+  // with a thousand clients takes a moment to load, and a form that opened
+  // reading "k57d…" looked broken.
   const propertyOptionList = useMemo(
-    () => propertyOptions(properties ?? [], { timezone, now: openedAt }),
-    [properties, timezone, openedAt],
+    () =>
+      propertyOptions(properties ?? (job.property ? [job.property] : []), {
+        timezone,
+        now: openedAt,
+      }),
+    [properties, job.property, timezone, openedAt],
   )
   // One service or several (lib/jobTypes.ts); a job saved before there
   // could be several reads back as its one.
@@ -1138,7 +1156,11 @@ function JobEditForm({
           onChange={setPropertyId}
           options={propertyOptionList}
           placeholder="Search by name or address"
-          noMatchLabel="No properties match"
+          // Searched before the other sites have arrived, a miss is not
+          // an answer yet.
+          noMatchLabel={
+            properties ? 'No properties match' : 'Loading properties…'
+          }
           ariaLabel="Property"
         />
       </EditField>

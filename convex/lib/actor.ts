@@ -703,6 +703,23 @@ export function hasCapability(
 }
 
 /**
+ * Whether this caller's lists show the whole business — the owner in his
+ * own view, or anyone who may see every schedule — rather than one person's
+ * or one team's work.
+ *
+ * One definition for `access.me` and the lists that page on it
+ * (`jobs.listPage`, `jobs.listCounts`): the app picks which job list to
+ * read from `access.me`, and the two must never disagree about which one
+ * answers. Both read it through `requireActor`, so a view chosen or a
+ * switch started re-runs them together.
+ */
+export function listsEverything(
+  env: Pick<ActorEnvelope, 'listScope'>,
+): boolean {
+  return env.listScope.kind === 'business'
+}
+
+/**
  * Refuse to hand out a role the app cannot yet support, or must never hand out
  * at all. See `ASSIGNABLE_ROLES`.
  *

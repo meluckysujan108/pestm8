@@ -1,7 +1,7 @@
-import { QueryClient } from '@tanstack/react-query'
+import { QueryClient, QueryObserver } from '@tanstack/react-query'
 import { describe, expect, it } from 'vitest'
-import { rq } from '#/lib/routeQueries'
-import { dropIdleClientLists } from './queries'
+import { clientsFirstPage, rq } from '#/lib/routeQueries'
+import { dropIdleClientLists, recentImports } from './queries'
 import { ConvexError } from 'convex/values'
 import { refusedBeforeStart, sendJob } from './useImportRun'
 import type { Job, RunState } from './useImportRun'
@@ -100,7 +100,13 @@ describe('sendJob', () => {
 
   it('a list warmed again mid-import is gone again before the next batch', async () => {
     const queryClient = new QueryClient()
-    const lists = [rq.clients(BUSINESS), rq.properties(BUSINESS)]
+    const lists = [
+      rq.clients(BUSINESS),
+      rq.properties(BUSINESS),
+      rq.directory(BUSINESS),
+      rq.clientOverview(BUSINESS),
+      clientsFirstPage(BUSINESS),
+    ]
     // What a preload leaves: the whole list in the cache, watched by no
     // one, and so still subscribed.
     const warm = () => {
@@ -130,6 +136,45 @@ describe('sendJob', () => {
       stopped: () => false,
     })
     expect(atSend).toEqual([0, 0, 0])
+  })
+
+  it('lets go of only this business’s idle client lists', () => {
+    const queryClient = new QueryClient()
+    const OTHER = 'b2' as Id<'businesses'>
+    const put = (queryKey: ReadonlyArray<unknown>) =>
+      queryClient.setQueryData(queryKey, [])
+    const has = (queryKey: ReadonlyArray<unknown>) =>
+      queryClient.getQueryCache().find({ queryKey, exact: true }) !== undefined
+
+    // A first page asked for at another size: matched by its function, not
+    // by the one key the page uses today.
+    const otherSize = [
+      'convexQuery',
+      clientsFirstPage(BUSINESS).queryKey[1],
+      { businessId: BUSINESS, paginationOpts: { numItems: 5, cursor: null } },
+    ]
+    const shown = rq.clientOverview(BUSINESS)
+    const kept = [
+      shown.queryKey,
+      rq.directory(OTHER).queryKey,
+      recentImports(BUSINESS).queryKey,
+    ]
+    const dropped = [
+      rq.directory(BUSINESS).queryKey,
+      clientsFirstPage(BUSINESS).queryKey,
+      otherSize,
+    ]
+    for (const queryKey of [...kept, ...dropped]) put(queryKey)
+    // The Clients header on screen is watching its counts.
+    const unwatch = new QueryObserver(queryClient, {
+      queryKey: shown.queryKey,
+      enabled: false,
+    }).subscribe(() => {})
+
+    dropIdleClientLists(queryClient, BUSINESS)
+    expect(kept.map(has)).toEqual([true, true, true])
+    expect(dropped.map(has)).toEqual([false, false, false])
+    unwatch()
   })
 
   it('stops between batches once the page has gone', async () => {

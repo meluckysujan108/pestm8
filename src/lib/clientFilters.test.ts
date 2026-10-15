@@ -1,5 +1,9 @@
 import { describe, expect, test } from 'vitest'
-import { matchesClientSearch } from './clientFilters'
+import {
+  computeSuburbLoad,
+  filterClientRows,
+  matchesClientSearch,
+} from './clientFilters'
 import type { ClientKind } from './clientFilters'
 
 type Site = {
@@ -120,5 +124,73 @@ describe('client number and tags in the search', () => {
 
   test('finds a client by a tag', () => {
     expect(matchesClientSearch(ALAN, 'real estate')).toBe(true)
+  })
+})
+
+describe('the Clients page filters', () => {
+  const NO_FILTERS = {
+    kind: 'all',
+    suburb: 'all',
+    status: 'all',
+    tag: 'all',
+  } as const
+  const ROWS = [
+    {
+      client: { name: 'Alan Vilay', kind: 'person' as const },
+      properties: [{ suburb: 'Canning Vale' }],
+    },
+    {
+      client: {
+        name: 'Mahal Mart',
+        kind: 'business' as const,
+        status: 'lead' as const,
+        tags: ['Real estate'],
+      },
+      properties: [{ suburb: 'Morley' }, { suburb: 'Midland' }],
+    },
+    {
+      client: {
+        name: 'Jo Bloggs',
+        kind: 'person' as const,
+        status: 'inactive' as const,
+        tags: ['GPC'],
+      },
+      properties: [],
+    },
+  ]
+  const names = (filters: Partial<Parameters<typeof filterClientRows>[1]>) =>
+    filterClientRows(ROWS, { ...NO_FILTERS, ...filters }).map(
+      (r) => r.client.name,
+    )
+
+  test('keeps every row, in order, with nothing set', () => {
+    expect(names({})).toEqual(['Alan Vilay', 'Mahal Mart', 'Jo Bloggs'])
+  })
+
+  test('takes a client with no status as active', () => {
+    expect(names({ status: 'active' })).toEqual(['Alan Vilay'])
+    expect(names({ status: 'lead' })).toEqual(['Mahal Mart'])
+  })
+
+  test('matches a tag whatever its capitals, and a suburb of any site', () => {
+    expect(names({ tag: 'real ESTATE' })).toEqual(['Mahal Mart'])
+    expect(names({ suburb: 'Midland' })).toEqual(['Mahal Mart'])
+    expect(names({ suburb: 'midland' })).toEqual([])
+  })
+
+  test('needs every filter set to match', () => {
+    expect(names({ kind: 'person' })).toEqual(['Alan Vilay', 'Jo Bloggs'])
+    expect(names({ kind: 'person', tag: 'GPC' })).toEqual(['Jo Bloggs'])
+    expect(names({ kind: 'business', tag: 'GPC' })).toEqual([])
+  })
+
+  test('counts a client once per suburb, however many sites it has there', () => {
+    // Still found here, where the page and its tests have always looked.
+    expect(
+      computeSuburbLoad([
+        { properties: [{ suburb: 'Morley' }, { suburb: 'Morley' }] },
+        { properties: [{ suburb: 'Morley' }, { suburb: '' }] },
+      ]),
+    ).toEqual([{ suburb: 'Morley', count: 2 }])
   })
 })
