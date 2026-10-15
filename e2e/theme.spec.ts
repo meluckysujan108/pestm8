@@ -8,6 +8,7 @@ import {
   uniqueEmail,
 } from './fixtures'
 import { createReport, finaliseReport } from './fixtures/reportPayloads'
+import { openAnswers } from './fixtures/reportViewer'
 import type { Page } from '@playwright/test'
 
 /**
@@ -235,20 +236,30 @@ test('an explicit choice beats the OS', async ({ page }) => {
 })
 
 /**
- * A finalised report is a document, not app chrome: what is on screen has to
+ * The report preview is a document, not app chrome: what is on screen has to
  * match what `reports/pdf/*` prints on white paper. The "while the page around
  * it is black" half is what stops this being a tautology.
+ *
+ * The preview is a draft read by someone who may not edit it. A finished
+ * report's Answers is not one: since 30 Sept 2026 it follows the app's theme,
+ * and the PDF a tap away is the paper (docs/design-system.md, "Printed things
+ * stay light").
  */
 test('the report preview stays on white paper in dark mode', async ({
   page,
 }) => {
   const s = await setupBusinessWithSub('theme-report')
   const reportId = await createReport(s.owner.client, s, 'serviceReport')
-  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+  // The owner's draft, which the subcontractor may see but not edit.
+  await s.owner.client.mutation(api.memberships.setCanViewAllJobs, {
+    businessId: s.businessId,
+    membershipId: s.subMembershipId,
+    canViewAllJobs: true,
+  })
 
   // Signed in first so the context has an origin to hang the cookie on, and so
   // the report page is reached with dark already set rather than toggled after.
-  await signInViaUi(page, s.owner.email)
+  await signInViaUi(page, s.sub.email)
   await page
     .context()
     .addCookies([
@@ -272,6 +283,40 @@ test('the report preview stays on white paper in dark mode', async ({
   expect(seen.page).toBe('rgb(0, 0, 0)')
   expect(luminance(seen.paper)).toBeGreaterThan(0.8)
   expect(luminance(seen.ink)).toBeLessThan(0.2)
+})
+
+/**
+ * The other half of the rule above: a finished report's Answers is what was
+ * recorded, not a preview, so it is not pinned to paper. Until 30 Sept 2026 it
+ * was, and in dark mode it was a bright slab under a black bar. Its ink is
+ * the theme's, which is only light on a dark page if nothing pins it.
+ */
+test('a finished report’s Answers follow the dark theme', async ({ page }) => {
+  const s = await setupBusinessWithSub('theme-answers')
+  const reportId = await createReport(s.owner.client, s, 'serviceReport')
+  await finaliseReport(s.owner.client, s, reportId, 'serviceReport')
+
+  await signInViaUi(page, s.owner.email)
+  await page
+    .context()
+    .addCookies([
+      { name: COOKIE, value: 'dark', url: new URL(page.url()).origin },
+    ])
+
+  await page.goto(`/${s.slug}/reports/${reportId}`)
+  await openAnswers(page)
+
+  const answers = page.getByRole('main').locator('article')
+  await expect(answers).toBeVisible()
+  await expect(page.locator('article[data-theme="light"]')).toHaveCount(0)
+
+  const seen = await answers.evaluate((article) => ({
+    page: getComputedStyle(document.body).backgroundColor,
+    ink: getComputedStyle(article).color,
+  }))
+
+  expect(seen.page).toBe('rgb(0, 0, 0)')
+  expect(luminance(seen.ink)).toBeGreaterThan(0.8)
 })
 
 /**
