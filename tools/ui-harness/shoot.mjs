@@ -572,6 +572,9 @@ const PLAN = {
   'install-card': {},
   'install-sheet': { before: async (p) => p.waitForTimeout(600) },
   'install-link': {},
+  // The Clients page's first page: "50+ properties", no site yet, Show more.
+  clients: { full: true, before: async (p) => p.waitForTimeout(600) },
+  loadmore: { full: true, before: async (p) => p.waitForTimeout(600) },
   reports: { before: async (p) => p.waitForTimeout(600) },
   // A signed report's bin: the owner's, with what goes and what stays sent.
   'reports-delete-confirm': {

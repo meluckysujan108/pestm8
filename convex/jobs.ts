@@ -1,4 +1,5 @@
 import { ConvexError, v } from 'convex/values'
+import { paginationOptsValidator } from 'convex/server'
 import { mutation, query } from './_generated/server'
 import { authComponent } from './auth'
 import {
@@ -19,7 +20,11 @@ import { canonicalLabelFor, loadJobTypes } from './lib/jobTypeList'
 import { settableJobStatus } from './schema'
 import type { Doc, Id } from './_generated/dataModel'
 import { isInScope, writeAttribution } from './lib/capabilities'
-import { jobsInScope, jobsNewestFirst } from './lib/jobScope'
+import {
+  jobsInScope,
+  jobsNewestFirst,
+  projectionsInScope,
+} from './lib/jobScope'
 import { unbinned } from './lib/bin'
 import { activateLeadAt } from './lib/clientRecord'
 import {
@@ -44,7 +49,7 @@ import { contactPersonOf } from './lib/contactPerson'
 import type { RowScope } from './lib/capabilities'
 import type { ActorEnvelope, WriteEnvelope } from './lib/actor'
 import type { MutationCtx, QueryCtx } from './_generated/server'
-import { requireActor, requireWriteActor } from './lib/actor'
+import { listsEverything, requireActor, requireWriteActor } from './lib/actor'
 import { recordOnBehalf } from './lib/audit'
 import {
   mayEditJob,
@@ -53,6 +58,7 @@ import {
 } from './lib/jobAccess'
 import { UNASSIGNED_COLOUR } from './lib/colours'
 import {
+  alsoGoingFor,
   alsoGoingInWindow,
   alsoGoingOf,
   everyoneOn,
@@ -118,6 +124,22 @@ async function decorate(
   jobs: Array<Doc<'jobs'>>,
   // Series the caller has already read, so they are not read again.
   knownSeries: Array<Doc<'recurrences'>> = [],
+  opts: {
+    /**
+     * Keep the caller's order rather than sorting by `scheduledAt`. A list
+     * read newest-BOOKED first (the Job tab) is in index order already, and
+     * a page sorted by date would no longer join onto the next one.
+     */
+    keepOrder?: boolean
+    /**
+     * How the people also going are read. 'window' is one range read over
+     * the jobs' dates — right for a day, a week or a month. 'perJob' is one
+     * small indexed read a job — right for a list ordered by when jobs were
+     * booked, whose dates can span years, where the window read would
+     * collect every shared row of the business in between.
+     */
+    alsoGoing?: 'window' | 'perJob'
+  } = {},
 ) {
   // Resolving a name means a call into the auth component, so each assignee is
   // looked up once per query rather than once per job — the same memoisation
@@ -179,16 +201,19 @@ async function decorate(
   const people =
     jobs.length === 0
       ? new Map<Id<'jobs'>, Array<Id<'memberships'>>>()
-      : await alsoGoingInWindow(
-          ctx,
-          jobs[0].businessId,
-          Math.min(...dates),
-          Math.max(...dates) + 1,
-        )
+      : opts.alsoGoing === 'perJob'
+        ? await alsoGoingFor(ctx, jobs)
+        : await alsoGoingInWindow(
+            ctx,
+            jobs[0].businessId,
+            Math.min(...dates),
+            Math.max(...dates) + 1,
+          )
 
   return Promise.all(
     jobs
-      .sort((a, b) => a.scheduledAt - b.scheduledAt)
+      // A stable sort that keeps the caller's order when asked to.
+      .sort((a, b) => (opts.keepOrder ? 0 : a.scheduledAt - b.scheduledAt))
       .map(async (job) => {
         const property = await ctx.db.get(job.propertyId)
         const client = property ? await ctx.db.get(property.clientId) : null
@@ -290,14 +315,14 @@ async function overdueRecurring(
   businessId: Id<'businesses'>,
   startOfToday: number,
 ): Promise<Array<Doc<'jobs'>>> {
-  const jobs = await jobsInScope(ctx, scope, {
+  // Projections alone, by their own index: this is read on every page (the
+  // nav badge), and reading every booked job of the last six months only to
+  // drop it made each booking anywhere in that window re-run it.
+  return projectionsInScope(ctx, scope, {
     businessId,
     from: startOfToday - OVERDUE_LOOKBACK_DAYS * DAY_MS,
     to: startOfToday,
-    // Projections only: nobody is also going on one until it is booked.
-    withShared: false,
   })
-  return jobs.filter((j) => j.status === 'recurring')
 }
 
 /**
@@ -415,17 +440,28 @@ const BOOKED_STATUSES = settableJobStatus.members.map((m) => m.value)
  * the page.
  */
 export const list = query({
-  args: { businessId: v.id('businesses') },
-  handler: async (ctx, { businessId }) => {
+  args: {
+    businessId: v.id('businesses'),
+    // One status, filtered here rather than on the phone, so "Completed"
+    // means the newest `limit` completed jobs and not the completed ones
+    // among the newest `limit`. Optional: an older app asks without it and
+    // filters what it gets, as it always has.
+    status: v.optional(settableJobStatus),
+  },
+  handler: async (ctx, { businessId, status }) => {
     const env = await requireActor(ctx, businessId)
 
     // One more than the limit, so "there are more" needs no second query.
     const found = await jobsNewestFirst(ctx, env.listScope, {
       businessId,
       limit: JOB_LIST_LIMIT + 1,
-      statuses: BOOKED_STATUSES,
+      statuses: status ? [status] : BOOKED_STATUSES,
     })
-    const jobs = await decorate(ctx, env, found.slice(0, JOB_LIST_LIMIT))
+    const jobs = await decorate(ctx, env, found.slice(0, JOB_LIST_LIMIT), [], {
+      // Newest booked first spans any number of months: one small read a
+      // job, not every shared row of the business between the dates.
+      alsoGoing: 'perJob',
+    })
 
     return {
       // `decorate` orders a day's work by start time; this list is read the
@@ -433,6 +469,137 @@ export const list = query({
       jobs: jobs.sort((a, b) => b._creationTime - a._creationTime),
       capped: found.length > JOB_LIST_LIMIT,
       limit: JOB_LIST_LIMIT,
+    }
+  },
+})
+
+/** The Job tab's page, as the app asks for it: 24 fills one, two and three
+ * columns evenly. Past this a page is cut down, whatever is asked: each row
+ * costs a dozen reads to decorate. */
+const JOB_PAGE_MAX = 60
+
+/**
+ * How far one page may scan, past rows the filter drops, before it comes back
+ * short. Projections are the newest rows (the cron books six months of them
+ * at once), so the unfiltered list reads past them to reach booked work; this
+ * leaves the rest of the query's 32,000 reads for decorating the page, so a
+ * long run of them shortens a page instead of failing it.
+ */
+const JOB_PAGE_ROWS_READ = 4000
+const JOB_PAGE_BYTES_READ = 6 * 1024 * 1024
+
+/**
+ * The Job tab, a page at a time — for whoever sees the whole business.
+ *
+ * Newest booked first (`_creationTime`, appended to every index), like
+ * `list`. With a status, one exact range of `by_business_status`; without
+ * one, `by_business` with the projections stepped over — they are not
+ * booked work (see `list`), and the paginator reads past them to fill the
+ * page rather than returning it empty.
+ *
+ * ONLY FOR THE WHOLE BUSINESS, and the reason is the cursor. Convex ties a
+ * page's place to the exact query that made it, filters included, and keeps
+ * each page's end so a re-run covers the same rows. A filter naming who
+ * the caller is ("these members, plus the jobs they are also going on")
+ * changes whenever they are added to a job, a team changes, or the owner
+ * picks "Just my jobs" — and every page loaded under the old one fails and
+ * starts again from the top. Here the filter is the same for everyone
+ * (`deletedAt`, `status`), so a page's place never goes stale. One person's
+ * or one team's work is short enough to read whole, and `list` does.
+ *
+ * So when the caller's lists are narrower (`listsEverything`, as `access.me`
+ * reports it) this answers an empty, finished page without reading: the app
+ * reads `list` for them instead, and drops this subscription.
+ */
+export const listPage = query({
+  args: {
+    businessId: v.id('businesses'),
+    status: v.optional(settableJobStatus),
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, { businessId, status, paginationOpts }) => {
+    const env = await requireActor(ctx, businessId)
+    if (!listsEverything(env)) {
+      return { page: [], isDone: true, continueCursor: '' }
+    }
+
+    const jobs = status
+      ? ctx.db
+          .query('jobs')
+          .withIndex('by_business_status', (q) =>
+            q.eq('businessId', businessId).eq('status', status),
+          )
+          .order('desc')
+          .filter((q) => q.eq(q.field('deletedAt'), undefined))
+      : ctx.db
+          .query('jobs')
+          .withIndex('by_business', (q) => q.eq('businessId', businessId))
+          .order('desc')
+          .filter((q) =>
+            q.and(
+              q.eq(q.field('deletedAt'), undefined),
+              q.neq(q.field('status'), 'recurring'),
+            ),
+          )
+
+    const result = await jobs.paginate({
+      ...paginationOpts,
+      numItems: Math.max(1, Math.min(paginationOpts.numItems, JOB_PAGE_MAX)),
+      maximumRowsRead: paginationOpts.maximumRowsRead ?? JOB_PAGE_ROWS_READ,
+      maximumBytesRead: paginationOpts.maximumBytesRead ?? JOB_PAGE_BYTES_READ,
+    })
+
+    return {
+      ...result,
+      page: await decorate(ctx, env, result.page, [], {
+        keepOrder: true,
+        alsoGoing: 'perJob',
+      }),
+    }
+  },
+})
+
+/** Past this many of one status, its count is shown as "1000+". */
+const JOB_COUNT_LIMIT = 1000
+
+/**
+ * How many booked jobs the paged Job tab holds — its caption: "148 jobs",
+ * or of the chosen status, "1000+ jobs" past the limit.
+ *
+ * Each status counted on its own range, each capped on its own: counting
+ * the newest thousand of all statuses together would undercount whichever
+ * status is older. No decoration, and no projections read. Null for a
+ * narrower list (`listsEverything`): `list` is short enough to count itself,
+ * and says when it holds only the newest of them.
+ */
+export const listCounts = query({
+  args: {
+    businessId: v.id('businesses'),
+    status: v.optional(settableJobStatus),
+  },
+  handler: async (ctx, { businessId, status }) => {
+    const env = await requireActor(ctx, businessId)
+    if (!listsEverything(env)) return null
+
+    const counts = await Promise.all(
+      (status ? [status] : BOOKED_STATUSES).map(async (s) => {
+        const rows = await ctx.db
+          .query('jobs')
+          .withIndex('by_business_status', (q) =>
+            q.eq('businessId', businessId).eq('status', s),
+          )
+          .filter((q) => q.eq(q.field('deletedAt'), undefined))
+          .take(JOB_COUNT_LIMIT + 1)
+        return {
+          count: Math.min(rows.length, JOB_COUNT_LIMIT),
+          capped: rows.length > JOB_COUNT_LIMIT,
+        }
+      }),
+    )
+    return {
+      count: counts.reduce((sum, c) => sum + c.count, 0),
+      // Any one past its limit makes the total a floor: "1000+".
+      capped: counts.some((c) => c.capped),
     }
   },
 })
@@ -467,24 +634,20 @@ export const listRecurring = query({
       todayKeyInZone(business.timezone),
       business.timezone,
     )
-    const visits = (
-      await jobsInScope(ctx, env.listScope, {
-        businessId,
-        // Reaches BACKWARDS as well, so a projection nobody actioned is
-        // listed here for as long as today's schedule carries it forward.
-        // This view is the backstop: nothing should ever be invisible in
-        // both places at once. From the start of today, exactly as
-        // `overdueRecurring` reads: measured from `now`, a visit at 09:00 on
-        // the last day of the lookback was still counted by the nav badge and
-        // the Job tab's link all afternoon, but gone from the view they open.
-        from: startOfToday - OVERDUE_LOOKBACK_DAYS * DAY_MS,
-        // One day's slack past the horizon: the cron projects from its own
-        // "now", which is up to a day ahead of this query's.
-        to: now + (HORIZON_DAYS + 1) * DAY_MS,
-        // Projections only (below): nobody is also going on one.
-        withShared: false,
-      })
-    ).filter((j) => j.status === 'recurring')
+    const visits = await projectionsInScope(ctx, env.listScope, {
+      businessId,
+      // Reaches BACKWARDS as well, so a projection nobody actioned is
+      // listed here for as long as today's schedule carries it forward.
+      // This view is the backstop: nothing should ever be invisible in
+      // both places at once. From the start of today, exactly as
+      // `overdueRecurring` reads: measured from `now`, a visit at 09:00 on
+      // the last day of the lookback was still counted by the nav badge and
+      // the Job tab's link all afternoon, but gone from the view they open.
+      from: startOfToday - OVERDUE_LOOKBACK_DAYS * DAY_MS,
+      // One day's slack past the horizon: the cron projects from its own
+      // "now", which is up to a day ahead of this query's.
+      to: now + (HORIZON_DAYS + 1) * DAY_MS,
+    })
 
     // `listScope`, exactly as the visits above — NOT `scope`.
     //
@@ -510,6 +673,50 @@ export const listRecurring = query({
           assignedMembershipId: r.assignedMembershipId,
         }),
       ).length,
+      horizonDays: HORIZON_DAYS,
+    }
+  },
+})
+
+/**
+ * The Recurring Job view's header, without its cards: how many Recurring
+ * Jobs there are and how many projected visits they have booked.
+ *
+ * The "By service" view shows only these two numbers from `listRecurring`,
+ * which decorates every visit to answer them. This reads the same visits
+ * undecorated, and the same series — `listScope` for both, as there.
+ *
+ * Its window is the client's day, not the clock (a query does not read it):
+ * from the same six months back to the horizon plus two days' slack —
+ * `listRecurring`'s one day past "now", rounded up to whole days.
+ */
+export const recurringSummary = query({
+  args: { businessId: v.id('businesses'), startOfToday: v.number() },
+  handler: async (ctx, { businessId, startOfToday }) => {
+    const env = await requireActor(ctx, businessId)
+
+    const [visits, series] = await Promise.all([
+      projectionsInScope(ctx, env.listScope, {
+        businessId,
+        from: startOfToday - OVERDUE_LOOKBACK_DAYS * DAY_MS,
+        to: startOfToday + (HORIZON_DAYS + 2) * DAY_MS,
+      }),
+      ctx.db
+        .query('recurrences')
+        .withIndex('by_business_active', (q) =>
+          q.eq('businessId', businessId).eq('active', true),
+        )
+        .filter((q) => q.eq(q.field('deletedAt'), undefined))
+        .collect(),
+    ])
+
+    return {
+      seriesCount: series.filter((r) =>
+        isInScope(env.listScope, {
+          assignedMembershipId: r.assignedMembershipId,
+        }),
+      ).length,
+      visitCount: visits.length,
       horizonDays: HORIZON_DAYS,
     }
   },

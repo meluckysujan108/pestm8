@@ -1,7 +1,7 @@
 import { v } from 'convex/values'
 import { query } from './_generated/server'
 import { authComponent } from './auth'
-import { requireActor } from './lib/actor'
+import { listsEverything, requireActor } from './lib/actor'
 import { ALL_CAPABILITIES, canChooseView } from './lib/capabilities'
 import type { Capability } from './lib/capabilities'
 
@@ -79,6 +79,15 @@ export const me = query({
       view: canChooseView(env.actor.real)
         ? { mode: switched ? ('account' as const) : env.view }
         : null,
+
+      /**
+       * Whether lists show the whole business (`listsEverything`). The Job
+       * tab reads one list a page at a time when they do (`jobs.listPage`),
+       * and the bounded `jobs.list` when they show one person's or one
+       * team's work — so it has to know which, in the same answer as the
+       * view that decides it.
+       */
+      listsEverything: listsEverything(env),
 
       /** The older read-only "view as", which still exists and is not the same
        * thing: it shows another person's rows and grants nothing. */

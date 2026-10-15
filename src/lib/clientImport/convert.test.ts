@@ -7,6 +7,8 @@ import {
   summarise,
   toImportClient,
 } from './convert'
+import { sitesWithClients } from '../directory'
+import type { Directory } from '../directory'
 import type { Id } from '../../../convex/_generated/dataModel'
 import type { ReviewClient, ReviewIssue, ReviewSite } from './types'
 
@@ -241,6 +243,67 @@ test('indexExisting: whose each site is, by the client it carries or its id', ()
   expect(holder('9 Hill Rd', 'Morley', '6062')).toBe('Old & Co')
   expect(holder('3 Bay Pde', 'Perth', '6000')).toBeUndefined()
   expect(index.siteKeys.size).toBe(3)
+})
+
+test('indexExisting from the directory: an archived client’s number is taken, its name still not matched', () => {
+  // `clients.directory` lists archived clients, which `clients.list` left
+  // out. The server counts their numbers as taken (lib/clientRecord.ts), so
+  // the review now warns about them too.
+  const directory: Directory = {
+    clients: [
+      {
+        _id: 'a' as Id<'clients'>,
+        _creationTime: 1,
+        name: 'Jane Doe',
+        kind: 'person',
+        clientNumber: 7,
+        createdAt: 1,
+      },
+      {
+        _id: 'b' as Id<'clients'>,
+        _creationTime: 2,
+        name: 'Old & Co',
+        kind: 'business',
+        clientNumber: 12,
+        archivedAt: 5,
+        createdAt: 2,
+      },
+    ],
+    sites: [
+      {
+        _id: 'pa' as Id<'properties'>,
+        clientId: 'a' as Id<'clients'>,
+        addressLine: '1 Rose Street',
+        suburb: 'Bayswater',
+        postcode: '6053',
+        createdAt: 1,
+      },
+      {
+        _id: 'pb' as Id<'properties'>,
+        clientId: 'b' as Id<'clients'>,
+        addressLine: '9 Hill Road',
+        suburb: 'Morley',
+        postcode: '6062',
+        createdAt: 2,
+      },
+    ],
+    capped: false,
+  }
+  const index = indexExisting(directory.clients, sitesWithClients(directory))
+  expect([...index.clientsByName]).toEqual([['jane doe', 'a']])
+  expect([...(index.numbers ?? [])]).toEqual([
+    [7, 'Jane Doe'],
+    [12, 'Old & Co'],
+  ])
+  // Their site is still theirs, and still here.
+  const key = siteKey({
+    addressLine: '9 Hill Rd',
+    suburb: 'Morley',
+    postcode: '6062',
+  })
+  expect(index.siteHolders?.get(key)).toBe('Old & Co')
+  expect(index.clientSites?.get('b' as Id<'clients'>)?.has(key)).toBe(true)
+  expect(index.siteKeys.size).toBe(2)
 })
 
 test('summarise: a count per status, and all', () => {

@@ -138,7 +138,7 @@ export type ReviewStatus =
   | 'ready'
 
 /** What PestM8 already holds, for "already here". Built from
- * `api.clients.list` and `api.properties.list`. */
+ * `api.clients.directory` (convert.ts `indexExisting`). */
 export type ExistingIndex = {
   /** `nameKey(name)` → the client. */
   clientsByName: Map<string, Id<'clients'>>

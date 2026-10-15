@@ -47,6 +47,8 @@ import type { Id } from '../../../convex/_generated/dataModel'
 import type { IntervalUnit } from '../../../convex/lib/recurrence'
 import { useHydrated } from '#/lib/useHydrated'
 import { clientOptions, propertyOptions } from '#/lib/propertyOptions'
+import { sitesWithClients } from '#/lib/directory'
+import { rq } from '#/lib/routeQueries'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
 import { SheetPending } from '#/components/shell/Pending'
@@ -175,9 +177,13 @@ function NewJobForm({
   forProperty?: Id<'properties'>
   pickDate: boolean
 }) {
-  const { data: properties } = useSuspenseQuery(
-    convexQuery(api.properties.list, { businessId }),
-  )
+  // Every site with its client, from the slim directory the Schedule warms
+  // (`clients.directory`), in the shape `properties.list` had — so nothing
+  // below changed when the source did.
+  const { data: properties } = useSuspenseQuery({
+    ...rq.directory(businessId),
+    select: sitesWithClients,
+  })
   const { data: members } = useSuspenseQuery(
     convexQuery(api.memberships.listForBusiness, { businessId }),
   )
@@ -305,7 +311,7 @@ function NewJobForm({
   // add one; a landlord's managing agent issues them too.
   const clientKind =
     mode === 'existing'
-      ? properties.find((p) => p._id === propertyId)?.client?.kind
+      ? properties.find((p) => p._id === propertyId)?.client.kind
       : mode === 'site'
         ? siteClient?.kind
         : newClient.kind

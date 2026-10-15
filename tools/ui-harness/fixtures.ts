@@ -2,6 +2,7 @@
 
 import { BUSY_SITES_FOR_LIST, resolveBusy } from './busyFixtures'
 import { JOB_TYPES_LIST, JOB_TYPES_MANAGE } from './jobTypeFixtures'
+import { clientFacets } from '../../convex/lib/clientFacets'
 import { XERO_FIXTURES } from './xeroFixtures'
 
 export const TZ = 'Australia/Perth'
@@ -178,7 +179,18 @@ function accessMe() {
     degraded: null,
     viewingAs: null,
     view: { mode: 'everyone' },
+    // The everyone view, and a technician here sees every schedule too: the
+    // Job tab pages the whole business (`jobs.listPage`).
+    listsEverything: true,
   }
+}
+
+/** The sample's booked jobs (no projections), of one status or all, in the
+ * order they were booked. */
+function bookedJobs(status?: string) {
+  return JOBS.filter(
+    (j) => j.status !== 'recurring' && (!status || j.status === status),
+  )
 }
 
 function jobGet(args: { jobId: string }) {
@@ -824,6 +836,23 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
       : [],
   'access:me': accessMe,
   'jobs:get': jobGet,
+  // The Job tab a page at a time, and its caption: the sample's booked jobs,
+  // newest first, as one finished page (`jobs.listPage`, `jobs.listCounts`).
+  'jobs:listPage': (args: { status?: string }) => ({
+    page: bookedJobs(args.status).reverse(),
+    isDone: true,
+    continueCursor: '',
+  }),
+  'jobs:listCounts': (args: { status?: string }) => ({
+    count: bookedJobs(args.status).length,
+    capped: false,
+  }),
+  // The Recurring Job view's bar: the sample's two series and its visits.
+  'jobs:recurringSummary': () => ({
+    seriesCount: new Set(JOBS.map((j) => j.recurrenceId).filter(Boolean)).size,
+    visitCount: JOBS.filter((j) => j.status === 'recurring').length,
+    horizonDays: 180,
+  }),
   'jobs:photos': () => [],
   'properties:jobHistory': () => [],
   'reports:listByProperty': () => [],
@@ -838,6 +867,141 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   // No signature on the sample forms yet.
   'reports:signatureUrls': () => ({}),
   'properties:list': propertiesList,
+  // What `clients.directory` answers for the same sites: slim rows, each
+  // client once (by name, as these samples have no ids for them) beside its
+  // sites rather than inside each, as the booking pickers read it.
+  'clients:directory': () => {
+    const LONG_AGO = Date.now() - 400 * 24 * 60 * 60 * 1000
+    const clients = new Map<string, Record<string, unknown>>()
+    const sites = (
+      propertiesList() as Array<{
+        _id: string
+        addressLine: string
+        suburb: string
+        postcode: string
+        createdAt?: number
+        siteContactName?: string
+        siteContactPhone?: string
+        client: {
+          name: string
+          kind: string
+          phone?: string
+          createdAt?: number
+        }
+      }>
+    ).map(({ client, ...site }) => {
+      const clientId = 'c_' + client.name
+      if (!clients.has(clientId)) {
+        clients.set(clientId, {
+          _id: clientId,
+          _creationTime: client.createdAt ?? LONG_AGO,
+          name: client.name,
+          kind: client.kind,
+          ...(client.phone ? { phone: client.phone } : {}),
+          createdAt: client.createdAt ?? LONG_AGO,
+        })
+      }
+      return {
+        ...site,
+        clientId,
+        createdAt: site.createdAt ?? LONG_AGO,
+      }
+    })
+    return { clients: [...clients.values()], sites, capped: false }
+  },
+  // The Clients page as it opens: its newest clients a page at a time
+  // (`clients.page`), and the whole book's count and filter choices
+  // (`clients.overview`). The pickers' people above, newest first, after a
+  // strata client with more sites than a card is sent ("50+ properties"), a
+  // café group with three, a lead, and someone with no site yet. The first
+  // page has more behind it, as a big book's does, so "Show more" shows.
+  'clients:page': (args: {
+    paginationOpts?: { numItems: number; cursor: string | null }
+  }) => {
+    const DAY = 24 * 60 * 60 * 1000
+    const now = Date.now()
+    const client = (
+      id: string,
+      daysAgo: number,
+      fields: { name: string; kind: string } & Record<string, unknown>,
+    ) => ({
+      _id: id,
+      _creationTime: now - daysAgo * DAY,
+      createdAt: now - daysAgo * DAY,
+      ...fields,
+    })
+    const rows = [
+      {
+        client: client('c_strata', 1, {
+          name: 'Harbourside Strata',
+          kind: 'business',
+          clientNumber: 1934,
+          tags: ['Strata', 'Weekly contract'],
+        }),
+        // The newest 50 of more: what `clients.page` sends a card.
+        properties: Array.from({ length: 50 }, (_, i) => ({
+          _id: `p_strata${i}`,
+          addressLine: `${i + 1}/88 Adelaide Tce`,
+          suburb: i % 3 ? 'East Perth' : 'Perth',
+        })),
+        propertiesCapped: true,
+      },
+      {
+        client: client('c_subi', 2, {
+          name: 'Subi Café Group',
+          kind: 'business',
+          clientNumber: 1933,
+          tags: ['Monthly'],
+        }),
+        properties: [
+          { _id: 'p_subi1', addressLine: '220 Hay St', suburb: 'Subiaco' },
+          { _id: 'p_subi2', addressLine: '14 Rokeby Rd', suburb: 'Subiaco' },
+          { _id: 'p_subi3', addressLine: '3 Oxford St', suburb: 'Leederville' },
+        ],
+        propertiesCapped: false,
+      },
+      {
+        client: client('c_lena', 3, {
+          name: 'Lena Brooks',
+          kind: 'person',
+          clientNumber: 1932,
+          status: 'lead',
+        }),
+        properties: [
+          { _id: 'p_lena', addressLine: '9 Stirling Hwy', suburb: 'Nedlands' },
+        ],
+        propertiesCapped: false,
+      },
+      {
+        client: client('c_mia', 4, {
+          name: 'Mia Santos',
+          kind: 'person',
+          clientNumber: 1931,
+        }),
+        properties: [],
+        propertiesCapped: false,
+      },
+      ...MORE_SITES.map(([name, addressLine, suburb], i) => ({
+        client: client(`c_more${i}`, 10 + i, {
+          name,
+          kind: 'person',
+          clientNumber: 1930 - i,
+          ...(i === 4 ? { status: 'inactive' } : {}),
+          ...(i % 3 === 0 ? { tags: ['GPC'] } : {}),
+        }),
+        properties: [{ _id: `p_more${i}`, addressLine, suburb }],
+        propertiesCapped: false,
+      })),
+    ]
+    const size = args.paginationOpts?.numItems ?? rows.length
+    return { page: rows.slice(0, size), isDone: false, continueCursor: 'more' }
+  },
+  'clients:overview': () => {
+    const { page } = FIXTURES['clients:page']!({}) as {
+      page: Parameters<typeof clientFacets>[0]
+    }
+    return { total: page.length, capped: false, ...clientFacets(page) }
+  },
   'memberships:listForBusiness': () =>
     MEMBERS.map((m) => ({ ...m, displayName: m.name, status: 'active' })),
   'weather:forDays': () => [],

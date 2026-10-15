@@ -1,7 +1,15 @@
 import { describe, expect, test } from 'vitest'
-import { clientOptions, propertyOptions } from './propertyOptions'
+import {
+  EVERYONE_GROUP,
+  RECENT_GROUP,
+  clientOptions,
+  propertyOptions,
+} from './propertyOptions'
 import type { PickableClientSite, PickableProperty } from './propertyOptions'
 import { filterByWords, pickOnEnter, startsFirst } from './searchMatch'
+import { sitesWithClients } from './directory'
+import type { Directory } from './directory'
+import type { Id } from '../../convex/_generated/dataModel'
 
 function property(
   id: string,
@@ -379,6 +387,322 @@ describe('“Added recently”, then everyone A–Z', () => {
         ['c-imp', 'Everyone, A–Z'],
       ],
     )
+  })
+
+  test('a site sent as imported, a flag with no id (`clients.directory`), stays in A–Z', () => {
+    const options = propertyOptions(
+      [{ ...added(NGUYEN, 2), imported: true }, added(ROBERTS, 1)],
+      recent,
+    )
+    expect(options.map((o) => [o.value, o.group])).toEqual([
+      ['p-roberts', 'Added recently'],
+      ['p-nguyen', 'Everyone, A–Z'],
+    ])
+  })
+
+  test('a client sent as imported stays in A–Z in the "new site for" picker too', () => {
+    const sites: Array<PickableClientSite> = [
+      {
+        clientId: 'c-imp',
+        addressLine: '3 C St',
+        suburb: 'Perth',
+        client: { name: 'Bea', createdAt: NOW - DAY, imported: true },
+      },
+      {
+        clientId: 'c-new',
+        addressLine: '2 B St',
+        suburb: 'Perth',
+        client: { name: 'Zara', createdAt: NOW - DAY },
+      },
+    ]
+    expect(clientOptions(sites, recent).map((o) => [o.value, o.group])).toEqual(
+      [
+        ['c-new', 'Added recently'],
+        ['c-imp', 'Everyone, A–Z'],
+      ],
+    )
+  })
+})
+
+describe('the pickers over the slim directory', () => {
+  const DAY = 24 * 60 * 60 * 1000
+  // Tue 29 Sept 2026, 10:00 in Perth.
+  const NOW = Date.parse('2026-09-29T10:00:00+08:00')
+  const recent = { timezone: 'Australia/Perth', now: NOW }
+  const clientId = (id: string) => id as Id<'clients'>
+  const siteId = (id: string) => id as Id<'properties'>
+
+  // A small book as `clients.directory` sends it: slim rows, oldest first,
+  // a flag for "came from an import", and archived clients kept.
+  const DIRECTORY: Directory = {
+    clients: [
+      {
+        _id: clientId('c-old'),
+        _creationTime: 1,
+        name: 'Aaron Old',
+        kind: 'person',
+        phone: '0412 000 111',
+        clientNumber: 1,
+        createdAt: NOW - 400 * DAY,
+      },
+      {
+        _id: clientId('c-arch'),
+        _creationTime: 2,
+        name: 'Archer & Co',
+        kind: 'business',
+        clientNumber: 2,
+        archivedAt: NOW - DAY,
+        createdAt: NOW - 3 * DAY,
+      },
+      {
+        _id: clientId('c-imp'),
+        _creationTime: 3,
+        name: 'Bea Imported',
+        kind: 'person',
+        clientNumber: 3,
+        createdAt: NOW - 2 * DAY,
+        imported: true,
+      },
+      {
+        _id: clientId('c-mart'),
+        _creationTime: 4,
+        name: 'Mahal Mart',
+        kind: 'business',
+        phone: '08 9300 0000',
+        abn: '51824753556',
+        clientNumber: 4,
+        status: 'lead',
+        tags: ['Strata'],
+        createdAt: NOW - 2 * DAY,
+      },
+      // No site yet: nothing to book, so in neither picker.
+      {
+        _id: clientId('c-none'),
+        _creationTime: 5,
+        name: 'Nell Nosite',
+        kind: 'person',
+        clientNumber: 5,
+        createdAt: NOW - DAY,
+      },
+      {
+        _id: clientId('c-new'),
+        _creationTime: 6,
+        name: 'Zara Hussain',
+        kind: 'person',
+        clientNumber: 6,
+        createdAt: NOW - DAY,
+      },
+    ],
+    sites: [
+      {
+        _id: siteId('p-old'),
+        clientId: clientId('c-old'),
+        addressLine: '1 Hay St',
+        suburb: 'Perth',
+        postcode: '6000',
+        createdAt: NOW - 400 * DAY,
+      },
+      {
+        _id: siteId('p-arch'),
+        clientId: clientId('c-arch'),
+        addressLine: '9 Old Rd',
+        suburb: 'Bayswater',
+        postcode: '6053',
+        createdAt: NOW - 3 * DAY,
+      },
+      {
+        _id: siteId('p-imp'),
+        clientId: clientId('c-imp'),
+        addressLine: '3 Coode St',
+        suburb: 'Como',
+        postcode: '6152',
+        createdAt: NOW - 2 * DAY,
+        imported: true,
+      },
+      {
+        _id: siteId('p-mart-morley'),
+        clientId: clientId('c-mart'),
+        addressLine: '3 Walter Rd',
+        suburb: 'Morley',
+        postcode: '6062',
+        siteContactName: 'Jan Kowalski',
+        siteContactPhone: '0433 222 111',
+        createdAt: NOW - 2 * DAY,
+      },
+      // Kept by an import's Undo: only `importedFrom` left behind it.
+      {
+        _id: siteId('p-mart-midland'),
+        clientId: clientId('c-mart'),
+        addressLine: '8 Great Eastern Hwy',
+        suburb: 'Midland',
+        postcode: '6056',
+        createdAt: NOW - DAY,
+        imported: true,
+      },
+      {
+        _id: siteId('p-new'),
+        clientId: clientId('c-new'),
+        addressLine: '12 Beach Rd',
+        suburb: 'Scarborough',
+        postcode: '6019',
+        createdAt: NOW - DAY,
+      },
+    ],
+    capped: false,
+  }
+
+  // The same book as `properties.list` sent it: every site with its whole
+  // client attached, and the import's id where the directory has a flag.
+  const OLD = {
+    _id: 'c-old',
+    name: 'Aaron Old',
+    kind: 'person' as const,
+    phone: '0412 000 111',
+    email: 'aaron@example.com',
+    clientNumber: 1,
+    createdAt: NOW - 400 * DAY,
+  }
+  const ARCHER = {
+    _id: 'c-arch',
+    name: 'Archer & Co',
+    kind: 'business' as const,
+    clientNumber: 2,
+    archivedAt: NOW - DAY,
+    createdAt: NOW - 3 * DAY,
+  }
+  const BEA = {
+    _id: 'c-imp',
+    name: 'Bea Imported',
+    kind: 'person' as const,
+    clientNumber: 3,
+    createdAt: NOW - 2 * DAY,
+    importId: 'import-1',
+  }
+  const MART = {
+    _id: 'c-mart',
+    name: 'Mahal Mart',
+    kind: 'business' as const,
+    phone: '08 9300 0000',
+    abn: '51824753556',
+    clientNumber: 4,
+    status: 'lead',
+    tags: ['Strata'],
+    notes: 'Head office on the 3rd floor.',
+    createdAt: NOW - 2 * DAY,
+  }
+  const ZARA = {
+    _id: 'c-new',
+    name: 'Zara Hussain',
+    kind: 'person' as const,
+    clientNumber: 6,
+    createdAt: NOW - DAY,
+  }
+  const LIST = [
+    {
+      _id: 'p-old',
+      clientId: 'c-old',
+      addressLine: '1 Hay St',
+      suburb: 'Perth',
+      state: 'WA',
+      postcode: '6000',
+      createdAt: NOW - 400 * DAY,
+      client: OLD,
+    },
+    {
+      _id: 'p-arch',
+      clientId: 'c-arch',
+      addressLine: '9 Old Rd',
+      suburb: 'Bayswater',
+      state: 'WA',
+      postcode: '6053',
+      createdAt: NOW - 3 * DAY,
+      client: ARCHER,
+    },
+    {
+      _id: 'p-imp',
+      clientId: 'c-imp',
+      addressLine: '3 Coode St',
+      suburb: 'Como',
+      state: 'WA',
+      postcode: '6152',
+      createdAt: NOW - 2 * DAY,
+      importId: 'import-1',
+      client: BEA,
+    },
+    {
+      _id: 'p-mart-morley',
+      clientId: 'c-mart',
+      addressLine: '3 Walter Rd',
+      suburb: 'Morley',
+      state: 'WA',
+      postcode: '6062',
+      siteContactName: 'Jan Kowalski',
+      siteContactPhone: '0433 222 111',
+      createdAt: NOW - 2 * DAY,
+      client: MART,
+    },
+    {
+      _id: 'p-mart-midland',
+      clientId: 'c-mart',
+      addressLine: '8 Great Eastern Hwy',
+      suburb: 'Midland',
+      state: 'WA',
+      postcode: '6056',
+      createdAt: NOW - DAY,
+      importedFrom: 'import-2',
+      client: MART,
+    },
+    {
+      _id: 'p-new',
+      clientId: 'c-new',
+      addressLine: '12 Beach Rd',
+      suburb: 'Scarborough',
+      state: 'WA',
+      postcode: '6019',
+      createdAt: NOW - DAY,
+      client: ZARA,
+    },
+  ]
+
+  test('offer exactly what `properties.list` offered, in the same order', () => {
+    const sites = sitesWithClients(DIRECTORY)
+    expect(propertyOptions(sites, recent)).toEqual(
+      propertyOptions(LIST, recent),
+    )
+    expect(clientOptions(sites, recent)).toEqual(clientOptions(LIST, recent))
+    expect(propertyOptions(sites)).toEqual(propertyOptions(LIST))
+    expect(clientOptions(sites)).toEqual(clientOptions(LIST))
+  })
+
+  test('“Added recently” leaves out the imported and the archived', () => {
+    const sites = sitesWithClients(DIRECTORY)
+    expect(
+      propertyOptions(sites, recent).map((o) => [o.value, o.group]),
+    ).toEqual([
+      ['p-new', RECENT_GROUP],
+      ['p-mart-morley', RECENT_GROUP],
+      ['p-old', EVERYONE_GROUP],
+      ['p-imp', EVERYONE_GROUP],
+      ['p-mart-midland', EVERYONE_GROUP],
+      ['p-arch', EVERYONE_GROUP],
+    ])
+    expect(clientOptions(sites, recent).map((o) => [o.value, o.group])).toEqual(
+      [
+        ['c-new', RECENT_GROUP],
+        ['c-mart', RECENT_GROUP],
+        ['c-old', EVERYONE_GROUP],
+        ['c-imp', EVERYONE_GROUP],
+        ['c-arch', EVERYONE_GROUP],
+      ],
+    )
+  })
+
+  test('an archived client is offered, labelled; one with no site is not', () => {
+    const sites = sitesWithClients(DIRECTORY)
+    expect(
+      propertyOptions(sites).find((o) => o.value === 'p-arch')?.label,
+    ).toBe('Archer & Co (archived) — 9 Old Rd, Bayswater')
+    expect(clientOptions(sites).map((o) => o.value)).not.toContain('c-none')
   })
 })
 

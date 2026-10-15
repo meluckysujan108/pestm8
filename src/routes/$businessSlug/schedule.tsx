@@ -83,7 +83,8 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
       typeof window !== 'undefined' &&
       window.matchMedia('(min-width: 1024px)').matches
 
-    // Asked for without holding the page: what the sheets behind a tap need,
+    // Asked for without holding the page: what the sheets behind a tap need
+    // (the client directory New Job and a job's edit form pick a site from),
     // and — on a desktop — the month grid beside the agenda, which draws a
     // cell-exact placeholder of its own and a legend it is happy to render
     // without. Waiting for those would hold the header, the strip and the
@@ -91,7 +92,7 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
     if (typeof window !== 'undefined') {
       void warm(
         queryClient,
-        rq.properties(business._id),
+        rq.directory(business._id),
         ...(desktop
           ? [rq.month(business._id, month), rq.monthTeam(business._id, month)]
           : []),
@@ -137,8 +138,15 @@ function SchedulePage() {
   const { date, jobId, view, newJob } = Route.useSearch()
   const navigate = useNavigate({ from: Route.fullPath })
   const openJobId = jobId ?? null
+  // A replace gives the entry a new history key, and a new key scrolls the
+  // window to the top: opening or closing a job's sheet would lose the
+  // person's place in the day or the week behind it.
   const setOpenJobId = (id: string | null) =>
-    navigate({ search: (prev) => ({ ...prev, jobId: id ?? undefined }), replace: true })
+    navigate({
+      search: (prev) => ({ ...prev, jobId: id ?? undefined }),
+      replace: true,
+      resetScroll: false,
+    })
   const activeView: ScheduleView = view ?? 'job'
   // What is drawn: the view just picked once it can be, the one before it
   // (dimmed) until then — so switching to a week not yet loaded keeps the

@@ -36,29 +36,14 @@ export const KIND_OPTIONS: Array<{ value: ClientKind; label: string }> = [
   { value: 'person', label: KIND_LABELS.person },
 ]
 
-export type SuburbLoad = { suburb: string; count: number }
-
 /**
- * "Which suburbs are my clients in, and how many" — the client-list analogue
- * of `scheduleFilters.ts`'s `computeStaffLoad`. A client with two properties
- * in the same suburb counts once for it; a client with properties in two
- * different suburbs counts once for each, since the filter answers "does
- * this client have work in this suburb", not "how many properties".
+ * "Which suburbs are my clients in, and how many" lives with the rest of the
+ * filter counting in convex/lib/clientFacets.ts, so that `clients.overview`
+ * counts the whole book exactly as this page counts the clients a search has
+ * found. Re-exported here, where the page and its tests have always found it.
  */
-export function computeSuburbLoad(
-  rows: Array<{ properties: Array<{ suburb: string }> }>,
-): Array<SuburbLoad> {
-  const counts = new Map<string, number>()
-  for (const row of rows) {
-    const suburbs = new Set(row.properties.map((p) => p.suburb).filter(Boolean))
-    for (const suburb of suburbs) {
-      counts.set(suburb, (counts.get(suburb) ?? 0) + 1)
-    }
-  }
-  return [...counts.entries()]
-    .map(([suburb, count]) => ({ suburb, count }))
-    .sort((a, b) => b.count - a.count || a.suburb.localeCompare(b.suburb))
-}
+export { computeSuburbLoad } from '../../convex/lib/clientFacets'
+export type { SuburbLoad } from '../../convex/lib/clientFacets'
 
 /** Fewer digits than this and a number is more likely a street number, or
  * part of one, than an ABN or a phone: it would bring in clients whose ABN
@@ -149,38 +134,31 @@ export function matchesClientSearch(
   )
 }
 
+/** What the four filters are set to. `'all'` is a filter that is not set. */
+export type ClientFilterValues = {
+  kind: KindFilter
+  suburb: string
+  status: StatusFilter
+  tag: string
+}
+
 /**
  * Kind + suburb narrowing for the client list — the client-context analogue
  * of `useScheduleFilters`'s status/staff narrowing. Local state, not the URL:
  * mirrors status/staff being ephemeral per-visit while `q` (durable, "survives
  * a refresh") stays in the route's search params.
+ *
+ * The values only; `filterClientRows` does the narrowing. Which rows there
+ * are to narrow depends on the values: the page opens on its newest clients
+ * a page at a time, and any filter set reads every client instead (the
+ * directory), so the page has to know the filters before it can ask for the
+ * rows they apply to.
  */
-export function useClientFilters<
-  T extends {
-    client: {
-      kind: ClientKind
-      status?: 'active' | 'lead' | 'inactive'
-      tags?: Array<string>
-    }
-    properties: Array<{ suburb: string }>
-  },
->(rows: Array<T>) {
+export function useClientFilters() {
   const [kind, setKind] = useState<KindFilter>('all')
   const [suburb, setSuburb] = useState<string>('all')
   const [status, setStatus] = useState<StatusFilter>('all')
   const [tag, setTag] = useState<string>('all')
-
-  const filteredRows = rows.filter(
-    (row) =>
-      (kind === 'all' || row.client.kind === kind) &&
-      (suburb === 'all' || row.properties.some((p) => p.suburb === suburb)) &&
-      // No status is active.
-      (status === 'all' || (row.client.status ?? 'active') === status) &&
-      (tag === 'all' ||
-        (row.client.tags ?? []).some(
-          (t) => t.toLowerCase() === tag.toLowerCase(),
-        )),
-  )
 
   const clearFilters = () => {
     setKind('all')
@@ -200,8 +178,34 @@ export function useClientFilters<
     setStatus,
     tag,
     setTag,
-    filteredRows,
     clearFilters,
     filtersActive,
   }
+}
+
+/** The rows the filters keep: every one set has to match. */
+export function filterClientRows<
+  T extends {
+    client: {
+      kind: ClientKind
+      status?: 'active' | 'lead' | 'inactive'
+      tags?: ReadonlyArray<string>
+    }
+    properties: ReadonlyArray<{ suburb: string }>
+  },
+>(
+  rows: ReadonlyArray<T>,
+  { kind, suburb, status, tag }: ClientFilterValues,
+): Array<T> {
+  return rows.filter(
+    (row) =>
+      (kind === 'all' || row.client.kind === kind) &&
+      (suburb === 'all' || row.properties.some((p) => p.suburb === suburb)) &&
+      // No status is active.
+      (status === 'all' || (row.client.status ?? 'active') === status) &&
+      (tag === 'all' ||
+        (row.client.tags ?? []).some(
+          (t) => t.toLowerCase() === tag.toLowerCase(),
+        )),
+  )
 }

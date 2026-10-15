@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { createFileRoute, useBlocker } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { useConvex } from 'convex/react'
+import type { ConvexReactClient } from 'convex/react'
 import { api } from '../../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
 import { EmptyState } from '#/components/primitives/EmptyState'
@@ -49,7 +50,9 @@ import {
 import { ImportFileError, readImportFile } from '#/lib/clientImport/read'
 import { useActing, useCan } from '#/lib/access'
 import { rq, warm } from '#/lib/routeQueries'
+import { sitesWithClients } from '#/lib/directory'
 import type { Access } from '#/lib/access'
+import type { Id } from '../../../../convex/_generated/dataModel'
 import type {
   ColumnMapping,
   ExistingIndex,
@@ -134,6 +137,21 @@ const scrollToTop = () => window.scrollTo({ top: 0 })
 const NOTHING_YET: ExistingIndex = {
   clientsByName: new Map(),
   siteKeys: new Set(),
+}
+
+/**
+ * What PestM8 holds now, for "already here": every client and site, from
+ * the slim directory the pickers read, asked for once. Archived clients
+ * come with it, as they never did with `clients.list`: their names are
+ * still not matched, but their numbers are taken, as the server counts
+ * them (convert.ts `indexExisting`).
+ */
+async function readExisting(
+  convex: ConvexReactClient,
+  businessId: Id<'businesses'>,
+): Promise<ExistingIndex> {
+  const directory = await convex.query(api.clients.directory, { businessId })
+  return indexExisting(directory.clients, sitesWithClients(directory))
 }
 
 const sameHeaders = (a: Array<string>, b: Array<string>) =>
@@ -326,12 +344,8 @@ function ImportFlow() {
     let existing: ExistingIndex
     try {
       // Asked once, not subscribed to (see `against`): `query` lets go of
-      // each list as soon as it has answered.
-      const [clients, properties] = await Promise.all([
-        convex.query(api.clients.list, { businessId }),
-        convex.query(api.properties.list, { businessId }),
-      ])
-      existing = indexExisting(clients, properties)
+      // the directory as soon as it has answered.
+      existing = await readExisting(convex, businessId)
     } catch (error) {
       if (current()) {
         setContinueError(error)
@@ -438,15 +452,12 @@ function ImportFlow() {
     setRechecking(true)
     setRecheckError(null)
     try {
-      const [clients, properties] = await Promise.all([
-        convex.query(api.clients.list, { businessId }),
-        convex.query(api.properties.list, { businessId }),
-      ])
+      const existing = await readExisting(convex, businessId)
       if (!current()) return
       // Another undo asked for while the lists were on their way: they may
       // be part-way through it. That one is waited for too, then read again.
       if (latest.current.undoing) return
-      const at = { businessState, existing: indexExisting(clients, properties) }
+      const at = { businessState, existing }
       // As last shown, edits and all: a tap's change is drawn before
       // anything else happens.
       const before = latest.current.review ?? []

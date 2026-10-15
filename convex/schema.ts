@@ -860,6 +860,22 @@ export default defineSchema({
     // so the Job tab can ask for booked work without reading the projections
     // (`jobsNewestFirst` in lib/jobScope.ts).
     .index('by_assignee_status', ['assignedMembershipId', 'status'])
+    // Projected visits in a date range, and nothing else: the overdue badge
+    // on every page, today's carry-forward and the Recurring Job view ask
+    // for `recurring` jobs between two dates. The date indexes above would
+    // read every booked job in that range too, only to drop it; the status
+    // indexes order by creation, not by date (lib/jobScope.ts
+    // `projectionsInScope`).
+    .index('by_businessId_and_status_and_scheduledAt', [
+      'businessId',
+      'status',
+      'scheduledAt',
+    ])
+    .index('by_assignedMembershipId_and_status_and_scheduledAt', [
+      'assignedMembershipId',
+      'status',
+      'scheduledAt',
+    ])
     // Materialising recurrences must be idempotent, which means asking "does
     // this occurrence already exist" on every cron run.
     .index('by_recurrence', ['recurrenceId'])
