@@ -46,7 +46,7 @@ import {
   SettingsLinkRow,
 } from '#/components/settings/ui'
 import { useHiddenGuide } from '#/components/onboarding/SetupGuide'
-import { connectionValue } from '#/components/xero/xeroCopy'
+import { connectionValue, matchToCheck } from '#/components/xero/xeroCopy'
 import { useAccess, useActing, useCan } from '#/lib/access'
 import { APP_VERSION } from '#/lib/appVersion'
 import { roleLabel } from '#/lib/assignees'
@@ -59,6 +59,7 @@ import { recoveryCodesUnsaved } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
 import { useThemePref } from '#/lib/useTheme'
 import type { Access } from '#/lib/access'
+import type { XeroView as XeroStatusView } from '#/components/xero/XeroPage'
 import type { Id } from '../../../../convex/_generated/dataModel'
 
 /** How long the loader holds the navigation for its queries, at most. */
@@ -365,11 +366,7 @@ function SettingsHub() {
               tint="blue"
               title="My Xero"
               value={connectionValue(xero.mine)}
-              badge={
-                xero.mine?.status === 'needs_reconnect' ? (
-                  <RowBadge tone="amber">Reconnect</RowBadge>
-                ) : undefined
-              }
+              badge={<XeroBadge view={xero.mine} />}
             />
           )}
         </SettingsGroup>
@@ -423,11 +420,7 @@ function SettingsHub() {
                 tint="blue"
                 title="Xero"
                 value={connectionValue(xero.business)}
-                badge={
-                  xero.business?.status === 'needs_reconnect' ? (
-                    <RowBadge tone="amber">Reconnect</RowBadge>
-                  ) : undefined
-                }
+                badge={<XeroBadge view={xero.business} />}
               />
             )}
             {canManageBusiness && (
@@ -498,6 +491,26 @@ function SettingsHub() {
       </SettingsBody>
     </>
   )
+}
+
+/**
+ * What a Xero row's badge says needs doing, the more pressing first: a
+ * connection Xero stopped accepting, then clients waiting to be checked
+ * (Same or Different) on the match page. Nothing otherwise.
+ */
+function XeroBadge({ view }: { view: XeroStatusView | null }) {
+  if (view?.status === 'needs_reconnect') {
+    return <RowBadge tone="amber">Reconnect</RowBadge>
+  }
+  const toCheck = matchToCheck(view)
+  if (toCheck > 0) {
+    return (
+      <RowBadge tone="amber">
+        {toCheck.toLocaleString('en-AU')} to check
+      </RowBadge>
+    )
+  }
+  return null
 }
 
 /**

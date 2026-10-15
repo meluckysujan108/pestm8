@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { bytesToBase64Url } from './base64'
 import {
+  CONTACTS_PAGE_SIZE,
   XeroError,
   classify,
   decodeJwtPayload,
   deleteConnection,
   exchangeCode,
+  getContactsPage,
   getOrganisation,
   listConnections,
+  rateFrom,
   refreshTokens,
   revokeRefreshToken,
 } from './xeroHttp'
@@ -487,6 +490,200 @@ describe('calls to Xero', () => {
     reply = () => json({ Organisations: [{ Name: 'Demo Company (AU)' }] })
     expect(await getOrganisation('AT-1', 'tenant-1')).toEqual({
       name: 'Demo Company (AU)',
+    })
+  })
+
+  describe('getContactsPage', () => {
+    test('asks for one page of 1,000, archived included, of its tenant', async () => {
+      reply = () => json({ Contacts: [] })
+      expect(await getContactsPage('AT-1', 'tenant-1', 3)).toEqual({
+        contacts: [],
+        rate: {},
+      })
+      const [request] = requests
+      expect(request.method).toBe('GET')
+      expect(request.url).toBe(
+        'https://api.xero.com/api.xro/2.0/Contacts?page=3&pageSize=1000&includeArchived=true',
+      )
+      expect(request.headers['xero-tenant-id']).toBe('tenant-1')
+      expect(request.headers.authorization).toBe('Bearer AT-1')
+      expect(request.headers.accept).toBe('application/json')
+      expect(request.body).toBe('')
+      expect(CONTACTS_PAGE_SIZE).toBe(1000)
+    })
+
+    test('maps Xero’s fields, trimmed, leaving out what is empty', async () => {
+      reply = () =>
+        json({
+          Id: 'x',
+          Status: 'OK',
+          Contacts: [
+            {
+              ContactID: 'c-1',
+              ContactStatus: 'ACTIVE',
+              Name: ' John Smith ',
+              FirstName: 'John',
+              LastName: 'Smith',
+              EmailAddress: 'john@example.com',
+              AccountNumber: '0042',
+              Phones: [
+                { PhoneType: 'DDI', PhoneNumber: '' },
+                { PhoneType: 'FAX', PhoneNumber: '9999 0000' },
+                {
+                  PhoneType: 'MOBILE',
+                  PhoneNumber: '0412 345 678',
+                  PhoneAreaCode: '',
+                },
+                {
+                  PhoneType: 'DEFAULT',
+                  PhoneNumber: '9123 4567',
+                  PhoneAreaCode: '08',
+                  PhoneCountryCode: '61',
+                },
+              ],
+              Addresses: [
+                { AddressType: 'POBOX', City: '' },
+                { AddressType: 'STREET', City: 'Nightcliff' },
+              ],
+            },
+            {
+              ContactID: 'c-2',
+              ContactStatus: 'ARCHIVED',
+              Name: 'Old Co',
+              EmailAddress: '',
+              AccountNumber: '   ',
+              Phones: [{ PhoneType: 'DEFAULT', PhoneNumber: '' }],
+              Addresses: [],
+            },
+            { ContactID: 'c-3', ContactStatus: 'GDPRREQUEST', Name: 'Gone' },
+          ],
+        })
+      const { contacts } = await getContactsPage('AT-1', 'tenant-1', 1)
+      expect(contacts).toEqual([
+        {
+          contactId: 'c-1',
+          name: 'John Smith',
+          status: 'ACTIVE',
+          email: 'john@example.com',
+          accountNumber: '0042',
+          phone: '08 9123 4567',
+          place: 'Nightcliff',
+          firstName: 'John',
+          lastName: 'Smith',
+        },
+        { contactId: 'c-2', name: 'Old Co', status: 'ARCHIVED' },
+        { contactId: 'c-3', name: 'Gone', status: 'GDPRREQUEST' },
+      ])
+    })
+
+    test('the main line first, then mobile; a fax is never the phone', async () => {
+      reply = () =>
+        json({
+          Contacts: [
+            {
+              ContactID: 'c-1',
+              Name: 'A',
+              Phones: [
+                { PhoneType: 'FAX', PhoneNumber: '9999 0000' },
+                { PhoneType: 'MOBILE', PhoneNumber: '0412 345 678' },
+              ],
+            },
+            {
+              ContactID: 'c-2',
+              Name: 'B',
+              Phones: [{ PhoneType: 'FAX', PhoneNumber: '9999 0000' }],
+            },
+          ],
+        })
+      const { contacts } = await getContactsPage('AT-1', 'tenant-1', 1)
+      expect(contacts.map((c) => c.phone)).toEqual(['0412 345 678', undefined])
+    })
+
+    test('a missing status is ACTIVE; one Xero adds later is never a candidate', async () => {
+      reply = () =>
+        json({
+          Contacts: [
+            { ContactID: 'c-1', Name: 'No status' },
+            { ContactID: 'c-2', Name: 'Odd', ContactStatus: 'SOMETHINGNEW' },
+          ],
+        })
+      const { contacts } = await getContactsPage('AT-1', 'tenant-1', 1)
+      expect(contacts.map((c) => c.status)).toEqual(['ACTIVE', 'ARCHIVED'])
+    })
+
+    test('a row without a ContactID is dropped; one without a Name is kept', async () => {
+      reply = () =>
+        json({
+          Contacts: [
+            { Name: 'No id' },
+            { ContactID: '  ', Name: 'Blank id' },
+            'junk',
+            null,
+            { ContactID: 'c-1' },
+          ],
+        })
+      const { contacts } = await getContactsPage('AT-1', 'tenant-1', 1)
+      expect(contacts).toEqual([
+        { contactId: 'c-1', name: '', status: 'ACTIVE' },
+      ])
+    })
+
+    test('reads what is left of the allowance from the headers', async () => {
+      reply = () =>
+        json({ Contacts: [] }, 200, {
+          'X-DayLimit-Remaining': '4987',
+          'X-MinLimit-Remaining': '58',
+          'X-AppMinLimit-Remaining': '9999',
+        })
+      expect((await getContactsPage('AT-1', 'tenant-1', 1)).rate).toEqual({
+        dayRemaining: 4987,
+        minRemaining: 58,
+      })
+    })
+
+    test('an unreadable allowance is left out', () => {
+      expect(
+        rateFrom(
+          headers({
+            'X-DayLimit-Remaining': 'lots',
+            'X-MinLimit-Remaining': ' 0 ',
+          }),
+        ),
+      ).toEqual({ minRemaining: 0 })
+    })
+
+    test('a 2xx without Contacts → stop', async () => {
+      reply = () => json({ Organisations: [] })
+      expect(await classified(getContactsPage('AT-1', 'tenant-1', 1))).toEqual({
+        kind: 'stop',
+        code: 'bad_response',
+        status: 200,
+      })
+    })
+
+    test('refusals are classified like every other call', async () => {
+      reply = () => json(forbidden('AuthorizationUnsuccessful'), 403)
+      expect(await classified(getContactsPage('AT-1', 'tenant-1', 1))).toEqual({
+        kind: 'reconnect',
+        code: 'AuthorizationUnsuccessful',
+      })
+
+      reply = () =>
+        json({ Title: 'Too Many Requests' }, 429, {
+          'Retry-After': '20',
+          'X-Rate-Limit-Problem': 'minute',
+          'X-MinLimit-Remaining': '0',
+        })
+      expect(
+        await classified(getContactsPage('AT-1', 'tenant-1', 1)),
+      ).toMatchObject({ kind: 'pause', why: 'minute' })
+
+      reply = () => new Response('Service Unavailable', { status: 503 })
+      expect(await classified(getContactsPage('AT-1', 'tenant-1', 1))).toEqual({
+        kind: 'retry',
+        afterMs: 5000,
+      })
+      expect(logged()).not.toContain('AT-1')
     })
   })
 

@@ -191,3 +191,249 @@ export function connectionValue(
     ? view.tenantName
     : 'Not connected'
 }
+
+// ──────────────────────────────────────────── matching (Release 2)
+
+/**
+ * A connection's match run, as `xero.status` gives it (`match` on its view):
+ * null until PestM8 is first asked to read the organisation's contacts.
+ */
+type MatchSummary = {
+  state: 'reading' | 'ready' | 'failed'
+  review: number
+}
+
+/**
+ * What the page makes of a connection's match, as `useMatchStage`
+ * (XeroPage.tsx) works it out from `xero.status` and the clock:
+ *
+ * - `reading`: a run is reading Xero, or is about to;
+ * - `ready`: the counts and the lists;
+ * - `failed`: why not (`problem`, worded by `matchProblemCopy`), and what to
+ *   offer (`matchRetry`). Besides the run's own codes, `stopped` is a read
+ *   past believing — its run died without saying so — and `not_read` a
+ *   connection made before matching existed, never read.
+ */
+export type MatchStage =
+  | { stage: 'reading' }
+  | { stage: 'ready' }
+  | { stage: 'failed'; problem: string | null }
+
+/**
+ * What a failed match offers under its amber line: Check Xero again where
+ * it can help; Reconnect Xero (a link to the Xero page, whose Reconnect it
+ * is) where the server would refuse a check until then; or nothing where
+ * trying again can't help — an organisation too big to match, or Xero
+ * paused by PestM8 (until it is unpaused).
+ */
+export function matchRetry(
+  problem: string | null,
+  connection: { status: string },
+  paused: boolean,
+): 'rematch' | 'reconnect' | 'none' {
+  if (connection.status === 'needs_reconnect') return 'reconnect'
+  if (problem === 'too_many_contacts') return 'none'
+  if (problem === 'paused' && paused) return 'none'
+  return 'rematch'
+}
+
+/**
+ * How many clients wait for the holder to say Same or Different, for the
+ * Settings hub's "{n} to check" badge. Only on a working connection whose
+ * match has finished: a disconnected one keeps its last counts, and a run
+ * under way has zeroed them.
+ */
+export function matchToCheck(
+  view: { status: string; match: MatchSummary | null } | null | undefined,
+): number {
+  if (!view || view.status !== 'connected') return 0
+  return view.match?.state === 'ready' ? view.match.review : 0
+}
+
+/** "3 clients", "1 client": counts are digits with their noun (§7). */
+export function clientCount(n: number): string {
+  return `${n.toLocaleString('en-AU')} ${n === 1 ? 'client' : 'clients'}`
+}
+
+/**
+ * Why PestM8 could not read an organisation's contacts (`match.problem`, a
+ * code from `xeroMatch.run`, or the page's own — `MatchStage`), for the
+ * amber line over whatever `matchRetry` offers. Nothing is ever written to
+ * Xero while matching, so none of these has changed anything there.
+ *
+ * - `reconnect`: Xero stopped accepting PestM8's sign-in. The connection is
+ *   marked for reconnecting too, and reconnecting reads the contacts again
+ *   by itself.
+ * - `busy`: another of PestM8's jobs held this organisation (one at a time,
+ *   because Xero's limits are per organisation) for ten tries in a row.
+ * - `too_many_contacts`: more than 50 pages of 1,000. No retry offered.
+ * - `rate_limited`: Xero asked PestM8 to wait longer than a run waits — in
+ *   practice the organisation's calls for the day are spent.
+ * - `xero_unavailable`: Xero down or failing, through every retry.
+ * - `paused`: `XERO_SYNC_PAUSED` is on. No retry offered while it is.
+ * - `stopped`: the read died part-way without saying why (a deploy, the
+ *   action time limit), and is past believing (`xeroMatch.matchStaleAfter`).
+ * - `not_read`: connected before matching existed, and never read.
+ * - anything else: a refusal or a fault, worth trying again.
+ */
+export function matchProblemCopy(
+  code: string | null,
+  tenantName: string,
+): string {
+  switch (code) {
+    case 'reconnect':
+      return `Could not read the contacts in ${tenantName}: Xero stopped accepting PestM8’s sign-in. Reconnect, and PestM8 reads them again.`
+    case 'busy':
+      return `Could not read the contacts in ${tenantName}: Xero was busy with another of PestM8’s jobs for that organisation. Check Xero again in a few minutes.`
+    case 'too_many_contacts':
+      return `Could not read the contacts in ${tenantName}: it holds more than 50,000, which is more than PestM8 can match yet. Nothing changed in Xero, and nothing is needed from you for now.`
+    case 'rate_limited':
+      return `Could not read the contacts in ${tenantName}: Xero has had as many calls from that organisation as it allows for now. Nothing changed there — check Xero again later today.`
+    case 'xero_unavailable':
+      return `Could not read the contacts in ${tenantName}: Xero isn’t answering properly just now. Nothing changed there — check Xero again in a few minutes.`
+    case 'paused':
+      return `PestM8 has paused its work with Xero for now, so the contacts in ${tenantName} weren’t read. Nothing is needed from you — check Xero again once it’s back.`
+    case 'stopped':
+      return `PestM8 stopped part-way through reading the contacts in ${tenantName}. Nothing changed in Xero — check Xero again.`
+    case 'not_read':
+      return `PestM8 hasn’t read the contacts in ${tenantName} yet. Check Xero again to match them to your clients.`
+    default:
+      return `Could not read the contacts in ${tenantName} from Xero. Nothing changed there — check Xero again in a few minutes.`
+  }
+}
+
+/**
+ * Check Xero again (`xeroMatch.rematch`). Fails fast with no signal: a check
+ * held for the signal would start a read of Xero long after the tap seemed
+ * to do nothing.
+ */
+export const REMATCH_ERROR_COPY: ErrorCopy = {
+  XERO_MATCH_RUNNING:
+    'Could not check Xero again: PestM8 is still reading it. Give it a few minutes.',
+  XERO_RECONNECT:
+    'Could not check Xero: it needs reconnecting first. Reconnect Xero, and PestM8 reads it again.',
+  XERO_NOT_CONFIGURED:
+    'Could not check Xero: this copy of PestM8 isn’t set up for Xero.',
+  NOT_FOUND:
+    'Could not check Xero: it has been disconnected. Reload this page to see where it stands.',
+  NO_ACCESS:
+    'Could not check Xero: only whoever connected this Xero can check it again.',
+  SWITCHED:
+    'Could not check Xero: switch back to your own account first, then try again.',
+  offline:
+    'Could not check Xero: this device is offline. Try again when you have signal.',
+  default: 'Could not check Xero. Check your signal and try again.',
+}
+
+/** Why PestM8 isn't sure a client is that Xero contact (`candidate.reason`),
+ * the one line on a To check card. `unlinked` is a client put back by Match
+ * again after an Unlink. */
+export const MATCH_REASON_COPY: Readonly<
+  Record<
+    | 'account_number_only'
+    | 'email_only'
+    | 'name_only'
+    | 'name_shared'
+    | 'contested'
+    | 'unlinked',
+    string
+  >
+> = {
+  account_number_only: 'Same account number, different name',
+  email_only: 'Same email, different name',
+  name_only: 'Same name',
+  name_shared: 'Same name — Xero has more than one contact by this name',
+  contested: 'More than one of your clients matches this contact',
+  unlinked: 'You unlinked these before',
+}
+
+/**
+ * Same client / Different client on a To check card (`xeroMatch.decide`).
+ * Fails fast with no signal, like every save here that can't be put back
+ * from the page it was made on.
+ */
+export const DECIDE_ERROR_COPY: ErrorCopy = {
+  // Only a client on Matched can hold a contact: one in the Recycle bin
+  // gives it up (`xeroMatch.decide`).
+  CONTACT_TAKEN:
+    'Could not match them: that Xero contact is already matched to another client. If that one is wrong, unlink it under Matched first; if not, check Xero again to look for another contact.',
+  NOT_FOUND:
+    'Could not save: this one has changed since the page opened. Reload this page and look again.',
+  NO_ACCESS:
+    'Could not save: only whoever connected this Xero can match its clients.',
+  SWITCHED:
+    'Could not save: switch back to your own account first, then try again.',
+  offline:
+    'Could not save: this device is offline. Nothing was changed — try again when you have signal.',
+  default: 'Could not save. Check your signal and try again.',
+}
+
+/** Match again on a Different client (`xeroMatch.reopen`). Fails fast with
+ * no signal, like the answers it takes back. */
+export const REOPEN_ERROR_COPY: ErrorCopy = {
+  NOT_FOUND:
+    'Could not match them again: this one has changed since the page opened. Reload this page and look again.',
+  NO_ACCESS:
+    'Could not match them again: only whoever connected this Xero can change its matches.',
+  SWITCHED:
+    'Could not match them again: switch back to your own account first, then try again.',
+  offline:
+    'Could not match them again: this device is offline. Nothing was changed — try again when you have signal.',
+  default:
+    'Could not match them again. Nothing was changed — check your signal and try again.',
+}
+
+/** Unlink on a matched client (`xeroMatch.unlink`), in its confirm. */
+export const UNLINK_ERROR_COPY: ErrorCopy = {
+  NOT_FOUND:
+    'Could not unlink: they’re no longer matched. Close this and look again.',
+  NO_ACCESS:
+    'Could not unlink: only whoever connected this Xero can change its matches.',
+  SWITCHED:
+    'Could not unlink: switch back to your own account first, then try again.',
+  offline:
+    'Could not unlink: this device is offline. They’re still matched — try again when you have signal.',
+  default:
+    'Could not unlink. They’re still matched — check your signal and try again.',
+}
+
+/** The match page's lists (`xeroMatch.reviewPage`'s `filter`). */
+export type MatchFilter = 'review' | 'matched' | 'new' | 'separate'
+
+/**
+ * Each list as the match page names it: its chip, the line under the chips
+ * saying what the list is, and what it says when there is nothing in it.
+ */
+export const MATCH_FILTER_COPY: Readonly<
+  Record<
+    MatchFilter,
+    { label: string; lede: string; emptyTitle: string; emptyBody: string }
+  >
+> = {
+  review: {
+    label: 'To check',
+    lede: 'PestM8 isn’t sure these are the same client. Say which they are.',
+    emptyTitle: 'Nothing to check',
+    emptyBody: 'Every client is matched, or new to Xero.',
+  },
+  matched: {
+    label: 'Matched',
+    lede: 'Already in Xero. PestM8 will keep each one in step with its contact there.',
+    emptyTitle: 'Nothing matched yet',
+    emptyBody:
+      'Clients PestM8 finds in Xero, and the ones you match, are listed here.',
+  },
+  new: {
+    label: 'New to Xero',
+    lede: 'Not in Xero yet. PestM8 will add them as new contacts.',
+    emptyTitle: 'Nothing new to Xero',
+    emptyBody: 'Clients with nothing like them in Xero are listed here.',
+  },
+  separate: {
+    label: 'Different',
+    lede: 'You said these aren’t the contact PestM8 suggested, or unlinked them. PestM8 will add them as new contacts. Match again puts one back to check.',
+    emptyTitle: 'Nothing marked different',
+    emptyBody:
+      'Clients you say aren’t the contact PestM8 suggested are listed here.',
+  },
+}

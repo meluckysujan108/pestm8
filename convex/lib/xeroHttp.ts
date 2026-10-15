@@ -1,6 +1,7 @@
 /**
  * Xero over plain `fetch`: the OAuth token endpoints, the connections list,
- * and the one Accounting call Release 1 makes (`GET /Organisation`).
+ * and the Accounting calls — `GET /Organisation` (Release 1) and the paged
+ * `GET /Contacts` the match reads (Release 2). Nothing here writes a contact.
  *
  * Plain `fetch` rather than `xero-node`, in the default Convex runtime: the
  * SDK needs Node, a `"use node"` file cannot hold the queries and mutations
@@ -17,8 +18,8 @@
  *   token, a code, a URL or a header. A successful answer is never logged:
  *   the token endpoint's carries the tokens.
  *
- * Release 3 adds the contact calls here (a tenant id on every Accounting
- * call, the rate-limit headers, per-item validation errors).
+ * Release 3 adds the contact writes here (per-item validation errors). Every
+ * Accounting call names its organisation (`xero-tenant-id`).
  */
 import { base64UrlToBytes, bytesToBase64 } from './base64'
 import {
@@ -30,6 +31,7 @@ import {
   xeroClientId,
   xeroClientSecret,
 } from './xeroConfig'
+import type { XeroContactForMatch } from './xeroMatch'
 
 /** How long any one call to Xero may take, answer and body together. */
 const TIMEOUT_MS = 20_000
@@ -203,7 +205,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
-type Answer = { status: number; body: unknown }
+type Answer = { status: number; headers: Headers; body: unknown }
 
 /**
  * One call to Xero. `what` names it in logs and errors, in place of the URL
@@ -245,7 +247,7 @@ async function call(
   const { status, headers, text } = answer
   const body = parseBody(text)
   if ((status >= 200 && status < 300) || fine.includes(status)) {
-    return { status, body }
+    return { status, headers, body }
   }
   console.error(`[xero] ${what}: HTTP ${status} ${errorText(body)}`.trim())
   throw new XeroError(
@@ -481,6 +483,161 @@ export async function getOrganisation(
       ? { shortCode: org.ShortCode }
       : {}),
   }
+}
+
+/** Contacts per page of `GET /Contacts`: Xero's largest. A page with fewer
+ * is the last. */
+export const CONTACTS_PAGE_SIZE = 1000
+
+/** One Xero contact, as the match reads it (lib/xeroMatch.ts), with the
+ * person's own names Xero keeps beside the contact's Name. */
+export type XeroContactRow = XeroContactForMatch & {
+  firstName?: string
+  lastName?: string
+}
+
+/**
+ * What Xero says is left of this organisation's allowance for the app, from
+ * the answer's headers: calls today (5,000 a day) and this minute (60). Absent
+ * when Xero did not say, or said something that is not a count.
+ */
+export type XeroRate = { dayRemaining?: number; minRemaining?: number }
+
+/**
+ * One page of an organisation's contacts, archived ones included (the match
+ * needs to know a contact is archived to leave it alone, rather than take
+ * its absence as "not in Xero"). Read-only: `GET` is the only contact call
+ * before Release 3.
+ *
+ * Each contact is mapped to the fields the match compares and the review
+ * page shows, trimmed, and an empty one left out. A row without a ContactID
+ * is dropped — there would be nothing to link it by.
+ */
+export async function getContactsPage(
+  accessToken: string,
+  tenantId: string,
+  page: number,
+): Promise<{ contacts: Array<XeroContactRow>; rate: XeroRate }> {
+  const search = `page=${page}&pageSize=${CONTACTS_PAGE_SIZE}&includeArchived=true`
+  const { status, headers, body } = await call(
+    'contacts',
+    `${XERO_API_BASE}/Contacts?${search}`,
+    {
+      method: 'GET',
+      headers: { ...bearer(accessToken), 'xero-tenant-id': tenantId },
+    },
+  )
+  const rows = isRecord(body) ? body.Contacts : undefined
+  if (!Array.isArray(rows)) throw badAnswer('contacts', status)
+  return {
+    contacts: rows.flatMap((row: unknown) => {
+      const contact = contactFrom(row)
+      return contact ? [contact] : []
+    }),
+    rate: rateFrom(headers),
+  }
+}
+
+/** The allowance left, from `X-DayLimit-Remaining` and
+ * `X-MinLimit-Remaining`. */
+export function rateFrom(headers: Headers): XeroRate {
+  const count = (name: string): number | undefined => {
+    const text = (headers.get(name) ?? '').trim()
+    return /^\d+$/.test(text) ? Number(text) : undefined
+  }
+  const dayRemaining = count('X-DayLimit-Remaining')
+  const minRemaining = count('X-MinLimit-Remaining')
+  return {
+    ...(dayRemaining === undefined ? {} : { dayRemaining }),
+    ...(minRemaining === undefined ? {} : { minRemaining }),
+  }
+}
+
+/** A trimmed string, or undefined for anything else or nothing. */
+function textOf(value: unknown): string | undefined {
+  if (typeof value !== 'string') return undefined
+  const text = value.trim()
+  return text === '' ? undefined : text
+}
+
+/**
+ * Xero's ContactStatus. Absent reads as ACTIVE, which is what Xero gives a
+ * contact unless someone archives it: taking a contact with no status as
+ * "not a candidate" would have Release 3 create a second one. A status Xero
+ * adds later is not one the match knows to be safe, so it reads as
+ * ARCHIVED — never a candidate.
+ */
+function statusOf(value: unknown): XeroContactRow['status'] {
+  if (value === undefined || value === null || value === '') return 'ACTIVE'
+  if (value === 'ACTIVE' || value === 'GDPRREQUEST') return value
+  return 'ARCHIVED'
+}
+
+/** Which of a contact's numbers the review page shows: its main line, then
+ * mobile, then direct dial, then anything else but a fax. */
+const PHONE_ORDER = ['DEFAULT', 'MOBILE', 'DDI']
+
+/**
+ * The first number Xero holds for the contact, as it holds it: area code and
+ * number joined ("08 9123 4567"). Xero sends every phone type, mostly empty.
+ */
+function phoneOf(phones: unknown): string | undefined {
+  if (!Array.isArray(phones)) return undefined
+  const numbers = phones.flatMap((phone: unknown) => {
+    if (!isRecord(phone)) return []
+    const type = textOf(phone.PhoneType)?.toUpperCase() ?? ''
+    if (type === 'FAX') return []
+    const number = textOf(phone.PhoneNumber)
+    if (!number) return []
+    const area = textOf(phone.PhoneAreaCode)
+    const rank = PHONE_ORDER.indexOf(type)
+    return [
+      {
+        text: area ? `${area} ${number}` : number,
+        rank: rank === -1 ? PHONE_ORDER.length : rank,
+      },
+    ]
+  })
+  // A stable sort: within a rank, Xero's own order.
+  numbers.sort((a, b) => a.rank - b.rank)
+  return numbers.at(0)?.text
+}
+
+/** The City of the contact's first address that has one: its suburb, for
+ * an Australian contact. */
+function placeOf(addresses: unknown): string | undefined {
+  if (!Array.isArray(addresses)) return undefined
+  for (const address of addresses) {
+    if (!isRecord(address)) continue
+    const city = textOf(address.City)
+    if (city) return city
+  }
+  return undefined
+}
+
+function contactFrom(row: unknown): XeroContactRow | null {
+  if (!isRecord(row)) return null
+  const contactId = textOf(row.ContactID)
+  if (!contactId) return null
+  const optional = {
+    email: textOf(row.EmailAddress),
+    accountNumber: textOf(row.AccountNumber),
+    phone: phoneOf(row.Phones),
+    place: placeOf(row.Addresses),
+    firstName: textOf(row.FirstName),
+    lastName: textOf(row.LastName),
+  }
+  const contact: XeroContactRow = {
+    contactId,
+    name: textOf(row.Name) ?? '',
+    status: statusOf(row.ContactStatus),
+  }
+  for (const [field, value] of Object.entries(optional)) {
+    if (value !== undefined) {
+      contact[field as keyof typeof optional] = value
+    }
+  }
+  return contact
 }
 
 /**

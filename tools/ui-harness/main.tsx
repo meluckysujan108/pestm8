@@ -10,7 +10,8 @@ import {
   createRoute,
   createRouter,
 } from '@tanstack/react-router'
-import { resolveFixture } from './fixtures'
+import { getFunctionName } from 'convex/server'
+import { resolveFixture, resolveLiveFixture, resolveMutation } from './fixtures'
 import { SPECIMENS } from './specimens'
 
 const params = new URLSearchParams(location.search)
@@ -43,14 +44,19 @@ const queryClient = new QueryClient({
   },
 })
 
-// Stands in for ConvexReactClient: mutations resolve to null, nothing connects.
+// Stands in for ConvexReactClient: mutations resolve to null (or as
+// `resolveMutation` says), nothing connects, and only the queries the
+// fixtures list as live answer through it (`resolveLiveFixture`).
+const nameOf = (fn: unknown) =>
+  typeof fn === 'string' ? fn : getFunctionName(fn as never)
 const fakeConvex = {
-  mutation: async () => null,
+  mutation: async (fn: unknown, args: unknown) =>
+    resolveMutation(nameOf(fn), args),
   action: async () => null,
   query: async () => null,
-  watchQuery: () => ({
+  watchQuery: (fn: unknown, args: unknown) => ({
     onUpdate: () => () => {},
-    localQueryResult: () => undefined,
+    localQueryResult: () => resolveLiveFixture(nameOf(fn), args),
     journal: () => undefined,
   }),
   setAuth: () => {},

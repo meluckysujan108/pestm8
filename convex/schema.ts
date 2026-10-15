@@ -255,6 +255,52 @@ export const xeroConnectionKind = v.union(
   v.literal('member'),
 )
 
+/** Where a connection's match run stands (convex/xeroMatch.ts). */
+export const xeroMatchState = v.union(
+  v.literal('reading'),
+  v.literal('ready'),
+  v.literal('failed'),
+)
+
+/**
+ * What a client is in one Xero organisation (convex/xeroMatch.ts):
+ * - `linked`: this client IS that Xero contact;
+ * - `needs_review`: a candidate the holder must confirm (Same / Different);
+ * - `separate`: the holder said no, so Release 3 creates a contact for it;
+ * - `new`: nothing in Xero matched, so Release 3 creates it.
+ */
+export const xeroLinkState = v.union(
+  v.literal('linked'),
+  v.literal('needs_review'),
+  v.literal('separate'),
+  v.literal('new'),
+)
+
+/** Why a candidate needs the holder's word rather than being linked
+ * (lib/xeroMatch.ts has the rules). `name_shared`: the name, which more than
+ * one Xero contact has. `unlinked`: the contact the holder unlinked the
+ * client from (`xeroMatch.unlink`), put back to them by Match again. */
+export const xeroCandidateReason = v.union(
+  v.literal('account_number_only'),
+  v.literal('email_only'),
+  v.literal('name_only'),
+  v.literal('name_shared'),
+  v.literal('contested'),
+  v.literal('unlinked'),
+)
+
+/** A Xero contact a client might be, as the match run read it. */
+export const xeroCandidate = v.object({
+  contactId: v.string(),
+  name: v.string(),
+  email: v.optional(v.string()),
+  phone: v.optional(v.string()),
+  /** Suburb or city of its first address that has one. */
+  place: v.optional(v.string()),
+  accountNumber: v.optional(v.string()),
+  reason: xeroCandidateReason,
+})
+
 /** Where a client stands (convex/lib/clientRecord.ts). Absent is active. */
 export { clientStatus }
 
@@ -2319,4 +2365,123 @@ export default defineSchema({
     .index('by_xeroConnectionId', ['xeroConnectionId'])
     // The sweep: pending connections nobody finished.
     .index('by_status_and_createdAt', ['status', 'createdAt']),
+
+  /**
+   * The churning half of one connection (convex/xeroMatch.ts): how its match
+   * run stands (Release 2) and, from Release 3, its send bookkeeping. One row
+   * per connection, made when the first run claims it.
+   *
+   * Kept off `xeroConnections` so a run's writes — a lease renewed every
+   * batch, counts moving with every Same or Different — never conflict with
+   * the connect, finish and disconnect writes Settings makes there, nor make
+   * every reader of that row run again.
+   *
+   * New table, so nothing to migrate.
+   */
+  xeroSyncState: defineTable({
+    connectionId: v.id('xeroConnections'),
+    businessId: v.id('businesses'),
+    /** The connection's organisation, copied so the lease can be found by
+     * organisation (`by_tenant`) across every business. */
+    tenantId: v.string(),
+    /** The latest match run: reading, done, or stopped with a code the page
+     * words (xeroCopy.ts). Absent until a run is first asked for. */
+    match: v.optional(
+      v.object({
+        state: xeroMatchState,
+        /** When this state was entered. */
+        at: v.number(),
+        /** The run that wrote it (its lease holder). Only that run may
+         * finish or fail it, so a run that was overtaken can't overwrite the
+         * one that overtook it. */
+        runId: v.string(),
+        /** Xero contacts read that could be matched (ACTIVE only). */
+        contacts: v.number(),
+        /** Clients that are a Xero contact (matched or chosen). */
+        linked: v.number(),
+        /** Clients with a candidate waiting on Same or Different. */
+        review: v.number(),
+        /** Clients Xero will get as new contacts: nothing matched, or the
+         * holder said Different. */
+        fresh: v.number(),
+        /** Of `fresh`, the ones the holder said Different (or unlinked): the
+         * match page's Different list. */
+        different: v.number(),
+        /** Leads, which wait until their first job is booked. */
+        leads: v.number(),
+        /** Why it failed: `classify`'s verdict or the run's own, as a code. */
+        problem: v.optional(v.string()),
+      }),
+    ),
+    /** The tenant lease: one match run (R2) or drain (R3) per Xero organisation
+     * at a time, across every business — Xero's limits are per organisation. */
+    lease: v.optional(v.object({ holder: v.string(), until: v.number() })),
+  })
+    .index('by_connection', ['connectionId'])
+    // The lease: is anyone, in any business, working on this organisation?
+    .index('by_tenant', ['tenantId']),
+
+  /**
+   * Which Xero contact a client is in one organisation, or why it has none
+   * yet (convex/xeroMatch.ts). One per (business, organisation, client).
+   *
+   * Keyed by organisation, not connection, so a reconnect — or a new
+   * connection to the same organisation after a disconnect, whoever makes
+   * it — finds the links already made and never creates a contact twice.
+   * The answers are about the organisation's contacts, not the person who
+   * gave them, so they pass to whoever holds it next in this business.
+   * Survives disconnect for the same reason. Goes when its client is wiped
+   * for good (bin.ts `wipeStep`, clientImports.ts `undoStep`); the contact
+   * stays in Xero.
+   *
+   * A decision (`decidedAt`: Same, Different, Unlink) is the holder's word
+   * and no later match overrides it — until Match again (`xeroMatch.reopen`)
+   * puts it back to them; everything else is the latest run's proposal and
+   * is replaced by the next. New table, so nothing to migrate.
+   */
+  xeroContactLinks: defineTable({
+    businessId: v.id('businesses'),
+    tenantId: v.string(),
+    clientId: v.id('clients'),
+    state: xeroLinkState,
+    /** The Xero contact this client is (`linked` only). */
+    xeroContactId: v.optional(v.string()),
+    /** `matched` by the run on strong evidence, or `chosen` by the holder
+     * (Same client). */
+    how: v.optional(v.union(v.literal('matched'), v.literal('chosen'))),
+    /** The contact the holder is asked about (`needs_review`), kept after
+     * Different — and, after Unlink, the contact it was unlinked from — for
+     * reference and for Match again. A copy of Xero's fields as the run read
+     * them, so the page needs no call to Xero. */
+    candidate: v.optional(xeroCandidate),
+    /** The linked contact's Name in Xero. */
+    xeroName: v.optional(v.string()),
+    /** The match run that proposed it (undecided rows only): a finished run
+     * deletes the undecided rows an earlier run left for clients it no
+     * longer proposes (binned, archived, turned into leads). */
+    runId: v.optional(v.string()),
+    /** Set by Same, Different and Unlink: a later match never overrides.
+     * Cleared by Match again. */
+    decidedAt: v.optional(v.number()),
+    decidedByMembershipId: v.optional(v.id('memberships')),
+  })
+    .index('by_business_and_tenant_and_client', [
+      'businessId',
+      'tenantId',
+      'clientId',
+    ])
+    // One Xero contact is one client per organisation: who already has it?
+    .index('by_business_and_tenant_and_contact', [
+      'businessId',
+      'tenantId',
+      'xeroContactId',
+    ])
+    // The match page's filters.
+    .index('by_business_and_tenant_and_state', [
+      'businessId',
+      'tenantId',
+      'state',
+    ])
+    // A client wiped for good takes its links with it, in every organisation.
+    .index('by_client', ['clientId']),
 })

@@ -1,10 +1,12 @@
 import { convexQuery } from '@convex-dev/react-query'
 import { getFunctionName } from 'convex/server'
+import type { FunctionReturnType } from 'convex/server'
 import { api } from '../../convex/_generated/api'
 import type { QueryClient } from '@tanstack/react-query'
 import type { Id } from '../../convex/_generated/dataModel'
 import type { LibraryFilter } from '#/components/notes/NoteList'
 import type { Segment } from '#/components/reports/ReportsLibrary'
+import type { MatchFilter } from '#/components/xero/xeroCopy'
 
 type B = Id<'businesses'>
 
@@ -139,6 +141,75 @@ export const reportsFirstPage = (businessId: B, filter: Segment) =>
     filter,
     paginationOpts: { numItems: REPORTS_PAGE, cursor: null },
   })
+
+/** Clients on a page of Xero's match review (`xeroMatch.reviewPage`). A
+ * hundred cards is more than a screen, and cheap. */
+export const MATCH_PAGE = 100
+
+/** The first page of one of the match review's lists, warmed by the match
+ * page's loader and read until its paginator catches up — as the Reports
+ * library does (above). */
+export const matchFirstPage = (
+  businessId: B,
+  connectionId: Id<'xeroConnections'>,
+  filter: MatchFilter,
+) =>
+  convexQuery(api.xeroMatch.reviewPage, {
+    businessId,
+    connectionId,
+    filter,
+    paginationOpts: { numItems: MATCH_PAGE, cursor: null },
+  })
+
+/** How long the match page's loader holds the navigation, at most. */
+const MATCH_LOADER_WAIT_MS = 2000
+
+const MATCH_FILTERS: ReadonlyArray<MatchFilter> = [
+  'review',
+  'matched',
+  'new',
+  'separate',
+]
+
+/**
+ * The match page's loader (Settings → Xero → Match your clients, and My
+ * Xero's): Xero's status, then — once it says which connection is this
+ * person's, and that its match is in — the first page of the list being
+ * opened. Never waited on past MATCH_LOADER_WAIT_MS, like the Xero page's:
+ * with no signal a Convex query never answers, and the page has its own
+ * placeholders.
+ */
+export function warmMatch(
+  queryClient: QueryClient,
+  businessId: B,
+  kind: 'business' | 'member',
+  filter: string | undefined,
+): Promise<void> {
+  const status = rq.xeroStatus(businessId)
+  return settleWithin(
+    MATCH_LOADER_WAIT_MS,
+    (async () => {
+      await warm(queryClient, status)
+      const data = queryClient.getQueryData<
+        FunctionReturnType<typeof api.xero.status>
+      >(status.queryKey)
+      // Only what the page will show: a member switched into someone else's
+      // account sees "Switch back", and the server would refuse the list.
+      const view =
+        kind === 'business'
+          ? data?.business
+          : data?.switched
+            ? null
+            : data?.mine
+      if (!view || view.match?.state !== 'ready') return
+      const list = MATCH_FILTERS.find((each) => each === filter) ?? 'review'
+      await warm(
+        queryClient,
+        matchFirstPage(businessId, view.connectionId, list),
+      )
+    })(),
+  )
+}
 
 /** Mentions are their own list, not a page of the notes one. */
 export type NotesPageFilter = Exclude<LibraryFilter, 'mentions'>

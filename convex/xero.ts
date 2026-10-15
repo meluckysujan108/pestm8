@@ -39,8 +39,9 @@ import {
   requireConnectionHolder,
 } from './lib/xeroHooks'
 import { DEMO_PLAN } from './demo/shared'
+import { matchAfterConnect, matchStaleAfter } from './xeroMatch'
 import { accessTokenFor, retireGrant } from './xeroTokens'
-import { xeroConnectionKind } from './schema'
+import { xeroConnectionKind, xeroMatchState } from './schema'
 import type { Infer } from 'convex/values'
 import type { Doc, Id } from './_generated/dataModel'
 import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server'
@@ -50,7 +51,9 @@ import type { ActionCtx, MutationCtx, QueryCtx } from './_generated/server'
  * the owner, and each contractor's or subcontractor's own ("My Xero").
  * Nothing here sends a client to Xero — the only calls are the sign-in, the
  * token exchange and refresh, `GET /Organisation`, and taking PestM8 back out
- * (`DELETE /connections`, revoke). docs/xero.md is the runbook.
+ * (`DELETE /connections`, revoke). A finished connect starts the match of the
+ * organisation's contacts (Release 2, convex/xeroMatch.ts), which only reads.
+ * docs/xero.md is the runbook.
  *
  * ── How a connect runs ───────────────────────────────────────────────────
  *
@@ -122,6 +125,32 @@ const xeroView = v.object({
   shortCode: v.union(v.string(), v.null()),
   /** Only meaningful when `status` is `disconnected`. */
   disconnectReason: v.union(v.string(), v.null()),
+  /**
+   * How matching its contacts stands (convex/xeroMatch.ts): null until a
+   * match is first asked for — which connecting does in the same write, so
+   * a connected connection with none was connected before matching existed.
+   * `fresh` is the clients Xero will get as new contacts — nothing matched,
+   * or Different — `different` the Different ones among them, and `leads`
+   * those waiting for their first job. `problem` is a code the page words
+   * (xeroCopy.ts). `staleAfter`, while reading: when the page should call
+   * the read stopped and offer Check Xero again, because the run reading it
+   * has died without saying so (`xeroMatch.matchStaleAfter`) — a time the
+   * page compares with its own clock, since a query mustn't read one.
+   */
+  match: v.union(
+    v.null(),
+    v.object({
+      state: xeroMatchState,
+      at: v.number(),
+      linked: v.number(),
+      review: v.number(),
+      fresh: v.number(),
+      different: v.number(),
+      leads: v.number(),
+      problem: v.union(v.string(), v.null()),
+      staleAfter: v.union(v.number(), v.null()),
+    }),
+  ),
 })
 
 export type XeroView = Infer<typeof xeroView>
@@ -273,6 +302,13 @@ async function viewOf(
   ctx: QueryCtx,
   connection: Doc<'xeroConnections'>,
 ): Promise<XeroView> {
+  // Its own row, not the connection's: a run's writes land there.
+  const sync = await ctx.db
+    .query('xeroSyncState')
+    .withIndex('by_connection', (q) => q.eq('connectionId', connection._id))
+    .first()
+  const match = sync?.match
+  const staleAfter = sync ? matchStaleAfter(sync) : null
   return {
     connectionId: connection._id,
     kind: connection.kind,
@@ -283,6 +319,19 @@ async function viewOf(
     problem: connection.problem ?? null,
     shortCode: connection.shortCode ?? null,
     disconnectReason: connection.disconnectReason ?? null,
+    match: match
+      ? {
+          state: match.state,
+          at: match.at,
+          linked: match.linked,
+          review: match.review,
+          fresh: match.fresh,
+          different: match.different,
+          leads: match.leads,
+          problem: match.problem ?? null,
+          staleAfter,
+        }
+      : null,
   }
 }
 
@@ -900,6 +949,10 @@ export const finishConnect = action({
  * Re-checks that no one else here took the organisation in the minutes
  * between (TAKEN). A reconnect keeps its row, its links and its Start
  * syncing; `connectedAt` becomes now, the start of this sign-in.
+ *
+ * Then reads the organisation's contacts and matches the client book to them
+ * (convex/xeroMatch.ts) — unless this connection finished a match in the
+ * last week, as a quick reconnect after a lapsed sign-in has.
  */
 export const finish = internalMutation({
   args: { businessId: v.id('businesses'), finishHash: v.string() },
@@ -982,6 +1035,8 @@ export const finish = internalMutation({
     await ctx.scheduler.runAfter(0, internal.xero.fetchOrganisation, {
       connectionId: connection._id,
     })
+    // Which client is which of its contacts. Reads only (Release 2).
+    await matchAfterConnect(ctx, connection)
     return { tenantName: connection.tenantName }
   },
 })

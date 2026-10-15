@@ -2,7 +2,7 @@
 
 import { BUSY_SITES_FOR_LIST, resolveBusy } from './busyFixtures'
 import { JOB_TYPES_LIST, JOB_TYPES_MANAGE } from './jobTypeFixtures'
-import { XERO_FIXTURES } from './xeroFixtures'
+import { XERO_FIXTURES, XERO_LIVE, XERO_MUTATIONS } from './xeroFixtures'
 
 export const TZ = 'Australia/Perth'
 export const BIZ = 'biz_demo'
@@ -859,6 +859,29 @@ export function resolveFixture(fn: string, args: unknown): unknown {
   if (busy !== undefined) return busy
   const f = FIXTURES[fn]
   return f ? f(args) : undefined
+}
+
+/**
+ * What a query read through the Convex client itself answers — a paginated
+ * list (`usePaginatedQuery`), which never reads React Query's cache. Only
+ * the queries listed as live: everything else stays loading there, as it
+ * always has, and is read through React Query instead. Throws as the
+ * fixture throws, which the client reports as the query's error.
+ */
+export function resolveLiveFixture(fn: string, args: unknown): unknown {
+  return XERO_LIVE.has(fn) ? resolveFixture(fn, args) : undefined
+}
+
+/** What a mutation answers: null, unless a fixture says otherwise (or
+ * refuses, by throwing). */
+export async function resolveMutation(
+  fn: string,
+  args: unknown,
+): Promise<unknown> {
+  const f = (
+    XERO_MUTATIONS as Partial<Record<string, (args: unknown) => unknown>>
+  )[fn]
+  return f ? f(args) : null
 }
 
 /** What `bin.list` answers: one of each kind, as Settings → Recycle bin

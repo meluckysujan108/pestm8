@@ -4,9 +4,9 @@ import type { Id } from '../convex/_generated/dataModel'
 import type { TestApp, TestAs } from './harness'
 
 /**
- * Xero, faked: its sign-in (identity.xero.com) and the few API calls Release 1
- * makes (api.xero.com), with `fetch` stubbed and the env set as a configured
- * deployment would have it. Modelled on `fakeResend`
+ * Xero, faked: its sign-in (identity.xero.com) and the few API calls Releases
+ * 1 and 2 make (api.xero.com), with `fetch` stubbed and the env set as a
+ * configured deployment would have it. Modelled on `fakeResend`
  * (convex/emailCopySend.test.ts) and `fakeNetwork` (convex/weather.test.ts).
  *
  * It keeps a small model of Xero rather than canned answers, because the
@@ -23,6 +23,16 @@ import type { TestApp, TestAs } from './harness'
  * - Access tokens are JWTs whose payload carries `xero_userid` and
  *   `authentication_event_id`, unsigned (the app never checks the signature:
  *   it got them from Xero's token endpoint over TLS).
+ * - An organisation holds contacts (`contacts`), which `GET /Contacts` pages
+ *   as Xero does: 100 a page unless `pageSize` says otherwise (1,000 at
+ *   most), every one without `page`, archived ones only with
+ *   `includeArchived=true`, and the blanks Xero really sends — an empty
+ *   `EmailAddress`, four phones of which most are empty, a PO box with no
+ *   city ahead of the street address — so the app's reading of them is
+ *   tested against Xero's shape, not a tidy one.
+ * - Every Accounting call counts against the organisation's limits (60 a
+ *   minute, 5,000 a day), answered in `X-MinLimit-Remaining` and
+ *   `X-DayLimit-Remaining`, and past them with a 429 as Xero would.
  *
  * Every request is recorded with its headers and body, so a test can assert
  * exactly what was sent — and, as importantly, that nothing else was.
@@ -49,8 +59,64 @@ const ACCESS_TTL_S = 30 * 60
 const CODE_TTL_MS = 5 * 60 * 1000
 /** How long Xero honours a refresh token after it has been rotated. */
 const ROTATION_GRACE_MS = 30 * 60 * 1000
+/** Xero's page size for `GET /Contacts` when none is asked for, and the
+ * most it will give. */
+const CONTACTS_PAGE_DEFAULT = 100
+const CONTACTS_PAGE_MAX = 1000
+/** Xero's per-organisation limits on the Accounting API. */
+const MINUTE_LIMIT = 60
+const DAY_LIMIT = 5000
 
 export type TenantType = 'ORGANISATION' | 'PRACTICE'
+
+export type ContactStatus = 'ACTIVE' | 'ARCHIVED' | 'GDPRREQUEST'
+
+/** One of a contact's phones, in Xero's own words. */
+export type XeroPhone = {
+  PhoneType: 'DEFAULT' | 'DDI' | 'MOBILE' | 'FAX'
+  PhoneNumber: string
+  PhoneAreaCode: string
+  PhoneCountryCode: string
+}
+
+/** One of a contact's addresses, in Xero's own words. */
+export type XeroAddress = {
+  AddressType: 'POBOX' | 'STREET'
+  AddressLine1?: string
+  City: string
+  Region: string
+  PostalCode: string
+  Country: string
+}
+
+/**
+ * A contact as a test seeds it. Only `name` is needed; the rest is what Xero
+ * would hold. `phone` and `mobile` fill the DEFAULT and MOBILE phones of the
+ * four Xero always lists, `city` the STREET address (after an empty PO box);
+ * `phones` / `addresses` replace those lists outright when a test needs a
+ * particular shape.
+ */
+export type FakeContact = {
+  contactId?: string
+  name: string
+  email?: string
+  accountNumber?: string
+  status?: ContactStatus
+  firstName?: string
+  lastName?: string
+  phone?: { number: string; areaCode?: string }
+  mobile?: { number: string; areaCode?: string }
+  city?: string
+  phones?: Array<XeroPhone>
+  addresses?: Array<XeroAddress>
+}
+
+/** A contact as the fake holds it: with its id and status settled. */
+export type StoredContact = FakeContact & {
+  contactId: string
+  status: ContactStatus
+  updatedAt: number
+}
 
 type Tenant = {
   tenantId: string
@@ -100,6 +166,8 @@ export type XeroRequest = {
   body: string
   /** The body parsed as a form, for the identity endpoints. */
   form: Record<string, string | undefined>
+  /** What the fake answered, once it has. */
+  status?: number
 }
 
 export type FakeXeroOptions = {
@@ -152,6 +220,17 @@ function makeFake() {
   const revoked: Array<{ xeroUserId: string | null }> = []
   const deleted: Array<{ id: string; xeroUserId: string; tenantId: string }> =
     []
+  /** Each organisation's contacts, in the order Xero lists them. */
+  const contactBook = new Map<string, Array<StoredContact>>()
+  /** When each Accounting call to an organisation arrived, for its limits. */
+  const accountingCalls = new Map<string, Array<number>>()
+  /** `contactsFail`: how `GET /Contacts` answers instead, and how often. */
+  let contactsFailure: {
+    status: number
+    headers: Record<string, string>
+    page: number | null
+    left: number
+  } | null = null
 
   const knobs = {
     /** Xero answers every refresh with this: `invalid_grant` (400, the
@@ -194,6 +273,11 @@ function makeFake() {
   let hold: {
     at: 'arrival' | 'answer'
     release: () => void
+    released: Promise<void>
+    arrive: () => void
+  } | null = null
+  /** Holding contact reads: every `GET /Contacts` waits until released. */
+  let contactsHold: {
     released: Promise<void>
     arrive: () => void
   } | null = null
@@ -508,54 +592,256 @@ function makeFake() {
     return new Response(null, { status: 204 })
   }
 
-  function organisation(r: XeroRequest): Response {
+  const forbidden = () =>
+    json(
+      {
+        Type: null,
+        Title: 'Forbidden',
+        Status: 403,
+        Detail: 'AuthorizationUnsuccessful',
+      },
+      403,
+    )
+
+  /**
+   * What every Accounting call checks first: a live access token, and an
+   * organisation its Xero user has connected (named by `xero-tenant-id`).
+   * Then the call is counted against that organisation's limits, and the
+   * answer carries what is left of them — or is a 429 once they are spent.
+   */
+  function accounting(
+    r: XeroRequest,
+  ):
+    { refused: Response } | { tenant: Tenant; limits: Record<string, string> } {
     const access = bearer(r)
-    if (!access) return unauthorised()
+    if (!access) return { refused: unauthorised() }
     const tenantId = r.headers['xero-tenant-id'] ?? ''
     const connected = [...connections.values()].some(
       (row) =>
         row.xeroUserId === access.xeroUserId && row.tenantId === tenantId,
     )
-    if (!connected) {
-      return json(
-        {
-          Type: null,
-          Title: 'Forbidden',
-          Status: 403,
-          Detail: 'AuthorizationUnsuccessful',
-        },
-        403,
-      )
+    if (!connected) return { refused: forbidden() }
+
+    const now = Date.now()
+    const calls = (accountingCalls.get(tenantId) ?? []).filter(
+      (at) => at > now - 24 * 60 * 60 * 1000,
+    )
+    const inMinute = calls.filter((at) => at > now - 60_000)
+    if (calls.length >= DAY_LIMIT || inMinute.length >= MINUTE_LIMIT) {
+      const day = calls.length >= DAY_LIMIT
+      const until = day ? calls[0] + 24 * 60 * 60 * 1000 : inMinute[0] + 60_000
+      return {
+        refused: json({ Title: 'Too Many Requests', Status: 429 }, 429, {
+          'Retry-After': String(Math.max(1, Math.ceil((until - now) / 1000))),
+          'X-Rate-Limit-Problem': day ? 'day' : 'minute',
+          'X-DayLimit-Remaining': String(DAY_LIMIT - calls.length),
+          'X-MinLimit-Remaining': String(MINUTE_LIMIT - inMinute.length),
+        }),
+      }
     }
-    const t = tenants.get(tenantId)!
-    // Xero answers XML unless asked otherwise, which no JSON.parse survives.
-    if (r.headers.accept !== 'application/json') {
+    calls.push(now)
+    accountingCalls.set(tenantId, calls)
+    return {
+      tenant: tenants.get(tenantId)!,
+      limits: {
+        'X-DayLimit-Remaining': String(DAY_LIMIT - calls.length),
+        'X-MinLimit-Remaining': String(MINUTE_LIMIT - inMinute.length - 1),
+        'X-AppMinLimit-Remaining': '9999',
+      },
+    }
+  }
+
+  /** Xero answers XML unless asked otherwise, which no JSON.parse survives. */
+  const wantsJson = (r: XeroRequest) => r.headers.accept === 'application/json'
+
+  function organisation(r: XeroRequest): Response {
+    const checked = accounting(r)
+    if ('refused' in checked) return checked.refused
+    const t = checked.tenant
+    if (!wantsJson(r)) {
       return new Response(
         `<Response><Organisations><Organisation><Name>${t.name}</Name></Organisation></Organisations></Response>`,
         {
           status: 200,
-          headers: { 'content-type': 'text/xml' },
+          headers: { 'content-type': 'text/xml', ...checked.limits },
         },
       )
     }
-    return json({
-      Id: uuid(),
-      Status: 'OK',
-      ProviderName: 'PestM8',
-      DateTimeUTC: `/Date(${Date.now()})/`,
-      Organisations: [
-        {
-          OrganisationID: t.tenantId,
-          Name: t.name,
-          LegalName: t.name,
-          ShortCode: t.shortCode,
-          Version: 'AU',
-          OrganisationType: 'COMPANY',
-          BaseCurrency: 'AUD',
-          CountryCode: 'AU',
-        },
-      ],
+    return json(
+      {
+        Id: uuid(),
+        Status: 'OK',
+        ProviderName: 'PestM8',
+        DateTimeUTC: `/Date(${Date.now()})/`,
+        Organisations: [
+          {
+            OrganisationID: t.tenantId,
+            Name: t.name,
+            LegalName: t.name,
+            ShortCode: t.shortCode,
+            Version: 'AU',
+            OrganisationType: 'COMPANY',
+            BaseCurrency: 'AUD',
+            CountryCode: 'AU',
+          },
+        ],
+      },
+      200,
+      checked.limits,
+    )
+  }
+
+  /** The four phones Xero lists on every contact, most of them empty. */
+  function phonesOf(c: StoredContact): Array<XeroPhone> {
+    if (c.phones) return c.phones
+    const phone = (
+      type: XeroPhone['PhoneType'],
+      p?: { number: string; areaCode?: string },
+    ): XeroPhone => ({
+      PhoneType: type,
+      PhoneNumber: p?.number ?? '',
+      PhoneAreaCode: p?.areaCode ?? '',
+      PhoneCountryCode: '',
     })
+    return [
+      phone('DDI'),
+      phone('DEFAULT', c.phone),
+      phone('FAX'),
+      phone('MOBILE', c.mobile),
+    ]
+  }
+
+  /** A PO box Xero keeps blank, then the street address. */
+  function addressesOf(c: StoredContact): Array<XeroAddress> {
+    if (c.addresses) return c.addresses
+    const blank = { City: '', Region: '', PostalCode: '', Country: '' }
+    return [
+      { AddressType: 'POBOX', ...blank },
+      c.city
+        ? {
+            AddressType: 'STREET',
+            AddressLine1: '1 Test Street',
+            City: c.city,
+            Region: 'WA',
+            PostalCode: '6000',
+            Country: 'Australia',
+          }
+        : { AddressType: 'STREET', ...blank },
+    ]
+  }
+
+  /** One contact as `GET /Contacts` lists it. */
+  function contactJson(c: StoredContact) {
+    return {
+      ContactID: c.contactId,
+      ContactStatus: c.status,
+      Name: c.name,
+      ...(c.firstName ? { FirstName: c.firstName } : {}),
+      ...(c.lastName ? { LastName: c.lastName } : {}),
+      // Xero sends an empty string, not nothing, for a contact without one.
+      EmailAddress: c.email ?? '',
+      ...(c.accountNumber !== undefined
+        ? { AccountNumber: c.accountNumber }
+        : {}),
+      BankAccountDetails: '',
+      Addresses: addressesOf(c),
+      Phones: phonesOf(c),
+      UpdatedDateUTC: `/Date(${c.updatedAt}+0000)/`,
+      ContactGroups: [],
+      IsSupplier: false,
+      IsCustomer: true,
+      ContactPersons: [],
+      HasAttachments: false,
+      HasValidationErrors: false,
+    }
+  }
+
+  function failContacts(): Response {
+    const failure = contactsFailure!
+    const body =
+      failure.status === 403
+        ? {
+            Type: null,
+            Title: 'Forbidden',
+            Status: 403,
+            Detail: 'AuthorizationUnsuccessful',
+          }
+        : failure.status === 429
+          ? { Title: 'Too Many Requests', Status: 429 }
+          : failure.status >= 500
+            ? null
+            : {
+                ErrorNumber: 10,
+                Type: 'ValidationException',
+                Message: 'A validation exception occurred',
+              }
+    if (body === null) {
+      return new Response('Service Unavailable', {
+        status: failure.status,
+        headers: failure.headers,
+      })
+    }
+    return json(body, failure.status, failure.headers)
+  }
+
+  async function listContacts(r: XeroRequest): Promise<Response> {
+    if (contactsHold) {
+      contactsHold.arrive()
+      await contactsHold.released
+    }
+    const checked = accounting(r)
+    if ('refused' in checked) return checked.refused
+
+    const pageParam = r.query.get('page')
+    const page = pageParam === null ? null : Math.max(1, Number(pageParam) || 1)
+    if (
+      contactsFailure &&
+      contactsFailure.left > 0 &&
+      (contactsFailure.page === null || contactsFailure.page === (page ?? 1))
+    ) {
+      contactsFailure.left -= 1
+      return failContacts()
+    }
+
+    const includeArchived =
+      (r.query.get('includeArchived') ?? '').toLowerCase() === 'true'
+    const all = (contactBook.get(checked.tenant.tenantId) ?? []).filter(
+      (c) => includeArchived || c.status !== 'ARCHIVED',
+    )
+    const pageSize = Math.min(
+      CONTACTS_PAGE_MAX,
+      Math.max(1, Number(r.query.get('pageSize')) || CONTACTS_PAGE_DEFAULT),
+    )
+    // Without `page`, Xero lists every contact at once.
+    const rows =
+      page === null ? all : all.slice((page - 1) * pageSize, page * pageSize)
+    if (!wantsJson(r)) {
+      return new Response('<Response><Contacts /></Response>', {
+        status: 200,
+        headers: { 'content-type': 'text/xml', ...checked.limits },
+      })
+    }
+    return json(
+      {
+        Id: uuid(),
+        Status: 'OK',
+        ProviderName: 'PestM8',
+        DateTimeUTC: `/Date(${Date.now()})/`,
+        ...(page === null
+          ? {}
+          : {
+              pagination: {
+                page,
+                pageSize,
+                pageCount: Math.ceil(all.length / pageSize),
+                itemCount: all.length,
+              },
+            }),
+        Contacts: rows.map(contactJson),
+      },
+      200,
+      checked.limits,
+    )
   }
 
   async function handle(request: Request): Promise<Response> {
@@ -580,12 +866,17 @@ function makeFake() {
         : {},
     }
     requests.push(r)
+    const response = await route(r)
+    r.status = response.status
+    return response
+  }
 
-    if (url.host === 'identity.xero.com' && r.method === 'POST') {
+  async function route(r: XeroRequest): Promise<Response> {
+    if (r.host === 'identity.xero.com' && r.method === 'POST') {
       if (r.path === '/connect/token') return token(r)
       if (r.path === '/connect/revocation') return revoke(r)
     }
-    if (url.host === 'api.xero.com') {
+    if (r.host === 'api.xero.com') {
       if (r.path === '/connections' && r.method === 'GET') {
         return listConnections(r)
       }
@@ -594,8 +885,11 @@ function makeFake() {
       if (r.path === '/api.xro/2.0/Organisation' && r.method === 'GET') {
         return organisation(r)
       }
+      if (r.path === '/api.xro/2.0/Contacts' && r.method === 'GET') {
+        return listContacts(r)
+      }
     }
-    return new Response(`not faked: ${r.method} ${url.origin}${url.pathname}`, {
+    return new Response(`not faked: ${r.method} https://${r.host}${r.path}`, {
       status: 500,
     })
   }
@@ -662,7 +956,15 @@ function makeFake() {
     deleted,
     organisationReads: () =>
       where('api.xero.com', '/api.xro/2.0/Organisation', 'GET'),
-    /** Requests that hit nothing this fake models. */
+    /** `GET /Contacts` requests, whatever Xero said. */
+    contactReads: () => where('api.xero.com', '/api.xro/2.0/Contacts', 'GET'),
+    /** Every request to the Accounting API, any method, any path. */
+    accountingRequests: () =>
+      requests.filter(
+        (r) => r.host === 'api.xero.com' && r.path.startsWith('/api.xro/'),
+      ),
+    /** Requests that hit nothing this fake models. A write to Contacts is
+     * one: Release 2 only reads them. */
     unmodelled: () =>
       requests.filter(
         (r) =>
@@ -672,9 +974,82 @@ function makeFake() {
             (r.host === 'api.xero.com' &&
               (r.path === '/connections' ||
                 r.path.startsWith('/connections/') ||
-                r.path === '/api.xro/2.0/Organisation'))
+                r.path === '/api.xro/2.0/Organisation' ||
+                (r.path === '/api.xro/2.0/Contacts' && r.method === 'GET')))
           ),
       ),
+    /**
+     * Gives an organisation these contacts, in this order, in place of any
+     * it had. Returns them as held, each with its `contactId` (made up when
+     * the seed has none) — keep the ids for what the app should link.
+     */
+    contacts(tenantId: string, rows: Array<FakeContact>): Array<StoredContact> {
+      tenant({ tenantId })
+      const stored = rows.map((row): StoredContact => ({
+        ...row,
+        contactId: row.contactId ?? uuid(),
+        status: row.status ?? 'ACTIVE',
+        updatedAt: Date.now(),
+      }))
+      contactBook.set(tenantId, stored)
+      return stored
+    },
+    /**
+     * Calls to this organisation's Accounting API that something else made
+     * — another app, the bookkeeper's — `ago` ms back (now by default), so a
+     * test can start a run with the minute's or the day's allowance mostly
+     * spent.
+     */
+    spend(tenantId: string, calls: number, { ago = 0 } = {}): void {
+      const at = Date.now() - ago
+      const log = accountingCalls.get(tenantId) ?? []
+      for (let i = 0; i < calls; i++) log.push(at)
+      accountingCalls.set(
+        tenantId,
+        log.sort((a, b) => a - b),
+      )
+    },
+    /** The organisation's contacts as Xero holds them now. */
+    contactsOf(tenantId: string): Array<StoredContact> {
+      return contactBook.get(tenantId) ?? []
+    },
+    /**
+     * `GET /Contacts` answers `status` (with `headers`) instead: every time,
+     * or the next `times`, and only for `page` when given. `null` puts it
+     * back. A 403 is Xero's AuthorizationUnsuccessful, a 429 its rate
+     * limit (say which, and when, in the headers), a 5xx a bare outage.
+     */
+    contactsFail(
+      status: number | null,
+      headers: Record<string, string> = {},
+      opts: { page?: number; times?: number } = {},
+    ): void {
+      contactsFailure =
+        status === null
+          ? null
+          : {
+              status,
+              headers,
+              page: opts.page ?? null,
+              left: opts.times ?? Infinity,
+            }
+    },
+    /** Makes every `GET /Contacts` wait until `release()`; `arrived`
+     * resolves once the first is waiting — mid-run, lease held. */
+    holdContacts() {
+      let release!: () => void
+      let arrive!: () => void
+      const released = new Promise<void>((resolve) => (release = resolve))
+      const arrived = new Promise<void>((resolve) => (arrive = resolve))
+      contactsHold = { released, arrive }
+      return {
+        arrived,
+        release: () => {
+          contactsHold = null
+          release()
+        },
+      }
+    },
     /** Every secret Xero handed out: codes, access, refresh and id tokens.
      * None of them may ever be readable in the database. */
     secrets(): Array<string> {
@@ -786,8 +1161,8 @@ export function outcomeOf(location: string): string | null {
 
 /**
  * `connectVia`, then finished by the same person, with what that schedules
- * (the organisation read) run. Needs fake timers. Returns the callback's
- * redirect.
+ * (the organisation read, and from Release 2 the match run) run. Needs fake
+ * timers. Returns the callback's redirect.
  */
 export async function connectAndFinish(
   t: TestApp,

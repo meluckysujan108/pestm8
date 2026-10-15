@@ -17,6 +17,7 @@ import {
 } from './lib/clientImport'
 import { assignClientNumber } from './lib/clientRecord'
 import { memberName } from './lib/reportContext'
+import { deleteXeroLinksOf } from './lib/xeroHooks'
 import { deriveNoteFields, docFromPlainText } from './lib/richText'
 import { purgeNote } from './notes'
 import { prosemirrorSync } from './notesSync'
@@ -594,6 +595,10 @@ export const undoStep = internalMutation({
           for (const contact of check.contacts) {
             await ctx.db.delete(contact._id)
           }
+          // xero: its links go with it, in every organisation, and out of
+          // the match's counts. Any contact already in Xero stays there;
+          // PestM8 never deletes there.
+          await deleteXeroLinksOf(ctx, client)
           await ctx.db.delete(client._id)
           removed += 1
         }
