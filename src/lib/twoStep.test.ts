@@ -47,6 +47,11 @@ describe('where set-up returns to', () => {
       'https://evil.example/',
       '//evil.example',
       '/\\evil.example',
+      // A browser strips tabs and line breaks from an address before it
+      // reads it, which turns each of these into `//evil.example`.
+      '/\t/evil.example',
+      '/\n/evil.example',
+      '/\r/evil.example',
       'javascript:alert(1)',
       '',
       undefined,

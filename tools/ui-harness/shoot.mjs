@@ -51,6 +51,61 @@ async function signAcross(p) {
 }
 
 const PLAN = {
+  // Settings → Xero and My Xero (Release 1: connect), one state each.
+  xero: { full: true, before: async (p) => p.waitForTimeout(500) },
+  'xero-connected': { before: async (p) => p.waitForTimeout(500) },
+  'xero-reconnect': { full: true, before: async (p) => p.waitForTimeout(500) },
+  'xero-leftover': { full: true, before: async (p) => p.waitForTimeout(500) },
+  'xero-unconfigured': { before: async (p) => p.waitForTimeout(500) },
+  'xero-demo': { before: async (p) => p.waitForTimeout(500) },
+  'xero-two-step': { before: async (p) => p.waitForTimeout(500) },
+  'xero-loading': { before: async (p) => p.waitForTimeout(500) },
+  'xero-finishing': { before: async (p) => p.waitForTimeout(700) },
+  'xero-returned': { full: true, before: async (p) => p.waitForTimeout(500) },
+  'xero-owners-only': { before: async (p) => p.waitForTimeout(500) },
+  // The harness's actions answer nothing, so Connect fails: its alert.
+  'xero-connect-failed': {
+    spec: 'xero',
+    full: true,
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: 'Connect Xero' }).click()
+      await p.waitForTimeout(400)
+    },
+  },
+  'xero-disconnect': {
+    spec: 'xero-connected',
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: 'Disconnect Xero' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'my-xero': { full: true, before: async (p) => p.waitForTimeout(500) },
+  'my-xero-connected': { before: async (p) => p.waitForTimeout(500) },
+  'my-xero-reconnect': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'my-xero-returned': {
+    full: true,
+    before: async (p) => p.waitForTimeout(500),
+  },
+  'my-xero-owner': { before: async (p) => p.waitForTimeout(500) },
+  'my-xero-switched': { before: async (p) => p.waitForTimeout(500) },
+  // Team → a member: their Xero line, and the remove confirm that says it
+  // goes with them.
+  'team-member': { full: true, before: async (p) => p.waitForTimeout(700) },
+  'team-member-remove': {
+    spec: 'team-member',
+    full: true,
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Remove from team' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'team-member-xero': { before: async (p) => p.waitForTimeout(500) },
   // A shared job: the edit form's "Also going", and its picker.
   'shared-edit': {
     spec: 'jobdetail-services',

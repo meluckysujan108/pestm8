@@ -2,6 +2,7 @@
 
 import { BUSY_SITES_FOR_LIST, resolveBusy } from './busyFixtures'
 import { JOB_TYPES_LIST, JOB_TYPES_MANAGE } from './jobTypeFixtures'
+import { XERO_FIXTURES } from './xeroFixtures'
 
 export const TZ = 'Australia/Perth'
 export const BIZ = 'biz_demo'
@@ -850,6 +851,7 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
   'reports:staleDrafts': () => ({ count: 0, oldest: null }),
   'jobTypes:manage': () => JOB_TYPES_MANAGE,
   'jobTypes:list': () => JOB_TYPES_LIST,
+  ...XERO_FIXTURES,
 }
 
 export function resolveFixture(fn: string, args: unknown): unknown {

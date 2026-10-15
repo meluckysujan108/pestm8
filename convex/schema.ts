@@ -248,6 +248,13 @@ export const intervalUnit = v.union(
 
 export const clientKind = v.union(v.literal('person'), v.literal('business'))
 
+/** Whose Xero a connection is: the business's own (connected by the owner)
+ * or a contractor's or subcontractor's own (convex/xero.ts). */
+export const xeroConnectionKind = v.union(
+  v.literal('business'),
+  v.literal('member'),
+)
+
 /** Where a client stands (convex/lib/clientRecord.ts). Absent is active. */
 export { clientStatus }
 
@@ -2167,4 +2174,149 @@ export default defineSchema({
     .index('by_businessId_and_deletedAt', ['businessId', 'deletedAt'])
     // The nightly purge: everything binned before the cut-off.
     .index('by_deletedAt', ['deletedAt']),
+
+  /**
+   * One Xero sign-in's tokens (convex/xeroTokens.ts). SERVER ONLY: no public
+   * query returns a field of it, and its ciphertexts never go in a scheduler
+   * argument or a log line.
+   *
+   * Keyed by the Xero user, not by a PestM8 membership or a Xero
+   * organisation, because that is how Xero issues them: one token set per
+   * (Xero user, app), reaching every organisation that user connected, and a
+   * new consent supersedes the last. Two rows holding copies of one rotating
+   * refresh token would strand each other within half an hour. Every
+   * `xeroConnections` row points here.
+   *
+   * Both tokens are AES-256-GCM ciphertexts (lib/xeroCrypto.ts), made and
+   * opened in actions only. A row dies when no live connection uses it, and
+   * its refresh token is revoked at Xero (convex/xero.ts `releaseAtXero`); one
+   * a release left behind is retired by the nightly keep-alive instead of
+   * being refreshed (convex/xeroTokens.ts `refreshGrant`). New table, so
+   * nothing to migrate.
+   */
+  xeroGrants: defineTable({
+    /** The access token's `xero_userid` claim. */
+    xeroUserId: v.string(),
+    accessCipher: v.string(),
+    accessExpiresAt: v.number(),
+    refreshCipher: v.string(),
+    scopes: v.array(v.string()),
+    /** When Xero last issued this set (consent or refresh). A refresh token
+     * unused for 60 days dies; the nightly keep-alive reads this. */
+    refreshedAt: v.number(),
+    /** `dead`: Xero refused the refresh token (`invalid_grant`). Every
+     * connection on it then needs reconnecting. */
+    status: v.union(v.literal('active'), v.literal('dead')),
+    deadAt: v.optional(v.number()),
+    /** Who is refreshing right now. Refresh tokens rotate on every use, so
+     * two refreshes at once would leave one of them holding a dead token. */
+    refreshLease: v.optional(
+      v.object({ holder: v.string(), until: v.number() }),
+    ),
+  })
+    .index('by_xeroUserId', ['xeroUserId'])
+    // The keep-alive: active grants not refreshed for a while.
+    .index('by_status_and_refreshedAt', ['status', 'refreshedAt']),
+
+  /**
+   * A "Connect Xero" in flight (convex/xero.ts). SERVER ONLY.
+   *
+   * The OAuth `state` and the one-time finish token are stored only as
+   * SHA-256 hashes, like invite tokens. A row is single-use (`usedAt` at the
+   * callback, `finishedAt` at finish) and is swept an hour after it expires.
+   * It is bound to the user AND membership that started it: only the
+   * starter, signed in, can finish it, so a Xero sign-in link completed by
+   * someone else leaves its finish token in their browser, useless to them.
+   * Not bound to the browser: someone who completes it and then hands the
+   * address they landed on back to the sender has given the sender their
+   * organisation (convex/xero.ts has the trade-off).
+   */
+  xeroOAuthStates: defineTable({
+    stateHash: v.string(),
+    /** The Better Auth user who pressed Connect. */
+    userId: v.string(),
+    membershipId: v.id('memberships'),
+    businessId: v.id('businesses'),
+    kind: xeroConnectionKind,
+    /** Set when this is a reconnect of an existing connection, whose
+     * organisation must come back unchanged. */
+    reconnectConnectionId: v.optional(v.id('xeroConnections')),
+    /** The terms and privacy text they agreed to by connecting. */
+    termsVersion: v.string(),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    usedAt: v.optional(v.number()),
+    finishHash: v.optional(v.string()),
+    finishExpiresAt: v.optional(v.number()),
+    connectionId: v.optional(v.id('xeroConnections')),
+    finishedAt: v.optional(v.number()),
+  })
+    .index('by_stateHash', ['stateHash'])
+    .index('by_finishHash', ['finishHash'])
+    // The sweep: states past their expiry.
+    .index('by_expiresAt', ['expiresAt']),
+
+  /**
+   * One Xero organisation connected to one business by one person
+   * (convex/xero.ts). What Settings reads, so it holds nothing secret and
+   * nothing that churns: tokens live on `xeroGrants`, sync progress on
+   * `xeroSyncState`.
+   *
+   * `kind: 'business'` is the business's own Xero, connected by the owner;
+   * `'member'` is a contractor's or subcontractor's own. Every connected
+   * organisation receives the whole client book (decision of 2026-10-06).
+   * At most one live connection per organisation within a business.
+   *
+   * Never deleted: a disconnected row keeps the record of who connected what
+   * and when. New table, so nothing to migrate.
+   */
+  xeroConnections: defineTable({
+    businessId: v.id('businesses'),
+    /** Whose it is: the owner's for the business kind, the member's own. */
+    membershipId: v.id('memberships'),
+    kind: xeroConnectionKind,
+    grantId: v.id('xeroGrants'),
+    /** Xero's organisation id (the `xero-tenant-id` header). Never changes:
+     * reconnecting to a different organisation is a new connection. */
+    tenantId: v.string(),
+    tenantName: v.string(),
+    /** Xero's id for this (Xero user, organisation) connection, which is
+     * what `DELETE /connections/{id}` takes. */
+    xeroConnectionId: v.string(),
+    /** For "Open in Xero" links (GET /Organisation). */
+    shortCode: v.optional(v.string()),
+    status: v.union(
+      v.literal('pending'),
+      v.literal('connected'),
+      v.literal('needs_reconnect'),
+      v.literal('disconnected'),
+    ),
+    createdAt: v.number(),
+    connectedAt: v.optional(v.number()),
+    termsVersion: v.optional(v.string()),
+    /** Why it needs attention, as a code the screen words (xeroCopy.ts). */
+    problem: v.optional(v.object({ code: v.string(), at: v.number() })),
+    disconnectedAt: v.optional(v.number()),
+    disconnectedByMembershipId: v.optional(v.id('memberships')),
+    disconnectReason: v.optional(
+      v.union(
+        v.literal('by_hand'),
+        v.literal('offboarded'),
+        v.literal('unfinished'),
+        v.literal('refused'),
+        v.literal('xero_side'),
+      ),
+    ),
+    /** "Start syncing" was pressed (Release 3). Nothing is sent before it. */
+    syncStartedAt: v.optional(v.number()),
+    syncStartedByMembershipId: v.optional(v.id('memberships')),
+  })
+    .index('by_business_and_status', ['businessId', 'status'])
+    .index('by_membership', ['membershipId'])
+    .index('by_tenant', ['tenantId'])
+    .index('by_grant', ['grantId'])
+    // Releasing at Xero: is anyone else, in any business, on this connection?
+    .index('by_xeroConnectionId', ['xeroConnectionId'])
+    // The sweep: pending connections nobody finished.
+    .index('by_status_and_createdAt', ['status', 'createdAt']),
 })

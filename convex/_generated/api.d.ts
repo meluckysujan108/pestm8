@@ -47,6 +47,7 @@ import type * as lib_access from "../lib/access.js";
 import type * as lib_accountEmail from "../lib/accountEmail.js";
 import type * as lib_actor from "../lib/actor.js";
 import type * as lib_audit from "../lib/audit.js";
+import type * as lib_base64 from "../lib/base64.js";
 import type * as lib_bin from "../lib/bin.js";
 import type * as lib_businessLogo from "../lib/businessLogo.js";
 import type * as lib_capabilities from "../lib/capabilities.js";
@@ -106,6 +107,10 @@ import type * as lib_teamRelease from "../lib/teamRelease.js";
 import type * as lib_templateSnapshot from "../lib/templateSnapshot.js";
 import type * as lib_twoFactorSetup from "../lib/twoFactorSetup.js";
 import type * as lib_workOrder from "../lib/workOrder.js";
+import type * as lib_xeroConfig from "../lib/xeroConfig.js";
+import type * as lib_xeroCrypto from "../lib/xeroCrypto.js";
+import type * as lib_xeroHooks from "../lib/xeroHooks.js";
+import type * as lib_xeroHttp from "../lib/xeroHttp.js";
 import type * as memberLicences from "../memberLicences.js";
 import type * as memberships from "../memberships.js";
 import type * as migrations_accessV3 from "../migrations/accessV3.js";
@@ -140,6 +145,9 @@ import type * as twoStepSetups from "../twoStepSetups.js";
 import type * as viewAs from "../viewAs.js";
 import type * as views from "../views.js";
 import type * as weather from "../weather.js";
+import type * as xero from "../xero.js";
+import type * as xeroCallback from "../xeroCallback.js";
+import type * as xeroTokens from "../xeroTokens.js";
 
 import type {
   ApiFromModules,
@@ -187,6 +195,7 @@ declare const fullApi: ApiFromModules<{
   "lib/accountEmail": typeof lib_accountEmail;
   "lib/actor": typeof lib_actor;
   "lib/audit": typeof lib_audit;
+  "lib/base64": typeof lib_base64;
   "lib/bin": typeof lib_bin;
   "lib/businessLogo": typeof lib_businessLogo;
   "lib/capabilities": typeof lib_capabilities;
@@ -246,6 +255,10 @@ declare const fullApi: ApiFromModules<{
   "lib/templateSnapshot": typeof lib_templateSnapshot;
   "lib/twoFactorSetup": typeof lib_twoFactorSetup;
   "lib/workOrder": typeof lib_workOrder;
+  "lib/xeroConfig": typeof lib_xeroConfig;
+  "lib/xeroCrypto": typeof lib_xeroCrypto;
+  "lib/xeroHooks": typeof lib_xeroHooks;
+  "lib/xeroHttp": typeof lib_xeroHttp;
   memberLicences: typeof memberLicences;
   memberships: typeof memberships;
   "migrations/accessV3": typeof migrations_accessV3;
@@ -280,6 +293,9 @@ declare const fullApi: ApiFromModules<{
   viewAs: typeof viewAs;
   views: typeof views;
   weather: typeof weather;
+  xero: typeof xero;
+  xeroCallback: typeof xeroCallback;
+  xeroTokens: typeof xeroTokens;
 }>;
 
 /**

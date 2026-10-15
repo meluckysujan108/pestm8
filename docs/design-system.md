@@ -466,7 +466,7 @@ These are class strings. Put them on a `<button>` or a `<Link>`, plus layout cla
 | `StatusPillButton`                                     | A status pill that can be changed: the pill and a chevron, one 44px button, which opens a `StatusPicker`                                                                                                          |
 | `StatusPicker`                                         | Choosing a status, a job's or a client's, in a sheet of its own: each as its pill with what it means, the current one ticked. A tap chooses and saves; Cancelled still asks first                                 |
 | `BarMeter`                                             | Five ticks showing a value's intensity beside its number (wind, rain)                                                                                                                                             |
-| `HoldButton`                                           | Hold to act: a touch fills the button and it acts when lifted. For anything that leaves the app or reaches a client                                                                                               |
+| `HoldButton`                                           | Hold to act: a touch fills the button and it acts when lifted. For anything that leaves the app or reaches a client, but not a hand-over to another service’s sign-in (see Hold to act)                           |
 | `ContactButtons`                                       | Call, Text, Email and Map as holds, full-width in the sheets and compact on the job card. Always this, never a `tel:` link                                                                                        |
 | `MapHoldButton`                                        | The job card's corner Map, as a hold                                                                                                                                                                              |
 | `DetailRows` / `DetailRow`                             | A card of facts, one row each: the name on the left, the value on the right, and a warning or an action under both (a job's Details, a client's Details). A description list, so each value is read with its name |
@@ -613,6 +613,8 @@ Call, Text, Email and Map are holds (`HoldButton`), so a pocket or a brushing th
 - Neither utility is general touch hygiene; use them only on holds.
 - Map opens in a new tab and never navigates the app away.
 
+_Amended 6 Oct 2026:_ a deliberate hand-over to another service’s sign-in on a Settings page — Connect Xero — is a tap; Open in Xero stays a hold. A hold guards against an act nobody meant: a thumb brushing a card in a list being scrolled, a phone in a pocket. Connect Xero is the one button at the foot of a page someone opened on purpose, under the words saying what connecting shares; it reaches no client, and it comes back, because Xero's sign-in opens in the same window and sends the browser back to the page. Open in Xero (Release 3) sits on a client's sheet and opens a new tab, like Map, so it is a hold.
+
 ### Lists and cards
 
 - **A tappable card** has `active:scale-[.99]`; a tappable row has a chevron.
@@ -649,6 +651,18 @@ Call, Text, Email and Map are holds (`HoldButton`), so a pocket or a brushing th
 - **A report too big to email** goes as a copy with smaller photos. The lock and Send sheets say so before (`LARGE_FOR_EMAIL` in `lockEmail.ts`), and each email's sheet in the report's Email list after ("Photos made smaller to fit an email"). The email itself does not, so it invites no "can I have the full size?".
 - **Locked boilerplate** sits in a grey inset (`bg-surface-2`) with a `Lock` glyph.
 - **While client signatures are switched off** (`CLIENT_SIGNATURES_SHOWN`), a report being filled in has no client's pad and no client acknowledgment section, unless the client has already signed it, and nothing on screen asks for one. A locked report keeps whatever it was locked with.
+
+### Xero
+
+Settings → Xero (the owner, the business's organisation) and Settings → My Xero (everyone else, their own) are one page, `xero/XeroPage.tsx`, with its words in `xero/xeroCopy.ts`. _Added 6 Oct 2026._
+
+- **Connect Xero is a tap,** `NEUTRAL_BUTTON` (nothing is saved by pressing it): "Opening Xero…" while it waits, and an offline phone is told at once, before anything is asked of Xero. It goes to Xero's sign-in in the same window, never a pop-up. "Reconnect Xero" is the same button.
+- **Connecting needs two-step sign-in on.** Until it is, the button's place holds why ("Xero asks for two-step sign-in on any account that connects it") and a `LINK_BUTTON`, "Turn on two-step sign-in", to Settings → Two-step sign-in — never a Connect button the server would refuse.
+- **What connecting shares is said before it is shared:** the caption above the button says every client is copied into the organisation chosen, with every change after that, and, on My Xero, that the copies stay in their Xero if they leave. The group's footer, under the button: "By connecting, you agree to PestM8’s terms and privacy policy", with both linked.
+- **Xero sends the browser back to the page,** which finishes the connect ("Connecting to Xero…") and clears the address. A refusal or a cancel comes back as an amber `FormAlert`, worded from `xeroCopy.ts` by its code, never in Xero's own words.
+- **Every state is designed:** loading (`SectionPending`); "Owners only" (with the switched variant, as the Recycle bin has it); the owner on My Xero, pointed to Business → Xero; switched on My Xero, told to switch back; "Xero isn’t set up here" (a deployment with no Xero app, where the hub shows no Xero rows either); the demo business, which can't connect; not connected; connecting; connected (the organisation, "Connected", who connected it and when); and needs reconnecting, an amber line over Reconnect Xero. When Xero couldn't be told about a disconnect, a caption says to remove PestM8 in Xero → Settings → Connected apps.
+- **Disconnect** is the last `DangerGroup` row, through `ConfirmDialog`: "Disconnect Xero?" / "PestM8 stops sending changes to {org}. Contacts already in Xero stay there." / "Disconnect" / "Keep Xero".
+- **Team → a member** shows the owner that member's Xero, read-only: "Not connected", "{Org} · Connected" or an amber "Reconnect needed". Only the member connects or disconnects it. Removing a member who has one says it is disconnected and that what was copied stays in their Xero.
 
 ---
 
@@ -867,7 +881,7 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **Controls are fixed sizes:** buttons are 48 or 44px, fields use 16px text, and every target is at least 44px.
 - **Navigation:** Schedule, Clients, Reports and Notes, then More. Settings is an iOS grouped hub of drill-in pages, and Appearance lives there.
 - **Views:** the schedule is cards or a week, and clients are cards. The table and list views are retired.
-- **Hold to act** is used for anything that reaches a client or leaves the app.
+- **Hold to act** is used for anything that reaches a client or leaves the app. _Amended 6 Oct 2026:_ a deliberate hand-over to another service’s sign-in on a Settings page (Connect Xero) is a tap; Open in Xero stays a hold.
 - **Filters:** binary and ternary filters use `Segmented`, never a dropdown.
 - **The report builder** opens on an overview and fills one section at a time, with the section in the URL. A list of more than 12 options opens a picker sheet.
 - **Send names who it is for.** The client from their record as it is now (not as the document printed it) and anyone the form asked for are chosen; contacts are offered by role; nobody who already has this report, or is about to, is chosen again; an explicit "no copy for the client" on the form is kept. Saving a typed address to the client's record is offered unticked. An address typed and not yet added goes with Send, and Send counts it; a comma or a semicolon typed after one finishes it, as Add does, and a pasted list goes in whole only when every address in it is ready. One that can't be delivered holds Send until it is put right; one that asks "Did you mean…?", or whose domain takes no mail, holds it once, and Send then says "anyway". _Added 1 Oct 2026; typed addresses 2 Oct._
@@ -894,6 +908,7 @@ These were argued out and settled; `ARCHITECTURE.md` and the commit history hold
 - **Job types are the owner's own list** (Settings → Job types), A–Z in New Job's picker, each with the report it produces. Deleting one only stops it being offered: every job keeps it, and "Offer again" brings it back. A rename changes it on every job and repeating service, finished ones included, and says so before it is saved; renaming onto a name the list has is a merge, asked first. A service typed into New Job is used on that job only ("Use … on this job only") and waits under "Typed into jobs" for the owner to swap or add. _Amended 30 Sept 2026:_ the list was nine names fixed in the app.
 - **PDFs** open in the in-app viewer, never in Safari and never as a forced download.
 - **A finalised report is one page, not tabs** (see Reports in section 5): its header, what it is, the PDF with Send and Share, Answers a tap away (following the theme), then Email, Details and Activity. The PDF and the Answers each open over it with the address saying so (`?view=pdf`, `?view=answers`), so Back closes them. The viewer's own Send closes the viewer and opens the Send sheet, because a sheet sits under it. _Amended 30 Sept 2026:_ it was four tabs, Form, PDF, Email and Logs, on a page with no header.
+- **Every connected Xero gets every client.** The business's own organisation (the owner connects it, Settings → Xero) and each contractor's or subcontractor's own (Settings → My Xero) receive the whole client book's contacts and every change after that. Leads wait until their first job is booked, nothing in the Recycle bin is sent, and PestM8 never deletes or archives anything in Xero. The owner sees a member's Xero read-only and can't disconnect it; removing the member does, and what was copied stays in their Xero. The connect page says so before Xero's sign-in. _Added 6 Oct 2026;_ Release 1 only connects, and nothing is sent until Start syncing (Release 3).
 - **A report email heads with the business's logo as it is now;** the attached PDF keeps the logo its report was locked with. Account emails carry PestM8's own mark, never a business's: a login can belong to more than one.
 - **When behaviour departs from `ARCHITECTURE.md`,** amend it there with a dated _Amended_ note.
 

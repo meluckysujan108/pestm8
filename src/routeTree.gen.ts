@@ -14,7 +14,9 @@ import { Route as BusinessSlugRouteRouteImport } from './routes/$businessSlug/ro
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as OnboardingRouteImport } from './routes/onboarding'
+import { Route as PrivacyRouteImport } from './routes/privacy'
 import { Route as ResetPasswordRouteImport } from './routes/reset-password'
+import { Route as TermsRouteImport } from './routes/terms'
 import { Route as TwoStepRouteImport } from './routes/two-step'
 import { Route as WelcomeRouteImport } from './routes/welcome'
 import { Route as BusinessSlugAnalyticsRouteImport } from './routes/$businessSlug/analytics'
@@ -48,10 +50,12 @@ import { Route as BusinessSlugReportsTemplatesTemplateIdRouteImport } from './ro
 import { Route as BusinessSlugSettingsLicenceIndexRouteImport } from './routes/$businessSlug/settings/licence/index'
 import { Route as BusinessSlugSettingsLicenceLicenceIdRouteImport } from './routes/$businessSlug/settings/licence/$licenceId'
 import { Route as BusinessSlugSettingsLicenceNewRouteImport } from './routes/$businessSlug/settings/licence/new'
+import { Route as BusinessSlugSettingsMyXeroIndexRouteImport } from './routes/$businessSlug/settings/my-xero/index'
 import { Route as BusinessSlugSettingsReportsIndexRouteImport } from './routes/$businessSlug/settings/reports/index'
 import { Route as BusinessSlugSettingsReportsAnswersRouteImport } from './routes/$businessSlug/settings/reports/answers'
 import { Route as BusinessSlugSettingsTeamIndexRouteImport } from './routes/$businessSlug/settings/team/index'
 import { Route as BusinessSlugSettingsTeamMemberIdRouteImport } from './routes/$businessSlug/settings/team/$memberId'
+import { Route as BusinessSlugSettingsXeroIndexRouteImport } from './routes/$businessSlug/settings/xero/index'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -78,9 +82,19 @@ const OnboardingRoute = OnboardingRouteImport.update({
   path: '/onboarding',
   getParentRoute: () => rootRouteImport,
 } as any)
+const PrivacyRoute = PrivacyRouteImport.update({
+  id: '/privacy',
+  path: '/privacy',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ResetPasswordRoute = ResetPasswordRouteImport.update({
   id: '/reset-password',
   path: '/reset-password',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TermsRoute = TermsRouteImport.update({
+  id: '/terms',
+  path: '/terms',
   getParentRoute: () => rootRouteImport,
 } as any)
 const TwoStepRoute = TwoStepRouteImport.update({
@@ -267,6 +281,12 @@ const BusinessSlugSettingsLicenceNewRoute =
     path: '/settings/licence/new',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
+const BusinessSlugSettingsMyXeroIndexRoute =
+  BusinessSlugSettingsMyXeroIndexRouteImport.update({
+    id: '/settings/my-xero/',
+    path: '/settings/my-xero/',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
 const BusinessSlugSettingsReportsIndexRoute =
   BusinessSlugSettingsReportsIndexRouteImport.update({
     id: '/settings/reports/',
@@ -291,6 +311,12 @@ const BusinessSlugSettingsTeamMemberIdRoute =
     path: '/settings/team/$memberId',
     getParentRoute: () => BusinessSlugRouteRoute,
   } as any)
+const BusinessSlugSettingsXeroIndexRoute =
+  BusinessSlugSettingsXeroIndexRouteImport.update({
+    id: '/settings/xero/',
+    path: '/settings/xero/',
+    getParentRoute: () => BusinessSlugRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -298,7 +324,9 @@ export interface FileRoutesByFullPath {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/terms': typeof TermsRoute
   '/two-step': typeof TwoStepRoute
   '/welcome': typeof WelcomeRoute
   '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
@@ -334,8 +362,10 @@ export interface FileRoutesByFullPath {
   '/$businessSlug/settings/team/$memberId': typeof BusinessSlugSettingsTeamMemberIdRoute
   '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
   '/$businessSlug/settings/licence/': typeof BusinessSlugSettingsLicenceIndexRoute
+  '/$businessSlug/settings/my-xero/': typeof BusinessSlugSettingsMyXeroIndexRoute
   '/$businessSlug/settings/reports/': typeof BusinessSlugSettingsReportsIndexRoute
   '/$businessSlug/settings/team/': typeof BusinessSlugSettingsTeamIndexRoute
+  '/$businessSlug/settings/xero/': typeof BusinessSlugSettingsXeroIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -343,7 +373,9 @@ export interface FileRoutesByTo {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/terms': typeof TermsRoute
   '/two-step': typeof TwoStepRoute
   '/welcome': typeof WelcomeRoute
   '/$businessSlug/analytics': typeof BusinessSlugAnalyticsRoute
@@ -378,8 +410,10 @@ export interface FileRoutesByTo {
   '/$businessSlug/settings/team/$memberId': typeof BusinessSlugSettingsTeamMemberIdRoute
   '/$businessSlug/reports/templates': typeof BusinessSlugReportsTemplatesIndexRoute
   '/$businessSlug/settings/licence': typeof BusinessSlugSettingsLicenceIndexRoute
+  '/$businessSlug/settings/my-xero': typeof BusinessSlugSettingsMyXeroIndexRoute
   '/$businessSlug/settings/reports': typeof BusinessSlugSettingsReportsIndexRoute
   '/$businessSlug/settings/team': typeof BusinessSlugSettingsTeamIndexRoute
+  '/$businessSlug/settings/xero': typeof BusinessSlugSettingsXeroIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -388,7 +422,9 @@ export interface FileRoutesById {
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
   '/onboarding': typeof OnboardingRoute
+  '/privacy': typeof PrivacyRoute
   '/reset-password': typeof ResetPasswordRoute
+  '/terms': typeof TermsRoute
   '/two-step': typeof TwoStepRoute
   '/welcome': typeof WelcomeRoute
   '/$businessSlug/job': typeof BusinessSlugJobRouteRouteWithChildren
@@ -424,8 +460,10 @@ export interface FileRoutesById {
   '/$businessSlug/settings/team/$memberId': typeof BusinessSlugSettingsTeamMemberIdRoute
   '/$businessSlug/reports/templates/': typeof BusinessSlugReportsTemplatesIndexRoute
   '/$businessSlug/settings/licence/': typeof BusinessSlugSettingsLicenceIndexRoute
+  '/$businessSlug/settings/my-xero/': typeof BusinessSlugSettingsMyXeroIndexRoute
   '/$businessSlug/settings/reports/': typeof BusinessSlugSettingsReportsIndexRoute
   '/$businessSlug/settings/team/': typeof BusinessSlugSettingsTeamIndexRoute
+  '/$businessSlug/settings/xero/': typeof BusinessSlugSettingsXeroIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -435,7 +473,9 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/onboarding'
+    | '/privacy'
     | '/reset-password'
+    | '/terms'
     | '/two-step'
     | '/welcome'
     | '/$businessSlug/job'
@@ -471,8 +511,10 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/team/$memberId'
     | '/$businessSlug/reports/templates/'
     | '/$businessSlug/settings/licence/'
+    | '/$businessSlug/settings/my-xero/'
     | '/$businessSlug/settings/reports/'
     | '/$businessSlug/settings/team/'
+    | '/$businessSlug/settings/xero/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -480,7 +522,9 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/onboarding'
+    | '/privacy'
     | '/reset-password'
+    | '/terms'
     | '/two-step'
     | '/welcome'
     | '/$businessSlug/analytics'
@@ -515,8 +559,10 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/team/$memberId'
     | '/$businessSlug/reports/templates'
     | '/$businessSlug/settings/licence'
+    | '/$businessSlug/settings/my-xero'
     | '/$businessSlug/settings/reports'
     | '/$businessSlug/settings/team'
+    | '/$businessSlug/settings/xero'
   id:
     | '__root__'
     | '/'
@@ -524,7 +570,9 @@ export interface FileRouteTypes {
     | '/forgot-password'
     | '/login'
     | '/onboarding'
+    | '/privacy'
     | '/reset-password'
+    | '/terms'
     | '/two-step'
     | '/welcome'
     | '/$businessSlug/job'
@@ -560,8 +608,10 @@ export interface FileRouteTypes {
     | '/$businessSlug/settings/team/$memberId'
     | '/$businessSlug/reports/templates/'
     | '/$businessSlug/settings/licence/'
+    | '/$businessSlug/settings/my-xero/'
     | '/$businessSlug/settings/reports/'
     | '/$businessSlug/settings/team/'
+    | '/$businessSlug/settings/xero/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -570,7 +620,9 @@ export interface RootRouteChildren {
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
   OnboardingRoute: typeof OnboardingRoute
+  PrivacyRoute: typeof PrivacyRoute
   ResetPasswordRoute: typeof ResetPasswordRoute
+  TermsRoute: typeof TermsRoute
   TwoStepRoute: typeof TwoStepRoute
   WelcomeRoute: typeof WelcomeRoute
   JoinTokenRoute: typeof JoinTokenRoute
@@ -615,11 +667,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OnboardingRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/privacy': {
+      id: '/privacy'
+      path: '/privacy'
+      fullPath: '/privacy'
+      preLoaderRoute: typeof PrivacyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/reset-password': {
       id: '/reset-password'
       path: '/reset-password'
       fullPath: '/reset-password'
       preLoaderRoute: typeof ResetPasswordRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terms': {
+      id: '/terms'
+      path: '/terms'
+      fullPath: '/terms'
+      preLoaderRoute: typeof TermsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/two-step': {
@@ -853,6 +919,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof BusinessSlugSettingsLicenceNewRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
+    '/$businessSlug/settings/my-xero/': {
+      id: '/$businessSlug/settings/my-xero/'
+      path: '/settings/my-xero'
+      fullPath: '/$businessSlug/settings/my-xero/'
+      preLoaderRoute: typeof BusinessSlugSettingsMyXeroIndexRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
     '/$businessSlug/settings/reports/': {
       id: '/$businessSlug/settings/reports/'
       path: '/settings/reports'
@@ -879,6 +952,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/team/$memberId'
       fullPath: '/$businessSlug/settings/team/$memberId'
       preLoaderRoute: typeof BusinessSlugSettingsTeamMemberIdRouteImport
+      parentRoute: typeof BusinessSlugRouteRoute
+    }
+    '/$businessSlug/settings/xero/': {
+      id: '/$businessSlug/settings/xero/'
+      path: '/settings/xero'
+      fullPath: '/$businessSlug/settings/xero/'
+      preLoaderRoute: typeof BusinessSlugSettingsXeroIndexRouteImport
       parentRoute: typeof BusinessSlugRouteRoute
     }
   }
@@ -926,8 +1006,10 @@ interface BusinessSlugRouteRouteChildren {
   BusinessSlugSettingsTeamMemberIdRoute: typeof BusinessSlugSettingsTeamMemberIdRoute
   BusinessSlugReportsTemplatesIndexRoute: typeof BusinessSlugReportsTemplatesIndexRoute
   BusinessSlugSettingsLicenceIndexRoute: typeof BusinessSlugSettingsLicenceIndexRoute
+  BusinessSlugSettingsMyXeroIndexRoute: typeof BusinessSlugSettingsMyXeroIndexRoute
   BusinessSlugSettingsReportsIndexRoute: typeof BusinessSlugSettingsReportsIndexRoute
   BusinessSlugSettingsTeamIndexRoute: typeof BusinessSlugSettingsTeamIndexRoute
+  BusinessSlugSettingsXeroIndexRoute: typeof BusinessSlugSettingsXeroIndexRoute
 }
 
 const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
@@ -963,8 +1045,10 @@ const BusinessSlugRouteRouteChildren: BusinessSlugRouteRouteChildren = {
   BusinessSlugReportsTemplatesIndexRoute:
     BusinessSlugReportsTemplatesIndexRoute,
   BusinessSlugSettingsLicenceIndexRoute: BusinessSlugSettingsLicenceIndexRoute,
+  BusinessSlugSettingsMyXeroIndexRoute: BusinessSlugSettingsMyXeroIndexRoute,
   BusinessSlugSettingsReportsIndexRoute: BusinessSlugSettingsReportsIndexRoute,
   BusinessSlugSettingsTeamIndexRoute: BusinessSlugSettingsTeamIndexRoute,
+  BusinessSlugSettingsXeroIndexRoute: BusinessSlugSettingsXeroIndexRoute,
 }
 
 const BusinessSlugRouteRouteWithChildren =
@@ -976,7 +1060,9 @@ const rootRouteChildren: RootRouteChildren = {
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
   OnboardingRoute: OnboardingRoute,
+  PrivacyRoute: PrivacyRoute,
   ResetPasswordRoute: ResetPasswordRoute,
+  TermsRoute: TermsRoute,
   TwoStepRoute: TwoStepRoute,
   WelcomeRoute: WelcomeRoute,
   JoinTokenRoute: JoinTokenRoute,

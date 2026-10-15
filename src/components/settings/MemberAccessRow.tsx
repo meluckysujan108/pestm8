@@ -11,6 +11,10 @@ import { useHydrated } from '#/lib/useHydrated'
 import { ColourPicker } from './ColourPicker'
 import { ResetTwoStepButton } from './ResetTwoStepButton'
 import { MemberLicences } from './MemberLicences'
+import {
+  MemberXero,
+  useMemberXeroConnected,
+} from '#/components/xero/MemberXero'
 import { canSetLicence, needsLicence } from './needsLicence'
 import { useSavedFlash } from './useJustSaved'
 import {
@@ -166,6 +170,17 @@ export function MemberSettings({
         membershipId={member._id}
         name={memberName(member)}
         licenceCount={member.licenceCount}
+        active={member.status === 'active'}
+        timezone={timezone}
+      />
+
+      {/* Which Xero organisation they connected as their own, read-only —
+          the owner's alone to see. Every client is copied into it. */}
+      <MemberXero
+        businessId={businessId}
+        membershipId={member._id}
+        name={memberName(member)}
+        role={member.role}
         active={member.status === 'active'}
         timezone={timezone}
       />
@@ -757,6 +772,14 @@ function RemoveMember({
     },
   })
 
+  // Removing them disconnects their own Xero (`disconnectXeroFor`), which
+  // the confirm says — but the clients already copied there are theirs now.
+  const xeroConnected = useMemberXeroConnected(
+    businessId,
+    member._id,
+    confirming,
+  )
+
   const handover =
     (preview.data?.futureJobs ?? 0) + (preview.data?.activeRecurrences ?? 0) > 0
 
@@ -795,6 +818,12 @@ function RemoveMember({
         </p>
       )}
       <WithdrawnLinks count={sentInvitations} />
+      {xeroConnected && (
+        <p className="mt-1 text-caption text-muted">
+          Their Xero is disconnected. Clients already copied there stay in their
+          Xero.
+        </p>
+      )}
 
       {handover && (
         <div className="mt-3 flex flex-col gap-1.5">

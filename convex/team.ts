@@ -23,6 +23,7 @@ import type { JobStatus } from './lib/jobStatus'
 import type { Doc, Id } from './_generated/dataModel'
 import type { MutationCtx, QueryCtx } from './_generated/server'
 import { alsoGoingOf, setAlsoGoing } from './lib/jobPeople'
+import { disconnectXeroFor } from './lib/xeroHooks'
 import {
   hasCapability,
   requireActor,
@@ -319,6 +320,13 @@ async function offboard(
     .withIndex('by_real', (q) => q.eq('realMembershipId', target._id))
     .collect()
   for (const row of views) await ctx.db.delete(row._id)
+
+  // Their own Xero stops receiving this business's clients, and PestM8 is
+  // taken back out of it (lib/xeroHooks.ts). What was already copied there
+  // stays in their Xero: PestM8 never deletes in Xero, and those are their
+  // books now — which is what the connect disclosure and the removal dialog
+  // both told them and the owner.
+  await disconnectXeroFor(ctx, target, actor._id, 'offboarded')
 
   // Anyone currently looking through this person's eyes stops doing so.
   const siblings = await ctx.db

@@ -82,4 +82,30 @@ crons.cron(
   {},
 )
 
+/**
+ * Keeps idle Xero sign-ins alive (convex/xeroTokens.ts `keepAlive`). A Xero
+ * refresh token dies after 60 days unused, and a connection nobody has
+ * touched in that time would otherwise need its holder to sign in to Xero
+ * again for no reason of theirs. Refreshes any not refreshed for 30 days.
+ */
+crons.cron(
+  'refresh idle Xero sign-ins',
+  '0 20 * * *', // ~04:00 Australia/Perth
+  internal.xeroTokens.keepAlive,
+  {},
+)
+
+/**
+ * Tidies Connect Xero attempts that stopped half-way (convex/xero.ts
+ * `sweep`): forgets their spent states, and retires connections nobody
+ * finished, taking PestM8 back out of Xero for them — Xero counts an
+ * organisation chosen at its sign-in against the app until it is removed.
+ */
+crons.cron(
+  'sweep Xero sign-ins left half-way',
+  '50 * * * *',
+  internal.xero.sweep,
+  {},
+)
+
 export default crons

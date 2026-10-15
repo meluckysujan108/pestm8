@@ -103,3 +103,31 @@ that is a bare display name. Set it to a **bare address** (`x@domain`), never
 so brackets in the variable produce a malformed `from`. Check what a
 deployment has with `npx convex env list --prod` (it prints the key — don't
 paste its output anywhere). See `docs/reports/README.md` for what each does.
+
+Xero (the business's and each member's own organisation, contacts only so
+far; `docs/xero.md`) uses **a separate Xero app per deployment**: "PestM8" on
+prod (`rare-retriever-156`, redirect
+`https://rare-retriever-156.convex.site/xero/callback`) and "PestM8 Dev" on
+dev (`acoustic-schnauzer-237`). Never one app for both: Xero issues one token
+set per Xero user and app, so a connect on dev would supersede prod's tokens
+for the same Xero login. Each deployment takes:
+
+- `XERO_CLIENT_ID`, `XERO_CLIENT_SECRET` — its own app's.
+- `XERO_TOKEN_KEYS` — `1:<key>` from `openssl rand -base64 32`, its own per
+  deployment, never `BETTER_AUTH_SECRET`; a new key goes in front
+  (`2:<new>,1:<old>`). Keep it in a password manager: losing it means
+  everyone reconnects.
+- optional `XERO_REDIRECT_URI` — only for a local backend, which Xero must
+  know as `http://localhost:3211/xero/callback` (it refuses 127.0.0.1);
+  otherwise it is `CONVEX_SITE_URL/xero/callback`.
+- optional `XERO_SYNC_PAUSED=on` — the kill switch: nothing is written to
+  Xero, and changes wait.
+- optional `XERO_MAX_ORGS` — distinct organisations across every business,
+  default 5 (Xero's free Starter tier); 50 once on Core.
+
+Without the first three, a deployment is "not set up for Xero": Settings has
+no Xero rows, Connect throws `XERO_NOT_CONFIGURED` and `/xero/callback`
+answers 404. The e2e deployment has none **on purpose** — its spec checks
+those screens. Confirm the target deployment before any
+`npx convex env set XERO_*` (see the duplicate project above), and never paste
+`npx convex env list` output anywhere: it prints the secret and the key.

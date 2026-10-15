@@ -62,7 +62,9 @@ const RESERVED_SLUGS = new Set([
   'join',
   'login',
   'onboarding',
+  'privacy',
   'start',
+  'terms',
   'two-step',
   'welcome',
 ])

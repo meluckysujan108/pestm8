@@ -14,6 +14,7 @@ import {
   Info,
   ListChecks,
   PenLine,
+  Plug,
   ShieldCheck,
   SquarePlus,
   SunMoon,
@@ -45,6 +46,7 @@ import {
   SettingsLinkRow,
 } from '#/components/settings/ui'
 import { useHiddenGuide } from '#/components/onboarding/SetupGuide'
+import { connectionValue } from '#/components/xero/xeroCopy'
 import { useAccess, useActing, useCan } from '#/lib/access'
 import { APP_VERSION } from '#/lib/appVersion'
 import { roleLabel } from '#/lib/assignees'
@@ -104,10 +106,11 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
   },
   // The signed-in user (the name and the rows' values), the licences "Show
   // my licences & insurance" opens (and that row badges), for whoever may
-  // see it the Team row's two lists, and for everyone but the owner the
-  // accounts they may work in. `access.me` is already in the cache: the layout's
-  // beforeLoad warms it, so reading the capability here costs nothing and
-  // keeps a technician from asking for a roster they cannot have.
+  // see it the Team row's two lists, for everyone but the owner the
+  // accounts they may work in, and whether there is a Xero to connect.
+  // `access.me` is already in the cache: the layout's beforeLoad warms it, so
+  // reading the capability here costs nothing and keeps a technician from
+  // asking for a roster they cannot have.
   //
   // Warmed, never waited on past LOADER_WAIT_MS: with no signal a Convex
   // query never answers, and this is where a technician on site opens the
@@ -136,6 +139,9 @@ export const Route = createFileRoute('/$businessSlug/settings/')({
         // from the list the layout already warmed.)
         ...(owner ? [rq.setupGuide(business._id)] : []),
         ...(switches ? [rq.switchTargets(business._id)] : []),
+        // Whether this deployment has Xero at all, which decides whether the
+        // Xero rows are there — warmed, so they don't arrive under a thumb.
+        rq.xeroStatus(business._id),
       ),
     )
   },
@@ -191,6 +197,13 @@ function SettingsHub() {
     convexQuery(api.reports.mySavedSignature, { businessId: business._id }),
   ).data
   const twoStepOn = user ? user.twoFactorEnabled === true : undefined
+
+  // Xero, only where this deployment is set up for it and not for the demo
+  // business: a row that opens onto "isn't set up here" is worse than no
+  // row. Not suspended on, like the rows' values; the loader warms it.
+  const xeroStatus = useQuery(rq.xeroStatus(business._id)).data
+  const xero =
+    xeroStatus?.configured === true && !xeroStatus.demo ? xeroStatus : null
 
   // Codes shown at set-up but never confirmed saved (lib/twoStepReminders).
   // Read after hydration: the server has no browser storage to agree with.
@@ -342,6 +355,23 @@ function SettingsHub() {
               ) : undefined
             }
           />
+          {/* A member's own organisation, to invoice from. The owner has
+              none: theirs is the business's, under Business. */}
+          {xero && access.role !== 'owner' && (
+            <SettingsLinkRow
+              to="/$businessSlug/settings/my-xero"
+              params={{ businessSlug }}
+              icon={Plug}
+              tint="blue"
+              title="My Xero"
+              value={connectionValue(xero.mine)}
+              badge={
+                xero.mine?.status === 'needs_reconnect' ? (
+                  <RowBadge tone="amber">Reconnect</RowBadge>
+                ) : undefined
+              }
+            />
+          )}
         </SettingsGroup>
 
         {switchedNote && (
@@ -383,6 +413,21 @@ function SettingsHub() {
                 icon={FileText}
                 tint="red"
                 title="Report settings"
+              />
+            )}
+            {canManageBusiness && xero && (
+              <SettingsLinkRow
+                to="/$businessSlug/settings/xero"
+                params={{ businessSlug }}
+                icon={Plug}
+                tint="blue"
+                title="Xero"
+                value={connectionValue(xero.business)}
+                badge={
+                  xero.business?.status === 'needs_reconnect' ? (
+                    <RowBadge tone="amber">Reconnect</RowBadge>
+                  ) : undefined
+                }
               />
             )}
             {canManageBusiness && (
