@@ -191,9 +191,10 @@ const xeroView = v.object({
    * match is first asked for — which connecting does in the same write, so
    * a connected connection with none was connected before matching existed.
    * `fresh` is the clients Xero will get as new contacts — nothing matched,
-   * or Different — `different` the Different ones among them, and `leads`
-   * those waiting for their first job. `problem` is a code the page words
-   * (xeroCopy.ts). `staleAfter`, while reading: when the page should call
+   * or Different — `different` the Different ones among them, `leads`
+   * those waiting for their first job, and `shared` the clients using
+   * another client's contact (`shared` links). `problem` is a code the page
+   * words (xeroCopy.ts). `staleAfter`, while reading: when the page should call
    * the read stopped and offer Check Xero again, because the run reading it
    * has died without saying so (`xeroMatch.matchStaleAfter`) — a time the
    * page compares with its own clock, since a query mustn't read one.
@@ -208,6 +209,7 @@ const xeroView = v.object({
       fresh: v.number(),
       different: v.number(),
       leads: v.number(),
+      shared: v.number(),
       problem: v.union(v.string(), v.null()),
       staleAfter: v.union(v.number(), v.null()),
     }),
@@ -473,6 +475,7 @@ async function viewOf(
           fresh: match.fresh,
           different: match.different,
           leads: match.leads,
+          shared: match.shared ?? 0,
           problem: match.problem ?? null,
           staleAfter,
         }

@@ -65,6 +65,8 @@ type Match = {
   fresh: number
   different: number
   leads: number
+  /** Using another client's contact (Keep both). */
+  shared: number
   problem: string | null
   staleAfter: number | null
 }
@@ -73,10 +75,11 @@ const READY: Match = {
   state: 'ready',
   at: Date.now() - 2 * HOUR,
   linked: 412,
-  review: 4,
+  review: 6,
   fresh: 37,
   different: 1,
   leads: 6,
+  shared: 2,
   problem: null,
   staleAfter: null,
 }
@@ -91,6 +94,7 @@ const READING: Match = {
   fresh: 0,
   different: 0,
   leads: 0,
+  shared: 0,
   staleAfter: Date.now() + 10 * 60_000,
 }
 
@@ -103,6 +107,7 @@ const failed = (problem: string): Match => ({
   fresh: 0,
   different: 0,
   leads: 0,
+  shared: 0,
   problem,
 })
 
@@ -280,10 +285,17 @@ function statusFor(businessId: string) {
       return {
         ...base,
         business: view('business', 'connected', {
-          match: { ...READY, review: 0, different: 0, leads: 0 },
+          match: { ...READY, review: 0, different: 0, leads: 0, shared: 0 },
         }),
         mine: view('member', 'connected', {
-          match: { ...READY, linked: 380, review: 0, different: 0, leads: 0 },
+          match: {
+            ...READY,
+            linked: 380,
+            review: 0,
+            different: 0,
+            leads: 0,
+            shared: 0,
+          },
         }),
       }
     case XERO_BIZ.matchReading:
@@ -311,7 +323,14 @@ function statusFor(businessId: string) {
       return {
         ...base,
         business: view('business', 'connected', {
-          match: { ...READY, review: 0, fresh: 0, different: 0, leads: 0 },
+          match: {
+            ...READY,
+            review: 0,
+            fresh: 0,
+            different: 0,
+            leads: 0,
+            shared: 0,
+          },
         }),
       }
     case XERO_BIZ.matchFailed:
@@ -480,7 +499,7 @@ function item(
     clientNumber: number
     clientPhone: string
     clientSuburb: string
-    state: 'linked' | 'needs_review' | 'separate' | 'new'
+    state: 'linked' | 'needs_review' | 'separate' | 'new' | 'shared'
     how: 'matched' | 'chosen' | 'created'
     xeroName: string
     decidedAt: number
@@ -499,28 +518,37 @@ function item(
         | 'name_shared'
         | 'contested'
         | 'unlinked'
+        | 'was_shared'
     }
+    /** To check: the client already linked to the candidate. */
+    heldBy: {
+      clientId: string
+      name: string
+      clientNumber: number | null
+      suburb: string | null
+      email: string | null
+      phone: string | null
+    }
+    /** Shared contact: whose contact it uses. */
+    sharedWith: { clientId: string; name: string }
   }> = {},
 ) {
-  return { clientId, clientName, state: 'new', decidedByYou: false, ...extra }
+  return {
+    clientId,
+    clientName,
+    state: 'new',
+    decidedByYou: false,
+    heldBy: null,
+    sharedWith: null,
+    ...extra,
+  }
 }
 
-/** To check: one of each reason, the PestM8 client above the contact. */
+/** To check: one of each reason, the PestM8 client above the contact —
+ * first, two whose contact another client already has (`heldBy`): a
+ * duplicate of a client with every fact to tell them by, and one with a
+ * long name and none. */
 const TO_CHECK = [
-  item('c_jan', 'Jan Morris', {
-    state: 'needs_review',
-    clientNumber: 118,
-    clientPhone: '0412 345 678',
-    clientSuburb: 'Nightcliff',
-    candidate: {
-      contactId: 'x_jan',
-      name: 'Morris, Janet',
-      email: 'jan.morris@bigpond.com',
-      phone: '0412 345 678',
-      place: 'Darwin',
-      reason: 'email_only',
-    },
-  }),
   item('c_coastal', 'Coastal Property Group', {
     state: 'needs_review',
     clientNumber: 42,
@@ -534,6 +562,60 @@ const TO_CHECK = [
       place: 'Fremantle',
       accountNumber: '0042',
       reason: 'account_number_only',
+    },
+    heldBy: {
+      clientId: 'c_cpm',
+      name: 'Coastal Property Management',
+      clientNumber: 17,
+      suburb: 'Fremantle',
+      email: 'accounts@coastalpropertymanagement.com.au',
+      phone: '08 9335 1200',
+    },
+  }),
+  item('c_noodle_2', 'Leederville Noodle House Pty Ltd (Oxford St)', {
+    state: 'needs_review',
+    clientNumber: 233,
+    clientSuburb: 'Leederville',
+    candidate: {
+      contactId: 'x_noodle',
+      name: 'Leederville Noodle House',
+      place: 'Leederville',
+      reason: 'name_only',
+    },
+    heldBy: {
+      clientId: 'c_noodle',
+      name: 'Leederville Noodle House',
+      clientNumber: 88,
+      suburb: null,
+      email: null,
+      phone: null,
+    },
+  }),
+  // Kept as the same customer as a client that has since been unlinked:
+  // back to check, the client it shared with no longer named.
+  item('c_harbour_kitchen', 'Harbour Café Kitchen', {
+    state: 'needs_review',
+    clientNumber: 24,
+    clientSuburb: 'Fremantle',
+    candidate: {
+      contactId: 'x_harbour',
+      name: 'Harbour Cafe Pty Ltd',
+      place: 'Fremantle',
+      reason: 'was_shared',
+    },
+  }),
+  item('c_jan', 'Jan Morris', {
+    state: 'needs_review',
+    clientNumber: 118,
+    clientPhone: '0412 345 678',
+    clientSuburb: 'Nightcliff',
+    candidate: {
+      contactId: 'x_jan',
+      name: 'Morris, Janet',
+      email: 'jan.morris@bigpond.com',
+      phone: '0412 345 678',
+      place: 'Darwin',
+      reason: 'email_only',
     },
   }),
   item('c_sam', 'Sam Nguyen', {
@@ -595,6 +677,26 @@ const MATCHED = [
     how: 'created',
     clientNumber: 118,
     xeroName: 'Jan Morris (Nightcliff)',
+  }),
+]
+
+/** Shared contact: the same customer as another client, on its contact. */
+const SHARED = [
+  item('c_harbour_bar', 'Harbour Café Bar', {
+    state: 'shared',
+    clientNumber: 25,
+    xeroName: 'Harbour Cafe Pty Ltd',
+    decidedAt: Date.now() - HOUR,
+    decidedByYou: true,
+    sharedWith: { clientId: 'c_harbour', name: 'Harbour Café' },
+  }),
+  item('c_stjohn_oshc', 'St John’s Primary School — OSHC', {
+    state: 'shared',
+    clientNumber: 59,
+    xeroName: 'St John’s Primary School',
+    decidedAt: Date.now() - 4 * HOUR,
+    decidedByYou: true,
+    sharedWith: { clientId: 'c_stjohn', name: 'St John’s Primary School' },
   }),
 ]
 
@@ -677,13 +779,17 @@ function reviewPageFor(args: {
         : TO_CHECK
       : args.filter === 'matched'
         ? MATCHED
-        : args.filter === 'new'
+        : args.filter === 'shared'
           ? clean
             ? []
-            : NEW
-          : clean
-            ? []
-            : DIFFERENT
+            : SHARED
+          : args.filter === 'new'
+            ? clean
+              ? []
+              : NEW
+            : clean
+              ? []
+              : DIFFERENT
   return { page, isDone: true, continueCursor: 'end' }
 }
 
@@ -702,10 +808,12 @@ export type XeroLineFixture = {
     | 'different'
     | 'failed'
     | 'not_yet'
+    | 'shared'
   lastSentAt: number | null
   different: Array<string>
   problemCode: string | null
   candidateName: string | null
+  sharedWithName: string | null
   openUrl: string | null
   canOverwrite: boolean
 }
@@ -727,6 +835,7 @@ export function xeroLine(
     different: [],
     problemCode: null,
     candidateName: null,
+    sharedWithName: null,
     openUrl: null,
     // The owner looking: theirs to send over Xero's.
     canOverwrite: state === 'different',
@@ -812,6 +921,14 @@ export const EVERY_XERO_LINE: Array<{
       openUrl: OPEN_URL,
     }),
   },
+  // Keep both: the same customer as another client, on its contact.
+  {
+    title: 'Shared contact',
+    line: xeroLine('shared', {
+      sharedWithName: 'Coastal Property Management',
+      openUrl: OPEN_URL,
+    }),
+  },
   { title: 'Archived', line: xeroLine('archived', { openUrl: OPEN_URL }) },
   { title: 'Privacy', line: xeroLine('gdpr') },
   { title: 'Not reached', line: xeroLine('not_yet') },
@@ -853,20 +970,72 @@ export const XERO_FIXTURES: Record<string, (args: never) => unknown> = {
   'xeroMatch:reviewPage': (args: { businessId: string; filter: string }) =>
     reviewPageFor(args),
   'xeroSync:clientLines': (args: { clientId: string }) => clientLinesFor(args),
+  'clientMerge:mergePreview': (args: { fromClientId: string }) =>
+    mergePreviewFor(args),
   // Three of the import's clients have reached Xero.
   'xeroSync:importNote': () => ({ inXero: 3 }),
+}
+
+/**
+ * What merging a client into the one holding its contact would move
+ * (`clientMerge.mergePreview`): the duplicate's sites and their jobs, a
+ * note and its contact person. The long-named one has nothing but itself.
+ */
+function mergePreviewFor(args: { fromClientId: string }) {
+  if (args.fromClientId === 'c_noodle_2') {
+    return {
+      from: {
+        name: 'Leederville Noodle House Pty Ltd (Oxford St)',
+        clientNumber: 233,
+      },
+      into: { name: 'Leederville Noodle House', clientNumber: 88 },
+      moves: {
+        properties: 1,
+        jobs: 0,
+        recurrences: 0,
+        notes: 0,
+        contacts: 0,
+        reports: 0,
+      },
+      xero: [{ orgName: 'Pest M8 Pest Control', outcome: 'none' }],
+    }
+  }
+  return {
+    from: { name: 'Coastal Property Group', clientNumber: 42 },
+    into: { name: 'Coastal Property Management', clientNumber: 17 },
+    moves: {
+      properties: 2,
+      jobs: 14,
+      recurrences: 1,
+      notes: 3,
+      contacts: 1,
+      reports: 6,
+    },
+    xero: [{ orgName: 'Pest M8 Pest Control', outcome: 'none' }],
+  }
 }
 
 /**
  * How the match page's mutations answer, where a specimen needs them to
  * refuse: Same on Bayview Strata, whose contact another client already has
  * (CONTACT_TAKEN), and Unlink on St John's, matched to nothing any more by
- * the time it is confirmed. Match again puts a client back To check.
+ * the time it is confirmed. Match again puts a client back To check. On
+ * the long-named Leederville card, whose holder has just let its contact
+ * go, Give is refused (NOT_HELD) and so is a merge too big to move.
  */
 export const XERO_MUTATIONS: Record<string, (args: never) => unknown> = {
   'xeroMatch:decide': (args: { clientId: string; choice: string }) => {
     if (args.clientId === 'c_bayview' && args.choice === 'same') {
       throw new ConvexError('CONTACT_TAKEN')
+    }
+    if (args.clientId === 'c_noodle_2' && args.choice !== 'different') {
+      throw new ConvexError('NOT_HELD')
+    }
+    return null
+  },
+  'clientMerge:merge': (args: { fromClientId: string }) => {
+    if (args.fromClientId === 'c_noodle_2') {
+      throw new ConvexError('MERGE_TOO_BIG')
     }
     return null
   },

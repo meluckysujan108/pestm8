@@ -265,6 +265,137 @@ const PLAN = {
     },
   },
   'xero-match-load-failed': { before: async (p) => p.waitForTimeout(700) },
+  // The same customer (2026-10-16): a card whose contact another client
+  // has, its Same customer sheet, each of its confirms and what each saves,
+  // its refusals, Edit, the Shared contact list and its Unlink, and a
+  // subcontractor's sheet with no Merge.
+  'xero-match-same-customer': {
+    spec: 'xero-match',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Same customer…' }).first().click()
+      await p.waitForTimeout(700)
+    },
+  },
+  'xero-match-merge-confirm': {
+    spec: 'xero-match',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Same customer…' }).first().click()
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /^Merge Coastal/ }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'xero-match-give-confirm': {
+    spec: 'xero-match',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Same customer…' }).first().click()
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /is the wrong match/ }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'xero-match-merged': {
+    spec: 'xero-match',
+    full: true,
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Same customer…' }).first().click()
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /^Merge Coastal/ }).click()
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: 'Merge', exact: true }).click()
+      await p.waitForTimeout(900)
+    },
+  },
+  'xero-match-kept-both': {
+    spec: 'xero-match',
+    full: true,
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Same customer…' }).first().click()
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /^Keep both/ }).click()
+      await p.waitForTimeout(900)
+    },
+  },
+  'xero-match-given': {
+    spec: 'xero-match',
+    full: true,
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Same customer…' }).first().click()
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /is the wrong match/ }).click()
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: 'Give it', exact: true }).click()
+      await p.waitForTimeout(900)
+    },
+  },
+  'xero-match-held-different': {
+    spec: 'xero-match',
+    full: true,
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p
+        .getByRole('button', { name: 'Different customers' })
+        .first()
+        .click()
+      await p.waitForTimeout(500)
+    },
+  },
+  // The long-named card, whose holder has just let its contact go: Keep
+  // both refused in the sheet, a merge too big refused in its confirm.
+  'xero-match-share-failed': {
+    spec: 'xero-match',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Same customer…' }).nth(1).click()
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /^Keep both/ }).click()
+      await p.waitForTimeout(600)
+    },
+  },
+  'xero-match-merge-failed': {
+    spec: 'xero-match',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Same customer…' }).nth(1).click()
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: /^Merge Leederville/ }).click()
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: 'Merge', exact: true }).click()
+      await p.waitForTimeout(600)
+    },
+  },
+  'xero-match-held-edit': {
+    spec: 'xero-match',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p
+        .getByRole('button', { name: 'Open Coastal Property Group' })
+        .click()
+      await p.waitForTimeout(1200)
+    },
+  },
+  'xero-match-shared': { before: async (p) => p.waitForTimeout(700) },
+  'xero-match-shared-unlink': {
+    spec: 'xero-match-shared',
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Unlink Harbour Café Bar' }).click()
+      await p.waitForTimeout(500)
+    },
+  },
+  'my-xero-match-no-merge': {
+    before: async (p) => {
+      await p.waitForTimeout(700)
+      await p.getByRole('button', { name: 'Same customer…' }).first().click()
+      await p.waitForTimeout(700)
+    },
+  },
   'xero-match-unconfigured': { before: async (p) => p.waitForTimeout(500) },
   'xero-match-demo': { before: async (p) => p.waitForTimeout(500) },
   'my-xero-match-owner': { before: async (p) => p.waitForTimeout(500) },

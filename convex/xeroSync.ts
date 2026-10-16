@@ -51,8 +51,10 @@ import {
   isSoftXeroProblem,
   linkCounts,
   moveMatchCounts,
+  moveSharesOf,
   moveSyncCounts,
   queueClientForXero,
+  releaseSharesOf,
   requireConnectionHolder,
   syncCounts,
 } from './lib/xeroHooks'
@@ -121,8 +123,9 @@ import type { ClientForMatch } from './lib/xeroMatch'
  *     connected or not started, or while Xero said to wait (`pausedUntil`).
  *  3. Up to ten pages of fifty (`nextWork`): due outbox rows first, then the
  *     walk. Each client is judged as it is NOW (lib/xeroContact.ts
- *     `eligibility`): gone, binned, archived, stopped, to check, an unbooked
- *     lead — nothing sent; otherwise created or updated.
+ *     `eligibility`): gone, binned, archived, stopped, sharing another
+ *     client's contact, to check, an unbooked lead — nothing sent;
+ *     otherwise created or updated.
  *     - Creates: ten or more at once read the organisation's contacts first
  *       and match them as Release 2 does (a contact made in Xero since the
  *       match is linked, not duplicated). The rest are one `PUT`, with a
@@ -598,7 +601,8 @@ export const nextDrainAt = internalQuery({
  * Of these Xero contacts, the ones a client in the book here other than
  * `exceptClientId` is linked to in this organisation — one Xero contact is
  * one client. A client in the Recycle bin or archived holds nothing (as
- * `xeroMatch.othersLinkedTo` has it).
+ * `xeroMatch.othersLinkedTo` has it); nor does one using another client's
+ * contact (`shared`): that client holds it, and is what makes it held.
  */
 export const contactsHeld = internalQuery({
   args: {
@@ -995,6 +999,13 @@ async function applyOutcome(
   const newProblem = (code: string) =>
     link?.problem?.code === code ? null : code
 
+  // Keep both, chosen while this page was out: the holder's word, and a
+  // shared client is never sent — nothing the page found for it applies.
+  if (link?.state === 'shared') {
+    await clear()
+    return none
+  }
+
   switch (outcome.kind) {
     case 'skip':
       await clear()
@@ -1040,6 +1051,7 @@ async function applyOutcome(
         }
         for (const other of outOfBook) {
           await ctx.db.delete('xeroContactLinks', other._id)
+          await releaseSharesOf(ctx, other.clientId, { tenantId })
         }
       }
       const seen: FieldHashes = { ...outcome.seen }
@@ -1059,6 +1071,7 @@ async function applyOutcome(
         xeroName: outcome.xeroName,
         how: outcome.how ?? link?.how ?? 'matched',
         candidate: undefined,
+        sharedWithClientId: undefined,
         sent: outcome.sent,
         seen,
         different: different.length > 0 ? different : undefined,
@@ -1066,6 +1079,19 @@ async function applyOutcome(
           ? { code: outcome.problem, at: now }
           : undefined,
         ...(outcome.wrote ? { lastSentAt: now } : {}),
+      }
+      if (link?.state === 'linked' && link.xeroContactId !== undefined) {
+        if (link.xeroContactId !== after.xeroContactId) {
+          // Another contact than the one the clients sharing it chose to use
+          // (never, today): theirs to decide again.
+          await releaseSharesOf(ctx, outcome.clientId, { tenantId })
+        } else if (link.xeroName !== after.xeroName) {
+          // Renamed in Xero, or by this send: what they show follows.
+          await moveSharesOf(ctx, outcome.clientId, tenantId, {
+            xeroContactId: after.xeroContactId,
+            xeroName: after.xeroName,
+          })
+        }
       }
       await upsert(after)
       tallyLink(tally, counted, link, after)
@@ -1091,6 +1117,7 @@ async function applyOutcome(
       const after = {
         state: 'needs_review' as const,
         candidate: outcome.candidate,
+        sharedWithClientId: undefined,
         xeroContactId: undefined,
         how: undefined,
         xeroName: undefined,
@@ -1099,6 +1126,11 @@ async function applyOutcome(
         seen: undefined,
         different: undefined,
         problem: undefined,
+      }
+      // Its contact merged into one another client has: it holds nothing
+      // now, so whoever shared it goes back To check too.
+      if (link?.state === 'linked') {
+        await releaseSharesOf(ctx, outcome.clientId, { tenantId })
       }
       await upsert(after)
       tallyLink(tally, counted, link, after)
@@ -1113,6 +1145,12 @@ async function applyOutcome(
         xeroContactId: outcome.xeroContactId,
         different: undefined,
         problem: undefined,
+      }
+      // Archived or erased in Xero, it is held no more (only a linked
+      // client holds a contact): the clients sharing it go back To check,
+      // where the holder says whether they get a contact of their own.
+      if (link.state === 'linked') {
+        await releaseSharesOf(ctx, outcome.clientId, { tenantId })
       }
       await upsert(after)
       tallyLink(tally, counted, link, after)
@@ -1154,6 +1192,7 @@ async function applyOutcome(
       }
       for (const other of outOfBook) {
         await ctx.db.delete('xeroContactLinks', other._id)
+        await releaseSharesOf(ctx, other.clientId, { tenantId })
       }
       // What was sent and seen carries over: the survivor is the same
       // person's contact, so the change that found the merge goes to it
@@ -1167,6 +1206,15 @@ async function applyOutcome(
         seen: { ...link.seen, [RELINKED_KEY]: '1' },
         different: undefined,
         problem: undefined,
+      }
+      // The clients sharing its contact are the same customer, whose
+      // contact Xero merged into this one: they follow it, still shared,
+      // rather than being asked about a contact that is gone.
+      if (link.state === 'linked') {
+        await moveSharesOf(ctx, outcome.clientId, tenantId, {
+          xeroContactId: outcome.xeroContactId,
+          xeroName: outcome.xeroName,
+        })
       }
       await upsert(after)
       tallyLink(tally, counted, link, after)
@@ -2921,6 +2969,8 @@ const lineState = v.union(
   v.literal('different'),
   v.literal('failed'),
   v.literal('not_yet'),
+  /** In Xero as another client's contact (Keep both): never sent. */
+  v.literal('shared'),
 )
 
 const clientLine = v.object({
@@ -2936,6 +2986,10 @@ const clientLine = v.object({
   problemCode: v.union(v.string(), v.null()),
   /** The To check card's contact name, for "Xero already has …". */
   candidateName: v.union(v.string(), v.null()),
+  /** `shared` only: the client whose contact this one uses, for "In Xero
+   * as {name}'s contact". Null if it is not one the person looking can
+   * see, or is gone. */
+  sharedWithName: v.union(v.string(), v.null()),
   openUrl: v.union(v.string(), v.null()),
   /** Whether the person looking may press "Send PestM8's details". */
   canOverwrite: v.boolean(),
@@ -3021,6 +3075,20 @@ async function sendableDifferent(
   )
 }
 
+/** The name of the client a shared one uses the contact of — if the person
+ * looking may see that client (a contractor sees their own team's). */
+async function sharedWithName(
+  ctx: QueryCtx,
+  visible: Set<Id<'clients'>> | 'all',
+  client: Doc<'clients'>,
+  holderId: Id<'clients'> | undefined,
+): Promise<string | null> {
+  if (holderId === undefined || !inClientScope(visible, holderId)) return null
+  const holder = await ctx.db.get('clients', holderId)
+  if (!holder || holder.businessId !== client.businessId) return null
+  return holder.name
+}
+
 /**
  * The client sheet's Xero lines: the business's organisation (for whoever
  * may manage the business) and the caller's own (a member's). Up to two.
@@ -3034,10 +3102,11 @@ export const clientLines = query({
   handler: async (ctx, { businessId, clientId }) => {
     const env = await requireActor(ctx, businessId)
     const client = await ctx.db.get('clients', clientId)
+    const visible = await visibleClientIds(ctx, env)
     if (
       !client ||
       client.businessId !== businessId ||
-      !inClientScope(await visibleClientIds(ctx, env), clientId)
+      !inClientScope(visible, clientId)
     ) {
       throw new ConvexError('NOT_FOUND')
     }
@@ -3055,6 +3124,8 @@ export const clientLines = query({
       const problem = link?.problem?.code ?? null
       const different = link?.different ?? []
       const state: ClientLine['state'] = (() => {
+        // Using another client's contact, before Start syncing as after.
+        if (link?.state === 'shared') return 'shared'
         if (connection.syncStartedAt === undefined) {
           // Nothing sent yet — but a client the match found in Xero is
           // there, and one to check is to check, before as after.
@@ -3096,6 +3167,15 @@ export const clientLines = query({
         candidateName:
           link?.state === 'needs_review'
             ? (link.candidate?.name ?? null)
+            : null,
+        sharedWithName:
+          link?.state === 'shared'
+            ? await sharedWithName(
+                ctx,
+                visible,
+                client,
+                link.sharedWithClientId,
+              )
             : null,
         openUrl: openUrlOf(connection.shortCode, link?.xeroContactId),
         canOverwrite:

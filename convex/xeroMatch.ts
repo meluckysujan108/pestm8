@@ -25,6 +25,7 @@ import {
   markClientForXero,
   moveMatchCounts,
   moveSyncCounts,
+  releaseSharesOf,
   requireConnectionHolder,
   syncCounts,
 } from './lib/xeroHooks'
@@ -104,10 +105,22 @@ import type { ClientForMatch, Proposal } from './lib/xeroMatch'
  * gets the answer within seconds. Links sending found archived or erased in
  * Xero stand like decisions, and no later run proposes over them.
  *
+ * ── The same customer (2026-10-16) ────────────────────────────────────────
+ *
+ * A card whose contact another client in the book already has (`heldBy`) is
+ * two PestM8 records of one customer, or two customers Xero can't tell
+ * apart. Same could only be refused (CONTACT_TAKEN), so the page offers what
+ * can be done instead: Different (its own contact), Keep both (`share`: it
+ * uses the holder's contact and is never sent — state `shared`), Give
+ * (`give`: the holder is the wrong match, and is unlinked as Unlink does),
+ * or merging the two clients (convex/clientMerge.ts `merge`). A shared
+ * client goes back To check (`was_shared`) the moment its holder stops
+ * holding the contact (lib/xeroHooks.ts `releaseSharesOf`).
+ *
  * ── Errors the page words ─────────────────────────────────────────────────
  *
- * NOT_FOUND, NO_ACCESS, SWITCHED, CONTACT_TAKEN, XERO_NOT_CONFIGURED,
- * XERO_RECONNECT, SYNC_STARTED.
+ * NOT_FOUND, NO_ACCESS, SWITCHED, CONTACT_TAKEN, NOT_HELD,
+ * XERO_NOT_CONFIGURED, XERO_RECONNECT, SYNC_STARTED.
  */
 
 // ───────────────────────────────────────────────────────────────── limits
@@ -164,6 +177,7 @@ const ZERO_COUNTS = {
   fresh: 0,
   different: 0,
   leads: 0,
+  shared: 0,
 }
 
 type Counts = typeof ZERO_COUNTS
@@ -207,10 +221,37 @@ const countsArg = v.object({
   fresh: v.number(),
   different: v.number(),
   leads: v.number(),
+  // Optional: a finish scheduled by the code before sharing carries none.
+  shared: v.optional(v.number()),
 })
 
 /** What a batch of proposals, or a run, counts. */
-type LinkCounts = Pick<Counts, 'linked' | 'review' | 'fresh' | 'different'>
+type LinkCounts = Pick<
+  Counts,
+  'linked' | 'review' | 'fresh' | 'different' | 'shared'
+>
+
+const ZERO_LINK_COUNTS: LinkCounts = {
+  linked: 0,
+  review: 0,
+  fresh: 0,
+  different: 0,
+  shared: 0,
+}
+
+/** The client in the book that already has a card's contact: what the
+ * card shows of it, so the holder can tell whether they are one customer. */
+const heldByItem = v.object({
+  clientId: v.id('clients'),
+  name: v.string(),
+  clientNumber: v.union(v.number(), v.null()),
+  /** Its oldest live site's suburb. */
+  suburb: v.union(v.string(), v.null()),
+  email: v.union(v.string(), v.null()),
+  phone: v.union(v.string(), v.null()),
+})
+
+export type HeldBy = Infer<typeof heldByItem>
 
 /** One client of the match page (`reviewPage`). */
 const reviewItem = v.object({
@@ -229,6 +270,18 @@ const reviewItem = v.object({
   /** Whether the person looking gave the answer: an organisation's answers
    * pass to whoever holds it next. */
   decidedByYou: v.boolean(),
+  /** To check only: the client in the book already linked to the
+   * candidate, which Same can't take it from (CONTACT_TAKEN). Null when
+   * nobody here holds it. */
+  heldBy: v.union(heldByItem, v.null()),
+  /** Shared: the client whose contact this one uses. With a `was_shared`
+   * candidate (To check, or Different after): the client whose contact it
+   * used, which no longer has it. Null otherwise, or if that client is
+   * gone. */
+  sharedWith: v.union(
+    v.object({ clientId: v.id('clients'), name: v.string() }),
+    v.null(),
+  ),
 })
 
 export type ReviewItem = Infer<typeof reviewItem>
@@ -239,6 +292,7 @@ const FILTER_STATE = {
   matched: 'linked',
   new: 'new',
   separate: 'separate',
+  shared: 'shared',
 } as const satisfies Record<string, Doc<'xeroContactLinks'>['state']>
 
 /** A client as a run sees it: what the matcher compares, and whether it is a
@@ -413,6 +467,7 @@ export async function startMatch(
       fresh: prior?.fresh ?? 0,
       different: prior?.different ?? 0,
       leads: prior?.leads ?? 0,
+      shared: prior?.shared ?? 0,
     },
   })
   await ctx.scheduler.runAfter(0, internal.xeroMatch.run, {
@@ -716,6 +771,7 @@ export const setMatchState = internalMutation({
       fresh: prior?.fresh ?? 0,
       different: prior?.different ?? 0,
       leads: prior?.leads ?? 0,
+      shared: prior?.shared ?? 0,
       ...(problem ? { problem } : {}),
     }
     await ctx.db.patch('xeroSyncState', sync._id, { match })
@@ -734,6 +790,11 @@ export const setMatchState = internalMutation({
  * business, its contact person's (lib/contactPerson.ts: the primary
  * `clientContacts` row, not in the bin) — and the holder's decision about
  * it in this organisation, if they made one.
+ *
+ * A client using another's contact (Keep both, `shared`) is the holder's
+ * word too, but not one the matcher can keep — it holds no contact, and
+ * must not be offered the one it uses — so it is left out, and only
+ * counted (`shared`).
  */
 export const clientsForMatch = internalQuery({
   args: {
@@ -746,6 +807,7 @@ export const clientsForMatch = internalQuery({
     { businessId, tenantId, cursor },
   ): Promise<{
     page: Array<MatchClient>
+    shared: number
     isDone: boolean
     continueCursor: string
   }> => {
@@ -755,12 +817,17 @@ export const clientsForMatch = internalQuery({
       .paginate({ numItems: CLIENT_PAGE, cursor })
 
     const page: Array<MatchClient> = []
+    let shared = 0
     for (const client of result.page) {
       if (!inXeroBook(client)) continue
       const link = await linkOf(ctx, businessId, tenantId, client._id)
       // Archived or erased in Xero (Release 3): neither proposed nor counted,
       // and its link stands (`finishMatch` keeps it).
       if (link && isStoppedInXero(link.state)) continue
+      if (link?.state === 'shared') {
+        shared += 1
+        continue
+      }
 
       const emails = new Set<string>()
       const addEmail = (raw: string | undefined) => {
@@ -810,6 +877,7 @@ export const clientsForMatch = internalQuery({
     }
     return {
       page,
+      shared,
       isDone: result.isDone,
       continueCursor: result.continueCursor,
     }
@@ -824,13 +892,19 @@ function proposedFields(
   contestedByDecision: boolean,
 ): Pick<
   Doc<'xeroContactLinks'>,
-  'state' | 'xeroContactId' | 'how' | 'candidate' | 'xeroName'
+  | 'state'
+  | 'xeroContactId'
+  | 'how'
+  | 'candidate'
+  | 'xeroName'
+  | 'sharedWithClientId'
 > {
   const cleared = {
     xeroContactId: undefined,
     how: undefined,
     candidate: undefined,
     xeroName: undefined,
+    sharedWithClientId: undefined,
   }
   if (proposal.outcome === 'new') return { ...cleared, state: 'new' }
   const { contact } = proposal
@@ -880,10 +954,15 @@ function proposedFields(
  *   archived) holds nothing (`othersLinkedTo`); its link goes too.
  * - A client binned, archived or wiped since the run read it is skipped; the
  *   run's finish drops what an earlier run left for it.
+ * - A link that held a contact and no longer does — re-proposed, or taken
+ *   over as stale — lets go of the clients sharing it, which go back To
+ *   check (`releaseSharesOf`), tagged with this run so its finish keeps
+ *   them.
  *
  * Returns how many of the batch are linked, to check, new and different
  * now, each decided row skipped counted as it stands — the run's counts are
- * these.
+ * these — and, for clients the run counted as shared that a release put
+ * back To check, one fewer shared and one more to check.
  */
 export const saveProposals = internalMutation({
   args: {
@@ -903,13 +982,20 @@ export const saveProposals = internalMutation({
     }
     const { businessId, tenantId } = connection
 
-    const counts: LinkCounts = { linked: 0, review: 0, fresh: 0, different: 0 }
+    const counts: LinkCounts = { ...ZERO_LINK_COUNTS }
     const tally = (state: Doc<'xeroContactLinks'>['state']) => {
       const delta = linkCounts(state, 1)
       counts.linked += delta.linked ?? 0
       counts.review += delta.review ?? 0
       counts.fresh += delta.fresh ?? 0
       counts.different += delta.different ?? 0
+      counts.shared += delta.shared ?? 0
+    }
+    // Released shares were counted shared when the run read them.
+    const release = async (holderId: Id<'clients'>) => {
+      const moved = await releaseSharesOf(ctx, holderId, { tenantId, runId })
+      counts.shared -= moved
+      counts.review += moved
     }
 
     for (const proposal of proposals) {
@@ -949,7 +1035,19 @@ export const saveProposals = internalMutation({
       if (fields.state === 'linked') {
         for (const row of released) {
           await ctx.db.delete('xeroContactLinks', row._id)
+          await release(row.clientId)
         }
+      }
+      if (
+        link?.state === 'linked' &&
+        !(
+          fields.state === 'linked' &&
+          fields.xeroContactId === link.xeroContactId
+        )
+      ) {
+        // An earlier run's link, proposed otherwise now: the contact the
+        // clients sharing it used is no longer this one's.
+        await release(proposal.clientId)
       }
       if (link) {
         await ctx.db.patch('xeroContactLinks', link._id, {
@@ -980,7 +1078,9 @@ export const saveProposals = internalMutation({
  * The end of a run: drops the undecided links an earlier run left — for
  * clients this one no longer proposes (binned, archived, become leads) —
  * then marks the match ready with the run's counts and lets the
- * organisation go.
+ * organisation go. The Shared contact count is taken afresh at the end
+ * (`sharedInBook`), the difference moved to To check: a share let go while
+ * Xero was being read moves no count until the match is ready.
  *
  * 500 links a call; with more, it carries on in a call of its own. Only
  * while the match is still this run's: a newer one, started meanwhile, owns
@@ -995,7 +1095,8 @@ export const finishMatch = internalMutation({
     cursor: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args): Promise<{ done: boolean }> => {
-    const { connectionId, holder, runId, counts } = args
+    const { connectionId, holder, runId } = args
+    const counts = { ...args.counts }
     const sync = await syncRowOf(ctx, connectionId)
     if (!sync || sync.match?.runId !== runId) return { done: true }
 
@@ -1005,6 +1106,7 @@ export const finishMatch = internalMutation({
         q.eq('businessId', sync.businessId).eq('tenantId', sync.tenantId),
       )
       .paginate({ numItems: STALE_BATCH, cursor: args.cursor ?? null })
+    let released = 0
     for (const link of result.page) {
       if (
         link.decidedAt === undefined &&
@@ -1012,7 +1114,30 @@ export const finishMatch = internalMutation({
         !isStoppedInXero(link.state)
       ) {
         await ctx.db.delete('xeroContactLinks', link._id)
+        // It held a contact (a client become a lead since, say): whoever
+        // shared it goes back To check, this run's, so this finish keeps
+        // them — and the counts the run made follow.
+        if (link.state === 'linked') {
+          released += await releaseSharesOf(ctx, link.clientId, {
+            tenantId: sync.tenantId,
+            runId,
+          })
+        }
       }
+    }
+    if (released > 0) {
+      counts.shared = Math.max(0, (counts.shared ?? 0) - released)
+      counts.review += released
+    }
+    if (result.isDone) {
+      // The clients sharing a contact, counted as they are now rather than
+      // as the run read them: one let go meanwhile — its holder binned,
+      // archived or merged while Xero was being read — went back To check
+      // with no count moving (`moveMatchCounts` waits for a finished match),
+      // and one shared meanwhile was counted To check. A handful of rows.
+      const shared = await sharedInBook(ctx, sync.businessId, sync.tenantId)
+      counts.review = Math.max(0, counts.review + (counts.shared ?? 0) - shared)
+      counts.shared = shared
     }
     if (!result.isDone) {
       await ctx.scheduler.runAfter(0, internal.xeroMatch.finishMatch, {
@@ -1032,6 +1157,33 @@ export const finishMatch = internalMutation({
     return { done: true }
   },
 })
+
+/** How many clients in the book share another's contact in this
+ * organisation (`shared`): one or two per duplicated customer, so a few at
+ * most, read in full up to a bound no business comes near. */
+async function sharedInBook(
+  ctx: MutationCtx,
+  businessId: Id<'businesses'>,
+  tenantId: string,
+): Promise<number> {
+  const rows = await ctx.db
+    .query('xeroContactLinks')
+    .withIndex('by_business_and_tenant_and_state', (q) =>
+      q
+        .eq('businessId', businessId)
+        .eq('tenantId', tenantId)
+        .eq('state', 'shared'),
+    )
+    .take(STALE_BATCH)
+  let count = 0
+  for (const row of rows) {
+    const client = await ctx.db.get('clients', row.clientId)
+    if (client && client.businessId === businessId && inXeroBook(client)) {
+      count += 1
+    }
+  }
+  return count
+}
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms))
@@ -1183,10 +1335,12 @@ async function matchUnderLease(
 
   // Every client the organisation gets.
   const clients: Array<MatchClient> = []
+  let shared = 0
   let cursor: string | null = null
   for (;;) {
     const page: {
       page: Array<MatchClient>
+      shared: number
       isDone: boolean
       continueCursor: string
     } = await ctx.runQuery(internal.xeroMatch.clientsForMatch, {
@@ -1195,6 +1349,7 @@ async function matchUnderLease(
       cursor,
     })
     clients.push(...page.page)
+    shared += page.shared
     if (page.isDone) break
     cursor = page.continueCursor
   }
@@ -1208,7 +1363,7 @@ async function matchUnderLease(
     contacts,
   )
 
-  const totals: LinkCounts = { linked: 0, review: 0, fresh: 0, different: 0 }
+  const totals: LinkCounts = { ...ZERO_LINK_COUNTS, shared }
   for (let i = 0; i < proposals.length; i += SAVE_BATCH) {
     const saved: LinkCounts = await ctx.runMutation(
       internal.xeroMatch.saveProposals,
@@ -1223,7 +1378,9 @@ async function matchUnderLease(
     totals.review += saved.review
     totals.fresh += saved.fresh
     totals.different += saved.different
+    totals.shared += saved.shared
   }
+  totals.shared = Math.max(0, totals.shared)
   for (const client of clients) {
     if (client.decided?.state === 'linked') totals.linked += 1
     else if (client.decided?.state === 'separate') {
@@ -1370,8 +1527,14 @@ function describe(error: unknown): string {
  *
  * `review` is To check, `matched` the clients that are a Xero contact,
  * `new` the ones nothing matched, `separate` the ones the holder said were
- * different (or unlinked). A link whose client has since gone to the Recycle
- * bin, or was archived, is left out: it is not sent while it is there.
+ * different (or unlinked), `shared` the ones using another client's contact
+ * (Keep both). A link whose client has since gone to the Recycle bin, or was
+ * archived, is left out: it is not sent while it is there.
+ *
+ * A card To check says who in the book already has its contact (`heldBy`),
+ * so the page can offer what Same can't do; a shared row, whose contact it
+ * uses (`sharedWith`). A few indexed reads an item, a page of a hundred at
+ * most.
  */
 export const reviewPage = query({
   args: {
@@ -1382,6 +1545,7 @@ export const reviewPage = query({
       v.literal('matched'),
       v.literal('new'),
       v.literal('separate'),
+      v.literal('shared'),
     ),
     paginationOpts: paginationOptsValidator,
   },
@@ -1428,11 +1592,63 @@ export const reviewPage = query({
         decidedByYou:
           link.decidedByMembershipId !== undefined &&
           link.decidedByMembershipId === env.actor.real._id,
+        heldBy:
+          link.state === 'needs_review' && link.candidate
+            ? await heldByOf(ctx, {
+                businessId,
+                tenantId: connection.tenantId,
+                contactId: link.candidate.contactId,
+                clientId: client._id,
+              })
+            : null,
+        sharedWith:
+          link.state === 'shared' || link.candidate?.reason === 'was_shared'
+            ? await sharedWithOf(ctx, businessId, link.sharedWithClientId)
+            : null,
       })
     }
     return { ...result, page }
   },
 })
+
+/** The client in the book linked to this contact, other than `clientId`,
+ * as a To check card shows it — or null when nobody here holds it. */
+async function heldByOf(
+  ctx: QueryCtx,
+  args: {
+    businessId: Id<'businesses'>
+    tenantId: string
+    contactId: string
+    clientId: Id<'clients'>
+  },
+): Promise<HeldBy | null> {
+  const { holding } = await othersLinkedTo(ctx, args)
+  const row = holding.at(0)
+  if (!row) return null
+  const holder = await ctx.db.get('clients', row.clientId)
+  if (!holder) return null
+  return {
+    clientId: holder._id,
+    name: holder.name,
+    clientNumber: holder.clientNumber ?? null,
+    suburb: (await oldestSiteSuburb(ctx, holder._id)) ?? null,
+    email: holder.email?.trim() || null,
+    phone: holder.phone?.trim() || null,
+  }
+}
+
+/** The client a shared row uses the contact of — or a `was_shared` one
+ * used — by name. Null if it is gone (wiped since). */
+async function sharedWithOf(
+  ctx: QueryCtx,
+  businessId: Id<'businesses'>,
+  clientId: Id<'clients'> | undefined,
+): Promise<{ clientId: Id<'clients'>; name: string } | null> {
+  if (clientId === undefined) return null
+  const holder = await ctx.db.get('clients', clientId)
+  if (!holder || holder.businessId !== businessId) return null
+  return { clientId: holder._id, name: holder.name }
+}
 
 /** The connection, its client and the client's link, for a decision by the
  * holder — or why not. */
@@ -1470,11 +1686,16 @@ async function forDecision(
 }
 
 /**
- * Unlinks a linked client: it becomes `separate`, decided, so Release 3 adds
- * it to Xero as a new contact and no later match links it again. The
- * contact it was linked to is kept as its candidate (`unlinked`), so the
- * Different list can say which contact it isn't, and Match again can ask
- * about that contact once more.
+ * Unlinks a linked client — or one using another's contact (`shared`): it
+ * becomes `separate`, decided, so Release 3 adds it to Xero as a new contact
+ * and no later match links it again. The contact it was linked to (or
+ * used) is kept as its candidate (`unlinked`), so the Different list can
+ * say which contact it isn't, and Match again can ask about that contact
+ * once more.
+ *
+ * A linked client stops holding its contact, so the clients sharing it go
+ * back To check (`releaseSharesOf`). Audited as `xero.unlink`, unless the
+ * caller audits the decision it is part of (Give).
  */
 async function unlinkLink(
   ctx: MutationCtx,
@@ -1483,18 +1704,26 @@ async function unlinkLink(
     link,
     by,
     now,
+    audit = true,
   }: {
     connection: Doc<'xeroConnections'>
     link: Doc<'xeroContactLinks'>
     by: Id<'memberships'>
     now: number
+    audit?: boolean
   },
 ): Promise<void> {
+  if (link.state === 'linked') {
+    await releaseSharesOf(ctx, link.clientId, {
+      tenantId: connection.tenantId,
+    })
+  }
   await ctx.db.patch('xeroContactLinks', link._id, {
     state: 'separate',
     xeroContactId: undefined,
     how: undefined,
     xeroName: undefined,
+    sharedWithClientId: undefined,
     candidate: link.xeroContactId
       ? {
           contactId: link.xeroContactId,
@@ -1507,12 +1736,13 @@ async function unlinkLink(
     decidedByMembershipId: by,
     ...SENT_CLEARED,
   })
-  await adjustCounts(ctx, connection._id, movedCounts('linked', 'separate'), {
+  await adjustCounts(ctx, connection._id, movedCounts(link.state, 'separate'), {
     before: link,
     after: { state: 'separate' },
   })
   // Once syncing, it is added to Xero as a contact of its own.
   await markClientForXero(ctx, link.clientId)
+  if (!audit) return
   await recordAudit(ctx, forSelf(by), {
     businessId: connection.businessId,
     action: 'xero.unlink',
@@ -1521,25 +1751,41 @@ async function unlinkLink(
     meta: {
       tenantName: connection.tenantName,
       ...(link.xeroContactId ? { xeroContactId: link.xeroContactId } : {}),
+      ...(link.sharedWithClientId
+        ? { sharedWith: link.sharedWithClientId }
+        : {}),
     },
     at: now,
   })
 }
 
 /**
- * Same client / Different client on a To check card.
+ * The holder's answer on a To check card.
  *
  * - `same`: this client IS the candidate. Refused with CONTACT_TAKEN when
  *   another client in the book is already linked to that contact — one Xero
- *   contact is one client per organisation, and that client is on Matched,
- *   to be unlinked there. A client in the Recycle bin, or archived, holds
- *   nothing (`othersLinkedTo`): its link goes, and if it is restored it is
- *   matched afresh.
+ *   contact is one client per organisation. The page offers the three below
+ *   instead on such a card (`reviewPage`'s `heldBy`), so this is a race
+ *   only. A client in the Recycle bin, or archived, holds nothing
+ *   (`othersLinkedTo`): its link goes, and if it is restored it is matched
+ *   afresh.
  * - `different`: it is not; Release 3 adds it as a new contact. The candidate
  *   is kept on the row, for reference and for Match again. On a linked
  *   client it is Unlink.
+ * - `share` (Keep both): it is the same customer as the client in the book
+ *   that holds the candidate, and uses that client's contact — `shared`,
+ *   never sent, so the two never write over each other in Xero; the
+ *   holder's changes still go. If the holder stops holding it, this client
+ *   is put back To check (`releaseSharesOf`).
+ * - `give`: the client holding the candidate is the wrong match. It is
+ *   unlinked exactly as Unlink does (Release 3 adds it as a contact of its
+ *   own, and whoever shared its contact goes back To check), and this
+ *   client is linked to the contact in its place, as Same would.
  *
- * Either is the holder's word: no later match changes it; only Match again
+ * `share` and `give` need the candidate held by a client in the book
+ * (NOT_HELD otherwise: the page is behind, and Same will do now).
+ *
+ * Each is the holder's word: no later match changes it; only Match again
  * (`reopen`) puts it back. Anything not to check (or, for Different, linked)
  * is NOT_FOUND — the page is behind.
  */
@@ -1548,7 +1794,12 @@ export const decide = mutation({
     businessId: v.id('businesses'),
     connectionId: v.id('xeroConnections'),
     clientId: v.id('clients'),
-    choice: v.union(v.literal('same'), v.literal('different')),
+    choice: v.union(
+      v.literal('same'),
+      v.literal('different'),
+      v.literal('share'),
+      v.literal('give'),
+    ),
   },
   returns: v.null(),
   handler: async (ctx, { businessId, connectionId, clientId, choice }) => {
@@ -1559,26 +1810,64 @@ export const decide = mutation({
     })
     const by = env.actor.real._id
 
-    if (choice === 'same') {
-      const candidate = link.candidate
-      if (link.state !== 'needs_review' || !candidate) {
-        throw new ConvexError('NOT_FOUND')
+    if (choice === 'different') {
+      if (link.state === 'linked') {
+        await unlinkLink(ctx, { connection, link, by, now })
+        return null
       }
-      const { holding, outOfBook } = await othersLinkedTo(ctx, {
-        businessId,
-        tenantId: connection.tenantId,
-        contactId: candidate.contactId,
-        clientId,
-      })
-      if (holding.length > 0) throw new ConvexError('CONTACT_TAKEN')
-      for (const row of outOfBook) {
-        await ctx.db.delete('xeroContactLinks', row._id)
-      }
+      if (link.state !== 'needs_review') throw new ConvexError('NOT_FOUND')
       await ctx.db.patch('xeroContactLinks', link._id, {
-        state: 'linked',
-        how: 'chosen',
+        state: 'separate',
+        runId: undefined,
+        decidedAt: now,
+        decidedByMembershipId: by,
+      })
+      await adjustCounts(
+        ctx,
+        connection._id,
+        movedCounts('needs_review', 'separate'),
+        { before: link, after: { state: 'separate' } },
+      )
+      // Once syncing, it is added to Xero as a contact of its own — with its
+      // suburb after its name if the one it was asked about holds the name.
+      await markClientForXero(ctx, clientId)
+      await recordAudit(ctx, forSelf(by), {
+        businessId,
+        action: 'xero.separate',
+        entityType: 'clients',
+        entityId: clientId,
+        meta: {
+          tenantName: connection.tenantName,
+          ...(link.candidate
+            ? { xeroContactId: link.candidate.contactId }
+            : {}),
+        },
+        at: now,
+      })
+      return null
+    }
+
+    const candidate = link.candidate
+    if (link.state !== 'needs_review' || !candidate) {
+      throw new ConvexError('NOT_FOUND')
+    }
+    const { holding, outOfBook } = await othersLinkedTo(ctx, {
+      businessId,
+      tenantId: connection.tenantId,
+      contactId: candidate.contactId,
+      clientId,
+    })
+    const holder = holding.at(0)
+
+    if (choice === 'share') {
+      if (!holder) throw new ConvexError('NOT_HELD')
+      await ctx.db.patch('xeroContactLinks', link._id, {
+        state: 'shared',
         xeroContactId: candidate.contactId,
-        xeroName: candidate.name,
+        // The contact's name as its holder last had it from Xero.
+        xeroName: holder.xeroName ?? candidate.name,
+        sharedWithClientId: holder.clientId,
+        how: undefined,
         candidate: undefined,
         runId: undefined,
         decidedAt: now,
@@ -1588,21 +1877,22 @@ export const decide = mutation({
       await adjustCounts(
         ctx,
         connection._id,
-        movedCounts('needs_review', 'linked'),
+        movedCounts('needs_review', 'shared'),
         {
           before: link,
-          after: { state: 'linked', xeroContactId: candidate.contactId },
+          after: { state: 'shared', xeroContactId: candidate.contactId },
         },
       )
-      // Once syncing, its blanks in that contact are filled in.
-      await markClientForXero(ctx, clientId)
+      // Nothing is queued: a shared client is never sent. Anything already
+      // waiting for it is let go by the drain as nothing to send.
       await recordAudit(ctx, forSelf(by), {
         businessId,
-        action: 'xero.link',
+        action: 'xero.share',
         entityType: 'clients',
         entityId: clientId,
         meta: {
           tenantName: connection.tenantName,
+          sharedWith: holder.clientId,
           xeroContactId: candidate.contactId,
         },
         at: now,
@@ -1610,34 +1900,60 @@ export const decide = mutation({
       return null
     }
 
-    if (link.state === 'linked') {
-      await unlinkLink(ctx, { connection, link, by, now })
-      return null
+    if (choice === 'give') {
+      if (!holder) throw new ConvexError('NOT_HELD')
+      // Every client holding it (one, unless something went wrong): one
+      // Xero contact is one client.
+      for (const row of holding) {
+        await unlinkLink(ctx, { connection, link: row, by, now, audit: false })
+      }
+    } else if (holder) {
+      throw new ConvexError('CONTACT_TAKEN')
     }
-    if (link.state !== 'needs_review') throw new ConvexError('NOT_FOUND')
+
+    for (const row of outOfBook) {
+      await ctx.db.delete('xeroContactLinks', row._id)
+      // Out of the book it held nothing, and let go of its shares as it
+      // went; this only makes sure.
+      await releaseSharesOf(ctx, row.clientId, {
+        tenantId: connection.tenantId,
+      })
+    }
     await ctx.db.patch('xeroContactLinks', link._id, {
-      state: 'separate',
+      state: 'linked',
+      how: 'chosen',
+      xeroContactId: candidate.contactId,
+      xeroName: holder?.xeroName ?? candidate.name,
+      candidate: undefined,
+      sharedWithClientId: undefined,
       runId: undefined,
       decidedAt: now,
       decidedByMembershipId: by,
+      ...SENT_CLEARED,
     })
     await adjustCounts(
       ctx,
       connection._id,
-      movedCounts('needs_review', 'separate'),
-      { before: link, after: { state: 'separate' } },
+      movedCounts('needs_review', 'linked'),
+      {
+        before: link,
+        after: { state: 'linked', xeroContactId: candidate.contactId },
+      },
     )
-    // Once syncing, it is added to Xero as a contact of its own — with its
-    // suburb after its name if the one it was asked about holds the name.
+    // Once syncing, its blanks in that contact are filled in (and, after a
+    // Give, the client it was taken from is added as a contact of its own).
     await markClientForXero(ctx, clientId)
     await recordAudit(ctx, forSelf(by), {
       businessId,
-      action: 'xero.separate',
+      action: choice === 'give' ? 'xero.give' : 'xero.link',
       entityType: 'clients',
       entityId: clientId,
       meta: {
         tenantName: connection.tenantName,
-        ...(link.candidate ? { xeroContactId: link.candidate.contactId } : {}),
+        xeroContactId: candidate.contactId,
+        ...(choice === 'give' && holder
+          ? { from: holder.clientId, to: clientId }
+          : {}),
       },
       at: now,
     })
@@ -1647,8 +1963,9 @@ export const decide = mutation({
 
 /**
  * Unlink on a Matched client: PestM8 will add it to Xero as a new contact
- * instead, and no later match links it again. Anything not linked is
- * NOT_FOUND — the page is behind.
+ * instead, and no later match links it again. On the Shared contact list
+ * the same: the client stops using the other's contact and gets its own.
+ * Anything neither linked nor shared is NOT_FOUND — the page is behind.
  */
 export const unlink = mutation({
   args: {
@@ -1663,7 +1980,9 @@ export const unlink = mutation({
       connectionId,
       clientId,
     })
-    if (link.state !== 'linked') throw new ConvexError('NOT_FOUND')
+    if (link.state !== 'linked' && link.state !== 'shared') {
+      throw new ConvexError('NOT_FOUND')
+    }
     await unlinkLink(ctx, { connection, link, by: env.actor.real._id, now })
     return null
   },

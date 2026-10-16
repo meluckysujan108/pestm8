@@ -278,6 +278,13 @@ export const xeroMatchState = v.union(
  *   again and never recreated — that would undo the erasure.
  * - `failed`: Xero refused to create it (`problem` says why). Tried again
  *   when the client next changes, or is booked.
+ *
+ * And one the holder chooses (2026-10-16, "same customer"):
+ * - `shared`: the same customer as another client here, which holds the
+ *   Xero contact (`sharedWithClientId`); this one is shown as that contact
+ *   (`xeroContactId`) and is never sent — the holder's changes are. Holds
+ *   nothing itself. When the holder stops holding it, this goes back To
+ *   check (`was_shared`, lib/xeroHooks.ts `releaseSharesOf`).
  */
 export const xeroLinkState = v.union(
   v.literal('linked'),
@@ -287,6 +294,7 @@ export const xeroLinkState = v.union(
   v.literal('archived_in_xero'),
   v.literal('gdpr'),
   v.literal('failed'),
+  v.literal('shared'),
 )
 
 /** Why a candidate needs the holder's word rather than being linked
@@ -295,7 +303,9 @@ export const xeroLinkState = v.union(
  * client from (`xeroMatch.unlink`), put back to them by Match again.
  * `name_clash` (Release 3): adding the client was refused because a contact
  * nobody here is linked to already has its name — Same links it, Different
- * adds the client with its suburb after the name. */
+ * adds the client with its suburb after the name. `was_shared`: the client
+ * used another client's contact (`shared`), which that client no longer has
+ * — unlinked, given away, binned, archived, merged or wiped. */
 export const xeroCandidateReason = v.union(
   v.literal('account_number_only'),
   v.literal('email_only'),
@@ -304,11 +314,13 @@ export const xeroCandidateReason = v.union(
   v.literal('contested'),
   v.literal('unlinked'),
   v.literal('name_clash'),
+  v.literal('was_shared'),
 )
 
 /** How a link came about: `matched` by a run on strong evidence, `chosen` by
  * the holder (Same client), `created` by PestM8 adding the contact (Release
- * 3), or `relinked` to the contact Xero merged its old one into. */
+ * 3), or `relinked` to the contact Xero merged its old one into — or taken
+ * over from a client merged into this one in PestM8 (clientMerge.ts). */
 export const xeroLinkHow = v.union(
   v.literal('matched'),
   v.literal('chosen'),
@@ -834,6 +846,11 @@ export default defineSchema({
     /** The business's own labels ("Real estate", "Termite contract"), at
      * most `MAX_TAGS`, each unique whatever its capitals. */
     tags: v.optional(v.array(v.string())),
+    /** Merged into that client (convex/clientMerge.ts): its sites, jobs,
+     * notes and contact people went there, and this one went to the Recycle
+     * bin — which says so, and won't restore it (its sites are elsewhere
+     * now). Absent on every client never merged. */
+    mergedIntoClientId: v.optional(v.id('clients')),
     ...binFields,
   })
     .index('by_business', ['businessId'])
@@ -2486,6 +2503,10 @@ export default defineSchema({
         different: v.number(),
         /** Leads, which wait until their first job is booked. */
         leads: v.number(),
+        /** Clients using another client's contact (`shared`): the match
+         * page's Shared contact list. Absent on a match finished before
+         * sharing existed, which had none. */
+        shared: v.optional(v.number()),
         /** Why it failed: `classify`'s verdict or the run's own, as a code. */
         problem: v.optional(v.string()),
       }),
@@ -2543,10 +2564,11 @@ export default defineSchema({
    * for good (bin.ts `wipeStep`, clientImports.ts `undoStep`); the contact
    * stays in Xero.
    *
-   * A decision (`decidedAt`: Same, Different, Unlink) is the holder's word
-   * and no later match overrides it — until Match again (`xeroMatch.reopen`)
-   * puts it back to them; everything else is the latest run's proposal and
-   * is replaced by the next. New table, so nothing to migrate.
+   * A decision (`decidedAt`: Same, Different, Unlink, and the same
+   * customer's Keep both and Give) is the holder's word and no later match
+   * overrides it — until Match again (`xeroMatch.reopen`) puts it back to
+   * them; everything else is the latest run's proposal and is replaced by
+   * the next. New table, so nothing to migrate.
    */
   xeroContactLinks: defineTable({
     businessId: v.id('businesses'),
@@ -2554,18 +2576,20 @@ export default defineSchema({
     clientId: v.id('clients'),
     state: xeroLinkState,
     /** The Xero contact this client is (`linked`, and kept on
-     * `archived_in_xero` and `gdpr` to say which contact stopped). */
+     * `archived_in_xero` and `gdpr` to say which contact stopped) — or, on
+     * `shared`, the one it uses: its holder's. */
     xeroContactId: v.optional(v.string()),
     /** `matched` by the run on strong evidence, `chosen` by the holder (Same
      * client), `created` by PestM8 (Release 3), or `relinked` to the contact
-     * Xero merged its old one into. */
+     * Xero merged its old one into, or taken over from a client merged into
+     * this one (lib/xeroHooks.ts `handOverContacts`). */
     how: v.optional(xeroLinkHow),
     /** The contact the holder is asked about (`needs_review`), kept after
      * Different — and, after Unlink, the contact it was unlinked from — for
      * reference and for Match again. A copy of Xero's fields as the run read
      * them, so the page needs no call to Xero. */
     candidate: v.optional(xeroCandidate),
-    /** The linked contact's Name in Xero. */
+    /** The linked (or shared) contact's Name in Xero. */
     xeroName: v.optional(v.string()),
     /** The match run that proposed it (undecided rows only): a finished run
      * deletes the undecided rows an earlier run left for clients it no
@@ -2575,6 +2599,12 @@ export default defineSchema({
      * Cleared by Match again. */
     decidedAt: v.optional(v.number()),
     decidedByMembershipId: v.optional(v.id('memberships')),
+    /** `shared`: the client that holds the contact this one uses. Kept
+     * when that client lets go of it and this one goes back To check
+     * (`was_shared`), so the card can say whose contact it was; cleared by
+     * the holder's next answer (Different keeps it, with the candidate) or
+     * a run's next proposal. Only a `shared` row is released by it. */
+    sharedWithClientId: v.optional(v.id('clients')),
 
     // ── Release 3: compare-before-set (convex/xeroSync.ts) ───────────────
     /** By field, the hash of PestM8's value as last sent. A field whose
@@ -2612,7 +2642,11 @@ export default defineSchema({
       'state',
     ])
     // A client wiped for good takes its links with it, in every organisation.
-    .index('by_client', ['clientId']),
+    .index('by_client', ['clientId'])
+    // A client that stops holding its contact: who was sharing it?
+    // (lib/xeroHooks.ts `releaseSharesOf`). A few hundred rows on prod, so
+    // not staged.
+    .index('by_sharedWithClientId', ['sharedWithClientId']),
 
   /**
    * A client waiting to be sent to one connected organisation (Release 3,
