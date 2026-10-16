@@ -207,6 +207,7 @@ const MATCH_LOADER_WAIT_MS = 2000
 const MATCH_FILTERS: ReadonlyArray<MatchFilter> = [
   'review',
   'matched',
+  'shared',
   'new',
   'separate',
 ]

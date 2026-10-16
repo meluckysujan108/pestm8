@@ -194,14 +194,20 @@ function BinRow({
     onSuccess: () => setConfirming(false),
   })
 
+  const merged = mergedInto(entry)
   // A client archived before the bin existed has no one who deleted it —
-  // only when it was archived (migrations/archivedClientsToBinV1).
+  // only when it was archived (migrations/archivedClientsToBinV1). A merged
+  // client went in by its merge; a site of one was deleted before it.
   const deleted =
-    entry.archivedAt !== null && !entry.deletedBy
-      ? `Archived ${formatWhen(entry.archivedAt, timezone)}`
-      : entry.deletedBy
-        ? `Deleted ${formatWhen(entry.deletedAt, timezone)} by ${entry.deletedBy}`
-        : `Deleted ${formatWhen(entry.deletedAt, timezone)}`
+    merged !== null && entry.kind === 'client'
+      ? entry.deletedBy
+        ? `Merged ${formatWhen(entry.deletedAt, timezone)} by ${entry.deletedBy}`
+        : `Merged ${formatWhen(entry.deletedAt, timezone)}`
+      : entry.archivedAt !== null && !entry.deletedBy
+        ? `Archived ${formatWhen(entry.archivedAt, timezone)}`
+        : entry.deletedBy
+          ? `Deleted ${formatWhen(entry.deletedAt, timezone)} by ${entry.deletedBy}`
+          : `Deleted ${formatWhen(entry.deletedAt, timezone)}`
   const wipes = formatJobDate(
     dayKeyOf(entry.wipesAt, timezone),
     todayKey(timezone),
@@ -220,15 +226,21 @@ function BinRow({
         </div>
       </div>
       <div className="mt-3 flex gap-2">
-        <button
-          type="button"
-          disabled={!hydrated || restore.isPending}
-          onClick={() => restore.mutate({ businessId, entryId: entry._id })}
-          className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-1.5`}
-        >
-          <RotateCcw aria-hidden size={15} strokeWidth={2} />
-          {restore.isPending ? 'Restoring…' : 'Restore'}
-        </button>
+        {/* Not for a client merged into another, nor a site or contact of
+            one, nor a job or recurring service at such a site: its sites
+            and jobs are that client's now, and the server refuses it
+            (`MERGED`). */}
+        {merged === null && (
+          <button
+            type="button"
+            disabled={!hydrated || restore.isPending}
+            onClick={() => restore.mutate({ businessId, entryId: entry._id })}
+            className={`${SECONDARY_BUTTON_COMPACT} flex flex-1 items-center justify-center gap-1.5`}
+          >
+            <RotateCcw aria-hidden size={15} strokeWidth={2} />
+            {restore.isPending ? 'Restoring…' : 'Restore'}
+          </button>
+        )}
         <button
           type="button"
           disabled={!hydrated}
@@ -277,7 +289,7 @@ function describe(entry: Entry, timezone: string): string {
   switch (entry.kind) {
     case 'property':
       if (entry.suburb) parts.push(entry.suburb)
-      if (entry.clientName) parts.push(entry.clientName)
+      if (entry.clientName) parts.push(ofClient(entry))
       break
     case 'job':
       if (entry.suburb) parts.push(entry.suburb)
@@ -287,20 +299,54 @@ function describe(entry: Entry, timezone: string): string {
           todayKey(timezone),
         ),
       )
+      parts.push(...atMergedSite(entry))
       break
     case 'recurrence':
       if (entry.suburb) parts.push(entry.suburb)
       parts.push(describeInterval(entry.interval))
+      parts.push(...atMergedSite(entry))
       break
     case 'contact':
-      if (entry.clientName) parts.push(entry.clientName)
+      if (entry.clientName) parts.push(ofClient(entry))
       break
-    case 'client':
+    case 'client': {
+      const into = mergedInto(entry)
+      if (into !== null) {
+        parts.push(`Merged into ${into} — its sites and jobs are there now`)
+      }
       break
+    }
   }
   const withIt = withWhat(entry.counts)
   if (withIt) parts.push(`with ${withIt}`)
   return parts.join(' · ')
+}
+
+/** The client a merged client went into (`clientMerge.merge`), by name —
+ * on its own entry, on a site or contact of it already in the bin, and on a
+ * job or recurring service at such a site; null for anything else. */
+function mergedInto(entry: Entry): string | null {
+  if (!entry.mergedInto) return null
+  // Its name, unless that client has gone too since.
+  return entry.mergedInto.name || 'another client'
+}
+
+/** Why a job or recurring service has no Restore: its property stayed, in
+ * the bin, with a client merged into another. */
+function atMergedSite(entry: Entry): Array<string> {
+  const into = mergedInto(entry)
+  return into === null
+    ? []
+    : [`its property went with a client merged into ${into}`]
+}
+
+/** A site's or contact's client, and where it went if it was merged:
+ * "Jan Morris, merged into Jan Smith". */
+function ofClient(entry: Entry & { clientName: string }): string {
+  const into = mergedInto(entry)
+  return into === null
+    ? entry.clientName
+    : `${entry.clientName}, merged into ${into}`
 }
 
 function withWhat(counts: Entry['counts']): string {
@@ -327,6 +373,11 @@ const RESTORE_COPY: ErrorCopy = {
     'Could not restore: the recurring service it belongs to is in the Recycle bin too. Restore that first.',
   RESTORE_PARENT_GONE:
     'Could not restore: what it belonged to has been deleted for good.',
+  // A client merged into another: its sites and jobs went with the merge.
+  // The row offers no Restore, so only a list opened before the merge meets
+  // this.
+  MERGED:
+    'Could not restore: it was merged into another client, and its sites and jobs are there now.',
   WIPING: 'Could not restore: it is already being deleted for good.',
   NOT_FOUND:
     'Could not restore: it has changed since you opened this page. Look again.',

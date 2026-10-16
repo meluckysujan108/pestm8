@@ -625,6 +625,10 @@ function MatchStatus({
           chips. New to Xero and Different both become new contacts in
           Xero (`fresh` counts them together). */}
       <SettingsRow title="Matched" value={count(match.linked)} />
+      {/* Only when there are some, as Different: most books have none. */}
+      {match.shared > 0 && (
+        <SettingsRow title="Shared contact" value={count(match.shared)} />
+      )}
       <SettingsRow title="To check" value={count(match.review)} />
       <SettingsRow
         title="New to Xero"

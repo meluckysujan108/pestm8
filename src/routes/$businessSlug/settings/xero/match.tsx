@@ -7,7 +7,10 @@ export const Route = createFileRoute('/$businessSlug/settings/xero/match')({
   // Which list is showing, in the address so a reload or a shared link
   // opens it. Lenient: a stale or mistyped one opens To check, not an error.
   validateSearch: z.object({
-    filter: z.enum(['matched', 'new', 'separate']).optional().catch(undefined),
+    filter: z
+      .enum(['matched', 'shared', 'new', 'separate'])
+      .optional()
+      .catch(undefined),
   }),
   loader: ({ context: { queryClient, business }, location }) =>
     warmMatch(

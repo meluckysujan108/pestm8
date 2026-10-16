@@ -20,6 +20,7 @@ import type * as businessInvites from "../businessInvites.js";
 import type * as businesses from "../businesses.js";
 import type * as clientContacts from "../clientContacts.js";
 import type * as clientImports from "../clientImports.js";
+import type * as clientMerge from "../clientMerge.js";
 import type * as clients from "../clients.js";
 import type * as crons from "../crons.js";
 import type * as customTemplates from "../customTemplates.js";
@@ -173,6 +174,7 @@ declare const fullApi: ApiFromModules<{
   businesses: typeof businesses;
   clientContacts: typeof clientContacts;
   clientImports: typeof clientImports;
+  clientMerge: typeof clientMerge;
   clients: typeof clients;
   crons: typeof crons;
   customTemplates: typeof customTemplates;

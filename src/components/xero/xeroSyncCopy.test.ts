@@ -35,6 +35,7 @@ function view(over: Record<string, unknown> = {}): XeroView {
       fresh: 37,
       different: 1,
       leads: 6,
+      shared: 0,
       problem: null,
       staleAfter: null,
     },

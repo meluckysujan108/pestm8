@@ -335,7 +335,9 @@ export const REMATCH_ERROR_COPY: ErrorCopy = {
 
 /** Why PestM8 isn't sure a client is that Xero contact (`candidate.reason`),
  * the one line on a To check card. `unlinked` is a client put back by Match
- * again after an Unlink. */
+ * again after an Unlink. `was_shared` is one that used another client's
+ * contact (Keep both), put back when that client stopped holding it — said
+ * with the client's name where the card knows it (`matchReasonCopy`). */
 export const MATCH_REASON_COPY: Readonly<
   Record<
     | 'account_number_only'
@@ -344,7 +346,8 @@ export const MATCH_REASON_COPY: Readonly<
     | 'name_shared'
     | 'contested'
     | 'unlinked'
-    | 'name_clash',
+    | 'name_clash'
+    | 'was_shared',
     string
   >
 > = {
@@ -357,6 +360,20 @@ export const MATCH_REASON_COPY: Readonly<
   // Release 3: adding the client was refused for its name, which a contact
   // nobody here is linked to already has.
   name_clash: 'Same name — Xero won’t take a second contact by it',
+  was_shared:
+    'Shared another client’s contact, which that client no longer has',
+}
+
+/** The To check card's reason line: `MATCH_REASON_COPY`, with the client a
+ * `was_shared` one shared with named when the card knows who. */
+export function matchReasonCopy(
+  reason: keyof typeof MATCH_REASON_COPY,
+  sharedWithName?: string | null,
+): string {
+  if (reason === 'was_shared' && sharedWithName) {
+    return `Shared ${sharedWithName}’s contact, which ${sharedWithName} no longer has`
+  }
+  return MATCH_REASON_COPY[reason]
 }
 
 /**
@@ -366,9 +383,12 @@ export const MATCH_REASON_COPY: Readonly<
  */
 export const DECIDE_ERROR_COPY: ErrorCopy = {
   // Only a client on Matched can hold a contact: one in the Recycle bin
-  // gives it up (`xeroMatch.decide`).
+  // gives it up (`xeroMatch.decide`). A card whose contact another client
+  // holds doesn't offer Same (`HeldMatchCard`), so this is a race: another
+  // client was matched to it after the page opened. The list is live, and
+  // the card turns into the one that says who has it.
   CONTACT_TAKEN:
-    'Could not match them: that Xero contact is already another client’s. If they’re different people, choose Different client and PestM8 adds this one as its own contact. If they’re the same customer, unlink the other one under Matched first.',
+    'Could not match them: another client has just been matched to that Xero contact. Reload this page to see which, and what you can do.',
   NOT_FOUND:
     'Could not save: this one has changed since the page opened. Reload this page and look again.',
   NO_ACCESS:
@@ -409,8 +429,275 @@ export const UNLINK_ERROR_COPY: ErrorCopy = {
     'Could not unlink. They’re still matched — check your signal and try again.',
 }
 
+// ──────────────────────────────── a contact another client already has
+
+/**
+ * A To check card whose Xero contact another client (A) is already matched
+ * to: B, the card's client, is either a different customer (it gets a
+ * contact of its own) or the same one — and then merged into A, kept beside
+ * A on A's contact, or given the contact in A's place. Every word of it is
+ * here; the names are the clients' own, never "this client".
+ */
+
+/** The held card's link to B's own sheet. "Open", for everyone: it opens
+ * the sheet's read view, where Edit is for whoever may change clients — a
+ * button's words are what it does. */
+export function openClientLabel(client: string): string {
+  return `Open ${client}`
+}
+
+/** What an answered card says it saved, by what was chosen. */
+export type HeldOutcome = 'different' | 'share' | 'give' | 'merge'
+
+export function heldOutcomeCopy(
+  outcome: HeldOutcome,
+  {
+    client,
+    holder,
+    contact,
+  }: { client: string; holder: string; contact: string },
+): string {
+  switch (outcome) {
+    case 'different':
+      return `Saved — PestM8 will add ${client} to Xero as a new contact. Match again is under Different.`
+    case 'share':
+      return `Saved — ${client} uses ${holder}’s contact in Xero, and its own changes aren’t sent. Unlink is under Shared contact.`
+    case 'give':
+      return `Saved — ${client} is “${contact}” in Xero. PestM8 will add ${holder} as a contact of its own.`
+    case 'merge':
+      return `Merged — ${client}’s sites, jobs and notes are ${holder}’s now, and ${client} is in the Recycle bin.`
+  }
+}
+
+/** What merging moves, as `clientMerge.mergePreview` counts it. */
+export type MergeMoves = {
+  properties: number
+  jobs: number
+  notes: number
+  contacts: number
+}
+
+/** "2 sites, 14 jobs and 3 notes move" — "1 site moves" — what there is,
+ * with its verb, or null for nothing. Contacts too: a merge moves the people
+ * as well as the places. */
+export function mergeMovesList(moves: MergeMoves): string | null {
+  const noun = (n: number, one: string, many: string) =>
+    n > 0 ? `${n.toLocaleString('en-AU')} ${n === 1 ? one : many}` : null
+  const parts = [
+    noun(moves.properties, 'site', 'sites'),
+    noun(moves.jobs, 'job', 'jobs'),
+    noun(moves.notes, 'note', 'notes'),
+    noun(moves.contacts, 'contact', 'contacts'),
+  ].filter((part): part is string => part !== null)
+  if (parts.length === 0) return null
+  if (parts.length === 1) {
+    return `${parts[0]} ${parts[0].startsWith('1 ') ? 'moves' : 'move'}`
+  }
+  return `${parts.slice(0, -1).join(', ')} and ${parts[parts.length - 1]} move`
+}
+
+/** What a merge does in one organisation (`clientMerge.mergePreview`):
+ * A takes B's contact over, B's own contact stays in Xero beside A's, or B
+ * has none there. */
+export type MergeXeroOrg = {
+  orgName: string
+  outcome: 'takes_over' | 'stays' | 'none'
+}
+
+/**
+ * One sentence per organisation where B is a contact of its own: "In Doyle
+ * Pest Services, Jan Smith takes over Jan Morris’s contact." where A has
+ * none there (it becomes that contact, rather than a second one beside it),
+ * or "Jan Morris’s own contact in Doyle Pest Services stays in Xero." where
+ * A has its own (PestM8 never deletes in Xero, so the merge leaves it).
+ */
+export function mergeXeroLines(
+  from: string,
+  into: string,
+  xero: ReadonlyArray<MergeXeroOrg>,
+): string {
+  return xero
+    .map((org) => {
+      switch (org.outcome) {
+        case 'takes_over':
+          return ` In ${org.orgName}, ${into} takes over ${from}’s contact.`
+        case 'stays':
+          return ` ${from}’s own contact in ${org.orgName} stays in Xero.`
+        case 'none':
+          return ''
+      }
+    })
+    .join('')
+}
+
+/**
+ * The Merge option's line in the Same customer sheet: what moves and where
+ * B goes. Until the preview has counted, what moves is said without numbers
+ * (`preview` undefined), so the option can be read and chosen at once.
+ */
+export function mergeOptionCopy({
+  from,
+  into,
+  preview,
+}: {
+  from: string
+  into: string
+  preview?: {
+    moves: MergeMoves
+    xero: ReadonlyArray<MergeXeroOrg>
+  }
+}): string {
+  if (!preview) {
+    return `Its sites, jobs and notes move to ${into}; ${from} goes to the Recycle bin. Xero keeps ${into}’s contact.`
+  }
+  const moves = mergeMovesList(preview.moves)
+  const first = moves
+    ? `${moves} to ${into}; ${from} goes to the Recycle bin.`
+    : `${from} goes to the Recycle bin.`
+  return `${first} Xero keeps ${into}’s contact.${mergeXeroLines(from, into, preview.xero)}`
+}
+
+/** Its confirm: the same, and that it can't be undone — the Recycle bin
+ * won't give B back, its sites and jobs being A's by then (`bin.restore`
+ * refuses `MERGED`). */
+export function mergeConfirmBody({
+  from,
+  into,
+  preview,
+}: {
+  from: string
+  into: string
+  preview?: {
+    moves: MergeMoves
+    xero: ReadonlyArray<MergeXeroOrg>
+  }
+}): string {
+  const moves = preview
+    ? mergeMovesList(preview.moves)
+    : 'Its sites, jobs and notes move'
+  const first = moves ? `${moves} to ${into}, and ` : ''
+  const own = preview ? mergeXeroLines(from, into, preview.xero) : ''
+  return `${first}${from} goes to the Recycle bin. This can’t be undone. Xero keeps ${into}’s contact.${own}`
+}
+
+/** The merge confirm's way out. Not "Keep both": that is the sheet's own
+ * second answer (Keep both, use {A}’s Xero contact), which this saves
+ * nothing of. */
+export const MERGE_CANCEL = 'Don’t merge'
+
+/** The sheet's second answer, by name, for the lines that point at it. */
+export function keepBothTitle(into: string): string {
+  return `Keep both, use ${into}’s Xero contact`
+}
+
+/** For someone who may not merge clients (a subcontractor): the Merge
+ * option, said rather than offered. */
+export const MERGE_NOT_YOURS =
+  'Only the owner or a contractor can merge clients.'
+
+/** Why a business can't go into a person (`KIND_MISMATCH`): what a person's
+ * record never shows, and the way on. */
+function kindMismatch(from: string, into: string): string {
+  return `${from} is a business with contact people, an ABN or an office address, which ${into} — a person — can’t show. Make ${into} a business first`
+}
+
+/** Merge, refused (`clientMerge.merge`), in its confirm. Fails fast with no
+ * signal: it moves a client's whole history, which nobody should find
+ * happening hours later. */
+export function mergeErrorCopy(from: string, into: string): ErrorCopy {
+  return {
+    // Bounded so the move is one transaction (convex/clientMerge.ts); nobody
+    // has a client that big, so the way on is to keep both — named as the
+    // sheet names it, since the confirm's own way out is not that.
+    MERGE_TOO_BIG: `Could not merge: ${from} has more sites, contacts or notes than PestM8 can move at once. Choose ${keepBothTitle(into)} instead.`,
+    KIND_MISMATCH: `Could not merge: ${kindMismatch(from, into)}, or choose ${keepBothTitle(into)}.`,
+    MERGED: `Could not merge: ${from} has already been merged into another client. Reload this page and look again.`,
+    SAME_CLIENT:
+      'Could not merge: they’re the same client already. Reload this page and look again.',
+    NOT_FOUND: `Could not merge: ${from} or ${into} has been deleted or changed since the page opened. Reload this page and look again.`,
+    NO_ACCESS:
+      'Could not merge: only the owner or a contractor can merge clients.',
+    SWITCHED:
+      'Could not merge: switch back to your own account first, then try again.',
+    offline:
+      'Could not merge: this device is offline. Nothing was changed — try again when you have signal.',
+    default:
+      'Could not merge. Nothing was changed — check your signal and try again.',
+  }
+}
+
+/**
+ * The Merge option, when the preview has already said the merge would be
+ * refused (`clientMerge.mergePreview` refuses as `merge` does): the reason,
+ * said in the option's place rather than a button the server would refuse.
+ * Null for a refusal that may not last (no signal, anything unforeseen):
+ * the option stays, and its confirm says what went wrong.
+ */
+export function mergeUnavailableCopy(
+  code: string | null,
+  from: string,
+  into: string,
+): string | null {
+  switch (code) {
+    case 'MERGE_TOO_BIG':
+      return `${from} has more sites, contacts or notes than PestM8 can move at once.`
+    case 'KIND_MISMATCH':
+      return `${kindMismatch(from, into)}.`
+    case 'NOT_FOUND':
+    case 'SAME_CLIENT':
+    case 'MERGED':
+      return `${from} or ${into} has changed since the page opened. Reload this page and look again.`
+    case 'NO_ACCESS':
+      return MERGE_NOT_YOURS
+    default:
+      return null
+  }
+}
+
+/** Keep both, on A's contact (`xeroMatch.decide` 'share'). Fails fast with
+ * no signal, as every answer on the page does. */
+export function shareErrorCopy(holder: string): ErrorCopy {
+  return {
+    NOT_HELD: `Could not save: ${holder} no longer has that Xero contact. Reload this page and look again.`,
+    NOT_FOUND:
+      'Could not save: this one has changed since the page opened. Reload this page and look again.',
+    NO_ACCESS:
+      'Could not save: only whoever connected this Xero can match its clients.',
+    SWITCHED:
+      'Could not save: switch back to your own account first, then try again.',
+    offline:
+      'Could not save: this device is offline. Nothing was changed — try again when you have signal.',
+    default: 'Could not save. Check your signal and try again.',
+  }
+}
+
+/** Give the contact to B (`xeroMatch.decide` 'give'), in its confirm. */
+export function giveErrorCopy(holder: string): ErrorCopy {
+  return {
+    NOT_HELD: `Could not give it: ${holder} no longer has that Xero contact. Reload this page and look again.`,
+    CONTACT_TAKEN:
+      'Could not give it: another client has just been matched to that Xero contact. Reload this page and look again.',
+    NOT_FOUND:
+      'Could not give it: this one has changed since the page opened. Reload this page and look again.',
+    NO_ACCESS:
+      'Could not give it: only whoever connected this Xero can change its matches.',
+    SWITCHED:
+      'Could not give it: switch back to your own account first, then try again.',
+    offline:
+      'Could not give it: this device is offline. Nothing was changed — try again when you have signal.',
+    default:
+      'Could not give it. Nothing was changed — check your signal and try again.',
+  }
+}
+
+/** Unlink on a client using another's contact (`xeroMatch.unlink`): it
+ * gets a contact of its own instead. */
+export function unlinkSharedBody(client: string, holder: string): string {
+  return `PestM8 will add ${client} to Xero as a contact of its own, instead of using ${holder}’s. You can match them again from Different.`
+}
+
 /** The match page's lists (`xeroMatch.reviewPage`'s `filter`). */
-export type MatchFilter = 'review' | 'matched' | 'new' | 'separate'
+export type MatchFilter = 'review' | 'matched' | 'shared' | 'new' | 'separate'
 
 /**
  * Each list as the match page names it: its chip, the line under the chips
@@ -434,6 +721,15 @@ export const MATCH_FILTER_COPY: Readonly<
     emptyTitle: 'Nothing matched yet',
     emptyBody:
       'Clients PestM8 finds in Xero, and the ones you match, are listed here.',
+  },
+  // Keep both (`decide` 'share'): the same customer as another client, kept
+  // as two here, sending nothing of its own.
+  shared: {
+    label: 'Shared contact',
+    lede: 'Each of these is the same customer as another client, and uses that client’s contact in Xero. Their own changes aren’t sent. Unlink one, and PestM8 adds it as a contact of its own.',
+    emptyTitle: 'Nothing shared',
+    emptyBody:
+      'Clients that use another client’s contact in Xero are listed here.',
   },
   new: {
     label: 'New to Xero',
@@ -468,6 +764,8 @@ export const MATCH_FILTER_COPY: Readonly<
  * - `not_yet`: not in Xero, and nothing about to be: syncing not started.
  *   (Before it, a client the match found in Xero is `in_xero`, and one to
  *   check `to_check`.)
+ * - `shared`: the same customer as another client, on that client's contact
+ *   (Keep both): nothing of its own is sent.
  */
 export type XeroLineState =
   | 'in_xero'
@@ -479,6 +777,7 @@ export type XeroLineState =
   | 'different'
   | 'failed'
   | 'not_yet'
+  | 'shared'
 
 /**
  * The details PestM8 keeps in step, by the mapper's names for them

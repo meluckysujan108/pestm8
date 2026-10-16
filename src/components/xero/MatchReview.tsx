@@ -1,6 +1,7 @@
 import {
   Component,
   Suspense,
+  lazy,
   useCallback,
   useEffect,
   useMemo,
@@ -36,7 +37,13 @@ import { formatWhen } from '#/lib/format'
 import { isOffline } from '#/lib/online'
 import { MATCH_PAGE, matchFirstPage, rq } from '#/lib/routeQueries'
 import { useHydrated } from '#/lib/useHydrated'
-import { ClientRow, DifferentRow, MatchCard, MatchedRow } from './MatchCard'
+import {
+  ClientRow,
+  DifferentRow,
+  MatchCard,
+  MatchedRow,
+  SharedRow,
+} from './MatchCard'
 import {
   MatchFailed,
   MatchReading,
@@ -51,15 +58,41 @@ import {
   startSyncingBody,
 } from './xeroCopy'
 import { syncOf } from './syncView'
+import { pinCard, steady } from './matchPins'
 import type { MatchItem } from './MatchCard'
+import type { Pin } from './matchPins'
 import type { XeroView } from './XeroPage'
 import type { MatchFilter, XeroKind } from './xeroCopy'
 import type { Id } from '../../../convex/_generated/dataModel'
 
-type Business = { _id: Id<'businesses'>; slug: string; name: string }
+type Business = {
+  _id: Id<'businesses'>
+  slug: string
+  name: string
+  /** Where address suggestions lean, in a client opened from a card. */
+  state: string
+}
 
-/** The lists, in the order their chips sit. */
-const FILTERS: Array<MatchFilter> = ['review', 'matched', 'new', 'separate']
+/** The lists, in the order their chips sit. Shared contact beside Matched:
+ * both are clients on a contact in Xero. */
+const FILTERS: Array<MatchFilter> = [
+  'review',
+  'matched',
+  'shared',
+  'new',
+  'separate',
+]
+
+/**
+ * A client's sheet, opened over the page from a card's Edit, so a client
+ * that only looked like another can be put right where it was read about —
+ * as the Xero page opens one from Recent problems. Loaded when first opened.
+ */
+const ClientSheet = lazy(() =>
+  import('#/components/clients/ClientSheet').then((m) => ({
+    default: m.ClientSheet,
+  })),
+)
 
 /** How old a read of Xero may be when syncing starts: older, and the server
  * refuses (`MATCH_STALE`), since Xero may have changed under it. */
@@ -312,7 +345,7 @@ function MatchStageView({
 
   return (
     <MatchLists
-      businessId={business._id}
+      business={business}
       connection={view}
       timezone={timezone}
       filter={filter}
@@ -328,19 +361,20 @@ function MatchStageView({
  * with every answer (`xero.status`).
  */
 function MatchLists({
-  businessId,
+  business,
   connection,
   timezone,
   filter,
   onFilter,
 }: {
-  businessId: Id<'businesses'>
+  business: Business
   connection: XeroView
   timezone: string
   filter: MatchFilter
   onFilter: (filter: MatchFilter) => void
 }) {
   const hydrated = useHydrated()
+  const businessId = business._id
   const match = connection.match
   // A list read again after it failed starts afresh, as does another list
   // (the key below): what it kept on screen (`MatchList`'s pins) belonged
@@ -350,6 +384,16 @@ function MatchLists({
   // Where focus goes once Start syncing has gone through: the line saying
   // so, since the bar it was pressed in goes.
   const intro = useRef<HTMLParagraphElement>(null)
+  // A client opened from a card (Edit). The sheet stays mounted once
+  // loaded, so closing it slides it away rather than cutting it off.
+  const [openClient, setOpenClient] = useState<Id<'clients'> | null>(null)
+  const [sheetLoaded, setSheetLoaded] = useState(false)
+  const onOpenClient = useCallback((clientId: Id<'clients'>) => {
+    setSheetLoaded(true)
+    setOpenClient(clientId)
+  }, [])
+  const canManageClients = useCan('clients.manage')
+  const canRenumber = useCan('business.manage')
   if (!match || match.state !== 'ready') return null
   const sync = syncOf(connection)
 
@@ -358,6 +402,7 @@ function MatchLists({
   const counts: Record<MatchFilter, number> = {
     review: match.review,
     matched: match.linked,
+    shared: match.shared,
     new: Math.max(0, match.fresh - match.different),
     separate: match.different,
   }
@@ -423,6 +468,7 @@ function MatchLists({
           connectionId={connection.connectionId}
           filter={filter}
           total={counts[filter]}
+          onOpenClient={onOpenClient}
         />
       </ListBoundary>
 
@@ -438,6 +484,20 @@ function MatchLists({
           started={sync !== null}
           returnTo={intro}
         />
+      )}
+      {sheetLoaded && (
+        <Suspense fallback={null}>
+          <ClientSheet
+            businessId={businessId}
+            timezone={timezone}
+            businessSlug={business.slug}
+            businessState={business.state}
+            canManageClients={canManageClients}
+            canRenumber={canRenumber}
+            clientId={openClient}
+            onClose={() => setOpenClient(null)}
+          />
+        </Suspense>
       )}
     </>
   )
@@ -558,30 +618,6 @@ function StartSyncing({
   )
 }
 
-/** A client kept on screen after it was answered or unlinked, at the place
- * it was in the list when it was. */
-type Pin = { item: MatchItem; index: number }
-
-/**
- * The list as shown: the server's rows, with every pinned row that has left
- * them put back where it was. Pinned in the order they were shown, so a run
- * of answered cards keeps its order.
- */
-function steady(
-  live: ReadonlyArray<MatchItem>,
-  pins: ReadonlyMap<string, Pin>,
-): Array<MatchItem> {
-  const here = new Set<string>(live.map((item) => item.clientId))
-  const rows = [...live]
-  const gone = [...pins.values()]
-    .filter((pin) => !here.has(pin.item.clientId))
-    .sort((a, b) => a.index - b.index)
-  for (const pin of gone) {
-    rows.splice(Math.min(pin.index, rows.length), 0, pin.item)
-  }
-  return rows
-}
-
 /**
  * One list, a hundred at a time.
  *
@@ -598,12 +634,15 @@ function MatchList({
   connectionId,
   filter,
   total,
+  onOpenClient,
 }: {
   businessId: Id<'businesses'>
   connectionId: Id<'xeroConnections'>
   filter: MatchFilter
   /** How many the list holds, as the match counts it. */
   total: number
+  /** Opens a client's sheet over the page (a card's Edit). */
+  onOpenClient: (clientId: Id<'clients'>) => void
 }) {
   const hydrated = useHydrated()
   const paged = usePaginatedQuery(
@@ -615,7 +654,9 @@ function MatchList({
   const cold = paged.status === 'LoadingFirstPage'
   const live = cold ? first.data?.page : paged.results
 
-  const [pins, setPins] = useState<ReadonlyMap<string, Pin>>(new Map())
+  const [pins, setPins] = useState<ReadonlyMap<string, Pin<MatchItem>>>(
+    new Map(),
+  )
   const rows = useMemo(
     () => (live === undefined ? undefined : steady(live, pins)),
     [live, pins],
@@ -623,17 +664,7 @@ function MatchList({
   // Read at the tap, so `onPin` stays one function for every card.
   const shown = useLatest(rows)
   const onPin = useCallback(
-    (item: MatchItem) =>
-      setPins((now) => {
-        if (now.has(item.clientId)) return now
-        const index =
-          shown.current?.findIndex((row) => row.clientId === item.clientId) ??
-          -1
-        return new Map(now).set(item.clientId, {
-          item,
-          index: index === -1 ? Number.MAX_SAFE_INTEGER : index,
-        })
-      }),
+    (item: MatchItem) => setPins((now) => pinCard(now, item, shown.current)),
     [shown],
   )
 
@@ -717,6 +748,7 @@ function MatchList({
               item={item}
               hydrated={hydrated}
               onPin={onPin}
+              onOpenClient={onOpenClient}
             />
           ))}
         </ul>
@@ -735,6 +767,15 @@ function MatchList({
         {rows.map((item) =>
           filter === 'matched' ? (
             <MatchedRow
+              key={item.clientId}
+              businessId={businessId}
+              connectionId={connectionId}
+              item={item}
+              hydrated={hydrated}
+              onPin={onPin}
+            />
+          ) : filter === 'shared' ? (
+            <SharedRow
               key={item.clientId}
               businessId={businessId}
               connectionId={connectionId}

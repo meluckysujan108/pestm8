@@ -6,7 +6,10 @@ import { searchParam, warmMatch } from '#/lib/routeQueries'
 export const Route = createFileRoute('/$businessSlug/settings/my-xero/match')({
   // As Settings → Xero → Match your clients: which list is showing.
   validateSearch: z.object({
-    filter: z.enum(['matched', 'new', 'separate']).optional().catch(undefined),
+    filter: z
+      .enum(['matched', 'shared', 'new', 'separate'])
+      .optional()
+      .catch(undefined),
   }),
   loader: ({ context: { queryClient, business }, location }) =>
     warmMatch(

@@ -162,15 +162,26 @@ const ALL_CAPS = {
 }
 
 /** `actingAs`: working in Kevin's account. `technician`: signed in as a
- * subcontractor, with no owner's capabilities. */
-export const state = { actingAs: false, technician: false }
+ * subcontractor, with no owner's capabilities. `noClientEdits`: one who
+ * can't change clients either (`clients.manage` off), as a subcontractor
+ * without the client book is. */
+export const state = {
+  actingAs: false,
+  technician: false,
+  noClientEdits: false,
+}
 
 function accessMe() {
   return {
     membershipId: 'm_owner',
     role: state.technician ? 'subcontractor' : 'owner',
     caps: state.technician
-      ? { ...ALL_CAPS, 'business.manage': false, 'team.manage': false }
+      ? {
+          ...ALL_CAPS,
+          'business.manage': false,
+          'team.manage': false,
+          'clients.manage': !state.noClientEdits,
+        }
       : ALL_CAPS,
     actingAs: state.actingAs
       ? { membershipId: 'm_kev', name: 'Kevin Doyle' }
@@ -1052,6 +1063,18 @@ export async function resolveMutation(
  * shows them. */
 const HOUR = 60 * 60 * 1000
 export const BIN_ENTRIES = [
+  // Merged into another client (`clientMerge.merge`): no Restore, said why.
+  {
+    _id: 'bin_merged',
+    kind: 'client',
+    title: 'Coastal Property Group',
+    mergedInto: { clientId: 'c_cpm', name: 'Coastal Property Management' },
+    deletedAt: Date.now() - 20 * 60_000,
+    wipesAt: Date.now() - 20 * 60_000 + 30 * 24 * HOUR,
+    deletedBy: 'Terence Van Der Walt',
+    archivedAt: null,
+    counts: { properties: 0, jobs: 0, recurrences: 0, notes: 0, drafts: 0 },
+  },
   {
     _id: 'bin0',
     kind: 'contact',
@@ -1093,6 +1116,35 @@ export const BIN_ENTRIES = [
     wipesAt: Date.now() - 5 * 24 * HOUR + 30 * 24 * HOUR,
     deletedBy: 'Terence Van Der Walt',
     counts: { properties: 0, jobs: 3, recurrences: 0, notes: 0, drafts: 0 },
+  },
+  // A site of that client, deleted on its own before the merge: it stays
+  // the merged client's, so it can't come back either.
+  {
+    _id: 'bin_merged_site',
+    kind: 'property',
+    title: '4 Marine Tce',
+    suburb: 'Fremantle',
+    clientName: 'Coastal Property Group',
+    mergedInto: { clientId: 'c_cpm', name: 'Coastal Property Management' },
+    deletedAt: Date.now() - 6 * 24 * HOUR,
+    wipesAt: Date.now() - 6 * 24 * HOUR + 30 * 24 * HOUR,
+    deletedBy: 'Terence Van Der Walt',
+    archivedAt: null,
+    counts: { properties: 0, jobs: 2, recurrences: 0, notes: 0, drafts: 0 },
+  },
+  // A job at that site, deleted on its own before the site was: it can't
+  // come back either, and says why rather than "restore the property first".
+  {
+    _id: 'bin_merged_job',
+    kind: 'job',
+    title: 'General Pest',
+    suburb: 'Fremantle',
+    scheduledAt: Date.now() - 8 * 24 * HOUR,
+    mergedInto: { clientId: 'c_cpm', name: 'Coastal Property Management' },
+    deletedAt: Date.now() - 7 * 24 * HOUR,
+    wipesAt: Date.now() - 7 * 24 * HOUR + 30 * 24 * HOUR,
+    deletedBy: 'Terence Van Der Walt',
+    counts: { properties: 0, jobs: 0, recurrences: 0, notes: 0, drafts: 0 },
   },
   {
     _id: 'bin4',

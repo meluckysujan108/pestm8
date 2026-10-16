@@ -49,6 +49,8 @@ export type XeroLine = {
   problemCode: string | null
   /** The contact Xero may already have it as, for `to_check`. */
   candidateName: string | null
+  /** The client whose contact it uses, for `shared` (Keep both). */
+  sharedWithName: string | null
   /** The contact in Xero, once PestM8 knows both it and the
    * organisation's short code. */
   openUrl: string | null
@@ -251,6 +253,18 @@ function XeroLineRow({
                 <MatchLink kind={line.kind} businessSlug={businessSlug} />
               </Below>
             }
+          />
+        )
+      case 'shared':
+        // The same customer as another client, kept as two here: Xero has
+        // the other's contact, and nothing of this one's is sent.
+        return (
+          <DetailRow
+            focusRef={row}
+            label={label}
+            value={`In Xero as ${line.sharedWithName ?? 'another client'}’s contact`}
+            sub={sentence([org, 'its own changes aren’t sent'])}
+            below={open}
           />
         )
       case 'archived':

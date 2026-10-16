@@ -590,6 +590,63 @@ describe('the Recycle bin', () => {
   })
 })
 
+// ═══════════════════════════════════════════════════════════════ merging
+
+describe('merging clients', () => {
+  // A person into a business: a business's contact people, ABN and office
+  // address can't go into a person (clientMerge.ts, KIND_MISMATCH).
+  test('one client merged into another: the one kept queued; the one merged gone — its links, and what was queued for it, with it', async () => {
+    const s = await started()
+    // A change of Alice's is waiting when the merge comes.
+    await queues(
+      s,
+      () =>
+        s.terence.as.mutation(api.clients.update, {
+          businessId: s.businessId,
+          clientId: s.book.alice,
+          phone: '0411 222 333',
+        }),
+      [s.book.alice],
+    )
+    expect(await linksOf(s, s.book.alice)).not.toEqual([])
+
+    await s.terence.as.mutation(api.clientMerge.merge, {
+      businessId: s.businessId,
+      fromClientId: s.book.alice,
+      intoClientId: s.book.bob,
+    })
+
+    // Bob has Alice's site and phone now, so his contact is sent again;
+    // nothing is left to send of Alice, and she is in no organisation.
+    await expectQueued(s, [s.book.bob])
+    expect(await linksOf(s, s.book.alice)).toEqual([])
+    expect(await linksOf(s, s.book.bob)).not.toEqual([])
+  })
+
+  test('the one kept is queued once for each organisation syncing', async () => {
+    const s = await started()
+    await s.kevin.as.mutation(api.xeroSync.startSyncing, {
+      businessId: s.businessId,
+      connectionId: s.kevins._id,
+    })
+    await clear(s)
+
+    await s.terence.as.mutation(api.clientMerge.merge, {
+      businessId: s.businessId,
+      fromClientId: s.book.alice,
+      intoClientId: s.book.bob,
+    })
+    expect(
+      (await rows(s)).map((row) => [row.connectionId, row.clientId]).sort(),
+    ).toEqual(
+      [
+        [s.connection._id, s.book.bob],
+        [s.kevins._id, s.book.bob],
+      ].sort(),
+    )
+  })
+})
+
 // ═════════════════════════════════════════════════════════════════ imports
 
 describe('imports', () => {
