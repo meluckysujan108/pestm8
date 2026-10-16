@@ -45,6 +45,16 @@ build, so the site silently runs old code while `main` looks correct and
 `git status` is clean — there is no error anywhere except the Vercel build
 log. Verify with `pnpm install --frozen-lockfile --lockfile-only`.
 
+**`convex` is patched** (`patches/convex@1.45.0.patch`, listed under
+`pnpm.patchedDependencies`): the browser client's `setConfig` restarts a
+socket that a re-authentication left stopped. Without it, a sign-in hand-over
+landing while the client fetched a fresh token froze the app on "Loading…"
+until it was closed (Terence, 16 Oct 2026). The patch is keyed to 1.45.0, so
+an upgrade of `convex` must re-make it with `pnpm patch` or show it is no
+longer needed: the test "a sign-in handed over while the socket is stopped for
+a fresh token still reopens it" in `src/lib/convexClient.test.ts` fails
+without it.
+
 **Ship the frontend and backend together when function signatures change.**
 `npx convex deploy` takes effect immediately; Vercel is a separate build
 that may be hours stale or failing. If a function's args changed, the live

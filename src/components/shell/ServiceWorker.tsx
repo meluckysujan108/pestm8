@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, X } from 'lucide-react'
 import { APP_VERSION } from '#/lib/appVersion'
+import { useReachNotice } from '#/lib/reach'
 import { watchForNewBuild } from '#/lib/workerVersion'
 
 /** How often an open page asks whether there is a newer build. The app is
@@ -23,6 +24,9 @@ const UPDATE_CHECK_MS = 30 * 60 * 1000
  */
 export function ServiceWorker() {
   const [newVersion, setNewVersion] = useState(false)
+  // Same place on screen as ConnectionNotice, which says the more urgent
+  // thing: a reload needs PestM8 to answer. Back once it goes.
+  const reachNotice = useReachNotice() !== null
 
   useEffect(() => {
     if (import.meta.env.DEV) return
@@ -73,7 +77,7 @@ export function ServiceWorker() {
     }
   }, [])
 
-  if (!newVersion) return null
+  if (!newVersion || reachNotice) return null
   return (
     <NewVersionBanner
       onReload={() => window.location.reload()}

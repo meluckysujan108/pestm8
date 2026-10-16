@@ -127,15 +127,42 @@ describe('HandoverConvexClient', () => {
  * A RecordingSocket that also answers, like a server that accepts every
  * token. The Convex client only moves its auth on when the server confirms a
  * token. Then it asks for the refresh it wants after a page's first token, and
- * schedules the next one to land before that token expires.
+ * schedules the next one to land before that token expires. Every query it is
+ * asked for is answered with null.
  */
 class ServerSocket extends RecordingSocket {
+  /** Tokens this server turns down, as it does one that has run out. */
+  static expired = new Set<string>()
+
   private version = { querySet: 0, identity: 0, ts: 0 }
+  // Once it has turned a token down, this socket answers nothing more: the
+  // client stops it and opens another.
+  private refused = false
 
   override send(data: string) {
     super.send(data)
-    const message = JSON.parse(data) as { type: string; newVersion?: number }
+    const message = JSON.parse(data) as {
+      type: string
+      newVersion?: number
+      value?: string
+      modifications?: Array<{ type: string; queryId: number }>
+    }
     if (message.type !== 'Authenticate' && message.type !== 'ModifyQuerySet') {
+      return
+    }
+    if (this.refused) return
+    if (
+      message.type === 'Authenticate' &&
+      message.value !== undefined &&
+      ServerSocket.expired.has(message.value)
+    ) {
+      this.refused = true
+      this.answer({
+        type: 'AuthError',
+        error: 'Token expired',
+        baseVersion: this.version.identity,
+        authUpdateAttempted: true,
+      })
       return
     }
     const startVersion = this.wireVersion()
@@ -146,7 +173,15 @@ class ServerSocket extends RecordingSocket {
       type: 'Transition',
       startVersion,
       endVersion: this.wireVersion(),
-      modifications: [],
+      modifications: (message.modifications ?? [])
+        .filter((change) => change.type === 'Add')
+        .map(({ queryId }) => ({
+          type: 'QueryUpdated',
+          queryId,
+          value: null,
+          logLines: [],
+          journal: null,
+        })),
     })
   }
 
@@ -510,5 +545,173 @@ describe('HandoverConvexClient, held until the page load knows who it is for', (
     )
     expect(reported).toContain(true)
     expect(reported).not.toContain(false)
+  })
+})
+
+/** A promise and the means to settle it, for holding a token fetch open. */
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  const promise = new Promise<T>((done) => (resolve = done))
+  return { promise, resolve }
+}
+
+/** A query a page would have on screen, and whether it has an answer yet. */
+function watch(client: ConvexReactClient) {
+  const answered = { yes: false }
+  client
+    .watchQuery(makeFunctionReference<'query'>('views:options'), {})
+    .onUpdate(() => (answered.yes = true))
+  return answered
+}
+
+describe('HandoverConvexClient, when the token a page opened with has run out', () => {
+  afterEach(() => ServerSocket.expired.clear())
+
+  // A page served from the service worker's cache carries the token from
+  // when it was rendered, and on a phone that had been away longer than a
+  // token lives, it has run out. The server turns it down, and the Convex
+  // client stops the socket while it fetches a fresh one. Better Auth's
+  // first answer about the session lands in that window — later than the
+  // refusal, on a slow link — and hands the sign-in over.
+  const STALE = jwt('stale', -60)
+  const FRESH_TOKEN = jwt('fresh', 3_600)
+
+  /** The app's client as root-provider.tsx builds it, against a server. */
+  function openPage() {
+    ServerSocket.expired.add(STALE)
+    const client = new HandoverConvexClient(URL, {
+      webSocketConstructor: ServerSocket as unknown as typeof WebSocket,
+      unsavedChangesWarning: false,
+      holdForSignIn: true,
+      refreshRetry: betterAuth().retry,
+    })
+    clients.push(client)
+    return client
+  }
+
+  it('a sign-in handed over while the socket is stopped for a fresh token still reopens it', async () => {
+    // Fails on convex 1.45.0 without patches/convex@1.45.0.patch: the socket
+    // stays stopped, the query is never answered, and only a reload ends it.
+    const client = openPage()
+    const answered = watch(client)
+
+    // Forced refreshes wait until the test lets them through; after that,
+    // every one is answered, whenever it is asked.
+    const forced: Array<ReturnType<typeof deferred<string | null>>> = []
+    let through = false
+    const fetcher =
+      (): AuthTokenFetcher =>
+      async ({ forceRefreshToken }) => {
+        if (!forceRefreshToken) return STALE
+        if (through) return FRESH_TOKEN
+        const next = deferred<string | null>()
+        forced.push(next)
+        return next.promise
+      }
+
+    client.setAuth(fetcher())
+    await vi.waitFor(() => expect(forced).toHaveLength(1))
+    // The socket that presented the stale token is shut while it waits.
+    expect(client.connectionState().isWebSocketConnected).toBe(false)
+
+    handOver(client, STALE)
+    client.setAuth(fetcher())
+    await settle()
+    through = true
+    for (const fetch of forced) fetch.resolve(FRESH_TOKEN)
+
+    const longer = { timeout: 5_000 }
+    await vi.waitFor(
+      () => expect(client.connectionState().isWebSocketConnected).toBe(true),
+      longer,
+    )
+    await vi.waitFor(
+      () => expect(socket().identities().at(-1)).toBe(FRESH_TOKEN),
+      longer,
+    )
+    await vi.waitFor(() => expect(answered.yes).toBe(true), longer)
+  })
+
+  it('a sign-in handed over after the fresh token landed offers that one, not the run-out one', async () => {
+    const client = openPage()
+    const RENEWED_TOKEN = jwt('renewed', 3_600)
+    client.setAuth(tokens(STALE, [FRESH_TOKEN]).fetchToken)
+    await vi.waitFor(() =>
+      expect(socket().identities().at(-1)).toBe(FRESH_TOKEN),
+    )
+    await settle()
+    const sockets = RecordingSocket.open.length
+
+    handOver(client, STALE)
+    client.setAuth(tokens(STALE, [RENEWED_TOKEN]).fetchToken)
+    await vi.waitFor(() =>
+      expect(socket().identities().at(-1)).toBe(RENEWED_TOKEN),
+    )
+
+    // Nothing was turned down, so the socket was never stopped for it.
+    expect(RecordingSocket.open).toHaveLength(sockets)
+    expect(socket().identities()).toEqual([
+      FRESH_TOKEN,
+      FRESH_TOKEN,
+      RENEWED_TOKEN,
+    ])
+  })
+
+  it('a clear that goes through forgets the fresh token, so the next sign-in gets its own', async () => {
+    const client = openPage()
+    client.setAuth(tokens(STALE, [FRESH_TOKEN]).fetchToken)
+    await vi.waitFor(() =>
+      expect(socket().identities().at(-1)).toBe(FRESH_TOKEN),
+    )
+
+    client.clearAuth()
+    await settle()
+    const NEXT = jwt('next', 1_800)
+    client.setAuth(tokens(NEXT, [jwt('next-renewed', 3_600)]).fetchToken)
+    await vi.waitFor(() => expect(socket().identities()).toContain(NEXT))
+  })
+
+  it('a refresh answered with the very token the hand-over offered asks again the next second', async () => {
+    // Better Auth mints the same string twice within a second. Taken as is,
+    // the Convex client reads it as a token it can't refresh and schedules
+    // no more refreshes, so the socket stops when it runs out.
+    const client = openPage()
+    client.setAuth(tokens(STALE, [FRESH_TOKEN]).fetchToken)
+    await vi.waitFor(() =>
+      expect(socket().identities().at(-1)).toBe(FRESH_TOKEN),
+    )
+    await settle()
+
+    const RENEWED_TOKEN = jwt('renewed', 3_600)
+    const after = tokens(STALE, [FRESH_TOKEN, RENEWED_TOKEN])
+    handOver(client, STALE)
+    client.setAuth(after.fetchToken)
+
+    await vi.waitFor(
+      () => expect(socket().identities().at(-1)).toBe(RENEWED_TOKEN),
+      { timeout: 5_000 },
+    )
+    expect(after.forced()).toBe(2)
+    expect(socket().identities()).toEqual([
+      FRESH_TOKEN,
+      FRESH_TOKEN,
+      RENEWED_TOKEN,
+    ])
+  })
+})
+
+describe('HandoverConvexClient, when a refresh comes back with the same token', () => {
+  it('asks again the next second, rather than leaving the socket with nothing scheduled', async () => {
+    const client = connectToServer(betterAuth().retry)
+    const SAME = jwt('same', 3_600)
+    const RENEWED_TOKEN = jwt('renewed', 3_600)
+    const script = tokens(SAME, [SAME, RENEWED_TOKEN])
+    signIn(client, script.fetchToken)
+
+    await vi.waitFor(
+      () => expect(socket().identities()).toEqual([SAME, RENEWED_TOKEN]),
+      { timeout: 5_000 },
+    )
+    expect(script.forced()).toBe(2)
   })
 })

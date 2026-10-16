@@ -1,4 +1,5 @@
 import { getInitialState } from '#/lib/initialState'
+import { jwtClaims } from '#/lib/jwt'
 import { readThemePref } from '#/lib/theme'
 import type { ThemePref } from '#/lib/theme'
 
@@ -232,16 +233,8 @@ export function signedInUserId(): string | null {
 
 /** The `sub` claim of a JWT, or null. Exported for its test. */
 export function userIdOfToken(jwt: string | undefined): string | null {
-  const payload = jwt?.split('.')[1]
-  if (!payload) return null
-  try {
-    const base64 = payload.replace(/-/g, '+').replace(/_/g, '/')
-    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, '=')
-    const sub = (JSON.parse(atob(padded)) as { sub?: unknown } | null)?.sub
-    return typeof sub === 'string' && sub !== '' ? sub : null
-  } catch {
-    return null
-  }
+  const sub = jwtClaims(jwt)?.sub
+  return typeof sub === 'string' && sub !== '' ? sub : null
 }
 
 /**

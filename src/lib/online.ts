@@ -36,3 +36,15 @@ export function useOnline(): boolean {
     () => true,
   )
 }
+
+/**
+ * Asks everything that waits for the network to go now: the Convex client's
+ * reconnect skips its backoff, the sign-in token's retry (lib/tokenRefresh.ts)
+ * abandons a request that is hanging and sends another, and Better Auth and
+ * react-query refetch. They all listen for the browser's `online` event, so
+ * this is that event. Only while the phone says it has a network: with none,
+ * there is nothing to try.
+ */
+export function retryNow(): void {
+  if (!isOffline()) window.dispatchEvent(new Event('online'))
+}

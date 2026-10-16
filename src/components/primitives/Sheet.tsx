@@ -11,6 +11,8 @@ import { Drawer } from 'vaul'
 import { X } from 'lucide-react'
 import { useBlocker, useRouter } from '@tanstack/react-router'
 import { ConfirmDialog } from '#/components/settings/ConfirmDialog'
+import { ReachNotice } from '#/components/shell/ConnectionNotice'
+import { useReachNotice } from '#/lib/reach'
 import type { ReactNode, Ref, RefObject } from 'react'
 
 /**
@@ -210,6 +212,7 @@ export function SheetShell({
             aria-hidden
             className={`mx-auto mt-2 h-1 w-9 shrink-0 rounded-full bg-hairline ${locked ? 'invisible' : ''}`}
           />
+          <SheetReachNotice />
           <LockRegistry.Provider value={register}>
             <InSheet.Provider value>{children}</InSheet.Provider>
           </LockRegistry.Provider>
@@ -440,6 +443,17 @@ export function Sheet({
  * 44px target — the smallest a thumb (or a glove) hits reliably. Placed so
  * the circle sits 12px from the corner, where every sheet has always had it.
  */
+/**
+ * "Could not reach PestM8", over a sheet's own content. ConnectionNotice's
+ * banner is under every sheet, and a sheet is where most saves are made and
+ * left on "Saving…", so it says the same here, with the same Try again and
+ * Reload; the sheet's ✕ is its dismiss.
+ */
+function SheetReachNotice() {
+  const notice = useReachNotice()
+  return notice && <ReachNotice {...notice} placement="sheet" />
+}
+
 export function SheetCloseButton({
   onClick,
   label = 'Close',

@@ -1,0 +1,57 @@
+diff --git a/dist/cjs/browser/sync/authentication_manager.js b/dist/cjs/browser/sync/authentication_manager.js
+index e29bd03f611da1128cdf6998f3b85e791ca3b435..35e4d443199defc7624a01288baeb5cd0ad0baba 100644
+--- a/dist/cjs/browser/sync/authentication_manager.js
++++ b/dist/cjs/browser/sync/authentication_manager.js
+@@ -99,6 +99,14 @@ class AuthenticationManager {
+     }
+     this._logVerbose("resuming WS after auth token fetch");
+     this.resumeSocket();
++    // PestM8 patch (patches/convex@1.45.0.patch): a setConfig that lands while
++    // tryToReauthenticate has the socket stopped makes that reauthentication's
++    // token fetch outdated, and it returns without restarting the socket, while
++    // resumeSocket ignores a stopped socket. Nothing else restarts it, so every
++    // query waited and every mutation queued until a reload. Only the auth
++    // manager stops the socket, and it always means to restart it, so restart
++    // it here; this does nothing unless the socket is stopped.
++    this.tryRestartSocket();
+   }
+   onTransition(serverMessage) {
+     if (!this.syncState.isCurrentOrNewerAuthVersion(
+diff --git a/dist/esm/browser/sync/authentication_manager.js b/dist/esm/browser/sync/authentication_manager.js
+index 3a1353a9f51cbb6ec7d746bbcb66a4a4171c1595..c6fe13594b6cdcf2159951c1f71a01e81bc9123e 100644
+--- a/dist/esm/browser/sync/authentication_manager.js
++++ b/dist/esm/browser/sync/authentication_manager.js
+@@ -78,6 +78,14 @@ export class AuthenticationManager {
+     }
+     this._logVerbose("resuming WS after auth token fetch");
+     this.resumeSocket();
++    // PestM8 patch (patches/convex@1.45.0.patch): a setConfig that lands while
++    // tryToReauthenticate has the socket stopped makes that reauthentication's
++    // token fetch outdated, and it returns without restarting the socket, while
++    // resumeSocket ignores a stopped socket. Nothing else restarts it, so every
++    // query waited and every mutation queued until a reload. Only the auth
++    // manager stops the socket, and it always means to restart it, so restart
++    // it here; this does nothing unless the socket is stopped.
++    this.tryRestartSocket();
+   }
+   onTransition(serverMessage) {
+     if (!this.syncState.isCurrentOrNewerAuthVersion(
+diff --git a/src/browser/sync/authentication_manager.ts b/src/browser/sync/authentication_manager.ts
+index a33fa699c3181823d19ae7e6bdbe6b702405455d..fa3ad41d18a0c7fc2190f2164c1d4cb7355fb61d 100644
+--- a/src/browser/sync/authentication_manager.ts
++++ b/src/browser/sync/authentication_manager.ts
+@@ -183,6 +183,14 @@ export class AuthenticationManager {
+     }
+     this._logVerbose("resuming WS after auth token fetch");
+     this.resumeSocket();
++    // PestM8 patch (patches/convex@1.45.0.patch): a setConfig that lands while
++    // tryToReauthenticate has the socket stopped makes that reauthentication's
++    // token fetch outdated, and it returns without restarting the socket, while
++    // resumeSocket ignores a stopped socket. Nothing else restarts it, so every
++    // query waited and every mutation queued until a reload. Only the auth
++    // manager stops the socket, and it always means to restart it, so restart
++    // it here; this does nothing unless the socket is stopped.
++    this.tryRestartSocket();
+   }
+ 
+   onTransition(serverMessage: Transition) {
