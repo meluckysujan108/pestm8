@@ -50,10 +50,21 @@ export function getContext() {
   // root route lets a signed-out page load go (`openSignedOut`, called from
   // __root.tsx). Only in the browser: the server renders with its own HTTP
   // client, and a held socket there would be opened for nothing.
+  //
+  // The token is refreshed a minute before it runs out rather than Convex's
+  // default ten seconds, so a refresh that has to retry — one bar, a VPN
+  // finding its feet — has had time to get through before the socket's token
+  // lapses and the server stops answering it. Asking Better Auth whether
+  // anyone is signed in gives up after ten seconds: the retry goes on either
+  // way (lib/tokenRefresh.ts), and a request that never answers would only
+  // hold a connection open.
   const convexQueryClient = new ConvexQueryClient(
     new HandoverConvexClient(convexUrl, {
       holdForSignIn: typeof window !== 'undefined',
-      refreshRetry: browserRefreshRetry(() => authClient.getSession()),
+      authRefreshTokenLeewaySeconds: 60,
+      refreshRetry: browserRefreshRetry(() =>
+        authClient.getSession({ fetchOptions: { timeout: 10_000 } }),
+      ),
     }),
   )
 

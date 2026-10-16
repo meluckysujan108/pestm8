@@ -12,6 +12,7 @@ import { TanStackRouterDevtoolsPanel } from '@tanstack/react-router-devtools'
 import { TanStackDevtools } from '@tanstack/react-devtools'
 import { ConvexBetterAuthProvider } from '@convex-dev/better-auth/react'
 import TanStackQueryDevtools from '../integrations/tanstack-query/devtools'
+import { ConnectionNotice } from '#/components/shell/ConnectionNotice'
 import { NavProgress } from '#/components/shell/NavProgress'
 import { ServiceWorker } from '#/components/shell/ServiceWorker'
 import { TwoStepPromptHost } from '#/components/auth/TwoStepPrompt'
@@ -141,6 +142,7 @@ function RootComponent() {
     >
       <SessionWatch />
       <NavProgress />
+      <ConnectionNotice convexClient={convexQueryClient.convexClient} />
       <Outlet />
     </ConvexBetterAuthProvider>
   )

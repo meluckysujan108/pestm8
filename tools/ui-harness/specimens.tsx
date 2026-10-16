@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { ComponentType, ReactNode } from 'react'
 import { ErrorComponent } from '@tanstack/react-router'
 import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
+import { ReachNotice } from '#/components/shell/ConnectionNotice'
 import { MobileDock } from '#/components/shell/MobileDock'
 import { SetupGuideCard } from '#/components/onboarding/SetupGuide'
 import { ReportPreview } from '#/components/onboarding/ReportPreview'
@@ -671,6 +672,36 @@ function ErrorScreen() {
       )}
     </Phone>
   )
+}
+
+/**
+ * The "Could not reach PestM8" notice over the schedule's header: Try again
+ * first, Reload once that hasn't helped (with a save waiting), and offline.
+ */
+function reach(
+  props: Pick<
+    Parameters<typeof ReachNotice>[0],
+    'online' | 'waitingToSave' | 'action'
+  >,
+) {
+  return function Reach() {
+    return (
+      <Phone>
+        <Header kicker="October 2026" title="Schedule" />
+        <div className="space-y-3 p-4">
+          {[0, 1, 2].map((card) => (
+            <div key={card} className="h-40 rounded-2xl bg-surface" />
+          ))}
+        </div>
+        <ReachNotice
+          {...props}
+          onTry={() => {}}
+          onReload={() => {}}
+          onDismiss={() => {}}
+        />
+      </Phone>
+    )
+  }
 }
 
 function Empty() {
@@ -1860,6 +1891,17 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   filters: Filters,
   settings: Settings,
   error: ErrorScreen,
+  reach: reach({ online: true, waitingToSave: false, action: 'try' }),
+  'reach-reload': reach({
+    online: true,
+    waitingToSave: true,
+    action: 'reload',
+  }),
+  'reach-offline': reach({
+    online: false,
+    waitingToSave: false,
+    action: 'try',
+  }),
   empty: Empty,
   guide: Guide,
   confirm: Confirm,

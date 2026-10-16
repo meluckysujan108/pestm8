@@ -27,7 +27,19 @@ import type { AuthTokenFetcher } from 'convex/browser'
  * If that token expires first, the server rejects it and the Convex client
  * stops the socket and asks for a new one, which waits on this same retry.
  * Either way the page keeps what it last showed and picks up again once the
- * token lands. It never shows an error.
+ * token lands. It never shows an error; components/shell/ConnectionNotice.tsx
+ * says when the wait has gone on.
+ *
+ * And no request is waited on for good. Nothing under it sets a time limit —
+ * not better-auth, not better-fetch — and on a phone a request can hang with
+ * no answer: one sent just before iOS put the Home Screen app to sleep, or
+ * through a VPN tunnel that is being rebuilt. While the socket is stopped for
+ * a fresh token, that one request was all that stood between the person and a
+ * working app, so it held every screen on "Loading…" (16 Oct 2026, a
+ * technician on 5G with a VPN: "Just keeps saying loading and can't do
+ * anything"). So each attempt has `bound`'s time to answer, and the phone
+ * waking or its network coming back abandons the one in flight and sends
+ * another at once, which is when one has the best chance.
  */
 
 /** Better Auth's answer to "is anyone signed in?", or none. */
@@ -37,6 +49,14 @@ export type RefreshRetry = {
   askSession: () => Promise<SessionAnswer>
   /** Waits before the next attempt (numbered from 0). */
   pause: (attempt: number) => Promise<void>
+  /**
+   * Settles a request within the time attempt number `attempt` is given:
+   * with its own answer, or with `fallback` once it has taken too long or the
+   * phone has woken or got its network back. The request is abandoned, not
+   * cancelled — better-auth's token call takes no signal. Without this,
+   * requests are waited on for as long as they take.
+   */
+  bound?: <T>(request: Promise<T>, fallback: T, attempt: number) => Promise<T>
 }
 
 /**
@@ -59,40 +79,57 @@ export function readSessionAnswer(result: {
  * sign-in that was replaced, the Convex client ignores that null. For a
  * sign-out, it matches what the socket already has.
  *
- * Forced refreshes that arrive while a retry is under way wait for that same
- * retry. That happens when the old token expires while the scheduled refresh
- * is still waiting and the server rejects it. One retry is enough, and its
- * token is fresh either way.
+ * Forced refreshes that arrive while one is under way — its first request or
+ * its retries — wait for that same one. That happens when the old token
+ * expires while the scheduled refresh is still waiting and the server rejects
+ * it, and when a sign-in handed over while the socket was stopped for a fresh
+ * token asks for one too. One is enough, and its token is fresh either way.
+ *
+ * A token the page already holds (no forced refresh) is handed back as it is,
+ * unless its request outlasts `bound`: then null, and the Convex client asks
+ * again with a forced refresh, which retries.
  */
 export function withRefreshRetry(
   fetchToken: AuthTokenFetcher,
   retry: RefreshRetry,
   isCurrent: () => boolean,
 ): AuthTokenFetcher {
-  let retrying: Promise<string | null> | undefined
+  let refreshing: Promise<string | null> | undefined
 
-  async function untilSettled(): Promise<string | null> {
+  const within = <T>(request: Promise<T>, fallback: T, attempt: number) =>
+    retry.bound ? retry.bound(request, fallback, attempt) : request
+
+  const fetchWithin = async (attempt: number, forceRefreshToken: boolean) =>
+    (await within(
+      fetchToken({ forceRefreshToken }).catch(() => null),
+      null,
+      attempt,
+    )) ?? null
+
+  async function refresh(): Promise<string | null> {
+    const token = await fetchWithin(0, true)
+    if (token || !isCurrent()) return token
     for (let attempt = 0; ; attempt++) {
-      const answer = await retry
-        .askSession()
-        .catch((): SessionAnswer => 'unknown')
+      const answer = await within(
+        retry.askSession().catch((): SessionAnswer => 'unknown'),
+        'unknown',
+        attempt,
+      )
       if (answer === 'signedOut' || !isCurrent()) return null
       await retry.pause(attempt)
       if (!isCurrent()) return null
-      const token = await fetchToken({ forceRefreshToken: true })
+      const next = await fetchWithin(attempt + 1, true)
       if (!isCurrent()) return null
-      if (token) return token
+      if (next) return next
     }
   }
 
   return async (args) => {
-    if (args.forceRefreshToken && retrying) return retrying
-    const token = await fetchToken(args)
-    if (token || !args.forceRefreshToken || !isCurrent()) return token
-    retrying ??= untilSettled().finally(() => {
-      retrying = undefined
+    if (!args.forceRefreshToken) return fetchWithin(0, false)
+    refreshing ??= refresh().finally(() => {
+      refreshing = undefined
     })
-    return retrying
+    return refreshing
   }
 }
 
@@ -102,10 +139,22 @@ export function retryDelayMs(attempt: number): number {
 }
 
 /**
+ * How long attempt number `attempt` may take before it is given up: 10 s,
+ * then 20 s, then 30 s from then on. Longer each time, so a link that is slow
+ * but working — a token through a VPN on one bar — still gets one through,
+ * rather than every attempt being abandoned just before it would have landed.
+ */
+export function attemptLimitMs(attempt: number): number {
+  return Math.min(30_000, 10_000 * (attempt + 1))
+}
+
+/**
  * The browser's retry. With no network at all it doesn't ask Better Auth,
  * whose request would only fail. It tries again early when the network comes
  * back, or when the page is looked at again. That is usually the phone waking,
- * and whoever woke it is waiting for the page.
+ * and whoever woke it is waiting for the page. Either one also gives up on a
+ * request still in flight, and skips the pause after it, so the next attempt
+ * goes at once.
  */
 export function browserRefreshRetry(
   getSession: () => Promise<{
@@ -113,23 +162,63 @@ export function browserRefreshRetry(
     error: { status?: number } | null
   }>,
 ): RefreshRetry {
+  let woken = false
   return {
     askSession: async () =>
       navigator.onLine ? readSessionAnswer(await getSession()) : 'unknown',
-    pause: (attempt) =>
-      new Promise<void>((resolve) => {
-        const done = () => {
-          clearTimeout(timer)
-          window.removeEventListener('online', done)
-          document.removeEventListener('visibilitychange', onVisible)
-          resolve()
-        }
-        const onVisible = () => {
-          if (document.visibilityState === 'visible') done()
-        }
-        const timer = setTimeout(done, retryDelayMs(attempt))
-        window.addEventListener('online', done)
-        document.addEventListener('visibilitychange', onVisible)
+    pause: (attempt) => {
+      if (woken) {
+        woken = false
+        return Promise.resolve()
+      }
+      return new Promise<void>((resolve) => {
+        untilWokenOr(retryDelayMs(attempt), () => resolve())
+      })
+    },
+    bound: <T>(request: Promise<T>, fallback: T, attempt: number) =>
+      new Promise<T>((resolve) => {
+        const stop = untilWokenOr(attemptLimitMs(attempt), (byWake) => {
+          if (byWake) woken = true
+          resolve(fallback)
+        })
+        request.then(
+          (value) => {
+            stop()
+            resolve(value)
+          },
+          () => {
+            stop()
+            resolve(fallback)
+          },
+        )
       }),
   }
+}
+
+/**
+ * Calls `onDone` after `ms`, or as soon as the network comes back or the page
+ * is looked at again, saying which. The function it returns stops the wait
+ * without calling `onDone`.
+ */
+function untilWokenOr(
+  ms: number,
+  onDone: (byWake: boolean) => void,
+): () => void {
+  const stop = () => {
+    clearTimeout(timer)
+    window.removeEventListener('online', onWake)
+    document.removeEventListener('visibilitychange', onVisible)
+  }
+  const finish = (byWake: boolean) => {
+    stop()
+    onDone(byWake)
+  }
+  const onWake = () => finish(true)
+  const onVisible = () => {
+    if (document.visibilityState === 'visible') finish(true)
+  }
+  const timer = setTimeout(() => finish(false), ms)
+  window.addEventListener('online', onWake)
+  document.addEventListener('visibilitychange', onVisible)
+  return stop
 }

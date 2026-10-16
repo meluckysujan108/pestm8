@@ -1,6 +1,7 @@
 import { ConvexReactClient } from 'convex/react'
 import type { ConvexReactClientOptions } from 'convex/react'
 import type { AuthTokenFetcher } from 'convex/browser'
+import { expiryOfToken } from '#/lib/jwt'
 import { withRefreshRetry } from '#/lib/tokenRefresh'
 import type { RefreshRetry } from '#/lib/tokenRefresh'
 
@@ -51,6 +52,22 @@ import type { RefreshRetry } from '#/lib/tokenRefresh'
  * signal, or on a server hiccup (lib/tokenRefresh.ts). Sending the person to
  * sign in is SessionWatch's job (__root.tsx), which follows Better Auth, not
  * the socket.
+ *
+ * That same page-load token is what every hand-over offers first, for the
+ * life of the page: the hook's getter answers "no forced refresh" with it. On
+ * a page served from the service worker's cache it had run out before the
+ * page opened, so the server turned it down and the Convex client stopped the
+ * socket to fetch a fresh one — and a hand-over landing during that fetch
+ * left the socket stopped for good, every screen on "Loading…" until the app
+ * was closed (16 Oct 2026; patches/convex@1.45.0.patch fixes that half, and
+ * the test "a sign-in handed over while the socket is stopped for a fresh
+ * token still reopens it" pins it). So a hand-over offers the freshest token
+ * this page has been given instead, when that one runs out later: usually
+ * the one the socket already has, which the server accepts. It is never for a
+ * different person than the stale one would have been: every sign-in and
+ * sign-out here ends in a full page load, except the join page's, where the
+ * stale token is the person before's just the same — and the forced refresh
+ * the Convex client runs after every hand-over fetches the new person's.
  */
 export class HandoverConvexClient extends ConvexReactClient {
   private clearPending = false
@@ -61,6 +78,9 @@ export class HandoverConvexClient extends ConvexReactClient {
   // While the page load's first sign-in is not yet known: what hands it over
   // (see `holdForSignIn`).
   private firstSignIn: ((signIn: SignIn) => void) | undefined
+  // Of the tokens any sign-in's getter has answered with since the last clear
+  // that went through, the one that runs out last.
+  private freshest: { token: string; expiresAt: number } | undefined
 
   constructor(
     address: string,
@@ -112,17 +132,19 @@ export class HandoverConvexClient extends ConvexReactClient {
       if (!this.clearPending) return
       this.clearPending = false
       this.authGeneration++
+      this.freshest = undefined
       super.clearAuth()
     })
   }
 
   override setAuth(
-    ...[fetchToken, onChange, onRefreshChange]: Parameters<
+    ...[getToken, onChange, onRefreshChange]: Parameters<
       ConvexReactClient['setAuth']
     >
   ): void {
     this.clearPending = false
     const generation = ++this.authGeneration
+    const fetchToken = this.preferFreshest(getToken)
     const signIn: SignIn = {
       fetchToken: this.refreshRetry
         ? withRefreshRetry(
@@ -138,6 +160,26 @@ export class HandoverConvexClient extends ConvexReactClient {
     this.firstSignIn = undefined
     if (first) first(signIn)
     else super.setAuth(signIn.fetchToken, onChange, onRefreshChange)
+  }
+
+  /**
+   * `fetchToken`, remembering every token it answers with, and answering
+   * "no forced refresh" with the freshest one remembered when that runs out
+   * later than its own (see the top of this class).
+   */
+  private preferFreshest(fetchToken: AuthTokenFetcher): AuthTokenFetcher {
+    return async (args) => {
+      const token = await fetchToken(args)
+      if (!token) return token
+      const expiresAt = expiryOfToken(token)
+      if (expiresAt === null) return token
+      const freshest = this.freshest
+      if (!freshest || expiresAt >= freshest.expiresAt) {
+        this.freshest = { token, expiresAt }
+        return token
+      }
+      return args.forceRefreshToken ? token : freshest.token
+    }
   }
 
   /**

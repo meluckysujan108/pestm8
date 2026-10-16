@@ -1,9 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  attemptLimitMs,
   browserRefreshRetry,
   readSessionAnswer,
   retryDelayMs,
+  withRefreshRetry,
 } from './tokenRefresh'
+import type { RefreshRetry } from './tokenRefresh'
 
 describe('readSessionAnswer', () => {
   it('is signed out only when the server said so', () => {
@@ -32,6 +35,110 @@ describe('retryDelayMs', () => {
     expect([0, 1, 2, 3, 4, 5, 6, 20].map(retryDelayMs)).toEqual([
       1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000,
     ])
+  })
+})
+
+describe('attemptLimitMs', () => {
+  it('gives each attempt longer, up to 30 seconds', () => {
+    expect([0, 1, 2, 3, 10].map(attemptLimitMs)).toEqual([
+      10_000, 20_000, 30_000, 30_000, 30_000,
+    ])
+  })
+})
+
+/** A request that never answers: one sent into a dead VPN tunnel. */
+const never = () => new Promise<never>(() => {})
+
+describe('withRefreshRetry', () => {
+  /** A retry whose `bound` gives up on a request when the test says so. */
+  function retrying(...answers: Array<'signedIn' | 'signedOut' | 'unknown'>) {
+    const givingUp: Array<() => void> = []
+    const retry: RefreshRetry = {
+      askSession: async () => answers.shift() ?? 'signedIn',
+      pause: async () => {},
+      bound: (request, fallback) =>
+        Promise.race([
+          request,
+          new Promise<typeof fallback>((resolve) =>
+            givingUp.push(() => resolve(fallback)),
+          ),
+        ]),
+    }
+    return {
+      retry,
+      giveUp: () => givingUp.splice(0).forEach((stop) => stop()),
+    }
+  }
+
+  it('gives up on a refresh that never answers, and fetches again', async () => {
+    const { retry, giveUp } = retrying('signedIn')
+    const fetchToken = vi
+      .fn()
+      .mockImplementationOnce(never)
+      .mockResolvedValueOnce('fresh')
+    const fetch = withRefreshRetry(fetchToken, retry, () => true)
+
+    const token = fetch({ forceRefreshToken: true })
+    await vi.waitFor(() => expect(fetchToken).toHaveBeenCalledTimes(1))
+    giveUp()
+
+    expect(await token).toBe('fresh')
+    expect(fetchToken).toHaveBeenCalledTimes(2)
+  })
+
+  it('gives up on asking Better Auth when it never answers, and carries on', async () => {
+    const givingUp: Array<() => void> = []
+    const retry: RefreshRetry = {
+      askSession: never,
+      pause: async () => {},
+      bound: (request, fallback) =>
+        Promise.race([
+          request,
+          new Promise<typeof fallback>((resolve) =>
+            givingUp.push(() => resolve(fallback)),
+          ),
+        ]),
+    }
+    const fetchToken = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce('fresh')
+    const fetch = withRefreshRetry(fetchToken, retry, () => true)
+
+    const token = fetch({ forceRefreshToken: true })
+    await vi.waitFor(() => expect(givingUp).toHaveLength(2))
+    givingUp.splice(0).forEach((stop) => stop())
+
+    expect(await token).toBe('fresh')
+  })
+
+  it('a forced refresh asked for while one is in flight waits for it', async () => {
+    const { retry } = retrying()
+    let answer!: (token: string) => void
+    const fetchToken = vi.fn(
+      () => new Promise<string>((resolve) => (answer = resolve)),
+    )
+    const fetch = withRefreshRetry(fetchToken, retry, () => true)
+
+    const first = fetch({ forceRefreshToken: true })
+    const second = fetch({ forceRefreshToken: true })
+    await vi.waitFor(() => expect(fetchToken).toHaveBeenCalledTimes(1))
+    answer('fresh')
+
+    expect(await Promise.all([first, second])).toEqual(['fresh', 'fresh'])
+    expect(fetchToken).toHaveBeenCalledTimes(1)
+  })
+
+  it('hands back null for a token the page holds whose request never answers', async () => {
+    // The Convex client then asks again with a forced refresh, which retries.
+    const { retry, giveUp } = retrying()
+    const fetch = withRefreshRetry(vi.fn(never), retry, () => true)
+
+    const token = fetch({ forceRefreshToken: false })
+    await Promise.resolve()
+    giveUp()
+
+    expect(await token).toBeNull()
   })
 })
 
@@ -121,5 +228,68 @@ describe('browserRefreshRetry', () => {
     document.dispatchEvent(new Event('visibilitychange'))
     await vi.advanceTimersByTimeAsync(0)
     expect(over).toBe(true)
+  })
+
+  it('gives a request until its limit, then the fallback', async () => {
+    vi.useFakeTimers()
+    page({ onLine: true })
+    const retry = browserRefreshRetry(vi.fn())
+    let settled: string | undefined
+    void retry.bound!(never(), 'gave up', 1).then((value) => (settled = value))
+
+    await vi.advanceTimersByTimeAsync(19_999)
+    expect(settled).toBeUndefined()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(settled).toBe('gave up')
+  })
+
+  it('answers with the request when it lands in time', async () => {
+    vi.useFakeTimers()
+    page({ onLine: true })
+    const retry = browserRefreshRetry(vi.fn())
+
+    expect(await retry.bound!(Promise.resolve('token'), null, 0)).toBe('token')
+    expect(await retry.bound!(Promise.reject(new Error('x')), null, 0)).toBe(
+      null,
+    )
+  })
+
+  it('gives up on a request in flight when the phone wakes, and goes again at once', async () => {
+    vi.useFakeTimers()
+    const { document } = page({ onLine: true })
+    const retry = browserRefreshRetry(vi.fn())
+    let settled: string | undefined
+    void retry.bound!(never(), 'gave up', 0).then((value) => (settled = value))
+
+    document.visibilityState = 'visible'
+    document.dispatchEvent(new Event('visibilitychange'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).toBe('gave up')
+
+    // The pause after it is skipped…
+    let over = false
+    void retry.pause(5).then(() => (over = true))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(over).toBe(true)
+
+    // …and only that one.
+    over = false
+    void retry.pause(0).then(() => (over = true))
+    await vi.advanceTimersByTimeAsync(999)
+    expect(over).toBe(false)
+    await vi.advanceTimersByTimeAsync(1)
+    expect(over).toBe(true)
+  })
+
+  it('gives up on a request in flight when the network comes back', async () => {
+    vi.useFakeTimers()
+    const { window } = page({ onLine: true })
+    const retry = browserRefreshRetry(vi.fn())
+    let settled: string | undefined
+    void retry.bound!(never(), 'gave up', 0).then((value) => (settled = value))
+
+    window.dispatchEvent(new Event('online'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(settled).toBe('gave up')
   })
 })

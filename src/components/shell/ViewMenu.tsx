@@ -44,7 +44,7 @@ export function ViewMenu({
   // shape comes from `access.me`, already loaded; details fill in after.
   // And only for someone who gets the menu: everyone else would be holding a
   // subscription open on every page to be told `null`.
-  const { data: options } = useQuery({
+  const { data: options, isError } = useQuery({
     ...convexQuery(api.views.options, { businessId }),
     enabled: mode !== null,
   })
@@ -143,10 +143,14 @@ export function ViewMenu({
             />
 
             {/* The first open on a slow phone can beat the names here; an
-                empty section would read as "nobody to switch to". */}
+                empty section would read as "nobody to switch to". Refused
+                outright, it says so rather than loading for good. Out of
+                reach, ConnectionNotice says that. */}
             {options === undefined && (
               <p className="px-2.5 py-2 text-caption text-muted">
-                Loading the team…
+                {isError
+                  ? 'Could not load the team. Check your signal.'
+                  : 'Loading the team…'}
               </p>
             )}
             {accounts.length > 0 && (
