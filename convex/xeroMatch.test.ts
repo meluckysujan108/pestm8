@@ -687,6 +687,7 @@ describe('reading an organisation’s contacts', () => {
       fresh: 4,
       different: 0,
       leads: 1,
+      shared: 0,
       problem: null,
       staleAfter: null,
     })
@@ -1814,6 +1815,7 @@ describe('matching again', () => {
       fresh: 4,
       different: 2,
       leads: 2,
+      shared: 0,
       problem: null,
       staleAfter: null,
     })

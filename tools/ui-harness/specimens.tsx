@@ -1504,15 +1504,22 @@ function xeroPage(
  * Settings → Xero → Match your clients (or My Xero's), opened on one list:
  * the business id picks `xero.status`'s answer and the lists'
  * (xeroFixtures.ts). The chips work, as the page's address would.
+ * `noClientEdits`: someone who can't change clients (no Merge).
  */
 function matchPage(
   kind: 'business' | 'member',
   businessId: string,
-  opts: { filter?: MatchFilter; owner?: boolean; switched?: boolean } = {},
+  opts: {
+    filter?: MatchFilter
+    owner?: boolean
+    switched?: boolean
+    noClientEdits?: boolean
+  } = {},
 ) {
   return function MatchSpecimen() {
     state.technician = !(opts.owner ?? kind === 'business')
     state.actingAs = opts.switched ?? false
+    state.noClientEdits = opts.noClientEdits ?? false
     const [filter, setFilter] = useState<MatchFilter>(opts.filter ?? 'review')
     return (
       <Phone>
@@ -1528,6 +1535,7 @@ function matchPage(
                 _id: businessId as never,
                 slug: 'demo',
                 name: 'Pest M8 Pest Control',
+                state: 'WA',
               }}
               filter={filter}
               onFilter={setFilter}
@@ -1800,6 +1808,14 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
     filter: 'matched',
   }),
   'xero-match-load-failed': matchPage('business', XERO_BIZ.matchListFails),
+  // The same customer (2026-10-16): Keep both's list, and a subcontractor
+  // who can't change clients, whose Same customer sheet can't merge.
+  'xero-match-shared': matchPage('business', XERO_BIZ.matchReady, {
+    filter: 'shared',
+  }),
+  'my-xero-match-no-merge': matchPage('member', XERO_BIZ.matchReady, {
+    noClientEdits: true,
+  }),
   'xero-match-unconfigured': matchPage('business', XERO_BIZ.unconfigured),
   'xero-match-demo': matchPage('business', XERO_BIZ.demo),
   'my-xero-match-owner': matchPage('member', XERO_BIZ.matchReady, {

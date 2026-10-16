@@ -177,6 +177,7 @@ export type LinkState =
   | 'archived_in_xero'
   | 'gdpr'
   | 'failed'
+  | 'shared'
 
 /** How a linked client came to be its contact. */
 export type LinkHow = 'matched' | 'chosen' | 'created' | 'relinked'
@@ -213,6 +214,9 @@ export type LinkHashes = {
  * - `undoing`: its import is being undone — nothing sent meanwhile, so a
  *   list the person took back isn't added to Xero while it goes;
  * - `stopped`: archived in Xero, or frozen there by a GDPR request;
+ * - `shared`: the same customer as another client, whose contact it uses
+ *   (Keep both): never sent — that client's changes are, and two clients
+ *   writing one contact would undo each other;
  * - `review`: waiting on the holder's Same / Different;
  * - `lead`: a lead with no contact yet — added when first booked;
  * - `create`: no contact yet, so one is made;
@@ -224,6 +228,7 @@ export type Eligibility =
   | 'archived'
   | 'undoing'
   | 'stopped'
+  | 'shared'
   | 'review'
   | 'lead'
   | 'create'
@@ -262,6 +267,8 @@ export function eligibility(
   if (link?.state === 'archived_in_xero' || link?.state === 'gdpr') {
     return 'stopped'
   }
+  // Ahead of `update`: a shared link names a contact — its holder's.
+  if (link?.state === 'shared') return 'shared'
   if (link?.state === 'needs_review') return 'review'
   if (
     link?.xeroContactId &&

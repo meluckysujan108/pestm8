@@ -253,13 +253,22 @@ function sizeOf(group: Group): number {
  * `by` is who deleted it — or, for a client archived before the bin existed
  * (migrations/archivedClientsToBinV1), when it was archived: nothing
  * recorded who, so the entry names nobody and nothing is audited.
+ *
+ * `mergedInto`, for a client: it was merged into that client
+ * (clientMerge.ts), which took everything it had. It is marked so (its
+ * `mergedIntoClientId`), which is what refuses its restore and what the bin
+ * page says of it; the merge audits itself, so no `bin.delete` row claims
+ * that anyone deleted it.
  */
 export async function putInBin(
   ctx: MutationCtx,
   businessId: Id<'businesses'>,
   root: Root,
-  by: { env: WriteEnvelope } | { archivedAt: number },
+  by:
+    { env: WriteEnvelope; mergedInto?: Id<'clients'> } | { archivedAt: number },
 ): Promise<Id<'binEntries'>> {
+  const mergedInto =
+    'env' in by && root.kind === 'client' ? by.mergedInto : undefined
   const group = await gather(ctx, root)
   if (sizeOf(group) > MAX_GROUP_ROWS) {
     throw new ConvexError('TOO_MUCH_TO_DELETE')
@@ -288,7 +297,13 @@ export async function putInBin(
   for (const [id, client] of group.clients) {
     // xero: out of the book, so off the match page's lists — and its counts.
     if (inXeroBook(client)) await countXeroLinksOf(ctx, id, -1)
-    await ctx.db.patch('clients', id, mark)
+    await ctx.db.patch(
+      'clients',
+      id,
+      mergedInto !== undefined && id === root.id
+        ? { ...mark, mergedIntoClientId: mergedInto }
+        : mark,
+    )
   }
   for (const id of group.properties.keys()) {
     await ctx.db.patch('properties', id, mark)
@@ -313,7 +328,7 @@ export async function putInBin(
     ),
   )
 
-  if (!('env' in by)) return binEntryId
+  if (!('env' in by) || mergedInto !== undefined) return binEntryId
 
   // Ids and numbers only: the audit log outlives a wipe, so it must not
   // carry a name or an address.
@@ -482,6 +497,10 @@ async function keepOneContactPerson(
  * own — a property whose client is binned, a job whose property or series
  * is — because it would come back into lists at an address nobody can open.
  * The error names what to restore first.
+ *
+ * Refused for good (MERGED) for a client merged into another, and for a
+ * site or contact of one: its sites, jobs and notes are that client's now,
+ * so it would come back an empty duplicate of it.
  */
 export const restore = mutation({
   args: { businessId: v.id('businesses'), entryId: v.id('binEntries') },
@@ -573,16 +592,34 @@ async function requireRestorable(ctx: MutationCtx, root: Root) {
   const clientOf = async (clientId: Id<'clients'>) => {
     const client = await ctx.db.get(clientId)
     if (!client) throw new ConvexError('RESTORE_PARENT_GONE')
+    // Restoring the client first is no way out: it can't be.
+    if (isBinned(client) && client.mergedIntoClientId !== undefined) {
+      throw new ConvexError('MERGED')
+    }
     if (isBinned(client)) throw new ConvexError('RESTORE_CLIENT_FIRST')
   }
   const propertyOf = async (propertyId: Id<'properties'>) => {
     const property = await ctx.db.get(propertyId)
     if (!property) throw new ConvexError('RESTORE_PARENT_GONE')
-    if (isBinned(property)) throw new ConvexError('RESTORE_PROPERTY_FIRST')
+    if (isBinned(property)) {
+      // A site that stayed with a merged client (it was in the bin on its
+      // own) can't be restored either, so saying to restore it first would
+      // send the person round in a circle.
+      const client = await ctx.db.get(property.clientId)
+      if (client && isBinned(client) && client.mergedIntoClientId) {
+        throw new ConvexError('MERGED')
+      }
+      throw new ConvexError('RESTORE_PROPERTY_FIRST')
+    }
   }
   switch (root.kind) {
-    case 'client':
+    case 'client': {
+      const client = await ctx.db.get(root.id)
+      if (client?.mergedIntoClientId !== undefined) {
+        throw new ConvexError('MERGED')
+      }
       return
+    }
     case 'property': {
       const property = await ctx.db.get(root.id)
       if (!property) throw new ConvexError('NOT_FOUND')
@@ -622,6 +659,11 @@ async function requireRestorable(ctx: MutationCtx, root: Root) {
  * Each row names the record the way the rest of the app does — a client by
  * name, a site by its address, a job by its type, suburb and day — read from
  * the binned record itself, which is what lets the entry hold no names.
+ *
+ * `mergedInto` is the client a merged client went into ("Merged into
+ * Jan Smith"), on its own entry, on a site or contact of it that was
+ * already in the bin, and on a job or Recurring Job at such a site — none of
+ * which can be restored (MERGED). Null on everything else.
  */
 export const list = query({
   args: { businessId: v.id('businesses') },
@@ -685,10 +727,31 @@ async function describe(ctx: QueryCtx, root: Root) {
       ? { addressLine: property.addressLine, suburb: property.suburb }
       : { addressLine: '', suburb: '' }
   }
+  /** Who a merged client went into: by name, as everything here is — read
+   * from that client, which may since have gone itself. */
+  const mergedIntoOf = async (client: Doc<'clients'> | null) => {
+    const intoId = client?.mergedIntoClientId
+    if (intoId === undefined) return null
+    const into = await ctx.db.get(intoId)
+    return { clientId: intoId, name: into?.name ?? '' }
+  }
+  /** For a job or Recurring Job: who the client of its site was merged
+   * into, if it was — the site stayed with it, in the bin, so neither can
+   * come back (`restore`, MERGED). */
+  const mergedAtSite = async (propertyId: Id<'properties'>) => {
+    const property = await ctx.db.get(propertyId)
+    return property ? mergedIntoOf(await ctx.db.get(property.clientId)) : null
+  }
   switch (root.kind) {
     case 'client': {
       const client = await ctx.db.get(root.id)
-      return client && { kind: 'client' as const, title: client.name }
+      return (
+        client && {
+          kind: 'client' as const,
+          title: client.name,
+          mergedInto: await mergedIntoOf(client),
+        }
+      )
     }
     case 'property': {
       const property = await ctx.db.get(root.id)
@@ -699,6 +762,7 @@ async function describe(ctx: QueryCtx, root: Root) {
         title: property.addressLine,
         suburb: property.suburb,
         clientName: client?.name ?? '',
+        mergedInto: await mergedIntoOf(client),
       }
     }
     case 'job': {
@@ -710,6 +774,7 @@ async function describe(ctx: QueryCtx, root: Root) {
         title: job.jobType,
         suburb,
         scheduledAt: job.scheduledAt,
+        mergedInto: await mergedAtSite(job.propertyId),
       }
     }
     case 'contact': {
@@ -720,6 +785,7 @@ async function describe(ctx: QueryCtx, root: Root) {
         kind: 'contact' as const,
         title: contact.name,
         clientName: client?.name ?? '',
+        mergedInto: await mergedIntoOf(client),
       }
     }
     case 'recurrence': {
@@ -731,6 +797,7 @@ async function describe(ctx: QueryCtx, root: Root) {
         title: series.jobType,
         suburb,
         interval: intervalOf(series),
+        mergedInto: await mergedAtSite(series.propertyId),
       }
     }
   }
