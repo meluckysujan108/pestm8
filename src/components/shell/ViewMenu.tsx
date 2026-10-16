@@ -144,15 +144,22 @@ export function ViewMenu({
 
             {/* The first open on a slow phone can beat the names here; an
                 empty section would read as "nobody to switch to". Refused
-                outright, it says so rather than loading for good. Out of
-                reach, ConnectionNotice says that. */}
-            {options === undefined && (
-              <p className="px-2.5 py-2 text-caption text-muted">
-                {isError
-                  ? 'Could not load the team. Check your signal.'
-                  : 'Loading the team…'}
-              </p>
-            )}
+                by the server, it says so rather than loading for good; a
+                refusal isn't signal, and a refetch would only be refused
+                again. Out of reach, ConnectionNotice says that. */}
+            {options === undefined &&
+              (isError ? (
+                <p
+                  role="alert"
+                  className="px-2.5 py-2 text-caption text-amber-ink"
+                >
+                  Could not load the team. Reload PestM8 to try again.
+                </p>
+              ) : (
+                <p className="px-2.5 py-2 text-caption text-muted">
+                  Loading the team…
+                </p>
+              ))}
             {accounts.length > 0 && (
               <>
                 <DropdownMenu.Separator className="my-1 border-t border-hairline" />

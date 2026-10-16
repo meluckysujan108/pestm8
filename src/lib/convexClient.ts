@@ -1,7 +1,7 @@
 import { ConvexReactClient } from 'convex/react'
 import type { ConvexReactClientOptions } from 'convex/react'
 import type { AuthTokenFetcher } from 'convex/browser'
-import { expiryOfToken } from '#/lib/jwt'
+import { expiryOfToken, issueOfToken } from '#/lib/jwt'
 import { withRefreshRetry } from '#/lib/tokenRefresh'
 import type { RefreshRetry } from '#/lib/tokenRefresh'
 
@@ -81,6 +81,8 @@ export class HandoverConvexClient extends ConvexReactClient {
   // Of the tokens any sign-in's getter has answered with since the last clear
   // that went through, the one that runs out last.
   private freshest: { token: string; expiresAt: number } | undefined
+  // The last token handed to the Convex client, since that clear.
+  private handedOut: string | undefined
 
   constructor(
     address: string,
@@ -133,6 +135,7 @@ export class HandoverConvexClient extends ConvexReactClient {
       this.clearPending = false
       this.authGeneration++
       this.freshest = undefined
+      this.handedOut = undefined
       super.clearAuth()
     })
   }
@@ -144,7 +147,10 @@ export class HandoverConvexClient extends ConvexReactClient {
   ): void {
     this.clearPending = false
     const generation = ++this.authGeneration
-    const fetchToken = this.preferFreshest(getToken)
+    const fetchToken = this.preferFreshest(
+      getToken,
+      () => generation === this.authGeneration,
+    )
     const signIn: SignIn = {
       fetchToken: this.refreshRetry
         ? withRefreshRetry(
@@ -166,19 +172,60 @@ export class HandoverConvexClient extends ConvexReactClient {
    * `fetchToken`, remembering every token it answers with, and answering
    * "no forced refresh" with the freshest one remembered when that runs out
    * later than its own (see the top of this class).
+   *
+   * A forced refresh never answers with the token the Convex client was last
+   * handed. Better Auth mints the same string twice within one second — the
+   * same claims, `iat` in whole seconds, no `jti`, a deterministic signature —
+   * and the Convex client reads "the same token again" as one it cannot
+   * refresh: after a confirmed token it schedules no more refreshes, so the
+   * socket is stopped when that token runs out; after a refused one it signs
+   * the socket out. Offering the freshest token at a hand-over made the first
+   * of those likely: the refresh straight after it could land in the second
+   * that token was minted. So it waits for the next second and asks again,
+   * once, and keeps what it had if that comes back the same or empty. Only
+   * the current sign-in's answers count as handed over: the Convex client
+   * drops a replaced one's.
    */
-  private preferFreshest(fetchToken: AuthTokenFetcher): AuthTokenFetcher {
+  private preferFreshest(
+    fetchToken: AuthTokenFetcher,
+    isCurrent: () => boolean,
+  ): AuthTokenFetcher {
     return async (args) => {
-      const token = await fetchToken(args)
+      let token = await fetchToken(args)
+      if (args.forceRefreshToken && token && token === this.handedOut) {
+        const issuedAt = issueOfToken(token)
+        await new Promise((resolve) =>
+          setTimeout(
+            resolve,
+            issuedAt === null
+              ? 1_000
+              : Math.min(
+                  1_500,
+                  Math.max(0, (issuedAt + 1) * 1_000 - Date.now()),
+                ),
+          ),
+        )
+        const again = await fetchToken(args)
+        if (again) token = again
+      }
       if (!token) return token
       const expiresAt = expiryOfToken(token)
-      if (expiresAt === null) return token
       const freshest = this.freshest
-      if (!freshest || expiresAt >= freshest.expiresAt) {
+      if (
+        expiresAt !== null &&
+        freshest &&
+        expiresAt < freshest.expiresAt &&
+        !args.forceRefreshToken
+      ) {
+        token = freshest.token
+      } else if (
+        expiresAt !== null &&
+        (!freshest || expiresAt >= freshest.expiresAt)
+      ) {
         this.freshest = { token, expiresAt }
-        return token
       }
-      return args.forceRefreshToken ? token : freshest.token
+      if (isCurrent()) this.handedOut = token
+      return token
     }
   }
 

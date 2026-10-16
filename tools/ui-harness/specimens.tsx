@@ -3,6 +3,8 @@ import type { ComponentType, ReactNode } from 'react'
 import { ErrorComponent } from '@tanstack/react-router'
 import { ErrorScreen as AppErrorScreen } from '#/components/shell/ErrorScreen'
 import { ReachNotice } from '#/components/shell/ConnectionNotice'
+import { publishReachNotice } from '#/lib/reach'
+import type { ReachNoticeModel } from '#/lib/reach'
 import { MobileDock } from '#/components/shell/MobileDock'
 import { SetupGuideCard } from '#/components/onboarding/SetupGuide'
 import { ReportPreview } from '#/components/onboarding/ReportPreview'
@@ -702,6 +704,24 @@ function reach(
       </Phone>
     )
   }
+}
+
+/**
+ * The notice's copy at the top of an open sheet, under the grab handle: the
+ * real Sheet, drawing what ConnectionNotice would have published.
+ */
+const REACH_IN_SHEET: ReachNoticeModel = {
+  online: true,
+  waitingToSave: true,
+  action: 'try',
+  onTry: () => {},
+  onReload: () => {},
+  onDismiss: () => {},
+}
+
+function ReachInSheet() {
+  publishReachNotice(REACH_IN_SHEET)
+  return <SheetPrimitive />
 }
 
 function Empty() {
@@ -1902,6 +1922,12 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
     waitingToSave: false,
     action: 'try',
   }),
+  'reach-confirm': reach({
+    online: true,
+    waitingToSave: true,
+    action: 'reload-confirm',
+  }),
+  'reach-sheet': ReachInSheet,
   empty: Empty,
   guide: Guide,
   confirm: Confirm,

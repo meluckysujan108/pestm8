@@ -142,8 +142,8 @@ function RootComponent() {
     >
       <SessionWatch />
       <NavProgress />
-      <ConnectionNotice convexClient={convexQueryClient.convexClient} />
       <Outlet />
+      <ConnectionNotice convexClient={convexQueryClient.convexClient} />
     </ConvexBetterAuthProvider>
   )
 }

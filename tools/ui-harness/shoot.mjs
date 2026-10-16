@@ -651,6 +651,8 @@ const PLAN = {
   reach: {},
   'reach-reload': {},
   'reach-offline': {},
+  'reach-confirm': {},
+  'reach-sheet': {},
   guide: { before: async (p) => p.waitForTimeout(500) },
   confirm: { before: async (p) => p.waitForTimeout(500) },
   inputs: { before: async (p) => p.waitForTimeout(600) },

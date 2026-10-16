@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  GAP_MS,
   QUERY_WAIT_MS,
   REACH_START,
   REQUEST_WAIT_MS,
@@ -86,6 +87,36 @@ describe('sampleReach', () => {
     // the clocks start from the wake.
     expect(run(asleep, 60_000 + SOCKET_DOWN_MS - 1_000).stuck).toBe(false)
     expect(run(asleep, 60_000 + SOCKET_DOWN_MS).stuck).toBe(true)
+  })
+
+  it('starts again after a gap in the samples, as after a wake it never heard about', () => {
+    // A phone can freeze the page without telling it it was hidden: the
+    // samples just stop, and the next comes minutes later with a dead socket.
+    const { state } = run(() => ({ socketConnected: false }), 3_000)
+    const woken = 3_000 + GAP_MS + 60_000
+    const after = (now: number) =>
+      sampleReach(state, {
+        ...healthy,
+        now,
+        socketConnected: false,
+        oldestRequestAt: 0,
+      })
+    expect(after(woken).stuck).toBe(false)
+    expect(
+      run(
+        () => ({ socketConnected: false, oldestRequestAt: 0 }),
+        woken + SOCKET_DOWN_MS,
+        woken,
+        after(woken).state,
+      ).stuck,
+    ).toBe(true)
+  })
+
+  it('a slow sample now and then is not a gap', () => {
+    const lagging = (now: number) => ({ socketConnected: now > 0 })
+    let state = run(lagging, 4_000).state
+    state = sampleReach(state, { ...healthy, now: 4_000 + GAP_MS }).state
+    expect(state.visibleSince).toBe(0)
   })
 
   it('forgets everything when the page goes off screen', () => {

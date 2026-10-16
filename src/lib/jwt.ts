@@ -9,6 +9,7 @@
 export function jwtClaims(jwt: string | null | undefined): {
   sub?: unknown
   exp?: unknown
+  iat?: unknown
 } | null {
   const payload = jwt?.split('.')[1]
   if (!payload) return null
@@ -24,6 +25,14 @@ export function jwtClaims(jwt: string | null | undefined): {
 
 /** When a JWT runs out, in seconds since the epoch, or null. */
 export function expiryOfToken(jwt: string | null | undefined): number | null {
-  const exp = jwtClaims(jwt)?.exp
-  return typeof exp === 'number' && Number.isFinite(exp) ? exp : null
+  return seconds(jwtClaims(jwt)?.exp)
+}
+
+/** When a JWT was issued, in seconds since the epoch, or null. */
+export function issueOfToken(jwt: string | null | undefined): number | null {
+  return seconds(jwtClaims(jwt)?.iat)
+}
+
+function seconds(claim: unknown): number | null {
+  return typeof claim === 'number' && Number.isFinite(claim) ? claim : null
 }

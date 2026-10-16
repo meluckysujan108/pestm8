@@ -595,11 +595,15 @@ describe('HandoverConvexClient, when the token a page opened with has run out', 
     const client = openPage()
     const answered = watch(client)
 
+    // Forced refreshes wait until the test lets them through; after that,
+    // every one is answered, whenever it is asked.
     const forced: Array<ReturnType<typeof deferred<string | null>>> = []
+    let through = false
     const fetcher =
       (): AuthTokenFetcher =>
       async ({ forceRefreshToken }) => {
         if (!forceRefreshToken) return STALE
+        if (through) return FRESH_TOKEN
         const next = deferred<string | null>()
         forced.push(next)
         return next.promise
@@ -613,16 +617,19 @@ describe('HandoverConvexClient, when the token a page opened with has run out', 
     handOver(client, STALE)
     client.setAuth(fetcher())
     await settle()
+    through = true
     for (const fetch of forced) fetch.resolve(FRESH_TOKEN)
 
-    await vi.waitFor(() =>
-      expect(client.connectionState().isWebSocketConnected).toBe(true),
+    const longer = { timeout: 5_000 }
+    await vi.waitFor(
+      () => expect(client.connectionState().isWebSocketConnected).toBe(true),
+      longer,
     )
-    await vi.waitFor(() =>
-      expect(socket().identities().at(-1)).toBe(FRESH_TOKEN),
+    await vi.waitFor(
+      () => expect(socket().identities().at(-1)).toBe(FRESH_TOKEN),
+      longer,
     )
-    for (const fetch of forced) fetch.resolve(FRESH_TOKEN)
-    await vi.waitFor(() => expect(answered.yes).toBe(true))
+    await vi.waitFor(() => expect(answered.yes).toBe(true), longer)
   })
 
   it('a sign-in handed over after the fresh token landed offers that one, not the run-out one', async () => {
@@ -662,5 +669,49 @@ describe('HandoverConvexClient, when the token a page opened with has run out', 
     const NEXT = jwt('next', 1_800)
     client.setAuth(tokens(NEXT, [jwt('next-renewed', 3_600)]).fetchToken)
     await vi.waitFor(() => expect(socket().identities()).toContain(NEXT))
+  })
+
+  it('a refresh answered with the very token the hand-over offered asks again the next second', async () => {
+    // Better Auth mints the same string twice within a second. Taken as is,
+    // the Convex client reads it as a token it can't refresh and schedules
+    // no more refreshes, so the socket stops when it runs out.
+    const client = openPage()
+    client.setAuth(tokens(STALE, [FRESH_TOKEN]).fetchToken)
+    await vi.waitFor(() =>
+      expect(socket().identities().at(-1)).toBe(FRESH_TOKEN),
+    )
+    await settle()
+
+    const RENEWED_TOKEN = jwt('renewed', 3_600)
+    const after = tokens(STALE, [FRESH_TOKEN, RENEWED_TOKEN])
+    handOver(client, STALE)
+    client.setAuth(after.fetchToken)
+
+    await vi.waitFor(
+      () => expect(socket().identities().at(-1)).toBe(RENEWED_TOKEN),
+      { timeout: 5_000 },
+    )
+    expect(after.forced()).toBe(2)
+    expect(socket().identities()).toEqual([
+      FRESH_TOKEN,
+      FRESH_TOKEN,
+      RENEWED_TOKEN,
+    ])
+  })
+})
+
+describe('HandoverConvexClient, when a refresh comes back with the same token', () => {
+  it('asks again the next second, rather than leaving the socket with nothing scheduled', async () => {
+    const client = connectToServer(betterAuth().retry)
+    const SAME = jwt('same', 3_600)
+    const RENEWED_TOKEN = jwt('renewed', 3_600)
+    const script = tokens(SAME, [SAME, RENEWED_TOKEN])
+    signIn(client, script.fetchToken)
+
+    await vi.waitFor(
+      () => expect(socket().identities()).toEqual([SAME, RENEWED_TOKEN]),
+      { timeout: 5_000 },
+    )
+    expect(script.forced()).toBe(2)
   })
 })

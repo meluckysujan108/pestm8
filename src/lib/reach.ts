@@ -24,7 +24,8 @@ import { useSyncExternalStore } from 'react'
  *
  * Clocks only run while the page is on screen, and start again when it comes
  * back: a phone waking from sleep has a dead socket for a moment, which is
- * not news.
+ * not news. A gap in the samples counts as coming back too, since a phone can
+ * freeze the page without saying it was hidden.
  */
 
 /** The socket may be down this long before the notice shows. */
@@ -33,6 +34,8 @@ export const SOCKET_DOWN_MS = 8_000
 export const REQUEST_WAIT_MS = 10_000
 /** Something on screen may wait this long for its first data. */
 export const QUERY_WAIT_MS = 12_000
+/** Samples further apart than this mean the page was frozen in between. */
+export const GAP_MS = 5_000
 
 /** What ConnectionNotice reads, about once a second. Times are epoch ms. */
 export type ReachSample = {
@@ -50,19 +53,26 @@ export type ReachState = {
   visibleSince: number | null
   /** When the socket was first seen down, this spell. */
   socketDownSince: number | null
+  /** When the last sample was taken. */
+  lastAt: number | null
 }
 
 export const REACH_START: ReachState = {
   visibleSince: null,
   socketDownSince: null,
+  lastAt: null,
 }
 
 /** Folds one sample in: the state to keep, and whether PestM8 is out of reach. */
 export function sampleReach(
-  state: ReachState,
+  previous: ReachState,
   sample: ReachSample,
 ): { state: ReachState; stuck: boolean } {
   if (!sample.visible) return { state: REACH_START, stuck: false }
+  const state =
+    previous.lastAt !== null && sample.now - previous.lastAt > GAP_MS
+      ? REACH_START
+      : previous
   const visibleSince = state.visibleSince ?? sample.now
   const socketDownSince = sample.socketConnected
     ? null
@@ -70,7 +80,7 @@ export function sampleReach(
   const waited = (since: number | null, ms: number) =>
     since !== null && sample.now - Math.max(since, visibleSince) >= ms
   return {
-    state: { visibleSince, socketDownSince },
+    state: { visibleSince, socketDownSince, lastAt: sample.now },
     stuck:
       waited(socketDownSince, SOCKET_DOWN_MS) ||
       waited(sample.oldestRequestAt, REQUEST_WAIT_MS) ||
@@ -101,24 +111,38 @@ export function oldestPending(
   return oldest
 }
 
-// Whether the notice is up, for the new-version banner (ServiceWorker.tsx),
-// which sits in the same place and gives way while it is.
-let showing = false
+/** What the notice says and offers, while it is up. */
+export type ReachNoticeModel = {
+  online: boolean
+  waitingToSave: boolean
+  /** Try again, its "Trying…", Reload once trying hasn't helped, and the
+   * second tap Reload asks for while a change is waiting to save. */
+  action: 'try' | 'trying' | 'reload' | 'reload-confirm'
+  onTry: () => void
+  onReload: () => void
+  onDismiss: () => void
+}
+
+// The notice as ConnectionNotice last decided it, for the places that show
+// it too or give way to it: an open sheet, which covers the notice, draws its
+// own copy (primitives/Sheet.tsx), and the new-version banner, in the same
+// place on screen, waits (ServiceWorker.tsx).
+let current: ReachNoticeModel | null = null
 const listeners = new Set<() => void>()
 
-export function setReachNoticeShowing(next: boolean): void {
-  if (next === showing) return
-  showing = next
+export function publishReachNotice(next: ReachNoticeModel | null): void {
+  if (next === current) return
+  current = next
   for (const listener of listeners) listener()
 }
 
-export function useReachNoticeShowing(): boolean {
+export function useReachNotice(): ReachNoticeModel | null {
   return useSyncExternalStore(
     (onChange) => {
       listeners.add(onChange)
       return () => listeners.delete(onChange)
     },
-    () => showing,
-    () => false,
+    () => current,
+    () => null,
   )
 }
