@@ -7,6 +7,7 @@ import {
   KEPT_MAX_AGE_MS,
   KEPT_SHAPE,
   KEPT_UPGRADE_MARGIN_MS,
+  confirmsLater,
   inWindow,
   keptFnOf,
   keptQueries,
@@ -273,6 +274,24 @@ describe('shouldUpgrade', () => {
   test('never for the same data, nor over a live answer', () => {
     expect(shouldUpgrade(page, NOW + 3_600_000, false)).toBe(false)
     expect(shouldUpgrade({ ...page, live: true }, NOW + 3_600_000, true)).toBe(
+      false,
+    )
+  })
+})
+
+describe('confirmsLater', () => {
+  const page = { dataUpdatedAt: NOW, live: false }
+
+  test('the same data, confirmed more than 2 min after the page’s answer', () => {
+    expect(confirmsLater(page, NOW + KEPT_UPGRADE_MARGIN_MS, false)).toBe(false)
+    expect(confirmsLater(page, NOW + KEPT_UPGRADE_MARGIN_MS + 1, false)).toBe(
+      true,
+    )
+  })
+
+  test('never for different data, which upgrades instead, nor a live answer', () => {
+    expect(confirmsLater(page, NOW + 3_600_000, true)).toBe(false)
+    expect(confirmsLater({ ...page, live: true }, NOW + 3_600_000, false)).toBe(
       false,
     )
   })

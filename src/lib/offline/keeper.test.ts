@@ -1355,6 +1355,39 @@ describe('upgrading what the HTML drew', () => {
     expect(h.data(day('2026-10-27'))).toEqual([job('html')])
   })
 
+  test('the same answer, confirmed later on the phone, keeps its place but takes the copy’s time', async () => {
+    // The HTML a service worker kept before a booking, the copy confirmed
+    // live after it: the booked day is replaced, and the days the booking
+    // didn't touch no longer hold the "Updated" note back at the HTML's time.
+    const htmlAt = NOW - 3_600_000
+    const later = htmlAt + KEPT_UPGRADE_MARGIN_MS + 60_000
+    const backend = await phoneKeeps([
+      { key: day(TODAY), data: [job('booked')], savedAt: later },
+      { key: day(TOMORROW), data: [job('same')], savedAt: later },
+      {
+        key: day('2026-10-27'),
+        data: [job('same')],
+        savedAt: htmlAt + 60_000,
+      },
+    ])
+    const h = harness(backend)
+    h.html(accessKey(), own)
+    h.html(day(TODAY), [], htmlAt)
+    h.html(day(TOMORROW), [job('same')], htmlAt)
+    h.html(day('2026-10-27'), [job('same')], htmlAt)
+    const tomorrowData = h.data(day(TOMORROW))
+
+    await h.keeper.upgradeFromKept([day(TODAY), day(TOMORROW)], 500)
+    expect(h.data(day(TODAY))).toEqual([job('booked')])
+    expect(h.data(day(TOMORROW))).toBe(tomorrowData)
+    expect(h.qc.getQueryState(day(TOMORROW))?.dataUpdatedAt).toBe(htmlAt)
+    expect(h.keeper.asOf([day(TODAY), day(TOMORROW)])).toBe(later)
+    // Not within the clocks' margin, nor a day it wasn't asked about.
+    await h.keeper.upgradeFromKept([day('2026-10-27')], 500)
+    expect(h.keeper.asOf([day('2026-10-27')])).toBe(htmlAt)
+    expect(h.keeper.keptSavedAt(day(TOMORROW))).toBeNull()
+  })
+
   test('a copy read too late changes nothing', async () => {
     const backend = await phoneKeeps([
       { key: day(TODAY), data: [job('changed')], savedAt: NOW },

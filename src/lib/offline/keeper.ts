@@ -25,6 +25,7 @@ import {
   PEEK_TIMEOUT_MS,
   argsOf,
   businessOf,
+  confirmsLater,
   inWindow,
   keptFnOf,
   keptQueries,
@@ -887,6 +888,7 @@ export class Keeper {
       return
     }
     const queries: DehydratedState['queries'] = []
+    let confirmed = 0
     for (const key of queryKeys) {
       const hash = this.hashOf(key)
       const query = qc.getQueryCache().get(hash)
@@ -896,16 +898,21 @@ export class Keeper {
       const asOf = rowAsOf(found.row, found.owner)
       const differs =
         replaceEqualDeep(query.state.data, found.row.data) !== query.state.data
-      const live = this.isLiveHash(hash)
-      if (
-        !shouldUpgrade(
-          { dataUpdatedAt: query.state.dataUpdatedAt, live },
-          asOf,
-          differs,
-        )
-      ) {
+      const entry = {
+        dataUpdatedAt: query.state.dataUpdatedAt,
+        live: this.isLiveHash(hash),
+      }
+      if (confirmsLater(entry, asOf, differs)) {
+        // The HTML's answer, which the phone has since confirmed as it
+        // stands: nothing on screen changes, but its time is the copy's.
+        // Otherwise the "Updated" note, which goes by the oldest answer on
+        // screen, kept the HTML's time beside a day the copy had replaced,
+        // as if the booking now on it had not been made yet.
+        this.sources.set(hash, { from: 'html', asOf, epoch: null })
+        confirmed++
         continue
       }
+      if (!shouldUpgrade(entry, asOf, differs)) continue
       this.sources.set(hash, { from: 'kept', asOf, epoch: null })
       queries.push({
         queryHash: hash,
@@ -913,10 +920,11 @@ export class Keeper {
         state: { ...query.state, data: found.row.data, dataUpdatedAt: asOf },
       })
     }
-    if (queries.length === 0) return
-    hydrate(qc, { queries, mutations: [] })
+    if (queries.length === 0 && confirmed === 0) return
+    if (queries.length > 0) hydrate(qc, { queries, mutations: [] })
     logConnection('kept-upgrade', {
       n: queries.length,
+      confirmed,
       late: false,
       ms: Date.now() - started,
     })

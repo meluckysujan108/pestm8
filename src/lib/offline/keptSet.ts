@@ -230,3 +230,20 @@ export function shouldUpgrade(
     asOf > entry.dataUpdatedAt + KEPT_UPGRADE_MARGIN_MS
   )
 }
+
+/**
+ * Whether the kept copy confirms a page's answer as it stands, clearly later
+ * than the page's own time: the answer stays on screen, and its time becomes
+ * the copy's. The other half of `shouldUpgrade`, on the same margin.
+ */
+export function confirmsLater(
+  entry: { dataUpdatedAt: number; live: boolean },
+  asOf: number,
+  differs: boolean,
+): boolean {
+  return (
+    !entry.live &&
+    !differs &&
+    asOf > entry.dataUpdatedAt + KEPT_UPGRADE_MARGIN_MS
+  )
+}
