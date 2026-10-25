@@ -27,10 +27,12 @@ import {
   businessOf,
   confirmsLater,
   inWindow,
+  keptIsNewer,
   keptFnOf,
   keptQueries,
   keptWindow,
   lensOf,
+  pageRenderedAt,
   rowAsOf,
   shouldUpgrade,
   usableRow,
@@ -219,6 +221,9 @@ export class Keeper {
   // Each entry's dataUpdatedAt as the HTML brought it, which no push
   // changes: what the server drew the note's time from (`htmlAsOf`).
   private readonly htmlAt = new Map<string, number>()
+  // When the server drew this page load's HTML (`pageRenderedAt`): what each
+  // row written here is marked with, and what a row is judged newer against.
+  private pageRenderedAt: number | null = null
   private readonly pinned = new Map<string, Warmable>()
   // This business's keys from a week gone by, dropped once nothing shows them.
   private readonly leaving = new Map<string, QueryKey>()
@@ -274,6 +279,7 @@ export class Keeper {
     this.detachNow?.()
     this.qc = qc
     this.convex = convex
+    this.pageRenderedAt = pageRenderedAt()
     const cache = qc.getQueryCache()
     for (const query of cache.getAll()) this.noteAdded(query)
     const stopCache = cache.subscribe((event) => this.onCacheEvent(event))
@@ -863,8 +869,8 @@ export class Keeper {
   }
 
   /**
-   * Replaces what the page's HTML drew with the phone's copy, where that was
-   * confirmed clearly later (`shouldUpgrade`) and differs — but only if the
+   * Replaces what the page's HTML drew with the phone's copy, where that is
+   * newer (`keptIsNewer`) and differs (`shouldUpgrade`) — but only if the
    * copy can be read within `withinMs` of the page's hydration effect, so
    * cards never move under a thumb a moment later. Through `hydrate`, which
    * keeps the copy's own time rather than stamping now.
@@ -898,11 +904,15 @@ export class Keeper {
       const asOf = rowAsOf(found.row, found.owner)
       const differs =
         replaceEqualDeep(query.state.data, found.row.data) !== query.state.data
-      const entry = {
-        dataUpdatedAt: query.state.dataUpdatedAt,
-        live: this.isLiveHash(hash),
-      }
-      if (confirmsLater(entry, asOf, differs)) {
+      const entry = { live: this.isLiveHash(hash) }
+      const newer = keptIsNewer(
+        { renderedAt: found.row.renderedAt, asOf },
+        {
+          renderedAt: this.pageRenderedAt,
+          dataUpdatedAt: query.state.dataUpdatedAt,
+        },
+      )
+      if (confirmsLater(entry, newer, differs)) {
         // The HTML's answer, which the phone has since confirmed as it
         // stands: nothing on screen changes, but its time is the copy's.
         // Otherwise the "Updated" note, which goes by the oldest answer on
@@ -912,7 +922,7 @@ export class Keeper {
         confirmed++
         continue
       }
-      if (!shouldUpgrade(entry, asOf, differs)) continue
+      if (!shouldUpgrade(entry, newer, differs)) continue
       this.sources.set(hash, { from: 'kept', asOf, epoch: null })
       queries.push({
         queryHash: hash,
@@ -1330,6 +1340,9 @@ export class Keeper {
         lens: claim.lens,
         data,
         savedAt: src.asOf,
+        ...(this.pageRenderedAt === null
+          ? {}
+          : { renderedAt: this.pageRenderedAt }),
         shape: KEPT_SHAPE,
         build: APP_VERSION,
       })

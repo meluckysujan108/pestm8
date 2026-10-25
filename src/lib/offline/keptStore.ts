@@ -53,6 +53,12 @@ export type KeptRow = {
   lens: string
   data: unknown
   savedAt: number
+  /**
+   * When the server drew the page whose page load wrote this row, by the
+   * server's clock (`pageRenderedAt`), for telling whether it is newer than
+   * a page's HTML without the phone's clock (`keptIsNewer`).
+   */
+  renderedAt?: number
   shape: number
   build: string
 }

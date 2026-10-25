@@ -47,8 +47,9 @@ export const KEPT_MAX_AGE_MS = 21 * 86_400_000
 
 /**
  * How much later than a page's own answer a kept one must have been
- * confirmed to replace it after hydration: the phone's clock and the
- * server's can disagree by this much.
+ * confirmed to replace it after hydration, where the row doesn't say which
+ * page load wrote it (`keptIsNewer`): the phone's clock and the server's can
+ * disagree by this much.
  */
 export const KEPT_UPGRADE_MARGIN_MS = 2 * 60_000
 
@@ -215,35 +216,65 @@ export function rowAsOf(row: KeptRow, owner: KeptOwner): number {
 }
 
 /**
- * Whether a page's answer should give way to the kept one after hydration:
- * never a live answer, never for the same data, and only when the kept one
- * was confirmed clearly later than the page's (KEPT_UPGRADE_MARGIN_MS).
+ * The name the head script (`keptInitScript`, useKept.ts) gives, on
+ * `window`, the time the server drew the page: what each row this page load
+ * writes is marked with (`KeptRow.renderedAt`).
  */
-export function shouldUpgrade(
-  entry: { dataUpdatedAt: number; live: boolean },
-  asOf: number,
-  differs: boolean,
-): boolean {
-  return (
-    !entry.live &&
-    differs &&
-    asOf > entry.dataUpdatedAt + KEPT_UPGRADE_MARGIN_MS
-  )
+export const RENDERED_AT_KEY = '__pestm8RenderedAt'
+
+/** When the server drew the page on screen, by its clock, if the head script said. */
+export function pageRenderedAt(): number | null {
+  if (typeof window === 'undefined') return null
+  const at: unknown = Reflect.get(window, RENDERED_AT_KEY)
+  return typeof at === 'number' && Number.isFinite(at) ? at : null
 }
 
 /**
- * Whether the kept copy confirms a page's answer as it stands, clearly later
- * than the page's own time: the answer stays on screen, and its time becomes
- * the copy's. The other half of `shouldUpgrade`, on the same margin.
+ * Whether a kept row is newer than the answer a page's HTML brought.
+ *
+ * By the server's clock alone where the row says which page load wrote it.
+ * Every row is written from answers the server pushed after that page was
+ * drawn, so a row written under this page, or under one drawn since, is at
+ * least as new as this page's HTML. However soon after: a caller booked a
+ * minute after the app opened, the phone locked, the app reopened with no
+ * signal on the page the service worker kept from that opening.
+ *
+ * Otherwise (a row that doesn't say, or a page whose head script didn't
+ * run) by the phone's time for the row against the server's for the page,
+ * which can disagree, so only when clearly later (KEPT_UPGRADE_MARGIN_MS).
  */
-export function confirmsLater(
-  entry: { dataUpdatedAt: number; live: boolean },
-  asOf: number,
+export function keptIsNewer(
+  row: { renderedAt?: number; asOf: number },
+  page: { renderedAt: number | null; dataUpdatedAt: number },
+): boolean {
+  if (row.renderedAt !== undefined && page.renderedAt !== null) {
+    return row.renderedAt >= page.renderedAt
+  }
+  return row.asOf > page.dataUpdatedAt + KEPT_UPGRADE_MARGIN_MS
+}
+
+/**
+ * Whether a page's answer should give way to the kept one after hydration:
+ * never a live answer, never for the same data, and only for a newer copy
+ * (`keptIsNewer`).
+ */
+export function shouldUpgrade(
+  entry: { live: boolean },
+  newer: boolean,
   differs: boolean,
 ): boolean {
-  return (
-    !entry.live &&
-    !differs &&
-    asOf > entry.dataUpdatedAt + KEPT_UPGRADE_MARGIN_MS
-  )
+  return !entry.live && differs && newer
+}
+
+/**
+ * Whether the kept copy confirms a page's answer as it stands, and is newer:
+ * the answer stays on screen, and its time becomes the copy's. The other
+ * half of `shouldUpgrade`.
+ */
+export function confirmsLater(
+  entry: { live: boolean },
+  newer: boolean,
+  differs: boolean,
+): boolean {
+  return !entry.live && !differs && newer
 }

@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query'
 import { dayKeyOf } from '../../../convex/lib/dates'
 import { isOffline } from '#/lib/online'
 import { keeper } from './keeper'
+import { RENDERED_AT_KEY } from './keptSet'
 import type { QueryClient, QueryKey } from '@tanstack/react-query'
 import type { LineDown } from './keeper'
 
@@ -149,11 +150,16 @@ export const KEPT_PAGE_AGE_MS = 120_000
  * styles.css), already in the words for no signal (`kept-offline:`), and
  * `useKeptNote` keeps it once hydrated.
  *
+ * It also leaves the time on `window` (RENDERED_AT_KEY), for the keeper to
+ * mark what this page load writes with, and to compare what was written
+ * with this page's own answers (`keptIsNewer`).
+ *
  * A string that closes over nothing, as the theme's is, and the attribute's
  * name lives beside `htmlSaysKept`, which reads it, so the two can't drift.
  */
 export function keptInitScript(renderedAt: number): string {
-  return `(function(){try{if(Date.now()-${Math.round(renderedAt)}>${KEPT_PAGE_AGE_MS})document.documentElement.setAttribute('data-kept',navigator.onLine===false?'no-signal':'')}catch(e){}})()`
+  const at = Math.round(renderedAt)
+  return `(function(){try{window.${RENDERED_AT_KEY}=${at};if(Date.now()-${at}>${KEPT_PAGE_AGE_MS})document.documentElement.setAttribute('data-kept',navigator.onLine===false?'no-signal':'')}catch(e){}})()`
 }
 
 /** Whether the page on screen is a copy the service worker kept a while. */

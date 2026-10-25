@@ -17,6 +17,7 @@ import {
   useReadable,
   useReadableAll,
 } from './useKept'
+import { RENDERED_AT_KEY, pageRenderedAt } from './keptSet'
 import type { ReactElement } from 'react'
 import type { KeptNoteTone, NoteLatch } from './useKept'
 import type { Id } from '../../../convex/_generated/dataModel'
@@ -117,6 +118,18 @@ describe('the head script that marks a kept page', () => {
     expect(run(drawn, drawn + 3_000)).toBeUndefined()
     expect(run(drawn, drawn + KEPT_PAGE_AGE_MS)).toBeUndefined()
     expect(run(drawn, drawn + 3_000, false)).toBeUndefined()
+  })
+
+  test('leaves when the page was drawn for the keeper, fresh or kept', () => {
+    const drawn = Date.UTC(2026, 9, 25, 1)
+    try {
+      run(drawn, drawn + 3_000)
+      expect(pageRenderedAt()).toBe(drawn)
+      run(drawn - 1, drawn + KEPT_PAGE_AGE_MS)
+      expect(pageRenderedAt()).toBe(drawn - 1)
+    } finally {
+      Reflect.deleteProperty(window, RENDERED_AT_KEY)
+    }
   })
 })
 

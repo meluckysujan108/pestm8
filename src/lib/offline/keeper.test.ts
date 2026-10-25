@@ -21,6 +21,7 @@ import {
   KEPT_TICK_MS,
   KEPT_UPGRADE_MARGIN_MS,
   KEPT_WRITE_DELAY_MS,
+  RENDERED_AT_KEY,
 } from './keptSet'
 import { MemoryKeptBackend } from './keptStore.fixtures'
 import { setKeptBackendForTests, wipeKept } from './keptStore'
@@ -260,7 +261,12 @@ function successState(data: unknown, at: number): QueryState {
 
 /** A phone that already keeps u1's copy of B, own view, with `rows`. */
 async function phoneKeeps(
-  rows: Array<{ key: QueryKey; data: unknown; savedAt?: number }>,
+  rows: Array<{
+    key: QueryKey
+    data: unknown
+    savedAt?: number
+    renderedAt?: number
+  }>,
   liveAt = 0,
 ): Promise<MemoryKeptBackend> {
   const backend = new MemoryKeptBackend()
@@ -279,7 +285,7 @@ async function phoneKeeps(
   await backend.write(
     claim.epoch,
     'u1',
-    rows.map(({ key, data, savedAt }): KeptRow => ({
+    rows.map(({ key, data, savedAt, renderedAt }): KeptRow => ({
       hash: hash(key),
       fn: key[1] as KeptRow['fn'],
       queryKey: key as KeptRow['queryKey'],
@@ -287,6 +293,7 @@ async function phoneKeeps(
       lens: LENS,
       data,
       savedAt: savedAt ?? NOW - 3_600_000,
+      ...(renderedAt === undefined ? {} : { renderedAt }),
       shape: KEPT_SHAPE,
       build: 'test',
     })),
@@ -1386,6 +1393,55 @@ describe('upgrading what the HTML drew', () => {
     await h.keeper.upgradeFromKept([day('2026-10-27')], 500)
     expect(h.keeper.asOf([day('2026-10-27')])).toBe(htmlAt)
     expect(h.keeper.keptSavedAt(day(TOMORROW))).toBeNull()
+  })
+
+  test('a copy written under this very page replaces its HTML however soon after, by when each page was drawn', async () => {
+    // The app opened at `drawn`, a caller was booked a minute later, and the
+    // phone locked before the copy was confirmed again: reopened with no
+    // signal, on the page the service worker kept from that opening.
+    const drawn = NOW - 3_600_000
+    Reflect.set(window, RENDERED_AT_KEY, drawn)
+    try {
+      const backend = await phoneKeeps([
+        {
+          key: day(TODAY),
+          data: [job('booked')],
+          savedAt: drawn + 60_000,
+          renderedAt: drawn,
+        },
+        // Under an earlier page, on a phone whose clock ran hours fast.
+        {
+          key: day(TOMORROW),
+          data: [job('older')],
+          savedAt: NOW + 3_600_000,
+          renderedAt: drawn - 1,
+        },
+      ])
+      const h = harness(backend)
+      h.html(accessKey(), own, drawn)
+      h.html(day(TODAY), [], drawn)
+      h.html(day(TOMORROW), [job('html')], drawn)
+
+      await h.keeper.upgradeFromKept([day(TODAY), day(TOMORROW)], 500)
+      expect(h.data(day(TODAY))).toEqual([job('booked')])
+      expect(h.data(day(TOMORROW))).toEqual([job('html')])
+    } finally {
+      Reflect.deleteProperty(window, RENDERED_AT_KEY)
+    }
+  })
+
+  test('what a page load writes says when its page was drawn', async () => {
+    const drawn = NOW - 60_000
+    Reflect.set(window, RENDERED_AT_KEY, drawn)
+    try {
+      const h = harness(await phoneKeeps([]))
+      await claimed(h)
+      h.convex.answer(day(TODAY), [job('live')])
+      await vi.advanceTimersByTimeAsync(KEPT_WRITE_DELAY_MS + 10)
+      expect(h.row(day(TODAY))?.renderedAt).toBe(drawn)
+    } finally {
+      Reflect.deleteProperty(window, RENDERED_AT_KEY)
+    }
   })
 
   test('a copy read too late changes nothing', async () => {

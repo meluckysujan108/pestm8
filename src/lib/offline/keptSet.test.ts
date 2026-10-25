@@ -10,6 +10,7 @@ import {
   confirmsLater,
   inWindow,
   keptFnOf,
+  keptIsNewer,
   keptQueries,
   keptWindow,
   lensOf,
@@ -260,39 +261,53 @@ describe('rowAsOf', () => {
   })
 })
 
-describe('shouldUpgrade', () => {
-  const page = { dataUpdatedAt: NOW, live: false }
+describe('keptIsNewer', () => {
+  const page = { renderedAt: NOW, dataUpdatedAt: NOW }
 
-  test('only a copy confirmed more than 2 min after the page’s answer', () => {
-    expect(shouldUpgrade(page, NOW + KEPT_UPGRADE_MARGIN_MS, true)).toBe(false)
-    expect(shouldUpgrade(page, NOW + KEPT_UPGRADE_MARGIN_MS + 1, true)).toBe(
+  test('by when each page was drawn, where the row says: however soon after, and whatever the phone’s clock', () => {
+    // Booked a minute after the app opened: written under this very page.
+    expect(keptIsNewer({ renderedAt: NOW, asOf: NOW + 60_000 }, page)).toBe(
       true,
     )
-    expect(shouldUpgrade(page, NOW - 60_000, true)).toBe(false)
+    // Written under a later page.
+    expect(
+      keptIsNewer({ renderedAt: NOW + 1, asOf: NOW - 3_600_000 }, page),
+    ).toBe(true)
+    // Written under an earlier one, on a phone whose clock is hours fast.
+    expect(
+      keptIsNewer({ renderedAt: NOW - 1, asOf: NOW + 3_600_000 }, page),
+    ).toBe(false)
   })
 
-  test('never for the same data, nor over a live answer', () => {
-    expect(shouldUpgrade(page, NOW + 3_600_000, false)).toBe(false)
-    expect(shouldUpgrade({ ...page, live: true }, NOW + 3_600_000, true)).toBe(
+  test('otherwise only when confirmed more than 2 min after the page’s answer', () => {
+    expect(keptIsNewer({ asOf: NOW + KEPT_UPGRADE_MARGIN_MS }, page)).toBe(
       false,
     )
+    expect(keptIsNewer({ asOf: NOW + KEPT_UPGRADE_MARGIN_MS + 1 }, page)).toBe(
+      true,
+    )
+    // A page whose head script didn't say when it was drawn.
+    expect(
+      keptIsNewer(
+        { renderedAt: NOW, asOf: NOW + 60_000 },
+        { renderedAt: null, dataUpdatedAt: NOW },
+      ),
+    ).toBe(false)
   })
 })
 
-describe('confirmsLater', () => {
-  const page = { dataUpdatedAt: NOW, live: false }
-
-  test('the same data, confirmed more than 2 min after the page’s answer', () => {
-    expect(confirmsLater(page, NOW + KEPT_UPGRADE_MARGIN_MS, false)).toBe(false)
-    expect(confirmsLater(page, NOW + KEPT_UPGRADE_MARGIN_MS + 1, false)).toBe(
-      true,
-    )
+describe('shouldUpgrade and confirmsLater', () => {
+  test('a newer copy replaces different data, and confirms the same', () => {
+    expect(shouldUpgrade({ live: false }, true, true)).toBe(true)
+    expect(confirmsLater({ live: false }, true, true)).toBe(false)
+    expect(shouldUpgrade({ live: false }, true, false)).toBe(false)
+    expect(confirmsLater({ live: false }, true, false)).toBe(true)
   })
 
-  test('never for different data, which upgrades instead, nor a live answer', () => {
-    expect(confirmsLater(page, NOW + 3_600_000, true)).toBe(false)
-    expect(confirmsLater({ ...page, live: true }, NOW + 3_600_000, false)).toBe(
-      false,
-    )
+  test('neither for an older copy, nor over a live answer', () => {
+    expect(shouldUpgrade({ live: false }, false, true)).toBe(false)
+    expect(confirmsLater({ live: false }, false, false)).toBe(false)
+    expect(shouldUpgrade({ live: true }, true, true)).toBe(false)
+    expect(confirmsLater({ live: true }, true, false)).toBe(false)
   })
 })
