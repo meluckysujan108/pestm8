@@ -40,6 +40,14 @@ import type { AuthTokenFetcher } from 'convex/browser'
  * anything"). So each attempt has `bound`'s time to answer, and the phone
  * waking or its network coming back abandons the one in flight and sends
  * another at once, which is when one has the best chance.
+ *
+ * An attempt that got no answer at all goes again straight away, with longer
+ * to answer: asking Better Auth whether anyone is signed in would travel the
+ * same dead line, and its answer could not change what happens next. The
+ * question and the pause are for a refresh that WAS answered, with nothing.
+ * The first attempt has 4 s, not the 10 s it had until 25 Oct 2026, which
+ * outlasted the 8 s after which the app says it can't reach PestM8: a token
+ * from Perth takes about a second, through the website's server in the US.
  */
 
 /** Better Auth's answer to "is anyone signed in?", or none. */
@@ -99,17 +107,22 @@ export function withRefreshRetry(
   const within = <T>(request: Promise<T>, fallback: T, attempt: number) =>
     retry.bound ? retry.bound(request, fallback, attempt) : request
 
-  const fetchWithin = async (attempt: number, forceRefreshToken: boolean) =>
-    (await within(
+  const attemptToken = (attempt: number, forceRefreshToken: boolean) =>
+    within<string | null | undefined | typeof NO_ANSWER>(
       fetchToken({ forceRefreshToken }).catch(() => null),
-      null,
+      NO_ANSWER,
       attempt,
-    )) ?? null
+    )
 
   async function refresh(): Promise<string | null> {
-    const token = await fetchWithin(0, true)
-    if (token || !isCurrent()) return token
     for (let attempt = 0; ; attempt++) {
+      const token = await attemptToken(attempt, true)
+      if (typeof token === 'string' && token !== '') {
+        return attempt === 0 || isCurrent() ? token : null
+      }
+      if (!isCurrent()) return null
+      // No answer at all: go again at once, with longer (see the top).
+      if (token === NO_ANSWER) continue
       const answer = await within(
         retry.askSession().catch((): SessionAnswer => 'unknown'),
         'unknown',
@@ -118,14 +131,14 @@ export function withRefreshRetry(
       if (answer === 'signedOut' || !isCurrent()) return null
       await retry.pause(attempt)
       if (!isCurrent()) return null
-      const next = await fetchWithin(attempt + 1, true)
-      if (!isCurrent()) return null
-      if (next) return next
     }
   }
 
   return async (args) => {
-    if (!args.forceRefreshToken) return fetchWithin(0, false)
+    if (!args.forceRefreshToken) {
+      const token = await attemptToken(0, false)
+      return token === NO_ANSWER ? null : (token ?? null)
+    }
     refreshing ??= refresh().finally(() => {
       refreshing = undefined
     })
@@ -133,19 +146,23 @@ export function withRefreshRetry(
   }
 }
 
+/** What an attempt comes back as when it got no answer in time. */
+const NO_ANSWER: unique symbol = Symbol('no answer')
+
 /** 1 s, doubling, then every 30 s for as long as the refresh keeps failing. */
 export function retryDelayMs(attempt: number): number {
   return Math.min(30_000, 1_000 * 2 ** attempt)
 }
 
 /**
- * How long attempt number `attempt` may take before it is given up: 10 s,
- * then 20 s, then 30 s from then on. Longer each time, so a link that is slow
- * but working — a token through a VPN on one bar — still gets one through,
- * rather than every attempt being abandoned just before it would have landed.
+ * How long attempt number `attempt` may take before it is given up: 4 s,
+ * then 10 s, 20 s, and 30 s from then on. Longer each time, so a link that is
+ * slow but working — a token through a VPN on one bar — still gets one
+ * through, rather than every attempt being abandoned just before it would
+ * have landed.
  */
 export function attemptLimitMs(attempt: number): number {
-  return Math.min(30_000, 10_000 * (attempt + 1))
+  return [4_000, 10_000, 20_000].at(attempt) ?? 30_000
 }
 
 /**

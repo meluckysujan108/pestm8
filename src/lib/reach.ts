@@ -63,12 +63,19 @@ export const REACH_START: ReachState = {
   lastAt: null,
 }
 
-/** Folds one sample in: the state to keep, and whether PestM8 is out of reach. */
+/** Which wait went on too long, first match: the socket, a save, or a query. */
+export type ReachWhy = 'socket' | 'save' | 'query'
+
+/**
+ * Folds one sample in: the state to keep, whether PestM8 is out of reach,
+ * and which wait says so (for the phone's connection notes,
+ * lib/connectionLog.ts).
+ */
 export function sampleReach(
   previous: ReachState,
   sample: ReachSample,
-): { state: ReachState; stuck: boolean } {
-  if (!sample.visible) return { state: REACH_START, stuck: false }
+): { state: ReachState; stuck: boolean; why: ReachWhy | null } {
+  if (!sample.visible) return { state: REACH_START, stuck: false, why: null }
   const state =
     previous.lastAt !== null && sample.now - previous.lastAt > GAP_MS
       ? REACH_START
@@ -79,12 +86,17 @@ export function sampleReach(
     : (state.socketDownSince ?? sample.now)
   const waited = (since: number | null, ms: number) =>
     since !== null && sample.now - Math.max(since, visibleSince) >= ms
+  const why: ReachWhy | null = waited(socketDownSince, SOCKET_DOWN_MS)
+    ? 'socket'
+    : waited(sample.oldestRequestAt, REQUEST_WAIT_MS)
+      ? 'save'
+      : waited(sample.oldestPendingQueryAt, QUERY_WAIT_MS)
+        ? 'query'
+        : null
   return {
     state: { visibleSince, socketDownSince, lastAt: sample.now },
-    stuck:
-      waited(socketDownSince, SOCKET_DOWN_MS) ||
-      waited(sample.oldestRequestAt, REQUEST_WAIT_MS) ||
-      waited(sample.oldestPendingQueryAt, QUERY_WAIT_MS),
+    stuck: why !== null,
+    why,
   }
 }
 

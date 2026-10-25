@@ -76,6 +76,14 @@ Useful for read-only inspection of a deployment, including prod:
 Add `--component betterAuth` or `--component prosemirrorSync` to read a
 component's own tables (Better Auth users live there, not in the app's).
 
+When a phone "just hangs", read its own notes before guessing from the
+server's logs, which only ever show the server answering quickly:
+`CONVEX_DEPLOYMENT=prod:rare-retriever-156 npx convex run diagnostics:recent '{"hours": 6, "email": "…"}'`.
+Each phone notes coming back on screen, its socket opening, closing or being
+given up and why, every sign-in token and how long it took, the "Could not
+reach PestM8" notice and why, Try again and Reload (`src/lib/connectionLog.ts`,
+`src/lib/socketWatch.ts`; kept thirty days, `convex/diagnostics.ts`).
+
 Email goes through Resend from the verified domain `pestm8.com.au`, as two
 senders on prod (`rare-retriever-156`):
 

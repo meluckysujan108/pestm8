@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { RefreshCw, RotateCcw, WifiOff, X } from 'lucide-react'
-import { retryNow, useOnline } from '#/lib/online'
+import { logConnection } from '#/lib/connectionLog'
+import { reconnectNow } from '#/lib/convexClient'
+import { useOnline } from '#/lib/online'
 import {
   REACH_START,
   oldestPending,
   publishReachNotice,
   sampleReach,
 } from '#/lib/reach'
-import type { ReachNoticeModel } from '#/lib/reach'
+import type { ReachNoticeModel, ReachWhy } from '#/lib/reach'
 import type { ConvexReactClient } from 'convex/react'
 
 /** How often the app checks. */
@@ -29,14 +31,20 @@ const RELOAD_AFTER_TRY_MS = 8_000
  * in one, so a sheet draws its own copy (primitives/Sheet.tsx). It goes by
  * itself the moment PestM8 answers; Dismiss hides it until then.
  *
- * Try again asks everything that waits on the network to go now
- * (`retryNow`): it skips the Convex client's reconnect backoff and the
- * sign-in token's retry pause, and abandons a token request that is hanging.
- * It can't open a socket that is stuck some other way, which nothing outside
- * the Convex client can, so once the notice has been up a while with signal,
- * or a Try again didn't help, it offers Reload. A reload never happens by
- * itself: the person may be halfway through a report. With a change waiting
- * to save, Reload asks for a second tap, since the change goes with the page.
+ * Try again opens a new line now (`reconnectNow` in lib/convexClient.ts):
+ * the socket it had is given up, even one that still says it is open, and
+ * everything else that waits on the network goes at once — the Convex
+ * client's reconnect skips its backoff, and the sign-in token's retry
+ * abandons a request that is hanging and sends another. Until 25 Oct 2026 it
+ * did only the second half, which a socket that had died without saying so
+ * never heard. Once the notice has been up a while with signal, or a Try
+ * again didn't help, it offers Reload. A reload never happens by itself: the
+ * person may be halfway through a report. With a change waiting to save,
+ * Reload asks for a second tap, since the change goes with the page.
+ *
+ * Each time it appears, why (`ReachWhy`), how long until it went, and every
+ * Try again and Reload go into the phone's connection notes
+ * (lib/connectionLog.ts).
  *
  * Screen readers hear it through a live region that is always there, with one
  * short line when it appears and when Reload is offered. The notice itself
@@ -63,6 +71,8 @@ export function ConnectionNotice({
     // When saves were first seen waiting, for when an action is in flight
     // too (see below).
     let savesWaitingSince: number | null = null
+    // The wait the notice is up for, and since when, for the notes.
+    let noted: { why: ReachWhy; at: number } | null = null
     const sample = () => {
       const at = Date.now()
       const connection = convexClient.connectionState()
@@ -93,6 +103,18 @@ export function ConnectionNotice({
         oldestPendingQueryAt: oldestPending(firstSeen.current, pending, at),
       })
       state = next.state
+      if (next.why !== null && noted === null) {
+        noted = { why: next.why, at }
+        logConnection('notice', { why: next.why })
+      } else if (next.why === null && noted !== null) {
+        // Off screen, everything starts again: that is not PestM8 answering.
+        logConnection('notice-off', {
+          why: noted.why,
+          ms: at - noted.at,
+          hidden: document.visibilityState !== 'visible',
+        })
+        noted = null
+      }
       setStuck(next.stuck)
       setWaitingToSave(connection.inflightMutations > 0)
       setNow(at)
@@ -139,11 +161,14 @@ export function ConnectionNotice({
 
   const onTry = useCallback(() => {
     setTriedAt(Date.now())
-    retryNow()
-  }, [])
+    reconnectNow(convexClient)
+  }, [convexClient])
   const onReload = useCallback(() => {
     if (waitingToSave && !reloadArmed) setReloadArmed(true)
-    else window.location.reload()
+    else {
+      logConnection('reload', { waitingToSave })
+      window.location.reload()
+    }
   }, [waitingToSave, reloadArmed])
   const onDismiss = useCallback(() => setDismissed(true), [])
 
