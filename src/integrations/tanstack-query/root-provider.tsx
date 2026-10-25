@@ -58,9 +58,17 @@ export function getContext() {
   // anyone is signed in gives up after ten seconds: the retry goes on either
   // way (lib/tokenRefresh.ts), and a request that never answers would only
   // hold a connection open.
+  //
+  // And in the browser it watches its own line (`watchSocket`): a socket that
+  // died while the phone was on a call is given up within seconds of the app
+  // coming back, rather than after the minute the Convex client waits
+  // (lib/socketWatch.ts).
   const convexQueryClient = new ConvexQueryClient(
     new HandoverConvexClient(convexUrl, {
       holdForSignIn: typeof window !== 'undefined',
+      // A page to watch from: not the server, nor a test with a `window` and
+      // no `document`.
+      watchSocket: typeof document !== 'undefined',
       authRefreshTokenLeewaySeconds: 60,
       refreshRetry: browserRefreshRetry(() =>
         authClient.getSession({ fetchOptions: { timeout: 10_000 } }),
@@ -118,6 +126,22 @@ export function getContext() {
   queryClient.setQueryDefaults(['convexQuery', 'businesses:getBySlug'], {
     gcTime: Infinity,
   })
+
+  // What New Job is made of: every client and site to pick from, the team
+  // to assign, the job types. Kept for as long as the app is open, and live
+  // all that time, so New Job opens at once on what the phone already has —
+  // even while a line is being rebuilt after a phone call, which is exactly
+  // when someone is booking the caller (25 Oct 2026). Dropped after fifteen
+  // minutes, as everything else is, New Job waited on the network for the
+  // whole client list again; the Schedule warming it did not reset that
+  // clock.
+  for (const name of [
+    'clients:directory',
+    'memberships:listForBusiness',
+    'jobTypes:list',
+  ]) {
+    queryClient.setQueryDefaults(['convexQuery', name], { gcTime: Infinity })
+  }
 
   // Pushed refusals (see the top of this file). Only on the client: the
   // server renders a request at a time and has nobody to prompt.

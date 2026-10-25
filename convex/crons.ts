@@ -125,4 +125,15 @@ crons.cron(
   {},
 )
 
+/**
+ * Forgets phones' connection notes after thirty days (convex/diagnostics.ts).
+ * Ten minutes after the Xero keep-alive, away from the other nightly jobs.
+ */
+crons.cron(
+  'forget old connection notes',
+  '10 20 * * *', // ~04:10 Australia/Perth
+  internal.diagnostics.prune,
+  {},
+)
+
 export default crons

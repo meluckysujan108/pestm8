@@ -1,26 +1,36 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConvexReactClient } from 'convex/react'
 import { makeFunctionReference } from 'convex/server'
-import { HandoverConvexClient, openSignedOut } from './convexClient'
+import {
+  HandoverConvexClient,
+  currentToken,
+  openSignedOut,
+  reconnectNow,
+} from './convexClient'
+import { RESUME_GRACE_MS, UNANSWERED_MS, expectsAnswer } from './socketWatch'
 import type { AuthTokenFetcher } from 'convex/browser'
 import type { RefreshRetry, SessionAnswer } from './tokenRefresh'
 
 /**
  * Just enough of a WebSocket for the real Convex client to run against: it
  * opens on the next tick and records every message the client sends, which
- * is exactly what the server would have been told.
+ * is exactly what the server would have been told. Events go to listeners
+ * and then to the `on…` handler, as a browser's do, so a watched socket
+ * (lib/socketWatch.ts) hears them too.
  */
-class RecordingSocket {
+class RecordingSocket extends EventTarget {
   static open: Array<RecordingSocket> = []
   sent: Array<{ type: string; tokenType?: string; value?: string }> = []
+  readyState = 0
   onopen: ((event: unknown) => void) | null = null
   onmessage: ((event: unknown) => void) | null = null
   onclose: ((event: unknown) => void) | null = null
   onerror: ((event: unknown) => void) | null = null
 
   constructor(readonly url: string) {
+    super()
     RecordingSocket.open.push(this)
-    setTimeout(() => this.onopen?.({}), 0)
+    setTimeout(() => this.fire('open'), 0)
   }
 
   send(data: string) {
@@ -28,7 +38,25 @@ class RecordingSocket {
   }
 
   close() {
-    setTimeout(() => this.onclose?.({ code: 1000, reason: '' }), 0)
+    if (this.readyState >= 2) return
+    this.readyState = 2
+    setTimeout(() => this.fire('close', { code: 1000, reason: '' }), 0)
+  }
+
+  protected fire(type: 'open' | 'message' | 'close', fields: object = {}) {
+    if (type === 'open') {
+      if (this.readyState !== 0) return
+      this.readyState = 1
+    } else if (type === 'message') {
+      if (this.readyState !== 1) return
+    } else {
+      this.readyState = 3
+    }
+    const event = Object.assign(new Event(type), fields)
+    this.dispatchEvent(event)
+    if (type === 'open') this.onopen?.(event)
+    else if (type === 'message') this.onmessage?.(event)
+    else this.onclose?.(event)
   }
 
   /** What each Authenticate told the server: a token, or "nobody". */
@@ -138,6 +166,13 @@ class ServerSocket extends RecordingSocket {
   // Once it has turned a token down, this socket answers nothing more: the
   // client stops it and opens another.
   private refused = false
+  // A line that died without either end hearing: what is sent goes nowhere,
+  // and nothing comes back, not even a close.
+  private quiet = false
+
+  goQuiet() {
+    this.quiet = true
+  }
 
   override send(data: string) {
     super.send(data)
@@ -150,7 +185,7 @@ class ServerSocket extends RecordingSocket {
     if (message.type !== 'Authenticate' && message.type !== 'ModifyQuerySet') {
       return
     }
-    if (this.refused) return
+    if (this.refused || this.quiet) return
     if (
       message.type === 'Authenticate' &&
       message.value !== undefined &&
@@ -196,7 +231,7 @@ class ServerSocket extends RecordingSocket {
   }
 
   private answer(message: object) {
-    setTimeout(() => this.onmessage?.({ data: JSON.stringify(message) }), 0)
+    setTimeout(() => this.fire('message', { data: JSON.stringify(message) }), 0)
   }
 
   private wireVersion() {
@@ -564,16 +599,18 @@ function watch(client: ConvexReactClient) {
   return answered
 }
 
-describe('HandoverConvexClient, when the token a page opened with has run out', () => {
+describe('HandoverConvexClient, when the server turns down the token a page opened with', () => {
   afterEach(() => ServerSocket.expired.clear())
 
   // A page served from the service worker's cache carries the token from
-  // when it was rendered, and on a phone that had been away longer than a
-  // token lives, it has run out. The server turns it down, and the Convex
-  // client stops the socket while it fetches a fresh one. Better Auth's
-  // first answer about the session lands in that window — later than the
-  // refusal, on a slow link — and hands the sign-in over.
-  const STALE = jwt('stale', -60)
+  // when it was rendered. Until 25 Oct 2026 the page offered it even when it
+  // had run out; now it fetches a fresh one first (the next describe). The
+  // server can still turn down one the phone thinks is good — a phone clock
+  // that is behind, a session that ended — and then the Convex client stops
+  // the socket while it fetches a fresh one. Better Auth's first answer about
+  // the session lands in that window, on a slow link, and hands the sign-in
+  // over.
+  const STALE = jwt('stale', 600)
   const FRESH_TOKEN = jwt('fresh', 3_600)
 
   /** The app's client as root-provider.tsx builds it, against a server. */
@@ -632,7 +669,7 @@ describe('HandoverConvexClient, when the token a page opened with has run out', 
     await vi.waitFor(() => expect(answered.yes).toBe(true), longer)
   })
 
-  it('a sign-in handed over after the fresh token landed offers that one, not the run-out one', async () => {
+  it('a sign-in handed over after the fresh token landed offers that one, not the turned-down one', async () => {
     const client = openPage()
     const RENEWED_TOKEN = jwt('renewed', 3_600)
     client.setAuth(tokens(STALE, [FRESH_TOKEN]).fetchToken)
@@ -712,6 +749,314 @@ describe('HandoverConvexClient, when a refresh comes back with the same token', 
       () => expect(socket().identities()).toEqual([SAME, RENEWED_TOKEN]),
       { timeout: 5_000 },
     )
+    expect(script.forced()).toBe(2)
+  })
+})
+
+describe('HandoverConvexClient, when the token a page opened with has run out', () => {
+  afterEach(() => ServerSocket.expired.clear())
+
+  it('fetches a fresh one before the socket says anything, so none is turned down', async () => {
+    // A page the service worker kept, opened after longer away than a token
+    // lives. Offered, the run-out token cost a refusal, a stopped socket and
+    // a second connection to the US.
+    const RUN_OUT = jwt('run-out', -60)
+    const FRESH_ONE = jwt('fresh', 3_600)
+    const RENEWED_ONE = jwt('renewed', 3_600)
+    ServerSocket.expired.add(RUN_OUT)
+    const client = new HandoverConvexClient(URL, {
+      webSocketConstructor: ServerSocket as unknown as typeof WebSocket,
+      unsavedChangesWarning: false,
+      holdForSignIn: true,
+      refreshRetry: betterAuth().retry,
+    })
+    clients.push(client)
+    const reported = signIn(
+      client,
+      tokens(RUN_OUT, [FRESH_ONE, RENEWED_ONE]).fetchToken,
+    )
+
+    await vi.waitFor(() =>
+      expect(socket().identities()).toEqual([FRESH_ONE, RENEWED_ONE]),
+    )
+    expect(everyIdentity()).not.toContain(RUN_OUT)
+    expect(RecordingSocket.open).toHaveLength(1)
+    expect(reported).not.toContain(false)
+    expect(currentToken(client)).toBe(RENEWED_ONE)
+  })
+})
+
+describe('the messages the Convex client sends', () => {
+  it('are told apart as lib/socketWatch.ts needs: answered at once, or not', async () => {
+    const client = connect(HandoverConvexClient)
+    client.setAuth(async () => 'token-1')
+    subscribe(client)
+    void client
+      .mutation(makeFunctionReference<'mutation'>('jobs:create'), {})
+      .catch(() => {})
+    void client
+      .action(makeFunctionReference<'action'>('email:sendReportPdf'), {})
+      .catch(() => {})
+    await settle()
+
+    const kinds = socket().sent.map((message) => ({
+      type: message.type,
+      answered: expectsAnswer(JSON.stringify(message)),
+    }))
+    expect(kinds).toEqual(
+      expect.arrayContaining([
+        { type: 'Connect', answered: false },
+        { type: 'Authenticate', answered: true },
+        { type: 'ModifyQuerySet', answered: true },
+        { type: 'Mutation', answered: true },
+        { type: 'Action', answered: false },
+      ]),
+    )
+  })
+})
+
+/**
+ * A page in a browser, as the line watch sees it: on screen or not, a
+ * network, and a clock the test moves on.
+ */
+function browserPage() {
+  vi.useFakeTimers({
+    toFake: [
+      'setTimeout',
+      'clearTimeout',
+      'setInterval',
+      'clearInterval',
+      'Date',
+    ],
+  })
+  const page = Object.assign(new EventTarget(), {
+    matchMedia: () => ({ matches: false }),
+  })
+  const doc = Object.assign(new EventTarget(), { visibilityState: 'visible' })
+  vi.stubGlobal('window', page)
+  vi.stubGlobal('document', doc)
+  vi.stubGlobal('navigator', { onLine: true, userAgent: 'test' })
+  return {
+    hide() {
+      doc.visibilityState = 'hidden'
+      doc.dispatchEvent(new Event('visibilitychange'))
+    },
+    show() {
+      doc.visibilityState = 'visible'
+      doc.dispatchEvent(new Event('visibilitychange'))
+    },
+  }
+}
+
+describe('HandoverConvexClient, watching the line (lib/socketWatch.ts)', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+    vi.unstubAllGlobals()
+    ServerSocket.expired.clear()
+  })
+
+  /** The app's client as root-provider.tsx builds it in a browser. */
+  function watched(options: { holdForSignIn?: boolean } = {}) {
+    const client = new HandoverConvexClient(URL, {
+      webSocketConstructor: ServerSocket as unknown as typeof WebSocket,
+      unsavedChangesWarning: false,
+      watchSocket: true,
+      refreshRetry: betterAuth().retry,
+      ...options,
+    })
+    clients.push(client)
+    return client
+  }
+
+  async function signedIn(client: ConvexReactClient) {
+    signIn(client, tokens(LOADED, [RENEWED]).fetchToken)
+    await vi.waitFor(() =>
+      expect(socket().identities()).toEqual([LOADED, RENEWED]),
+    )
+  }
+
+  it('gives up a line that died while the phone was on a call, a moment after it comes back', async () => {
+    const page = browserPage()
+    const client = watched()
+    const answered = watch(client)
+    await signedIn(client)
+    expect(answered.yes).toBe(true)
+
+    // iOS cuts the line while the app is in the background, and neither end
+    // hears: the socket still says it is open.
+    page.hide()
+    serverSocket().goQuiet()
+    await vi.advanceTimersByTimeAsync(30_000)
+    const died = serverSocket()
+    page.show()
+
+    await vi.advanceTimersByTimeAsync(RESUME_GRACE_MS - 500)
+    expect(RecordingSocket.open).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(1_000)
+    // Given up, and not the minute the Convex client gives a silent line…
+    expect(died.readyState).toBeGreaterThanOrEqual(2)
+    // …and a new one after the Convex client's own short wait.
+    await vi.advanceTimersByTimeAsync(1_600)
+    expect(RecordingSocket.open).toHaveLength(2)
+    // The new line has the same sign-in, and asks for the query again.
+    await vi.waitFor(() => expect(socket().identities()).toEqual([RENEWED]))
+    expect(sentKinds()).toContain('ModifyQuerySet')
+  })
+
+  it(`gives up a line that has not answered what it was asked for ${UNANSWERED_MS / 1000} s on screen`, async () => {
+    browserPage()
+    const client = watched()
+    await signedIn(client)
+
+    serverSocket().goQuiet()
+    // New Job asks for its data down a line that has died.
+    watch(client)
+    await vi.advanceTimersByTimeAsync(UNANSWERED_MS - 2_100)
+    expect(RecordingSocket.open).toHaveLength(1)
+    await vi.advanceTimersByTimeAsync(6_000)
+    expect(RecordingSocket.open).toHaveLength(2)
+  })
+
+  it('never gives up a line held for the first sign-in, which would ask as nobody', async () => {
+    const page = browserPage()
+    const client = watched({ holdForSignIn: true })
+    subscribe(client)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(socket().sent).toEqual([])
+
+    page.hide()
+    await vi.advanceTimersByTimeAsync(30_000)
+    page.show()
+    await vi.advanceTimersByTimeAsync(RESUME_GRACE_MS + 12_000)
+    expect(RecordingSocket.open).toHaveLength(1)
+
+    client.setAuth(async () => 'token-1')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(sentKinds()).toEqual(['Connect', 'Authenticate', 'ModifyQuerySet'])
+  })
+
+  it('waits for a report being sent, but Try again opens a new line even so', async () => {
+    const page = browserPage()
+    const client = watched()
+    await signedIn(client)
+    const outcome = client
+      .action(makeFunctionReference<'action'>('email:sendReportPdf'), {})
+      .then(
+        () => 'sent',
+        (error: Error) => error.message,
+      )
+
+    page.hide()
+    serverSocket().goQuiet()
+    await vi.advanceTimersByTimeAsync(30_000)
+    page.show()
+    await vi.advanceTimersByTimeAsync(RESUME_GRACE_MS + 500)
+    // Given up now, the email would read as not sent though it may have gone.
+    expect(RecordingSocket.open).toHaveLength(1)
+
+    reconnectNow(client)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(RecordingSocket.open).toHaveLength(2)
+    expect(await outcome).toMatch(/Connection lost/)
+  })
+
+  it('Try again leaves a live line alone while a report is being sent', async () => {
+    // Given up, the send would read as failed though the email may have gone.
+    browserPage()
+    const client = watched()
+    await signedIn(client)
+    let outcome = 'sending'
+    void client
+      .action(makeFunctionReference<'action'>('email:sendReportPdf'), {})
+      .then(
+        () => (outcome = 'sent'),
+        (error: Error) => (outcome = error.message),
+      )
+    await vi.advanceTimersByTimeAsync(10)
+
+    reconnectNow(client)
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(RecordingSocket.open).toHaveLength(1)
+    expect(outcome).toBe('sending')
+  })
+
+  it('a token that lands late is not taken for a silent line', async () => {
+    // Nothing is sent while the socket waits for its token, so nothing comes
+    // back; the wait ending counts as the server's word.
+    const page = browserPage()
+    const client = watched({ holdForSignIn: true })
+    subscribe(client)
+    await vi.advanceTimersByTimeAsync(10)
+    serverSocket().goQuiet()
+
+    page.hide()
+    await vi.advanceTimersByTimeAsync(22_000)
+    page.show()
+    await vi.advanceTimersByTimeAsync(1_000)
+    client.setAuth(async () => 'token-1')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(sentKinds()).toEqual(['Connect', 'Authenticate', 'ModifyQuerySet'])
+
+    await vi.advanceTimersByTimeAsync(RESUME_GRACE_MS)
+    expect(RecordingSocket.open).toHaveLength(1)
+  })
+
+  it('a sign-in handed over mid-fetch does not hold the line for its successor', async () => {
+    // The page load's hand-over can replace a sign-in while its token fetch
+    // is still out. The socket is paused for the new one's fetch, not the
+    // old, so once that has landed a dead line is given up as usual.
+    browserPage()
+    const client = watched()
+    const slow = deferred<string | null>()
+    client.setAuth(async () => slow.promise)
+    await vi.advanceTimersByTimeAsync(10)
+    handOver(client, LOADED)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(socket().identities()).toEqual([LOADED])
+
+    serverSocket().goQuiet()
+    reconnectNow(client)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(RecordingSocket.open).toHaveLength(2)
+  })
+
+  it('Try again opens a new line at once, though the old one says it is open', async () => {
+    browserPage()
+    const client = watched()
+    const answered = watch(client)
+    await signedIn(client)
+    answered.yes = false
+
+    reconnectNow(client)
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(RecordingSocket.open).toHaveLength(2)
+    expect(socket().identities()).toEqual([RENEWED])
+    await vi.waitFor(() => expect(answered.yes).toBe(true))
+  })
+
+  it('coming back with a token about to run out fetches the next early, and the client takes it', async () => {
+    const page = browserPage()
+    const client = watched()
+    const NEAR = jwt('near', 90)
+    const EARLY = jwt('early', 3_600)
+    const script = tokens(LOADED, [NEAR, EARLY])
+    signIn(client, script.fetchToken)
+    await vi.waitFor(() =>
+      expect(socket().identities()).toEqual([LOADED, NEAR]),
+    )
+
+    page.hide()
+    await vi.advanceTimersByTimeAsync(5_000)
+    page.show()
+    // Fetched as the app came back, before anything asked for it.
+    await vi.waitFor(() => expect(script.forced()).toBe(2))
+
+    // The server turns the old one down; the client takes the early one
+    // rather than fetching again.
+    serverSocket().rejectToken()
+    await vi.waitFor(() => expect(everyIdentity().at(-1)).toBe(EARLY))
     expect(script.forced()).toBe(2)
   })
 })
