@@ -51,6 +51,7 @@ import { sitesWithClients } from '#/lib/directory'
 import { rq } from '#/lib/routeQueries'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
+import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { SheetPending } from '#/components/shell/Pending'
 import { zonedDateTimeToUtc } from '../../../convex/lib/dates'
 import { MAX_WORK_ORDER_LENGTH } from '../../../convex/lib/workOrder'
@@ -69,6 +70,9 @@ type ClientMode = 'existing' | 'new' | 'site'
 const PROPERTY_ERROR_ID = 'new-job-property-error'
 const CLIENT_ERROR_ID = 'new-job-client-error'
 const JOB_TYPE_ERROR_ID = 'new-job-type-error'
+
+/** An hour from nine, until the person says otherwise. */
+const OPENING_TIMES = { start: '09:00', end: '10:00', length: 60 }
 
 /**
  * Why a booking failed, in FormAlert. This used to say "You may not have
@@ -233,9 +237,8 @@ function NewJobForm({
   const [jobTypeMissing, setJobTypeMissing] = useState(false)
   const jobTypeTrigger = useRef<HTMLButtonElement>(null)
   const [notes, setNotes] = useState('')
-  const [time, setTime] = useState('09:00')
+  const times = useJobTimes(OPENING_TIMES)
   const [price, setPrice] = useState('')
-  const [duration, setDuration] = useState('60')
   const [workOrder, setWorkOrder] = useState('')
   const [addingWorkOrder, setAddingWorkOrder] = useState(false)
   const workOrderInput = useRef<HTMLInputElement>(null)
@@ -264,9 +267,8 @@ function NewJobForm({
     alsoGoing.length > 0 ||
     jobTypes.length > 0 ||
     notes.trim() !== '' ||
-    time !== '09:00' ||
+    times.changed ||
     price !== '' ||
-    duration !== '60' ||
     workOrder.trim() !== '' ||
     repeats
   useSheetLock(changed, { whileUnchanged: false })
@@ -448,7 +450,7 @@ function NewJobForm({
    * was typed meanwhile is what gets booked.
    */
   function bookingArgs() {
-    const [hh, mm] = time.split(':').map(Number)
+    const [hh, mm] = times.start.split(':').map(Number)
     // The picker gives a wall-clock time on the selected day, in the
     // tenant's own timezone — not the viewer's browser zone, which may
     // differ (a technician travelling, or simply a differently-configured
@@ -472,7 +474,9 @@ function NewJobForm({
       jobType: joinJobTypes(jobTypes),
       price: Math.round(Number(price || '0') * 100),
       scheduledAt,
-      durationMinutes: Number(duration),
+      // Never null here: readyToBook, read just before, stops a booking
+      // whose end is not after its start.
+      durationMinutes: times.lengthOn(day, timezone)!,
       workOrder: workOrder.trim() || undefined,
       // Only for a one-off, and only when someone was added: a repeating
       // service takes people visit by visit, for now.
@@ -510,6 +514,10 @@ function NewJobForm({
     if (jobTypes.length === 0) {
       setJobTypeMissing(true)
       jobTypeTrigger.current?.focus()
+      return false
+    }
+    if (times.lengthOn(day, timezone) === null) {
+      times.refuse()
       return false
     }
     return true
@@ -833,28 +841,13 @@ function NewJobForm({
           </Field>
         )}
 
-        {/* A cell never grows past its half of the row (see styles.css on
-            date and time inputs). */}
-        <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0">
-          <Field label="Start">
-            <input
-              type="time"
-              value={time}
-              onChange={(e) => setTime(e.target.value)}
-              className={`${FIELD} w-full`}
-            />
-          </Field>
-          <Field label="Minutes">
-            <input
-              type="number"
-              min="15"
-              step="15"
-              value={duration}
-              onChange={(e) => setDuration(e.target.value)}
-              className={`${FIELD} w-full`}
-            />
-          </Field>
-        </div>
+        <JobTimeFields
+          times={times}
+          dayKey={day}
+          timezone={timezone}
+          idPrefix="new-job"
+          className="mt-4"
+        />
 
         <FieldGroup label="Repeat">
           <Segmented
