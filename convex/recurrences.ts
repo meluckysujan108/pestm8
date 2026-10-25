@@ -20,6 +20,13 @@ import { redactJob } from './lib/prices'
 import { normaliseWorkOrder } from './lib/workOrder'
 import { normaliseJobNotes } from './lib/jobNotes'
 import { canonicalLabelFor } from './lib/jobTypeList'
+import { requireMembership } from './lib/access'
+import {
+  checkClientRequestId,
+  clientRequestIdArg,
+  noteRepeat,
+  seriesMadeBy,
+} from './lib/clientRequest'
 import {
   HORIZON_DAYS,
   assertInterval,
@@ -258,11 +265,47 @@ export const create = mutation({
      * which each visit at the address already shows.
      */
     notes: v.optional(v.string()),
+    // As jobs.create's: on the series only, never on its visits.
+    clientRequestId: clientRequestIdArg,
   },
   handler: async (
     ctx,
-    { propertyId: existingPropertyId, newClient, newProperty, ...args },
+    {
+      propertyId: existingPropertyId,
+      newClient,
+      newProperty,
+      clientRequestId: rawRequestId,
+      ...args
+    },
   ) => {
+    const requestId = checkClientRequestId(rawRequestId)
+    if (requestId !== undefined) {
+      await requireMembership(ctx, args.businessId)
+      // Before every other check here (Convex's argument validation still
+      // comes first; lib/clientRequest.ts): a send repeated because its
+      // answer was lost gets its series back, even if (say) the assignee was
+      // removed since, or it was wiped from the Recycle bin.
+      const made = await seriesMadeBy(ctx, args.businessId, requestId)
+      if (made) {
+        if (made.row) {
+          noteRepeat(
+            'recurrences',
+            made.row,
+            { ...args, propertyId: existingPropertyId },
+            [
+              'anchorDate',
+              'assignedMembershipId',
+              'intervalCount',
+              'intervalUnit',
+              'jobType',
+              'propertyId',
+            ],
+          )
+        }
+        return made.id
+      }
+    }
+
     const env = await requireWriteActor(ctx, args.businessId)
 
     // Before anything is written: `v.number()` admits 0, -3 and 2.5, none of
@@ -296,6 +339,7 @@ export const create = mutation({
       anchorDate: args.anchorDate,
       active: true,
       ...(workOrder !== undefined && { workOrder }),
+      ...(requestId !== undefined && { clientRequestId: requestId }),
     })
 
     // The first visit is the one the person just booked by hand, so it is

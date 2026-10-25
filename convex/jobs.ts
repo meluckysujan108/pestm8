@@ -69,6 +69,13 @@ import {
 } from './lib/jobPeople'
 import { normaliseWorkOrder } from './lib/workOrder'
 import { normaliseJobNotes } from './lib/jobNotes'
+import { requireMembership } from './lib/access'
+import {
+  checkClientRequestId,
+  clientRequestIdArg,
+  jobMadeBy,
+  noteRepeat,
+} from './lib/clientRequest'
 
 /**
  * Hands out the next human-sayable job number for a business and advances
@@ -1021,6 +1028,9 @@ export const create = mutation({
     // someone was added: an older backend refuses an argument it does not
     // know.
     alsoGoing: v.optional(v.array(v.id('memberships'))),
+    // The phone's id for this booking (lib/clientRequest.ts). It covers a
+    // new client or site made with the job, which never carry it.
+    clientRequestId: clientRequestIdArg,
   },
   handler: async (
     ctx,
@@ -1031,9 +1041,37 @@ export const create = mutation({
       workOrder: rawWorkOrder,
       notes: rawNotes,
       alsoGoing: rawAlsoGoing,
+      clientRequestId: rawRequestId,
       ...args
     },
   ) => {
+    const requestId = checkClientRequestId(rawRequestId)
+    if (requestId !== undefined) {
+      await requireMembership(ctx, args.businessId)
+      // Before every other check here (Convex's argument validation still
+      // comes first; lib/clientRequest.ts): a send repeated because its
+      // answer was lost gets its job back, even if (say) the assignee was
+      // removed since, or it was wiped from the Recycle bin.
+      const made = await jobMadeBy(ctx, args.businessId, requestId)
+      if (made) {
+        if (made.row) {
+          noteRepeat(
+            'jobs',
+            made.row,
+            { ...args, propertyId: existingPropertyId },
+            [
+              'scheduledAt',
+              'assignedMembershipId',
+              'jobType',
+              'durationMinutes',
+              'propertyId',
+            ],
+          )
+        }
+        return made.id
+      }
+    }
+
     const env = await requireWriteActor(ctx, args.businessId)
     // Refused before any other work: a throw rolls the whole booking back,
     // new client included, so nothing is left half-made either way.
@@ -1079,6 +1117,7 @@ export const create = mutation({
       createdAt: Date.now(),
       jobNumber,
       ...(workOrder !== undefined && { workOrder }),
+      ...(requestId !== undefined && { clientRequestId: requestId }),
     })
     if (alsoGoing.length > 0) {
       const job = await ctx.db.get(jobId)
