@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   KEPT_NOTES,
+  adoptConnectionLog,
   deviceId,
   forgetConnectionLogForTests,
   logConnection,
@@ -107,6 +108,23 @@ describe('connectionLog', () => {
     vi.unstubAllGlobals()
     logConnection('shown')
     expect(unsentConnectionLog(100)).toBeNull()
+  })
+
+  it("drops another person's unsent notes rather than sending them as this person's", () => {
+    logConnection('before-anyone')
+    adoptConnectionLog('user-terence')
+    expect(unsentConnectionLog(100)!.entries.map((entry) => entry.e)).toEqual([
+      'before-anyone',
+    ])
+
+    logConnection('terence-1')
+    // Terence signs out, and Kevin signs in on the same browser.
+    adoptConnectionLog('user-kevin')
+    expect(unsentConnectionLog(100)).toBeNull()
+    logConnection('kevin-1')
+    expect(unsentConnectionLog(100)!.entries.map((entry) => entry.e)).toEqual([
+      'kevin-1',
+    ])
   })
 
   it('names the browser once, and keeps the name', () => {

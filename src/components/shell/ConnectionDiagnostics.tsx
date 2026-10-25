@@ -3,12 +3,14 @@ import { ConvexHttpClient } from 'convex/browser'
 import { api } from '../../../convex/_generated/api'
 import { APP_VERSION } from '#/lib/appVersion'
 import {
+  adoptConnectionLog,
   deviceId,
   markConnectionLogSent,
   unsentConnectionLog,
 } from '#/lib/connectionLog'
 import { currentToken } from '#/lib/convexClient'
 import { isStandalone } from '#/lib/installPrompt'
+import { jwtClaims } from '#/lib/jwt'
 import { isOffline } from '#/lib/online'
 import { useReachNotice } from '#/lib/reach'
 import type { ConvexReactClient } from 'convex/react'
@@ -77,8 +79,11 @@ function sender(convexClient: ConvexReactClient): () => Promise<void> {
       return
     }
     const token = currentToken(convexClient)
-    const batch = token ? unsentConnectionLog(PER_REPORT) : null
-    if (!token || !batch) return
+    const owner = jwtClaims(token)?.sub
+    if (!token || typeof owner !== 'string') return
+    adoptConnectionLog(owner)
+    const batch = unsentConnectionLog(PER_REPORT)
+    if (!batch) return
     sending = true
     try {
       // A request into a dead line is given up, so the next report can go.

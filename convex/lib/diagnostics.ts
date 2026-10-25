@@ -27,25 +27,34 @@ const MAX_WORD = 120
  * A report's notes cut to size, rather than refused: a phone whose report was
  * refused would keep the same notes and send them again for ever. Over-long
  * words are shortened, details past the eighth dropped, notes past the
- * hundredth left out.
+ * hundredth left out, and a note with no real time — one `Date` cannot show —
+ * dropped.
  */
 export function trimEntries(
   entries: Array<ConnectionEntry>,
 ): Array<ConnectionEntry> {
-  return entries.slice(0, MAX_ENTRIES).map(({ t, e, d }) => ({
-    t,
-    e: e.slice(0, 40),
-    ...(d
-      ? {
-          d: Object.fromEntries(
-            Object.entries(d)
-              .slice(0, MAX_DETAILS)
-              .map(([key, value]) => [
-                key.slice(0, 32),
-                typeof value === 'string' ? value.slice(0, MAX_WORD) : value,
-              ]),
-          ),
-        }
-      : {}),
-  }))
+  return entries
+    .filter(({ t }) => isTime(t))
+    .slice(0, MAX_ENTRIES)
+    .map(({ t, e, d }) => ({
+      t,
+      e: e.slice(0, 40),
+      ...(d
+        ? {
+            d: Object.fromEntries(
+              Object.entries(d)
+                .slice(0, MAX_DETAILS)
+                .map(([key, value]) => [
+                  key.slice(0, 32),
+                  typeof value === 'string' ? value.slice(0, MAX_WORD) : value,
+                ]),
+            ),
+          }
+        : {}),
+    }))
+}
+
+/** A time in ms since the epoch that a `Date` can show. */
+export function isTime(t: number): boolean {
+  return Number.isFinite(t) && t >= 0 && t <= 8.64e15
 }

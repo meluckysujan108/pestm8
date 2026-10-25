@@ -18,21 +18,24 @@
  * Convex client keeps to itself: when the server last said anything, and
  * whether something it always answers at once is still waiting. The server
  * says something at least every 15 s — a Ping, when there is nothing else —
- * so a socket is dead when (`judgeSocket`):
+ * so no live line is quiet for 20 s (`QUIET_LINE_MS`), and a socket is dead
+ * when (`judgeSocket`):
  *
  * - it is still opening after 10 s on screen (`opening`);
  * - it has been asked something the server answers at once — a query to
- *   watch, a save, a token — and nothing at all has come back in 10 s on
- *   screen (`unanswered`);
+ *   watch, a save, a token — and nothing at all has come back in 20 s on
+ *   screen (`unanswered`). Not 10: a message is heard only once the whole of
+ *   it has arrived, and the first after a reconnect carries every live query,
+ *   the whole client list among them, which on one bar can take a while;
  * - the app has just come back on screen and, a moment later, the server has
  *   said nothing for 20 s (`silent`). Whatever it sent while the phone slept
  *   would have arrived the moment it woke.
  *
  * Time off screen never counts towards the first two: a reply can sit
- * unread while the page sleeps. Each socket given up in a row doubles the
- * limits, up to a minute, so a line that opens and then carries nothing
- * (some VPNs, a captive Wi-Fi) is not torn down every ten seconds; the first
- * answer on a new socket puts them back.
+ * unread while the page sleeps. Each socket given up in a row stretches the
+ * limits (×2, then ×3: a minute), so a line that opens and then carries
+ * nothing (some VPNs, a captive Wi-Fi) is not torn down every few seconds;
+ * the first answer on a new socket puts them back.
  *
  * A dead socket is given up as the browser gives one up: its handlers are
  * taken off, it is closed, and the Convex client is handed the close event
@@ -44,18 +47,21 @@
 
 import { logConnection } from '#/lib/connectionLog'
 
+/** Longer than any live line is quiet: the server pings every 15 s. */
+export const QUIET_LINE_MS = 20_000
 /** After coming back on screen, how long a sleeping socket's mail has to arrive. */
 export const RESUME_GRACE_MS = 2_500
 /** How long after coming back silence alone is read as a dead line. */
 export const RESUME_WINDOW_MS = 30_000
-/** Silence that means dead, just after coming back: the server pings every 15 s. */
-export const RESUME_SILENCE_MS = 20_000
+/** Silence that means dead, just after coming back. */
+export const RESUME_SILENCE_MS = QUIET_LINE_MS
 /** How long something the server answers at once may wait, on screen. */
-export const UNANSWERED_MS = 10_000
+export const UNANSWERED_MS = QUIET_LINE_MS
 /** How long a socket may take to open, on screen. */
 export const OPENING_MS = 10_000
-/** The most the limits stretch after sockets given up in a row (×6: a minute). */
-export const MAX_PATIENCE = 6
+/** The most the limits stretch after sockets given up in a row (×3: a
+ * minute to answer). */
+export const MAX_PATIENCE = 3
 
 /** What a watched socket knows about itself. Times are epoch ms. */
 export type SocketReading = {

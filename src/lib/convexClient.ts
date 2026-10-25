@@ -14,10 +14,12 @@ import { expiryOfToken, issueOfToken } from '#/lib/jwt'
 import { retryNow } from '#/lib/online'
 import {
   MAX_PATIENCE,
+  QUIET_LINE_MS,
   RESUME_GRACE_MS,
   WatchedSockets,
   judgeSocket,
 } from '#/lib/socketWatch'
+import type { SocketReading } from '#/lib/socketWatch'
 import { withRefreshRetry } from '#/lib/tokenRefresh'
 import type { RefreshRetry } from '#/lib/tokenRefresh'
 
@@ -113,9 +115,13 @@ export class HandoverConvexClient extends ConvexReactClient {
   // (`fetchEarly`), and what that fetched, until the client asks for it.
   private refreshEarly: (() => Promise<string | null | undefined>) | undefined
   private early: { token: string; at: number } | 'fetching' | undefined
-  // Token fetches the Convex client holds the socket paused for: a line must
-  // never be given up then, since reconnecting unpauses it (`whilePaused`).
-  private paused = 0
+  // Token fetches the Convex client holds the socket paused for, each with
+  // whether its sign-in is still the current one: a line is never given up
+  // while one is, since reconnecting unpauses it (`whilePaused`)…
+  private readonly pausing = new Set<{ current: () => boolean }>()
+  // …and when such a wait last ended, which counts as hearing from the
+  // server: nothing is sent while paused, so nothing comes back either.
+  private pauseEndedAt = 0
   // Actions in flight that must not be cut off (`action`).
   private unsafeActions = 0
   // The line, as watched in the browser (`watchLine`).
@@ -184,8 +190,11 @@ export class HandoverConvexClient extends ConvexReactClient {
       this.firstSignIn = resolve
     })
     super.setAuth(
-      this.whilePaused(async (args) =>
-        (signIn ??= await known).fetchToken(args),
+      // The hold, and then the first sign-in's own fetch, until a second
+      // sign-in takes over.
+      this.whilePaused(
+        async (args) => (signIn ??= await known).fetchToken(args),
+        () => this.authGeneration <= 1,
       ),
       (isAuthenticated) => signIn?.onChange?.(isAuthenticated),
       (isRefreshing) => signIn?.onRefreshChange?.(isRefreshing),
@@ -240,7 +249,7 @@ export class HandoverConvexClient extends ConvexReactClient {
     if (first) first(signIn)
     else {
       super.setAuth(
-        this.whilePaused(signIn.fetchToken),
+        this.whilePaused(signIn.fetchToken, isCurrent),
         signIn.onChange,
         onRefreshChange,
       )
@@ -364,19 +373,53 @@ export class HandoverConvexClient extends ConvexReactClient {
    * would undo the pause: a new socket starts unpaused, and would ask for
    * every query as nobody, before the token. That is the "Not found" of
    * 26 Sept 2026 (`holdForSignIn`, PR #47).
+   *
+   * Counted only while its sign-in is the current one: a sign-in handed over
+   * mid-fetch is paused for by its successor's fetch, which is counted in
+   * turn, and the old one's could otherwise hold the line for as long as its
+   * attempt is given (up to 30 s, lib/tokenRefresh.ts).
    */
-  private whilePaused(fetchToken: AuthTokenFetcher): AuthTokenFetcher {
+  private whilePaused(
+    fetchToken: AuthTokenFetcher,
+    isCurrent: () => boolean,
+  ): AuthTokenFetcher {
     let settled = false
     return async (args) => {
-      const pausing = !settled
-      if (pausing) this.paused++
+      const entry = settled ? null : { current: isCurrent }
+      if (entry) this.pausing.add(entry)
       try {
         const token = await fetchToken(args)
         if (token || args.forceRefreshToken) settled = true
         return token
       } finally {
-        if (pausing) this.paused--
+        if (entry) {
+          this.pausing.delete(entry)
+          this.pauseEndedAt = Date.now()
+        }
       }
+    }
+  }
+
+  /** Whether the Convex client has the socket paused for a token. */
+  private isPaused(): boolean {
+    for (const entry of this.pausing) if (entry.current()) return true
+    return false
+  }
+
+  /**
+   * What the socket knows of itself, with a wait for a token counted as
+   * hearing from the server (see `pauseEndedAt`).
+   */
+  private readLine(
+    socket: NonNullable<WatchedSockets['current']>,
+  ): SocketReading {
+    const reading = socket.reading()
+    return {
+      ...reading,
+      heardAt: Math.max(
+        reading.heardAt ?? reading.createdAt,
+        this.pauseEndedAt,
+      ),
     }
   }
 
@@ -535,17 +578,19 @@ export class HandoverConvexClient extends ConvexReactClient {
     // Closed clients are not watched.
     if (!socket || !this.stopWatching) return
     const now = Date.now()
-    const reading = socket.reading()
     // The socket after one given up has answered what it was asked: the
-    // line works again, so the limits are back to normal.
+    // line works again, so the limits are back to normal. Its own word
+    // only, not a token's arrival.
+    const own = socket.reading()
     if (
       this.gaveUpAt !== null &&
-      reading.askedAt === null &&
-      (reading.heardAt ?? 0) > this.gaveUpAt
+      own.askedAt === null &&
+      (own.heardAt ?? 0) > this.gaveUpAt
     ) {
       this.gaveUpAt = null
       this.patience = 1
     }
+    const reading = this.readLine(socket)
     const verdict = judgeSocket(reading, {
       now,
       shownAt: this.shownAt,
@@ -556,8 +601,11 @@ export class HandoverConvexClient extends ConvexReactClient {
       this.keptNoted = null
       return
     }
-    const keptFor =
-      this.paused > 0 ? 'signing-in' : this.unsafeActions > 0 ? 'sending' : null
+    const keptFor = this.isPaused()
+      ? 'signing-in'
+      : this.unsafeActions > 0
+        ? 'sending'
+        : null
     if (keptFor) {
       if (this.keptNoted !== keptFor) {
         logConnection('ws-kept', { why: verdict, for: keptFor })
@@ -591,17 +639,27 @@ export class HandoverConvexClient extends ConvexReactClient {
   /**
    * Try again (components/shell/ConnectionNotice.tsx): a new line now, and
    * a token if one is due. Whatever is keeping the page waiting, a fresh
-   * socket asks for everything again, and the person asked for it — so even
-   * with an action in flight, which on a line this stuck the Convex client
-   * would fail anyway when it finally noticed. Never while the socket is
-   * paused for a token (`whilePaused`). Without a watched line, it does what
+   * socket asks for everything again, and the person asked for it. Never
+   * while the socket is paused for a token (`whilePaused`). And with a report
+   * on its way (an action other than the read-only ones), only a line that
+   * has said nothing for longer than a live one ever does: given up, a live
+   * line fails the send though the email may have gone, and sending again
+   * emails the client twice. Then, and without a watched line, it does what
    * Try again always did: tells everything waiting on the network to go now.
    */
   reconnectNow(): void {
     logConnection('try')
     const socket = this.sockets?.current
-    if (socket && socket.reading().state !== 'closed' && this.paused === 0) {
-      logConnection('ws-dead', { why: 'try' })
+    const reading = socket ? this.readLine(socket) : null
+    const quiet = reading ? Date.now() - (reading.heardAt ?? 0) : 0
+    if (
+      socket &&
+      reading &&
+      reading.state !== 'closed' &&
+      !this.isPaused() &&
+      (this.unsafeActions === 0 || quiet >= QUIET_LINE_MS)
+    ) {
+      logConnection('ws-dead', { why: 'try', quiet })
       // Not counted towards the watch's patience: asking is not a sign that
       // lines here open and then carry nothing.
       socket.giveUp('PestM8: try again')

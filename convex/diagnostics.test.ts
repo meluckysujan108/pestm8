@@ -85,22 +85,41 @@ describe('diagnostics', () => {
     expect(agent).toHaveLength(300)
   })
 
-  test('refuses a second report within five seconds, so a page in a loop cannot fill the table', async () => {
+  test('refuses a second report within thirty seconds, so a page in a loop cannot fill the table', async () => {
     vi.useFakeTimers()
     const t = testApp()
     const jo = await createActor(t, { email: 'jo@jospest.test' })
     await jo.as.mutation(api.diagnostics.report, report([{ t: 1, e: 'a' }]))
 
+    vi.advanceTimersByTime(29_000)
     await expect(
       jo.as.mutation(api.diagnostics.report, report([{ t: 2, e: 'b' }])),
     ).rejects.toThrow('TOO_SOON')
 
-    vi.advanceTimersByTime(5_000)
+    vi.advanceTimersByTime(1_000)
     await jo.as.mutation(api.diagnostics.report, report([{ t: 2, e: 'b' }]))
     const rows = await t.run((ctx) =>
       ctx.db.query('clientDiagnostics').collect(),
     )
     expect(rows).toHaveLength(2)
+  })
+
+  test('drops a note with no real time, so the notes can always be read', async () => {
+    const t = testApp()
+    const kevin = await createActor(t, { email: 'kevin@kp.test' })
+    await kevin.as.mutation(
+      api.diagnostics.report,
+      report([
+        { t: Number.NaN, e: 'bad' },
+        { t: 1e16, e: 'too-far' },
+        { t: Date.UTC(2026, 9, 25), e: 'shown' },
+      ]),
+    )
+
+    const [row] = await t.query(internal.diagnostics.recent, { hours: 1 })
+    expect(row.entries).toEqual([
+      { at: '2026-10-25T00:00:00.000Z', e: 'shown' },
+    ])
   })
 
   test('forgets reports after thirty days', async () => {

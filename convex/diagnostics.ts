@@ -2,7 +2,7 @@ import { ConvexError, v } from 'convex/values'
 import { internalMutation, internalQuery, mutation } from './_generated/server'
 import { components, internal } from './_generated/api'
 import { requireAuthUser } from './lib/access'
-import { connectionEntry, trimEntries } from './lib/diagnostics'
+import { connectionEntry, isTime, trimEntries } from './lib/diagnostics'
 
 /**
  * A phone's notes about its connection to PestM8, sent in by the phone
@@ -17,9 +17,10 @@ import { connectionEntry, trimEntries } from './lib/diagnostics'
 
 /** How long reports are kept. */
 const KEPT_MS = 30 * 24 * 60 * 60 * 1000
-/** The least time between one person's reports: a page in a loop is not
- * allowed to fill the table. */
-const MIN_GAP_MS = 5_000
+/** The least time between one person's reports, so a page in a loop cannot
+ * fill the table: the app sends every two minutes at most, and a little
+ * sooner just after the "Could not reach PestM8" notice goes. */
+const MIN_GAP_MS = 30_000
 
 export const report = mutation({
   args: {
@@ -117,7 +118,7 @@ export const recent = internalQuery({
       standalone: row.standalone,
       agent: row.agent,
       entries: row.entries.map((entry) => ({
-        at: new Date(entry.t).toISOString(),
+        at: isTime(entry.t) ? new Date(entry.t).toISOString() : String(entry.t),
         e: entry.e,
         ...(entry.d ? { d: entry.d } : {}),
       })),

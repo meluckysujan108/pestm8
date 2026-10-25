@@ -960,6 +960,67 @@ describe('HandoverConvexClient, watching the line (lib/socketWatch.ts)', () => {
     expect(await outcome).toMatch(/Connection lost/)
   })
 
+  it('Try again leaves a live line alone while a report is being sent', async () => {
+    // Given up, the send would read as failed though the email may have gone.
+    browserPage()
+    const client = watched()
+    await signedIn(client)
+    let outcome = 'sending'
+    void client
+      .action(makeFunctionReference<'action'>('email:sendReportPdf'), {})
+      .then(
+        () => (outcome = 'sent'),
+        (error: Error) => (outcome = error.message),
+      )
+    await vi.advanceTimersByTimeAsync(10)
+
+    reconnectNow(client)
+    await vi.advanceTimersByTimeAsync(10)
+
+    expect(RecordingSocket.open).toHaveLength(1)
+    expect(outcome).toBe('sending')
+  })
+
+  it('a token that lands late is not taken for a silent line', async () => {
+    // Nothing is sent while the socket waits for its token, so nothing comes
+    // back; the wait ending counts as the server's word.
+    const page = browserPage()
+    const client = watched({ holdForSignIn: true })
+    subscribe(client)
+    await vi.advanceTimersByTimeAsync(10)
+    serverSocket().goQuiet()
+
+    page.hide()
+    await vi.advanceTimersByTimeAsync(22_000)
+    page.show()
+    await vi.advanceTimersByTimeAsync(1_000)
+    client.setAuth(async () => 'token-1')
+    await vi.advanceTimersByTimeAsync(10)
+    expect(sentKinds()).toEqual(['Connect', 'Authenticate', 'ModifyQuerySet'])
+
+    await vi.advanceTimersByTimeAsync(RESUME_GRACE_MS)
+    expect(RecordingSocket.open).toHaveLength(1)
+  })
+
+  it('a sign-in handed over mid-fetch does not hold the line for its successor', async () => {
+    // The page load's hand-over can replace a sign-in while its token fetch
+    // is still out. The socket is paused for the new one's fetch, not the
+    // old, so once that has landed a dead line is given up as usual.
+    browserPage()
+    const client = watched()
+    const slow = deferred<string | null>()
+    client.setAuth(async () => slow.promise)
+    await vi.advanceTimersByTimeAsync(10)
+    handOver(client, LOADED)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(socket().identities()).toEqual([LOADED])
+
+    serverSocket().goQuiet()
+    reconnectNow(client)
+    await vi.advanceTimersByTimeAsync(10)
+    expect(RecordingSocket.open).toHaveLength(2)
+  })
+
   it('Try again opens a new line at once, though the old one says it is open', async () => {
     browserPage()
     const client = watched()

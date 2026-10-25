@@ -32,6 +32,8 @@ type Log = {
   /** The highest number the server has. */
   sent: number
   entries: Array<Kept>
+  /** Who the notes are sent as, once known (`adoptConnectionLog`). */
+  owner?: string
 }
 
 const STORAGE_KEY = 'pestm8.connectionLog'
@@ -76,6 +78,9 @@ function load(): Log {
         next: kept.next,
         sent: kept.sent,
         entries: (kept.entries as Array<Kept>).slice(-KEPT_NOTES),
+        ...('owner' in kept && typeof kept.owner === 'string'
+          ? { owner: kept.owner }
+          : {}),
       }
     }
   } catch {
@@ -136,6 +141,21 @@ export function unsentConnectionLog(
     through: last.s,
     entries: unsent.map(({ s: _s, ...entry }) => entry),
   }
+}
+
+/**
+ * Says who the notes are about to be sent as (a user id). The notes are this
+ * browser's, not one person's: notes left unsent by another person's sign-in
+ * here are dropped rather than sent as this person's, and notes from before
+ * anyone was known are kept.
+ */
+export function adoptConnectionLog(owner: string): void {
+  if (!inBrowser()) return
+  const current = load()
+  if (current.owner === owner) return
+  if (current.owner !== undefined) current.sent = current.next - 1
+  current.owner = owner
+  saveTimer ??= setTimeout(save, 1_000)
 }
 
 /** Records that the server has every note up to `through`. */
