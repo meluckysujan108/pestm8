@@ -76,12 +76,16 @@ export function ReportSigning({
     }
   }
 
-  const { data: saved } = useQuery({
-    ...convexQuery(api.reports.mySavedSignature, { businessId }),
-    // Only ever offered for the signer's own slot: applying someone else's
-    // saved signature is forgery with extra steps, however convenient.
-    enabled: open && ownSignature,
-  })
+  const { data: saved } = useQuery(
+    convexQuery(
+      api.reports.mySavedSignature,
+      // Only ever offered for the signer's own slot: applying someone else's
+      // saved signature is forgery with extra steps, however convenient.
+      // 'skip' rather than `enabled`, which would still hold the
+      // subscription while the screen is closed.
+      open && ownSignature ? { businessId } : 'skip',
+    ),
+  )
   // A first drawing is kept for next time unless they say not; a later one
   // replaces the saved signature only if they say so. Not known yet (no
   // signal), nothing is kept: a saved signature replaced without a word is

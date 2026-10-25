@@ -1,6 +1,8 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { convexQuery } from '@convex-dev/react-query'
 import { IdCard } from 'lucide-react'
+import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
 import { useCan } from '#/lib/access'
 import { licenceErrorCopy } from '#/lib/licenceErrors'
@@ -55,10 +57,14 @@ export function MemberLicences({
   const canSee = useCan('business.manage')
   const today = useBusinessToday(timezone)
   const hydrated = useHydrated()
-  const list = useQuery({
-    ...rq.memberLicences(businessId, membershipId),
-    enabled: canSee && active,
-  })
+  // 'skip' rather than `enabled`: a disabled query is still asked, and the
+  // server refuses a former member's licences, and a member's to anyone but
+  // the owner (a contractor opening their crew's pages).
+  const list = useQuery(
+    canSee && active
+      ? rq.memberLicences(businessId, membershipId)
+      : convexQuery(api.memberLicences.list, 'skip'),
+  )
   const [viewing, setViewing] = useState<WalletLicence | null>(null)
 
   if (!canSee || !active) return null

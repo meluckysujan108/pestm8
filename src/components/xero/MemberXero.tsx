@@ -1,5 +1,7 @@
 import { useQuery } from '@tanstack/react-query'
+import { convexQuery } from '@convex-dev/react-query'
 import { Plug } from 'lucide-react'
+import { api } from '../../../convex/_generated/api'
 import { LoadFailed } from '#/components/primitives/EmptyState'
 import { RowPending } from '#/components/shell/Pending'
 import { RowBadge, SettingsGroup, SettingsRow } from '#/components/settings/ui'
@@ -42,15 +44,17 @@ export function MemberXero({
   const canSee = useCan('business.manage')
   const applies = canSee && active && role !== 'owner'
   // The hub already holds this one: whether there is any Xero here at all.
-  const xero = useQuery({
-    ...rq.xeroStatus(businessId),
-    enabled: applies,
-  }).data
+  // 'skip' rather than `enabled` for both: a disabled query is still asked,
+  // and `xero.memberStatus` refuses anyone but the owner.
+  const xero = useQuery(
+    applies ? rq.xeroStatus(businessId) : convexQuery(api.xero.status, 'skip'),
+  ).data
   const shown = applies && xero?.configured === true && !xero.demo
-  const theirs = useQuery({
-    ...rq.xeroMemberStatus(businessId, membershipId),
-    enabled: shown,
-  })
+  const theirs = useQuery(
+    shown
+      ? rq.xeroMemberStatus(businessId, membershipId)
+      : convexQuery(api.xero.memberStatus, 'skip'),
+  )
 
   if (!shown) return null
 
@@ -107,9 +111,11 @@ export function useMemberXeroConnected(
   asking: boolean,
 ): boolean {
   const canSee = useCan('business.manage')
-  const theirs = useQuery({
-    ...rq.xeroMemberStatus(businessId, membershipId),
-    enabled: asking && canSee,
-  }).data
+  // 'skip', not `enabled`: a disabled query is still asked, and refused.
+  const theirs = useQuery(
+    asking && canSee
+      ? rq.xeroMemberStatus(businessId, membershipId)
+      : convexQuery(api.xero.memberStatus, 'skip'),
+  ).data
   return theirs?.status === 'connected' || theirs?.status === 'needs_reconnect'
 }

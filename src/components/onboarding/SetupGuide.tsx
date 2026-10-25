@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery } from '@tanstack/react-query'
-import { useConvexMutation } from '@convex-dev/react-query'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { Check, ChevronRight } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { FormAlert } from '#/components/forms/FormAlert'
@@ -58,8 +58,13 @@ function useGuide(businessId: Id<'businesses'>) {
   // The owner's to do. Asked of no one else, so nobody else waits on it.
   const canManage = useCan('business.manage')
   // Warmed by the schedule's and Settings' loaders, so it is there on
-  // arrival rather than pushing the page down after it.
-  return useQuery({ ...rq.setupGuide(businessId), enabled: canManage })
+  // arrival rather than pushing the page down after it. 'skip' rather than
+  // `enabled`: a disabled query still holds its Convex subscription.
+  return useQuery(
+    canManage
+      ? rq.setupGuide(businessId)
+      : convexQuery(api.setupGuide.progress, 'skip'),
+  )
 }
 
 /**

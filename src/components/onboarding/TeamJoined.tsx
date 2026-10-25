@@ -1,5 +1,5 @@
 import { keepPreviousData, useMutation, useQuery } from '@tanstack/react-query'
-import { useConvexMutation } from '@convex-dev/react-query'
+import { convexQuery, useConvexMutation } from '@convex-dev/react-query'
 import { X } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { useCan } from '#/lib/access'
@@ -28,9 +28,12 @@ export function TeamJoinedNotices({
   // Warmed by the schedule's loader, so it is there with the day.
   // The window moves on at a UTC midnight — mid-morning in Australia — and
   // what was showing stays up while the new question is answered.
+  // 'skip' rather than `enabled`: a disabled query still holds its Convex
+  // subscription.
   const { data: joined } = useQuery({
-    ...rq.teamJoins(businessId),
-    enabled: canManage,
+    ...(canManage
+      ? rq.teamJoins(businessId)
+      : convexQuery(api.teamJoins.recent, 'skip')),
     placeholderData: keepPreviousData,
   })
   const dismiss = useConvexMutation(api.teamJoins.dismiss)
@@ -39,7 +42,9 @@ export function TeamJoinedNotices({
       dismiss({ businessId, membershipId }),
   })
 
-  if (!joined || joined.length === 0) return null
+  // `canManage` too: switched into someone else's account, the skip above
+  // would otherwise keep the owner's notices up as its placeholder.
+  if (!canManage || !joined || joined.length === 0) return null
 
   return (
     <div className="flex flex-col gap-2 px-4 pt-3 lg:pt-4">
