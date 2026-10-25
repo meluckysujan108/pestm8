@@ -4,6 +4,7 @@ import type { FunctionReturnType } from 'convex/server'
 import { api } from '../../convex/_generated/api'
 import type { QueryClient } from '@tanstack/react-query'
 import type { Id } from '../../convex/_generated/dataModel'
+import { isOffline } from './online'
 import type { LibraryFilter } from '#/components/notes/NoteList'
 import type { Segment } from '#/components/reports/ReportsLibrary'
 import type { MatchFilter } from '#/components/xero/xeroCopy'
@@ -32,10 +33,16 @@ type B = Id<'businesses'>
  * query does not read the clock, so the caller says when "lately" began, and
  * rounding it lets a page's loader and its render ask the same question —
  * one cache entry — all day.
+ *
+ * The schedule's loader works it out once and hands it to the page, rather
+ * than the page working it out again as it renders: a page the service
+ * worker kept from before the last UTC midnight (8am in Perth) holds the
+ * answer to an earlier question, and the phone asking the new one found
+ * nothing to hydrate with.
  */
-function joinWindowStart(): number {
+export function joinWindowStart(now = Date.now()): number {
   const day = 24 * 60 * 60 * 1000
-  return Math.floor(Date.now() / day) * day - 14 * day
+  return Math.floor(now / day) * day - 14 * day
 }
 
 export const rq = {
@@ -98,12 +105,10 @@ export const rq = {
   /** A new business's set-up guide — the owner's only (`setupGuide.ts`). */
   setupGuide: (businessId: B) =>
     convexQuery(api.setupGuide.progress, { businessId, withClients: true }),
-  /** Who joined lately, for the owner's schedule (`teamJoins.ts`). */
-  teamJoins: (businessId: B) =>
-    convexQuery(api.teamJoins.recent, {
-      businessId,
-      since: joinWindowStart(),
-    }),
+  /** Who joined lately, for the owner's schedule (`teamJoins.ts`). `since`
+   * is the schedule loader's `joinSince` wherever a page reads it. */
+  teamJoins: (businessId: B, since = joinWindowStart()) =>
+    convexQuery(api.teamJoins.recent, { businessId, since }),
   access: (businessId: B) => convexQuery(api.access.me, { businessId }),
   team: (businessId: B) => convexQuery(api.team.roster, { businessId }),
   invitations: (businessId: B) =>
@@ -388,6 +393,41 @@ export function settleWithin(ms: number, work: Promise<void>): Promise<void> {
       timer = setTimeout(resolve, ms)
     }),
   ]).finally(() => clearTimeout(timer))
+}
+
+/**
+ * `work` as a loader should wait for it: to the end on the server, and for
+ * at most `ms` in the browser (`settleWithin`).
+ *
+ * The server always has a line, and renders the page from what its loader
+ * fetched: cut short there, it would only send a page without its data,
+ * for the phone to ask for all over again. In the browser, with no signal,
+ * a wait to the end held the page on its placeholder even when it could
+ * draw without the missing answer (the owner's news, say). Past `ms` the
+ * page renders with what has come, and suspends on anything it can't do
+ * without: the same placeholder the wait showed.
+ */
+export function settleInBrowser(
+  ms: number,
+  work: Promise<unknown>,
+): Promise<void> {
+  const done = work.then(() => {})
+  return typeof window === 'undefined' ? done : settleWithin(ms, done)
+}
+
+/** The longest a loader holds a navigation in the browser: enough for one
+ * bar to bring a page's first answers. */
+const LOADER_WAIT_MS = 8_000
+
+/**
+ * How long a loader in the browser waits for its page's queries: none at
+ * all when the phone says it has no signal, since nothing will answer and
+ * what the cache holds is all the page will get.
+ */
+export function loaderWaitMs(): number {
+  // The kept copy's keeper will decide this (`keeper.lineDown()`), counting
+  // a socket that has been down a while as well.
+  return isOffline() ? 0 : LOADER_WAIT_MS
 }
 
 /** A search param as the loader sees it, before the route has validated it. */

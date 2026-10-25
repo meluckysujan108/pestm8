@@ -22,12 +22,12 @@ import { APP_ICON_LINKS } from '#/lib/appIcons'
 import { authClient } from '#/lib/auth-client'
 import { openSignedOut } from '#/lib/convexClient'
 import { getInitialState } from '#/lib/initialState'
+import { notAMemberSlug, wipeKeptForBusiness } from '#/lib/offline/keptStore'
 // For its listener: Chrome offers installing once, early, on whatever page
 // is open, and set-up's Home Screen card is only there to use it later.
 import '#/lib/installPrompt'
 import {
-  forgetKeptLicences,
-  forgetRootState,
+  forgetEndedSession,
   hasRootState,
   resolveRootState,
   seedRootState,
@@ -36,6 +36,7 @@ import { themeInitScript } from '#/lib/theme'
 import { useSystemThemeSync } from '#/lib/useTheme'
 import appCss from '../styles.css?url'
 
+import type { NotFoundRouteProps } from '@tanstack/react-router'
 import type { QueryClient } from '@tanstack/react-query'
 import type { ConvexQueryClient } from '@convex-dev/react-query'
 import type { AuthClient } from '@convex-dev/better-auth/react'
@@ -84,8 +85,18 @@ export const Route = createRootRouteWithContext<RouterContext>()({
  * Also what a signed-in user sees for a tenant they are not a member of —
  * §6.5 requires that case be indistinguishable from a business that does not
  * exist, so this deliberately says nothing about which it was.
+ *
+ * When the server said so (`notAMemberOf`, from `$businessSlug`'s guard),
+ * the copy of that business's schedule kept on this phone goes, if it is
+ * that business's: someone removed from it opens a link to it, often a page
+ * the server rendered, whose guard the browser never runs again.
  */
-function NotFound() {
+function NotFound({ data }: NotFoundRouteProps) {
+  const notAMember = notAMemberSlug(data)
+  useEffect(() => {
+    if (notAMember !== null) void wipeKeptForBusiness(notAMember, 'removed')
+  }, [notAMember])
+
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-[460px] flex-col justify-center px-6">
       <p className="section-label mb-2">PestM8</p>
@@ -177,10 +188,11 @@ function SessionWatch() {
 
   useEffect(() => {
     if (!signedOut || !hasRootState()) return
-    forgetRootState()
-    // Signed out in another tab, whose sign-out dropped them already — but
-    // not a keep this tab had in flight, which may have put some back.
-    void forgetKeptLicences()
+    // The cached sign-in, and everything kept on this phone for them: the
+    // pages, their licences, the copy of the schedule. An offboarding or a
+    // revoked session ends here, with no sign-out of this page's own to
+    // clear any of it.
+    forgetEndedSession()
     void router.invalidate()
   }, [signedOut, router])
 

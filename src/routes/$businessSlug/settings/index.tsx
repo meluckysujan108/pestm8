@@ -46,14 +46,18 @@ import {
   SettingsLinkRow,
 } from '#/components/settings/ui'
 import { useHiddenGuide } from '#/components/onboarding/SetupGuide'
+import { FormAlert } from '#/components/forms/FormAlert'
 import { XeroBadge, xeroRowValue } from '#/components/xero/XeroBadge'
 import { useAccess, useActing, useCan } from '#/lib/access'
 import { APP_VERSION } from '#/lib/appVersion'
 import { roleLabel } from '#/lib/assignees'
 import { authClient } from '#/lib/auth-client'
 import { useStandalone } from '#/lib/installPrompt'
-import { beginSignOut, forgetCachedPages } from '#/lib/rootState'
+import { confirmLeave } from '#/lib/offline/leaveGuard'
+import { isOffline } from '#/lib/online'
+import { beginSignOut, forgetCachedPages, signOutFailed } from '#/lib/rootState'
 import { browserOnly, rq, settleWithin, warm } from '#/lib/routeQueries'
+import { signOutWithin } from '#/lib/signOutWithin'
 import { THEME_LABEL } from '#/lib/theme'
 import { recoveryCodesUnsaved } from '#/lib/twoStepReminders'
 import { useHydrated } from '#/lib/useHydrated'
@@ -165,7 +169,6 @@ function SettingsHub() {
   const canManageBusiness = useCan('business.manage')
   const canManageTeam = useCan('team.manage')
   const canManageTemplates = useCan('templates.manage')
-  const hydrated = useHydrated()
   const { theme } = useRouteContext({ from: '__root__' })
   const [themePref] = useThemePref(theme)
   const standalone = useStandalone()
@@ -465,31 +468,106 @@ function SettingsHub() {
           />
         </SettingsGroup>
 
-        <DangerGroup>
-          <button
-            type="button"
-            // Before hydration this does nothing at all; disabled until it
-            // can, like every other control that needs the script.
-            disabled={!hydrated}
-            onClick={async () => {
-              // Before the request, so nothing kept on this phone for them
-              // is written again while it is in flight (rootState.ts).
-              beginSignOut()
-              await authClient.signOut()
-              await forgetCachedPages()
-              // A full reload, not a soft navigation, so every cached query
-              // and component tied to the old identity is gone rather than
-              // briefly visible to whoever signs in next on this device.
-              window.location.href = '/login'
-            }}
-            className={DANGER_ROW_CLASS}
-          >
-            Sign out
-          </button>
-        </DangerGroup>
+        <SignOut />
       </SettingsBody>
     </>
   )
+}
+
+/** How long Sign out waits for PestM8 to answer, at most. */
+const SIGN_OUT_WAIT_MS = 10_000
+
+/** What Sign out says when it can't go ahead, in the amber box above it. */
+const SIGN_OUT_COPY = {
+  offline: 'Signing out needs signal.',
+  failed: 'Could not sign out. Check your signal and try again.',
+} as const
+
+/**
+ * Sign out, which a full load of the sign-in page finishes.
+ *
+ * With no signal it says so and does nothing else: the person is still
+ * signed in, here and on the server, and nothing is cleared. Otherwise,
+ * once anything that would be lost has asked (`confirmLeave`), everything
+ * kept on this phone for them goes first (`beginSignOut`), then the request,
+ * given ten seconds (`signOutWithin`).
+ *
+ * One that fails or doesn't answer in time had left the session alive while
+ * the page had already let them go, with nothing on screen to say so. Now it
+ * says so, the page gets around on the cached sign-in again
+ * (`signOutFailed`), and Sign out can be tapped again. A request given up on
+ * still goes, and if it lands after all, the sign-out finishes then.
+ */
+function SignOut() {
+  const hydrated = useHydrated()
+  const [signingOut, setSigningOut] = useState(false)
+  const [problem, setProblem] = useState<keyof typeof SIGN_OUT_COPY | null>(
+    null,
+  )
+
+  async function signOut() {
+    setProblem(null)
+    if (isOffline()) {
+      setProblem('offline')
+      return
+    }
+    // Whatever would be lost with the sign-out asks first
+    // (lib/offline/leaveGuard.ts). Asked about the signal again after: an
+    // answer can take a while.
+    if (!(await confirmLeave('signOut'))) return
+    if (isOffline()) {
+      setProblem('offline')
+      return
+    }
+    setSigningOut(true)
+    // Before the request, so nothing kept on this phone for them is written
+    // again while it is in flight (rootState.ts).
+    beginSignOut()
+    const { inTime, landed } = await signOutWithin(
+      authClient.signOut(),
+      SIGN_OUT_WAIT_MS,
+    )
+    if (inTime) {
+      await leaveForSignIn()
+      return
+    }
+    signOutFailed()
+    setSigningOut(false)
+    setProblem('failed')
+    void landed.then((ok) => (ok ? leaveForSignIn() : undefined))
+  }
+
+  return (
+    <DangerGroup>
+      {/* Just above the button, as every failed save's is. */}
+      {problem && (
+        <div className="px-3.5 py-3">
+          <FormAlert>{SIGN_OUT_COPY[problem]}</FormAlert>
+        </div>
+      )}
+      <button
+        type="button"
+        // Before hydration this does nothing at all; disabled until it
+        // can, like every other control that needs the script.
+        disabled={!hydrated || signingOut}
+        onClick={() => void signOut()}
+        className={DANGER_ROW_CLASS}
+      >
+        {signingOut ? 'Signing out…' : 'Sign out'}
+      </button>
+    </DangerGroup>
+  )
+}
+
+/**
+ * The end of a sign-out the server has made. A full reload, not a soft
+ * navigation, so every cached query and component tied to the old identity
+ * is gone rather than briefly visible to whoever signs in next on this
+ * device.
+ */
+async function leaveForSignIn(): Promise<void> {
+  await forgetCachedPages()
+  window.location.href = '/login'
 }
 
 /**

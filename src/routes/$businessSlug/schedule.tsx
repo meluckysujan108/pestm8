@@ -38,7 +38,15 @@ import { WeatherCredit } from '#/components/schedule/WeatherCredit'
 import { jobsAhead, travelHintsFor } from '#/lib/travel'
 import { Segmented } from '#/components/primitives/Segmented'
 import { useActing, useCan, useViewMode } from '#/lib/access'
-import { rq, searchParam, warm } from '#/lib/routeQueries'
+import {
+  joinWindowStart,
+  loaderWaitMs,
+  rq,
+  searchParam,
+  settleInBrowser,
+  warm,
+} from '#/lib/routeQueries'
+import { useToday } from '#/lib/useToday'
 import { WeekView } from '#/components/schedule/WeekView'
 import { RecurringDueNote } from '#/components/schedule/RecurringDueNote'
 import { SCHEDULE_VIEWS, SCHEDULE_VIEW_OPTIONS } from '#/lib/scheduleViews'
@@ -67,17 +75,28 @@ const searchSchema = z.object({
   newJob: z.boolean().optional().catch(undefined),
 })
 
+/** How long a navigation in the browser waits for the owner's news (the
+ * set-up guide, who joined) before the day shows without it. */
+const OWNER_NEWS_WAIT_MS = 1_500
+
 export const Route = createFileRoute('/$businessSlug/schedule')({
   validateSearch: searchSchema,
   // The day's jobs, its week and the roster together, instead of one after
   // another as the page reads them. No `loaderDeps` on the day: that would
   // make every tap on the strip a new match, and a new match is a placeholder
   // rather than the day you are leaving.
-  loader: ({ context: { queryClient, business }, location }) => {
+  //
+  // It also says what today is, and since when the join notices count, for
+  // the page's first render: worked out here, they go into the HTML with
+  // the answers they were asked with, so a copy of the page the service
+  // worker kept from yesterday still hydrates as it was rendered.
+  loader: async ({ context: { queryClient, business }, location }) => {
+    const today = todayKeyIn(business.timezone)
+    const joinSince = joinWindowStart()
     const asked = searchParam(location, 'date')
     const day = /^\d{4}-\d{2}-\d{2}$/.test(asked ?? '')
       ? (asked as string)
-      : todayKeyIn(business.timezone)
+      : today
     const month = day.slice(0, 7)
     const desktop =
       typeof window !== 'undefined' &&
@@ -115,21 +134,35 @@ export const Route = createFileRoute('/$businessSlug/schedule')({
       queryClient.getQueryData<Access>(rq.access(business._id).queryKey)
         ?.caps['business.manage'] === true
 
-    return warm(
+    const essentials = warm(
       queryClient,
       rq.week(business._id, startOfWeekKey(day)),
       ...weekDays,
       rq.roster(business._id),
-      ...(owner
-        ? [rq.setupGuide(business._id), rq.teamJoins(business._id)]
-        : []),
     )
+    const news = owner
+      ? warm(
+          queryClient,
+          rq.setupGuide(business._id),
+          rq.teamJoins(business._id, joinSince),
+        )
+      : Promise.resolve()
+    // Everything, on the server. In the browser the day is waited for only
+    // so long (`loaderWaitMs`), and the owner's news for less: on a line
+    // that slow, the day is worth more than keeping news from landing
+    // above it.
+    await settleInBrowser(
+      loaderWaitMs(),
+      Promise.all([essentials, settleInBrowser(OWNER_NEWS_WAIT_MS, news)]),
+    )
+    return { today, joinSince }
   },
   component: SchedulePage,
 })
 
 function SchedulePage() {
   const { business } = Route.useRouteContext()
+  const loaded = Route.useLoaderData()
   const canDispatch = useCan('jobs.dispatch')
   const canManageClients = useCan('clients.manage')
   // The account being worked in, so the day opens on the right person's round.
@@ -193,7 +226,9 @@ function SchedulePage() {
   // week strip and its sheet — a re-layout, not a second calendar.
   const isDesktop = useMediaQuery('(min-width: 1024px)')
 
-  const today = todayKeyIn(business.timezone)
+  // The loader's today until the page has hydrated, then the phone's: the
+  // HTML may be a copy the service worker kept from an earlier day.
+  const today = useToday(business.timezone, loaded.today)
   // The day asked for, and the day on screen. A day not fetched yet suspends
   // this page, and a suspension here swaps the whole page — the strip or
   // calendar just tapped included — for the route's placeholder. Deferring
@@ -345,6 +380,7 @@ function SchedulePage() {
         />
         <TeamJoinedNotices
           businessId={business._id}
+          since={loaded.joinSince}
           onGiveJob={(membershipId) => {
             setNewJobFor(membershipId)
             setNewJobOpen(true)

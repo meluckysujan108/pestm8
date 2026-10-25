@@ -1,5 +1,6 @@
 import { getInitialState } from '#/lib/initialState'
 import { jwtClaims } from '#/lib/jwt'
+import { checkKeptOwner, wipeKept } from '#/lib/offline/keptStore'
 import { readThemePref } from '#/lib/theme'
 import type { ThemePref } from '#/lib/theme'
 
@@ -56,6 +57,11 @@ let generation = 0
 // Set by `beginSignOut` for the rest of this page load, which a sign-out
 // always ends with a full load of its own.
 let signingOut = false
+// Set by `beginSignOut` until the sign-out has failed (`signOutFailed`): no
+// fresh answer is cached meanwhile.
+let signOutPending = false
+// What the last `beginSignOut` forgot, for `signOutFailed` to put back.
+let beforeSignOut: { token: string; generation: number } | null = null
 
 /** Once per page load, from the root context SSR handed over. */
 export function seedRootState(state: RootState): void {
@@ -63,6 +69,9 @@ export function seedRootState(state: RootState): void {
   seeded = true
   if (state.token) token = state.token
   checkKeptFiles()
+  // The copy of the schedule kept on this phone, if it is someone else's or
+  // nobody is signed in (lib/offline/keptStore.ts).
+  checkKeptOwner(signedInUserId())
 }
 
 /** The root `beforeLoad`'s answer on the client: cached once signed in. */
@@ -73,15 +82,16 @@ export async function resolveRootState(): Promise<RootState> {
   asking ??= getInitialState()
   try {
     const fresh = await asking
-    // Not while signing out: the session cookie is still good until the
-    // sign-out request lands, and a preload asking in that moment would put
+    // Not while a sign-out is on its way: the session cookie is still good
+    // until the request lands, and a preload asking in that moment would put
     // the person back just as they leave.
-    if (asked === generation && !signingOut) {
+    if (asked === generation && !signOutPending) {
       token = fresh.token
       askedAt = Date.now()
       // Signing in on the join page lands here, with no page load between
       // the last person and this one.
       checkKeptFiles()
+      checkKeptOwner(signedInUserId())
     }
     return fresh
   } finally {
@@ -145,10 +155,38 @@ export function forgetRootState(): void {
  * fail from the moment the person asks to leave, and until the page is gone:
  * not even a navigation's fresh answer from the server (the cookie still
  * works until the sign-out lands) puts them back.
+ *
+ * The copy of the schedule kept on this phone (lib/offline/keptStore.ts)
+ * goes first, before any request is made: a sign-out with one bar may never
+ * land, and the person's jobs must not stay behind for whoever picks the
+ * phone up next.
  */
 export function beginSignOut(): void {
+  void wipeKept('sign-out')
   signingOut = true
+  signOutPending = true
+  beforeSignOut = token === undefined ? null : { token, generation }
   forgetRootState()
+}
+
+/**
+ * After a sign-out `beginSignOut` began that failed, or didn't answer in
+ * time (Settings' Sign out, which stays on the page to say so). The person
+ * is still signed in, on the server and here, so this puts back the cached
+ * sign-in it forgot. Without it, every tap asked the server who was signed
+ * in again, which with no signal failed every tap, and `SessionWatch`, which
+ * watches only while a sign-in is cached, would miss the session ending if
+ * the request landed after all.
+ *
+ * Nothing is kept on the phone for the rest of this page load, all the
+ * same: `signedInUserId` stays null. They asked to leave, and what was kept
+ * for them went then; none of it comes back before the next page load.
+ */
+export function signOutFailed(): void {
+  signOutPending = false
+  const before = beforeSignOut
+  beforeSignOut = null
+  if (before) restoreRootState(before.token, before.generation)
 }
 
 /**
@@ -170,22 +208,67 @@ export function beginSignOut(): void {
  * The person's own licences (src/lib/keptLicence.ts) ARE dropped here: they
  * are their personal information rather than the business's shelf, and they
  * come back on their own the next time the list of them answers with signal.
+ * So is the copy of the schedule kept on this phone
+ * (lib/offline/keptStore.ts), even when the same person signs back in: they
+ * have signal then, and it fills again at once.
  */
-export async function forgetCachedPages(): Promise<void> {
+export function forgetCachedPages(): Promise<void> {
+  return forgetPersonOnPhone('person-change')
+}
+
+/**
+ * When `SessionWatch` (__root.tsx) sees the session end with no sign-out of
+ * this page's own: signed out in another tab, offboarded, or revoked or
+ * expired on the server. Forgets the cached sign-in, and drops what
+ * `forgetCachedPages` does. The other tab's sign-out dropped it already, but
+ * not a keep this tab had in flight. And an offboarding or a revoked session
+ * has no sign-out at all to drop it, so the person's pages, with their
+ * schedule and token in them, would otherwise still open with no signal,
+ * from `/`, for whoever has the phone next.
+ */
+export function forgetEndedSession(): void {
+  forgetRootState()
+  void forgetPersonOnPhone('session-ended')
+}
+
+/**
+ * How long a sign-in or sign-out waits for the kept copy's wipe before its
+ * full load. The copy in memory goes the moment the wipe is asked
+ * (`wipeKept`). Whatever is left on disk goes at the next page load if it
+ * is someone else's or nobody is signed in (`checkKeptOwner`), and is
+ * otherwise the person's own. An IndexedDB that never answers, as WebKit's
+ * sometimes doesn't, must not leave Sign in or Sign out pending forever.
+ */
+const WIPE_WAIT_MS = 2_000
+
+/** The 'pages' cache, the person's kept licences and the kept copy. */
+async function forgetPersonOnPhone(why: string): Promise<void> {
   try {
-    if (typeof caches !== 'undefined') {
-      await Promise.all([caches.delete('pages'), forgetKeptLicences()])
-    }
+    await Promise.all([
+      waitAtMost(WIPE_WAIT_MS, wipeKept(why)),
+      typeof caches === 'undefined' ? undefined : caches.delete('pages'),
+      forgetKeptLicences(),
+    ])
   } catch {
     // A browser that refuses the cache has nothing stale to serve from it.
   }
 }
 
+/** `work`, or nothing once `ms` has passed. */
+function waitAtMost(ms: number, work: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([
+    work,
+    new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, ms)
+    }),
+  ]).finally(() => clearTimeout(timer))
+}
+
 /**
  * Drops the person's licences kept on this phone — at every sign-in and
  * sign-out (`forgetCachedPages`), and when `SessionWatch` sees the session
- * end some other way: signed out in another tab, whose own sign-out dropped
- * them already but not a keep this tab had in flight.
+ * end some other way (`forgetEndedSession`).
  */
 export async function forgetKeptLicences(): Promise<void> {
   try {

@@ -638,6 +638,22 @@ const PLAN = {
       await p.waitForTimeout(300)
     },
   },
+  // The foot of the form: the caption above Book job.
+  'newjob-no-signal': {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Book job' }).scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  'business-switch-no-signal': {
+    before: async (p) => {
+      await p.waitForTimeout(500)
+      await p.getByRole('button', { name: /Swan River Pest Co/ }).click()
+      await p.getByRole('link', { name: /Hills Pest & Termite/ }).click()
+      await p.waitForTimeout(300)
+    },
+  },
   jobtimes: { before: async (p) => p.waitForTimeout(500) },
   'jobtype-picker': {
     spec: 'jobdetail',

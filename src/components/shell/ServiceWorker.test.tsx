@@ -1,6 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { NewVersionBanner } from './ServiceWorker'
+
+// ServiceWorker refreshes the kept pages (lib/offline/keptPages.ts), which
+// ask lib/rootState.ts who is signed in; its server function's module wants
+// the deployment's URLs, which CI's unit run doesn't have.
+vi.mock('#/lib/initialState', () => ({ getInitialState: vi.fn() }))
 
 describe('the new-version banner', () => {
   const html = renderToStaticMarkup(

@@ -725,6 +725,30 @@ const FIXTURES: Partial<Record<string, (args: any) => unknown>> = {
     logoOnDarkUrl:
       args.businessId === LETTERHEAD_BIZ.both ? SAMPLE_LOGO_ON_DARK : null,
   }),
+  // The sidebar's business switcher: the sample business, and a second one
+  // this person subcontracts for (`businesses.listForUser`).
+  'businesses:listForUser': () => [
+    {
+      membershipId: 'm_owner',
+      role: 'owner',
+      colour: '#0A84FF',
+      canViewAllJobs: true,
+      businessId: BIZ,
+      name: 'Swan River Pest Co',
+      slug: 'demo',
+      setupStep: null,
+    },
+    {
+      membershipId: 'm_hills',
+      role: 'subcontractor',
+      colour: '#FF9F0A',
+      canViewAllJobs: false,
+      businessId: 'biz_hills',
+      name: 'Hills Pest & Termite',
+      slug: 'hills',
+      setupStep: null,
+    },
+  ],
   // What Settings → Business reads live, keyed by which of the three.
   'businesses:getBySlug': (args: { slug: string }) => ({
     _id:

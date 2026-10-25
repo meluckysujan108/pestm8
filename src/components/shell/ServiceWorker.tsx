@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, X } from 'lucide-react'
 import { APP_VERSION } from '#/lib/appVersion'
+import { refreshKeptPages } from '#/lib/offline/keptPages'
 import { useReachNotice } from '#/lib/reach'
 import { watchForNewBuild } from '#/lib/workerVersion'
 
@@ -38,7 +39,13 @@ export function ServiceWorker() {
       if (!stopped) setNewVersion(true)
     }
     const watch = watchForNewBuild(APP_VERSION, onNewBuild)
-    const onControllerChange = () => watch.controllerChanged(sw.controller)
+    const onControllerChange = () => {
+      watch.controllerChanged(sw.controller)
+      // A new worker precaches a new build's files. The pages kept for
+      // opening with no signal are fetched again while there is signal, so
+      // their HTML names those files (lib/offline/keptPages.ts).
+      if (sw.controller) void refreshKeptPages()
+    }
     sw.addEventListener('controllerchange', onControllerChange)
 
     let registration: ServiceWorkerRegistration | undefined
