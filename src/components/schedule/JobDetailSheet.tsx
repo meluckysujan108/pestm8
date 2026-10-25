@@ -40,6 +40,7 @@ import { rq } from '#/lib/routeQueries'
 import { prepareUpload } from '#/lib/images/prepareUpload'
 import { personLabel, roleLabel, useAssigneeOptions } from '#/lib/assignees'
 import { OffViewNote } from './OffViewNote'
+import { JobTimeFields, useJobTimes } from './JobTimeFields'
 import { PropertyHistory } from './PropertyHistory'
 import { nextVisit } from '#/lib/jobHistory'
 import { Bone, RowPending, SheetPending } from '#/components/shell/Pending'
@@ -876,9 +877,9 @@ function JobDetailBody({
  * Every job field except status (that stays on the dropdown above — a quick
  * toggle, not a form field). Reuses `NewJobSheet.tsx`'s exact widgets rather
  * than inventing new ones: the searchable `Combobox` for property and job
- * type, a native `<select>` for the assignee, `date`+`time` inputs, plain
- * number inputs for duration/price. Unlike a new job, the property starts on
- * the job's own — that is context, not a default.
+ * type, a native `<select>` for the assignee, a `date` input, the start and
+ * end (`JobTimeFields`), a plain number input for price. Unlike a new job,
+ * the property starts on the job's own — that is context, not a default.
  */
 function JobEditForm({
   businessId,
@@ -949,8 +950,13 @@ function JobEditForm({
   // matching what `formatTime` already displays elsewhere in this sheet, so
   // opening the edit form never shows a different time than the read view did.
   const [date, setDate] = useState(dayKeyOf(job.scheduledAt, timezone))
-  const [time, setTime] = useState(timeKeyOf(job.scheduledAt, timezone))
-  const [duration, setDuration] = useState(String(job.durationMinutes))
+  // The end as the job's card shows it: the instant it ends, read in the
+  // business's zone, so a job across a clock change opens on its real end.
+  const times = useJobTimes({
+    start: timeKeyOf(job.scheduledAt, timezone),
+    end: timeKeyOf(job.scheduledAt + job.durationMinutes * 60_000, timezone),
+    length: job.durationMinutes,
+  })
   const [price, setPrice] = useState(String(job.price / 100))
   const [assignee, setAssignee] = useState<string>(job.assignedMembershipId)
   // Everyone going beside the lead (a shared job), as the form opened with
@@ -1043,8 +1049,6 @@ function JobEditForm({
       canonicalJobTypes(splitJobTypes(job.jobType), jobTypeList),
     ),
     date: dayKeyOf(job.scheduledAt, timezone),
-    time: timeKeyOf(job.scheduledAt, timezone),
-    duration: String(job.durationMinutes),
     price: String(job.price / 100),
     assignee: job.assignedMembershipId,
   }))
@@ -1055,8 +1059,7 @@ function JobEditForm({
     propertyId !== opened.propertyId ||
     joinJobTypes(jobTypes) !== opened.jobType ||
     date !== opened.date ||
-    time !== opened.time ||
-    duration !== opened.duration ||
+    times.changed ||
     (!job.pricesHidden && price !== opened.price) ||
     assignee !== opened.assignee ||
     alsoGoingChanged ||
@@ -1117,7 +1120,12 @@ function JobEditForm({
           jobTypeTrigger.current?.focus()
           return
         }
-        const [hh, mm] = time.split(':').map(Number)
+        const durationMinutes = times.lengthOn(date, timezone)
+        if (durationMinutes === null) {
+          times.refuse()
+          return
+        }
+        const [hh, mm] = times.start.split(':').map(Number)
         const scheduledAt = zonedDateTimeToUtc(date, hh, mm, timezone)
 
         save.mutate({
@@ -1127,7 +1135,7 @@ function JobEditForm({
           jobType: joinJobTypes(jobTypes),
           price: Math.round(Number(price || '0') * 100),
           scheduledAt,
-          durationMinutes: Number(duration),
+          durationMinutes,
           assignedMembershipId: assignee as Id<'memberships'>,
           // Sent only when changed ('' clears it). Every other edit then
           // leaves it out entirely, so rescheduling a job never depends on
@@ -1269,57 +1277,42 @@ function JobEditForm({
             </EditField>
           )}
 
-      {/* `[&>*]:min-w-0`: a cell never grows past its half of the row. iOS
-          gives date and time inputs a width of their own, and without this
-          Date pushed Start off the side of the screen. */}
-      <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0">
-        <EditField label="Date">
-          <input
-            type="date"
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-            className={`${FIELD} w-full`}
-          />
-        </EditField>
-        <EditField label="Start">
-          <input
-            type="time"
-            value={time}
-            onChange={(e) => setTime(e.target.value)}
-            className={`${FIELD} w-full`}
-          />
-        </EditField>
-      </div>
+      {/* As New Job asks it: the date on its own row, then the start and
+          end side by side. A date can't be saved empty. */}
+      <EditField label="Date">
+        <input
+          type="date"
+          required
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          className={`${FIELD} w-full`}
+        />
+      </EditField>
 
-      <div className="grid grid-cols-2 gap-3 [&>*]:min-w-0">
-        <EditField label="Minutes">
+      <JobTimeFields
+        times={times}
+        dayKey={date}
+        timezone={timezone}
+        idPrefix="edit-job"
+      />
+
+      {/* No box for a figure they were never shown. An input seeded from a
+          redacted price sends a placeholder back as if it were real, and the
+          server drops it — but an empty Price field that silently does
+          nothing is its own kind of lie. */}
+      {!job.pricesHidden && (
+        <EditField label="Price (AUD)">
           <input
             type="number"
-            min="15"
-            step="15"
-            value={duration}
-            onChange={(e) => setDuration(e.target.value)}
+            min="0"
+            step="0.01"
+            inputMode="decimal"
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
             className={`${FIELD} w-full`}
           />
         </EditField>
-        {/* No box for a figure they were never shown. An input seeded from a
-            redacted price sends a placeholder back as if it were real, and the
-            server drops it — but an empty Price field that silently does
-            nothing is its own kind of lie. */}
-        {!job.pricesHidden && (
-          <EditField label="Price (AUD)">
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              inputMode="decimal"
-              value={price}
-              onChange={(e) => setPrice(e.target.value)}
-              className={`${FIELD} w-full`}
-            />
-          </EditField>
-        )}
-      </div>
+      )}
 
       <EditFieldGroup label="Repeat">
         {hasActiveRecurrence ? (

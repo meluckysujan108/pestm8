@@ -87,8 +87,17 @@ function Specimen() {
 
 const rootRoute = createRootRoute({ component: Specimen })
 const splat = createRoute({ getParentRoute: () => rootRoute, path: '$' })
+// The business's own route, with the context the app's gives it, for a
+// component that reads it (`useRouteContext({ from: '/$businessSlug' })`):
+// New Job starts a new address in the business's state.
+const business = createRoute({
+  getParentRoute: () => rootRoute,
+  path: '$businessSlug',
+  beforeLoad: () => ({ business: { state: 'WA' } }),
+})
+const inBusiness = createRoute({ getParentRoute: () => business, path: '$' })
 const router = createRouter({
-  routeTree: rootRoute.addChildren([splat]),
+  routeTree: rootRoute.addChildren([business.addChildren([inBusiness]), splat]),
   history: createMemoryHistory({ initialEntries: [path] }),
 })
 

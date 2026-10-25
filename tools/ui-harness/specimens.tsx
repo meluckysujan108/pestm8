@@ -14,6 +14,8 @@ import { JobCard } from '#/components/schedule/JobCard'
 import { RecurringServices } from '#/components/schedule/RecurringServices'
 import { useBusinessDay } from '#/lib/useBusinessDay'
 import { JobDetailSheet } from '#/components/schedule/JobDetailSheet'
+import { NewJobSheet } from '#/components/schedule/NewJobSheet'
+import { JobTimeFields, useJobTimes } from '#/components/schedule/JobTimeFields'
 import { ClientSheet } from '#/components/clients/ClientSheet'
 import { RecycleBinList } from '#/components/settings/RecycleBin'
 import { JobTypesSection } from '#/components/settings/JobTypesSection'
@@ -228,6 +230,67 @@ function JobDetailLoading() {
         onClose={() => {}}
       />
     </Phone>
+  )
+}
+
+/** New Job as the Schedule's + opens it: nothing chosen yet. */
+function NewJob() {
+  const day = useBusinessDay(TZ).key
+  return (
+    <Phone>
+      <AccessProvider businessId={bizId}>
+        <Header title="Schedule" />
+        <NewJobSheet
+          businessId={bizId}
+          dayKey={day}
+          timezone={TZ}
+          open
+          onClose={() => {}}
+        />
+      </AccessProvider>
+    </Phone>
+  )
+}
+
+/** A job's start and end: as New Job opens, a job of a few hours, and an
+ * end before the start once the field has been left. */
+function JobTimes() {
+  const day = useBusinessDay(TZ).key
+  return (
+    <Phone>
+      <div className="flex flex-col gap-6 px-4 pt-4 pb-6">
+        <TimesSample day={day} />
+        <TimesSample day={day} end="12:30" />
+        <TimesSample day={day} end="08:30" left />
+      </div>
+    </Phone>
+  )
+}
+
+function TimesSample({
+  day,
+  end,
+  left = false,
+}: {
+  day: string
+  end?: string
+  left?: boolean
+}) {
+  const times = useJobTimes({ start: '09:00', end: '10:00', length: 60 })
+  const [set, setSet] = useState(false)
+  useEffect(() => {
+    if (set) return
+    setSet(true)
+    if (end) times.changeEnd(end)
+    if (left) times.reveal()
+  }, [set, end, left, times])
+  return (
+    <JobTimeFields
+      times={times}
+      dayKey={day}
+      timezone={TZ}
+      idPrefix={`sample-${end ?? 'opened'}`}
+    />
   )
 }
 
@@ -1909,6 +1972,8 @@ export const SPECIMENS: Partial<Record<string, ComponentType>> = {
   dock: Dock,
   jobcards: JobCards,
   jobdetail: JobDetail,
+  newjob: NewJob,
+  jobtimes: JobTimes,
   'jobdetail-services': JobDetailServices,
   'jobdetail-contact': JobDetailContact,
   'jobdetail-loading': JobDetailLoading,

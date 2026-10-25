@@ -598,6 +598,47 @@ const PLAN = {
       await p.waitForTimeout(500)
     },
   },
+  // Its date, start and end, and the length said back under them.
+  'jobdetail-edit-times': {
+    spec: 'jobdetail',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByRole('button', { name: 'Edit job details' }).click()
+      await p.waitForTimeout(500)
+      await p.getByLabel('End', { exact: true }).fill('13:30')
+      await p.getByLabel('Date', { exact: true }).scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  // New Job's start and end (25 Oct 2026: they were Start and Minutes).
+  newjob: {
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByLabel('Start', { exact: true }).scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  'newjob-long': {
+    spec: 'newjob',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByLabel('Start', { exact: true }).fill('08:00')
+      await p.getByLabel('End', { exact: true }).fill('12:30')
+      await p.getByLabel('Start', { exact: true }).scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  'newjob-end-before-start': {
+    spec: 'newjob',
+    before: async (p) => {
+      await p.waitForTimeout(900)
+      await p.getByLabel('End', { exact: true }).fill('08:30')
+      await p.getByLabel('End', { exact: true }).blur()
+      await p.getByLabel('Start', { exact: true }).scrollIntoViewIfNeeded()
+      await p.waitForTimeout(300)
+    },
+  },
+  jobtimes: { before: async (p) => p.waitForTimeout(500) },
   'jobtype-picker': {
     spec: 'jobdetail',
     before: async (p) => {
