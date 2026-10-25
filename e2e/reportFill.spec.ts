@@ -499,6 +499,9 @@ test.describe('starting a report from the job it belongs to', () => {
 
     await signInViaUi(page, email)
     await page.goto(`/${slug}/schedule`)
+    // The schedule is server-rendered, and a tap on a card before hydration
+    // opens nothing. `New job` stays disabled until the page has hydrated.
+    await expect(page.getByRole('button', { name: 'New job' })).toBeEnabled()
     await page.getByText('Termite Inspection').first().click()
 
     // A termite inspection produces a Timber Pest Inspection, so that is the
@@ -1280,14 +1283,19 @@ test.describe('the one question the phone answers better', () => {
     // look identical on a printed page.
     await expect(page.getByText(/captured .* · ±8 m/)).toBeVisible()
 
+    // The reading is on screen a moment before the autosave sends it, so the
+    // first answers here have no location yet. Read optionally: a poll whose
+    // callback throws gives up on the spot rather than asking again.
     await expect
       .poll(async () => {
         const report = await owner.client.query(api.reports.get, {
           businessId,
           reportId,
         })
-        const gps = (report!.data as Record<string, { lat?: number }>).location
-        return gps.lat
+        const gps = (
+          report!.data as Record<string, { lat?: number } | undefined>
+        ).location
+        return gps?.lat
       })
       .toBeCloseTo(-31.9187, 3)
   })
