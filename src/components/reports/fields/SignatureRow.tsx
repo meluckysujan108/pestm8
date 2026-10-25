@@ -66,7 +66,13 @@ export function SignatureRow({
   const existing = urls?.[slot]
 
   const { data: saved } = useQuery({
-    ...convexQuery(api.reports.mySavedSignature, { businessId }),
+    // 'skip' for someone else's slot: switched off by `enabled` alone, a
+    // query still holds its Convex subscription.
+    ...convexQuery(
+      api.reports.mySavedSignature,
+      ownSignature ? { businessId } : 'skip',
+    ),
+    // Both, because this line overrides the `enabled: false` a skip sets.
     enabled: hydrated && ownSignature,
   })
   const { saveDrawn, applySaved } = useSignatureSaving({

@@ -69,13 +69,17 @@ function NewReportPage() {
   // Arriving from a job, the app already knows what the visit was for, so the
   // form that visit produces goes first and says why it is there. A suggestion
   // only: every form stays on the list, in the same order, underneath.
-  const { data: job } = useQuery({
-    ...convexQuery(api.jobs.get, {
-      businessId: business._id,
-      jobId: (linkedJobId ?? '') as Id<'jobs'>,
-    }),
-    enabled: Boolean(linkedJobId),
-  })
+  // 'skip' rather than `enabled`: a disabled query still holds its Convex
+  // subscription, so every New report opened without a job asked the server
+  // for `jobs.get` with an empty id, and was refused by its validator.
+  const { data: job } = useQuery(
+    convexQuery(
+      api.jobs.get,
+      linkedJobId
+        ? { businessId: business._id, jobId: linkedJobId as Id<'jobs'> }
+        : 'skip',
+    ),
+  )
   // The link is only as good as the job: one moved to another address since
   // the link was made is filed at the address it is at now, and one gone
   // (deleted, or never this business's) falls back to asking.

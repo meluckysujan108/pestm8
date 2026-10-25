@@ -2,7 +2,11 @@ import { Suspense, lazy, useEffect, useId, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { Link } from '@tanstack/react-router'
 import { useMutation, useQuery, useSuspenseQuery } from '@tanstack/react-query'
-import { useConvexAction, useConvexMutation } from '@convex-dev/react-query'
+import {
+  convexQuery,
+  useConvexAction,
+  useConvexMutation,
+} from '@convex-dev/react-query'
 import { ChevronRight, LoaderCircle, Plug } from 'lucide-react'
 import { api } from '../../../convex/_generated/api'
 import { PageHeader } from '#/components/shell/PageHeader'
@@ -1264,10 +1268,12 @@ function useFinish(
  * business owner" until it answers, or if it never does.
  */
 function useOwnerName(businessId: Id<'businesses'>, kind: XeroKind): string {
-  const roster = useQuery({
-    ...rq.roster(businessId),
-    enabled: kind === 'member',
-  }).data
+  // 'skip', not `enabled`: a disabled query keeps its Convex subscription.
+  const roster = useQuery(
+    kind === 'member'
+      ? rq.roster(businessId)
+      : convexQuery(api.memberships.listForBusiness, 'skip'),
+  ).data
   const name = roster?.find((m) => m.role === 'owner')?.name.trim()
   return name || 'The business owner'
 }

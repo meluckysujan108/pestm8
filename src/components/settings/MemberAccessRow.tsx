@@ -749,13 +749,15 @@ function RemoveMember({
   const [reassignTo, setReassignTo] = useState<Id<'memberships'> | ''>('')
   const team = teamOf(member, others)
 
-  const preview = useQuery({
-    ...convexQuery(api.team.removalPreview, {
-      businessId,
-      membershipId: member._id,
-    }),
-    enabled: confirming,
-  })
+  // Only once Remove is asked: 'skip' rather than `enabled`, which would
+  // still hold the subscription — re-counting their jobs, repeats and drafts
+  // on every change — for as long as their page is open.
+  const preview = useQuery(
+    convexQuery(
+      api.team.removalPreview,
+      confirming ? { businessId, membershipId: member._id } : 'skip',
+    ),
+  )
 
   const convexRemove = useConvexMutation(api.team.remove)
   const remove = useMutation({

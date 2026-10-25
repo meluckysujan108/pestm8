@@ -524,13 +524,20 @@ export function ReportBuilder({
    * simply not made.
    */
   const { data: lastVisit } = useQuery({
-    ...convexQuery(api.reports.lastAtProperty, { businessId, reportId }),
     // Only while the overview is showing, which is the only screen that can
     // display the offer. This query reads the draft, so it re-runs on every
     // autosave; left subscribed through a twenty-minute fill it would re-read
     // the site's whole report history several hundred times to answer a
-    // question nobody is looking at.
+    // question nobody is looking at. So 'skip' inside a section — `enabled`
+    // alone keeps the subscription — and dropped a minute after, rather than
+    // on the cache's fifteen.
+    ...convexQuery(
+      api.reports.lastAtProperty,
+      current ? 'skip' : { businessId, reportId },
+    ),
+    // Both, because this line overrides the `enabled: false` a skip sets.
     enabled: hydrated && !current,
+    gcTime: 60_000,
   })
   const justCopied = useRef(false)
   useEffect(() => {

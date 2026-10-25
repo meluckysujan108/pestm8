@@ -43,11 +43,11 @@ export function ViewMenu({
   // Not suspense: the header must never wait on a list of names. The trigger's
   // shape comes from `access.me`, already loaded; details fill in after.
   // And only for someone who gets the menu: everyone else would be holding a
-  // subscription open on every page to be told `null`.
-  const { data: options, isError } = useQuery({
-    ...convexQuery(api.views.options, { businessId }),
-    enabled: mode !== null,
-  })
+  // subscription open on every page to be told `null` — hence 'skip': a
+  // query switched off with `enabled` keeps its subscription all the same.
+  const { data: options, isError } = useQuery(
+    convexQuery(api.views.options, mode !== null ? { businessId } : 'skip'),
+  )
   const setView = useSetView(businessId)
 
   if (mode === null) return null
