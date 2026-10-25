@@ -148,7 +148,7 @@ test('a business client’s work order is asked for, saved, shown, and can be co
     detail.getByRole('heading', { name: 'Termite Inspection' }),
   ).toBeVisible()
   await expect(detail.getByLabel('Work order')).toHaveValue('WO-448120')
-  await detail.getByLabel('Minutes').fill('90')
+  await detail.getByLabel('End', { exact: true }).fill('10:45')
   await detail.getByRole('button', { name: 'Save' }).click()
   await expect(section).toContainText('WO-9')
   expect(updates[1]).not.toContain('workOrder')

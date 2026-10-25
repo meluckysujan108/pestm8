@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { api, clickUntil, setupBusinessWithSub, signInViaUi } from './fixtures'
-import type { Page } from '@playwright/test'
+import type { Locator, Page } from '@playwright/test'
 
 /**
  * A sheet being edited does not go away by accident (asked for 30 Sept 2026:
@@ -9,6 +9,17 @@ import type { Page } from '@playwright/test'
  * ask before throwing a change away, and close straight away when nothing
  * has changed.
  */
+
+/**
+ * An end time other than the job's own. The fixture's job starts when it is
+ * made, so its end could be any time of day.
+ */
+async function changeEnd(detail: Locator) {
+  const end = detail.getByLabel('End', { exact: true })
+  const next = (await end.inputValue()) === '05:00' ? '06:00' : '05:00'
+  await end.fill(next)
+  return next
+}
 
 async function openJob(page: Page, slug: string) {
   await page.goto(`/${slug}/schedule`)
@@ -36,19 +47,19 @@ test('editing a job: Escape and ✕ ask before a change is thrown away', async (
     0,
   )
 
-  await detail.getByLabel('Minutes').fill('120')
+  const end = await changeEnd(detail)
 
   // Escape asks; Keep editing keeps what was typed.
   await page.keyboard.press('Escape')
   await expect(discard(page)).toBeVisible()
   await discard(page).getByRole('button', { name: 'Keep editing' }).click()
   await expect(discard(page)).toHaveCount(0)
-  await expect(detail.getByLabel('Minutes')).toHaveValue('120')
+  await expect(detail.getByLabel('End', { exact: true })).toHaveValue(end)
 
   // A tap outside does nothing: it is how a phone's keyboard is put away.
   await page.mouse.click(5, 5)
   await expect(discard(page)).toHaveCount(0)
-  await expect(detail.getByLabel('Minutes')).toHaveValue('120')
+  await expect(detail.getByLabel('End', { exact: true })).toHaveValue(end)
 
   // ✕ asks too; Discard closes the job, and nothing was saved.
   await detail.getByRole('button', { name: 'Close' }).click()
@@ -91,13 +102,13 @@ test('the phone’s Back asks before leaving a job with unsaved changes', async 
     expect(detail).toBeVisible({ timeout: 2_000 }),
   )
   await detail.getByRole('button', { name: 'Edit job details' }).click()
-  await detail.getByLabel('Minutes').fill('45')
+  const end = await changeEnd(detail)
 
   await page.goBack()
   await expect(discard(page)).toBeVisible()
   await discard(page).getByRole('button', { name: 'Keep editing' }).click()
   await expect(page).toHaveURL(new RegExp(`/${s.slug}/schedule`))
-  await expect(detail.getByLabel('Minutes')).toHaveValue('45')
+  await expect(detail.getByLabel('End', { exact: true })).toHaveValue(end)
 })
 
 test('New Job asks before throwing away what was filled in, and not before', async ({

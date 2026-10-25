@@ -8,7 +8,9 @@ deployment to run the app against (a cloud session, CI, a fresh checkout).
 It is not the app: there is no router tree, no auth, no live queries. Each
 component's Convex queries are answered from `fixtures.ts`; mutations resolve
 to nothing. A component whose query has no fixture shows its loading state,
-and the query's name is logged, which is how you find what to add.
+and the query's name is logged, which is how you find what to add. The one
+route it has, `/$businessSlug` (`main.tsx`), gives the business's context to
+a component that reads it, as New Job does for the business's state.
 
 There is no TanStack Start plugin either, which is why `initialState.stub.ts`
 exists: `src/lib/initialState.ts` is a server function only that plugin can
